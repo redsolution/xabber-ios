@@ -755,6 +755,33 @@ extension ChatViewController {
                 isTransitionActive: self.isNavigationTransitionActive,
                 isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
             )
+            self.releaseSelectionLeadingNavigationItemIfNeeded()
+            self.navigationItem.setHidesBackButton(false, animated: shouldAnimate)
+            self.configureNavbar()
+        }
+        if self.deferUntilNavigationTransitionCompletesIfNeeded(restore) {
+            return true
+        }
+        restore()
+        return false
+    }
+
+    /// Search temporarily owns the complete navigation presentation. Restore
+    /// the normal title/avatar only after UIKit has resolved an active
+    /// navigation transition, so native Back never competes with a late search
+    /// completion callback.
+    @discardableResult
+    internal func restoreNormalNavbarAfterSearchIfNeeded() -> Bool {
+        let restore = { [weak self] in
+            guard let self,
+                  !self.inSearchMode.value else {
+                return
+            }
+            let shouldAnimate = ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
+                requestedAnimated: true,
+                isTransitionActive: self.isNavigationTransitionActive,
+                isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
+            )
             self.navigationItem.setHidesBackButton(false, animated: shouldAnimate)
             self.configureNavbar()
         }

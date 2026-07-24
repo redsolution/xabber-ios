@@ -3907,6 +3907,7 @@ enum ChatInitialBootstrapCompletionPolicy {
         isMessagePipelineIdle: Bool,
         isArchivePagePersisted: Bool = false,
         hasCommittedContent: Bool = false,
+        isSupersededByPendingTarget: Bool = false,
         requiresObserverSettle: Bool,
         didObservePostIdleTick: Bool
     ) -> Bool {
@@ -3917,7 +3918,9 @@ enum ChatInitialBootstrapCompletionPolicy {
 
         // Query-scoped persistence is not presentation. A non-empty page
         // remains under the watchdog until its datasource transaction commits.
-        guard didConfirmEmpty || (hasMessages && hasCommittedContent) else {
+        guard isSupersededByPendingTarget ||
+                didConfirmEmpty ||
+                (hasMessages && hasCommittedContent) else {
             return false
         }
 
@@ -4565,28 +4568,25 @@ final class ChatRemoteHistoryFlushSingleFlight<Key: Hashable, Value> {
 
 enum ChatRemoteHistoryCompletionCoordinator {
     private final class PersistenceSource {
-        weak var manager: MessageManager?
+        let manager: MessageManager
         let failurePreparationToken: MessageArchiveRequestFailurePreparationDispatcher.Token
+        var priority: ArchivePersistencePriority
         var isTerminalFlushInFlight = false
         var terminalCompletions: [() -> Void] = []
 
         init(
             _ manager: MessageManager,
+            priority: ArchivePersistencePriority,
             failurePreparationToken: MessageArchiveRequestFailurePreparationDispatcher.Token
         ) {
             self.manager = manager
+            self.priority = priority
             self.failurePreparationToken = failurePreparationToken
         }
     }
 
     private static let persistenceSourcesLock = NSLock()
     private static var persistenceSourcesByKey: [String: PersistenceSource] = [:]
-    private static let persistenceBarrierQueue = DispatchQueue(
-        label: "com.xabber.chat.remote-history.persistence-barrier",
-        qos: .userInitiated,
-        attributes: .concurrent,
-        autoreleaseFrequency: .workItem
-    )
     private static let persistenceFlushes = ChatRemoteHistoryFlushSingleFlight<
         String,
         ChatRemoteHistoryCompletionResult
@@ -4599,7 +4599,8 @@ enum ChatRemoteHistoryCompletionCoordinator {
     static func registerPersistenceSource(
         _ manager: MessageManager,
         owner: String,
-        queryId: String
+        queryId: String,
+        priority: ArchivePersistencePriority = .background
     ) {
         guard owner.isNotEmpty,
               queryId.isNotEmpty else {
@@ -4619,38 +4620,43 @@ enum ChatRemoteHistoryCompletionCoordinator {
         let sourceKey = persistenceSourceKey(owner: owner, queryId: queryId)
         let newSource = PersistenceSource(
             manager,
+            priority: priority,
             failurePreparationToken: preparationToken
         )
         persistenceSourcesLock.lock()
         let currentSource = persistenceSourcesByKey[sourceKey]
-        let shouldInstallSource = currentSource?.isTerminalFlushInFlight != true
-        let replacedSource = shouldInstallSource
-            ? persistenceSourcesByKey.updateValue(newSource, forKey: sourceKey)
-            : nil
+        let shouldInstallSource = currentSource == nil
+        let didJoinSource = currentSource?.manager === manager
+        if didJoinSource, priority > (currentSource?.priority ?? .background) {
+            currentSource?.priority = priority
+        }
+        if shouldInstallSource {
+            persistenceSourcesByKey[sourceKey] = newSource
+        }
         persistenceSourcesLock.unlock()
-        guard shouldInstallSource else {
+
+        guard shouldInstallSource || didJoinSource else {
             MessageArchiveRequestFailurePreparationDispatcher.unregister(preparationToken)
             ChatArchiveDebugTrace.log("remoteCompletionSourceRegisterRejected", [
-                ("owner", owner),
-                ("queryId", queryId),
-                ("reason", "terminalFlushInFlight")
+                ("priority", priority.rawValue),
+                ("sourceConflict", true)
             ])
             return
         }
-        if let replacedSource {
-            MessageArchiveRequestFailurePreparationDispatcher.unregister(
-                replacedSource.failurePreparationToken
-            )
-        }
-        let hadRegisteredSource = replacedSource?.manager != nil
-        if !hadRegisteredSource {
+
+        if didJoinSource {
+            MessageArchiveRequestFailurePreparationDispatcher.unregister(preparationToken)
+            if priority == .interactive {
+                manager.promoteArchiveQueryBatch(queryId: queryId)
+            }
+        } else {
             persistenceFlushes.invalidateCompleted(key: sourceKey)
+            manager.beginArchiveQueryBatch(queryId: queryId, priority: priority)
         }
-        manager.beginArchiveQueryBatch(queryId: queryId)
         ChatArchiveDebugTrace.log("remoteCompletionSourceRegister", [
-            ("owner", owner),
-            ("queryId", queryId),
-            ("manager", ObjectIdentifier(manager).hashValue)
+            ("priority", priority.rawValue),
+            ("joined", didJoinSource),
+            ("installed", shouldInstallSource)
         ])
     }
 
@@ -4678,9 +4684,7 @@ enum ChatRemoteHistoryCompletionCoordinator {
         persistenceSourcesLock.unlock()
 
         ChatArchiveDebugTrace.log("remoteCompletionSourceUnregister", [
-            ("owner", owner),
-            ("queryId", queryId),
-            ("manager", persistenceSource?.manager.map { ObjectIdentifier($0).hashValue } ?? 0),
+            ("sourcePresent", persistenceSource != nil),
             ("startedTerminalFlush", shouldStartTerminalFlush),
             ("joinedTerminalFlush", persistenceSource != nil && !shouldStartTerminalFlush)
         ])
@@ -4691,17 +4695,11 @@ enum ChatRemoteHistoryCompletionCoordinator {
         guard shouldStartTerminalFlush else {
             return
         }
-        guard let source = persistenceSource.manager else {
-            completePersistenceSourceUnregister(
-                persistenceSource,
-                sourceKey: sourceKey,
-                owner: owner,
-                queryId: queryId,
-                manager: nil
-            )
-            return
-        }
-        source.finishArchiveQueryBatchAsync(queryId: queryId) { _ in
+        let source = persistenceSource.manager
+        source.finishArchiveQueryBatchAsync(
+            queryId: queryId,
+            priority: persistenceSource.priority
+        ) { _ in
             completePersistenceSourceUnregister(
                 persistenceSource,
                 sourceKey: sourceKey,
@@ -4734,15 +4732,16 @@ enum ChatRemoteHistoryCompletionCoordinator {
         persistenceSourcesLock.unlock()
 
         ChatArchiveDebugTrace.log("remoteCompletionSourceUnregisterTerminal", [
-            ("owner", owner),
-            ("queryId", queryId),
-            ("manager", manager.map { ObjectIdentifier($0).hashValue } ?? 0),
+            ("managerPresent", manager != nil),
             ("completionCount", completions.count)
         ])
         completions.forEach { $0() }
     }
 
-    private static func registeredPersistenceSource(owner: String, queryId: String) -> MessageManager? {
+    private static func registeredPersistenceSource(
+        owner: String,
+        queryId: String
+    ) -> (manager: MessageManager, priority: ArchivePersistencePriority)? {
         guard owner.isNotEmpty,
               queryId.isNotEmpty else {
             return nil
@@ -4751,27 +4750,43 @@ enum ChatRemoteHistoryCompletionCoordinator {
         persistenceSourcesLock.lock()
         let key = persistenceSourceKey(owner: owner, queryId: queryId)
         let persistenceSource = persistenceSourcesByKey[key]
-        let manager = persistenceSource?.manager
-        let isTerminalFlushInFlight = persistenceSource?.isTerminalFlushInFlight == true
+        let result = persistenceSource.map { ($0.manager, $0.priority) }
         persistenceSourcesLock.unlock()
-        if manager == nil,
-           persistenceSource != nil {
-            unregisterPersistenceSource(
-                owner: owner,
-                queryId: queryId
-            )
+        return result
+    }
+
+    @discardableResult
+    static func promotePersistenceSource(
+        owner: String,
+        queryId: String
+    ) -> Bool {
+        guard owner.isNotEmpty,
+              queryId.isNotEmpty else {
+            return false
         }
-        return isTerminalFlushInFlight ? nil : manager
+
+        persistenceSourcesLock.lock()
+        let key = persistenceSourceKey(owner: owner, queryId: queryId)
+        let persistenceSource = persistenceSourcesByKey[key]
+        persistenceSource?.priority = .interactive
+        let manager = persistenceSource?.manager
+        persistenceSourcesLock.unlock()
+
+        manager?.promoteArchiveQueryBatch(queryId: queryId)
+        ChatArchiveDebugTrace.log("remoteCompletionSourcePromote", [
+            ("sourcePresent", manager != nil),
+            ("priority", ArchivePersistencePriority.interactive.rawValue)
+        ])
+        return manager != nil
     }
 
     static func hasPendingMessages(owner: String, queryId: String) -> Bool {
-        let sourceHasPendingMessages = registeredPersistenceSource(owner: owner, queryId: queryId)?
-            .hasPendingMessages(forQueryId: queryId) ?? false
-        let primaryHasPendingMessages = AccountManager.shared.find(for: owner)?
+        if let source = registeredPersistenceSource(owner: owner, queryId: queryId) {
+            return source.manager.hasPendingMessages(forQueryId: queryId)
+        }
+        return AccountManager.shared.find(for: owner)?
             .messages
             .hasPendingMessages(forQueryId: queryId) ?? false
-
-        return sourceHasPendingMessages || primaryHasPendingMessages
     }
 
     static func flushQueryMessages(
@@ -4783,28 +4798,19 @@ enum ChatRemoteHistoryCompletionCoordinator {
     ) -> ChatRemoteHistoryCompletionResult {
         let startedAt = Date()
         ChatArchiveDebugTrace.log("remoteCompletionFlushStart", [
-            ("owner", owner),
-            ("queryId", queryId),
-            ("jid", conversationJid ?? "-"),
-            ("conversationType", conversationType?.rawValue ?? "-"),
+            ("hasConversation", conversationJid != nil && conversationType != nil),
             ("statePersisted", state.persistedMessageCount)
         ])
-        let source = registeredPersistenceSource(owner: owner, queryId: queryId)
-        let fallbackSource = AccountManager.shared.find(for: owner)?.messages
+        let registeredSource = registeredPersistenceSource(owner: owner, queryId: queryId)
+        let source = registeredSource?.manager ?? AccountManager.shared.find(for: owner)?.messages
         ChatArchiveDebugTrace.log("remoteCompletionSourceSelected", [
-            ("owner", owner),
-            ("queryId", queryId),
+            ("registeredSource", registeredSource != nil),
             ("sourcePresent", source != nil),
-            ("fallbackPresent", fallbackSource != nil),
-            ("sameSource", source != nil && source === fallbackSource),
-            ("sourceManager", source.map { ObjectIdentifier($0).hashValue } ?? 0),
-            ("fallbackManager", fallbackSource.map { ObjectIdentifier($0).hashValue } ?? 0)
+            ("priority", registeredSource?.priority.rawValue ?? ArchivePersistencePriority.background.rawValue)
         ])
         let sourceFlushStartedAt = Date()
         let sourceSummary = source?.finishArchiveQueryBatchSummary(queryId: queryId) ?? MessageManager.ArchivePersistenceSummary()
         ChatArchiveDebugTrace.log("remoteCompletionSourceFlushDone", [
-            ("owner", owner),
-            ("queryId", queryId),
             ("durationMs", ChatArchiveDebugTrace.milliseconds(since: sourceFlushStartedAt)),
             ("received", sourceSummary.received),
             ("queued", sourceSummary.queued),
@@ -4813,25 +4819,7 @@ enum ChatRemoteHistoryCompletionCoordinator {
             ("skipped", sourceSummary.skipped),
             ("failed", sourceSummary.failed)
         ])
-        let shouldFlushFallback = fallbackSource != nil && source !== fallbackSource
-        let fallbackFlushStartedAt = Date()
-        let fallbackSummary = shouldFlushFallback
-            ? fallbackSource?.finishArchiveQueryBatchSummary(queryId: queryId) ?? MessageManager.ArchivePersistenceSummary()
-            : MessageManager.ArchivePersistenceSummary()
-        ChatArchiveDebugTrace.log("remoteCompletionFallbackFlushDone", [
-            ("owner", owner),
-            ("queryId", queryId),
-            ("didFlush", shouldFlushFallback),
-            ("durationMs", ChatArchiveDebugTrace.milliseconds(since: fallbackFlushStartedAt)),
-            ("received", fallbackSummary.received),
-            ("queued", fallbackSummary.queued),
-            ("savedNew", fallbackSummary.savedNew),
-            ("updatedExisting", fallbackSummary.updatedExisting),
-            ("skipped", fallbackSummary.skipped),
-            ("failed", fallbackSummary.failed)
-        ])
-        var persistenceSummary = sourceSummary
-        persistenceSummary.merge(fallbackSummary)
+        let persistenceSummary = sourceSummary
         if let conversationJid,
            let conversationType,
            persistenceSummary.persistedRows > 0,
@@ -4856,8 +4844,6 @@ enum ChatRemoteHistoryCompletionCoordinator {
         }
 
         ChatArchiveDebugTrace.log("remoteCompletionFlushFinish", [
-            ("owner", owner),
-            ("queryId", queryId),
             ("durationMs", ChatArchiveDebugTrace.milliseconds(since: startedAt)),
             ("persistedRows", persistenceSummary.persistedRows),
             ("processedRows", persistenceSummary.processedRows),
@@ -4882,26 +4868,98 @@ enum ChatRemoteHistoryCompletionCoordinator {
         persistenceFlushes.run(
             key: key,
             producer: { finish in
-                persistenceBarrierQueue.async {
-                    finish(flushQueryMessages(
-                        owner: owner,
-                        queryId: queryId,
+                let registeredSource = registeredPersistenceSource(
+                    owner: owner,
+                    queryId: queryId
+                )
+                let source = registeredSource?.manager ??
+                    AccountManager.shared.find(for: owner)?.messages
+                guard let source else {
+                    finish(completionResult(
                         state: state,
+                        persistenceSummary: MessageManager.ArchivePersistenceSummary(),
+                        owner: owner,
+                        conversationJid: conversationJid,
+                        conversationType: conversationType
+                    ))
+                    return
+                }
+                source.finishArchiveQueryBatchAsync(
+                    queryId: queryId,
+                    priority: registeredSource?.priority ?? .background
+                ) { summary in
+                    finish(completionResult(
+                        state: state,
+                        persistenceSummary: summary,
+                        owner: owner,
                         conversationJid: conversationJid,
                         conversationType: conversationType
                     ))
                 }
             },
             completion: { result in
-                persistenceBarrierQueue.async {
+                // Preserve asynchronous, off-main terminal delivery without
+                // parking a worker on a synchronous MessageManager flush.
+                DispatchQueue.global(qos: .userInitiated).async {
                     completion(result)
                 }
             }
         )
     }
 
+    private static func completionResult(
+        state: MessageArchivePageEndState,
+        persistenceSummary: MessageManager.ArchivePersistenceSummary,
+        owner: String,
+        conversationJid: String?,
+        conversationType: ClientSynchronizationManager.ConversationType?
+    ) -> ChatRemoteHistoryCompletionResult {
+        if let conversationJid,
+           let conversationType,
+           persistenceSummary.persistedRows > 0,
+           persistenceSummary.visibleRows(
+               owner: owner,
+               jid: conversationJid,
+               conversationType: conversationType
+           ) == 0 {
+            ChatArchiveDebugTrace.log("remoteCompletionRowsNotVisible", [
+                ("persisted", persistenceSummary.persistedRows)
+            ])
+        }
+
+        let persistedMessageCount = max(
+            state.persistedMessageCount,
+            persistenceSummary.persistedRows
+        )
+        let effectiveState: MessageArchivePageEndState
+        if persistedMessageCount != state.persistedMessageCount {
+            effectiveState = MessageArchivePageEndState(
+                queryExhausted: state.queryExhausted,
+                archiveEnded: state.archiveEnded,
+                persistedMessageCount: persistedMessageCount,
+                requestCursorId: state.requestCursorId
+            )
+        } else {
+            effectiveState = state
+        }
+        return ChatRemoteHistoryCompletionResult(
+            state: effectiveState,
+            flushedMessageCount: persistenceSummary.persistedRows,
+            persistenceSummary: persistenceSummary
+        )
+    }
+
     static func resetPersistenceFlushesForTests() {
         persistenceFlushes.reset()
+        persistenceSourcesLock.lock()
+        let sources = Array(persistenceSourcesByKey.values)
+        persistenceSourcesByKey.removeAll()
+        persistenceSourcesLock.unlock()
+        sources.forEach {
+            MessageArchiveRequestFailurePreparationDispatcher.unregister(
+                $0.failurePreparationToken
+            )
+        }
     }
 }
 
@@ -6201,9 +6259,7 @@ enum ChatBootstrapLoadingReducer {
         if let readiness = input.archiveReadiness {
             switch readiness.phase {
             case .queued, .transport, .persistence:
-                return input.isSynced && input.isInitialArchiveLoaded && input.messageCount > 0
-                    ? .content
-                    : .blockingArchive
+                return .blockingArchive
             case .committed:
                 guard readiness.hasDurableCoverage else {
                     return .blockingArchive
@@ -6298,6 +6354,25 @@ struct ChatBootstrapAtomicRevealPlan: Equatable {
             datasourceApplyCount: 1,
             intermediateEmptyFrameCount: 0
         )
+    }
+}
+
+enum ChatBootstrapCoverageFollowUpPresentationPolicy {
+    static func loadingState(
+        hasCommittedTargetRows: Bool
+    ) -> ChatBootstrapLoadingState {
+        hasCommittedTargetRows ? .content : .blockingArchive
+    }
+
+    static func shouldRefreshDatasource(
+        isLatestCoverageFollowUp: Bool,
+        isSupersededByPendingTarget: Bool,
+        hasCommittedTargetRows: Bool,
+        hasPersistedPageContent: Bool
+    ) -> Bool {
+        hasPersistedPageContent &&
+            !isSupersededByPendingTarget &&
+            !(isLatestCoverageFollowUp && hasCommittedTargetRows)
     }
 }
 
@@ -9836,7 +9911,7 @@ extension ChatViewController {
                   ) else {
                 return
             }
-            DispatchQueue.main.async { [weak self] in
+            self?.performOnMain { [weak self] in
                 guard let self,
                       self.isInitialBootstrapInFlight,
                       self.initialBootstrapQueryId == queryId else {
@@ -9864,24 +9939,36 @@ extension ChatViewController {
         )
     }
 
-    internal func resetInitialBootstrapTracking() {
+    internal func resetInitialBootstrapTracking(
+        preserveInteractiveChatOpenGate: Bool = false
+    ) {
         self.cancelInitialBootstrapLocalHistoryFallback()
         self.cancelInitialBootstrapTimeout()
+        let didConsumeCommittedPage = self.didReceiveInitialBootstrapEndPage
         self.detachInitialBootstrapReadinessObservation()
+        let leaseKey = self.initialBootstrapLeaseKey ?? self.initialBootstrapRequestKey
         if let initialBootstrapQueryId {
-            // Controller completion acknowledges presentation only. The
-            // account-scoped committed receipt remains available to a late
-            // reopen (especially for a durably confirmed empty page).
-            _ = ChatInitialBootstrapRequestCoordinator.shared.acknowledgeCommittedReceipt(
-                key: self.initialBootstrapRequestKey,
-                queryId: initialBootstrapQueryId
-            )
+            // A receipt is acknowledged only after this controller actually
+            // consumed its committed page. Teardown may win the main-queue hop
+            // from coordinator readiness to presentation; in that case the
+            // account-scoped receipt must remain available to a reopened chat.
+            if didConsumeCommittedPage {
+                _ = ChatInitialBootstrapRequestCoordinator.shared
+                    .acknowledgeCommittedReceipt(
+                        key: leaseKey,
+                        queryId: initialBootstrapQueryId
+                    )
+            }
             self.endChatHistoryLoadActivity(reason: "initial:\(initialBootstrapQueryId)")
-            self.unregisterRemoteHistoryPersistenceSource(queryId: initialBootstrapQueryId)
+            // The account-scoped coordinator owns query persistence. Controller
+            // teardown detaches only presentation dispatchers and must not
+            // terminate the shared batch between raw <fin> and Realm commit.
             self.unregisterRemoteHistoryFailureDispatcher(queryId: initialBootstrapQueryId)
             self.unregisterRemoteHistoryEndPageDispatcher(queryId: initialBootstrapQueryId)
         }
         self.initialBootstrapQueryId = nil
+        self.initialBootstrapLeaseKey = nil
+        self.initialBootstrapTargetFingerprint = nil
         self.isInitialBootstrapInFlight = false
         self.didReceiveInitialBootstrapEndPage = false
         self.initialBootstrapPageEndState = nil
@@ -9892,6 +9979,10 @@ extension ChatViewController {
         self.initialBootstrapScopedRefreshQueryId = nil
         self.didEnterInitialBootstrapObserverSettlePhase = false
         self.didObserveInitialBootstrapPostIdleTick = false
+        if !preserveInteractiveChatOpenGate {
+            self.initialBootstrapPresentationDeadline = nil
+            self.releaseInteractiveChatOpenGate()
+        }
     }
 
     internal func scheduleInitialBootstrapTimeout(
@@ -9901,50 +9992,53 @@ extension ChatViewController {
         guard queryId.isNotEmpty else {
             return
         }
-
         self.cancelInitialBootstrapTimeout()
+        guard !self.hasCommittedRealContentInCurrentLifecycle else {
+            self.initialBootstrapPresentationDeadline = nil
+            return
+        }
+
+        let now = Date()
+        if self.initialBootstrapPresentationDeadline == nil {
+            self.initialBootstrapPresentationDeadline =
+                now.addingTimeInterval(max(0, timeout))
+        }
+        let remainingPresentationBudget = max(
+            0,
+            self.initialBootstrapPresentationDeadline?.timeIntervalSince(now) ?? 0
+        )
         let workItem = DispatchWorkItem { [weak self] in
-            guard let self else {
+            guard let self,
+                  self.isInitialBootstrapInFlight,
+                  self.initialBootstrapQueryId == queryId,
+                  !self.hasCommittedRealContentInCurrentLifecycle else {
                 return
             }
-            let key = self.initialBootstrapRequestKey
+            self.initialBootstrapTimeoutWorkItem = nil
             let coordinator = ChatInitialBootstrapRequestCoordinator.shared
-            let event = MessageArchiveRequestFailureEvent(
-                owner: self.owner,
-                queryId: queryId,
-                streamKind: .unknown,
-                reason: .timeout,
-                errorDescription: nil,
-                pendingQueryCount: 1
-            )
-            let didRecord = coordinator.recordFailure(
-                key: key,
-                event: event,
-                publishEvent: true
-            )
-            let hasCommittedPage = coordinator.cachedCommittedPage(
-                key: key,
-                queryId: queryId
-            ) != nil
-            let finalDeliveryBeingAccepted = coordinator.isActive(
-                key: key,
-                queryId: queryId
-            ) && MessageArchiveEndPageDispatcher.hasAcceptedSynchronousDelivery(
-                owner: self.owner,
-                queryId: queryId
-            )
-            let shouldHandleTimeout = hasCommittedPage || (
-                coordinator.cachedEndPageEvent(key: key, queryId: queryId) == nil &&
-                !finalDeliveryBeingAccepted
-            )
-            if !didRecord, shouldHandleTimeout {
-                self.handleInitialBootstrapRemoteArchiveFailure(
-                    queryId: queryId,
-                    reason: .timeout,
-                    streamKind: .unknown,
-                    errorDescription: nil
-                )
+            let leaseKey =
+                self.initialBootstrapLeaseKey ?? self.initialBootstrapRequestKey
+            let readiness = coordinator.readiness(for: leaseKey)
+            let localMessageCount = self.localHistoryMessageCountForBootstrap()
+            let hasPendingTarget = self.hasPendingInitialAnchorRequest()
+            if !hasPendingTarget {
+                self.allowsBootstrapFailureFallback = true
             }
+            if localMessageCount > 0, !hasPendingTarget {
+                self.allowsStaleLocalHistoryDuringInitialBootstrap = true
+            }
+            self.applyBootstrapLoadingState(
+                .failure(fallback: localMessageCount > 0 ? .content : .empty),
+                forceRender: true
+            )
+            self.initialBootstrapPresentationDeadline = nil
+            self.releaseInteractiveChatOpenGate()
+            ChatArchiveDebugTrace.log("initialBootstrapPresentationWatchdogFired", [
+                ("queryId", queryId),
+                ("operationActive", true),
+                ("phaseCode", readiness?.phase.traceCode),
+                ("localCount", localMessageCount)
+            ])
         }
         self.initialBootstrapTimeoutWorkItem = workItem
         ChatArchiveDebugTrace.log("initialBootstrapTimeoutScheduled", [
@@ -9955,7 +10049,7 @@ extension ChatViewController {
             ("timeoutMs", Int(max(0, timeout) * 1000))
         ])
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + max(0, timeout),
+            deadline: .now() + remainingPresentationBudget,
             execute: workItem
         )
     }
@@ -9966,7 +10060,21 @@ extension ChatViewController {
     }
 
     internal func localHistoryMessageCountForBootstrap() -> Int {
-        self.timelineSession?.hasAnyLocalMessage() == true ? 1 : 0
+        if self.timelineSession?.hasAnyLocalMessage() == true {
+            return 1
+        }
+        do {
+            let realm = try WRealm.safe()
+            return ConversationArchiveDurableReadinessPolicy.localMessageCount(
+                owner: self.owner,
+                jid: self.jid,
+                conversationType: self.conversationType,
+                in: realm
+            ) > 0 ? 1 : 0
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return 0
+        }
     }
 
     @discardableResult
@@ -9979,9 +10087,16 @@ extension ChatViewController {
         let visibleRowsForLatestPage = self.initialBootstrapVisibleRowsForConversation ?? 0
         let persistedRowsForQuery = self.initialBootstrapPersistedRowsForQuery ?? 0
         let hasMessages = visibleRowsForLatestPage > 0 || persistedRowsForQuery > 0
-        let didConfirmEmpty = self.initialBootstrapResultCount == 0
+        let didConfirmEmpty =
+            ChatInitialBootstrapRequestCoordinator.shared
+                .readiness(for: self.initialBootstrapRequestKey)?
+                .confirmsEmptyConversation == true
         let hasCommittedContent = self.hasCommittedRealContentInCurrentLifecycle &&
             self.datasource.contains { !$0.isFakeMessage }
+        let isSupersededByPendingTarget =
+            ChatInitialBootstrapRequestCoordinator.shared.pendingFollowUpRequest(
+                for: self.initialBootstrapRequestKey
+            ) != nil
         // `didReceiveInitialBootstrapEndPage` is set only after the async
         // query-scoped persistence barrier has completed. Do not synchronously
         // poll MessageManager's queue from the main-thread completion path.
@@ -10009,42 +10124,40 @@ extension ChatViewController {
             isMessagePipelineIdle: isMessagePipelineIdle,
             isArchivePagePersisted: isArchivePagePersisted,
             hasCommittedContent: hasCommittedContent,
+            isSupersededByPendingTarget: isSupersededByPendingTarget,
             requiresObserverSettle: requiresObserverSettle,
             didObservePostIdleTick: self.didObserveInitialBootstrapPostIdleTick
         ) else {
             return false
         }
 
-        let snapshot = self.loadChatArchiveStateSnapshot()
-        let shouldCommitArchiveEnd = ChatInitialBootstrapArchiveEndCommitPolicy.shouldCommitArchiveEnd(
-            state: self.initialBootstrapPageEndState,
-            resultCount: self.initialBootstrapResultCount,
-            visibleRowsForLatestPage: visibleRowsForLatestPage,
-            persistedRowsForQuery: persistedRowsForQuery
-        )
-        let resolvedCursorId = ChatArchiveStateMutationPolicy.resolveCursorId(
-            observedCursorId: self.observedOldestArchivedId(),
-            transportFirst: "",
-            transportLast: "",
-            currentPersistedCursorId: snapshot.persistedCursorId
-        )
-        let plan = ChatArchiveStateMutationPolicy.resolvePlan(
-            snapshot: snapshot,
-            resolvedCursorId: resolvedCursorId,
-            nextFullArchiveLoaded: snapshot.fullArchiveLoaded || shouldCommitArchiveEnd
-        )
-        _ = self.applyChatArchiveStateIfNeeded(
-            snapshot: snapshot,
-            plan: plan,
-            markNewerLiveEdgeReached: true
-        )
+        // Coverage, cursor and durable readiness are committed atomically by
+        // MessageArchiveManager after the query-scoped persistence barrier.
+        // Presentation must never infer a live edge from a target page.
         self.rebuildUnreadMentionItems()
         let persistedMessageCount = self.initialBootstrapPersistedMessageCount ?? 0
         let completedQueryId = self.initialBootstrapQueryId ?? "-"
         let requiresBoundaryFollowUp = self.currentBootstrapCommitRequiresBoundaryFollowUp()
         if requiresBoundaryFollowUp {
-            let shouldStartFollowUp = !self.hasAttemptedInitialBootstrapBoundaryFollowUp
-            self.resetInitialBootstrapTracking()
+            let hasCommittedTargetRows =
+                self.hasCommittedRealContentInCurrentLifecycle &&
+                self.datasource.contains { !$0.isFakeMessage }
+            let coordinatorRequest =
+                ChatInitialBootstrapRequestCoordinator.shared.pendingFollowUpRequest(
+                    for: self.initialBootstrapRequestKey
+                )
+            let consumesSnapshotRepairBudget =
+                ChatInitialBootstrapFollowUpTargetPolicy.consumesSnapshotRepairBudget(
+                    coordinatorRequest: coordinatorRequest
+                )
+            let shouldStartFollowUp = !consumesSnapshotRepairBudget ||
+                !self.hasAttemptedInitialBootstrapBoundaryFollowUp
+            let followUpTarget = ChatInitialBootstrapFollowUpTargetPolicy.target(
+                coordinatorRequest: coordinatorRequest
+            )
+            self.resetInitialBootstrapTracking(
+                preserveInteractiveChatOpenGate: true
+            )
 
             ChatArchiveDebugTrace.log("initialBootstrapBoundaryRecheck", [
                 ("queryId", completedQueryId),
@@ -10056,8 +10169,16 @@ extension ChatViewController {
             ])
 
             if shouldStartFollowUp {
-                self.hasAttemptedInitialBootstrapBoundaryFollowUp = true
-                self.applyBootstrapLoadingState(.blockingArchive, forceRender: true)
+                if consumesSnapshotRepairBudget {
+                    self.hasAttemptedInitialBootstrapBoundaryFollowUp = true
+                }
+                self.initialBootstrapFollowUpTargetOverride = followUpTarget
+                self.applyBootstrapLoadingState(
+                    ChatBootstrapCoverageFollowUpPresentationPolicy.loadingState(
+                        hasCommittedTargetRows: hasCommittedTargetRows
+                    ),
+                    forceRender: true
+                )
                 DispatchQueue.main.async { [weak self] in
                     guard let self,
                           !self.isInitialBootstrapInFlight else {
@@ -10071,6 +10192,8 @@ extension ChatViewController {
                     .failure(fallback: localMessageCount > 0 ? .content : .empty),
                     forceRender: true
                 )
+                self.initialBootstrapPresentationDeadline = nil
+                self.releaseInteractiveChatOpenGate()
             }
             return true
         }
@@ -10083,7 +10206,11 @@ extension ChatViewController {
             ("visibleRows", visibleRowsForLatestPage),
             ("localCount", localMessageCount)
         ])
-        self.applyBootstrapLoadingState(self.currentBootstrapLoadingState(), forceRender: true)
+        self.applyBootstrapLoadingState(
+            self.currentBootstrapLoadingState(),
+            forceRender: true,
+            hasTrustedPersistedBootstrapPage: didConfirmEmpty
+        )
         return true
     }
 
@@ -10266,13 +10393,41 @@ extension ChatViewController {
         self.initialBootstrapPersistedMessageCount = persistedMessageCount
         self.initialBootstrapPersistedRowsForQuery = persistedRowsForQuery
         self.initialBootstrapVisibleRowsForConversation = visibleRowsForConversation
-        _ = self.refreshInitialBootstrapTimelineAfterPersistenceIfNeeded(
-            queryId: queryId,
-            hasPersistedPageContent: count > 0 ||
-                persistedRowsForQuery > 0 ||
-                visibleRowsForConversation > 0
-        )
-        _ = self.completeInitialBootstrapIfNeeded()
+        let hasPersistedPageContent = count > 0 ||
+            persistedRowsForQuery > 0 ||
+            visibleRowsForConversation > 0
+        let hasCommittedTargetRows =
+            self.hasCommittedRealContentInCurrentLifecycle &&
+            self.datasource.contains { !$0.isFakeMessage }
+        let isLatestCoverageFollowUp =
+            self.hasAttemptedInitialBootstrapBoundaryFollowUp &&
+            self.initialBootstrapTargetFingerprint?.target == .latest
+        let isSupersededByPendingTarget =
+            ChatInitialBootstrapRequestCoordinator.shared.pendingFollowUpRequest(
+                for: self.initialBootstrapRequestKey
+            ) != nil
+        let shouldRefreshDatasource =
+            ChatBootstrapCoverageFollowUpPresentationPolicy.shouldRefreshDatasource(
+                isLatestCoverageFollowUp: isLatestCoverageFollowUp,
+                isSupersededByPendingTarget: isSupersededByPendingTarget,
+                hasCommittedTargetRows: hasCommittedTargetRows,
+                hasPersistedPageContent: hasPersistedPageContent
+            )
+        let awaitsDatasourceCommit: Bool
+        if shouldRefreshDatasource {
+            awaitsDatasourceCommit =
+                self.refreshInitialBootstrapTimelineAfterPersistenceIfNeeded(
+                    queryId: queryId,
+                    hasPersistedPageContent: true
+                ) { [weak self] in
+                    _ = self?.completeInitialBootstrapIfNeeded()
+                }
+        } else {
+            awaitsDatasourceCommit = false
+        }
+        if !awaitsDatasourceCommit {
+            _ = self.completeInitialBootstrapIfNeeded()
+        }
         return true
     }
 
@@ -10282,7 +10437,8 @@ extension ChatViewController {
     @discardableResult
     internal func refreshInitialBootstrapTimelineAfterPersistenceIfNeeded(
         queryId: String,
-        hasPersistedPageContent: Bool
+        hasPersistedPageContent: Bool,
+        completion: (() -> Void)? = nil
     ) -> Bool {
         guard queryId == self.initialBootstrapQueryId,
               hasPersistedPageContent,
@@ -10292,8 +10448,12 @@ extension ChatViewController {
         self.initialBootstrapScopedRefreshQueryId = queryId
         _ = self.reloadInitialWindowAfterBootstrapIfNeeded(
             force: true,
-            hasTrustedPersistedBootstrapPage: true
+            hasTrustedPersistedBootstrapPage: true,
+            completion: completion
         )
+        // Once a persisted non-empty page is admitted, completion belongs to
+        // the datasource transaction even when the timeline session is still
+        // being installed. Coverage follow-up must not race that first frame.
         return true
     }
 
@@ -11532,18 +11692,10 @@ extension ChatViewController {
                     conversationType: self.conversationType
                 )
             )
-            let localMessageCount = self.localHistoryMessageCountForBootstrap()
-            if localMessageCount == 0,
-               self.hasKnownRemoteArchiveBoundaryForBootstrap(
+            return !self.hasDurableArchiveReadinessForBootstrap(
+                localMessageCount: self.localHistoryMessageCountForBootstrap(),
                 chatInstance: chat,
                 realm: realm
-               ) {
-                return true
-            }
-            return MessageArchiveManager.ChatBootstrapRequestPolicy.shouldStartInitialBootstrap(
-                isSynced: chat?.isSynced ?? false,
-                isInitialArchiveLoaded: chat?.isInitialArchiveLoaded ?? false,
-                localMessageCount: localMessageCount
             )
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
@@ -11555,6 +11707,17 @@ extension ChatViewController {
         localMessageCount: Int,
         chatInstance: LastChatsStorageItem?
     ) -> ConversationArchiveReadiness? {
+        let hasDurableReadiness = self.hasDurableArchiveReadinessForBootstrap(
+            localMessageCount: localMessageCount,
+            chatInstance: chatInstance
+        )
+        let blockingReadiness = ConversationArchiveReadiness(
+            phase: .queued,
+            hasDurableCoverage: false,
+            confirmsEmptyConversation: false,
+            persistedVisibleRowCount: 0
+        )
+
         if let readiness = ChatInitialBootstrapRequestCoordinator.shared.readiness(
             for: self.initialBootstrapRequestKey
         ) {
@@ -11566,31 +11729,76 @@ extension ChatViewController {
                 // Existing local rows may remain visible; zero rows reduce to
                 // blocking skeleton until requestInitialBootstrapArchive
                 // invalidates this receipt and acquires fresh work.
-                return ConversationArchiveReadiness(
-                    phase: .queued,
-                    hasDurableCoverage: false,
-                    confirmsEmptyConversation: false,
-                    persistedVisibleRowCount: 0
-                )
+                return blockingReadiness
             }
-            return readiness
+            switch readiness.phase {
+            case .queued, .transport, .persistence:
+                // A lease for a different/legacy proof must dominate stale
+                // flags. A genuinely current local page may remain visible
+                // while orthogonal target work is active.
+                return hasDurableReadiness ? nil : readiness
+            case .committed:
+                return hasDurableReadiness ? readiness : blockingReadiness
+            case .failed:
+                return readiness
+            }
         }
 
         guard !self.allowsBootstrapFailureFallback,
-              localMessageCount == 0,
-              self.hasKnownRemoteArchiveBoundaryForBootstrap(chatInstance: chatInstance) else {
+              !hasDurableReadiness else {
             return nil
         }
 
-        // A legacy `isSynced` flag is not durable proof when the synchronization
-        // snapshot names remote history but no local timeline exists. Model the
-        // required repair as queued until the account-scoped coordinator owns it.
-        return ConversationArchiveReadiness(
-            phase: .queued,
-            hasDurableCoverage: false,
-            confirmsEmptyConversation: false,
-            persistedVisibleRowCount: 0
-        )
+        // Model missing durable proof as queued until the account-scoped
+        // coordinator acquires or joins the required transaction.
+        return blockingReadiness
+    }
+
+    private func hasDurableArchiveReadinessForBootstrap(
+        localMessageCount: Int,
+        chatInstance: LastChatsStorageItem?,
+        realm suppliedRealm: Realm? = nil
+    ) -> Bool {
+        do {
+            let realm = try suppliedRealm ?? WRealm.safe()
+            let chat = chatInstance ?? realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: self.jid,
+                    owner: self.owner,
+                    conversationType: self.conversationType
+                )
+            )
+            let archiveState = self.conversationType.supportsSnapshotArchiveRepair
+                ? realm.object(
+                    ofType: RegularChatArchiveSyncStateStorageItem.self,
+                    forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
+                        jid: self.jid,
+                        owner: self.owner,
+                        conversationType: self.conversationType
+                    )
+                )
+                : nil
+            let persistedLocalMessageCount =
+                ConversationArchiveDurableReadinessPolicy.localMessageCount(
+                    owner: self.owner,
+                    jid: self.jid,
+                    conversationType: self.conversationType,
+                    in: realm
+                )
+            return ConversationArchiveDurableReadinessPolicy.isReady(
+                chat: chat,
+                archiveState: archiveState,
+                conversationType: self.conversationType,
+                localMessageCount: max(
+                    localMessageCount,
+                    persistedLocalMessageCount
+                )
+            )
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return false
+        }
     }
 
     internal func committedArchiveReceiptMatchesCurrentBoundary(
@@ -11697,7 +11905,8 @@ extension ChatViewController {
     @discardableResult
     internal func reloadInitialWindowAfterBootstrapIfNeeded(
         force: Bool = false,
-        hasTrustedPersistedBootstrapPage: Bool = false
+        hasTrustedPersistedBootstrapPage: Bool = false,
+        completion: (() -> Void)? = nil
     ) -> Bool {
         guard ChatBootstrapContentRenderPolicy.shouldReloadInitialWindow(
             forceRender: force,
@@ -11719,14 +11928,16 @@ extension ChatViewController {
             return self.prepareInitialLocalFirstFrame(
                 chatInstance: chatInstance,
                 performPendingOpenMessageRequest: false,
-                hasTrustedPersistedBootstrapPage: hasTrustedPersistedBootstrapPage
+                hasTrustedPersistedBootstrapPage: hasTrustedPersistedBootstrapPage,
+                completion: completion
             )
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             return self.prepareInitialLocalFirstFrame(
                 chatInstance: nil,
                 performPendingOpenMessageRequest: false,
-                hasTrustedPersistedBootstrapPage: hasTrustedPersistedBootstrapPage
+                hasTrustedPersistedBootstrapPage: hasTrustedPersistedBootstrapPage,
+                completion: completion
             )
         }
     }
@@ -11747,7 +11958,19 @@ extension ChatViewController {
             }
             self.initialLocalFirstFrameShouldPerformPendingRequest =
                 self.initialLocalFirstFrameShouldPerformPendingRequest || performPendingOpenMessageRequest
-            self.applyBootstrapViewState(.skeleton, forceRender: true)
+            if self.appliedBootstrapLoadingState?.showsRetry == true {
+                // Retry is already a deterministic terminal first frame.
+                // Session installation may continue independently, but it
+                // must not regress the visible failure state to skeleton.
+                self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
+                return false
+            }
+            self.acquireInteractiveChatOpenGateIfNeeded()
+            self.applyBootstrapViewState(
+                .skeleton,
+                forceRender: true,
+                synchronousSkeletonCommit: self.isPreparingStackedNavigationPresentation
+            )
             self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
             return false
         }
@@ -11780,7 +12003,12 @@ extension ChatViewController {
 
         guard availability == .prepareLocal else {
             self.initialLocalFirstFramePhase = .blockedArchiveBootstrap(descriptor)
-            self.applyBootstrapViewState(.skeleton, forceRender: true)
+            self.acquireInteractiveChatOpenGateIfNeeded()
+            self.applyBootstrapViewState(
+                .skeleton,
+                forceRender: true,
+                synchronousSkeletonCommit: self.isPreparingStackedNavigationPresentation
+            )
             self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
             return true
         }
@@ -11795,7 +12023,12 @@ extension ChatViewController {
             return true
         case .blockedMissingTarget(let current)
             where current == descriptor && !hasTrustedPersistedBootstrapPage:
-            self.applyBootstrapViewState(.skeleton, forceRender: true)
+            self.acquireInteractiveChatOpenGateIfNeeded()
+            self.applyBootstrapViewState(
+                .skeleton,
+                forceRender: true,
+                synchronousSkeletonCommit: self.isPreparingStackedNavigationPresentation
+            )
             self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
             return true
         default:
@@ -11860,7 +12093,12 @@ extension ChatViewController {
             self.retryInitialLocalFirstFramePreparation()
         case .blocked(.targetMissing):
             self.initialLocalFirstFramePhase = .blockedMissingTarget(descriptor)
-            self.applyBootstrapViewState(.skeleton, forceRender: true)
+            self.acquireInteractiveChatOpenGateIfNeeded()
+            self.applyBootstrapViewState(
+                .skeleton,
+                forceRender: true,
+                synchronousSkeletonCommit: self.isPreparingStackedNavigationPresentation
+            )
             self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
         case .prepared(let preparedFrame):
             guard self.shouldCommitPreparedSavedFirstFrame(
@@ -11868,7 +12106,12 @@ extension ChatViewController {
                 preparedFrame: preparedFrame
             ) else {
                 self.initialLocalFirstFramePhase = .blockedMissingTarget(descriptor)
-                self.applyBootstrapViewState(.skeleton, forceRender: true)
+                self.acquireInteractiveChatOpenGateIfNeeded()
+                self.applyBootstrapViewState(
+                    .skeleton,
+                    forceRender: true,
+                    synchronousSkeletonCommit: self.isPreparingStackedNavigationPresentation
+                )
                 self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
                 return
             }
@@ -11913,7 +12156,12 @@ extension ChatViewController {
                     mappingToken.cancel()
                     self.initialLocalFirstFrameMappingToken = nil
                     self.initialLocalFirstFramePhase = .blockedArchiveBootstrap(descriptor)
-                    self.applyBootstrapLoadingState(liveLoadingState, forceRender: true)
+                    self.acquireInteractiveChatOpenGateIfNeeded()
+                    self.applyBootstrapLoadingState(
+                        liveLoadingState,
+                        forceRender: true,
+                        synchronousSkeletonCommit: self.isPreparingStackedNavigationPresentation
+                    )
                     self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
                     return
                 }
@@ -12016,17 +12264,18 @@ extension ChatViewController {
         self.initialLocalFirstFramePhase = .committed(descriptor)
         self.initialFirstContentApplyCount += 1
         let previousBootstrapState = self.appliedBootstrapLoadingState ?? .blockingArchive
+        let retainedRetryState = previousBootstrapState.showsRetry
+            ? previousBootstrapState
+            : nil
         self.lastBootstrapAtomicRevealPlan = ChatBootstrapAtomicRevealPlan.resolve(
             previous: previousBootstrapState,
             destinationRowCount: mappingResult.datasource.count
         )
-        if previousBootstrapState.showsRetry {
-            self.appliedBootstrapLoadingState = previousBootstrapState
-            self.setBootstrapFailureVisible(true)
-        } else {
-            self.appliedBootstrapLoadingState = committedSnapshot.items.isEmpty ? .empty : .content
-            self.setBootstrapFailureVisible(false)
-        }
+        self.allowsBootstrapFailureFallback = retainedRetryState != nil
+        self.appliedBootstrapLoadingState =
+            retainedRetryState ??
+            (committedSnapshot.items.isEmpty ? .empty : .content)
+        self.setBootstrapFailureVisible(retainedRetryState != nil)
         self.activeHistoryBoundaryPlaceholder = nil
         self.syncCurrentPage(
             with: ChatDatasetWindow(minIndex: 0, maxIndex: committedSnapshot.items.count)
@@ -12036,7 +12285,9 @@ extension ChatViewController {
         )
         self.setSkeletonVisible(false)
         self.setDatasourceLoadingEnabled(true)
-        self.setShouldShowInitialMessage(committedSnapshot.items.isEmpty)
+        self.setShouldShowInitialMessage(
+            retainedRetryState == nil && committedSnapshot.items.isEmpty
+        )
         self.rebuildUnreadMentionItems()
         ConnectionDiagnosticsLogger.log(
             event: "chat_anchor_local_first_frame_committed",
@@ -12084,6 +12335,9 @@ extension ChatViewController {
                     )
                 }
             }
+            self.cancelInitialBootstrapTimeout()
+            self.initialBootstrapPresentationDeadline = nil
+            self.releaseInteractiveChatOpenGate()
             self.finishInitialLocalFirstFramePreparation()
         }
 
@@ -12294,7 +12548,8 @@ extension ChatViewController {
     internal func applyBootstrapLoadingState(
         _ state: ChatBootstrapLoadingState,
         forceRender: Bool = false,
-        synchronousSkeletonCommit: Bool = false
+        synchronousSkeletonCommit: Bool = false,
+        hasTrustedPersistedBootstrapPage: Bool = false
     ) {
         guard ChatBootstrapStateApplicationPolicy.decision(
             previous: appliedBootstrapLoadingState,
@@ -12369,7 +12624,17 @@ extension ChatViewController {
                 self.messagesCollectionView.isUserInteractionEnabled = true
                 self.timelineInteractionState.unlock()
             }
-            self.reloadInitialWindowAfterBootstrapIfNeeded(force: forceRender)
+            // An empty retry fallback is already a complete, interactive
+            // presentation. Starting a local first-frame preparation here
+            // can replace it with skeleton while the timeline session is
+            // still being installed. Content fallback still materializes its
+            // stale local rows, with the retry overlay retained at commit.
+            if !state.showsRetry || state.viewState == .content {
+                self.reloadInitialWindowAfterBootstrapIfNeeded(
+                    force: forceRender,
+                    hasTrustedPersistedBootstrapPage: hasTrustedPersistedBootstrapPage
+                )
+            }
         }
         if state.showsRetry {
             self.performOnMain { [weak self] in

@@ -27,6 +27,70 @@ import Kingfisher
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 
+enum ChatNavigationAvatarLoadResult {
+    case loaded(UIImage)
+    case unavailable
+    case failed
+}
+
+typealias ChatNavigationAvatarImageLoading = (
+    _ url: String?,
+    _ jid: String,
+    _ owner: String,
+    _ size: CGFloat,
+    _ completion: @escaping (ChatNavigationAvatarLoadResult) -> Void
+) -> Void
+
+enum ChatNavigationAvatarRetryPolicy {
+    private static let delays: [TimeInterval] = [0.5, 2, 5]
+
+    static func delay(afterFailedAttempt attempt: Int) -> TimeInterval? {
+        guard delays.indices.contains(attempt) else {
+            return nil
+        }
+        return delays[attempt]
+    }
+}
+
+enum DefaultChatNavigationAvatarImageLoader {
+    static func load(
+        url: String?,
+        jid: String,
+        owner: String,
+        size: CGFloat,
+        completion: @escaping (ChatNavigationAvatarLoadResult) -> Void
+    ) {
+        guard let url else {
+            completion(.unavailable)
+            return
+        }
+        guard let downloadURL = URL(string: url) else {
+            completion(.failed)
+            return
+        }
+
+        let resource = Kingfisher.ImageResource(
+            downloadURL: downloadURL,
+            cacheKey: url
+        )
+        KingfisherManager.shared.retrieveImage(
+            with: resource,
+            options: [
+                .cacheOriginalImage,
+                .alsoPrefetchToMemory,
+                .callbackQueue(.mainCurrentOrAsync)
+            ]
+        ) { result in
+            switch result {
+            case .success(let value):
+                completion(.loaded(value.image))
+            case .failure:
+                completion(.failed)
+            }
+        }
+    }
+}
+
 
 extension ChatViewController {
     final class ChatNavbarHeaderView: UIView {
@@ -466,9 +530,46 @@ enum ChatNavigationAvatarItemFactory {
 }
 
 extension ChatViewController {
+    internal func releaseNavigationAvatarItemAfterConfirmedRemoval() {
+        let wasRemovedFromNavigationStack: Bool
+        if isBeingDismissed || navigationController?.isBeingDismissed == true {
+            wasRemovedFromNavigationStack = true
+        } else if let navigationController {
+            wasRemovedFromNavigationStack = !navigationController.viewControllers.contains {
+                $0 === self
+            }
+        } else {
+            wasRemovedFromNavigationStack = isMovingFromParent || parent == nil
+        }
+
+        guard wasRemovedFromNavigationStack,
+              let item = navigationAvatarItem else {
+            return
+        }
+        invalidateNavigationAvatarItem()
+        guard navigationItem.rightBarButtonItem === item ||
+                (navigationItem.rightBarButtonItems?.contains { $0 === item } ?? false) else {
+            return
+        }
+        NavigationBarItemOwnership.setIfChanged(
+            .none,
+            on: navigationItem,
+            side: .right,
+            animated: false
+        )
+    }
+
     internal func invalidateNavigationAvatarItem() {
         navigationAvatarGeneration = UUID()
+        navigationAvatarRetryWorkItem?.cancel()
+        navigationAvatarRetryWorkItem = nil
+        navigationAvatarRetryAttempt = 0
         navigationAvatarRequestKey = nil
+        navigationAvatarInFlightRequestKey = nil
+        navigationAvatarTerminalRequestKey = nil
+        navigationAvatarPendingResolvedRequestKey = nil
+        navigationAvatarPendingResolvedImage = nil
+        navigationAvatarDisplayedContentKey = nil
         navigationAvatarBag = DisposeBag()
         navigationAvatarItem = nil
     }
@@ -529,48 +630,170 @@ extension ChatViewController {
 
     internal func refreshNavigationAvatarImage() {
         guard conversationType != .saved else {
-            updateNavigationAvatarImageIfCurrent(currentNavigationAvatarPlaceholderImage())
+            updateNavigationAvatarImageIfCurrent(
+                currentNavigationAvatarPlaceholderImage(),
+                contentKey: [
+                    "saved",
+                    owner,
+                    AccountMasksManager.shared.load() ?? ""
+                ].joined(separator: "|")
+            )
             return
         }
 
         let avatarUrl = currentNavigationAvatarURL()
         let displayName = currentNavigationAvatarDisplayName()
-        let requestKey = [owner, jid, avatarUrl ?? "", displayName].joined(separator: "|")
-        let generation = navigationAvatarGeneration
+        let requestKey = [
+            owner,
+            jid,
+            avatarUrl ?? "",
+            displayName,
+            currentNavigationAvatarSourceRevision(),
+            AccountMasksManager.shared.load() ?? ""
+        ].joined(separator: "|")
+        let requestChanged = navigationAvatarRequestKey != requestKey
         navigationAvatarRequestKey = requestKey
 
-        let fallback = currentNavigationAvatarPlaceholderImage()
-        updateNavigationAvatarImageIfCurrent(fallback)
+        if requestChanged {
+            navigationAvatarGeneration = UUID()
+            navigationAvatarRetryWorkItem?.cancel()
+            navigationAvatarRetryWorkItem = nil
+            navigationAvatarRetryAttempt = 0
+            navigationAvatarInFlightRequestKey = nil
+            navigationAvatarTerminalRequestKey = nil
+            navigationAvatarPendingResolvedRequestKey = nil
+            navigationAvatarPendingResolvedImage = nil
+            updateNavigationAvatarImageIfCurrent(
+                currentNavigationAvatarPlaceholderImage(),
+                contentKey: "fallback|\(requestKey)"
+            )
+        }
+        if applyPendingNavigationAvatarIfPossible(requestKey: requestKey) {
+            return
+        }
+        guard navigationAvatarTerminalRequestKey != requestKey else {
+            return
+        }
+        guard navigationAvatarRetryWorkItem == nil else {
+            return
+        }
+        guard navigationAvatarInFlightRequestKey != requestKey else {
+            return
+        }
+        navigationAvatarInFlightRequestKey = requestKey
+        let generation = navigationAvatarGeneration
 
-        DefaultAvatarManager.shared.getAvatar(
-            url: avatarUrl,
-            jid: jid,
-            owner: owner,
-            size: ChatNavigationAvatarItemFactory.imageSize
-        ) { [weak self] image in
+        navigationAvatarImageLoader(
+            avatarUrl,
+            jid,
+            owner,
+            ChatNavigationAvatarItemFactory.imageSize
+        ) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else {
                     return
                 }
                 guard self.navigationAvatarGeneration == generation,
-                      self.navigationAvatarRequestKey == requestKey,
-                      self.isTopVisibleChatController,
-                      !self.inSearchMode.value else {
+                      self.navigationAvatarRequestKey == requestKey else {
                     return
                 }
-                self.updateNavigationAvatarImageIfCurrent(
-                    ChatNavigationAvatarItemFactory.avatarImage(from: image) ?? fallback
-                )
+                self.navigationAvatarInFlightRequestKey = nil
+                switch result {
+                case .unavailable:
+                    self.navigationAvatarRetryWorkItem?.cancel()
+                    self.navigationAvatarRetryWorkItem = nil
+                    self.navigationAvatarRetryAttempt = 0
+                    self.navigationAvatarTerminalRequestKey = requestKey
+                    return
+                case .failed:
+                    self.scheduleNavigationAvatarRetry(
+                        requestKey: requestKey,
+                        generation: generation
+                    )
+                    return
+                case .loaded(let image):
+                    self.navigationAvatarRetryWorkItem?.cancel()
+                    self.navigationAvatarRetryWorkItem = nil
+                    self.navigationAvatarRetryAttempt = 0
+                    self.navigationAvatarTerminalRequestKey = requestKey
+                    guard let avatarImage = ChatNavigationAvatarItemFactory.avatarImage(from: image) else {
+                        return
+                    }
+                    guard self.isTopVisibleChatController,
+                          !self.inSearchMode.value else {
+                        self.navigationAvatarPendingResolvedRequestKey = requestKey
+                        self.navigationAvatarPendingResolvedImage = avatarImage
+                        return
+                    }
+                    self.updateNavigationAvatarImageIfCurrent(
+                        avatarImage,
+                        contentKey: "resolved|\(requestKey)"
+                    )
+                }
             }
         }
     }
 
-    private func updateNavigationAvatarImageIfCurrent(_ image: UIImage?) {
-        guard !inSearchMode.value else {
+    private func scheduleNavigationAvatarRetry(
+        requestKey: String,
+        generation: UUID
+    ) {
+        guard navigationAvatarRetryWorkItem == nil else {
+            return
+        }
+        guard let delay = navigationAvatarRetryDelayProvider(navigationAvatarRetryAttempt) else {
+            navigationAvatarTerminalRequestKey = requestKey
+            return
+        }
+
+        navigationAvatarRetryAttempt += 1
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else {
+                return
+            }
+            self.navigationAvatarRetryWorkItem = nil
+            guard self.navigationAvatarGeneration == generation,
+                  self.navigationAvatarRequestKey == requestKey,
+                  self.navigationAvatarTerminalRequestKey != requestKey else {
+                return
+            }
+            self.refreshNavigationAvatarImage()
+        }
+        navigationAvatarRetryWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + max(0, delay),
+            execute: workItem
+        )
+    }
+
+    @discardableResult
+    private func applyPendingNavigationAvatarIfPossible(requestKey: String) -> Bool {
+        guard navigationAvatarPendingResolvedRequestKey == requestKey,
+              let image = navigationAvatarPendingResolvedImage,
+              isTopVisibleChatController,
+              !inSearchMode.value else {
+            return false
+        }
+        navigationAvatarPendingResolvedRequestKey = nil
+        navigationAvatarPendingResolvedImage = nil
+        updateNavigationAvatarImageIfCurrent(
+            image,
+            contentKey: "resolved|\(requestKey)"
+        )
+        return true
+    }
+
+    private func updateNavigationAvatarImageIfCurrent(
+        _ image: UIImage?,
+        contentKey: String
+    ) {
+        guard !inSearchMode.value,
+              navigationAvatarDisplayedContentKey != contentKey else {
             return
         }
         navigationAvatarItem?.image = (image ?? ChatNavigationAvatarItemFactory.fallbackImage())
             .withRenderingMode(.alwaysOriginal)
+        navigationAvatarDisplayedContentKey = contentKey
     }
 
     private func currentNavigationAvatarURL() -> String? {
@@ -584,6 +807,20 @@ extension ChatViewController {
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             return nil
+        }
+    }
+
+    private func currentNavigationAvatarSourceRevision() -> String {
+        do {
+            let realm = try WRealm.safe()
+            let rosterItem = realm.object(
+                ofType: RosterStorageItem.self,
+                forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)
+            )
+            return String(rosterItem?.updatedTS ?? -1)
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return "-1"
         }
     }
 

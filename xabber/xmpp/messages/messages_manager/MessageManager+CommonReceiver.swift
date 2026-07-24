@@ -80,6 +80,7 @@ extension MessageManager {
         let owner: String
         let opponent: String
         let conversationType: ClientSynchronizationManager.ConversationType
+        let archivedId: String
         let isDeleted: Bool
         let outcome: ArchivePersistenceOutcome
     }
@@ -130,6 +131,14 @@ extension MessageManager {
                                 conversationType: item.conversationType
                             )
                         }
+                        if item.outcome == .savedNew || item.outcome == .updatedExisting {
+                            summary.recordPersistedArchiveId(
+                                item.archivedId,
+                                owner: item.owner,
+                                jid: item.opponent,
+                                conversationType: item.conversationType
+                            )
+                        }
                     }
                 }
             }
@@ -170,16 +179,49 @@ extension MessageManager {
         }
     }
 
-    internal func beginArchiveQueryBatch(queryId: String) {
+    internal func beginArchiveQueryBatch(
+        queryId: String,
+        priority: ArchivePersistencePriority = .background
+    ) {
         guard queryId.isNotEmpty else {
             return
         }
         self.performMessageQueueSync {
-            self.archiveQueryBatchIds.insert(queryId)
+            let inserted = self.archiveQueryBatchIds.insert(queryId).inserted
+            self.archivePersistenceSchedulingLock.lock()
+            let currentPriority = self.archivePersistencePriorityByQueryId[queryId] ?? .background
+            self.archivePersistencePriorityByQueryId[queryId] = max(currentPriority, priority)
+            if inserted {
+                self.completedArchiveQueryBatchSummariesByQueryId.removeValue(forKey: queryId)
+                self.completedArchiveQueryBatchSummaryOrder.removeAll { $0 == queryId }
+            }
+            self.archivePersistenceSchedulingLock.unlock()
             ChatArchiveDebugTrace.log("messageArchiveBatchBegin", [
-                ("activeBatchCount", self.archiveQueryBatchIds.count)
+                ("activeBatchCount", self.archiveQueryBatchIds.count),
+                ("priority", priority.rawValue)
             ])
         }
+    }
+
+    internal func promoteArchiveQueryBatch(queryId: String) {
+        guard queryId.isNotEmpty else {
+            return
+        }
+        self.archivePersistenceSchedulingLock.lock()
+        let hasRegisteredBatch =
+            self.archivePersistencePriorityByQueryId[queryId] != nil ||
+            self.sealedArchivePersistenceRequestsByQueryId[queryId] != nil
+        if hasRegisteredBatch {
+            self.archivePersistencePriorityByQueryId[queryId] = .interactive
+            self.sealedArchivePersistenceRequestsByQueryId[queryId]?.priority = .interactive
+        }
+        let activeRequestCount = self.sealedArchivePersistenceRequestsByQueryId.count
+        self.archivePersistenceSchedulingLock.unlock()
+        ChatArchiveDebugTrace.log("messageArchiveBatchPromote", [
+            ("priority", ArchivePersistencePriority.interactive.rawValue),
+            ("promoted", hasRegisteredBatch),
+            ("activeRequestCount", activeRequestCount)
+        ])
     }
 
     internal func isArchiveQueryBatchActive(queryId: String) -> Bool {
@@ -200,32 +242,341 @@ extension MessageManager {
             return ArchivePersistenceSummary()
         }
         return self.performMessageQueueSync {
+            self.archivePersistenceSchedulingLock.lock()
+            let completedSummary = self.completedArchiveQueryBatchSummariesByQueryId[queryId]
+            self.archivePersistenceSchedulingLock.unlock()
+            if let completedSummary {
+                return completedSummary
+            }
+
             let summary = self.storeMessagesNowSummary(forQueryId: queryId)
             self.archiveQueryBatchIds.remove(queryId)
+            let completions = self.completeArchivePersistenceRequest(
+                queryId: queryId,
+                summary: summary
+            )
             ChatArchiveDebugTrace.log("messageArchiveBatchFinish", [
                 ("persistedRows", summary.persistedRows),
                 ("processedRows", summary.processedRows),
                 ("activeBatchCount", self.archiveQueryBatchIds.count)
             ])
             self.scheduleQueuedMessagesDrainOnQueue()
+            completions.forEach { $0(summary) }
             return summary
         }
     }
 
     internal func finishArchiveQueryBatchAsync(
         queryId: String,
+        priority: ArchivePersistencePriority = .background,
+        completion: ((ArchivePersistenceSummary) -> Void)? = nil
+    ) {
+        self.sealArchiveQueryBatch(
+            queryId: queryId,
+            priority: priority,
+            completion: completion
+        )
+    }
+
+    internal func sealArchiveQueryBatch(
+        queryId: String,
+        priority: ArchivePersistencePriority? = nil,
         completion: ((ArchivePersistenceSummary) -> Void)? = nil
     ) {
         guard queryId.isNotEmpty else {
             completion?(ArchivePersistenceSummary())
             return
         }
+
+        var completedSummary: ArchivePersistenceSummary?
+        var shouldSchedulePump = false
+        var didJoin = false
+        var effectivePriority = priority ?? .background
+        var activeRequestCount = 0
+        self.archivePersistenceSchedulingLock.lock()
+        if let summary = self.completedArchiveQueryBatchSummariesByQueryId[queryId] {
+            completedSummary = summary
+        } else {
+            let registeredPriority = self.archivePersistencePriorityByQueryId[queryId] ?? .background
+            effectivePriority = max(registeredPriority, priority ?? registeredPriority)
+            self.archivePersistencePriorityByQueryId[queryId] = effectivePriority
+            if let request = self.sealedArchivePersistenceRequestsByQueryId[queryId] {
+                didJoin = true
+                request.priority = max(request.priority, effectivePriority)
+                if let completion {
+                    request.completions.append(completion)
+                }
+            } else {
+                self.archivePersistenceRequestSequence &+= 1
+                self.sealedArchivePersistenceRequestsByQueryId[queryId] = ArchivePersistenceRequest(
+                    queryId: queryId,
+                    sequence: self.archivePersistenceRequestSequence,
+                    priority: effectivePriority,
+                    completion: completion
+                )
+            }
+            activeRequestCount = self.sealedArchivePersistenceRequestsByQueryId.count
+            if !self.isArchivePersistencePumpScheduled {
+                self.isArchivePersistencePumpScheduled = true
+                shouldSchedulePump = true
+            }
+        }
+        self.archivePersistenceSchedulingLock.unlock()
+
+        ChatArchiveDebugTrace.log("messageArchiveBatchSeal", [
+            ("priority", effectivePriority.rawValue),
+            ("joined", didJoin),
+            ("activeRequestCount", activeRequestCount)
+        ])
+        if let completedSummary {
+            self.queue.async {
+                completion?(completedSummary)
+            }
+            return
+        }
+        if shouldSchedulePump {
+            self.queue.async { [weak self] in
+                self?.runArchivePersistencePumpTurn()
+            }
+        }
+    }
+
+    private func completeArchivePersistenceRequest(
+        queryId: String,
+        summary: ArchivePersistenceSummary
+    ) -> [(ArchivePersistenceSummary) -> Void] {
+        self.archivePersistenceSchedulingLock.lock()
+        let request = self.sealedArchivePersistenceRequestsByQueryId.removeValue(forKey: queryId)
+        self.archivePersistencePriorityByQueryId.removeValue(forKey: queryId)
+        self.completedArchiveQueryBatchSummariesByQueryId[queryId] = summary
+        self.completedArchiveQueryBatchSummaryOrder.removeAll { $0 == queryId }
+        self.completedArchiveQueryBatchSummaryOrder.append(queryId)
+        while self.completedArchiveQueryBatchSummaryOrder.count > self.completedArchiveQueryBatchSummaryCapacity {
+            let evictedQueryId = self.completedArchiveQueryBatchSummaryOrder.removeFirst()
+            self.completedArchiveQueryBatchSummariesByQueryId.removeValue(forKey: evictedQueryId)
+        }
+        let completions = request?.completions ?? []
+        self.archivePersistenceSchedulingLock.unlock()
+        return completions
+    }
+
+    private func nextArchivePersistenceRequest() -> (
+        queryId: String,
+        priority: ArchivePersistencePriority,
+        isFirstTurn: Bool
+    )? {
+        self.archivePersistenceSchedulingLock.lock()
+        defer { self.archivePersistenceSchedulingLock.unlock() }
+        guard let request = self.sealedArchivePersistenceRequestsByQueryId.values.min(by: { lhs, rhs in
+            if lhs.priority != rhs.priority {
+                return lhs.priority > rhs.priority
+            }
+            return lhs.sequence < rhs.sequence
+        }) else {
+            // Clear the scheduling flag while holding the same lock used by
+            // `sealArchiveQueryBatch`. A seal racing this empty turn will then
+            // either be observed here or schedule a replacement pump.
+            self.isArchivePersistencePumpScheduled = false
+            return nil
+        }
+        let isFirstTurn = !request.didStartPersistence
+        request.didStartPersistence = true
+        return (request.queryId, request.priority, isFirstTurn)
+    }
+
+    private func scheduleNextArchivePersistencePumpTurn() {
+        self.archivePersistenceSchedulingLock.lock()
+        let hasPendingRequests = !self.sealedArchivePersistenceRequestsByQueryId.isEmpty
+        if !hasPendingRequests {
+            self.isArchivePersistencePumpScheduled = false
+        }
+        self.archivePersistenceSchedulingLock.unlock()
+        if hasPendingRequests {
+            self.queue.async { [weak self] in
+                self?.runArchivePersistencePumpTurn()
+            }
+        }
+    }
+
+    private func hasInteractiveArchivePersistenceRequest() -> Bool {
+        self.archivePersistenceSchedulingLock.lock()
+        let result = self.sealedArchivePersistenceRequestsByQueryId.values.contains {
+            $0.priority == .interactive
+        }
+        self.archivePersistenceSchedulingLock.unlock()
+        return result
+    }
+
+    /// Persists only the queued archive row targeted by a retract/rewrite
+    /// notification. Work is asynchronous so the XMPP receiver never performs
+    /// an unscoped synchronous drain. A sealed interactive page owns the queue
+    /// until all of its bounded chunks reach persistence terminal.
+    internal func persistQueuedMessageForMutation(
+        archivedId: String,
+        completion: @escaping () -> Void
+    ) {
+        guard archivedId.isNotEmpty else {
+            completion()
+            return
+        }
+        let request = QueuedMutationPersistenceRequest(
+            archivedId: archivedId,
+            completion: completion
+        )
         self.queue.async { [weak self] in
             guard let self else {
-                completion?(ArchivePersistenceSummary())
+                completion()
                 return
             }
-            completion?(self.finishArchiveQueryBatchSummary(queryId: queryId))
+            self.runQueuedMutationPersistenceRequest(request)
+        }
+    }
+
+    private func runQueuedMutationPersistenceRequest(
+        _ request: QueuedMutationPersistenceRequest
+    ) {
+        guard !self.hasInteractiveArchivePersistenceRequest() else {
+            self.deferredQueuedMutationPersistenceRequests.append(request)
+            ChatArchiveDebugTrace.log("messageMutationPersistenceDeferred", [
+                ("interactivePending", true),
+                ("deferredCount", self.deferredQueuedMutationPersistenceRequests.count)
+            ])
+            return
+        }
+
+        let drainLimit = min(max(1, self.messagePersistenceChunkSize), 100)
+        let matchingMessages = self.queuedMessages
+            .filter {
+                getStanzaId($0.message, owner: self.owner) == request.archivedId
+            }
+            .sorted { lhs, rhs in
+                if lhs.date != rhs.date {
+                    return lhs.date < rhs.date
+                }
+                return (lhs.messageId ?? "") < (rhs.messageId ?? "")
+            }
+        let results = Set(matchingMessages.prefix(drainLimit))
+        if results.isNotEmpty {
+            self.adjustQueuedMessageCounts(for: results, delta: -1)
+            self.queuedMessages.subtract(results)
+            self.publishQueuedMessagesSnapshot()
+            self.adjustInFlightMessageCounts(for: results, delta: 1)
+            self.processQueue(results, callback: { values in
+                if let batch = values {
+                    _ = self.save(batch, resetChunkMetrics: false)
+                }
+            })
+            self.adjustInFlightMessageCounts(for: results, delta: -1)
+            AccountManager.shared.find(for: self.owner)?
+                .chatMarkers
+                .deleteEphemeralMessages()
+        }
+
+        let hasRemainingTarget = self.queuedMessages.contains {
+            getStanzaId($0.message, owner: self.owner) == request.archivedId
+        }
+        ChatArchiveDebugTrace.log("messageMutationPersistenceTurn", [
+            ("drainCount", results.count),
+            ("drainLimit", drainLimit),
+            ("hasRemainingTarget", hasRemainingTarget)
+        ])
+        if hasRemainingTarget {
+            self.deferredQueuedMutationPersistenceRequests.insert(request, at: 0)
+        } else {
+            request.completion()
+        }
+
+        if !self.scheduleNextQueuedMutationPersistenceIfNeeded() {
+            self.scheduleQueuedMessagesDrainOnQueue()
+        }
+    }
+
+    @discardableResult
+    private func scheduleNextQueuedMutationPersistenceIfNeeded() -> Bool {
+        guard !self.hasInteractiveArchivePersistenceRequest(),
+              self.deferredQueuedMutationPersistenceRequests.isNotEmpty else {
+            return false
+        }
+        let request = self.deferredQueuedMutationPersistenceRequests.removeFirst()
+        self.queue.async { [weak self] in
+            self?.runQueuedMutationPersistenceRequest(request)
+        }
+        return true
+    }
+
+    private func runArchivePersistencePumpTurn() {
+        guard let request = self.nextArchivePersistenceRequest() else {
+            return
+        }
+
+        if request.isFirstTurn {
+            self.messagePersistenceChunkSizes.removeAll(keepingCapacity: true)
+        }
+        let drainLimit = min(max(1, self.messagePersistenceChunkSize), 100)
+        let eligibleMessages = self.queuedMessages
+            .filter { $0.queryId == request.queryId }
+            .sorted { lhs, rhs in
+                if lhs.date != rhs.date {
+                    return lhs.date < rhs.date
+                }
+                return (lhs.messageId ?? "") < (rhs.messageId ?? "")
+            }
+        let results = Set(eligibleMessages.prefix(drainLimit))
+        if results.isNotEmpty {
+            self.adjustQueuedMessageCounts(for: results, delta: -1)
+            self.queuedMessages.subtract(results)
+            self.publishQueuedMessagesSnapshot()
+            self.adjustInFlightMessageCounts(for: results, delta: 1)
+        }
+
+        self.archivePersistenceSchedulingLock.lock()
+        let activeRequestCount = self.sealedArchivePersistenceRequestsByQueryId.count
+        self.archivePersistenceSchedulingLock.unlock()
+        ChatArchiveDebugTrace.log("messageArchivePersistenceTurn", [
+            ("priority", request.priority.rawValue),
+            ("drainCount", results.count),
+            ("drainLimit", drainLimit),
+            ("queuedRemaining", self.queuedMessageCountsByQueryId[request.queryId] ?? 0),
+            ("activeRequestCount", activeRequestCount)
+        ])
+
+        if results.isNotEmpty {
+            self.processQueue(results, callback: { values in
+                if let batch = values {
+                    _ = self.save(batch, resetChunkMetrics: false)
+                }
+            })
+            self.adjustInFlightMessageCounts(for: results, delta: -1)
+            AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
+        }
+
+        let hasPendingRows =
+            (self.queuedMessageCountsByQueryId[request.queryId] ?? 0) > 0 ||
+            (self.inFlightMessageCountsByQueryId[request.queryId] ?? 0) > 0
+        if !hasPendingRows {
+            let summary = self.archivePersistenceSummarySnapshot(forQueryId: request.queryId)
+            self.archiveQueryBatchIds.remove(request.queryId)
+            let completions = self.completeArchivePersistenceRequest(
+                queryId: request.queryId,
+                summary: summary
+            )
+            ChatArchiveDebugTrace.log("messageArchivePersistenceTerminal", [
+                ("priority", request.priority.rawValue),
+                ("persistedRows", summary.persistedRows),
+                ("processedRows", summary.processedRows),
+                ("failedRows", summary.failed),
+                ("observerCount", completions.count)
+            ])
+            completions.forEach { $0(summary) }
+        }
+
+        if self.hasInteractiveArchivePersistenceRequest() {
+            self.scheduleNextArchivePersistencePumpTurn()
+        } else {
+            if !self.scheduleNextQueuedMutationPersistenceIfNeeded() {
+                self.scheduleQueuedMessagesDrainOnQueue()
+            }
+            self.scheduleNextArchivePersistencePumpTurn()
         }
     }
 
@@ -256,6 +607,7 @@ extension MessageManager {
     private func scheduleQueuedMessagesDrainOnQueue() {
         guard self.isReceiverActive,
               !self.isQueuedMessagesDrainScheduled,
+              !self.hasInteractiveArchivePersistenceRequest(),
               self.hasOrdinaryDrainEligibleMessages else {
             return
         }
@@ -267,8 +619,17 @@ extension MessageManager {
 
     internal func drainQueuedMessagesAndPersist() {
         self.performMessageQueueSync {
+            self.ordinaryDrainWillExecuteHook?()
             guard self.isReceiverActive else {
                 self.isQueuedMessagesDrainScheduled = false
+                return
+            }
+            guard !self.hasInteractiveArchivePersistenceRequest() else {
+                self.isQueuedMessagesDrainScheduled = false
+                ChatArchiveDebugTrace.log("messageOrdinaryDrainYield", [
+                    ("interactivePending", true),
+                    ("queuedCount", self.queuedMessages.count)
+                ])
                 return
             }
 
@@ -289,7 +650,9 @@ extension MessageManager {
             self.adjustInFlightMessageCounts(for: results, delta: -1)
             AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
 
-            if self.isReceiverActive, self.hasOrdinaryDrainEligibleMessages {
+            if self.isReceiverActive,
+               self.hasOrdinaryDrainEligibleMessages,
+               !self.hasInteractiveArchivePersistenceRequest() {
                 self.scheduleQueuedMessagesDrainIfNeeded()
             }
         }
@@ -622,17 +985,40 @@ extension MessageManager {
         self.performMessageQueueSync {
             self.isReceiverActive = false
             self.isQueuedMessagesDrainScheduled = false
-            let activeQueryIds = self.archiveQueryBatchIds.sorted()
+            self.archivePersistenceSchedulingLock.lock()
+            let sealedQueryIds = Set(
+                self.sealedArchivePersistenceRequestsByQueryId.keys
+            )
+            self.archivePersistenceSchedulingLock.unlock()
+            let terminalQueryIds = self.archiveQueryBatchIds
+                .union(sealedQueryIds)
+                .sorted()
             var persistedRows = 0
-            activeQueryIds.forEach { queryId in
-                persistedRows += self.storeMessagesNowSummary(forQueryId: queryId).persistedRows
+            var terminalCallbacks: [(
+                summary: ArchivePersistenceSummary,
+                completions: [(ArchivePersistenceSummary) -> Void]
+            )] = []
+            terminalQueryIds.forEach { queryId in
+                let summary = self.storeMessagesNowSummary(forQueryId: queryId)
+                persistedRows += summary.persistedRows
+                self.archiveQueryBatchIds.remove(queryId)
+                terminalCallbacks.append((
+                    summary,
+                    self.completeArchivePersistenceRequest(
+                        queryId: queryId,
+                        summary: summary
+                    )
+                ))
             }
             self.archiveQueryBatchIds.removeAll()
-            if activeQueryIds.isNotEmpty {
+            if terminalQueryIds.isNotEmpty {
                 ChatArchiveDebugTrace.log("messageArchiveBatchLifecycleFlush", [
-                    ("queryCount", activeQueryIds.count),
+                    ("queryCount", terminalQueryIds.count),
                     ("persistedRows", persistedRows)
                 ])
+            }
+            terminalCallbacks.forEach { terminal in
+                terminal.completions.forEach { $0(terminal.summary) }
             }
         }
         clearQueue()
@@ -1109,6 +1495,14 @@ extension MessageManager {
                     conversationType: item.conversationType
                 )
             }
+            if item.outcome == .savedNew || item.outcome == .updatedExisting {
+                summary.recordPersistedArchiveId(
+                    item.archivedId,
+                    owner: item.owner,
+                    jid: item.opponent,
+                    conversationType: item.conversationType
+                )
+            }
         }
         return summary
     }
@@ -1163,6 +1557,7 @@ extension MessageManager {
                 owner: message.owner,
                 opponent: message.opponent,
                 conversationType: message.conversationType,
+                archivedId: message.archivedId,
                 isDeleted: message.isDeleted,
                 outcome: outcome
             ),
@@ -1176,6 +1571,7 @@ extension MessageManager {
             owner: message.owner,
             opponent: message.opponent,
             conversationType: message.conversationType,
+            archivedId: message.archivedId,
             isDeleted: message.isDeleted,
             outcome: .failed
         )
@@ -1290,8 +1686,14 @@ extension MessageManager {
     }
 
     @discardableResult
-    func save(_ batch: ProcessedQueueBatch, silentNotifications: Bool = false) -> ArchivePersistenceSummary {
-        self.messagePersistenceChunkSizes.removeAll(keepingCapacity: true)
+    func save(
+        _ batch: ProcessedQueueBatch,
+        silentNotifications: Bool = false,
+        resetChunkMetrics: Bool = true
+    ) -> ArchivePersistenceSummary {
+        if resetChunkMetrics {
+            self.messagePersistenceChunkSizes.removeAll(keepingCapacity: true)
+        }
         guard !batch.messages.isEmpty else {
             return ArchivePersistenceSummary()
         }

@@ -114,7 +114,9 @@ enum LastChatsBootstrapDatasetUpdatePolicy {
         guard hasPendingUpdate else {
             return .none
         }
-        return cancelled ? .drop : .flush
+        // A cancelled navigation transition invalidates captured UI closures,
+        // but the latest Realm-backed dataset still needs one fresh render.
+        return .flush
     }
 }
 
@@ -138,7 +140,12 @@ enum LastChatsSelectionReturnPolicy {
 }
 
 struct LastChatsNavigationSingleFlightCoordinator {
-    static let defaultPreparationTimeout: TimeInterval = 10
+    /// The destination owns the 450-ms first-frame fallback. This outer guard
+    /// must run later; scheduling both at the same deadline lets the source
+    /// cancel the handle immediately before it commits skeleton and pushes.
+    static let defaultPreparationTimeout: TimeInterval =
+        StackedNavigationPresentationTimingPolicy
+            .asynchronousPreparationFallbackDelay + 0.55
 
     struct Target: Equatable {
         let owner: String
@@ -850,6 +857,8 @@ enum SavedMessagesAvailabilityPolicy {
 }
 
 class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuieting {
+    static let nativeChatBackAccessibilityIdentifier =
+        "last_chats_native_chat_back_button"
     
     enum Filter: Int {
         case chats
@@ -1175,9 +1184,12 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal var isFirstLayout: Bool = false
     
     internal var isAppeared: Bool = false
+    private var hasCompletedCurrentAppearance: Bool = false
     internal var isNavigationTransitionActive: Bool = false
     private var pendingNavigationTransitionWork: [() -> Void] = []
     private var pendingDatasetUpdateAfterNavigationTransition: Bool = false
+    private var pendingNavigationChromeRefreshAfterNavigationTransition: Bool = false
+    private var navigationDatasetMutationGeneration: UInt = 0
     private var shouldSuppressNextDatasetAnimation: Bool = false
     private var outgoingChatOpenNavigationDeferralToken: UUID?
     private var outgoingChatOpenNavigationPreparationToken: UUID?
@@ -1265,7 +1277,14 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         guard let coordinator = self.transitionCoordinator else {
             return
         }
+        if !self.isNavigationTransitionActive {
+            self.navigationDatasetMutationGeneration &+= 1
+        }
         self.isNavigationTransitionActive = true
+        if self.isDatasetUpdateInFlight {
+            self.pendingDatasetUpdateAfterNavigationTransition = true
+        }
+        self.accountNavButton.setRenderingFrozen(true)
         coordinator.animate(alongsideTransition: nil) { [weak self] context in
             self?.completeNavigationTransitionDeferral(cancelled: context.isCancelled)
         }
@@ -1275,12 +1294,43 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         token: UUID? = nil,
         preparationTimeout: TimeInterval = LastChatsNavigationSingleFlightCoordinator.defaultPreparationTimeout
     ) {
+        if self.navigationItem.backButtonDisplayMode != .minimal {
+            self.navigationItem.backButtonDisplayMode = .minimal
+        }
+        if self.navigationItem.backBarButtonItem == nil {
+            // On iOS 26 an implicit Back can be replaced by a non-interactive
+            // portal snapshot of this controller's account item during an
+            // animated push. Supplying the source back item up front keeps
+            // rendering and activation in UINavigationController ownership;
+            // the destination still never installs or clears a left item.
+            let backItem = UIBarButtonItem(
+                title: self.navigationItem.title
+                    ?? self.title
+                    ?? "Chats".localizeString(
+                        id: "toolbar__menu_item__chats",
+                        arguments: []
+                    ),
+                style: .plain,
+                target: nil,
+                action: nil
+            )
+            backItem.accessibilityIdentifier =
+                Self.nativeChatBackAccessibilityIdentifier
+            self.navigationItem.backBarButtonItem = backItem
+        }
         let replacesPendingPreparation = outgoingChatOpenNavigationDeferralToken != nil
         if let previousToken = outgoingChatOpenNavigationDeferralToken,
            previousToken != token {
             _ = cancelOutgoingChatOpenNavigationPreparation(token: previousToken)
         }
+        if !self.isNavigationTransitionActive {
+            self.navigationDatasetMutationGeneration &+= 1
+        }
         self.isNavigationTransitionActive = true
+        if self.isDatasetUpdateInFlight {
+            self.pendingDatasetUpdateAfterNavigationTransition = true
+        }
+        self.accountNavButton.setRenderingFrozen(true)
         self.shouldSuppressNextDatasetAnimation = true
         if replacesPendingPreparation {
             DDLogDebug("LAST_CHATS_NAVIGATION event=preparationRetargeted")
@@ -1461,27 +1511,35 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         resetChatNavigationTransaction(cancelled: false)
     }
 
-    private func completeNavigationTransitionDeferral(cancelled: Bool) {
+    /// Resolves the source-side navigation barrier. This is internal so the
+    /// exact cancellation callback path can be exercised deterministically in
+    /// hosted tests where UIKit defers custom interactive transition contexts.
+    internal func completeNavigationTransitionDeferral(cancelled: Bool) {
+        let sourceIsTopAndAppeared = self.navigationController?.topViewController === self
+            && self.hasCompletedCurrentAppearance
+        if self.outgoingChatOpenNavigationDeferralToken != nil,
+           !sourceIsTopAndAppeared {
+            // A successful push and a cancelled interactive pop both leave
+            // Last Chats hidden. Keep every source mutation frozen until an
+            // actual return makes this controller top and appeared.
+            if cancelled {
+                // Closures captured while UIKit temporarily exposed the
+                // source hierarchy belong to the cancelled transition and
+                // must never replay on a later pop. Request fresh,
+                // Realm-backed chrome and dataset work instead.
+                self.pendingNavigationTransitionWork.removeAll()
+                self.pendingNavigationChromeRefreshAfterNavigationTransition = true
+                self.pendingDatasetUpdateAfterNavigationTransition = true
+                self.shouldSuppressNextDatasetAnimation = true
+            }
+            self.isNavigationTransitionActive = true
+            return
+        }
+
         self.isNavigationTransitionActive = false
-        guard !cancelled else {
-            // A cancelled preparation/transition must not replay work captured
-            // for the invalidated presenter or conversation.
-            self.pendingNavigationTransitionWork.removeAll()
-            self.pendingDatasetUpdateAfterNavigationTransition = false
-            self.shouldSuppressNextDatasetAnimation = false
-            return
-        }
-        let deferredDatasetAction = LastChatsBootstrapDatasetUpdatePolicy.deferredDatasetUpdateAction(
-            cancelled: cancelled,
-            hasPendingUpdate: self.pendingDatasetUpdateAfterNavigationTransition
+        self.flushPendingNavigationTransitionWork(
+            replayCapturedWork: !cancelled
         )
-        guard deferredDatasetAction != .drop else {
-            self.pendingNavigationTransitionWork.removeAll()
-            self.pendingDatasetUpdateAfterNavigationTransition = false
-            self.shouldSuppressNextDatasetAnimation = false
-            return
-        }
-        self.flushPendingNavigationTransitionWork()
     }
 
     @discardableResult
@@ -1497,14 +1555,34 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
 
     internal func flushPendingNavigationTransitionWork() {
+        flushPendingNavigationTransitionWork(replayCapturedWork: true)
+    }
+
+    private func flushPendingNavigationTransitionWork(replayCapturedWork: Bool) {
+        guard !self.isNavigationTransitionActive else {
+            return
+        }
         let work = self.pendingNavigationTransitionWork
         let shouldRefreshDataset = self.pendingDatasetUpdateAfterNavigationTransition
+        let shouldRefreshNavigationChrome =
+            self.pendingNavigationChromeRefreshAfterNavigationTransition
         self.pendingNavigationTransitionWork.removeAll()
         self.pendingDatasetUpdateAfterNavigationTransition = false
+        self.pendingNavigationChromeRefreshAfterNavigationTransition = false
 
-        work.forEach { $0() }
+        if replayCapturedWork {
+            work.forEach { $0() }
+        }
+        if shouldRefreshNavigationChrome {
+            UIView.performWithoutAnimation {
+                self.configureBars(updateNavigationItems: true)
+            }
+        }
+        self.accountNavButton.setRenderingFrozen(false)
         if shouldRefreshDataset {
             self.runDatasetUpdateTask()
+        } else {
+            self.shouldSuppressNextDatasetAnimation = false
         }
     }
     
@@ -1646,6 +1724,10 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
     
     internal func updateTitle(_ value: Filter) {
+        guard !self.isNavigationTransitionActive else {
+            self.pendingNavigationChromeRefreshAfterNavigationTransition = true
+            return
+        }
         self.title = "Chats".localizeString(id: "toolbar__menu_item__chats", arguments: [])
     }
     
@@ -2820,6 +2902,19 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
 
     @discardableResult
+    private func deferDatasetMutationForNavigationTransitionIfNeeded() -> Bool {
+        guard self.isNavigationTransitionActive else {
+            return false
+        }
+        self.pendingDatasetUpdateAfterNavigationTransition = true
+        self.shouldSuppressNextDatasetAnimation = true
+        self.needsDatasetRefresh = false
+        self.isDatasetUpdateInFlight = false
+        self.canUpdateDataset = true
+        return true
+    }
+
+    @discardableResult
     private final func scheduleBootstrapDatasetUpdateIfNeeded() -> Bool {
         let pressureActive = self.hasVisibleDatasetUpdatePressureInProgress
         guard !self.isExecutingBootstrapCoalescedDatasetUpdate else {
@@ -2882,6 +2977,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             requestedAnimated: requestedAnimate,
             isDatasetUpdatePressureActive: pressureActive
         )
+        let navigationMutationGeneration = self.navigationDatasetMutationGeneration
         self.shouldSuppressNextDatasetAnimation = false
         let renderStartedAt = Date()
         self.updateQueue.async {
@@ -2895,6 +2991,19 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 newSections: newSections
             )
             DispatchQueue.main.async {
+                guard navigationMutationGeneration == self.navigationDatasetMutationGeneration else {
+                    DDLogDebug(
+                        "LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateDropped reason=staleNavigationGeneration"
+                    )
+                    self.finishDatasetUpdateCycle()
+                    return
+                }
+                if self.deferDatasetMutationForNavigationTransitionIfNeeded() {
+                    DDLogDebug(
+                        "LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateCoalesced reason=navigationTransitionAfterMapping"
+                    )
+                    return
+                }
                 if !shouldAnimate {
                     UIView.performWithoutAnimation {
                         self.apply(
@@ -2948,6 +3057,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
     
     private final func finishDatasetUpdateCycle() {
+        if self.deferDatasetMutationForNavigationTransitionIfNeeded() {
+            return
+        }
         self.isDatasetUpdateInFlight = false
         self.canUpdateDataset = true
         self.syncSelectedChatSelection()
@@ -3036,6 +3148,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         newShowsSkeleton: Bool,
         prepare: @escaping (() -> Void)
     ) {
+        if self.deferDatasetMutationForNavigationTransitionIfNeeded() {
+            return
+        }
         if changes.deletedSections.isEmpty &&
             changes.insertedSections.isEmpty &&
             changes.deletes.isEmpty &&
@@ -3548,6 +3663,13 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     open var shouldShowBottomBar: Bool = true
 
     internal func configureBars(updateNavigationItems: Bool = true) {
+        guard !self.isNavigationTransitionActive else {
+            self.pendingNavigationChromeRefreshAfterNavigationTransition = true
+            return
+        }
+        if self.navigationItem.backButtonDisplayMode != .minimal {
+            self.navigationItem.backButtonDisplayMode = .minimal
+        }
         //self.title = "Chats"
         let shouldAnimateNavigationItems = LastChatsNavigationTransitionMutationPolicy.shouldAnimateMutation(
             requestedAnimated: true,
@@ -3772,6 +3894,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         beginNavigationTransitionDeferralIfNeeded()
         NotifyManager.shared.setLastChats(displayed: true)
         isAppeared = true
+        hasCompletedCurrentAppearance = false
         self.tabBarController?.tabBar.isHidden = false
         self.tabBarController?.tabBar.layoutIfNeeded()
         if !self.deferUntilNavigationTransitionCompletesIfNeeded({ [weak self] in
@@ -3797,6 +3920,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        hasCompletedCurrentAppearance = true
         reconcileChatNavigationTransactionOnDidAppear()
         cancelPendingBottomSearchDismissalAfterCancelledRoute()
         updateTitle(filter.value)
@@ -3834,6 +3958,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         beginNavigationTransitionDeferralIfNeeded()
         NotifyManager.shared.setLastChats(displayed: false)
         isAppeared = false
+        hasCompletedCurrentAppearance = false
     }
     
     override func viewDidDisappear(_ animated: Bool) {

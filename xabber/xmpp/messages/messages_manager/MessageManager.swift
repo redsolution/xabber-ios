@@ -24,6 +24,15 @@ import RealmSwift
 import RxSwift
 import RxCocoa
 
+internal enum ArchivePersistencePriority: Int, Comparable {
+    case background = 0
+    case interactive = 1
+
+    static func < (lhs: ArchivePersistencePriority, rhs: ArchivePersistencePriority) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
 enum SavedMessageStatePolicy {
     struct Presentation: Equatable {
         let effectiveState: MessageStorageItem.MessageSendingState
@@ -110,6 +119,39 @@ enum SavedMessageStatePolicy {
 }
 
 class MessageManager: AbstractXMPPManager {
+
+    internal final class ArchivePersistenceRequest {
+        let queryId: String
+        let sequence: UInt64
+        var priority: ArchivePersistencePriority
+        var completions: [(ArchivePersistenceSummary) -> Void]
+        var didStartPersistence = false
+
+        init(
+            queryId: String,
+            sequence: UInt64,
+            priority: ArchivePersistencePriority,
+            completion: ((ArchivePersistenceSummary) -> Void)?
+        ) {
+            self.queryId = queryId
+            self.sequence = sequence
+            self.priority = priority
+            self.completions = completion.map { [$0] } ?? []
+        }
+    }
+
+    internal final class QueuedMutationPersistenceRequest {
+        let archivedId: String
+        let completion: () -> Void
+
+        init(
+            archivedId: String,
+            completion: @escaping () -> Void
+        ) {
+            self.archivedId = archivedId
+            self.completion = completion
+        }
+    }
     
     internal struct ScheduledMessage: Hashable {
         let body: String
@@ -170,6 +212,7 @@ class MessageManager: AbstractXMPPManager {
         var skipped: Int = 0
         var failed: Int = 0
         private var visibleRowsByConversationKey: [String: Int] = [:]
+        private var persistedArchiveIdsByConversationKey: [String: Set<String>] = [:]
 
         var persistedRows: Int {
             savedNew + updatedExisting
@@ -194,7 +237,8 @@ class MessageManager: AbstractXMPPManager {
             updatedExisting == 0 &&
             skipped == 0 &&
             failed == 0 &&
-            visibleRowsByConversationKey.isEmpty
+            visibleRowsByConversationKey.isEmpty &&
+            persistedArchiveIdsByConversationKey.isEmpty
         }
 
         mutating func merge(_ other: ArchivePersistenceSummary) {
@@ -206,6 +250,9 @@ class MessageManager: AbstractXMPPManager {
             failed += other.failed
             other.visibleRowsByConversationKey.forEach { key, value in
                 visibleRowsByConversationKey[key, default: 0] += value
+            }
+            other.persistedArchiveIdsByConversationKey.forEach { key, archiveIds in
+                persistedArchiveIdsByConversationKey[key, default: []].formUnion(archiveIds)
             }
         }
 
@@ -228,6 +275,50 @@ class MessageManager: AbstractXMPPManager {
             visibleRowsByConversationKey[
                 Self.conversationKey(owner: owner, jid: jid, conversationType: conversationType)
             ] ?? 0
+        }
+
+        mutating func recordPersistedArchiveId(
+            _ archiveId: String,
+            owner: String,
+            jid: String,
+            conversationType: ClientSynchronizationManager.ConversationType
+        ) {
+            guard archiveId.isNotEmpty else {
+                return
+            }
+            persistedArchiveIdsByConversationKey[
+                Self.conversationKey(owner: owner, jid: jid, conversationType: conversationType),
+                default: []
+            ].insert(archiveId)
+        }
+
+        func containsPersistedArchiveIds(
+            _ archiveIds: Set<String>,
+            owner: String,
+            jid: String,
+            conversationType: ClientSynchronizationManager.ConversationType
+        ) -> Bool {
+            guard archiveIds.isNotEmpty else {
+                return false
+            }
+            let persistedArchiveIds = persistedArchiveIdsByConversationKey[
+                Self.conversationKey(owner: owner, jid: jid, conversationType: conversationType)
+            ] ?? []
+            return archiveIds.isSubset(of: persistedArchiveIds)
+        }
+
+        func persistedArchiveIdCount(
+            owner: String,
+            jid: String,
+            conversationType: ClientSynchronizationManager.ConversationType
+        ) -> Int {
+            persistedArchiveIdsByConversationKey[
+                Self.conversationKey(
+                    owner: owner,
+                    jid: jid,
+                    conversationType: conversationType
+                )
+            ]?.count ?? 0
         }
 
         func performanceSnapshot(
@@ -285,11 +376,29 @@ class MessageManager: AbstractXMPPManager {
     /// boundary. Their rows stay in the serialized receiver buffer until the
     /// matching terminal event flushes the whole query in bounded chunks.
     internal var archiveQueryBatchIds: Set<String> = []
+    internal let archivePersistenceSchedulingLock = NSLock()
+    internal var archivePersistencePriorityByQueryId: [String: ArchivePersistencePriority] = [:]
+    internal var sealedArchivePersistenceRequestsByQueryId: [String: ArchivePersistenceRequest] = [:]
+    /// Immutable terminal summaries outlive mutable accumulator cleanup so a
+    /// late final/unregister observer receives the same result. A new batch
+    /// with the same query id invalidates its entry.
+    internal var completedArchiveQueryBatchSummariesByQueryId: [String: ArchivePersistenceSummary] = [:]
+    internal var completedArchiveQueryBatchSummaryOrder: [String] = []
+    internal var archivePersistenceRequestSequence: UInt64 = 0
+    internal var isArchivePersistencePumpScheduled = false
+    /// Retract/rewrite notifications may arrive while their target MAM stanza
+    /// is still buffered. These requests persist only matching rows and wait
+    /// behind every sealed interactive archive chunk.
+    internal var deferredQueuedMutationPersistenceRequests: [
+        QueuedMutationPersistenceRequest
+    ] = []
+    internal let completedArchiveQueryBatchSummaryCapacity = 128
     internal var archiveQueryIdPersistenceResolver: ((String?) -> Bool)?
     internal var archiveBatchSaveFailureInjector: (() throws -> Void)?
     internal var messagePersistenceChunkSize: Int = 100
     internal var messagePersistenceChunkSizes: [Int] = []
     internal var messagePersistenceChunkObserver: ((Int, Int) -> Void)?
+    internal var ordinaryDrainWillExecuteHook: (() -> Void)?
     
     internal var senderBag: DisposeBag = DisposeBag()
     

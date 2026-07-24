@@ -179,6 +179,13 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         chat.setPrimary(withOwner: controller.owner)
         try realm.write {
             realm.add(chat, update: .modified)
+            let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(
+                owner: controller.owner,
+                jid: controller.jid,
+                conversationType: controller.conversationType,
+                in: realm
+            )
+            archiveState.newerLiveEdgeReached = true
         }
 
         let key = controller.initialBootstrapRequestKey
@@ -210,7 +217,7 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
             last: "",
             count: 0,
             streamKind: .uiAction,
-            source: .unroutedFinalIQ
+            source: .localCallback
         )
         XCTAssertTrue(MessageArchiveEndPageDispatcher.publish(cachedFinal))
 
@@ -385,7 +392,7 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         XCTAssertEqual(nextLease.queryId, "bootstrap-next")
     }
 
-    func testBootstrapFinalPageSurvivesReopenAndCannotBecomeTimeout() {
+    func testBootstrapFinalPageSurvivesTimeoutAndStartsFreshGenerationWithoutProof() {
         var now = Date(timeIntervalSince1970: 3_000)
         var cancellationCount = 0
         let coordinator = ChatInitialBootstrapRequestCoordinator(
@@ -435,20 +442,29 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         coordinator.expireDueAttemptsForTesting()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        let reopened = coordinator.acquire(
-            key: key,
-            proposedQueryId: "bootstrap-must-join-final",
-            timeout: 45
-        ) { _, _, _ in }
-        guard case .joined(let reopenedLease) = reopened else {
-            return XCTFail("reopen must join the final-received attempt")
-        }
-        XCTAssertEqual(reopenedLease.queryId, lease.queryId)
         XCTAssertEqual(
             coordinator.cachedEndPageEvent(key: key, queryId: lease.queryId),
             finalEvent
         )
+        let reopened = coordinator.acquire(
+            key: key,
+            proposedQueryId: "bootstrap-fresh-after-unmaterialized-final",
+            timeout: 45
+        ) { _, _, _ in }
+        guard case .start(let reopenedLease) = reopened else {
+            return XCTFail(
+                "a final without presentation proof must start a fresh generation"
+            )
+        }
+        XCTAssertEqual(
+            reopenedLease.queryId,
+            "bootstrap-fresh-after-unmaterialized-final"
+        )
+        XCTAssertNotEqual(reopenedLease.queryId, lease.queryId)
+        XCTAssertFalse(coordinator.isActive(key: key, queryId: lease.queryId))
+        XCTAssertTrue(coordinator.isActive(key: key, queryId: reopenedLease.queryId))
         XCTAssertEqual(cancellationCount, 0)
+        XCTAssertTrue(coordinator.complete(key: key, queryId: reopenedLease.queryId))
     }
 
     func testAcceptedFinalCannotLoseToTimeoutBeforeSynchronousHandlerRuns() {
@@ -582,7 +598,7 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         allowSynchronousDelivery.signal()
         wait(for: [publishFinished], timeout: 3)
         controller.performTerminalChatResourceTeardownForTesting()
-        XCTAssertTrue(coordinator.complete(key: key, queryId: lease.queryId))
+        XCTAssertEqual(cancellationCount, 0)
     }
 
     func testLateFinalMarkerCannotSuppressAlreadyRecordedTimeoutFailure() {
@@ -668,7 +684,7 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         MessageArchiveEndPageDispatcher.unregister(dummyEndToken)
     }
 
-    func testCachedFinalReleasesMessageManagerAndKeepsLightweightReceiptForReopen() {
+    func testCachedFinalReleasesMessageManagerAndStartsFreshGenerationWithoutProof() {
         let coordinator = ChatInitialBootstrapRequestCoordinator(
             automaticallySchedulesTimeouts: false
         )
@@ -734,18 +750,26 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         var reopenedManager: MessageManager?
         let reopened = coordinator.acquire(
             key: key,
-            proposedQueryId: "bootstrap-reopen-must-join",
+            proposedQueryId: "bootstrap-reopen-fresh-generation",
             timeout: 45
         ) { _, _, messages in
             reopenedManager = messages
         }
-        guard case .joined(let reopenedLease) = reopened else {
-            return XCTFail("reopen must join the final-received attempt")
+        guard case .start(let reopenedLease) = reopened else {
+            return XCTFail(
+                "a nonmaterialized final must start a fresh archive generation"
+            )
         }
-        XCTAssertEqual(reopenedLease.queryId, lease.queryId)
+        XCTAssertEqual(
+            reopenedLease.queryId,
+            "bootstrap-reopen-fresh-generation"
+        )
+        XCTAssertNotEqual(reopenedLease.queryId, lease.queryId)
+        XCTAssertFalse(coordinator.isActive(key: key, queryId: lease.queryId))
+        XCTAssertTrue(coordinator.isActive(key: key, queryId: reopenedLease.queryId))
         XCTAssertNil(reopenedManager)
 
-        XCTAssertTrue(coordinator.complete(key: key, queryId: lease.queryId))
+        XCTAssertTrue(coordinator.complete(key: key, queryId: reopenedLease.queryId))
     }
 
     func testRemoteHistoryPersistenceFlushIsSingleFlightAndMemoizedForLateConsumer() {
@@ -1324,7 +1348,7 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
                 remainingTransportTimeout: 0,
                 presentationTimeout: 45
             ),
-            45
+            5
         )
     }
 
@@ -1561,6 +1585,9 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
                 snapshotObserverSawCommit = true
             }
         }
+        // Keep this test focused on receipt retention. The fresh-generation
+        // follow-up contract is covered separately below.
+        controller.hasAttemptedInitialBootstrapBoundaryFollowUp = true
         controller.beginInitialBootstrapTracking(queryId: lease.queryId, timeout: nil)
 
         let final = MessageArchiveEndPageEvent(
@@ -1577,19 +1604,178 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
             streamKind: .primary,
             source: .unroutedFinalIQ
         )
-        XCTAssertTrue(MessageArchiveEndPageDispatcher.publish(final))
+        let publishFinished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = MessageArchiveEndPageDispatcher.publish(final)
+            publishFinished.signal()
+        }
+        XCTAssertEqual(
+            publishFinished.wait(timeout: .now() + 2),
+            .success,
+            "background persistence terminal must finish while main is held"
+        )
         XCTAssertTrue(snapshotObserverSawCommit)
+        XCTAssertNotNil(controller.initialBootstrapReadinessObservationToken)
+        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .committed)
+        let retainedPage = try? XCTUnwrap(
+            coordinator.cachedCommittedPage(key: key, queryId: lease.queryId)
+        )
+        XCTAssertFalse(retainedPage?.hasPresentationMaterialization ?? true)
+        XCTAssertFalse(retainedPage?.confirmsEmptyConversation ?? true)
+        XCTAssertNotNil(
+            coordinator.pendingFollowUpRequest(for: key),
+            "coordinator must retain the repair target before snapshot completion"
+        )
+        XCTAssertFalse(
+            controller.completedRemoteHistoryEndPageQueryIds.contains(lease.queryId)
+        )
 
-        // Model the snapshot pump's already-enqueued terminal block winning the
-        // main-queue race before the joined controller processes its observer hop.
+        // Model the snapshot pump winning the terminal race before the joined
+        // controller can process the committed receipt on the main queue.
         XCTAssertTrue(coordinator.complete(key: key, queryId: lease.queryId))
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
 
+        XCTAssertTrue(
+            controller.completedRemoteHistoryEndPageQueryIds.contains(lease.queryId),
+            "the joined UI must claim the retained committed page"
+        )
+        XCTAssertNil(controller.initialBootstrapReadinessObservationToken)
         XCTAssertNil(controller.initialBootstrapQueryId)
         XCTAssertFalse(controller.isInitialBootstrapInFlight)
 
         coordinator.detach(key: key, observation: snapshotObservation)
+        XCTAssertFalse(
+            coordinator.isActive(key: key, queryId: lease.queryId),
+            "the deferred receipt must be released after every joined consumer detaches"
+        )
         controller.performTerminalChatResourceTeardownForTesting()
+    }
+
+    func testCommittedPendingFollowUpRollsToFreshQueryGeneration() throws {
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let controller = makeController()
+        let key = controller.initialBootstrapRequestKey
+        let first = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "snapshot-follow-up-old",
+            timeout: 45,
+            purpose: .snapshotRepair,
+            observer: { _, _, _ in }
+        )
+        guard case .start(let oldLease) = first else {
+            return XCTFail("snapshot page must own the first generation")
+        }
+
+        let final = MessageArchiveEndPageEvent(
+            owner: key.owner,
+            queryId: oldLease.queryId,
+            state: MessageArchivePageEndState(
+                queryExhausted: true,
+                archiveEnded: true,
+                persistedMessageCount: 0
+            ),
+            first: "",
+            last: "",
+            count: 0,
+            streamKind: .primary,
+            source: .unroutedFinalIQ
+        )
+        XCTAssertTrue(MessageArchiveEndPageDispatcher.publish(final))
+        let pending = try XCTUnwrap(coordinator.pendingFollowUpRequest(for: key))
+
+        let next = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "snapshot-follow-up-fresh",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            targetFingerprint: pending.fingerprint,
+            observer: { _, _, _ in }
+        )
+        guard case .start(let freshLease) = next else {
+            return XCTFail("pending target must start a fresh archive generation")
+        }
+
+        XCTAssertNotEqual(freshLease.queryId, oldLease.queryId)
+        XCTAssertFalse(coordinator.isActive(key: key, queryId: oldLease.queryId))
+        XCTAssertTrue(coordinator.isActive(key: key, queryId: freshLease.queryId))
+        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .queued)
+        XCTAssertNil(coordinator.pendingFollowUpRequest(for: key))
+        XCTAssertTrue(coordinator.complete(key: key, queryId: freshLease.queryId))
+    }
+
+    func testCommittedPendingFollowUpWithChangedBoundaryRollsToFreshQueryGeneration() throws {
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let controller = makeController()
+        let key = controller.initialBootstrapRequestKey
+        let oldBoundary = MessageArchiveManager.ConversationArchiveBoundaryFingerprint(
+            chatExists: true,
+            archiveStateExists: true,
+            chatSnapshotArchiveId: "snapshot-old",
+            archiveSnapshotArchiveId: "snapshot-old",
+            archiveSnapshotMessageId: "message-old",
+            unreadAfterId: nil,
+            unreadCount: 0
+        )
+        let currentBoundary = MessageArchiveManager.ConversationArchiveBoundaryFingerprint(
+            chatExists: true,
+            archiveStateExists: true,
+            chatSnapshotArchiveId: "snapshot-current",
+            archiveSnapshotArchiveId: "snapshot-current",
+            archiveSnapshotMessageId: "message-current",
+            unreadAfterId: nil,
+            unreadCount: 0
+        )
+        let first = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "snapshot-boundary-old",
+            timeout: 45,
+            purpose: .snapshotRepair,
+            targetFingerprint: .init(target: .latest, boundary: oldBoundary),
+            observer: { _, _, _ in }
+        )
+        guard case .start(let oldLease) = first else {
+            return XCTFail("snapshot page must own the first generation")
+        }
+
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: oldLease.queryId,
+            hasDurableCoverage: false,
+            boundaryFingerprint: oldBoundary,
+            confirmsEmptyConversation: false,
+            hasPresentationMaterialization: false,
+            recommendedFollowUpTarget: .latest
+        )
+        let pending = try XCTUnwrap(coordinator.pendingFollowUpRequest(for: key))
+        XCTAssertEqual(pending.fingerprint.target, .latest)
+        XCTAssertEqual(pending.fingerprint.boundary, oldBoundary)
+
+        let requestedFingerprint =
+            MessageArchiveManager.ChatBootstrapTargetFingerprint(
+                target: .latest,
+                boundary: currentBoundary
+            )
+        let next = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "snapshot-boundary-current",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            targetFingerprint: requestedFingerprint,
+            observer: { _, _, _ in }
+        )
+        guard case .start(let freshLease) = next else {
+            return XCTFail(
+                "the same pending target with a new boundary must start a fresh generation"
+            )
+        }
+
+        XCTAssertNotEqual(freshLease.queryId, oldLease.queryId)
+        XCTAssertEqual(freshLease.targetFingerprint, requestedFingerprint)
+        XCTAssertFalse(coordinator.isActive(key: key, queryId: oldLease.queryId))
+        XCTAssertTrue(coordinator.isActive(key: key, queryId: freshLease.queryId))
+        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .queued)
+        XCTAssertNil(coordinator.pendingFollowUpRequest(for: key))
+        XCTAssertTrue(coordinator.complete(key: key, queryId: freshLease.queryId))
     }
 
     func testDatasetReconfigurationCannotForgetEarlierCommittedContentWhilePlaceholderIsVisible() {

@@ -1608,7 +1608,31 @@ class ChatViewController: MessagesViewController {
     var shouldShowNormalStatus: Bool = false
     internal var navigationAvatarBag: DisposeBag = DisposeBag()
     internal var navigationAvatarRequestKey: String? = nil
+    internal var navigationAvatarInFlightRequestKey: String? = nil
+    internal var navigationAvatarTerminalRequestKey: String? = nil
+    internal var navigationAvatarPendingResolvedRequestKey: String? = nil
+    internal var navigationAvatarPendingResolvedImage: UIImage? = nil
+    internal var navigationAvatarDisplayedContentKey: String? = nil
     internal var navigationAvatarGeneration = UUID()
+    internal var navigationAvatarRetryAttempt: Int = 0
+    internal var navigationAvatarRetryWorkItem: DispatchWorkItem? = nil
+    internal var navigationAvatarRetryDelayProvider: (Int) -> TimeInterval? = {
+        ChatNavigationAvatarRetryPolicy.delay(afterFailedAttempt: $0)
+    }
+    internal var navigationAvatarImageLoader: ChatNavigationAvatarImageLoading = {
+        url,
+        jid,
+        owner,
+        size,
+        completion in
+        DefaultChatNavigationAvatarImageLoader.load(
+            url: url,
+            jid: jid,
+            owner: owner,
+            size: size,
+            completion: completion
+        )
+    }
     internal var navigationAvatarItem: UIBarButtonItem? = nil
     private var navigationTitleWidthConstraint: NSLayoutConstraint? = nil
     private var navigationTitleHeightConstraint: NSLayoutConstraint? = nil
@@ -1693,6 +1717,8 @@ class ChatViewController: MessagesViewController {
     internal var isStackedNavigationPresentationPreparationCancelled: Bool = false
     internal var shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion: Bool = false
     internal var didDeferOpenMessageRequestForNavigationTransition: Bool = false
+    internal var needsNavigationChromeReconciliationAfterCancelledTransition: Bool = false
+    private var hasRegisteredNavigationTransitionCompletion: Bool = false
     private var pendingNavigationTransitionWork: [() -> Void] = []
     internal var didScheduleNavigationDisappearanceCleanup: Bool = false
     internal var didRunNavigationDisappearanceCleanup: Bool = false
@@ -1755,6 +1781,11 @@ class ChatViewController: MessagesViewController {
     }()
     var initialBootstrapQueryId: String? = nil
     var isInitialBootstrapInFlight: Bool = false
+    var initialBootstrapLeaseKey: ChatInitialBootstrapRequestKey? = nil
+    var initialBootstrapTargetFingerprint: MessageArchiveManager.ChatBootstrapTargetFingerprint? = nil
+    var initialBootstrapFollowUpTargetOverride: MessageArchiveManager.ChatBootstrapPageTarget? = nil
+    var interactiveChatOpenGate: AccountInteractiveChatOpenGate? = nil
+    var interactiveChatOpenGateToken: AccountInteractiveChatOpenGate.Token? = nil
     var initialBootstrapReadinessObservationToken: ChatInitialBootstrapRequestCoordinator.ObservationToken? = nil
     var initialBootstrapReadinessObservationKey: ChatInitialBootstrapRequestKey? = nil
     var didReceiveInitialBootstrapEndPage: Bool = false
@@ -1771,6 +1802,7 @@ class ChatViewController: MessagesViewController {
     var didEnterInitialBootstrapObserverSettlePhase: Bool = false
     var didObserveInitialBootstrapPostIdleTick: Bool = false
     var initialBootstrapTimeoutWorkItem: DispatchWorkItem? = nil
+    var initialBootstrapPresentationDeadline: Date? = nil
     var initialBootstrapLocalHistoryFallbackWorkItem: DispatchWorkItem? = nil
     var allowsStaleLocalHistoryDuringInitialBootstrap: Bool = false
     var allowsBootstrapFailureFallback: Bool = false
@@ -1825,25 +1857,74 @@ class ChatViewController: MessagesViewController {
         }
     }
 
-    internal func beginNavigationTransitionDeferralIfNeeded() {
-        guard let coordinator = self.transitionCoordinator else {
+    internal func beginNavigationTransitionDeferralIfNeeded(
+        forceActiveWithoutCoordinator: Bool = false
+    ) {
+        if forceActiveWithoutCoordinator {
+            self.isNavigationTransitionActive = true
+        }
+        guard !self.hasRegisteredNavigationTransitionCompletion,
+              let coordinator = self.transitionCoordinator else {
             return
         }
         self.isNavigationTransitionActive = true
+        self.hasRegisteredNavigationTransitionCompletion = true
         coordinator.animate(alongsideTransition: nil) { [weak self] context in
             self?.completeNavigationTransitionDeferral(cancelled: context.isCancelled)
         }
     }
 
-    private func completeNavigationTransitionDeferral(cancelled: Bool) {
+    /// Completes the navigation mutation barrier. Kept internal so transition
+    /// cancellation can be verified deterministically without replacing
+    /// UIKit's private interactive-pop driver in hosted tests.
+    internal func completeNavigationTransitionDeferral(cancelled: Bool) {
+        self.hasRegisteredNavigationTransitionCompletion = false
         self.isNavigationTransitionActive = false
         self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = false
         guard !cancelled else {
             self.pendingNavigationTransitionWork.removeAll()
             self.didDeferOpenMessageRequestForNavigationTransition = false
+            self.needsNavigationChromeReconciliationAfterCancelledTransition = true
+            self.reconcileNavigationChromeAfterCancelledTransition()
             return
         }
+        self.needsNavigationChromeReconciliationAfterCancelledTransition = false
         self.flushPendingNavigationTransitionWork()
+    }
+
+    private func reconcileNavigationChromeAfterCancelledTransition() {
+        guard self.needsNavigationChromeReconciliationAfterCancelledTransition,
+              self.isTopVisibleChatController else {
+            return
+        }
+        self.needsNavigationChromeReconciliationAfterCancelledTransition = false
+
+        if self.isInSelectionMode.value {
+            self.invalidateNavigationAvatarItem()
+            NavigationBarItemOwnership.applyIfChanged(
+                to: self.navigationItem,
+                left: .item(self.deleteSelectionBarButton),
+                right: .item(self.cancelSelectionBarButton),
+                animated: false
+            )
+            if self.navigationItem.titleView !== self.selectionCountLabel {
+                self.navigationItem.titleView = self.selectionCountLabel
+            }
+            if !self.navigationItem.hidesBackButton {
+                self.navigationItem.setHidesBackButton(true, animated: false)
+            }
+            return
+        }
+
+        if self.inSearchMode.value {
+            self.configureSearchBar(activateKeyboard: false, animated: false)
+            return
+        }
+
+        self.releaseSelectionLeadingNavigationItemIfNeeded()
+        UIView.performWithoutAnimation {
+            self.configureNavbar()
+        }
     }
 
     @discardableResult
@@ -2469,6 +2550,9 @@ class ChatViewController: MessagesViewController {
 
     internal func setStatusText(_ text: String) {
         self.performOnMain {
+            guard self.statusTextObserver.value != text else {
+                return
+            }
             self.statusTextObserver.accept(text)
         }
     }
@@ -2545,9 +2629,13 @@ class ChatViewController: MessagesViewController {
         let status = (results.first?.statusMessage.isEmpty ?? true)
             ? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
             : results.first?.statusMessage ?? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
-        self.titleLabel.attributedText = self.updateTitle()
+        let title = self.updateTitle()
+        let didChangeTitle = self.titleLabel.attributedText?.isEqual(to: title) != true
+        if didChangeTitle {
+            self.titleLabel.attributedText = title
+        }
         let statusStr = self.connectionAwareStatusText(fallbackStatus: status)
-        if self.statusLabel.text == " " {
+        if self.statusLabel.text == " ", self.statusLabel.text != statusStr {
             self.statusLabel.text = statusStr
         }
         if self.shouldShowNormalStatus {
@@ -2555,8 +2643,10 @@ class ChatViewController: MessagesViewController {
             self.contactStatus = status
             self.statusLabel.layoutIfNeeded()
         }
-        self.titleLabel.sizeToFit()
-        self.titleLabel.layoutIfNeeded()
+        if didChangeTitle {
+            self.titleLabel.sizeToFit()
+            self.titleLabel.layoutIfNeeded()
+        }
     }
 
     internal func setShouldShowInitialMessage(_ shouldShow: Bool) {
@@ -3854,14 +3944,18 @@ class ChatViewController: MessagesViewController {
             
             if usersCount > 1 {
                 self.contactStatus = self.owner
-                self.statusLabel.text = self.contactStatus
+                if self.statusLabel.text != self.contactStatus {
+                    self.statusLabel.text = self.contactStatus
+                }
             }
             
             return
             
         } else if (XMPPJID(string: self.jid)?.isServer ?? false) {
             self.contactStatus = "Server"
-            self.statusLabel.text = self.contactStatus
+            if self.statusLabel.text != self.contactStatus {
+                self.statusLabel.text = self.contactStatus
+            }
             return
             
         }
@@ -4266,8 +4360,13 @@ class ChatViewController: MessagesViewController {
 
     private func setupNavigationBar() {
         NativeSectionNavigationBarPolicy.apply(to: self)
-        edgesForExtendedLayout = [.top, .bottom]
-        extendedLayoutIncludesOpaqueBars = true
+        let extendedEdges: UIRectEdge = [.top, .bottom]
+        if edgesForExtendedLayout != extendedEdges {
+            edgesForExtendedLayout = extendedEdges
+        }
+        if !extendedLayoutIncludesOpaqueBars {
+            extendedLayoutIncludesOpaqueBars = true
+        }
 
         if navigationItem.largeTitleDisplayMode != .never {
             navigationItem.largeTitleDisplayMode = .never
@@ -4275,15 +4374,23 @@ class ChatViewController: MessagesViewController {
         if navigationItem.backButtonDisplayMode != .minimal {
             navigationItem.backButtonDisplayMode = .minimal
         }
-        if !navigationItem.leftItemsSupplementBackButton {
-            navigationItem.leftItemsSupplementBackButton = true
+        guard !isInSelectionMode.value, !inSearchMode.value else {
+            return
         }
-        releaseSelectionLeadingNavigationItemIfNeeded()
+        if navigationItem.hidesBackButton {
+            navigationItem.setHidesBackButton(false, animated: false)
+        }
+        if navigationItem.leftItemsSupplementBackButton {
+            navigationItem.leftItemsSupplementBackButton = false
+        }
 
         setupNavigationTitleView()
         setupNavigationAvatarItem()
 
-        titleLabel.attributedText = updateTitle()
+        let title = updateTitle()
+        if titleLabel.attributedText?.isEqual(to: title) != true {
+            titleLabel.attributedText = title
+        }
         initStatus()
         updateNavbarTitleWidth()
     }
@@ -4310,7 +4417,7 @@ class ChatViewController: MessagesViewController {
 
         if navigationTitleWidthConstraint == nil {
             titleButton.translatesAutoresizingMaskIntoConstraints = false
-            let widthConstraint = titleButton.widthAnchor.constraint(equalToConstant: 140)
+            let widthConstraint = titleButton.widthAnchor.constraint(lessThanOrEqualToConstant: 140)
             widthConstraint.priority = UILayoutPriority(999)
             let heightConstraint = titleButton.heightAnchor.constraint(equalToConstant: 42)
             NSLayoutConstraint.activate([widthConstraint, heightConstraint])
@@ -4351,37 +4458,40 @@ class ChatViewController: MessagesViewController {
         refreshNavigationAvatarImage()
     }
 
-    private func releaseSelectionLeadingNavigationItemIfNeeded() {
+    internal func releaseSelectionLeadingNavigationItemIfNeeded() {
         guard !self.isInSelectionMode.value else { return }
         let ownsCurrentLeadingItem = navigationItem.leftBarButtonItem === deleteSelectionBarButton ||
             (navigationItem.leftBarButtonItems?.contains { $0 === deleteSelectionBarButton } ?? false)
         guard ownsCurrentLeadingItem else { return }
-        let release = { [weak self] in
-            guard let self else { return }
-            let stillOwnsLeadingItem = self.navigationItem.leftBarButtonItem === self.deleteSelectionBarButton ||
-                (self.navigationItem.leftBarButtonItems?.contains { $0 === self.deleteSelectionBarButton } ?? false)
-            guard stillOwnsLeadingItem else { return }
-            NavigationBarItemOwnership.setIfChanged(
-                .none,
-                on: self.navigationItem,
-                side: .left,
-                animated: false
-            )
-        }
-        if self.deferUntilNavigationTransitionCompletesIfNeeded(release) {
-            return
-        }
-        release()
+        NavigationBarItemOwnership.setIfChanged(
+            .none,
+            on: self.navigationItem,
+            side: .left,
+            animated: false
+        )
     }
 
     private func updateNavbarTitleWidth() {
         guard navigationItem.titleView === titleButton,
               let navigationTitleWidthConstraint else { return }
-        let navBarWidth = navigationController?.navigationBar.bounds.width ?? view.bounds.width
+        let measuredNavigationBarWidth = navigationController?.navigationBar.bounds.width ?? 0
+        let measuredViewWidth = viewIfLoaded?.bounds.width ?? 0
+        let navBarWidth: CGFloat
+        if measuredNavigationBarWidth > 0.5 {
+            navBarWidth = measuredNavigationBarWidth
+        } else if measuredViewWidth > 0.5 {
+            navBarWidth = measuredViewWidth
+        } else {
+            // `configureNavbar()` intentionally runs before the push so the
+            // first navigation frame already contains title and avatar.
+            // Keep the installed 140-point cap until UIKit supplies geometry;
+            // writing zero here collapses the title for the whole transition.
+            return
+        }
         let leftReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
         let rightReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
         let sideReserve = max(leftReserved, rightReserved)
-        let targetWidth = max(140, navBarWidth - sideReserve * 2)
+        let targetWidth = min(140, max(0, navBarWidth - sideReserve * 2))
         if abs(navigationTitleWidthConstraint.constant - targetWidth) > 0.5 {
             navigationTitleWidthConstraint.constant = targetWidth
         }
@@ -5028,6 +5138,7 @@ class ChatViewController: MessagesViewController {
         }
         self.didRunNavigationDisappearanceCleanup = true
         self.didScheduleNavigationDisappearanceCleanup = false
+        self.releaseNavigationAvatarItemAfterConfirmedRemoval()
         self.teardownChatSearchLifecycle(reason: .navigationAway)
         AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
@@ -5402,9 +5513,22 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        self.isNavigationTransitionActive = false
-        self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = false
-        self.flushPendingNavigationTransitionWork()
+        if self.isNavigationTransitionActive,
+           !self.hasRegisteredNavigationTransitionCompletion {
+            // Some custom/interactive navigation drivers expose no transition
+            // coordinator during `viewWillDisappear`. Returning to this chat
+            // is then the authoritative cancellation signal.
+            self.completeNavigationTransitionDeferral(cancelled: true)
+        }
+        // If UIKit has not delivered the transition completion yet, that
+        // callback still owns the decision to flush or purge captured work.
+        // Flushing here can replay stale mode-restoration closures just before
+        // a cancelled interactive pop reports its outcome.
+        if !self.isNavigationTransitionActive {
+            self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = false
+            self.flushPendingNavigationTransitionWork()
+        }
+        self.reconcileNavigationChromeAfterCancelledTransition()
         if self.inSearchMode.value {
             self.configureSearchModeForCurrentActivation(
                 defaultActivateKeyboard: true,
@@ -5454,11 +5578,9 @@ class ChatViewController: MessagesViewController {
         self.cancelDatasetMappingJobs()
         self.flushPendingScrollWork()
         self.collectionPrefetchCoordinator.cancelAll()
-        self.beginNavigationTransitionDeferralIfNeeded()
-        if self.isMovingFromParent || self.isBeingDismissed || self.navigationController?.isBeingDismissed == true {
-            self.invalidateNavigationAvatarItem()
-            NavigationBarItemOwnership.clear(self.navigationItem, sides: [.right], animated: false)
-        }
+        self.beginNavigationTransitionDeferralIfNeeded(
+            forceActiveWithoutCoordinator: animated
+        )
         self.cancelActiveAudioRecordingForLifecycle()
         omemoDeviceListTimer?.invalidate()
         omemoDeviceListTimer = nil
@@ -5544,7 +5666,12 @@ class ChatViewController: MessagesViewController {
         self.cancelInitialBootstrapTimeout()
         self.cancelInitialBootstrapLocalHistoryFallback()
         self.detachInitialBootstrapReadinessObservation()
+        self.releaseInteractiveChatOpenGate()
         self.initialBootstrapQueryId = nil
+        self.initialBootstrapLeaseKey = nil
+        self.initialBootstrapTargetFingerprint = nil
+        self.initialBootstrapFollowUpTargetOverride = nil
+        self.initialBootstrapPresentationDeadline = nil
         self.isInitialBootstrapInFlight = false
         self.initialBootstrapScopedRefreshQueryId = nil
         self.interactiveHistoryCompletionRetryWorkItem?.cancel()

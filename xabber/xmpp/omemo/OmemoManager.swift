@@ -1026,7 +1026,19 @@ extension OmemoManager {
         return nil
     }
     
-    func didReceiveOmemoMessage(_ message: XMPPMessage, fromCCC: Bool = false) -> Bool {
+    internal static func persistDecryptedArchivedMessage(
+        _ message: XMPPMessage,
+        preferredReceiver: MessageManager?,
+        fallbackReceiver: MessageManager?
+    ) {
+        (preferredReceiver ?? fallbackReceiver)?.receiveArchived(message)
+    }
+
+    func didReceiveOmemoMessage(
+        _ message: XMPPMessage,
+        fromCCC: Bool = false,
+        archivedMessageReceiver: MessageManager? = nil
+    ) -> Bool {
         if isArchivedMessage(message) {
             do {
                 guard let bareMessage = getArchivedMessageContainer(message),
@@ -1048,7 +1060,11 @@ extension OmemoManager {
                     resultElement.addAttribute(withName: "result", boolValue: true)
                     message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(resultElement)
                 }
-                AccountManager.shared.find(for: self.owner)?.messages.receiveArchived(message)
+                Self.persistDecryptedArchivedMessage(
+                    message,
+                    preferredReceiver: archivedMessageReceiver,
+                    fallbackReceiver: AccountManager.shared.find(for: self.owner)?.messages
+                )
             } catch {
                 DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
                 return false

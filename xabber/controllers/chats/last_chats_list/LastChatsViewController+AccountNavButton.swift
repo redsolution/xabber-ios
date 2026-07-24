@@ -30,6 +30,17 @@ class AccountNavButton: UIButton {
         static let statusSize: CGFloat = 9
         static let statusOffset: CGFloat = 3
     }
+
+    private struct RenderRequest {
+        let jid: String
+        let status: ResourceStatus
+    }
+
+    private var latestRenderRequest: RenderRequest?
+    private var avatarRequestGeneration = UUID()
+    private var resolvedAvatarRequestKey: String?
+    private var shouldReloadMaskWhenUnfrozen = false
+    internal private(set) var isRenderingFrozen = false
     
     internal let avatarView: UIImageView = {
         let view = UIImageView(frame: .zero)
@@ -89,37 +100,128 @@ class AccountNavButton: UIButton {
         fatalError("init(coder:) has not been implemented")
     }
     
-    var avatarUrl: String? = ""
-    
+    var avatarUrl: String?
+
+    internal func setRenderingFrozen(_ frozen: Bool) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.setRenderingFrozen(frozen)
+            }
+            return
+        }
+        guard isRenderingFrozen != frozen else {
+            return
+        }
+
+        isRenderingFrozen = frozen
+        avatarRequestGeneration = UUID()
+        guard !frozen else {
+            return
+        }
+
+        if shouldReloadMaskWhenUnfrozen {
+            shouldReloadMaskWhenUnfrozen = false
+            applyCurrentMask()
+        }
+        if let latestRenderRequest {
+            render(latestRenderRequest)
+        }
+    }
+
     public func update(jid: String, status: ResourceStatus) {
-        var url: String? = nil
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.update(jid: jid, status: status)
+            }
+            return
+        }
+
+        let request = RenderRequest(jid: jid, status: status)
+        latestRenderRequest = request
+        guard !isRenderingFrozen else {
+            return
+        }
+        render(request)
+    }
+
+    private func render(_ request: RenderRequest) {
+        var url: String?
         do {
             let realm = try WRealm.safe()
-            if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid) {
+            if let instance = realm.object(
+                ofType: AccountStorageItem.self,
+                forPrimaryKey: request.jid
+            ) {
                 url = instance.avatarMinUrl ?? instance.avatarMaxUrl ?? instance.oldschoolAvatarKey
             }
         } catch {
             DDLogDebug("AccountNavButton: \(#function). \(error.localizedDescription)")
         }
-        if avatarUrl != url {
-//            print(url)
-            DefaultAvatarManager.shared.getAvatar(url: url, jid: jid, owner: jid, size: 128) { image in
-                if let image = image {
-                    self.avatarView.image = image
-                    self.avatarUrl = url
-                } else {
-                    self.avatarView.image = UIImageView.getDefaultAvatar(for: jid, owner: jid, size: 128)
+
+        statusView.setStatus(status: request.status, entity: .contact)
+        statusView.border(1)
+
+        let requestKey = [request.jid, url ?? ""].joined(separator: "|")
+        avatarUrl = url
+        guard resolvedAvatarRequestKey != requestKey else {
+            layoutIfNeeded()
+            return
+        }
+
+        avatarView.image = UIImageView.getDefaultAvatar(
+            for: request.jid,
+            owner: request.jid,
+            size: 128
+        ) ?? UIImage(systemName: "person.crop.circle.fill")
+
+        guard url != nil else {
+            resolvedAvatarRequestKey = requestKey
+            layoutIfNeeded()
+            return
+        }
+
+        let generation = UUID()
+        avatarRequestGeneration = generation
+        DefaultAvatarManager.shared.getAvatar(
+            url: url,
+            jid: request.jid,
+            owner: request.jid,
+            size: 128
+        ) { [weak self] image in
+            DispatchQueue.main.async {
+                guard let self,
+                      !self.isRenderingFrozen,
+                      self.avatarRequestGeneration == generation,
+                      self.latestRenderRequest?.jid == request.jid else {
+                    return
                 }
+                guard let image else {
+                    return
+                }
+                self.avatarView.image = image
+                self.resolvedAvatarRequestKey = requestKey
             }
         }
-        
-        statusView.setStatus(status: status, entity: .contact)
-        statusView.border(1)
-        self.layoutIfNeeded()
+
+        layoutIfNeeded()
     }
-    
+
     @objc
     func reloadDatasource() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.reloadDatasource()
+            }
+            return
+        }
+        guard !isRenderingFrozen else {
+            shouldReloadMaskWhenUnfrozen = true
+            return
+        }
+        applyCurrentMask()
+    }
+
+    private func applyCurrentMask() {
         if let image = UIImage(named: AccountMasksManager.shared.mask32pt), AccountMasksManager.shared.load() != "square" {
             avatarView.mask = UIImageView(image: image)
         } else {

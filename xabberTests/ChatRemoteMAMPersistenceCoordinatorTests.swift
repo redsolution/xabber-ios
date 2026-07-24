@@ -673,7 +673,7 @@ final class ChatRemoteMAMPersistenceCoordinatorTests: XCTestCase {
         XCTAssertEqual(releaseCount, 1)
     }
 
-    func testUnavailableSendReadinessDispatchesFailureAndReleasesMamLane() {
+    func testNotReadyRequestQueuesUntilResetDispatchesFailureAndLeavesMamLaneReusable() {
         let owner = "interactive-mam-not-ready-\(UUID().uuidString)@example.com"
         let account = Account(
             jid: owner,
@@ -687,8 +687,14 @@ final class ChatRemoteMAMPersistenceCoordinatorTests: XCTestCase {
 
         XCTAssertFalse(account.sendReadiness.snapshot.canFlushApplicationStanzas)
 
-        let unavailable = expectation(description: "not-ready request reports dispatch unavailable")
-        let mamLaneReleased = expectation(description: "not-ready request releases MAM lane")
+        let unavailable = expectation(description: "reset reports queued dispatch unavailable")
+        unavailable.assertForOverFulfill = true
+        let mamLaneAvailableWhileQueued = expectation(
+            description: "not-ready pending request does not occupy the MAM lane"
+        )
+        let replacementMamRuns = expectation(
+            description: "MAM lane remains reusable after queued request termination"
+        )
         let stateLock = NSLock()
         var didAttemptSend = false
         var unavailableReason: String?
@@ -725,13 +731,36 @@ final class ChatRemoteMAMPersistenceCoordinatorTests: XCTestCase {
         account.xmppTaskScheduler.enqueue(
             priority: .interactive,
             resource: .mamArchive,
-            deduplicationKey: "after-interactive-not-ready"
+            deduplicationKey: "alongside-interactive-not-ready"
         ) { finish in
-            mamLaneReleased.fulfill()
+            mamLaneAvailableWhileQueued.fulfill()
             finish()
         }
 
-        wait(for: [unavailable, mamLaneReleased], timeout: 1)
+        wait(for: [mamLaneAvailableWhileQueued], timeout: 1)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        stateLock.lock()
+        let attemptedSendBeforeReset = didAttemptSend
+        let unavailableBeforeReset = unavailableReason
+        stateLock.unlock()
+        XCTAssertFalse(attemptedSendBeforeReset)
+        XCTAssertNil(
+            unavailableBeforeReset,
+            "temporary send unavailability must keep authenticated work queued"
+        )
+
+        account.xmppTaskScheduler.reset()
+        wait(for: [unavailable], timeout: 1)
+        account.xmppTaskScheduler.enqueue(
+            priority: .interactive,
+            resource: .mamArchive,
+            deduplicationKey: "replacement-after-interactive-not-ready"
+        ) { finish in
+            replacementMamRuns.fulfill()
+            finish()
+        }
+        wait(for: [replacementMamRuns], timeout: 1)
+
         stateLock.lock()
         let attemptedSend = didAttemptSend
         let reason = unavailableReason

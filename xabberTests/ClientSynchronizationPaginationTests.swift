@@ -3,11 +3,46 @@ import RealmSwift
 import XMPPFramework
 @testable import xabber
 
+private final class ClientSyncRequestRecorder {
+    private let lock = NSLock()
+    private var recordedRequests: [ClientSynchronizationManager.SyncRequestDiagnostics] = []
+
+    func record(_ request: ClientSynchronizationManager.SyncRequestDiagnostics) {
+        lock.lock()
+        recordedRequests.append(request)
+        lock.unlock()
+    }
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedRequests.count
+    }
+
+    var last: ClientSynchronizationManager.SyncRequestDiagnostics? {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedRequests.last
+    }
+
+    func request(at index: Int) -> ClientSynchronizationManager.SyncRequestDiagnostics? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard recordedRequests.indices.contains(index) else {
+            return nil
+        }
+        return recordedRequests[index]
+    }
+}
+
 final class ClientSynchronizationPaginationTests: XCTestCase {
     private var owner: String = ""
+    private var previousRealmConfiguration: Realm.Configuration?
+    private var managers: [ClientSynchronizationManager] = []
 
     override func setUp() {
         super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
         owner = "sync-\(UUID().uuidString)@example.com"
         Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "ClientSynchronizationPaginationTests-\(name)")
         ClientSynchronizationManager.remove(for: owner, commitTransaction: false)
@@ -24,6 +59,76 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
             account.enabled = true
             realm.add(account, update: .modified)
         }
+    }
+
+    override func tearDown() {
+        managers.forEach { $0.waitForPendingSnapshotApplies() }
+        managers.forEach { manager in
+            manager.syncRequestObserver = nil
+            manager.beforeApplyingSyncPayload = nil
+            manager.initialPresenceSendAttemptObserver = nil
+            manager.beforeResettingSyncResult = nil
+            manager.beforeResettingSnapshotFailure = nil
+            manager.beforeDispatchingSnapshotContinuation = nil
+            manager.reset()
+        }
+        AccountManager.shared.find(for: owner)?.mam.snapshotRepairEnqueueObserver = nil
+        ClientSynchronizationManager.remove(for: owner, commitTransaction: false)
+        AccountManager.shared.users.removeAll()
+        AccountManager.shared.activeUsers.accept(Set<String>())
+        AccountManager.shared.connectingUsers.accept(Set<String>())
+        AccountManager.shared.authenticatedUsers.accept(Set<String>())
+        managers.removeAll()
+        if let previousRealmConfiguration {
+            Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        }
+        previousRealmConfiguration = nil
+        owner = ""
+        super.tearDown()
+    }
+
+    private func makeManager(
+        recording requests: ClientSyncRequestRecorder? = nil
+    ) -> ClientSynchronizationManager {
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        manager.isAvailable = true
+        if let requests {
+            manager.syncRequestObserver = { requests.record($0) }
+        }
+        managers.append(manager)
+        return manager
+    }
+
+    private func startTrackedSnapshot(
+        with manager: ClientSynchronizationManager,
+        recording requests: ClientSyncRequestRecorder,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> ClientSynchronizationManager.SyncRequestDiagnostics {
+        XCTAssertTrue(manager.sync(XMPPStream()), file: file, line: line)
+        return try XCTUnwrap(
+            requests.request(at: 0),
+            "Initial synchronization request was not recorded",
+            file: file,
+            line: line
+        )
+    }
+
+    private func waitForRequest(
+        at index: Int,
+        in requests: ClientSyncRequestRecorder,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> ClientSynchronizationManager.SyncRequestDiagnostics {
+        try waitUntil("sync request at index \(index)", file: file, line: line) {
+            requests.count > index
+        }
+        return try XCTUnwrap(
+            requests.request(at: index),
+            "Synchronization request at index \(index) was not recorded",
+            file: file,
+            line: line
+        )
     }
 
     private func prepareManagedAccount() {
@@ -67,17 +172,6 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
         }
         XCTFail("Timed out waiting for \(description)", file: file, line: line)
-    }
-
-    private func waitForRequestCount(
-        _ expectedCount: Int,
-        in requests: () -> [ClientSynchronizationManager.SyncRequestDiagnostics],
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) throws {
-        try waitUntil("sync request count \(expectedCount)", file: file, line: line) {
-            requests().count >= expectedCount
-        }
     }
 
     private func conversationXML(
@@ -179,10 +273,8 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
             key: "last_recognized_event_stamp",
             value: completedStamp
         )
-        let manager = ClientSynchronizationManager(withOwner: owner)
-        manager.isAvailable = true
-        var requests: [ClientSynchronizationManager.SyncRequestDiagnostics] = []
-        manager.syncRequestObserver = { requests.append($0) }
+        let requests = ClientSyncRequestRecorder()
+        let manager = makeManager(recording: requests)
 
         XCTAssertTrue(manager.sync(XMPPStream()))
         XCTAssertEqual(try XCTUnwrap(requests.last).stamp, completedStamp)
@@ -190,8 +282,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
     }
 
     func testInitialSyncWithoutCompletedSnapshotHoldsBootstrapGate() {
-        let manager = ClientSynchronizationManager(withOwner: owner)
-        manager.isAvailable = true
+        let manager = makeManager()
 
         XCTAssertTrue(manager.sync(XMPPStream()))
         XCTAssertTrue(manager.isBootstrapCriticalSyncInProgress())
@@ -199,13 +290,12 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
 
     func testInitialSnapshotRequestsAndAppliesAllThreePagesBeforeCompletion() throws {
         prepareManagedAccount()
-        let manager = ClientSynchronizationManager(withOwner: owner)
-        manager.isAvailable = true
-        var requests: [ClientSynchronizationManager.SyncRequestDiagnostics] = []
-        manager.syncRequestObserver = { requests.append($0) }
+        let requests = ClientSyncRequestRecorder()
+        let manager = makeManager(recording: requests)
+        let firstRequest = try startTrackedSnapshot(with: manager, recording: requests)
 
         XCTAssertTrue(manager.read(withIQ: try snapshotIQ(
-            id: "page-1",
+            id: firstRequest.id,
             conversations: [
                 conversationXML(jid: "chat-1@example.com", messageId: "m1", archiveId: "a1"),
                 conversationXML(jid: "chat-2@example.com", messageId: "m2", archiveId: "a2")
@@ -216,14 +306,14 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
             rsmCount: 5
         )))
         try waitUntil("first page applied") { try self.lastChatCount() == 2 }
-        try waitUntil("second page requested") { requests.last?.after == "cursor-2" }
-        XCTAssertEqual(requests.last?.after, "cursor-2")
+        let secondRequest = try waitForRequest(at: 1, in: requests)
+        XCTAssertEqual(secondRequest.after, "cursor-2")
         XCTAssertTrue(storedClientSyncValue("last_completed_snapshot_stamp")?.isEmpty ?? true)
         XCTAssertTrue(storedClientSyncValue("last_recognized_event_stamp")?.isEmpty ?? true)
         XCTAssertNotEqual(storedClientSyncValue("version"), "1776840442469439")
 
         XCTAssertTrue(manager.read(withIQ: try snapshotIQ(
-            id: "page-2",
+            id: secondRequest.id,
             conversations: [
                 conversationXML(jid: "chat-3@example.com", messageId: "m3", archiveId: "a3"),
                 conversationXML(jid: "chat-4@example.com", messageId: "m4", archiveId: "a4")
@@ -234,12 +324,12 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
             rsmCount: 5
         )))
         try waitUntil("second page applied") { try self.lastChatCount() == 4 }
-        try waitUntil("third page requested") { requests.last?.after == "cursor-4" }
-        XCTAssertEqual(requests.last?.after, "cursor-4")
+        let thirdRequest = try waitForRequest(at: 2, in: requests)
+        XCTAssertEqual(thirdRequest.after, "cursor-4")
         XCTAssertTrue(storedClientSyncValue("last_completed_snapshot_stamp")?.isEmpty ?? true)
 
         XCTAssertTrue(manager.read(withIQ: try snapshotIQ(
-            id: "page-3",
+            id: thirdRequest.id,
             conversations: [
                 conversationXML(jid: "chat-5@example.com", messageId: "m5", archiveId: "a5")
             ],
@@ -260,13 +350,12 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
 
     func testFreshFullSnapshotContinuationPreservesOmittedStamp() throws {
         prepareManagedAccount()
-        let manager = ClientSynchronizationManager(withOwner: owner)
-        manager.isAvailable = true
-        var requests: [ClientSynchronizationManager.SyncRequestDiagnostics] = []
-        manager.syncRequestObserver = { requests.append($0) }
+        let requests = ClientSyncRequestRecorder()
+        let manager = makeManager(recording: requests)
+        let firstRequest = try startTrackedSnapshot(with: manager, recording: requests)
 
         XCTAssertTrue(manager.read(withIQ: try snapshotIQ(
-            id: "nostamp-page-1",
+            id: firstRequest.id,
             conversations: [
                 conversationXML(jid: "nostamp-1@example.com", messageId: "m1", archiveId: "a1")
             ],
@@ -276,21 +365,19 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
             rsmCount: 2
         )))
 
-        try waitForRequestCount(1, in: { requests })
-        XCTAssertNil(requests.last?.stamp)
-        XCTAssertEqual(requests.last?.after, "nostamp-cursor-2")
+        let continuationRequest = try waitForRequest(at: 1, in: requests)
+        XCTAssertNil(continuationRequest.stamp)
+        XCTAssertEqual(continuationRequest.after, "nostamp-cursor-2")
     }
 
     func testInitialSnapshotAppliesThreeHundredTwoConversationFixtureAcrossAllPages() throws {
         prepareManagedAccount()
-        let manager = ClientSynchronizationManager(withOwner: owner)
-        manager.isAvailable = true
-        var requests: [ClientSynchronizationManager.SyncRequestDiagnostics] = []
-        manager.syncRequestObserver = { requests.append($0) }
+        let requests = ClientSyncRequestRecorder()
+        let manager = makeManager(recording: requests)
 
         let total = 302
         var applied = 0
-        var responseId = "bulk-page-1"
+        var responseId = try startTrackedSnapshot(with: manager, recording: requests).id
 
         while applied < total {
             let pageStart = applied
@@ -323,8 +410,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
             }
 
             if applied < total {
-                try waitForRequestCount(pageNumber, in: { requests })
-                let request = try XCTUnwrap(requests.last)
+                let request = try waitForRequest(at: pageNumber, in: requests)
                 XCTAssertNil(request.stamp)
                 XCTAssertEqual(request.after, lastCursor)
                 responseId = request.id
@@ -341,11 +427,12 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
 
     func testIncompleteSnapshotRestartRequestsFreshSnapshotWhenNoCompletedSnapshotExists() throws {
         prepareManagedAccount()
-        let firstManager = ClientSynchronizationManager(withOwner: owner)
-        firstManager.isAvailable = true
+        let firstRequests = ClientSyncRequestRecorder()
+        let firstManager = makeManager(recording: firstRequests)
+        let firstRequest = try startTrackedSnapshot(with: firstManager, recording: firstRequests)
 
         XCTAssertTrue(firstManager.read(withIQ: try snapshotIQ(
-            id: "restart-page-1",
+            id: firstRequest.id,
             conversations: [
                 conversationXML(jid: "restart-1@example.com", messageId: "m1", archiveId: "a1"),
                 conversationXML(jid: "restart-2@example.com", messageId: "m2", archiveId: "a2")
@@ -358,25 +445,22 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         try waitUntil("incomplete first page applied") { try self.lastChatCount() == 2 }
         XCTAssertTrue(storedClientSyncValue("last_completed_snapshot_stamp")?.isEmpty ?? true)
 
-        let relaunchedManager = ClientSynchronizationManager(withOwner: owner)
-        relaunchedManager.isAvailable = true
-        var requests: [ClientSynchronizationManager.SyncRequestDiagnostics] = []
-        relaunchedManager.syncRequestObserver = { requests.append($0) }
+        let relaunchedRequests = ClientSyncRequestRecorder()
+        let relaunchedManager = makeManager(recording: relaunchedRequests)
+        let relaunchedRequest = try startTrackedSnapshot(
+            with: relaunchedManager,
+            recording: relaunchedRequests
+        )
 
-        XCTAssertTrue(relaunchedManager.sync(XMPPStream()))
-        XCTAssertNil(requests.last?.stamp)
-        XCTAssertNil(requests.last?.after)
+        XCTAssertNil(relaunchedRequest.stamp)
+        XCTAssertNil(relaunchedRequest.after)
     }
 
     func testTrackedSyncResultWithMalformedSnapshotQueryKeepsIncompleteMarkerAndAllowsSafeRetry() throws {
         prepareManagedAccount()
-        let manager = ClientSynchronizationManager(withOwner: owner)
-        manager.isAvailable = true
-        var requests: [ClientSynchronizationManager.SyncRequestDiagnostics] = []
-        manager.syncRequestObserver = { requests.append($0) }
-
-        XCTAssertTrue(manager.sync(XMPPStream()))
-        let request = try XCTUnwrap(requests.last)
+        let requests = ClientSyncRequestRecorder()
+        let manager = makeManager(recording: requests)
+        let request = try startTrackedSnapshot(with: manager, recording: requests)
 
         XCTAssertTrue(manager.read(withIQ: try makeIQ("""
         <iq type='result' id='\(request.id)'>
@@ -399,12 +483,13 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
 
     func testPostBootstrapWorkRunsOnlyAfterFinalSnapshotPage() throws {
         prepareManagedAccount()
-        let manager = ClientSynchronizationManager(withOwner: owner)
-        manager.isAvailable = true
+        let requests = ClientSyncRequestRecorder()
+        let manager = makeManager(recording: requests)
+        let firstRequest = try startTrackedSnapshot(with: manager, recording: requests)
         var didRunPostBootstrapWork = false
 
         XCTAssertTrue(manager.read(withIQ: try snapshotIQ(
-            id: "post-bootstrap-page-1",
+            id: firstRequest.id,
             conversations: [
                 conversationXML(jid: "post-bootstrap-1@example.com", messageId: "pb1", archiveId: "pba1")
             ],
@@ -420,8 +505,10 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         })
         XCTAssertFalse(didRunPostBootstrapWork)
 
+        let secondRequest = try waitForRequest(at: 1, in: requests)
+        XCTAssertEqual(secondRequest.after, "post-bootstrap-cursor-2")
         XCTAssertTrue(manager.read(withIQ: try snapshotIQ(
-            id: "post-bootstrap-page-2",
+            id: secondRequest.id,
             conversations: [
                 conversationXML(jid: "post-bootstrap-2@example.com", messageId: "pb2", archiveId: "pba2")
             ],
@@ -440,15 +527,16 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         prepareManagedAccount()
         let jid = "repair@example.com"
         try insertSyncedLastChat(jid: jid)
-        let manager = ClientSynchronizationManager(withOwner: owner)
-        manager.isAvailable = true
+        let requests = ClientSyncRequestRecorder()
+        let manager = makeManager(recording: requests)
+        let firstRequest = try startTrackedSnapshot(with: manager, recording: requests)
         var observedRepairs: [MessageArchiveManager.SnapshotRepairTarget] = []
         AccountManager.shared.find(for: owner)?.mam.snapshotRepairEnqueueObserver = { target, _, _ in
             observedRepairs.append(target)
         }
 
         XCTAssertTrue(manager.read(withIQ: try snapshotIQ(
-            id: "repair-page-1",
+            id: firstRequest.id,
             conversations: [
                 unreadConversationXML(jid: jid, unread: 2, after: "after-2")
             ],
@@ -467,8 +555,10 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         }
         XCTAssertTrue(observedRepairs.isEmpty)
 
+        let secondRequest = try waitForRequest(at: 1, in: requests)
+        XCTAssertEqual(secondRequest.after, "repair-cursor-1")
         XCTAssertTrue(manager.read(withIQ: try snapshotIQ(
-            id: "repair-page-2",
+            id: secondRequest.id,
             conversations: [],
             rsmFirst: "repair-cursor-2",
             rsmFirstIndex: 2,
@@ -482,11 +572,12 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
 
     func testDuplicateConversationKeysAcrossPagesAreIdempotentAndPaginationContinues() throws {
         prepareManagedAccount()
-        let manager = ClientSynchronizationManager(withOwner: owner)
-        manager.isAvailable = true
+        let requests = ClientSyncRequestRecorder()
+        let manager = makeManager(recording: requests)
+        let firstRequest = try startTrackedSnapshot(with: manager, recording: requests)
 
         XCTAssertTrue(manager.read(withIQ: try snapshotIQ(
-            id: "duplicate-page-1",
+            id: firstRequest.id,
             conversations: [
                 conversationXML(jid: "duplicate@example.com", messageId: "dup-old", archiveId: "dup-a1"),
                 conversationXML(jid: "unique-1@example.com", messageId: "u1", archiveId: "u-a1")
@@ -498,8 +589,10 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         )))
         try waitUntil("duplicate first page applied") { try self.lastChatCount() == 2 }
 
+        let secondRequest = try waitForRequest(at: 1, in: requests)
+        XCTAssertEqual(secondRequest.after, "duplicate-cursor-2")
         XCTAssertTrue(manager.read(withIQ: try snapshotIQ(
-            id: "duplicate-page-2",
+            id: secondRequest.id,
             conversations: [
                 conversationXML(jid: "duplicate@example.com", messageId: "dup-new", archiveId: "dup-a2"),
                 conversationXML(jid: "unique-2@example.com", messageId: "u2", archiveId: "u-a2")
@@ -517,13 +610,12 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
 
     func testRepeatedContinuationCursorDoesNotMarkSnapshotComplete() throws {
         prepareManagedAccount()
-        let manager = ClientSynchronizationManager(withOwner: owner)
-        manager.isAvailable = true
-        var requests: [ClientSynchronizationManager.SyncRequestDiagnostics] = []
-        manager.syncRequestObserver = { requests.append($0) }
+        let requests = ClientSyncRequestRecorder()
+        let manager = makeManager(recording: requests)
+        let firstRequest = try startTrackedSnapshot(with: manager, recording: requests)
 
         XCTAssertTrue(manager.read(withIQ: try snapshotIQ(
-            id: "stalled-page-1",
+            id: firstRequest.id,
             conversations: [
                 conversationXML(jid: "stalled-1@example.com", messageId: "s1", archiveId: "s-a1")
             ],
@@ -532,10 +624,11 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
             rsmLast: "stalled-cursor-repeat",
             rsmCount: 3
         )))
-        try waitUntil("stalled second page requested") { requests.last?.after == "stalled-cursor-repeat" }
+        let secondRequest = try waitForRequest(at: 1, in: requests)
+        XCTAssertEqual(secondRequest.after, "stalled-cursor-repeat")
 
         XCTAssertTrue(manager.read(withIQ: try snapshotIQ(
-            id: "stalled-page-2",
+            id: secondRequest.id,
             conversations: [
                 conversationXML(jid: "stalled-2@example.com", messageId: "s2", archiveId: "s-a2")
             ],
@@ -554,8 +647,9 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
 
     func testV3InviteConversationFromSnapshotDoesNotCreateFakeChat() throws {
         prepareManagedAccount()
-        let manager = ClientSynchronizationManager(withOwner: owner)
-        manager.isAvailable = true
+        let requests = ClientSyncRequestRecorder()
+        let manager = makeManager(recording: requests)
+        let firstRequest = try startTrackedSnapshot(with: manager, recording: requests)
         let groupchat = "stage@example.com"
 
         let inviteConversation = """
@@ -571,7 +665,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         """
 
         XCTAssertTrue(manager.read(withIQ: try snapshotIQ(
-            id: "invite-page",
+            id: firstRequest.id,
             conversations: [inviteConversation],
             rsmFirst: "invite-cursor",
             rsmFirstIndex: 0,

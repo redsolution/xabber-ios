@@ -2254,16 +2254,13 @@ extension ChatViewController {
             )
             self.updateChatCollectionInsets(inputHeight: inputHeight)
             self.becomeFirstResponder()
-            self.navigationItem.setHidesBackButton(false, animated: false)
             self.applyChatDatasource(
                 self.datasource,
                 mode: .fullReload(keepOffset: true),
                 animated: false,
                 suppressDefaultBottomScroll: true
             )
-            UIView.performWithoutAnimation {
-                self.configureNavbar()
-            }
+            _ = self.restoreNormalNavbarAfterSearchIfNeeded()
         }
         let shouldAnimate = ChatSearchMotionMutationPolicy.shouldAnimate(
             requestedAnimated: true,
@@ -5550,10 +5547,7 @@ extension ChatViewController {
         xabberInputView.changeState(to: .normal)
         let inputHeight = updateChatInputViewForCurrentKeyboardLayout(visibleKeyboardHeight: 0)
         updateChatCollectionInsets(inputHeight: inputHeight)
-        navigationItem.setHidesBackButton(false, animated: false)
-        UIView.performWithoutAnimation {
-            configureNavbar()
-        }
+        _ = restoreNormalNavbarAfterSearchIfNeeded()
         setChatSearchCalendarDateResolutionLoading(true)
     }
 
@@ -6141,7 +6135,11 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
     internal func consumeInitialBootstrapCommittedPage(
         _ page: ChatInitialBootstrapRequestCoordinator.CommittedPage
     ) {
-        DispatchQueue.main.async { [weak self] in
+        // Readiness observation already crosses to the main queue. Executing
+        // immediately when it arrives prevents a snapshot consumer from
+        // completing its lease one run-loop turn before the joined UI records
+        // the committed page. Background/cache callers still get one safe hop.
+        self.performOnMain { [weak self] in
             guard let self,
                   self.initialBootstrapQueryId == page.event.queryId else {
                 return

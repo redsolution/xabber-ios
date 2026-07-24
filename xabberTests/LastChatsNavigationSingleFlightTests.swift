@@ -19,6 +19,20 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         conversationType: .regular
     )
 
+    func testDefaultPreparationGuardRunsAfterFirstFrameFallbackDeadline() {
+        XCTAssertGreaterThan(
+            LastChatsNavigationSingleFlightCoordinator.defaultPreparationTimeout,
+            StackedNavigationPresentationTimingPolicy
+                .asynchronousPreparationFallbackDelay,
+            "the outer navigation guard must not cancel the 450-ms destination fallback before it commits skeleton"
+        )
+        XCTAssertLessThanOrEqual(
+            LastChatsNavigationSingleFlightCoordinator.defaultPreparationTimeout,
+            1,
+            "the outer guard remains a short emergency bound"
+        )
+    }
+
     func testIdleRequestStartsPreparationForTargetAndToken() {
         var coordinator = LastChatsNavigationSingleFlightCoordinator()
         let token = UUID()

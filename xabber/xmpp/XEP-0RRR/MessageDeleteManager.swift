@@ -61,6 +61,9 @@ class MessageDeleteManager: AbstractXMPPManager {
     
     internal var isEnabled: Bool = false
     internal var itemsQuery: SynchronizedArray<Item> = SynchronizedArray<Item>()
+    internal var queuedMessageManagerResolver: (String) -> MessageManager? = {
+        AccountManager.shared.find(for: $0)?.messages
+    }
     
     override func namespaces() -> [String] {
         return [getPrimaryNamespace()]
@@ -109,21 +112,43 @@ class MessageDeleteManager: AbstractXMPPManager {
         default: return false
         }
     }
+
+    private func notificationConversationType(
+        rawValue: String
+    ) -> ClientSynchronizationManager.ConversationType? {
+        // Rewrite notifications in the deployed protocol still use the
+        // compact `regular` alias, while Realm stores the canonical namespace.
+        if rawValue == "regular" {
+            return .regular
+        }
+        return ClientSynchronizationManager.ConversationType(rawValue: rawValue)
+            ?? ClientSynchronizationManager.ConversationType(
+                rawValue: CommonConfigManager.shared.config.locked_conversation_type
+            )
+    }
     
     internal func readRetractAllNotify(_ message: XMPPMessage) -> Bool {
         guard let retract = message.element(forName: "retract-all", xmlns: [getPrimaryNamespace(), "notify"].joined(separator: "#")),
               let jid = retract.attributeStringValue(forName: "conversation"),
               let conversationTypeRaw = retract.attributeStringValue(forName: "type"),
-              let conversationType = ClientSynchronizationManager.ConversationType(rawValue: conversationTypeRaw) ?? ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type),
+              let conversationType = notificationConversationType(
+                  rawValue: conversationTypeRaw
+              ),
               let version = retract.attributeStringValue(forName: "version") else {
                 return false
         }
+        let storedConversationTypeRaw = conversationType.rawValue
         updateVersion(version)
         do {
             let realm = try  WRealm.safe()
             let messages = realm
                 .objects(MessageStorageItem.self)
-                .filter("owner == %@ AND opponent == %@ AND conversationType_ == %@", owner, jid, conversationTypeRaw)
+                .filter(
+                    "owner == %@ AND opponent == %@ AND conversationType_ == %@",
+                    owner,
+                    jid,
+                    storedConversationTypeRaw
+                )
             let instance = realm
                 .object(
                     ofType: LastChatsStorageItem.self,
@@ -133,7 +158,13 @@ class MessageDeleteManager: AbstractXMPPManager {
                         conversationType: conversationType
                     )
                 )
-            let references = realm.objects(MessageReferenceStorageItem.self).filter("jid == %@ AND conversationType_ == %@", jid, conversationTypeRaw)
+            let references = realm
+                .objects(MessageReferenceStorageItem.self)
+                .filter(
+                    "jid == %@ AND conversationType_ == %@",
+                    jid,
+                    storedConversationTypeRaw
+                )
             if messages.isEmpty { return false }
             try realm.write {
                 if !(instance?.isInvalidated ?? true) {
@@ -171,17 +202,25 @@ class MessageDeleteManager: AbstractXMPPManager {
         guard let retract = message.element(forName: "retract-message"),
               let conversation = retract.attributeStringValue(forName: "conversation"),
               let conversationTypeRaw = retract.attributeStringValue(forName: "type"),
-              let conversationType = ClientSynchronizationManager.ConversationType(rawValue: conversationTypeRaw) ?? ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type),
+              let conversationType = notificationConversationType(
+                  rawValue: conversationTypeRaw
+              ),
               let stanzaId = retract.attributeStringValue(forName: "id"),
               let version = retract.attributeStringValue(forName: "version") else {
                 return false
         }
-        updateVersion(version)
+        let storedConversationTypeRaw = conversationType.rawValue
         do {
             let realm = try  WRealm.safe()
             if let instance = realm
                 .objects(MessageStorageItem.self)
-                .filter("owner == %@ AND opponent == %@ AND archivedId == %@ AND conversationType_ == %@", owner, conversation, stanzaId, conversationTypeRaw)
+                .filter(
+                    "owner == %@ AND opponent == %@ AND archivedId == %@ AND conversationType_ == %@",
+                    owner,
+                    conversation,
+                    stanzaId,
+                    storedConversationTypeRaw
+                )
                 .first {
                 try realm.write {
                     if let lastChat = realm.object(
@@ -200,7 +239,7 @@ class MessageDeleteManager: AbstractXMPPManager {
                                 "owner == %@ AND opponent == %@ AND isDeleted == false AND conversationType_ == %@",
                                 self.owner,
                                 conversation,
-                                conversationTypeRaw
+                                storedConversationTypeRaw
                             )
                             .sorted(byKeyPath: "date", ascending: false)
                             .first
@@ -216,16 +255,19 @@ class MessageDeleteManager: AbstractXMPPManager {
                 }
                 LastChats.updateErrorState(for: conversation, owner: self.owner, conversationType: conversationType)
             } else {
-                if (AccountManager.shared.find(for: self.owner)?.messages.messagesQueue.value.contains(where: {
-                    return getStanzaId($0.message, owner: self.owner) == stanzaId
-                }) ?? false) {
-                    AccountManager.shared.find(for: self.owner)?.messages.storeMessagesNow()
-                    return readRetractMessageNotify(message)
+                if deferMutationUntilQueuedMessageIsPersisted(
+                    stanzaId: stanzaId,
+                    retry: { [weak self] in
+                        _ = self?.readRetractMessageNotify(message)
+                    }
+                ) {
+                    return true
                 }
             }
         } catch {
             DDLogDebug("MessageDeleteManager: \(#function). \(error.localizedDescription)")
         }
+        updateVersion(version)
         return true
     }
     
@@ -234,13 +276,14 @@ class MessageDeleteManager: AbstractXMPPManager {
               let version = replace.attributeStringValue(forName: "version"),
               let conversation = replace.attributeStringValue(forName: "conversation"),
               let conversationTypeRaw = replace.attributeStringValue(forName: "type"),
-              let conversationType = ClientSynchronizationManager.ConversationType(rawValue: conversationTypeRaw) ?? ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type),
+              let conversationType = notificationConversationType(
+                  rawValue: conversationTypeRaw
+              ),
               let messageContainer = replace.element(forName: "message"),
               let stanzaId = replace.attributeStringValue(forName: "id"),
               let editDate = messageContainer.element(forName: "replaced")?.attributeStringValue(forName: "stamp")?.xmppDate else {
                 return false
         }
-        updateVersion(version)
         do {
             let realm = try  WRealm.safe()
             if let instance = realm
@@ -260,16 +303,36 @@ class MessageDeleteManager: AbstractXMPPManager {
                         .retractVersion = version
                 }
             } else {
-                if (AccountManager.shared.find(for: self.owner)?.messages.messagesQueue.value.contains(where: {
-                    return getStanzaId($0.message, owner: self.owner) == stanzaId
-                }) ?? false) {
-                    AccountManager.shared.find(for: self.owner)?.messages.storeMessagesNow()
-                    return readRewriteNotify(message)
+                if deferMutationUntilQueuedMessageIsPersisted(
+                    stanzaId: stanzaId,
+                    retry: { [weak self] in
+                        _ = self?.readRewriteNotify(message)
+                    }
+                ) {
+                    return true
                 }
             }
         } catch {
             DDLogDebug("MessageDeleteManager: \(#function). \(error.localizedDescription)")
         }
+        updateVersion(version)
+        return true
+    }
+
+    private func deferMutationUntilQueuedMessageIsPersisted(
+        stanzaId: String,
+        retry: @escaping () -> Void
+    ) -> Bool {
+        guard let messages = queuedMessageManagerResolver(owner),
+              messages.messagesQueue.value.contains(where: {
+                  getStanzaId($0.message, owner: self.owner) == stanzaId
+              }) else {
+            return false
+        }
+        messages.persistQueuedMessageForMutation(
+            archivedId: stanzaId,
+            completion: retry
+        )
         return true
     }
     

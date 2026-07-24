@@ -4175,7 +4175,7 @@ final class NavigationTransitionMutationPolicyTests: XCTestCase {
         )
     }
 
-    func testLastChatsDeferredBootstrapFlushesOnceOrDropsOnCancelledTransition() {
+    func testLastChatsDeferredBootstrapFlushesFreshDatasetAfterCompletedOrCancelledTransition() {
         XCTAssertEqual(
             LastChatsBootstrapDatasetUpdatePolicy.deferredDatasetUpdateAction(
                 cancelled: false,
@@ -4195,7 +4195,7 @@ final class NavigationTransitionMutationPolicyTests: XCTestCase {
                 cancelled: true,
                 hasPendingUpdate: true
             ),
-            .drop
+            .flush
         )
     }
 
@@ -8626,6 +8626,78 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
         XCTAssertEqual(completedEvents, ["conversation", "other"])
     }
 
+    func testAuthenticatedAccountTaskRemainsQueuedUntilStreamBecomesSendReady() {
+        let account = Account(
+            jid: "scheduler-readiness@example.com",
+            queue: DispatchQueue(label: "AccountXMPPTaskSchedulerTests.readiness")
+        )
+        let scheduler = AccountXMPPTaskScheduler(
+            account: account,
+            configuration: .test(defaultCooldown: 0)
+        )
+        let didNotStartBeforeReadiness = expectation(
+            description: "authenticated task remains pending before stream readiness"
+        )
+        didNotStartBeforeReadiness.isInverted = true
+        let startedAfterReadiness = expectation(
+            description: "authenticated task starts after readiness transition"
+        )
+        var isCheckingEarlyStart = true
+
+        scheduler.enqueueAccountTask(
+            priority: .interactive,
+            resource: .mamArchive,
+            deduplicationKey: "interactive-chat-readiness"
+        ) { _, _, finish in
+            if isCheckingEarlyStart {
+                didNotStartBeforeReadiness.fulfill()
+            }
+            startedAfterReadiness.fulfill()
+            finish()
+        }
+
+        wait(for: [didNotStartBeforeReadiness], timeout: 0.1)
+        isCheckingEarlyStart = false
+
+        account.sendReadiness.markStreamManagementEnabled()
+        scheduler.streamReadinessDidChange()
+
+        wait(for: [startedAfterReadiness], timeout: 1)
+    }
+
+    func testResetReportsUnavailableForPendingAuthenticatedAccountTask() {
+        let account = Account(
+            jid: "scheduler-reset-unavailable@example.com",
+            queue: DispatchQueue(label: "AccountXMPPTaskSchedulerTests.reset-unavailable")
+        )
+        let scheduler = AccountXMPPTaskScheduler(
+            account: account,
+            configuration: .test(defaultCooldown: 0)
+        )
+        let didNotStart = expectation(description: "pending task must not start")
+        didNotStart.isInverted = true
+        let unavailable = expectation(
+            description: "reset terminalizes pending authenticated task"
+        )
+
+        scheduler.enqueueAccountTask(
+            priority: .interactive,
+            resource: .mamArchive,
+            deduplicationKey: "interactive-chat-reset",
+            unavailable: {
+                unavailable.fulfill()
+            }
+        ) { _, _, finish in
+            didNotStart.fulfill()
+            finish()
+        }
+
+        scheduler.reset()
+
+        wait(for: [unavailable], timeout: 1)
+        wait(for: [didNotStart], timeout: 0.1)
+    }
+
     func testMamArchiveTasksAreMutuallyExclusive() {
         let scheduler = AccountXMPPTaskScheduler(configuration: .test(defaultCooldown: 0))
         let firstStarted = expectation(description: "first MAM task started")
@@ -8662,11 +8734,12 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
         let secondDidNotStartDuringCooldown = expectation(description: "second vCard task waits for cooldown")
         secondDidNotStartDuringCooldown.isInverted = true
         let secondStarted = expectation(description: "second vCard task started after cooldown")
+        var finishFirst: (() -> Void)?
         var isCheckingCooldown = true
 
         scheduler.enqueue(priority: .background, resource: .vcard, deduplicationKey: "first") { finish in
+            finishFirst = finish
             firstStarted.fulfill()
-            finish()
         }
         scheduler.enqueue(priority: .background, resource: .vcard, deduplicationKey: "second") { finish in
             if isCheckingCooldown {
@@ -8677,6 +8750,7 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
         }
 
         wait(for: [firstStarted], timeout: 1)
+        finishFirst?()
         wait(for: [secondDidNotStartDuringCooldown], timeout: 0.05)
         isCheckingCooldown = false
         wait(for: [secondStarted], timeout: 1)
@@ -18879,7 +18953,8 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         visibleRows: Int,
         jid: String,
         conversationType: ClientSynchronizationManager.ConversationType = .regular,
-        failedRows: Int = 0
+        failedRows: Int = 0,
+        persistedArchiveIds: [String] = []
     ) -> MessageManager.ArchivePersistenceSummary {
         var summary = MessageManager.ArchivePersistenceSummary()
         summary.received = visibleRows + failedRows
@@ -18888,6 +18963,14 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         summary.failed = failedRows
         for _ in 0..<visibleRows {
             summary.recordVisibleRow(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType
+            )
+        }
+        persistedArchiveIds.forEach {
+            summary.recordPersistedArchiveId(
+                $0,
                 owner: owner,
                 jid: jid,
                 conversationType: conversationType
@@ -20071,7 +20154,8 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
                 queryId: queryId,
                 persistenceSummary: archivePersistenceSummary(
                     visibleRows: 80,
-                    jid: jid
+                    jid: jid,
+                    persistedArchiveIds: ["80", "1"]
                 )
             ),
             .committed
@@ -20091,6 +20175,87 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         ))
         XCTAssertTrue(archiveState.containsArchiveId("1"))
         XCTAssertTrue(archiveState.containsArchiveId("80"))
+    }
+
+    func testDeferredBootstrapRejectsExistingRowProofWhenOnlyOnePageBoundaryWasPersisted() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = CapturingXMPPStream()
+        let queryId = "bootstrap-partial-boundary-proof"
+        let jid = "partial-boundary@example.com"
+        try insertLastChat(jid: jid)
+
+        XCTAssertEqual(
+            manager.syncChat(
+                stream,
+                jid: jid,
+                conversationType: .regular,
+                pageSize: 80,
+                queryId: queryId,
+                callback: nil
+            ),
+            .bootstrapStarted(queryId: queryId)
+        )
+
+        let iq = try makeIQ(xml: """
+        <iq type='result' id='\(queryId)'>
+          <fin xmlns='urn:xmpp:mam:2' complete='false' queryid='\(queryId)'>
+            <set xmlns='http://jabber.org/protocol/rsm'>
+              <count>2</count>
+              <first>80</first>
+              <last>1</last>
+            </set>
+          </fin>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(stream, withIQ: iq))
+        XCTAssertTrue(manager.hasDeferredCommit(queryId: queryId))
+
+        let realm = try WRealm.safe()
+        let partialBoundary = MessageStorageItem()
+        partialBoundary.primary = "partial-boundary-message"
+        partialBoundary.owner = owner
+        partialBoundary.opponent = jid
+        partialBoundary.conversationType = .regular
+        partialBoundary.messageId = "partial-boundary-message"
+        partialBoundary.archivedId = "80"
+        partialBoundary.date = Date(timeIntervalSince1970: 80)
+        try realm.write {
+            realm.add(partialBoundary, update: .modified)
+        }
+
+        XCTAssertEqual(
+            manager.commitAfterPersistence(
+                queryId: queryId,
+                persistenceSummary: archivePersistenceSummary(
+                    visibleRows: 1,
+                    jid: jid,
+                    persistedArchiveIds: ["80"]
+                )
+            ),
+            .rejected(.missingPersistenceProof),
+            "one endpoint cannot prove that the complete returned page range is durable"
+        )
+
+        let chat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(
+                jid: jid,
+                owner: owner,
+                conversationType: .regular
+            )
+        ))
+        let archiveState = realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
+                jid: jid,
+                owner: owner,
+                conversationType: .regular
+            )
+        )
+        XCTAssertFalse(chat.isInitialArchiveLoaded)
+        XCTAssertFalse(chat.isSynced)
+        XCTAssertTrue(archiveState?.loadedRanges.isEmpty ?? true)
     }
 
     func testDeferredBootstrapPersistenceFailureDoesNotCommitCoverageOrReadiness() throws {
@@ -20184,7 +20349,39 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         try realm.write {
             realm.add(chat, update: .modified)
             realm.add(message, update: .modified)
+            let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType,
+                in: realm
+            )
+            archiveState.newerLiveEdgeReached = true
+            archiveState.mergeLoadedRange(
+                first: "100",
+                last: "100",
+                updateKind: .bootstrapNewest
+            )
         }
+
+        let archiveState = try XCTUnwrap(realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
+                jid: jid,
+                owner: owner,
+                conversationType: conversationType
+            )
+        ))
+        XCTAssertTrue(ConversationArchiveDurableReadinessPolicy.isReady(
+            chat: chat,
+            archiveState: archiveState,
+            conversationType: conversationType,
+            localMessageCount: ConversationArchiveDurableReadinessPolicy.localMessageCount(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType,
+                in: realm
+            )
+        ))
 
         let result = manager.syncChat(
             XMPPStream(),
@@ -20318,7 +20515,34 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
 
         try realm.write {
             realm.add(chat, update: .modified)
+            let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(
+                owner: owner,
+                jid: jid,
+                conversationType: .regular,
+                in: realm
+            )
+            archiveState.newerLiveEdgeReached = true
         }
+
+        let archiveState = try XCTUnwrap(realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
+                jid: jid,
+                owner: owner,
+                conversationType: .regular
+            )
+        ))
+        XCTAssertTrue(ConversationArchiveDurableReadinessPolicy.isReady(
+            chat: chat,
+            archiveState: archiveState,
+            conversationType: .regular,
+            localMessageCount: ConversationArchiveDurableReadinessPolicy.localMessageCount(
+                owner: owner,
+                jid: jid,
+                conversationType: .regular,
+                in: realm
+            )
+        ))
 
         let result = manager.syncChat(
             XMPPStream(),
@@ -21295,7 +21519,11 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         XCTAssertEqual(
             manager.commitAfterPersistence(
                 queryId: queryId,
-                persistenceSummary: archivePersistenceSummary(visibleRows: 1, jid: jid)
+                persistenceSummary: archivePersistenceSummary(
+                    visibleRows: 1,
+                    jid: jid,
+                    persistedArchiveIds: ["500", "400"]
+                )
             ),
             .committed
         )
@@ -21366,7 +21594,11 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         XCTAssertEqual(
             manager.commitAfterPersistence(
                 queryId: queryId,
-                persistenceSummary: archivePersistenceSummary(visibleRows: 1, jid: jid)
+                persistenceSummary: archivePersistenceSummary(
+                    visibleRows: 1,
+                    jid: jid,
+                    persistedArchiveIds: ["500", "400"]
+                )
             ),
             .committedNeedsFollowUpRepair
         )
@@ -21421,7 +21653,8 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
                 persistenceSummary: archivePersistenceSummary(
                     visibleRows: 1,
                     jid: jid,
-                    conversationType: .group
+                    conversationType: .group,
+                    persistedArchiveIds: ["500", "400"]
                 )
             ),
             .committedNeedsFollowUpRepair
@@ -21482,7 +21715,11 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         XCTAssertEqual(
             manager.commitAfterPersistence(
                 queryId: queryId,
-                persistenceSummary: archivePersistenceSummary(visibleRows: 1, jid: jid)
+                persistenceSummary: archivePersistenceSummary(
+                    visibleRows: 1,
+                    jid: jid,
+                    persistedArchiveIds: ["500", "400"]
+                )
             ),
             .committedNeedsFollowUpRepair
         )
@@ -21636,7 +21873,11 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         XCTAssertEqual(
             manager.commitAfterPersistence(
                 queryId: queryId,
-                persistenceSummary: archivePersistenceSummary(visibleRows: 1, jid: jid)
+                persistenceSummary: archivePersistenceSummary(
+                    visibleRows: 1,
+                    jid: jid,
+                    persistedArchiveIds: ["500", "400"]
+                )
             ),
             .committedNeedsFollowUpRepair
         )
@@ -21714,7 +21955,11 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         XCTAssertEqual(
             manager.commitAfterPersistence(
                 queryId: queryId,
-                persistenceSummary: archivePersistenceSummary(visibleRows: 1, jid: jid)
+                persistenceSummary: archivePersistenceSummary(
+                    visibleRows: 1,
+                    jid: jid,
+                    persistedArchiveIds: ["500", "400"]
+                )
             ),
             .committedNeedsFollowUpRepair
         )
@@ -28258,6 +28503,673 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 206)
     }
 
+    func testInteractiveArchivePersistenceFinishesAllChunksBeforeOrdinaryDrainResumes() throws {
+        let owner = "owner@example.com"
+        let interactiveQueryId = "multi-chunk-interactive-query"
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.messagePersistenceChunkSize = 500
+        manager.archiveQueryIdPersistenceResolver = { $0 == interactiveQueryId }
+        manager.beginArchiveQueryBatch(
+            queryId: interactiveQueryId,
+            priority: .interactive
+        )
+
+        for index in 1...205 {
+            manager.enqueue(try makeQueueItem(index: index))
+        }
+        for index in 1...201 {
+            manager.receiveArchived(try makeArchivedMessage(
+                index: 10_000 + index,
+                queryId: interactiveQueryId
+            ))
+        }
+
+        let firstOrdinaryChunkStarted = expectation(description: "first ordinary chunk started")
+        let interactiveFlushFinished = expectation(description: "interactive flush finished")
+        let allowFirstOrdinaryChunk = DispatchSemaphore(value: 0)
+        let eventsLock = NSLock()
+        var events: [String] = []
+        var didBlockFirstChunk = false
+        manager.messagePersistenceChunkObserver = { size, _ in
+            eventsLock.lock()
+            events.append("chunk:\(size)")
+            let shouldBlock = !didBlockFirstChunk
+            didBlockFirstChunk = true
+            eventsLock.unlock()
+            if shouldBlock {
+                firstOrdinaryChunkStarted.fulfill()
+                XCTAssertEqual(
+                    allowFirstOrdinaryChunk.wait(timeout: .now() + 5),
+                    .success
+                )
+            }
+        }
+        defer {
+            allowFirstOrdinaryChunk.signal()
+            manager.messagePersistenceChunkObserver = nil
+            manager.unsubscribeReceiver()
+        }
+
+        manager.subscribeReceiver()
+        wait(for: [firstOrdinaryChunkStarted], timeout: 2)
+        manager.sealArchiveQueryBatch(
+            queryId: interactiveQueryId,
+            priority: .interactive
+        ) { summary in
+            XCTAssertEqual(summary.persistedRows, 201)
+            XCTAssertEqual(
+                manager.messagePersistenceChunkSizes,
+                [100, 100, 1]
+            )
+            eventsLock.lock()
+            events.append("interactive-finished")
+            eventsLock.unlock()
+            interactiveFlushFinished.fulfill()
+        }
+        allowFirstOrdinaryChunk.signal()
+
+        wait(for: [interactiveFlushFinished], timeout: 10)
+        XCTAssertTrue(
+            waitUntil(timeout: 10) {
+                manager.performMessageQueueSync {
+                    manager.queuedMessages.isEmpty &&
+                    !manager.hasPendingMessages(forQueryId: interactiveQueryId) &&
+                    !manager.isQueuedMessagesDrainScheduled
+                }
+            }
+        )
+
+        eventsLock.lock()
+        let recordedEvents = events
+        eventsLock.unlock()
+        XCTAssertEqual(
+            recordedEvents,
+            [
+                "chunk:100",
+                "chunk:100",
+                "chunk:100",
+                "chunk:1",
+                "interactive-finished",
+                "chunk:100",
+                "chunk:5",
+            ]
+        )
+        XCTAssertTrue(manager.messagePersistenceChunkSizes.allSatisfy { $0 <= 100 })
+        let assertionRealm = try WRealm.safe()
+        assertionRealm.refresh()
+        let persistedMessageIds = Set(
+            assertionRealm.objects(MessageStorageItem.self).map(\.messageId)
+        )
+        let expectedMessageIds = Set(
+            (1...205).map { "message-\($0)" } +
+            (1...201).map { "message-\(10_000 + $0)" }
+        )
+        XCTAssertEqual(
+            persistedMessageIds,
+            expectedMessageIds,
+            "interactive persistence and the resumed ordinary drain must not lose or replace rows"
+        )
+    }
+
+    func testQueuedRetractAndRewriteWaitForAllInteractiveChunksWithoutDrainingOrdinaryBacklog() throws {
+        let owner = "owner@example.com"
+        let interactiveQueryId = "mutation-during-interactive-query"
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+        let deleteManager = MessageDeleteManager(withOwner: owner)
+        manager.unsubscribeReceiver()
+        manager.messagePersistenceChunkSize = 500
+        manager.archiveQueryIdPersistenceResolver = { $0 == interactiveQueryId }
+        manager.beginArchiveQueryBatch(
+            queryId: interactiveQueryId,
+            priority: .interactive
+        )
+        deleteManager.queuedMessageManagerResolver = { _ in manager }
+
+        for index in 1...205 {
+            manager.enqueue(try makeQueueItem(index: index))
+        }
+        for index in 1...201 {
+            manager.receiveArchived(try makeArchivedMessage(
+                index: 10_000 + index,
+                queryId: interactiveQueryId
+            ))
+        }
+
+        let retract = try XMPPMessage(from: makeElement(xml: """
+        <message type='headline' from='example.com' to='\(owner)'>
+          <retract-message xmlns='https://xabber.com/protocol/rewrite#notify'
+                           conversation='romeo@example.com'
+                           type='regular'
+                           id='archive-10001'
+                           version='1'/>
+        </message>
+        """))
+        let rewrite = try XMPPMessage(from: makeElement(xml: """
+        <message type='headline' from='example.com' to='\(owner)'>
+          <replace xmlns='https://xabber.com/protocol/rewrite#notify'
+                   conversation='romeo@example.com'
+                   type='regular'
+                   id='archive-10002'
+                   version='2'>
+            <message xmlns='jabber:client'
+                     from='romeo@example.com'
+                     to='\(owner)'
+                     type='chat'
+                     id='message-10002'>
+              <stanza-id xmlns='urn:xmpp:sid:0'
+                         by='\(owner)'
+                         id='archive-10002'/>
+              <origin-id xmlns='urn:xmpp:sid:0' id='message-10002'/>
+              <replaced xmlns='urn:xmpp:message-correct:0'
+                        stamp='2026-06-04T10:01:00Z'/>
+              <body>edited-target</body>
+            </message>
+          </replace>
+        </message>
+        """))
+
+        let firstOrdinaryChunkStarted = expectation(
+            description: "first ordinary chunk started"
+        )
+        let notificationsAccepted = expectation(
+            description: "queued mutation notifications accepted"
+        )
+        let interactiveFlushFinished = expectation(
+            description: "interactive persistence finished before mutations"
+        )
+        let allowFirstOrdinaryChunk = DispatchSemaphore(value: 0)
+        let eventsLock = NSLock()
+        var events: [String] = []
+        var didBlockFirstChunk = false
+        manager.messagePersistenceChunkObserver = { size, _ in
+            eventsLock.lock()
+            events.append("chunk:\(size)")
+            let shouldBlock = !didBlockFirstChunk
+            didBlockFirstChunk = true
+            eventsLock.unlock()
+            if shouldBlock {
+                firstOrdinaryChunkStarted.fulfill()
+                XCTAssertEqual(
+                    allowFirstOrdinaryChunk.wait(timeout: .now() + 5),
+                    .success
+                )
+            }
+        }
+        defer {
+            allowFirstOrdinaryChunk.signal()
+            manager.messagePersistenceChunkObserver = nil
+            manager.unsubscribeReceiver()
+        }
+
+        manager.subscribeReceiver()
+        wait(for: [firstOrdinaryChunkStarted], timeout: 2)
+
+        // Put both notifications ahead of the persistence pump. The legacy
+        // nil-query storeMessagesNow() executes inline here and drains all 306
+        // remaining rows before the sealed interactive request gets a turn.
+        manager.queue.async {
+            XCTAssertTrue(deleteManager.read(headline: retract))
+            XCTAssertTrue(deleteManager.read(headline: rewrite))
+            notificationsAccepted.fulfill()
+        }
+        manager.sealArchiveQueryBatch(
+            queryId: interactiveQueryId,
+            priority: .interactive
+        ) { summary in
+            XCTAssertEqual(summary.persistedRows, 201)
+            eventsLock.lock()
+            events.append("interactive-finished")
+            eventsLock.unlock()
+            interactiveFlushFinished.fulfill()
+        }
+        allowFirstOrdinaryChunk.signal()
+
+        wait(
+            for: [notificationsAccepted, interactiveFlushFinished],
+            timeout: 10
+        )
+        XCTAssertTrue(
+            waitUntil(timeout: 10) {
+                manager.performMessageQueueSync {
+                    manager.queuedMessages.isEmpty &&
+                    !manager.hasPendingMessages(forQueryId: interactiveQueryId) &&
+                    !manager.isQueuedMessagesDrainScheduled &&
+                    manager.deferredQueuedMutationPersistenceRequests.isEmpty
+                }
+            }
+        )
+
+        eventsLock.lock()
+        let recordedEvents = events
+        eventsLock.unlock()
+        XCTAssertEqual(
+            recordedEvents,
+            [
+                "chunk:100",
+                "chunk:100",
+                "chunk:100",
+                "chunk:1",
+                "interactive-finished",
+                "chunk:100",
+                "chunk:5",
+            ],
+            "queued retract/rewrite must wait for every interactive chunk and must not trigger an unscoped drain"
+        )
+
+        let realm = try WRealm.safe()
+        realm.refresh()
+        XCTAssertNil(
+            realm.objects(MessageStorageItem.self)
+                .filter("owner == %@ AND archivedId == %@", owner, "archive-10001")
+                .first
+        )
+        XCTAssertEqual(
+            realm.objects(MessageStorageItem.self)
+                .filter("owner == %@ AND archivedId == %@", owner, "archive-10002")
+                .first?
+                .body,
+            "edited-target"
+        )
+        XCTAssertEqual(
+            realm.objects(MessageStorageItem.self).count,
+            405
+        )
+    }
+
+    func testAlreadyEnqueuedOrdinaryDrainYieldsWhenInteractiveBatchSealsBeforeExecution() throws {
+        let owner = "owner@example.com"
+        let interactiveQueryId = "seal-before-ordinary-execution"
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == interactiveQueryId }
+        manager.beginArchiveQueryBatch(
+            queryId: interactiveQueryId,
+            priority: .interactive
+        )
+        for index in 1...205 {
+            manager.enqueue(try makeQueueItem(index: index))
+        }
+        manager.receiveArchived(try makeArchivedMessage(
+            index: 10_000,
+            queryId: interactiveQueryId
+        ))
+
+        let ordinaryDrainReachedExecution = expectation(
+            description: "ordinary drain reached execution"
+        )
+        let interactiveFlushFinished = expectation(
+            description: "interactive flush finished before ordinary persistence"
+        )
+        let allowOrdinaryDrainToCheckPriority = DispatchSemaphore(value: 0)
+        let eventsLock = NSLock()
+        var events: [String] = []
+        manager.ordinaryDrainWillExecuteHook = {
+            manager.ordinaryDrainWillExecuteHook = nil
+            ordinaryDrainReachedExecution.fulfill()
+            XCTAssertEqual(
+                allowOrdinaryDrainToCheckPriority.wait(timeout: .now() + 5),
+                .success
+            )
+        }
+        manager.messagePersistenceChunkObserver = { size, _ in
+            eventsLock.lock()
+            events.append("chunk:\(size)")
+            eventsLock.unlock()
+        }
+        defer {
+            allowOrdinaryDrainToCheckPriority.signal()
+            manager.ordinaryDrainWillExecuteHook = nil
+            manager.messagePersistenceChunkObserver = nil
+            manager.unsubscribeReceiver()
+        }
+
+        manager.subscribeReceiver()
+        wait(for: [ordinaryDrainReachedExecution], timeout: 2)
+        manager.sealArchiveQueryBatch(
+            queryId: interactiveQueryId,
+            priority: .interactive
+        ) { summary in
+            XCTAssertEqual(summary.persistedRows, 1)
+            eventsLock.lock()
+            events.append("interactive-finished")
+            eventsLock.unlock()
+            interactiveFlushFinished.fulfill()
+        }
+        allowOrdinaryDrainToCheckPriority.signal()
+
+        wait(for: [interactiveFlushFinished], timeout: 5)
+        XCTAssertTrue(
+            waitUntil(timeout: 10) {
+                manager.performMessageQueueSync {
+                    manager.queuedMessages.isEmpty &&
+                    !manager.isQueuedMessagesDrainScheduled
+                }
+            }
+        )
+
+        eventsLock.lock()
+        let recordedEvents = events
+        eventsLock.unlock()
+        XCTAssertEqual(
+            recordedEvents,
+            [
+                "chunk:1",
+                "interactive-finished",
+                "chunk:100",
+                "chunk:100",
+                "chunk:5",
+            ]
+        )
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 206)
+    }
+
+    func testSealedInteractiveArchiveBatchRunsBeforeQueuedBackgroundBatches() throws {
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        let firstBackgroundQueryId = "background-query-1"
+        let secondBackgroundQueryId = "background-query-2"
+        let interactiveQueryId = "interactive-query"
+        let queryIds = Set([
+            firstBackgroundQueryId,
+            secondBackgroundQueryId,
+            interactiveQueryId,
+        ])
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { queryIds.contains($0 ?? "") }
+        manager.beginArchiveQueryBatch(queryId: firstBackgroundQueryId, priority: .background)
+        manager.beginArchiveQueryBatch(queryId: secondBackgroundQueryId, priority: .background)
+        manager.beginArchiveQueryBatch(queryId: interactiveQueryId, priority: .interactive)
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: firstBackgroundQueryId))
+        manager.receiveArchived(try makeArchivedMessage(index: 2, queryId: secondBackgroundQueryId))
+        manager.receiveArchived(try makeArchivedMessage(index: 3, queryId: interactiveQueryId))
+
+        let completed = expectation(description: "all archive batches completed")
+        completed.expectedFulfillmentCount = 3
+        let eventsLock = NSLock()
+        var events: [String] = []
+
+        manager.queue.suspend()
+        var queueIsSuspended = true
+        defer {
+            if queueIsSuspended {
+                manager.queue.resume()
+            }
+        }
+        manager.sealArchiveQueryBatch(
+            queryId: firstBackgroundQueryId,
+            priority: .background
+        ) { summary in
+            eventsLock.lock()
+            events.append("background-1:\(summary.persistedRows)")
+            eventsLock.unlock()
+            completed.fulfill()
+        }
+        manager.sealArchiveQueryBatch(
+            queryId: secondBackgroundQueryId,
+            priority: .background
+        ) { summary in
+            eventsLock.lock()
+            events.append("background-2:\(summary.persistedRows)")
+            eventsLock.unlock()
+            completed.fulfill()
+        }
+        manager.sealArchiveQueryBatch(
+            queryId: interactiveQueryId,
+            priority: .interactive
+        ) { summary in
+            eventsLock.lock()
+            events.append("interactive:\(summary.persistedRows)")
+            eventsLock.unlock()
+            completed.fulfill()
+        }
+        manager.queue.resume()
+        queueIsSuspended = false
+
+        wait(for: [completed], timeout: 3)
+        eventsLock.lock()
+        let recordedEvents = events
+        eventsLock.unlock()
+        XCTAssertEqual(
+            recordedEvents,
+            [
+                "interactive:1",
+                "background-1:1",
+                "background-2:1",
+            ]
+        )
+    }
+
+    func testDuplicateArchiveBatchSealJoinsOnePersistencePassAndReturnsImmutableSummary() throws {
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        let queryId = "single-flight-query"
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.beginArchiveQueryBatch(queryId: queryId, priority: .interactive)
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryId))
+
+        let completed = expectation(description: "both terminal observers completed")
+        completed.expectedFulfillmentCount = 2
+        let stateLock = NSLock()
+        var summaries: [MessageManager.ArchivePersistenceSummary] = []
+        var persistencePassCount = 0
+        manager.messagePersistenceChunkObserver = { _, _ in
+            stateLock.lock()
+            persistencePassCount += 1
+            stateLock.unlock()
+        }
+
+        manager.queue.suspend()
+        var queueIsSuspended = true
+        defer {
+            manager.messagePersistenceChunkObserver = nil
+            if queueIsSuspended {
+                manager.queue.resume()
+            }
+        }
+        for _ in 0..<2 {
+            manager.sealArchiveQueryBatch(
+                queryId: queryId,
+                priority: .interactive
+            ) { summary in
+                stateLock.lock()
+                summaries.append(summary)
+                stateLock.unlock()
+                completed.fulfill()
+            }
+        }
+        manager.queue.resume()
+        queueIsSuspended = false
+
+        wait(for: [completed], timeout: 3)
+        stateLock.lock()
+        let recordedSummaries = summaries
+        let recordedPersistencePassCount = persistencePassCount
+        stateLock.unlock()
+        XCTAssertEqual(recordedSummaries.count, 2)
+        XCTAssertEqual(recordedSummaries.first, recordedSummaries.last)
+        XCTAssertEqual(recordedSummaries.first?.persistedRows, 1)
+        XCTAssertEqual(recordedPersistencePassCount, 1)
+        XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
+    }
+
+    func testSealedArchiveBatchDoesNotPublishTerminalBeforePersistenceFinishes() throws {
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        let queryId = "sealed-in-flight-query"
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.beginArchiveQueryBatch(queryId: queryId, priority: .interactive)
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryId))
+
+        let persistenceStarted = expectation(description: "persistence started")
+        let terminalPublished = expectation(description: "terminal published")
+        let allowPersistenceToFinish = DispatchSemaphore(value: 0)
+        let stateLock = NSLock()
+        var didPublishTerminal = false
+        manager.archiveBatchSaveFailureInjector = {
+            persistenceStarted.fulfill()
+            XCTAssertEqual(
+                allowPersistenceToFinish.wait(timeout: .now() + 3),
+                .success
+            )
+        }
+        defer {
+            allowPersistenceToFinish.signal()
+            manager.archiveBatchSaveFailureInjector = nil
+        }
+
+        manager.sealArchiveQueryBatch(
+            queryId: queryId,
+            priority: .interactive
+        ) { summary in
+            XCTAssertEqual(summary.persistedRows, 1)
+            stateLock.lock()
+            didPublishTerminal = true
+            stateLock.unlock()
+            terminalPublished.fulfill()
+        }
+
+        wait(for: [persistenceStarted], timeout: 2)
+        stateLock.lock()
+        let publishedBeforePersistenceFinished = didPublishTerminal
+        stateLock.unlock()
+        XCTAssertFalse(publishedBeforePersistenceFinished)
+
+        allowPersistenceToFinish.signal()
+        wait(for: [terminalPublished], timeout: 3)
+    }
+
+    func testReceiverLifecyclePublishesImmutableTerminalSummaryToLateJoiners() throws {
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        let queryId = "lifecycle-terminal-query"
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.beginArchiveQueryBatch(queryId: queryId, priority: .interactive)
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryId))
+
+        manager.unsubscribeReceiver()
+
+        XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 1)
+
+        let completed = expectation(description: "late terminal joiners completed")
+        completed.expectedFulfillmentCount = 2
+        let summariesLock = NSLock()
+        var summaries: [MessageManager.ArchivePersistenceSummary] = []
+        manager.queue.suspend()
+        var queueIsSuspended = true
+        defer {
+            if queueIsSuspended {
+                manager.queue.resume()
+            }
+        }
+        for _ in 0..<2 {
+            manager.sealArchiveQueryBatch(
+                queryId: queryId,
+                priority: .interactive
+            ) { summary in
+                summariesLock.lock()
+                summaries.append(summary)
+                summariesLock.unlock()
+                completed.fulfill()
+            }
+        }
+
+        manager.archivePersistenceSchedulingLock.lock()
+        let hasSealedRequest = manager
+            .sealedArchivePersistenceRequestsByQueryId[queryId] != nil
+        let isPumpScheduled = manager.isArchivePersistencePumpScheduled
+        manager.archivePersistenceSchedulingLock.unlock()
+        XCTAssertFalse(hasSealedRequest)
+        XCTAssertFalse(isPumpScheduled)
+
+        manager.queue.resume()
+        queueIsSuspended = false
+        wait(for: [completed], timeout: 3)
+
+        summariesLock.lock()
+        let recordedSummaries = summaries
+        summariesLock.unlock()
+        XCTAssertEqual(recordedSummaries.count, 2)
+        XCTAssertEqual(recordedSummaries.first, recordedSummaries.last)
+        XCTAssertEqual(recordedSummaries.first?.persistedRows, 1)
+    }
+
+    func testSynchronousFinishCompletesAlreadySealedJoinerExactlyOnce() throws {
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        let queryId = "sync-finish-races-sealed-pump"
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.beginArchiveQueryBatch(queryId: queryId, priority: .interactive)
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryId))
+
+        let synchronousFinishCompleted = expectation(description: "synchronous finish completed")
+        let sealedJoinerCompleted = expectation(description: "sealed joiner completed")
+        sealedJoinerCompleted.assertForOverFulfill = true
+        let stateLock = NSLock()
+        var sealedCompletionCount = 0
+        var synchronousSummary: MessageManager.ArchivePersistenceSummary?
+
+        manager.queue.suspend()
+        var queueIsSuspended = true
+        defer {
+            if queueIsSuspended {
+                manager.queue.resume()
+            }
+        }
+        manager.queue.async {
+            synchronousSummary = manager.finishArchiveQueryBatchSummary(queryId: queryId)
+            synchronousFinishCompleted.fulfill()
+        }
+        manager.sealArchiveQueryBatch(
+            queryId: queryId,
+            priority: .interactive
+        ) { summary in
+            stateLock.lock()
+            sealedCompletionCount += 1
+            stateLock.unlock()
+            XCTAssertEqual(summary.persistedRows, 1)
+            sealedJoinerCompleted.fulfill()
+        }
+        manager.queue.resume()
+        queueIsSuspended = false
+
+        wait(for: [synchronousFinishCompleted, sealedJoinerCompleted], timeout: 3)
+        manager.performMessageQueueSync {}
+        stateLock.lock()
+        let recordedCompletionCount = sealedCompletionCount
+        stateLock.unlock()
+        XCTAssertEqual(recordedCompletionCount, 1)
+        XCTAssertEqual(synchronousSummary?.persistedRows, 1)
+        XCTAssertEqual(
+            manager.finishArchiveQueryBatchSummary(queryId: queryId),
+            synchronousSummary
+        )
+    }
+
+    func testOmemoArchivedRoutingUsesExplicitStreamReceiverAndPreservesQueryId() throws {
+        let owner = "owner@example.com"
+        let queryId = "ui-action-omemo-query"
+        let primary = MessageManager(withOwner: owner, activeStream: false)
+        let streamReceiver = MessageManager(withOwner: owner, activeStream: false)
+        primary.unsubscribeReceiver()
+        streamReceiver.unsubscribeReceiver()
+        streamReceiver.archiveQueryIdPersistenceResolver = { $0 == queryId }
+
+        OmemoManager.persistDecryptedArchivedMessage(
+            try makeArchivedMessage(index: 1, queryId: queryId),
+            preferredReceiver: streamReceiver,
+            fallbackReceiver: primary
+        )
+
+        XCTAssertTrue(streamReceiver.hasPendingMessages(forQueryId: queryId))
+        XCTAssertFalse(primary.hasPendingMessages(forQueryId: queryId))
+        let summary = streamReceiver.storeMessagesNowSummary(forQueryId: queryId)
+        XCTAssertEqual(summary.received, 1)
+        XCTAssertEqual(summary.queued, 1)
+        XCTAssertEqual(summary.persistedRows, 1)
+        XCTAssertFalse(primary.hasPendingMessages(forQueryId: queryId))
+    }
+
     func testStoreMessagesNowSynchronouslyPersistsMatchingArchiveQuery() throws {
         let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
         manager.unsubscribeReceiver()
@@ -28625,6 +29537,65 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertFalse(mam.callbacksQueue.contains { $0.elementId == queryId })
         XCTAssertFalse(messages.isArchiveQueryBatchActive(queryId: queryId))
         XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 1)
+    }
+
+    func testRegisteringSameSourceDuringTerminalPersistenceJoinsAndPromotesRequest() throws {
+        let owner = "join-terminal-source@example.com"
+        let queryId = "join-terminal-source-query"
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        ChatRemoteHistoryCompletionCoordinator.registerPersistenceSource(
+            manager,
+            owner: owner,
+            queryId: queryId,
+            priority: .background
+        )
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryId))
+
+        let persistenceStarted = expectation(description: "terminal persistence started")
+        let unregisterCompleted = expectation(description: "terminal unregister completed")
+        let allowPersistenceToFinish = DispatchSemaphore(value: 0)
+        manager.archiveBatchSaveFailureInjector = {
+            persistenceStarted.fulfill()
+            XCTAssertEqual(
+                allowPersistenceToFinish.wait(timeout: .now() + 3),
+                .success
+            )
+        }
+        defer {
+            allowPersistenceToFinish.signal()
+            manager.archiveBatchSaveFailureInjector = nil
+        }
+
+        ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
+            owner: owner,
+            queryId: queryId,
+            completion: unregisterCompleted.fulfill
+        )
+        wait(for: [persistenceStarted], timeout: 2)
+
+        ChatRemoteHistoryCompletionCoordinator.registerPersistenceSource(
+            manager,
+            owner: owner,
+            queryId: queryId,
+            priority: .interactive
+        )
+        manager.archivePersistenceSchedulingLock.lock()
+        let promotedPriority = manager
+            .sealedArchivePersistenceRequestsByQueryId[queryId]?
+            .priority
+        manager.archivePersistenceSchedulingLock.unlock()
+        XCTAssertEqual(promotedPriority, .interactive)
+
+        allowPersistenceToFinish.signal()
+        wait(for: [unregisterCompleted], timeout: 3)
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, 1)
+        XCTAssertEqual(
+            manager.finishArchiveQueryBatchSummary(queryId: queryId).persistedRows,
+            1,
+            "unregister cleanup must not replace the immutable terminal summary"
+        )
     }
 
     func testReceiverLifecycleFlushesPartialArchiveBatchesAndClearsRegistrations() throws {
@@ -29033,7 +30004,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertEqual(result.persistenceSummary.visibleRows(owner: "owner@example.com", jid: "romeo@example.com", conversationType: .regular), 1)
     }
 
-    func testRemoteCompletionPendingCheckIncludesPrimaryFallbackWhenSourceIsRegistered() throws {
+    func testRemoteCompletionPendingCheckUsesOnlyRegisteredAuthoritativeSource() throws {
         let owner = "primary-fallback@example.com"
         AccountManager.shared.users.removeAll { $0.jid == owner }
         let account = Account(jid: owner, queue: .main)
@@ -29050,19 +30021,34 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
             owner: owner,
             queryId: "fallback-query"
         )
-        defer {
-            ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
+
+        XCTAssertFalse(
+            ChatRemoteHistoryCompletionCoordinator.hasPendingMessages(
                 owner: owner,
                 queryId: "fallback-query"
             )
-        }
+        )
 
+        registeredSource.enqueue(try makeQueueItem(
+            index: 2,
+            queryId: "fallback-query",
+            shouldPersistArchiveQueryId: true
+        ))
         XCTAssertTrue(
             ChatRemoteHistoryCompletionCoordinator.hasPendingMessages(
                 owner: owner,
                 queryId: "fallback-query"
             )
         )
+
+        let unregistered = expectation(description: "authoritative source unregistered")
+        ChatRemoteHistoryCompletionCoordinator.unregisterPersistenceSource(
+            owner: owner,
+            queryId: "fallback-query",
+            completion: unregistered.fulfill
+        )
+        wait(for: [unregistered], timeout: 3)
+        account.messages.clearQueue()
     }
 }
 
@@ -30515,18 +31501,71 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         let jid = "romeo@xmppdev01.xabber.com"
         try insertLastChat(jid: jid, conversationType: .regular)
         let realm = try WRealm.safe()
+        let snapshotArchiveId = "1776840442467416"
+        let message = MessageStorageItem()
+        message.primary = MessageStorageItem.genPrimary(
+            messageId: "same-message",
+            owner: owner
+        )
+        message.owner = owner
+        message.opponent = jid
+        message.conversationType = .regular
+        message.messageId = "same-message"
+        message.archivedId = snapshotArchiveId
+        message.body = "Hello Juliet"
+        message.legacyBody = "Hello Juliet"
+        message.displayAs = .text
+        message.date = try XCTUnwrap("2026-03-24T12:34:56+0000".xmppDate)
+        message.sentDate = message.date
         try realm.write {
             let chat = try XCTUnwrap(realm.object(
                 ofType: LastChatsStorageItem.self,
                 forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
             ))
+            realm.add(message, update: .modified)
+            chat.lastMessage = message
             chat.lastMessageId = "same-message"
+            chat.syncSnapshotLastArchiveId = snapshotArchiveId
             LastChatUnreadCounter.refreshTotal(for: chat)
             chat.isSynced = true
+            chat.isInitialArchiveLoaded = true
             let state = RegularChatArchiveSyncStateStorageItem.ensure(owner: owner, jid: jid, conversationType: .regular, in: realm)
-            state.lastSnapshotArchiveId = "1776840442467416"
+            state.lastSnapshotArchiveId = snapshotArchiveId
             state.lastSnapshotMessageId = "same-message"
+            state.newerLiveEdgeReached = true
+            state.mergeLoadedRange(
+                first: snapshotArchiveId,
+                last: snapshotArchiveId,
+                updateKind: .bootstrapNewest
+            )
         }
+        let chat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(
+                jid: jid,
+                owner: owner,
+                conversationType: .regular
+            )
+        ))
+        let archiveState = try XCTUnwrap(realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
+                jid: jid,
+                owner: owner,
+                conversationType: .regular
+            )
+        ))
+        XCTAssertTrue(ConversationArchiveDurableReadinessPolicy.isReady(
+            chat: chat,
+            archiveState: archiveState,
+            conversationType: .regular,
+            localMessageCount: ConversationArchiveDurableReadinessPolicy.localMessageCount(
+                owner: owner,
+                jid: jid,
+                conversationType: .regular,
+                in: realm
+            )
+        ))
         var observed: [MessageArchiveManager.SnapshotRepairTarget] = []
         AccountManager.shared.find(for: owner)?.mam.snapshotRepairEnqueueObserver = { target, _, _ in
             observed.append(target)

@@ -30,7 +30,14 @@ extension LastChatsViewController {
     }
 
     internal func configureSearchBar() {
-        navigationItem.searchController = nil
+        if deferUntilNavigationTransitionCompletesIfNeeded({ [weak self] in
+            self?.configureSearchBar()
+        }) {
+            return
+        }
+        if navigationItem.searchController != nil {
+            navigationItem.searchController = nil
+        }
         installBottomSearchHostIfNeeded()
         BottomInPlaceSearchHostHelper.configure(
             searchView: bottomSearchHostView,

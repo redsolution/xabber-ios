@@ -1070,7 +1070,30 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         } else {
             lastMessageChanged = false
         }
-        let localStateMissingOrStale = existingArchiveState == nil || isNewChatInstance || !lastChat.isSynced
+        let localStateMissingOrStale: Bool
+        if isNewChatInstance ||
+            !lastChat.isSynced ||
+            !lastChat.isInitialArchiveLoaded {
+            // First-login snapshot pages normally create every conversation.
+            // Their legacy flags already prove that readiness is missing, so
+            // avoid one Realm message query per conversation in the bulk page.
+            localStateMissingOrStale = true
+        } else {
+            let localMessageCount =
+                ConversationArchiveDurableReadinessPolicy.localMessageCount(
+                    owner: self.owner,
+                    jid: jid,
+                    conversationType: conversationType,
+                    in: realm
+                )
+            localStateMissingOrStale =
+                !ConversationArchiveDurableReadinessPolicy.isReady(
+                    chat: lastChat,
+                    archiveState: existingArchiveState,
+                    conversationType: conversationType,
+                    localMessageCount: localMessageCount
+                )
+        }
 
         guard unreadChanged || unreadBoundaryChanged || lastMessageChanged || localStateMissingOrStale else {
             return

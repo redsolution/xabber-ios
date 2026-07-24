@@ -323,21 +323,50 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
         if message.delayedDeliveryReasonDescription == "Offline Storage" {
             return
         }
+        let didObserveArchiveResult =
+            self.mam.recordDeferredArchiveResultDelivery(message)
+        var didRouteArchiveResultToPersistence = false
+        var didIntentionallyConsumeArchiveResult = false
+        defer {
+            if didObserveArchiveResult,
+               didIntentionallyConsumeArchiveResult,
+               !didRouteArchiveResultToPersistence {
+                _ = self.mam.recordDeferredArchiveControlConsumption(message)
+            }
+        }
         
         switch message.messageType ?? .chat {
-        case .chat:
+        case .chat, .normal:
+            if self.mam.readMessage(message) {
+                didIntentionallyConsumeArchiveResult = true
+                return
+            }
+            if AccountManager.shared.find(for: sender.myJID!.bare)?
+                .chatMarkers
+                .read(withMessage: message) == true {
+                didIntentionallyConsumeArchiveResult = true
+                return
+            }
             if isArchivedMessage(message) {
                 if let bareMessage = getArchivedMessageContainer(message) {
                     if GroupchatInvitePersistenceService(owner: sender.myJID!.bare)
                         .receiveArchivedEnvelope(message, isRead: nil)
                         .shouldConsume {
+                        didIntentionallyConsumeArchiveResult = true
                         return
                     }
                     if VoIPManager.shared.onReceiveMessage(bareMessage, owner: sender.myJID!.bare, archivedDate: getDeliveryTime(message, owner: sender.myJID!.bare) ?? getDelayedDate(message)) {
+                        didIntentionallyConsumeArchiveResult = true
                         return
                     }
                 }
-                if !(AccountManager.shared.find(for: sender.myJID!.bare)?.omemo.didReceiveOmemoMessage(message) ?? false) {
+                if AccountManager.shared.find(for: sender.myJID!.bare)?.omemo.didReceiveOmemoMessage(
+                    message,
+                    archivedMessageReceiver: self.messages
+                ) ?? false {
+                    didRouteArchiveResultToPersistence = true
+                } else {
+                    didRouteArchiveResultToPersistence = true
                     self.messages.receiveArchived(message)
                 }
                 

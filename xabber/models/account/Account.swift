@@ -28,6 +28,122 @@ import SwiftKeychainWrapper
 import UIKit
 import MaterialComponents.MaterialPalettes
 
+/// A short, account-local scheduling gate owned by one or more visible chat
+/// opens. It pauses only planned background/idle work; XMPP stream processing
+/// and foreground/interactive tasks continue normally.
+final class AccountInteractiveChatOpenGate {
+    struct Token: Hashable {
+        fileprivate let id: UUID
+    }
+
+    static let maximumAllowedDuration: TimeInterval = 5
+
+    private let lock = NSLock()
+    private let expirationQueue = DispatchQueue(
+        label: "com.xabber.account-interactive-chat-open-gate.expiration"
+    )
+    private let maximumDuration: TimeInterval
+    private let onChange: (Bool) -> Void
+    private var activeTokenIDs: Set<UUID> = []
+    private var activeWindowGeneration: UInt64 = 0
+    private var activeWindowExpiration: DispatchWorkItem?
+
+    init(
+        maximumDuration: TimeInterval = AccountInteractiveChatOpenGate.maximumAllowedDuration,
+        onChange: @escaping (Bool) -> Void = { _ in }
+    ) {
+        self.maximumDuration = min(
+            max(0, maximumDuration),
+            Self.maximumAllowedDuration
+        )
+        self.onChange = onChange
+    }
+
+    var isActive: Bool {
+        lock.lock()
+        let result = !activeTokenIDs.isEmpty
+        lock.unlock()
+        return result
+    }
+
+    var activeTokenCount: Int {
+        lock.lock()
+        let result = activeTokenIDs.count
+        lock.unlock()
+        return result
+    }
+
+    func acquire() -> Token {
+        let token = Token(id: UUID())
+        var expirationToSchedule: DispatchWorkItem?
+
+        lock.lock()
+        let didBecomeActive = activeTokenIDs.isEmpty
+        activeTokenIDs.insert(token.id)
+        if didBecomeActive {
+            activeWindowGeneration &+= 1
+            let generation = activeWindowGeneration
+            let expiration = DispatchWorkItem { [weak self] in
+                self?.expireActiveWindow(generation: generation)
+            }
+            activeWindowExpiration = expiration
+            expirationToSchedule = expiration
+        }
+        lock.unlock()
+
+        if didBecomeActive {
+            onChange(true)
+        }
+        if let expirationToSchedule {
+            expirationQueue.asyncAfter(
+                deadline: .now() + maximumDuration,
+                execute: expirationToSchedule
+            )
+        }
+        return token
+    }
+
+    @discardableResult
+    func release(_ token: Token) -> Bool {
+        finish(token)
+    }
+
+    @discardableResult
+    private func finish(_ token: Token) -> Bool {
+        var expirationToCancel: DispatchWorkItem?
+        lock.lock()
+        guard activeTokenIDs.remove(token.id) != nil else {
+            lock.unlock()
+            return false
+        }
+        let didBecomeInactive = activeTokenIDs.isEmpty
+        if didBecomeInactive {
+            expirationToCancel = activeWindowExpiration
+            activeWindowExpiration = nil
+        }
+        lock.unlock()
+
+        expirationToCancel?.cancel()
+        if didBecomeInactive {
+            onChange(false)
+        }
+        return true
+    }
+
+    private func expireActiveWindow(generation: UInt64) {
+        lock.lock()
+        guard generation == activeWindowGeneration,
+              activeTokenIDs.isNotEmpty else {
+            lock.unlock()
+            return
+        }
+        activeTokenIDs.removeAll(keepingCapacity: true)
+        activeWindowExpiration = nil
+        lock.unlock()
+        onChange(false)
+    }
+}
+
 final class AccountXMPPTaskScheduler {
     enum Priority: Int, Comparable {
         case idle = 0
@@ -98,6 +214,8 @@ final class AccountXMPPTaskScheduler {
         let resource: Resource
         let deduplicationKey: String?
         let order: Int
+        let requiresAuthenticatedStream: Bool
+        let unavailable: (() -> Void)?
         let work: (@escaping () -> Void) -> Void
     }
 
@@ -113,6 +231,7 @@ final class AccountXMPPTaskScheduler {
     private var generation: UInt64 = 0
     private var isPaused: Bool
     private let bootstrapGate: () -> Bool
+    private let interactiveChatOpenGate: () -> Bool
     #if DEBUG
     internal var resetObserverForTests: (() -> Void)?
     #endif
@@ -121,18 +240,22 @@ final class AccountXMPPTaskScheduler {
         account: Account? = nil,
         configuration: Configuration = .production,
         startsImmediately: Bool = true,
-        bootstrapGate: @escaping () -> Bool = { false }
+        bootstrapGate: @escaping () -> Bool = { false },
+        interactiveChatOpenGate: @escaping () -> Bool = { false }
     ) {
         self.account = account
         self.configuration = configuration
         self.isPaused = !startsImmediately
         self.bootstrapGate = bootstrapGate
+        self.interactiveChatOpenGate = interactiveChatOpenGate
     }
 
     func enqueue(
         priority: Priority,
         resource: Resource,
         deduplicationKey: String?,
+        requiresAuthenticatedStream: Bool = false,
+        unavailable: (() -> Void)? = nil,
         work: @escaping (@escaping () -> Void) -> Void
     ) {
         queue.async {
@@ -155,6 +278,8 @@ final class AccountXMPPTaskScheduler {
                         resource: resource,
                         deduplicationKey: deduplicationKey,
                         order: existing.order,
+                        requiresAuthenticatedStream: requiresAuthenticatedStream,
+                        unavailable: unavailable,
                         work: work
                     )
                     self.drainLocked()
@@ -169,6 +294,8 @@ final class AccountXMPPTaskScheduler {
                 resource: resource,
                 deduplicationKey: deduplicationKey,
                 order: self.nextOrder,
+                requiresAuthenticatedStream: requiresAuthenticatedStream,
+                unavailable: unavailable,
                 work: work
             )
             self.nextTaskID += 1
@@ -186,7 +313,13 @@ final class AccountXMPPTaskScheduler {
         unavailable: (() -> Void)? = nil,
         work: @escaping (Account, XMPPStream, @escaping () -> Void) -> Void
     ) {
-        enqueue(priority: priority, resource: resource, deduplicationKey: deduplicationKey) { [weak self] finish in
+        enqueue(
+            priority: priority,
+            resource: resource,
+            deduplicationKey: deduplicationKey,
+            requiresAuthenticatedStream: requiresAuthenticatedStream,
+            unavailable: unavailable
+        ) { [weak self] finish in
             guard let self, let account = self.account else {
                 unavailable?()
                 finish()
@@ -227,6 +360,8 @@ final class AccountXMPPTaskScheduler {
                 resource: existing.resource,
                 deduplicationKey: existing.deduplicationKey,
                 order: existing.order,
+                requiresAuthenticatedStream: existing.requiresAuthenticatedStream,
+                unavailable: existing.unavailable,
                 work: existing.work
             )
             self.drainLocked()
@@ -246,9 +381,22 @@ final class AccountXMPPTaskScheduler {
         }
     }
 
+    func interactiveChatOpenGateDidChange() {
+        queue.async {
+            self.drainLocked()
+        }
+    }
+
+    func streamReadinessDidChange() {
+        queue.async {
+            self.drainLocked()
+        }
+    }
+
     func reset() {
         queue.async {
             self.generation &+= 1
+            let unavailableCallbacks = self.pendingTasks.compactMap(\.unavailable)
             self.pendingTasks.removeAll()
             self.delayedResources.removeAll()
 
@@ -266,6 +414,7 @@ final class AccountXMPPTaskScheduler {
             #if DEBUG
             self.resetObserverForTests?()
             #endif
+            unavailableCallbacks.forEach { $0() }
         }
     }
 
@@ -291,6 +440,12 @@ final class AccountXMPPTaskScheduler {
                 !delayedResources.contains(task.resource)
                     && runningCountByResource[task.resource, default: 0] < configuration.maxConcurrent(for: task.resource)
                     && (!bootstrapGate() || task.priority == .interactive)
+                    && (!interactiveChatOpenGate() || task.priority >= .foreground)
+                    && (
+                        !task.requiresAuthenticatedStream ||
+                        account == nil ||
+                        account?.sendReadiness.snapshot.canFlushApplicationStanzas == true
+                    )
             }
             .max { lhs, rhs in
                 if lhs.element.priority == rhs.element.priority {
@@ -3074,10 +3229,16 @@ final class Account: NSObject {
 //  XMPPFramework params
     var queue: DispatchQueue
     var xmppStream: XMPPStream
+    lazy var interactiveChatOpenGate = AccountInteractiveChatOpenGate { [weak self] _ in
+        self?.xmppTaskScheduler.interactiveChatOpenGateDidChange()
+    }
     lazy var xmppTaskScheduler: AccountXMPPTaskScheduler = AccountXMPPTaskScheduler(
         account: self,
         bootstrapGate: { [weak self] in
             self?.syncManager.isBootstrapCriticalSyncInProgress() ?? false
+        },
+        interactiveChatOpenGate: { [weak self] in
+            self?.interactiveChatOpenGate.isActive ?? false
         }
     )
     let authenticationCounterTracker = XMPPAuthenticationCounterTracker()
@@ -3348,6 +3509,7 @@ final class Account: NSObject {
                 self.flushPendingPresenceSends()
                 self.sendCoordinator.accountDidBecomeSendReady()
             }
+            self.xmppTaskScheduler.streamReadinessDidChange()
         }
         self.messages.archiveQueryIdPersistenceResolver = { [weak self] queryId in
             self?.mam.shouldPersistArchiveQueryId(queryId) ?? false

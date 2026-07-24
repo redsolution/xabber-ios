@@ -681,21 +681,36 @@ extension Account: XMPPStreamDelegate {
         if message.delayedDeliveryReasonDescription == "Offline Storage" {
             return
         }
+        let didObserveArchiveResult =
+            self.mam.recordDeferredArchiveResultDelivery(message)
+        var didRouteArchiveResultToPersistence = false
+        var didIntentionallyConsumeArchiveResult = false
+        defer {
+            if didObserveArchiveResult,
+               didIntentionallyConsumeArchiveResult,
+               !didRouteArchiveResultToPersistence {
+                _ = self.mam.recordDeferredArchiveControlConsumption(message)
+            }
+        }
         
         switch message.messageType ?? .chat {
             case .chat, .normal:
 
             if self.mam.readMessage(message) {
+                didIntentionallyConsumeArchiveResult = true
                 return
             }
             
             if self.notifications.read(withMessage: message) {
+                didIntentionallyConsumeArchiveResult = true
                 return
             }
             if self.groupchats.readMessage(withMessage: message) {
+                didIntentionallyConsumeArchiveResult = true
                 return
             }
             if self.chatStates.read(withMessage: message) {
+                didIntentionallyConsumeArchiveResult = true
                 return
             } else if isArchivedMessage(message) {
                 
@@ -706,30 +721,39 @@ extension Account: XMPPStreamDelegate {
                             user.favorites.receiveSaved(message: message)
                         })
                         
+                        didIntentionallyConsumeArchiveResult = true
                         return
                     }
                     if self.akeManager.didReceivedVerificationMessage(message: bareMessage) {
+                        didIntentionallyConsumeArchiveResult = true
                         return
                     }
                     
                     if self.trustSharingManager.didReceivedListOfContactsDevices(message: bareMessage) {
+                        didIntentionallyConsumeArchiveResult = true
                         return
                     }
                     if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message)) {
+                        didIntentionallyConsumeArchiveResult = true
                         return
                     }
                     if self.groupchats.readArchivedInviteEnvelope(message, isRead: nil) {
+                        didIntentionallyConsumeArchiveResult = true
                         return
                     }
                     if self.xTokens.receive(sender, withMessage: bareMessage) {
+                        didIntentionallyConsumeArchiveResult = true
                         return
                     }
                 }
                 if self.chatMarkers.read(withMessage: message) {
+                    didIntentionallyConsumeArchiveResult = true
                     return
                 } else if self.omemo.didReceiveOmemoMessage(message) {
+                    didRouteArchiveResultToPersistence = true
                     return
                 } else {
+                    didRouteArchiveResultToPersistence = true
                     self.messages.receiveArchived(message)
                 }
             } else if isPriorityMessage(message) {

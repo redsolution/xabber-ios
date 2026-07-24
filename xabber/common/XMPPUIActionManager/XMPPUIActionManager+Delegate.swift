@@ -479,16 +479,33 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         if message.delayedDeliveryReasonDescription == "Offline Storage" {
             return
         }
+        let archiveManager = self.mam
+        let didObserveArchiveResult =
+            archiveManager?.recordDeferredArchiveResultDelivery(message) ??
+            false
+        var didRouteArchiveResultToPersistence = false
+        var didIntentionallyConsumeArchiveResult = false
+        defer {
+            if didObserveArchiveResult,
+               didIntentionallyConsumeArchiveResult,
+               !didRouteArchiveResultToPersistence {
+                _ = archiveManager?
+                    .recordDeferredArchiveControlConsumption(message)
+            }
+        }
         
         switch message.messageType ?? .chat {
-        case .chat:
+        case .chat, .normal:
             if self.mam?.readMessage(message) ?? false {
+                didIntentionallyConsumeArchiveResult = true
                 return
             }
             if self.groupchat?.readMessage(withMessage: message) ?? false {
+                didIntentionallyConsumeArchiveResult = true
                 return
             }
             if self.chatMarkers?.read(withMessage: message) ?? false {
+                didIntentionallyConsumeArchiveResult = true
                 return
             }
             if isArchivedMessage(message) {
@@ -499,19 +516,29 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                             user.favorites.receiveSaved(message: message)
                         })
                         
+                        didIntentionallyConsumeArchiveResult = true
                         return
                     }
                     
                     if VoIPManager.shared.onReceiveMessage(bareMessage, owner: sender.myJID!.bare, archivedDate: getDeliveryTime(message, owner: sender.myJID!.bare) ?? getDelayedDate(message)) {
+                        didIntentionallyConsumeArchiveResult = true
                         return
                     } else if self.groupchat?.readArchivedInviteEnvelope(message, isRead: nil) ?? false {
+                        didIntentionallyConsumeArchiveResult = true
                         return
                     }
                 }
-                if (AccountManager.shared.find(for: sender.myJID!.bare)?.omemo.didReceiveOmemoMessage(message) ?? false) {
+                if (AccountManager.shared.find(for: sender.myJID!.bare)?.omemo.didReceiveOmemoMessage(
+                    message,
+                    archivedMessageReceiver: self.messages
+                ) ?? false) {
+                    didRouteArchiveResultToPersistence = true
                     return
                 } else {
-                    self.messages?.receiveArchived(message)
+                    if let messages = self.messages {
+                        didRouteArchiveResultToPersistence = true
+                        messages.receiveArchived(message)
+                    }
                 }
             } else {
                 if VoIPManager.shared.onReceiveMessage(message, owner: sender.myJID!.bare, archivedDate: nil, runtime: true) {
@@ -521,8 +548,6 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                     self.messages?.receiveRuntime(message)
                 }
             }
-        case .normal:
-            break
         case .groupchat:
             break
         case .headline:
