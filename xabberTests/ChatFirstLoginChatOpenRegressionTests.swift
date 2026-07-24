@@ -75,6 +75,16 @@ final class ChatFirstLoginChatOpenRegressionTests: XCTestCase {
             controller.performTerminalChatResourceTeardownForTesting()
         }
 
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        guard case .start(let repairLease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "strict-readiness-live-repair",
+            timeout: 45,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("inconsistent legacy readiness must reserve one repair lease")
+        }
         XCTAssertTrue(controller.currentBootstrapRequiresArchiveConfirmation())
         XCTAssertEqual(controller.currentBootstrapLoadingState(), .blockingArchive)
         controller.applyBootstrapLoadingState(
@@ -84,6 +94,40 @@ final class ChatFirstLoginChatOpenRegressionTests: XCTestCase {
         )
         XCTAssertEqual(controller.datasource.count, 30)
         XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+        let committedSkeletonPrimaries = controller.datasource.map(\.primary)
+        let committedSkeletonOffset = controller.messagesCollectionView.contentOffset
+        let committedSkeletonSize = controller.messagesCollectionView.contentSize
+
+        controller.loadInitialDatasource()
+        controller.loadInitialDatasource()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertEqual(controller.datasource.map(\.primary), committedSkeletonPrimaries)
+        XCTAssertEqual(
+            controller.messagesCollectionView.contentOffset.y,
+            committedSkeletonOffset.y,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            controller.messagesCollectionView.contentSize.height,
+            committedSkeletonSize.height,
+            accuracy: 0.001
+        )
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 0)
+        XCTAssertFalse(controller.hasCommittedRealContentInCurrentLifecycle)
+        guard case .joined(let joinedLease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "must-not-start-second-live-repair",
+            timeout: 45,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("repeated lifecycle load must join the existing repair")
+        }
+        XCTAssertEqual(joinedLease.queryId, repairLease.queryId)
+        XCTAssertTrue(coordinator.isActive(key: key, queryId: repairLease.queryId))
+        XCTAssertTrue(coordinator.complete(key: key, queryId: repairLease.queryId))
 
         let manager = MessageArchiveManager(withOwner: owner)
         XCTAssertEqual(
@@ -2381,6 +2425,11 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
                 last: "terminal-marker"
             )
         ))
+        XCTAssertEqual(
+            manager.expectedPersistenceResultCount(queryId: queryId),
+            2,
+            "persistence waits for delivered message envelopes, excluding the consumed service marker and ignoring the server's whole-archive count"
+        )
 
         XCTAssertEqual(
             manager.commitAfterPersistence(
@@ -2763,7 +2812,7 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
     }
 
     @MainActor
-    func testFiveSecondPresentationWatchdogShowsRetryWithoutCancellingLeaseAndLateCommitWins() throws {
+    func testFiveSecondPresentationWatchdogKeepsQueuedSkeletonAndActiveLease() {
         XCTAssertEqual(
             ChatInitialBootstrapPresentationWatchdogPolicy.timeout(
                 hasCommittedPage: false,
@@ -2771,14 +2820,6 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
             ),
             5
         )
-        let previousConfiguration = Realm.Configuration.defaultConfiguration
-        Realm.Configuration.defaultConfiguration = Realm.Configuration(
-            inMemoryIdentifier: "ChatInteractiveOpenGateRegressionTests-\(name)"
-        )
-        defer {
-            ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
-            Realm.Configuration.defaultConfiguration = previousConfiguration
-        }
 
         let controller = ChatViewController()
         controller.owner = "watchdog-owner@example.com"
@@ -2803,12 +2844,23 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
         ) else {
             return XCTFail("test setup must reserve a lease")
         }
+        let initialSkeletonPrimaries = controller.datasource.map(\.primary)
+        XCTAssertEqual(initialSkeletonPrimaries.count, 30)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
         controller.beginInitialBootstrapTracking(queryId: lease.queryId, timeout: 0.02)
 
-        XCTAssertTrue(waitUntil {
-            controller.appliedBootstrapLoadingState?.showsRetry == true
-        })
-        XCTAssertTrue(controller.bootstrapFailureView.isHidden == false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.08))
+
+        XCTAssertEqual(
+            ChatInitialBootstrapRequestCoordinator.shared.readiness(for: key)?.phase,
+            .queued
+        )
+        XCTAssertEqual(controller.appliedBootstrapLoadingState, .blockingArchive)
+        XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.datasource.map(\.primary), initialSkeletonPrimaries)
+        XCTAssertEqual(controller.datasource.count, 30)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
         XCTAssertTrue(controller.isInitialBootstrapInFlight)
         XCTAssertTrue(
             ChatInitialBootstrapRequestCoordinator.shared.isActive(
@@ -2816,6 +2868,149 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
                 queryId: lease.queryId
             ),
             "the presentation SLA must not cancel transport or persistence"
+        )
+        controller.performTerminalChatResourceTeardownForTesting()
+    }
+
+    func testFiveSecondPresentationWatchdogKeepsTransportSkeletonAndActiveLease() {
+        let controller = makeController(
+            owner: "transport-watchdog-owner@example.com",
+            jid: "transport-watchdog-peer@example.com"
+        )
+        controller.loadViewIfNeeded()
+        controller.configureDataset()
+        controller.applyBootstrapLoadingState(
+            .blockingArchive,
+            forceRender: true,
+            synchronousSkeletonCommit: true
+        )
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "transport-watchdog-query",
+            timeout: 45,
+            observer: { _, _, _ in }
+        ) else {
+            controller.performTerminalChatResourceTeardownForTesting()
+            return XCTFail("test setup must reserve a transport lease")
+        }
+        let manager = MessageManager(withOwner: key.owner, activeStream: false)
+        manager.updateSendingMessagesTimer?.invalidate()
+        manager.updateSendingMessagesTimer = nil
+        manager.unsubscribeSender()
+        manager.unsubscribeReceiver()
+        coordinator.resolveStart(
+            key: key,
+            queryId: lease.queryId,
+            result: .bootstrapStarted(queryId: lease.queryId),
+            messages: manager,
+            cancelTransport: {}
+        )
+        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .transport)
+
+        let initialSkeletonPrimaries = controller.datasource.map(\.primary)
+        controller.beginInitialBootstrapTracking(queryId: lease.queryId, timeout: 0.02)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.08))
+
+        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .transport)
+        XCTAssertEqual(controller.appliedBootstrapLoadingState, .blockingArchive)
+        XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.datasource.map(\.primary), initialSkeletonPrimaries)
+        XCTAssertEqual(controller.datasource.count, 30)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertTrue(controller.isInitialBootstrapInFlight)
+        XCTAssertTrue(coordinator.isActive(key: key, queryId: lease.queryId))
+        controller.performTerminalChatResourceTeardownForTesting()
+    }
+
+    func testCoordinatorFailurePublishesOneRetryAndLaterSuccessClearsIt() throws {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ChatCoordinatorFailureRetryRegression-\(name)"
+        )
+        defer {
+            ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
+            Realm.Configuration.defaultConfiguration = previousConfiguration
+        }
+
+        let controller = makeController(
+            owner: "terminal-failure-owner@example.com",
+            jid: "terminal-failure-peer@example.com"
+        )
+        controller.loadViewIfNeeded()
+        controller.configureDataset()
+        controller.applyBootstrapLoadingState(
+            .blockingArchive,
+            forceRender: true,
+            synchronousSkeletonCommit: true
+        )
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        guard case .start(let failedLease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "terminal-failure-query",
+            timeout: 45,
+            observer: { _, _, _ in }
+        ) else {
+            controller.performTerminalChatResourceTeardownForTesting()
+            return XCTFail("test setup must reserve a lease that can fail")
+        }
+        controller.beginInitialBootstrapTracking(
+            queryId: failedLease.queryId,
+            timeout: nil
+        )
+
+        var publishedFailureCount = 0
+        _ = MessageArchiveRequestFailureDispatcher.register(
+            owner: key.owner,
+            queryId: failedLease.queryId,
+            delivery: .synchronous
+        ) { _ in
+            publishedFailureCount += 1
+        }
+        let failure = MessageArchiveRequestFailureEvent(
+            owner: key.owner,
+            queryId: failedLease.queryId,
+            streamKind: .primary,
+            reason: .timeout,
+            errorDescription: "test terminal",
+            pendingQueryCount: 1
+        )
+        XCTAssertTrue(coordinator.recordFailure(
+            key: key,
+            event: failure,
+            publishEvent: true
+        ))
+        XCTAssertTrue(waitUntil {
+            controller.appliedBootstrapLoadingState?.showsRetry == true &&
+                !controller.bootstrapFailureView.isHidden
+        })
+        XCTAssertEqual(publishedFailureCount, 1)
+        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .failed)
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+
+        let retryButtons = descendants(of: controller.bootstrapFailureView)
+            .compactMap { $0 as? UIButton }
+            .filter { $0.accessibilityIdentifier == "chat.bootstrap.retry" }
+        XCTAssertEqual(retryButtons.count, 1)
+
+        coordinator.clearTerminal(key: key)
+        guard case .start(let successfulLease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "late-success-query",
+            timeout: 45,
+            observer: { _, _, _ in }
+        ) else {
+            controller.performTerminalChatResourceTeardownForTesting()
+            return XCTFail("retry must reserve a fresh archive lease")
+        }
+        controller.beginInitialBootstrapTracking(
+            queryId: successfulLease.queryId,
+            timeout: nil
         )
 
         let realm = try WRealm.safe()
@@ -2847,7 +3042,7 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
 
         ChatInitialBootstrapRequestCoordinator.shared.recordCommittedPageForTesting(
             key: key,
-            queryId: lease.queryId,
+            queryId: successfulLease.queryId,
             hasDurableCoverage: true,
             resultCount: 0
         )
@@ -2867,7 +3062,7 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
                 !controller.isInitialBootstrapInFlight &&
                 !controller.showSkeletonObserver.value &&
                 controller.datasource.isEmpty
-        }, "a late durable terminal must replace retry automatically")
+        }, "a successful archive terminal must clear the previously rendered retry")
         controller.performTerminalChatResourceTeardownForTesting()
     }
 
@@ -2941,9 +3136,15 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
         XCTAssertTrue(MessageArchiveEndPageDispatcher.publish(final))
         XCTAssertEqual(coordinator.readiness(for: key)?.phase, .persistence)
 
-        XCTAssertTrue(waitUntil {
-            controller.appliedBootstrapLoadingState?.showsRetry == true
-        }, "raw <fin> is not a presentation terminal while Realm is blocked")
+        let initialSkeletonPrimaries = controller.datasource.map(\.primary)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.08))
+
+        XCTAssertEqual(controller.appliedBootstrapLoadingState, .blockingArchive)
+        XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.datasource.map(\.primary), initialSkeletonPrimaries)
+        XCTAssertEqual(controller.datasource.count, 30)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
         XCTAssertTrue(controller.isInitialBootstrapInFlight)
         XCTAssertTrue(coordinator.isActive(key: key, queryId: lease.queryId))
 
@@ -2960,6 +3161,36 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.005))
         }
         return condition()
+    }
+
+    private func makeController(
+        owner: String,
+        jid: String
+    ) -> ChatViewController {
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = .regular
+        controller.ownerSender = Sender(
+            id: controller.owner,
+            displayName: "Owner"
+        )
+        controller.opponentSender = Sender(
+            id: controller.jid,
+            displayName: "Peer"
+        )
+        controller.messagesCollectionView.frame = CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: 844
+        )
+        controller.showSkeletonObserver.accept(true)
+        return controller
+    }
+
+    private func descendants(of view: UIView) -> [UIView] {
+        view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
 
     private func insertUnsyncedChat(

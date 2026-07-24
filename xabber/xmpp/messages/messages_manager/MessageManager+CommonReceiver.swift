@@ -151,8 +151,14 @@ extension MessageManager {
 
     internal func hasPendingMessages(forQueryId queryId: String) -> Bool {
         self.performMessageQueueSync {
-            (self.queuedMessageCountsByQueryId[queryId] ?? 0) > 0 ||
-            (self.inFlightMessageCountsByQueryId[queryId] ?? 0) > 0
+            let hasBufferedRows =
+                self.queuedMessages.contains { $0.queryId == queryId } ||
+                (self.inFlightMessageCountsByQueryId[queryId] ?? 0) > 0
+            self.archivePersistenceSchedulingLock.lock()
+            let hasSealedPersistence =
+                self.sealedArchivePersistenceRequestsByQueryId[queryId] != nil
+            self.archivePersistenceSchedulingLock.unlock()
+            return hasBufferedRows || hasSealedPersistence
         }
     }
 
@@ -269,18 +275,69 @@ extension MessageManager {
     internal func finishArchiveQueryBatchAsync(
         queryId: String,
         priority: ArchivePersistencePriority = .background,
+        expectedReceivedCount: Int? = nil,
         completion: ((ArchivePersistenceSummary) -> Void)? = nil
     ) {
         self.sealArchiveQueryBatch(
             queryId: queryId,
             priority: priority,
+            expectedReceivedCount: expectedReceivedCount,
             completion: completion
         )
+    }
+
+    /// Releases the transport-ingress barrier after a real terminal cleanup.
+    ///
+    /// A raw MAM `<fin>` can reach the coordinator before all result envelopes
+    /// enter MessageManager, so the normal persistence path must wait for the
+    /// transport-derived expected count. Once the request itself has failed or
+    /// is being explicitly finalized, no missing envelope may keep an
+    /// interactive batch parked forever. Already delivered rows are still
+    /// persisted and its existing completion observers receive one terminal.
+    internal func releaseArchiveQueryBatchIngressExpectation(
+        queryId: String
+    ) {
+        guard queryId.isNotEmpty else {
+            return
+        }
+        self.queue.async { [weak self] in
+            guard let self else {
+                return
+            }
+            var didReleaseExpectation = false
+            var shouldSchedulePump = false
+            self.archivePersistenceSchedulingLock.lock()
+            if let request =
+                    self.sealedArchivePersistenceRequestsByQueryId[queryId] {
+                didReleaseExpectation = request.expectedReceivedCount != nil
+                request.expectedReceivedCount = nil
+                request.isAwaitingIngress = false
+                if !self.isArchivePersistencePumpScheduled {
+                    self.isArchivePersistencePumpScheduled = true
+                    shouldSchedulePump = true
+                }
+            }
+            self.archivePersistenceSchedulingLock.unlock()
+
+            ChatArchiveDebugTrace.log(
+                "messageArchiveBatchIngressExpectationReleased",
+                [
+                    ("released", didReleaseExpectation),
+                    ("scheduled", shouldSchedulePump)
+                ]
+            )
+            if shouldSchedulePump {
+                self.queue.async { [weak self] in
+                    self?.runArchivePersistencePumpTurn()
+                }
+            }
+        }
     }
 
     internal func sealArchiveQueryBatch(
         queryId: String,
         priority: ArchivePersistencePriority? = nil,
+        expectedReceivedCount: Int? = nil,
         completion: ((ArchivePersistenceSummary) -> Void)? = nil
     ) {
         guard queryId.isNotEmpty else {
@@ -303,6 +360,12 @@ extension MessageManager {
             if let request = self.sealedArchivePersistenceRequestsByQueryId[queryId] {
                 didJoin = true
                 request.priority = max(request.priority, effectivePriority)
+                if let expectedReceivedCount {
+                    request.expectedReceivedCount = max(
+                        request.expectedReceivedCount ?? 0,
+                        max(0, expectedReceivedCount)
+                    )
+                }
                 if let completion {
                     request.completions.append(completion)
                 }
@@ -312,6 +375,7 @@ extension MessageManager {
                     queryId: queryId,
                     sequence: self.archivePersistenceRequestSequence,
                     priority: effectivePriority,
+                    expectedReceivedCount: expectedReceivedCount.map { max(0, $0) },
                     completion: completion
                 )
             }
@@ -326,6 +390,7 @@ extension MessageManager {
         ChatArchiveDebugTrace.log("messageArchiveBatchSeal", [
             ("priority", effectivePriority.rawValue),
             ("joined", didJoin),
+            ("expectedReceivedCount", expectedReceivedCount),
             ("activeRequestCount", activeRequestCount)
         ])
         if let completedSummary {
@@ -346,6 +411,51 @@ extension MessageManager {
         summary: ArchivePersistenceSummary
     ) -> [(ArchivePersistenceSummary) -> Void] {
         self.archivePersistenceSchedulingLock.lock()
+        defer {
+            self.archivePersistenceSchedulingLock.unlock()
+        }
+        return self.completeArchivePersistenceRequestWhileLocked(
+            queryId: queryId,
+            summary: summary
+        )
+    }
+
+    private func completeArchivePersistenceRequestIfExpectedIngressIsAccounted(
+        queryId: String,
+        summary: ArchivePersistenceSummary
+    ) -> (
+        expectedReceivedCount: Int?,
+        completions: [(ArchivePersistenceSummary) -> Void]?
+    ) {
+        self.archivePersistenceSchedulingLock.lock()
+        defer {
+            self.archivePersistenceSchedulingLock.unlock()
+        }
+        guard let request =
+                self.sealedArchivePersistenceRequestsByQueryId[queryId] else {
+            return (nil, nil)
+        }
+        let expectedReceivedCount = request.expectedReceivedCount
+        let hasAccountedExpectedIngress =
+            expectedReceivedCount.map {
+                summary.received >= $0
+            } ?? true
+        guard hasAccountedExpectedIngress else {
+            return (expectedReceivedCount, nil)
+        }
+        return (
+            expectedReceivedCount,
+            self.completeArchivePersistenceRequestWhileLocked(
+                queryId: queryId,
+                summary: summary
+            )
+        )
+    }
+
+    private func completeArchivePersistenceRequestWhileLocked(
+        queryId: String,
+        summary: ArchivePersistenceSummary
+    ) -> [(ArchivePersistenceSummary) -> Void] {
         let request = self.sealedArchivePersistenceRequestsByQueryId.removeValue(forKey: queryId)
         self.archivePersistencePriorityByQueryId.removeValue(forKey: queryId)
         self.completedArchiveQueryBatchSummariesByQueryId[queryId] = summary
@@ -356,18 +466,20 @@ extension MessageManager {
             self.completedArchiveQueryBatchSummariesByQueryId.removeValue(forKey: evictedQueryId)
         }
         let completions = request?.completions ?? []
-        self.archivePersistenceSchedulingLock.unlock()
         return completions
     }
 
     private func nextArchivePersistenceRequest() -> (
         queryId: String,
         priority: ArchivePersistencePriority,
+        expectedReceivedCount: Int?,
         isFirstTurn: Bool
     )? {
         self.archivePersistenceSchedulingLock.lock()
         defer { self.archivePersistenceSchedulingLock.unlock() }
-        guard let request = self.sealedArchivePersistenceRequestsByQueryId.values.min(by: { lhs, rhs in
+        guard let request = self.sealedArchivePersistenceRequestsByQueryId.values
+            .filter({ !$0.isAwaitingIngress })
+            .min(by: { lhs, rhs in
             if lhs.priority != rhs.priority {
                 return lhs.priority > rhs.priority
             }
@@ -381,27 +493,74 @@ extension MessageManager {
         }
         let isFirstTurn = !request.didStartPersistence
         request.didStartPersistence = true
-        return (request.queryId, request.priority, isFirstTurn)
+        return (
+            request.queryId,
+            request.priority,
+            request.expectedReceivedCount,
+            isFirstTurn
+        )
     }
 
     private func scheduleNextArchivePersistencePumpTurn() {
         self.archivePersistenceSchedulingLock.lock()
-        let hasPendingRequests = !self.sealedArchivePersistenceRequestsByQueryId.isEmpty
-        if !hasPendingRequests {
+        let hasRunnableRequests =
+            self.sealedArchivePersistenceRequestsByQueryId.values.contains {
+                !$0.isAwaitingIngress
+            }
+        if !hasRunnableRequests {
             self.isArchivePersistencePumpScheduled = false
         }
         self.archivePersistenceSchedulingLock.unlock()
-        if hasPendingRequests {
+        if hasRunnableRequests {
             self.queue.async { [weak self] in
                 self?.runArchivePersistencePumpTurn()
             }
         }
     }
 
+    private func parkArchivePersistenceRequestAwaitingIngress(queryId: String) {
+        self.archivePersistenceSchedulingLock.lock()
+        self.sealedArchivePersistenceRequestsByQueryId[queryId]?
+            .isAwaitingIngress = true
+        self.archivePersistenceSchedulingLock.unlock()
+    }
+
+    private func wakeArchivePersistenceRequestAfterIngress(queryId: String) {
+        var shouldSchedulePump = false
+        self.archivePersistenceSchedulingLock.lock()
+        if let request =
+                self.sealedArchivePersistenceRequestsByQueryId[queryId],
+           request.isAwaitingIngress {
+            let receivedCount =
+                self.archivePersistenceSummariesByQueryId[queryId]?.received ?? 0
+            let hasReachedExpectedIngress =
+                request.expectedReceivedCount.map {
+                    receivedCount >= $0
+                } ?? true
+            guard hasReachedExpectedIngress else {
+                self.archivePersistenceSchedulingLock.unlock()
+                return
+            }
+            request.isAwaitingIngress = false
+            if !self.isArchivePersistencePumpScheduled {
+                self.isArchivePersistencePumpScheduled = true
+                shouldSchedulePump = true
+            }
+        }
+        self.archivePersistenceSchedulingLock.unlock()
+
+        guard shouldSchedulePump else {
+            return
+        }
+        self.queue.async { [weak self] in
+            self?.runArchivePersistencePumpTurn()
+        }
+    }
+
     private func hasInteractiveArchivePersistenceRequest() -> Bool {
         self.archivePersistenceSchedulingLock.lock()
         let result = self.sealedArchivePersistenceRequestsByQueryId.values.contains {
-            $0.priority == .interactive
+            $0.priority == .interactive && !$0.isAwaitingIngress
         }
         self.archivePersistenceSchedulingLock.unlock()
         return result
@@ -537,6 +696,7 @@ extension MessageManager {
             ("drainCount", results.count),
             ("drainLimit", drainLimit),
             ("queuedRemaining", self.queuedMessageCountsByQueryId[request.queryId] ?? 0),
+            ("expectedReceivedCount", request.expectedReceivedCount),
             ("activeRequestCount", activeRequestCount)
         ])
 
@@ -550,16 +710,56 @@ extension MessageManager {
             AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
         }
 
-        let hasPendingRows =
-            (self.queuedMessageCountsByQueryId[request.queryId] ?? 0) > 0 ||
-            (self.inFlightMessageCountsByQueryId[request.queryId] ?? 0) > 0
-        if !hasPendingRows {
-            let summary = self.archivePersistenceSummarySnapshot(forQueryId: request.queryId)
-            self.archiveQueryBatchIds.remove(request.queryId)
-            let completions = self.completeArchivePersistenceRequest(
+        let actualQueuedCount = self.queuedMessages.lazy.filter {
+            $0.queryId == request.queryId
+        }.count
+        let cachedQueuedCount =
+            self.queuedMessageCountsByQueryId[request.queryId] ?? 0
+        let cachedInFlightCount =
+            self.inFlightMessageCountsByQueryId[request.queryId] ?? 0
+        if actualQueuedCount > 0 {
+            self.queuedMessageCountsByQueryId[request.queryId] =
+                actualQueuedCount
+        } else {
+            self.queuedMessageCountsByQueryId.removeValue(
+                forKey: request.queryId
+            )
+        }
+        // This method, processQueue, and save all execute synchronously on the
+        // serialized MessageManager queue. No matching row can remain
+        // genuinely in flight after save returns.
+        self.inFlightMessageCountsByQueryId.removeValue(
+            forKey: request.queryId
+        )
+
+        let summary =
+            self.archivePersistenceSummarySnapshot(forQueryId: request.queryId)
+        let terminalDecision = actualQueuedCount == 0
+            ? self.completeArchivePersistenceRequestIfExpectedIngressIsAccounted(
                 queryId: request.queryId,
                 summary: summary
             )
+            : (
+                expectedReceivedCount: request.expectedReceivedCount,
+                completions: nil
+            )
+        let hasAccountedExpectedIngress =
+            terminalDecision.completions != nil
+        ChatArchiveDebugTrace.log("messageArchivePersistencePostSave", [
+            ("priority", request.priority.rawValue),
+            ("actualQueuedCount", actualQueuedCount),
+            ("cachedQueuedCount", cachedQueuedCount),
+            ("cachedInFlightCount", cachedInFlightCount),
+            ("receivedCount", summary.received),
+            (
+                "expectedReceivedCount",
+                terminalDecision.expectedReceivedCount
+            ),
+            ("accountedExpectedIngress", hasAccountedExpectedIngress)
+        ])
+
+        if let completions = terminalDecision.completions {
+            self.archiveQueryBatchIds.remove(request.queryId)
             ChatArchiveDebugTrace.log("messageArchivePersistenceTerminal", [
                 ("priority", request.priority.rawValue),
                 ("persistedRows", summary.persistedRows),
@@ -568,6 +768,21 @@ extension MessageManager {
                 ("observerCount", completions.count)
             ])
             completions.forEach { $0(summary) }
+        } else if actualQueuedCount == 0 {
+            self.parkArchivePersistenceRequestAwaitingIngress(
+                queryId: request.queryId
+            )
+            ChatArchiveDebugTrace.log(
+                "messageArchivePersistenceAwaitingIngress",
+                [
+                    ("priority", request.priority.rawValue),
+                    ("receivedCount", summary.received),
+                    (
+                        "expectedReceivedCount",
+                        terminalDecision.expectedReceivedCount
+                    )
+                ]
+            )
         }
 
         if self.hasInteractiveArchivePersistenceRequest() {
@@ -834,41 +1049,73 @@ extension MessageManager {
             ("from", message.from?.bare ?? "-"),
             ("hasArchivedContainer", getArchivedMessageContainer(message) != nil)
         ])
+        let delayedDate = getDelayedDate(message)
+        let archivedMessage = getArchivedMessageContainer(message)
+        let isInvite: Bool
+        if let delayedDate,
+           let archivedMessage {
+            isInvite =
+                AccountManager.shared.find(for: owner)?.groupchats.readInvite(
+                    in: archivedMessage,
+                    date: getDeliveryTime(
+                        archivedMessage,
+                        owner: owner
+                    ) ?? delayedDate,
+                    isRead: nil
+                ) ?? GroupchatInviteV3Parser.isInvite(archivedMessage)
+        } else {
+            isInvite = false
+        }
+
+        // Received/classified/queued accounting is one serialized ingress
+        // operation. Concurrent OMEMO/plaintext callbacks cannot let the
+        // persistence pump observe the expected count before the final row has
+        // entered the query queue or been explicitly classified as skipped.
         self.performMessageQueueSync {
+            defer {
+                if let queryId,
+                   queryId.isNotEmpty {
+                    self.wakeArchivePersistenceRequestAfterIngress(
+                        queryId: queryId
+                    )
+                }
+            }
             self.updateArchivePersistenceSummary(for: queryId) { summary in
                 summary.received += 1
             }
-        }
-        if let date = getDelayedDate(message),
-            let messageBare = getArchivedMessageContainer(message) {
-            if AccountManager.shared.find(for: owner)?.groupchats.readInvite(in: messageBare, date: getDeliveryTime(messageBare, owner: owner) ?? date, isRead: nil) ?? GroupchatInviteV3Parser.isInvite(messageBare) {
-                self.performMessageQueueSync {
-                    self.updateArchivePersistenceSummary(for: queryId) { summary in
-                        summary.skipped += 1
-                    }
+            guard let delayedDate,
+                  let archivedMessage else {
+                self.updateArchivePersistenceSummary(for: queryId) { summary in
+                    summary.skipped += 1
                 }
                 return
             }
-            let shouldPersistArchiveQueryId = self.shouldPersistArchiveQueryId(queryId)
-            let didQueue = enqueue(MessageQueueItem(messageBare,
-                                                    messageId: getOriginId(messageBare),
-                                                    archivedFrom: message.from?.bare,
-                                                    isRead: true,
-                                                    date: getDeliveryTime(messageBare, owner: owner) ?? date,
-                                                    state: .deliver,
-                                                    queryId: queryId,
-                                                    shouldPersistArchiveQueryId: shouldPersistArchiveQueryId))
-            if didQueue {
-                self.performMessageQueueSync {
-                    self.updateArchivePersistenceSummary(for: queryId) { summary in
-                        summary.queued += 1
-                    }
-                }
-            }
-        } else {
-            self.performMessageQueueSync {
+            if isInvite {
                 self.updateArchivePersistenceSummary(for: queryId) { summary in
                     summary.skipped += 1
+                }
+                return
+            }
+
+            let shouldPersistArchiveQueryId =
+                self.shouldPersistArchiveQueryId(queryId)
+            let didQueue = enqueue(MessageQueueItem(
+                archivedMessage,
+                messageId: getOriginId(archivedMessage),
+                archivedFrom: message.from?.bare,
+                isRead: true,
+                date: getDeliveryTime(
+                    archivedMessage,
+                    owner: owner
+                ) ?? delayedDate,
+                state: .deliver,
+                queryId: queryId,
+                shouldPersistArchiveQueryId:
+                    shouldPersistArchiveQueryId
+            ))
+            if didQueue {
+                self.updateArchivePersistenceSummary(for: queryId) { summary in
+                    summary.queued += 1
                 }
             }
         }

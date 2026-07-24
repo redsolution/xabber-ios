@@ -48,14 +48,14 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
         )
     }
 
-    func testInitialBootstrapTransportUsesPrimaryStreamThroughBootstrapGate() {
+    func testInitialBootstrapTransportBypassesBusyPrimaryGateWithUIActionStream() {
         XCTAssertEqual(
             ChatInitialBootstrapTransportPolicy.resolve(
                 hasPrimaryAccount: true,
                 primaryStreamReady: true,
                 primaryBootstrapGateActive: true
             ),
-            .primaryAccount
+            .uiAction
         )
     }
 
@@ -1036,13 +1036,19 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
             "raw idle-bootstrap <fin> must not mutate archive coverage or readiness"
         )
         XCTAssertTrue(
-            methodSource.contains("finishArchiveQueryBatchAsync(queryId: queryId)") ||
+            methodSource.contains("finishArchiveQueryBatchAsync(") ||
                 methodSource.contains("flushQueryMessagesAsync("),
             "idle bootstrap must await its query-scoped Realm flush"
         )
         XCTAssertTrue(
             methodSource.contains("commitAfterPersistence("),
             "idle bootstrap must commit coverage only from persistence terminal"
+        )
+        XCTAssertTrue(
+            methodSource.contains(
+                "releaseArchiveQueryBatchIngressExpectation("
+            ),
+            "idle persistence timeout must not leave a parked archive batch blocking later work"
         )
         XCTAssertFalse(
             methodSource.contains("callback: finishIdleAttempt"),

@@ -4696,6 +4696,9 @@ enum ChatRemoteHistoryCompletionCoordinator {
             return
         }
         let source = persistenceSource.manager
+        source.releaseArchiveQueryBatchIngressExpectation(
+            queryId: queryId
+        )
         source.finishArchiveQueryBatchAsync(
             queryId: queryId,
             priority: persistenceSource.priority
@@ -4860,6 +4863,7 @@ enum ChatRemoteHistoryCompletionCoordinator {
         owner: String,
         queryId: String,
         state: MessageArchivePageEndState,
+        expectedReceivedCount: Int? = nil,
         conversationJid: String? = nil,
         conversationType: ClientSynchronizationManager.ConversationType? = nil,
         completion: @escaping (ChatRemoteHistoryCompletionResult) -> Void
@@ -4886,7 +4890,8 @@ enum ChatRemoteHistoryCompletionCoordinator {
                 }
                 source.finishArchiveQueryBatchAsync(
                     queryId: queryId,
-                    priority: registeredSource?.priority ?? .background
+                    priority: registeredSource?.priority ?? .background,
+                    expectedReceivedCount: expectedReceivedCount
                 ) { summary in
                     finish(completionResult(
                         state: state,
@@ -6478,6 +6483,75 @@ enum ChatLocalFirstFramePhase: Equatable {
     case committed(ChatLocalFirstFrameDescriptor)
     case blockedArchiveBootstrap(ChatLocalFirstFrameDescriptor)
     case blockedMissingTarget(ChatLocalFirstFrameDescriptor)
+    case failedPresentation(ChatLocalFirstFrameDescriptor)
+}
+
+enum ChatInitialFramePresentationFailureRecoveryAction: Equatable {
+    case remapFreshGeneration
+    case showTerminalRetry
+}
+
+enum ChatInitialFramePresentationFailureRecoveryPolicy {
+    static func action(
+        failedDescriptor: ChatLocalFirstFrameDescriptor,
+        previouslyRetriedDescriptor: ChatLocalFirstFrameDescriptor?
+    ) -> ChatInitialFramePresentationFailureRecoveryAction {
+        previouslyRetriedDescriptor == failedDescriptor
+            ? .showTerminalRetry
+            : .remapFreshGeneration
+    }
+}
+
+enum ChatInitialFrameLogicalCommitStatePolicy {
+    static func loadingState(
+        previous: ChatBootstrapLoadingState,
+        committedItemsAreEmpty: Bool,
+        hasTrustedPersistedBootstrapPage: Bool
+    ) -> ChatBootstrapLoadingState {
+        if previous.showsRetry,
+           !hasTrustedPersistedBootstrapPage {
+            return previous
+        }
+        return committedItemsAreEmpty ? .empty : .content
+    }
+}
+
+enum ChatInitialFrameStoreChangeRoutingAction: Equatable {
+    case coalesce
+    case apply
+    case ignore
+}
+
+enum ChatInitialFrameStoreChangeRoutingPolicy {
+    static func action(
+        phase: ChatLocalFirstFramePhase,
+        hasCommittedTimelinePresentation: Bool
+    ) -> ChatInitialFrameStoreChangeRoutingAction {
+        switch phase {
+        case .preparing, .presenting, .blockedArchiveBootstrap,
+                .blockedMissingTarget, .failedPresentation:
+            return .coalesce
+        case .idle, .committed:
+            return hasCommittedTimelinePresentation ? .apply : .ignore
+        }
+    }
+}
+
+enum ChatInitialFrameObserverRefreshBarrierPolicy {
+    static func shouldDefer(
+        phase: ChatLocalFirstFramePhase,
+        hasCommittedTimelinePresentation: Bool
+    ) -> Bool {
+        switch phase {
+        case .preparing, .presenting, .blockedArchiveBootstrap,
+                .blockedMissingTarget, .failedPresentation:
+            return true
+        case .idle:
+            return !hasCommittedTimelinePresentation
+        case .committed:
+            return false
+        }
+    }
 }
 
 enum ChatLocalFirstFrameDescriptorPolicy {
@@ -6525,7 +6599,8 @@ enum ChatLocalFirstFrameAvailabilityPolicy {
         allowsStaleLocalHistory: Bool,
         allowsBootstrapFailureFallback: Bool,
         hasTrustedPersistedBootstrapPage: Bool = false,
-        hasLocalAnchorRequest: Bool = false
+        hasLocalAnchorRequest: Bool = false,
+        liveLoadingState: ChatBootstrapLoadingState? = nil
     ) -> ChatLocalFirstFrameAvailabilityDecision {
         if hasTrustedPersistedBootstrapPage {
             return .prepareLocal
@@ -6535,6 +6610,9 @@ enum ChatLocalFirstFrameAvailabilityPolicy {
         }
         if allowsStaleLocalHistory || allowsBootstrapFailureFallback {
             return .prepareLocal
+        }
+        if liveLoadingState?.showsSkeleton == true {
+            return .blockForArchiveBootstrap
         }
         if isSynced && isInitialArchiveLoaded {
             return .prepareLocal
@@ -6564,10 +6642,12 @@ enum ChatPreparedInitialFrameCommitPolicy {
     /// durable proof that the timeline no longer needs to remain blocked.
     static func shouldCommit(
         hasMappedRealRows: Bool,
-        liveLoadingState: ChatBootstrapLoadingState
+        liveLoadingState: ChatBootstrapLoadingState,
+        allowsBlockingRealRows: Bool = false
     ) -> Bool {
-        guard !hasMappedRealRows else {
-            return true
+        if hasMappedRealRows {
+            return !liveLoadingState.showsSkeleton ||
+                allowsBlockingRealRows
         }
         switch liveLoadingState {
         case .empty, .failure(fallback: .empty):
@@ -8524,7 +8604,8 @@ extension ChatViewController {
     }
 
     internal func updateFloatingDate(_ update: ChatScrollFloatingDateUpdate) {
-        guard update.residentRowCount >= 5 else {
+        guard !self.showSkeletonObserver.value,
+              update.residentRowCount >= 5 else {
             self.pinnedDateView.isHidden = true
             return
         }
@@ -8548,7 +8629,9 @@ extension ChatViewController {
         let visible = self.scrollResidentMetadata.capture(
             indexPaths: self.messagesCollectionView.indexPathsForVisibleItems
         )
-        guard let top = visible.rows.first else {
+        guard !self.showSkeletonObserver.value,
+              let top = visible.rows.first(where: { !$0.isFakeMessage }) else {
+            self.pinnedDateView.isHidden = true
             return
         }
         self.updateFloatingDate(
@@ -9152,28 +9235,57 @@ extension ChatViewController {
                transactionFailure == nil {
                 switch anchorStrategy {
                 case .message(let anchor):
-                    if let section = self.datasourceSnapshot.primaryIndex[anchor.primary] {
+                    let resolveAnchorTargetOffsetY: () -> CGFloat? = {
+                        guard let section = self.datasourceSnapshot.primaryIndex[anchor.primary] else {
+                            return nil
+                        }
                         let indexPath = IndexPath(item: 0, section: section)
-                        if let frame = self.messagesCollectionView.layoutAttributesForItem(at: indexPath)?.frame
-                            ?? self.messagesCollectionView.cellForItem(at: indexPath)?.frame {
-                            let minOffsetY =
-                                -self.messagesCollectionView.adjustedContentInset.top
-                            let maxOffsetY = max(
-                                minOffsetY,
-                                self.messagesCollectionView.contentSize.height -
-                                    self.messagesCollectionView.bounds.height +
-                                    self.messagesCollectionView.adjustedContentInset.bottom
+                        guard let frame =
+                                self.messagesCollectionView.layoutAttributesForItem(
+                                    at: indexPath
+                                )?.frame
+                                ?? self.messagesCollectionView.cellForItem(
+                                    at: indexPath
+                                )?.frame else {
+                            return nil
+                        }
+                        let minOffsetY =
+                            -self.messagesCollectionView.adjustedContentInset.top
+                        let maxOffsetY = max(
+                            minOffsetY,
+                            self.messagesCollectionView.contentSize.height -
+                                self.messagesCollectionView.bounds.height +
+                                self.messagesCollectionView.adjustedContentInset.bottom
+                        )
+                        return ChatViewportTransactionTargetPolicy.targetContentOffsetY(
+                            anchor: anchor,
+                            resolvedAnchorMinY: frame.minY,
+                            minimumContentOffsetY: minOffsetY,
+                            maximumContentOffsetY: maxOffsetY
+                        )
+                    }
+                    if let resolvedTargetOffsetY = resolveAnchorTargetOffsetY() {
+                        let didCorrect = viewportTransaction.performFinalAlignmentCorrection(
+                            currentOffsetY: self.messagesCollectionView.contentOffset.y,
+                            targetOffsetY: resolvedTargetOffsetY,
+                            tolerance: 1
+                        ) { targetOffsetY in
+                            self.messagesCollectionView.setContentOffset(
+                                CGPoint(
+                                    x: self.messagesCollectionView.contentOffset.x,
+                                    y: targetOffsetY
+                                ),
+                                animated: false
                             )
-                            let resolvedTargetOffsetY =
-                                ChatViewportTransactionTargetPolicy.targetContentOffsetY(
-                                    anchor: anchor,
-                                    resolvedAnchorMinY: frame.minY,
-                                    minimumContentOffsetY: minOffsetY,
-                                    maximumContentOffsetY: maxOffsetY
-                                )
+                        }
+                        if didCorrect {
+                            self.messagesCollectionView.setNeedsLayout()
+                            self.messagesCollectionView.layoutIfNeeded()
+                        }
+                        if let finalTargetOffsetY = resolveAnchorTargetOffsetY() {
                             anchorError = abs(
                                 self.messagesCollectionView.contentOffset.y -
-                                    resolvedTargetOffsetY
+                                    finalTargetOffsetY
                             )
                         } else {
                             transactionFailure = .targetMissing(primary: anchor.primary)
@@ -9188,34 +9300,61 @@ extension ChatViewController {
                         )
                     }
                 case .bottom:
-                    let finalTargetMaxY: CGFloat?
-                    if let resolvedBottomTargetIndexPath {
-                        finalTargetMaxY =
-                            self.messagesCollectionView.layoutAttributesForItem(
-                                at: resolvedBottomTargetIndexPath
-                            )?.frame.maxY
-                            ?? self.messagesCollectionView.cellForItem(
-                                at: resolvedBottomTargetIndexPath
-                            )?.frame.maxY
-                        if finalTargetMaxY == nil {
+                    let resolveBottomTargetOffsetY: () -> CGFloat? = {
+                        let targetMaxY: CGFloat
+                        if let resolvedBottomTargetIndexPath {
+                            guard let resolvedTargetMaxY =
+                                    self.messagesCollectionView.layoutAttributesForItem(
+                                        at: resolvedBottomTargetIndexPath
+                                    )?.frame.maxY
+                                    ?? self.messagesCollectionView.cellForItem(
+                                        at: resolvedBottomTargetIndexPath
+                                    )?.frame.maxY else {
+                                return nil
+                            }
+                            targetMaxY = resolvedTargetMaxY
+                        } else {
+                            targetMaxY = self.messagesCollectionView.contentSize.height
+                        }
+                        return ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+                            targetMaxY: targetMaxY,
+                            contentHeight: self.messagesCollectionView.contentSize.height,
+                            viewportHeight: self.messagesCollectionView.bounds.height,
+                            contentInsets: self.messagesCollectionView.contentInset
+                        )
+                    }
+                    if let finalTargetOffsetY = resolveBottomTargetOffsetY() {
+                        let didCorrect = viewportTransaction.performFinalAlignmentCorrection(
+                            currentOffsetY: self.messagesCollectionView.contentOffset.y,
+                            targetOffsetY: finalTargetOffsetY,
+                            tolerance: 0.5
+                        ) { targetOffsetY in
+                            self.messagesCollectionView.setContentOffset(
+                                CGPoint(
+                                    x: self.messagesCollectionView.contentOffset.x,
+                                    y: targetOffsetY
+                                ),
+                                animated: false
+                            )
+                        }
+                        if didCorrect {
+                            self.messagesCollectionView.setNeedsLayout()
+                            self.messagesCollectionView.layoutIfNeeded()
+                        }
+                        if let resolvedFinalTargetOffsetY =
+                                resolveBottomTargetOffsetY() {
+                            bottomAlignmentError = abs(
+                                self.messagesCollectionView.contentOffset.y -
+                                    resolvedFinalTargetOffsetY
+                            )
+                        } else {
                             transactionFailure = .targetMissing(
                                 primary: alignmentTargetDescription
                             )
                         }
                     } else {
-                        finalTargetMaxY = self.messagesCollectionView.contentSize.height
-                    }
-                    if let finalTargetMaxY {
-                        let finalTargetOffsetY =
-                            ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
-                                targetMaxY: finalTargetMaxY,
-                                contentHeight: self.messagesCollectionView.contentSize.height,
-                                viewportHeight: self.messagesCollectionView.bounds.height,
-                                contentInsets: self.messagesCollectionView.contentInset
-                            )
-                        bottomAlignmentError = abs(
-                            self.messagesCollectionView.contentOffset.y -
-                                finalTargetOffsetY
+                        transactionFailure = .targetMissing(
+                            primary: alignmentTargetDescription
                         )
                     }
                     if transactionFailure == nil,
@@ -10297,6 +10436,23 @@ extension ChatViewController {
             let leaseKey =
                 self.initialBootstrapLeaseKey ?? self.initialBootstrapRequestKey
             let readiness = coordinator.readiness(for: leaseKey)
+            guard readiness?.phase == .failed else {
+                // The presentation SLA is allowed to release background/chat
+                // navigation pressure, but an active archive phase is not a
+                // load failure. Keep the exact committed skeleton until the
+                // coordinator publishes content, confirmed empty, or a real
+                // terminal failure.
+                self.initialBootstrapPresentationDeadline = nil
+                self.releaseInteractiveChatOpenGate()
+                ChatArchiveDebugTrace.log(
+                    "initialBootstrapPresentationWatchdogDeferredToArchiveTerminal",
+                    [
+                        ("operationActive", true),
+                        ("phaseCode", readiness?.phase.traceCode)
+                    ]
+                )
+                return
+            }
             let localMessageCount = self.localHistoryMessageCountForBootstrap()
             let hasPendingTarget = self.hasPendingInitialAnchorRequest()
             if !hasPendingTarget {
@@ -12269,6 +12425,9 @@ extension ChatViewController {
             ChatInitialAnchorBootstrapPolicy.needsLocalAnchorLookup(source: request.source) &&
                 self.hasLocalAnchorForBootstrap(request)
         } ?? false
+        let initialLoadingState = self.bootstrapLoadingState(
+            chatInstance: chatInstance
+        )
         let availability = ChatLocalFirstFrameAvailabilityPolicy.decision(
             isSynced: chatInstance?.isSynced ?? false,
             isInitialArchiveLoaded: chatInstance?.isInitialArchiveLoaded ?? false,
@@ -12276,7 +12435,8 @@ extension ChatViewController {
             allowsStaleLocalHistory: self.allowsStaleLocalHistoryDuringInitialBootstrap,
             allowsBootstrapFailureFallback: self.allowsBootstrapFailureFallback,
             hasTrustedPersistedBootstrapPage: hasTrustedPersistedBootstrapPage,
-            hasLocalAnchorRequest: hasLocalAnchorRequest
+            hasLocalAnchorRequest: hasLocalAnchorRequest,
+            liveLoadingState: initialLoadingState
         )
 
         guard availability == .prepareLocal else {
@@ -12310,6 +12470,10 @@ extension ChatViewController {
                 forceRender: true,
                 synchronousSkeletonCommit: self.isPreparingStackedNavigationPresentation
             )
+            self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
+            return true
+        case .failedPresentation(let current)
+            where current == descriptor && !hasTrustedPersistedBootstrapPage:
             self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
             return true
         default:
@@ -12350,7 +12514,10 @@ extension ChatViewController {
                 descriptor: descriptor,
                 session: session,
                 mappingGeneration: mappingGeneration,
-                mappingToken: mappingToken
+                mappingToken: mappingToken,
+                hasTrustedPersistedBootstrapPage:
+                    hasTrustedPersistedBootstrapPage,
+                hasLocalAnchorRequest: hasLocalAnchorRequest
             )
         }
 
@@ -12366,7 +12533,9 @@ extension ChatViewController {
         descriptor: ChatLocalFirstFrameDescriptor,
         session: ChatTimelineSession,
         mappingGeneration: Int,
-        mappingToken: ChatDatasetMappingCancellationToken
+        mappingToken: ChatDatasetMappingCancellationToken,
+        hasTrustedPersistedBootstrapPage: Bool,
+        hasLocalAnchorRequest: Bool
     ) {
         switch result {
         case .stale:
@@ -12431,7 +12600,12 @@ extension ChatViewController {
                 let hasMappedRealRows = mappingResult.datasource.contains { !$0.isFakeMessage }
                 guard ChatPreparedInitialFrameCommitPolicy.shouldCommit(
                     hasMappedRealRows: hasMappedRealRows,
-                    liveLoadingState: liveLoadingState
+                    liveLoadingState: liveLoadingState,
+                    allowsBlockingRealRows:
+                        hasTrustedPersistedBootstrapPage ||
+                        hasLocalAnchorRequest ||
+                        self.allowsStaleLocalHistoryDuringInitialBootstrap ||
+                        self.allowsBootstrapFailureFallback
                 ) else {
                     session.cancelInitialFramePreparations()
                     mappingToken.cancel()
@@ -12458,7 +12632,8 @@ extension ChatViewController {
                     preparedFrame: preparedFrame,
                     committedSnapshot: committedSnapshot,
                     mappingResult: mappingResult,
-                    mappingGeneration: mappingGeneration
+                    hasTrustedPersistedBootstrapPage:
+                        hasTrustedPersistedBootstrapPage
                 )
             }
         }
@@ -12542,13 +12717,10 @@ extension ChatViewController {
         preparedFrame: ChatTimelinePreparedInitialFrame,
         committedSnapshot: ChatTimelineSessionSnapshot,
         mappingResult: ChatDatasourceMappingResult,
-        mappingGeneration: Int
+        hasTrustedPersistedBootstrapPage: Bool
     ) {
         let presentationStartedAt = Date()
         let previousBootstrapState = self.appliedBootstrapLoadingState ?? .blockingArchive
-        let retainedRetryState = previousBootstrapState.showsRetry
-            ? previousBootstrapState
-            : nil
         let previousBoundaryPlaceholder = self.activeHistoryBoundaryPlaceholder
         let previousResidentDatasetWindow = self.residentDatasetWindow
         let rollbackPresentationState: () -> Void = { [weak self] in
@@ -12575,7 +12747,10 @@ extension ChatViewController {
             self.beginPreparedLocalFirstFrameAnchor(request: request)
         }
 
-        var presentationAttempt = 0
+        let presentationAttemptCount =
+            self.initialLocalFirstFramePresentationRetryDescriptor == descriptor
+                ? 2
+                : 1
         var applyPreparedFrame: (() -> Void)?
         let handlePresentationResult: (ChatViewportTransactionResult) -> Void = { [weak self] result in
             guard let self,
@@ -12588,21 +12763,31 @@ extension ChatViewController {
             case .committed(let diagnostics):
                 applyPreparedFrame = nil
                 self.initialLocalFirstFrameMappingToken = nil
+                self.initialLocalFirstFramePresentationRetryDescriptor = nil
                 self.initialLocalFirstFramePhase = .committed(descriptor)
                 self.initialFirstContentApplyCount += 1
                 self.lastBootstrapAtomicRevealPlan = ChatBootstrapAtomicRevealPlan.resolve(
                     previous: previousBootstrapState,
                     destinationRowCount: mappingResult.datasource.count
                 )
-                self.allowsBootstrapFailureFallback = retainedRetryState != nil
-                self.appliedBootstrapLoadingState =
-                    retainedRetryState ??
-                    (committedSnapshot.items.isEmpty ? .empty : .content)
-                self.setBootstrapFailureVisible(retainedRetryState != nil)
+                let committedLoadingState =
+                    ChatInitialFrameLogicalCommitStatePolicy.loadingState(
+                        previous: previousBootstrapState,
+                        committedItemsAreEmpty: committedSnapshot.items.isEmpty,
+                        hasTrustedPersistedBootstrapPage:
+                            hasTrustedPersistedBootstrapPage
+                    )
+                self.allowsBootstrapFailureFallback =
+                    committedLoadingState.showsRetry
+                self.appliedBootstrapLoadingState = committedLoadingState
+                self.setBootstrapFailureVisible(
+                    committedLoadingState.showsRetry
+                )
                 self.setSkeletonVisible(false)
                 self.setDatasourceLoadingEnabled(true)
                 self.setShouldShowInitialMessage(
-                    retainedRetryState == nil && committedSnapshot.items.isEmpty
+                    committedSnapshot.items.isEmpty &&
+                        !committedLoadingState.showsRetry
                 )
                 self.rebuildUnreadMentionItems()
                 self.resolvePendingBootstrapFirstFrameReadinessCompletionsIfPossible()
@@ -12654,10 +12839,11 @@ extension ChatViewController {
                     ("realRows", realRowCount),
                     ("skeletonRows", skeletonRowCount),
                     ("visualCommitCount", 1),
-                    ("attemptCount", presentationAttempt + 1),
+                    ("attemptCount", presentationAttemptCount),
                     ("alignmentResult", "committed"),
                     ("bottomDistanceMilliPoints", Int(bottomDistance * 1_000)),
                     ("anchorErrorMilliPoints", Int((diagnostics.anchorError ?? 0) * 1_000)),
+                    ("finalAlignmentCorrectionCount", diagnostics.finalAlignmentCorrectionCount),
                     ("durationMs", ChatArchiveDebugTrace.milliseconds(since: presentationStartedAt))
                 ])
 
@@ -12683,46 +12869,10 @@ extension ChatViewController {
                 self.finishInitialLocalFirstFramePreparation()
 
             case .failed(let failure, _):
-                let canRetry = presentationAttempt == 0 &&
-                    ChatDatasourceApplyGenerationPolicy.shouldApply(
-                        requestGeneration: mappingGeneration,
-                        currentGeneration: self.datasetMappingGeneration
-                    ) &&
-                    !self.isStackedNavigationPresentationPreparationCancelled
-                if canRetry {
-                    presentationAttempt = 1
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self else {
-                            applyPreparedFrame = nil
-                            return
-                        }
-                        guard self.initialLocalFirstFramePhase == .presenting(descriptor) else {
-                            applyPreparedFrame = nil
-                            if self.isStackedNavigationPresentationPreparationCancelled {
-                                rollbackPresentationState()
-                            }
-                            return
-                        }
-                        guard ChatDatasourceApplyGenerationPolicy.shouldApply(
-                            requestGeneration: mappingGeneration,
-                            currentGeneration: self.datasetMappingGeneration
-                        ) else {
-                            applyPreparedFrame = nil
-                            rollbackPresentationState()
-                            self.initialLocalFirstFrameMappingToken = nil
-                            self.initialLocalFirstFramePhase = .idle
-                            self.retryInitialLocalFirstFramePreparation()
-                            return
-                        }
-                        applyPreparedFrame?()
-                    }
-                    return
-                }
-
                 applyPreparedFrame = nil
                 rollbackPresentationState()
+                self.initialLocalFirstFrameMappingToken?.cancel()
                 self.initialLocalFirstFrameMappingToken = nil
-                self.initialLocalFirstFramePhase = .blockedMissingTarget(descriptor)
                 let failureKind: String
                 switch failure {
                 case .targetMissing:
@@ -12730,25 +12880,47 @@ extension ChatViewController {
                 case .alignmentUnresolved:
                     failureKind = "alignmentUnresolved"
                 }
+                let recoveryAction =
+                    ChatInitialFramePresentationFailureRecoveryPolicy.action(
+                        failedDescriptor: descriptor,
+                        previouslyRetriedDescriptor:
+                            self.initialLocalFirstFramePresentationRetryDescriptor
+                    )
                 ChatArchiveDebugTrace.log("chatInitialFramePresentationFailed", [
                     ("targetKind", {
                         if case .anchor = preparedFrame.alignment { return "anchor" }
                         return "latest"
                     }()),
                     ("failureKind", failureKind),
-                    ("attemptCount", presentationAttempt + 1),
+                    ("attemptCount", presentationAttemptCount),
+                    ("willRemap", recoveryAction == .remapFreshGeneration),
                     ("durationMs", ChatArchiveDebugTrace.milliseconds(since: presentationStartedAt))
                 ])
-                if let retainedRetryState {
-                    self.applyBootstrapLoadingState(retainedRetryState, forceRender: true)
-                } else {
-                    self.applyBootstrapViewState(
-                        .skeleton,
-                        forceRender: true,
-                        synchronousSkeletonCommit: self.isPreparingStackedNavigationPresentation
+                // `applyChatDatasource` has already restored the exact
+                // committed placeholder snapshot, layout cache, insets, and
+                // offset inside the same visual transaction. Do not invoke
+                // the high-level skeleton renderer here: that would create a
+                // second placeholder generation with different geometry.
+                switch recoveryAction {
+                case .remapFreshGeneration:
+                    self.initialLocalFirstFramePresentationRetryDescriptor =
+                        descriptor
+                    self.initialLocalFirstFramePhase = .idle
+                    self.retryInitialLocalFirstFramePreparation()
+                case .showTerminalRetry:
+                    self.initialLocalFirstFramePresentationRetryDescriptor = nil
+                    self.initialLocalFirstFramePhase =
+                        .failedPresentation(descriptor)
+                    self.allowsBootstrapFailureFallback = true
+                    self.applyBootstrapLoadingState(
+                        .failure(fallback: .empty),
+                        forceRender: true
                     )
+                    self.cancelInitialBootstrapTimeout()
+                    self.initialBootstrapPresentationDeadline = nil
+                    self.releaseInteractiveChatOpenGate()
+                    self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
                 }
-                self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
             }
         }
 
@@ -12800,7 +12972,7 @@ extension ChatViewController {
         applyPreparedFrame?()
     }
 
-    private func retryInitialLocalFirstFramePreparation() {
+    internal func retryInitialLocalFirstFramePreparation() {
         guard !self.isStackedNavigationPresentationPreparationCancelled else {
             return
         }
@@ -12824,7 +12996,12 @@ extension ChatViewController {
         if shouldPerformPendingRequest {
             self.performPendingOpenMessageRequestIfNeeded()
         }
-        if self.pendingArchiveObserverRefresh {
+        if self.pendingArchiveObserverRefresh,
+           !ChatInitialFrameObserverRefreshBarrierPolicy.shouldDefer(
+                phase: self.initialLocalFirstFramePhase,
+                hasCommittedTimelinePresentation:
+                    self.hasCommittedTimelinePresentationInCurrentLifecycle
+           ) {
             let displayedNewestPrimary = self.datasource.last(where: { !$0.isFakeMessage })?.primary
             let residentNewestPrimary = self.timelineSession?.snapshot.items.last?.primary
             switch ChatInitialFramePendingObserverRefreshPolicy.action(
@@ -13075,6 +13252,14 @@ extension ChatViewController {
     private func commitBootstrapSkeletonDatasourceSynchronously() {
         assert(Thread.isMainThread, "First-frame skeleton commits must run on main")
         self.cancelBootstrapSkeletonMappingJobs()
+
+        // Navigation preparation has already installed the destination bounds.
+        // Resolve those bounds through Auto Layout before prewarming rows so
+        // the one committed skeleton does not change geometry after push.
+        self.view.setNeedsLayout()
+        self.view.layoutIfNeeded()
+        self.messagesCollectionView.setNeedsLayout()
+        self.messagesCollectionView.layoutIfNeeded()
 
         var mappingContext = self.captureDatasourceMappingContext()
         mappingContext.showSkeleton = true
@@ -13790,7 +13975,11 @@ extension ChatViewController {
 
     @discardableResult
     internal func flushPendingArchiveObserverRefreshIfPossible(reason: String) -> Bool {
-        if case .presenting = self.initialLocalFirstFramePhase {
+        if ChatInitialFrameObserverRefreshBarrierPolicy.shouldDefer(
+            phase: self.initialLocalFirstFramePhase,
+            hasCommittedTimelinePresentation:
+                self.hasCommittedTimelinePresentationInCurrentLifecycle
+        ) {
             self.pendingArchiveObserverRefresh = true
             self.logArchiveObserverRefreshBackpressure(
                 action: "flushDeferredForInitialFrame:\(reason)"
@@ -15703,7 +15892,11 @@ extension ChatViewController {
 
     
     func didReceiveChangeset() {
-        if case .presenting = self.initialLocalFirstFramePhase {
+        if ChatInitialFrameObserverRefreshBarrierPolicy.shouldDefer(
+            phase: self.initialLocalFirstFramePhase,
+            hasCommittedTimelinePresentation:
+                self.hasCommittedTimelinePresentationInCurrentLifecycle
+        ) {
             self.pendingArchiveObserverRefresh = true
             self.archiveObserverRefreshWorkItem?.cancel()
             self.archiveObserverRefreshWorkItem = nil

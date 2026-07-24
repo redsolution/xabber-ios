@@ -171,19 +171,77 @@ final class ChatInitialPresentationAtomicityRegressionTests: XCTestCase {
         XCTAssertFalse(controller.hasCommittedRealContentInCurrentLifecycle)
     }
 
-    func testPostLayoutAlignmentDriftRollsBackToSkeletonWithoutContentReceipt() {
+    func testSinglePostLayoutAlignmentDriftReceivesOneBoundedCorrectionAndCommitsNewestFrame() throws {
+        let (controller, collectionView) = makeController()
+        installCommittedSkeleton(in: controller)
+        collectionView.setContentOffset(CGPoint(x: 0, y: 120), animated: false)
+        collectionView.resetRecordedEvents()
+        collectionView.injectOffsetDriftsAfterOffsets = [8]
+        let realRows = (0..<80).map { makeDatasource(primary: "drift-\($0)") }
+        var transactionResult: ChatViewportTransactionResult?
+        var contentReceiptCount = 0
+        var bottomDistanceAtReceipt: CGFloat?
+
+        controller.applyChatDatasource(
+            realRows,
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true,
+            forceBottomAlignmentTarget: .newestRealMessage,
+            presentationCommitMode: .atomicInitialFrame,
+            transactionCompletion: { transactionResult = $0 },
+            completion: {
+                contentReceiptCount += 1
+                bottomDistanceAtReceipt = self.bottomDistance(in: controller)
+            }
+        )
+
+        guard case .committed(let diagnostics) = transactionResult else {
+            return XCTFail("Expected one bounded final alignment correction to commit the frame")
+        }
+        XCTAssertEqual(diagnostics.finalAlignmentCorrectionCount, 1)
+        XCTAssertEqual(contentReceiptCount, 1)
+        XCTAssertEqual(controller.datasource.map(\.primary), realRows.map(\.primary))
+        XCTAssertFalse(controller.datasource.contains(where: \.isFakeMessage))
+        XCTAssertLessThanOrEqual(try XCTUnwrap(bottomDistanceAtReceipt), 0.5)
+        XCTAssertEqual(
+            collectionView.recordedEvents.filter { $0.kind == .reload }.count,
+            1,
+            "a corrected initial frame must install real content exactly once"
+        )
+        XCTAssertEqual(
+            collectionView.recordedEvents.filter { $0.kind == .offset }.count,
+            2,
+            "initial bottom alignment may receive exactly one final in-transaction correction"
+        )
+        XCTAssertFalse(controller.hasCommittedBootstrapSkeletonRows)
+        XCTAssertTrue(controller.hasCommittedRealContentInCurrentLifecycle)
+
+        let committedOffsetY = collectionView.contentOffset.y
+        RunLoop.current.run(until: Date().addingTimeInterval(0.04))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.04))
+
+        XCTAssertEqual(collectionView.contentOffset.y, committedOffsetY, accuracy: 0.001)
+        XCTAssertEqual(
+            collectionView.recordedEvents.filter { $0.kind == .reload }.count,
+            1,
+            "the correction must not schedule another initial-frame apply"
+        )
+    }
+
+    func testSecondPostLayoutAlignmentDriftFailsAfterBoundedCorrectionAndPreservesSkeleton() {
         let (controller, collectionView) = makeController()
         installCommittedSkeleton(in: controller)
         let skeletonPrimaries = controller.datasource.map(\.primary)
         collectionView.setContentOffset(CGPoint(x: 0, y: 120), animated: false)
         let skeletonOffsetY = collectionView.contentOffset.y
         collectionView.resetRecordedEvents()
-        collectionView.injectOffsetDriftAfterNextOffset = 8
+        collectionView.injectOffsetDriftsAfterOffsets = [8, 8]
         var transactionResult: ChatViewportTransactionResult?
         var contentReceiptCount = 0
 
         controller.applyChatDatasource(
-            (0..<80).map { makeDatasource(primary: "drift-\($0)") },
+            (0..<80).map { makeDatasource(primary: "repeated-drift-\($0)") },
             mode: .fullReload(),
             animated: false,
             suppressDefaultBottomScroll: true,
@@ -193,21 +251,154 @@ final class ChatInitialPresentationAtomicityRegressionTests: XCTestCase {
             completion: { contentReceiptCount += 1 }
         )
 
-        guard case .failed(.alignmentUnresolved(_, let error), _) = transactionResult else {
-            return XCTFail("Expected the post-layout alignment proof to reject the frame")
+        guard case .failed(.alignmentUnresolved(_, let error), let diagnostics) = transactionResult else {
+            return XCTFail("Expected a second drift to exhaust the bounded correction")
         }
         XCTAssertGreaterThan(error, 0.5)
+        XCTAssertEqual(diagnostics.finalAlignmentCorrectionCount, 1)
         XCTAssertEqual(contentReceiptCount, 0)
         XCTAssertEqual(controller.datasource.map(\.primary), skeletonPrimaries)
         XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
         XCTAssertEqual(collectionView.contentOffset.y, skeletonOffsetY, accuracy: 0.001)
-        XCTAssertEqual(
-            collectionView.recordedEvents.filter { $0.kind == .reload }.count,
-            2,
-            "the failed content reload must be followed by one in-transaction skeleton rollback"
-        )
         XCTAssertTrue(controller.hasCommittedBootstrapSkeletonRows)
         XCTAssertFalse(controller.hasCommittedRealContentInCurrentLifecycle)
+    }
+
+    func testAtomicPresentationFailureUsesOneFreshMappingGenerationThenTerminalRetry() {
+        let descriptor = ChatLocalFirstFrameDescriptor(
+            target: .latest,
+            request: nil
+        )
+        XCTAssertEqual(
+            ChatInitialFramePresentationFailureRecoveryPolicy.action(
+                failedDescriptor: descriptor,
+                previouslyRetriedDescriptor: nil
+            ),
+            .remapFreshGeneration
+        )
+        XCTAssertEqual(
+            ChatInitialFramePresentationFailureRecoveryPolicy.action(
+                failedDescriptor: descriptor,
+                previouslyRetriedDescriptor: descriptor
+            ),
+            .showTerminalRetry
+        )
+        XCTAssertEqual(
+            ChatInitialFramePresentationFailureRecoveryPolicy.action(
+                failedDescriptor: ChatLocalFirstFrameDescriptor(
+                    target: .message(
+                        ChatTimelineAnchor(
+                            primary: "different-target",
+                            archivedId: nil,
+                            messageId: nil,
+                            date: nil
+                        )
+                    ),
+                    request: nil
+                ),
+                previouslyRetriedDescriptor: descriptor
+            ),
+            .remapFreshGeneration,
+            "a different requested frame owns its own bounded retry"
+        )
+    }
+
+    func testLogicalCommitKeepsRealFailureUntilTrustedArchivePageSucceeds() {
+        XCTAssertEqual(
+            ChatInitialFrameLogicalCommitStatePolicy.loadingState(
+                previous: .failure(fallback: .content),
+                committedItemsAreEmpty: false,
+                hasTrustedPersistedBootstrapPage: false
+            ),
+            .failure(fallback: .content)
+        )
+        XCTAssertEqual(
+            ChatInitialFrameLogicalCommitStatePolicy.loadingState(
+                previous: .failure(fallback: .content),
+                committedItemsAreEmpty: false,
+                hasTrustedPersistedBootstrapPage: true
+            ),
+            .content
+        )
+        XCTAssertEqual(
+            ChatInitialFrameLogicalCommitStatePolicy.loadingState(
+                previous: .blockingArchive,
+                committedItemsAreEmpty: false,
+                hasTrustedPersistedBootstrapPage: false
+            ),
+            .content
+        )
+    }
+
+    func testStoreChangeIsCoalescedWhileInitialFrameIsPreparingOrPresenting() {
+        let descriptor = ChatLocalFirstFrameDescriptor(
+            target: .latest,
+            request: nil
+        )
+        XCTAssertEqual(
+            ChatInitialFrameStoreChangeRoutingPolicy.action(
+                phase: .preparing(descriptor),
+                hasCommittedTimelinePresentation: false
+            ),
+            .coalesce
+        )
+        XCTAssertEqual(
+            ChatInitialFrameStoreChangeRoutingPolicy.action(
+                phase: .presenting(descriptor),
+                hasCommittedTimelinePresentation: false
+            ),
+            .coalesce
+        )
+        XCTAssertEqual(
+            ChatInitialFrameStoreChangeRoutingPolicy.action(
+                phase: .committed(descriptor),
+                hasCommittedTimelinePresentation: true
+            ),
+            .apply
+        )
+        XCTAssertEqual(
+            ChatInitialFrameStoreChangeRoutingPolicy.action(
+                phase: .failedPresentation(descriptor),
+                hasCommittedTimelinePresentation: true
+            ),
+            .coalesce,
+            "terminal Retry must not admit a generic non-atomic datasource refresh"
+        )
+    }
+
+    func testObserverRefreshStaysBehindBarrierUntilAtomicFrameCommits() {
+        let descriptor = ChatLocalFirstFrameDescriptor(
+            target: .latest,
+            request: nil
+        )
+        XCTAssertTrue(
+            ChatInitialFrameObserverRefreshBarrierPolicy.shouldDefer(
+                phase: .blockedArchiveBootstrap(descriptor),
+                hasCommittedTimelinePresentation: true
+            )
+        )
+        XCTAssertTrue(
+            ChatInitialFrameObserverRefreshBarrierPolicy.shouldDefer(
+                phase: .failedPresentation(descriptor),
+                hasCommittedTimelinePresentation: true
+            )
+        )
+        XCTAssertFalse(
+            ChatInitialFrameObserverRefreshBarrierPolicy.shouldDefer(
+                phase: .committed(descriptor),
+                hasCommittedTimelinePresentation: true
+            )
+        )
+    }
+
+    func testLegacyFloatingDatePathHidesCommittedSkeletonSentinelDate() {
+        let (controller, _) = makeController()
+        installCommittedSkeleton(in: controller)
+        controller.pinnedDateView.isHidden = false
+
+        controller.updateFloatingDate()
+
+        XCTAssertTrue(controller.pinnedDateView.isHidden)
     }
 
     func testObserverRefreshDuringPresentingIsCoalescedWithoutReplacingSkeleton() {
@@ -457,13 +648,13 @@ private final class RecordingMessagesCollectionView: MessagesCollectionView {
 
     private(set) var recordedEvents: [Event] = []
     private var recordsEvents = false
-    private var didRecordOffsetSinceReset = false
-    var injectOffsetDriftAfterNextOffset: CGFloat?
+    private var didRecordOffsetSinceLastLayout = false
+    var injectOffsetDriftsAfterOffsets: [CGFloat] = []
 
     func resetRecordedEvents() {
         recordedEvents.removeAll(keepingCapacity: true)
         recordsEvents = true
-        didRecordOffsetSinceReset = false
+        didRecordOffsetSinceLastLayout = false
     }
 
     override func reloadData() {
@@ -475,9 +666,10 @@ private final class RecordingMessagesCollectionView: MessagesCollectionView {
         record(.layout)
         super.layoutSubviews()
         if recordsEvents,
-           didRecordOffsetSinceReset,
-           let drift = injectOffsetDriftAfterNextOffset {
-            injectOffsetDriftAfterNextOffset = nil
+           didRecordOffsetSinceLastLayout,
+           !injectOffsetDriftsAfterOffsets.isEmpty {
+            let drift = injectOffsetDriftsAfterOffsets.removeFirst()
+            didRecordOffsetSinceLastLayout = false
             super.setContentOffset(
                 CGPoint(x: contentOffset.x, y: contentOffset.y + drift),
                 animated: false
@@ -487,9 +679,9 @@ private final class RecordingMessagesCollectionView: MessagesCollectionView {
 
     override func setContentOffset(_ contentOffset: CGPoint, animated: Bool) {
         if recordsEvents {
-            if injectOffsetDriftAfterNextOffset != nil,
+            if !injectOffsetDriftsAfterOffsets.isEmpty,
                contentOffset.y > 500 {
-                didRecordOffsetSinceReset = true
+                didRecordOffsetSinceLastLayout = true
             }
             recordedEvents.append(Event(
                 kind: .offset,

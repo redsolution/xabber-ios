@@ -97,6 +97,7 @@ struct ChatViewportTransactionDiagnostics: Equatable {
     let anchorStrategy: ChatViewportAnchorStrategy
     let forcedLayoutCount: Int
     let programmaticOffsetMutationCount: Int
+    let finalAlignmentCorrectionCount: Int
     let nextRunLoopCorrectionCount: Int
     let anchorError: CGFloat?
     let automaticOffsetMutationSuppressedByUserInteraction: Bool
@@ -162,6 +163,7 @@ final class ChatViewportTransaction {
     private var finalInsets: UIEdgeInsets
     private var forcedLayoutCount = 0
     private var programmaticOffsetMutationCount = 0
+    private var finalAlignmentCorrectionCount = 0
     private var userInteractionDetected = false
     private var automaticOffsetMutationSuppressedByUserInteraction = false
     private var isCompleted = false
@@ -215,6 +217,29 @@ final class ChatViewportTransaction {
         return true
     }
 
+    /// Allows one final correction after self-sizing/layout has settled.
+    ///
+    /// The ordinary offset mutation remains single-shot. Initial-frame
+    /// presentation gets this separate bounded correction while the same
+    /// disabled-actions transaction is still open, so no misaligned content
+    /// frame can reach the render server.
+    @discardableResult
+    func performFinalAlignmentCorrection(
+        currentOffsetY: CGFloat,
+        targetOffsetY: CGFloat,
+        tolerance: CGFloat,
+        _ operation: (CGFloat) -> Void
+    ) -> Bool {
+        guard !isCompleted,
+              finalAlignmentCorrectionCount == 0,
+              abs(currentOffsetY - targetOffsetY) > tolerance else {
+            return false
+        }
+        finalAlignmentCorrectionCount = 1
+        operation(targetOffsetY)
+        return true
+    }
+
     func markUserInteractionDetected() {
         guard !isCompleted else { return }
         userInteractionDetected = true
@@ -251,6 +276,7 @@ final class ChatViewportTransaction {
             anchorStrategy: anchorStrategy,
             forcedLayoutCount: forcedLayoutCount,
             programmaticOffsetMutationCount: programmaticOffsetMutationCount,
+            finalAlignmentCorrectionCount: finalAlignmentCorrectionCount,
             nextRunLoopCorrectionCount: 0,
             anchorError: anchorError,
             automaticOffsetMutationSuppressedByUserInteraction: automaticOffsetMutationSuppressedByUserInteraction

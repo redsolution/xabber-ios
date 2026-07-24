@@ -190,6 +190,28 @@ final class ChatScrollFrameBudgetTests: XCTestCase {
         XCTAssertNotNil(planner.plan(request: request(visible: changedDay), currentReadPosition: nil).floatingDate)
     }
 
+    func testSkeletonRowsNeverPublishTheirSentinelDateAsFloatingChrome() {
+        let planner = ChatScrollFramePlanner()
+        let skeleton = metadata(rows: (0..<8).map {
+            visibleRow(
+                section: $0,
+                ordinal: $0,
+                day: 11_323,
+                isFakeMessage: true
+            )
+        })
+
+        let decision = planner.plan(
+            request: request(visible: skeleton),
+            currentReadPosition: nil
+        )
+
+        XCTAssertNil(
+            decision.floatingDate,
+            "placeholder dates are layout data and must never become visible chat chrome"
+        )
+    }
+
     func testVoiceQueueUsesPreparedDescriptorsAndUpdatesOnlyForChangedSignature() throws {
         let planner = ChatScrollFramePlanner()
         let firstDescriptor = voiceDescriptor(primary: "voice-1", downloaded: false)
@@ -358,6 +380,7 @@ final class ChatScrollFrameBudgetTests: XCTestCase {
         ordinal: Int,
         isRead: Bool = true,
         day: Int = 10,
+        isFakeMessage: Bool = false,
         voices: [VoiceMessageDescriptor] = []
     ) -> ChatScrollVisibleRow {
         let date = Date(timeIntervalSince1970: TimeInterval(day * 86_400 + ordinal))
@@ -373,7 +396,7 @@ final class ChatScrollFrameBudgetTests: XCTestCase {
             isOutgoing: false,
             isRead: isRead,
             rowKind: .message,
-            isFakeMessage: false,
+            isFakeMessage: isFakeMessage,
             sentDate: date,
             voiceDescriptors: voices
         )

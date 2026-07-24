@@ -259,7 +259,8 @@ final class ChatScrollFramePlanner {
         var preparedVoiceDescriptors: [VoiceMessageDescriptor] = []
 
         for row in needsVisibleRowVisit ? visible.rows : [] {
-            if topVisibleRow == nil {
+            if topVisibleRow == nil,
+               !row.isFakeMessage {
                 topVisibleRow = row
             }
             if work.contains(.advanceReadBoundary),

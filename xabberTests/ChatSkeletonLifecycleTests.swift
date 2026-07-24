@@ -1085,7 +1085,7 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
                 primaryStreamReady: true,
                 primaryBootstrapGateActive: true
             ),
-            .primaryAccount
+            .uiAction
         )
     }
 

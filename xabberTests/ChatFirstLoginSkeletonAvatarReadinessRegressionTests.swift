@@ -629,10 +629,15 @@ final class ChatFirstLoginSkeletonAvatarReadinessRegressionTests: XCTestCase {
             hasMappedRealRows: false,
             liveLoadingState: .blockingTarget
         ))
-        XCTAssertTrue(ChatPreparedInitialFrameCommitPolicy.shouldCommit(
+        XCTAssertFalse(ChatPreparedInitialFrameCommitPolicy.shouldCommit(
             hasMappedRealRows: true,
             liveLoadingState: .blockingArchive
-        ))
+        ), "untrusted local rows must not replace the archive-page skeleton")
+        XCTAssertTrue(ChatPreparedInitialFrameCommitPolicy.shouldCommit(
+            hasMappedRealRows: true,
+            liveLoadingState: .blockingArchive,
+            allowsBlockingRealRows: true
+        ), "a trusted persisted page or explicit local target may commit")
         XCTAssertTrue(ChatPreparedInitialFrameCommitPolicy.shouldCommit(
             hasMappedRealRows: false,
             liveLoadingState: .empty

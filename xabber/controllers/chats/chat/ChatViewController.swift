@@ -1576,6 +1576,7 @@ class ChatViewController: MessagesViewController {
     var initialLatestOpenStabilizationState: ChatInitialLatestOpenStabilizationState = .inactive
     var initialLocalFirstFramePhase: ChatLocalFirstFramePhase = .idle
     var initialLocalFirstFrameMappingToken: ChatDatasetMappingCancellationToken? = nil
+    var initialLocalFirstFramePresentationRetryDescriptor: ChatLocalFirstFrameDescriptor? = nil
     var initialLocalFirstFrameCompletions: [() -> Void] = []
     var pendingBootstrapFirstFrameReadinessCompletions: [() -> Void] = []
     var initialLocalFirstFrameShouldPerformPendingRequest: Bool = false
@@ -4252,6 +4253,7 @@ class ChatViewController: MessagesViewController {
         self.clearPendingLocalHistoryPagingPreparation()
         self.initialLocalFirstFramePhase = .idle
         self.initialLocalFirstFrameMappingToken = nil
+        self.initialLocalFirstFramePresentationRetryDescriptor = nil
         self.initialLocalFirstFrameCompletions.removeAll(keepingCapacity: false)
         self.pendingBootstrapFirstFrameReadinessCompletions.removeAll(keepingCapacity: false)
         self.initialLocalFirstFrameShouldPerformPendingRequest = false
@@ -4274,9 +4276,25 @@ class ChatViewController: MessagesViewController {
         session.onSnapshot = { [weak self, weak session] snapshot in
             let applySnapshot = {
                 guard let self, let session, self.timelineSession === session else { return }
-                if snapshot.cause == .storeChange,
-                   self.hasCommittedTimelinePresentationInCurrentLifecycle {
+                guard snapshot.cause == .storeChange else {
+                    return
+                }
+                switch ChatInitialFrameStoreChangeRoutingPolicy.action(
+                    phase: self.initialLocalFirstFramePhase,
+                    hasCommittedTimelinePresentation:
+                        self.hasCommittedTimelinePresentationInCurrentLifecycle
+                ) {
+                case .coalesce:
+                    self.pendingArchiveObserverRefresh = true
+                    self.archiveObserverRefreshWorkItem?.cancel()
+                    self.archiveObserverRefreshWorkItem = nil
+                    ChatArchiveDebugTrace.log(
+                        "initialFrameStoreChangeCoalesced"
+                    )
+                case .apply:
                     self.handleTimelineSessionRefresh()
+                case .ignore:
+                    break
                 }
             }
             if Thread.isMainThread {
@@ -5642,6 +5660,7 @@ class ChatViewController: MessagesViewController {
         self.cancelDatasetMappingJobs()
         self.initialLocalFirstFrameMappingToken = nil
         self.initialLocalFirstFramePhase = .idle
+        self.initialLocalFirstFramePresentationRetryDescriptor = nil
         self.initialLocalFirstFrameCompletions.removeAll(keepingCapacity: false)
         self.pendingBootstrapFirstFrameReadinessCompletions.removeAll(keepingCapacity: false)
         self.initialLocalFirstFrameShouldPerformPendingRequest = false
@@ -6158,6 +6177,7 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
         self.initialLocalFirstFrameMappingToken?.cancel()
         self.initialLocalFirstFrameMappingToken = nil
         self.initialLocalFirstFramePhase = .idle
+        self.initialLocalFirstFramePresentationRetryDescriptor = nil
         self.initialLocalFirstFrameCompletions.removeAll(keepingCapacity: false)
         self.pendingBootstrapFirstFrameReadinessCompletions.removeAll(keepingCapacity: false)
         self.initialLocalFirstFrameShouldPerformPendingRequest = false

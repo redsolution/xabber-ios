@@ -26420,7 +26420,8 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         case .preparing(let descriptor),
              .presenting(let descriptor),
              .blockedArchiveBootstrap(let descriptor),
-             .blockedMissingTarget(let descriptor):
+             .blockedMissingTarget(let descriptor),
+             .failedPresentation(let descriptor):
             XCTAssertEqual(descriptor.request, request)
         case .committed:
             XCTFail("A missing target must not be committed during the initial frame")
@@ -29037,6 +29038,375 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
 
         allowPersistenceToFinish.signal()
         wait(for: [terminalPublished], timeout: 3)
+    }
+
+    func testJoinDuringPersistenceRaisesExpectedIngressBeforeTerminalCommit() throws {
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        let queryId = "join-raises-ingress-threshold"
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.beginArchiveQueryBatch(queryId: queryId, priority: .interactive)
+        manager.receiveArchived(try makeArchivedMessage(index: 1, queryId: queryId))
+
+        let persistenceStarted = expectation(description: "first row persistence started")
+        let bothObserversCompleted = expectation(description: "both joined observers completed")
+        bothObserversCompleted.expectedFulfillmentCount = 2
+        bothObserversCompleted.assertForOverFulfill = true
+        let allowPersistenceToFinish = DispatchSemaphore(value: 0)
+        let stateLock = NSLock()
+        var terminalSummaries: [MessageManager.ArchivePersistenceSummary] = []
+        var persistencePassCount = 0
+        manager.archiveBatchSaveFailureInjector = {
+            stateLock.lock()
+            persistencePassCount += 1
+            let currentPass = persistencePassCount
+            stateLock.unlock()
+            if currentPass == 1 {
+                persistenceStarted.fulfill()
+                XCTAssertEqual(
+                    allowPersistenceToFinish.wait(timeout: .now() + 3),
+                    .success
+                )
+            }
+        }
+        defer {
+            allowPersistenceToFinish.signal()
+            manager.archiveBatchSaveFailureInjector = nil
+        }
+
+        let recordTerminal: (MessageManager.ArchivePersistenceSummary) -> Void = {
+            summary in
+            stateLock.lock()
+            terminalSummaries.append(summary)
+            stateLock.unlock()
+            bothObserversCompleted.fulfill()
+        }
+        manager.sealArchiveQueryBatch(
+            queryId: queryId,
+            priority: .interactive,
+            expectedReceivedCount: 1,
+            completion: recordTerminal
+        )
+        wait(for: [persistenceStarted], timeout: 2)
+
+        manager.sealArchiveQueryBatch(
+            queryId: queryId,
+            priority: .interactive,
+            expectedReceivedCount: 2,
+            completion: recordTerminal
+        )
+        allowPersistenceToFinish.signal()
+        manager.receiveArchived(
+            try makeArchivedMessage(index: 2, queryId: queryId)
+        )
+
+        wait(for: [bothObserversCompleted], timeout: 5)
+        manager.performMessageQueueSync {}
+        stateLock.lock()
+        let recordedSummaries = terminalSummaries
+        let recordedPersistencePassCount = persistencePassCount
+        stateLock.unlock()
+        XCTAssertEqual(recordedSummaries.count, 2)
+        XCTAssertTrue(recordedSummaries.allSatisfy { $0.received == 2 })
+        XCTAssertTrue(recordedSummaries.allSatisfy { $0.persistedRows == 2 })
+        XCTAssertEqual(recordedPersistencePassCount, 2)
+        XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
+    }
+
+    func testSealedArchiveBatchWaitsForExpectedTransportIngressAndLateRowsWakePumpExactlyOnce() throws {
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        let queryId = "fin-before-last-result-ingress"
+        let serverReportedRsmCount = 81
+        let transportDeliveredResultCount = 80
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.beginArchiveQueryBatch(queryId: queryId, priority: .interactive)
+
+        let terminalPublished = expectation(description: "terminal published after all delivered rows")
+        terminalPublished.assertForOverFulfill = true
+        let stateLock = NSLock()
+        var terminalCount = 0
+        var terminalSummary: MessageManager.ArchivePersistenceSummary?
+        var persistencePassCount = 0
+        manager.archiveBatchSaveFailureInjector = {
+            stateLock.lock()
+            persistencePassCount += 1
+            stateLock.unlock()
+        }
+        defer {
+            manager.archiveBatchSaveFailureInjector = nil
+        }
+
+        manager.sealArchiveQueryBatch(
+            queryId: queryId,
+            priority: .interactive,
+            expectedReceivedCount: transportDeliveredResultCount
+        ) { summary in
+            stateLock.lock()
+            terminalCount += 1
+            terminalSummary = summary
+            stateLock.unlock()
+            terminalPublished.fulfill()
+        }
+
+        // `<fin>` may be dispatched before the last result stanza reaches
+        // MessageManager. An empty first pump turn must park, not publish a
+        // false zero-row terminal.
+        manager.performMessageQueueSync {}
+        stateLock.lock()
+        let terminalCountBeforeIngress = terminalCount
+        stateLock.unlock()
+        XCTAssertEqual(terminalCountBeforeIngress, 0)
+        XCTAssertTrue(manager.isArchiveQueryBatchActive(queryId: queryId))
+
+        let archivedMessages = try (1...transportDeliveredResultCount).map {
+            try makeArchivedMessage(index: $0, queryId: queryId)
+        }
+        let ingressAccepted = expectation(description: "late MAM result ingress accepted")
+        manager.queue.async {
+            archivedMessages.forEach(manager.receiveArchived)
+            ingressAccepted.fulfill()
+        }
+
+        wait(for: [ingressAccepted, terminalPublished], timeout: 10)
+        manager.performMessageQueueSync {}
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        stateLock.lock()
+        let recordedTerminalCount = terminalCount
+        let recordedSummary = terminalSummary
+        let recordedPersistencePassCount = persistencePassCount
+        stateLock.unlock()
+        XCTAssertEqual(recordedTerminalCount, 1)
+        XCTAssertEqual(recordedSummary?.received, transportDeliveredResultCount)
+        XCTAssertEqual(recordedSummary?.persistedRows, transportDeliveredResultCount)
+        XCTAssertEqual(
+            recordedPersistencePassCount,
+            1,
+            "late ingress must be coalesced into the single bounded page persistence pass"
+        )
+        XCTAssertEqual(try WRealm.safe().objects(MessageStorageItem.self).count, transportDeliveredResultCount)
+        XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
+        XCTAssertNotEqual(
+            serverReportedRsmCount,
+            transportDeliveredResultCount,
+            "RSM total count is archive cardinality, not the expected page-ingress count"
+        )
+    }
+
+    func testConcurrentArchivedIngressCannotPublishTerminalBeforeEveryRowIsClassified() throws {
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        let queryId = "concurrent-archive-ingress"
+        let pageCount = 80
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.beginArchiveQueryBatch(queryId: queryId, priority: .interactive)
+        let messages = try (0..<pageCount).map {
+            try makeArchivedMessage(index: $0, queryId: queryId)
+        }
+
+        let terminalPublished = expectation(
+            description: "terminal follows classification of every concurrent result"
+        )
+        terminalPublished.assertForOverFulfill = true
+        let stateLock = NSLock()
+        var terminalCount = 0
+        var terminalSummary: MessageManager.ArchivePersistenceSummary?
+        var persistencePassCount = 0
+        manager.archiveBatchSaveFailureInjector = {
+            stateLock.lock()
+            persistencePassCount += 1
+            stateLock.unlock()
+        }
+        defer {
+            manager.archiveBatchSaveFailureInjector = nil
+        }
+
+        manager.sealArchiveQueryBatch(
+            queryId: queryId,
+            priority: .interactive,
+            expectedReceivedCount: pageCount
+        ) { summary in
+            stateLock.lock()
+            terminalCount += 1
+            terminalSummary = summary
+            stateLock.unlock()
+            terminalPublished.fulfill()
+        }
+        manager.performMessageQueueSync {}
+
+        let ingressGroup = DispatchGroup()
+        let ingressQueue = DispatchQueue(
+            label: "MessageManagerQueueSynchronizationTests.archive-ingress",
+            attributes: .concurrent
+        )
+        messages.forEach { message in
+            ingressGroup.enter()
+            ingressQueue.async {
+                manager.receiveArchived(message)
+                ingressGroup.leave()
+            }
+        }
+
+        XCTAssertEqual(ingressGroup.wait(timeout: .now() + 5), .success)
+        wait(for: [terminalPublished], timeout: 5)
+        manager.performMessageQueueSync {}
+
+        stateLock.lock()
+        let recordedTerminalCount = terminalCount
+        let recordedSummary = terminalSummary
+        let recordedPersistencePassCount = persistencePassCount
+        stateLock.unlock()
+        XCTAssertEqual(recordedTerminalCount, 1)
+        XCTAssertEqual(recordedSummary?.received, pageCount)
+        XCTAssertEqual(recordedSummary?.persistedRows, pageCount)
+        XCTAssertEqual(recordedPersistencePassCount, 1)
+        XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
+    }
+
+    func testArchivePersistenceTerminalReconcilesStaleCountersAgainstActualEmptyQueryQueue() {
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        let queryId = "stale-query-counter"
+        manager.unsubscribeReceiver()
+        manager.beginArchiveQueryBatch(queryId: queryId, priority: .interactive)
+        manager.performMessageQueueSync {
+            XCTAssertFalse(manager.queuedMessages.contains { $0.queryId == queryId })
+            manager.queuedMessageCountsByQueryId[queryId] = 7
+            manager.inFlightMessageCountsByQueryId[queryId] = 3
+        }
+
+        let terminalPublished = expectation(description: "actual empty query reaches terminal")
+        manager.sealArchiveQueryBatch(
+            queryId: queryId,
+            priority: .interactive,
+            expectedReceivedCount: 0
+        ) { summary in
+            XCTAssertEqual(summary.received, 0)
+            XCTAssertEqual(summary.persistedRows, 0)
+            terminalPublished.fulfill()
+        }
+
+        wait(for: [terminalPublished], timeout: 3)
+        manager.performMessageQueueSync {
+            XCTAssertFalse(manager.queuedMessages.contains { $0.queryId == queryId })
+            XCTAssertNil(manager.queuedMessageCountsByQueryId[queryId])
+            XCTAssertNil(manager.inFlightMessageCountsByQueryId[queryId])
+        }
+        XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
+    }
+
+    func testTerminalCleanupReleasesMissingIngressWithoutLeakingInteractiveBatch() throws {
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        let queryId = "terminal-cleanup-partial-ingress"
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.beginArchiveQueryBatch(queryId: queryId, priority: .interactive)
+
+        let terminalPublished = expectation(
+            description: "terminal cleanup persists the delivered partial page"
+        )
+        terminalPublished.assertForOverFulfill = true
+        let stateLock = NSLock()
+        var terminalCount = 0
+        var terminalSummary: MessageManager.ArchivePersistenceSummary?
+        manager.sealArchiveQueryBatch(
+            queryId: queryId,
+            priority: .interactive,
+            expectedReceivedCount: 2
+        ) { summary in
+            stateLock.lock()
+            terminalCount += 1
+            terminalSummary = summary
+            stateLock.unlock()
+            terminalPublished.fulfill()
+        }
+
+        manager.receiveArchived(
+            try makeArchivedMessage(index: 1, queryId: queryId)
+        )
+        XCTAssertTrue(
+            waitUntil {
+                manager.performMessageQueueSync {
+                    manager.archivePersistenceSummariesByQueryId[queryId]?.received == 1
+                }
+            }
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        stateLock.lock()
+        let terminalCountBeforeCleanup = terminalCount
+        stateLock.unlock()
+        XCTAssertEqual(terminalCountBeforeCleanup, 0)
+        XCTAssertTrue(manager.hasPendingMessages(forQueryId: queryId))
+
+        manager.releaseArchiveQueryBatchIngressExpectation(
+            queryId: queryId
+        )
+
+        wait(for: [terminalPublished], timeout: 3)
+        manager.performMessageQueueSync {}
+        stateLock.lock()
+        let recordedTerminalCount = terminalCount
+        let recordedSummary = terminalSummary
+        stateLock.unlock()
+        XCTAssertEqual(recordedTerminalCount, 1)
+        XCTAssertEqual(recordedSummary?.received, 1)
+        XCTAssertEqual(recordedSummary?.persistedRows, 1)
+        XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
+    }
+
+    func testParkedInteractiveIngressWaitDoesNotBlockUnrelatedOrdinaryDrain() throws {
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        let queryId = "parked-interactive-ingress"
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.beginArchiveQueryBatch(queryId: queryId, priority: .interactive)
+        let terminalPublished = expectation(
+            description: "parked interactive request is explicitly finalized"
+        )
+        manager.sealArchiveQueryBatch(
+            queryId: queryId,
+            priority: .interactive,
+            expectedReceivedCount: 1
+        ) { _ in
+            terminalPublished.fulfill()
+        }
+        XCTAssertTrue(
+            waitUntil {
+                manager.archivePersistenceSchedulingLock.lock()
+                let isAwaitingIngress = manager
+                    .sealedArchivePersistenceRequestsByQueryId[queryId]?
+                    .isAwaitingIngress == true
+                manager.archivePersistenceSchedulingLock.unlock()
+                return isAwaitingIngress
+            }
+        )
+
+        manager.enqueue(MessageManager.MessageQueueItem(
+            try makeMessage(index: 700),
+            messageId: "message-700",
+            archivedFrom: "romeo@example.com",
+            isRead: false,
+            date: Date(timeIntervalSince1970: 700),
+            state: .deliver,
+            queryId: nil
+        ))
+
+        XCTAssertTrue(
+            waitUntil {
+                (try? WRealm.safe().objects(MessageStorageItem.self).count) == 1
+            },
+            "a parked archive request has no runnable Realm work and must yield to the ordinary queue"
+        )
+        XCTAssertTrue(manager.hasPendingMessages(forQueryId: queryId))
+
+        manager.releaseArchiveQueryBatchIngressExpectation(
+            queryId: queryId
+        )
+        wait(for: [terminalPublished], timeout: 3)
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
     }
 
     func testReceiverLifecyclePublishesImmutableTerminalSummaryToLateJoiners() throws {

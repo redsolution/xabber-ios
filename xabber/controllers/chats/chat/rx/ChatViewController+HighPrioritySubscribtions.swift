@@ -38,8 +38,9 @@ enum ChatInitialBootstrapTransportPolicy {
         primaryStreamReady: Bool,
         primaryBootstrapGateActive: Bool
     ) -> ChatInitialBootstrapTransport {
-        _ = primaryBootstrapGateActive
-        return hasPrimaryAccount && primaryStreamReady
+        return hasPrimaryAccount &&
+            primaryStreamReady &&
+            !primaryBootstrapGateActive
             ? .primaryAccount
             : .uiAction
     }
@@ -1592,10 +1593,15 @@ final class ChatInitialBootstrapRequestCoordinator {
             )
         }
 
+        let expectedReceivedCount =
+            archiveManager?.expectedPersistenceResultCount(
+                queryId: event.queryId
+            )
         ChatRemoteHistoryCompletionCoordinator.flushQueryMessagesAsync(
             owner: key.owner,
             queryId: event.queryId,
             state: event.state,
+            expectedReceivedCount: expectedReceivedCount,
             conversationJid: key.jid,
             conversationType: ClientSynchronizationManager.ConversationType(
                 rawValue: key.conversationTypeRawValue
@@ -3103,6 +3109,22 @@ extension ChatViewController {
     }
 
     internal func retryInitialBootstrapAfterFailure() {
+        if case .failedPresentation =
+                self.initialLocalFirstFramePhase {
+            self.initialLocalFirstFramePhase = .idle
+            self.initialLocalFirstFramePresentationRetryDescriptor = nil
+            self.allowsBootstrapFailureFallback = false
+            self.setBootstrapFailureVisible(false)
+            self.applyBootstrapLoadingState(
+                .blockingArchive,
+                forceRender: true,
+                synchronousSkeletonCommit:
+                    self.isPreparingStackedNavigationPresentation
+            )
+            self.acquireInteractiveChatOpenGateIfNeeded()
+            self.retryInitialLocalFirstFramePreparation()
+            return
+        }
         if self.isInitialBootstrapInFlight,
            let queryId = self.initialBootstrapQueryId {
             self.allowsBootstrapFailureFallback = false

@@ -124,18 +124,22 @@ class MessageManager: AbstractXMPPManager {
         let queryId: String
         let sequence: UInt64
         var priority: ArchivePersistencePriority
+        var expectedReceivedCount: Int?
         var completions: [(ArchivePersistenceSummary) -> Void]
         var didStartPersistence = false
+        var isAwaitingIngress = false
 
         init(
             queryId: String,
             sequence: UInt64,
             priority: ArchivePersistencePriority,
+            expectedReceivedCount: Int?,
             completion: ((ArchivePersistenceSummary) -> Void)?
         ) {
             self.queryId = queryId
             self.sequence = sequence
             self.priority = priority
+            self.expectedReceivedCount = expectedReceivedCount
             self.completions = completion.map { [$0] } ?? []
         }
     }

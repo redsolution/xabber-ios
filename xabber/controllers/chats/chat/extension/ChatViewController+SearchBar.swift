@@ -4288,7 +4288,14 @@ extension ChatViewController {
 
     internal func hasLocalAnchorForBootstrap(_ request: ChatOpenMessageRequest) -> Bool {
         if request.source == .initialUnreadBoundary {
-            return self.unreadBoundaryFirstFrameLocalAnchor(for: request) != nil
+            if case .firstIncomingAfterBoundary = request.targetResolution {
+                return self.unreadBoundaryFirstFrameLocalAnchor(for: request) != nil
+            }
+            // Older unread-entry receipts can carry an already resolved
+            // explicit anchor instead of the boundary descriptor. Preserve
+            // that local target during bootstrap; it is not arbitrary stale
+            // history and remains subject to the atomic anchor commit.
+            return self.localAnchorMessage(for: request) != nil
         }
 
         if request.source == .search {

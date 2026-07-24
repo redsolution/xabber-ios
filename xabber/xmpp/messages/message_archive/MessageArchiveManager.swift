@@ -4130,6 +4130,31 @@ class MessageArchiveManager: AbstractXMPPManager {
         return deferredArchiveCommitsByQueryId[queryId] != nil
     }
 
+    /// Number of delivered result envelopes that must complete
+    /// MessageManager ingress before query persistence can publish terminal.
+    ///
+    /// RSM `<count>` is whole-result-set cardinality and is intentionally not
+    /// used here. Control envelopes explicitly consumed by another manager do
+    /// not belong to MessageManager persistence.
+    internal func expectedPersistenceResultCount(
+        queryId: String
+    ) -> Int? {
+        guard queryId.isNotEmpty else {
+            return nil
+        }
+        deferredArchiveCommitLock.lock()
+        defer { deferredArchiveCommitLock.unlock() }
+        guard let descriptor =
+                deferredArchiveCommitsByQueryId[queryId] else {
+            return nil
+        }
+        return max(
+            0,
+            descriptor.transportProof.deliveredResultCount -
+                descriptor.transportProof.intentionallyConsumedResultCount
+        )
+    }
+
     internal func abortDeferredCommit(queryId: String) {
         guard queryId.isNotEmpty else {
             return
@@ -6623,13 +6648,23 @@ class MessageArchiveManager: AbstractXMPPManager {
             let flushPersistence = {
                 guard persistenceGate.arm(onTimeout: {
                     user.mam.abortDeferredCommit(queryId: queryId)
+                    user.messages.releaseArchiveQueryBatchIngressExpectation(
+                        queryId: queryId
+                    )
                     ChatArchiveDebugTrace.log("mamIdleBootstrapPersistenceTimeout")
                     finishTransaction(true)
                 }) else {
                     return
                 }
                 ChatArchiveDebugTrace.log("mamIdleBootstrapPersistenceStart")
-                user.messages.finishArchiveQueryBatchAsync(queryId: queryId) { summary in
+                let expectedReceivedCount =
+                    user.mam.expectedPersistenceResultCount(
+                        queryId: queryId
+                    )
+                user.messages.finishArchiveQueryBatchAsync(
+                    queryId: queryId,
+                    expectedReceivedCount: expectedReceivedCount
+                ) { summary in
                     guard persistenceGate.claimPersistenceTerminal() else {
                         return
                     }
