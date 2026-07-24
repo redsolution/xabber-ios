@@ -1,0 +1,515 @@
+import QuartzCore
+import XCTest
+import UIKit
+@testable import xabber
+
+final class ChatInitialPresentationAtomicityRegressionTests: XCTestCase {
+    private let owner = "atomic-frame-owner@example.com"
+    private let jid = "atomic-frame-peer@example.com"
+
+    func testSkeletonToNewestCommitsReloadAndTargetOffsetInsideOneVisualTransaction() throws {
+        let (controller, collectionView) = makeController()
+        installCommittedSkeleton(in: controller)
+        collectionView.setContentOffset(CGPoint(x: 0, y: 160), animated: false)
+        collectionView.resetRecordedEvents()
+
+        let realRows = (0..<80).map { makeDatasource(primary: "message-\($0)") }
+        var receiptBottomDistance: CGFloat?
+        var receiptEventCount: Int?
+        var receiptTransactionToken: String?
+        var receiptActionsDisabled: Bool?
+
+        controller.applyChatDatasource(
+            realRows,
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true,
+            forceBottomAlignmentTarget: .newestRealMessage,
+            presentationCommitMode: .atomicInitialFrame,
+            completion: {
+                receiptEventCount = collectionView.recordedEvents.count
+                receiptBottomDistance = self.bottomDistance(in: controller)
+                receiptTransactionToken = ChatDatasourcePresentationTransactionContext.currentToken
+                receiptActionsDisabled = CATransaction.disableActions()
+            }
+        )
+
+        let reload = try XCTUnwrap(collectionView.recordedEvents.first(where: { $0.kind == .reload }))
+        let targetOffset = try XCTUnwrap(collectionView.recordedEvents.last(where: { $0.kind == .offset }))
+        let reloadIndex = try XCTUnwrap(
+            collectionView.recordedEvents.firstIndex(where: { $0.kind == .reload })
+        )
+        let targetOffsetIndex = try XCTUnwrap(
+            collectionView.recordedEvents.lastIndex(where: { $0.kind == .offset })
+        )
+        let finalLayoutIndex = try XCTUnwrap(
+            collectionView.recordedEvents.lastIndex(where: { $0.kind == .layout })
+        )
+        XCTAssertTrue(reload.actionsDisabled)
+        XCTAssertFalse(reload.viewAnimationsEnabled)
+        XCTAssertTrue(targetOffset.actionsDisabled)
+        XCTAssertFalse(targetOffset.viewAnimationsEnabled)
+        XCTAssertNotNil(reload.presentationTransactionToken)
+        XCTAssertEqual(targetOffset.presentationTransactionToken, reload.presentationTransactionToken)
+        XCTAssertLessThan(reloadIndex, targetOffsetIndex)
+        XCTAssertLessThan(
+            targetOffsetIndex,
+            finalLayoutIndex,
+            "the visual transaction must finish layout only after installing the newest offset"
+        )
+        XCTAssertTrue(
+            collectionView.recordedEvents[reloadIndex...finalLayoutIndex].allSatisfy {
+                $0.presentationTransactionToken == reload.presentationTransactionToken
+            },
+            "reload, positioning, and the final layout must share one visual transaction"
+        )
+        XCTAssertGreaterThan(targetOffset.offsetY, 160)
+        XCTAssertEqual(receiptEventCount, collectionView.recordedEvents.count)
+        XCTAssertNil(receiptTransactionToken)
+        XCTAssertEqual(receiptActionsDisabled, false)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(receiptBottomDistance), 0.5)
+        XCTAssertEqual(controller.datasource.map(\.primary), realRows.map(\.primary))
+
+        let committedOffsetY = collectionView.contentOffset.y
+        let committedReloadCount = collectionView.recordedEvents.filter { $0.kind == .reload }.count
+        RunLoop.current.run(until: Date().addingTimeInterval(0.04))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.04))
+        XCTAssertEqual(collectionView.contentOffset.y, committedOffsetY, accuracy: 0.001)
+        XCTAssertEqual(
+            collectionView.recordedEvents.filter { $0.kind == .reload }.count,
+            committedReloadCount,
+            "the first-frame receipt must not schedule a second initial reload"
+        )
+    }
+
+    func testAtomicInitialFrameReceiptPublishesAfterResolvedAnchorAlignment() throws {
+        let (controller, collectionView) = makeController()
+        installCommittedSkeleton(in: controller)
+        collectionView.resetRecordedEvents()
+        let realRows = (0..<60).map { makeDatasource(primary: "anchor-message-\($0)") }
+        let anchorPrimary = realRows[32].primary
+        let requestedViewportY: CGFloat = 180
+        var result: ChatViewportTransactionResult?
+        var viewportYAtReceipt: CGFloat?
+
+        controller.applyChatDatasource(
+            realRows,
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true,
+            anchorRestorePhase: .applyTransaction,
+            anchorPrimary: anchorPrimary,
+            restoreAnchor: ChatHistoryPageAnchor(
+                primary: anchorPrimary,
+                viewportRelativeMinY: requestedViewportY
+            ),
+            presentationCommitMode: .atomicInitialFrame,
+            transactionCompletion: {
+                result = $0
+                viewportYAtReceipt = self.viewportY(
+                    for: anchorPrimary,
+                    in: controller
+                )
+            }
+        )
+
+        guard case .committed(let diagnostics) = result else {
+            return XCTFail("Expected the anchor frame to commit")
+        }
+        XCTAssertLessThanOrEqual(try XCTUnwrap(diagnostics.anchorError), 1)
+        XCTAssertEqual(try XCTUnwrap(viewportYAtReceipt), requestedViewportY, accuracy: 1)
+        XCTAssertTrue(
+            try XCTUnwrap(collectionView.recordedEvents.last(where: { $0.kind == .offset }))
+                .actionsDisabled
+        )
+    }
+
+    func testUnresolvedAtomicTargetRestoresCommittedSkeletonAndDoesNotPublishContent() {
+        let (controller, collectionView) = makeController()
+        installCommittedSkeleton(in: controller)
+        let skeletonPrimaries = controller.datasource.map(\.primary)
+        collectionView.setContentOffset(CGPoint(x: 0, y: 120), animated: false)
+        let skeletonOffsetY = collectionView.contentOffset.y
+        collectionView.resetRecordedEvents()
+        var transactionResult: ChatViewportTransactionResult?
+        var contentReceiptCount = 0
+
+        controller.applyChatDatasource(
+            (0..<40).map { makeDatasource(primary: "real-\($0)") },
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true,
+            forceBottomAlignmentTarget: .message(
+                ChatMessageAnchorRef(
+                    messagePrimary: "missing-target",
+                    archivedId: nil,
+                    messageId: nil,
+                    authorId: nil,
+                    bodyFingerprint: nil,
+                    sourceDate: nil
+                )
+            ),
+            presentationCommitMode: .atomicInitialFrame,
+            transactionCompletion: { transactionResult = $0 },
+            completion: { contentReceiptCount += 1 }
+        )
+
+        guard case .failed(.targetMissing(let missingPrimary), _) = transactionResult else {
+            return XCTFail("Expected typed target failure")
+        }
+        XCTAssertEqual(missingPrimary, "missing-target")
+        XCTAssertEqual(contentReceiptCount, 0)
+        XCTAssertEqual(controller.datasource.map(\.primary), skeletonPrimaries)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertEqual(collectionView.contentOffset.y, skeletonOffsetY, accuracy: 0.001)
+        XCTAssertEqual(
+            collectionView.recordedEvents.filter { $0.kind == .reload }.count,
+            0,
+            "a missing initial target must fail preflight before replacing the skeleton"
+        )
+        XCTAssertTrue(controller.hasCommittedBootstrapSkeletonRows)
+        XCTAssertFalse(controller.hasCommittedRealContentInCurrentLifecycle)
+    }
+
+    func testPostLayoutAlignmentDriftRollsBackToSkeletonWithoutContentReceipt() {
+        let (controller, collectionView) = makeController()
+        installCommittedSkeleton(in: controller)
+        let skeletonPrimaries = controller.datasource.map(\.primary)
+        collectionView.setContentOffset(CGPoint(x: 0, y: 120), animated: false)
+        let skeletonOffsetY = collectionView.contentOffset.y
+        collectionView.resetRecordedEvents()
+        collectionView.injectOffsetDriftAfterNextOffset = 8
+        var transactionResult: ChatViewportTransactionResult?
+        var contentReceiptCount = 0
+
+        controller.applyChatDatasource(
+            (0..<80).map { makeDatasource(primary: "drift-\($0)") },
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true,
+            forceBottomAlignmentTarget: .newestRealMessage,
+            presentationCommitMode: .atomicInitialFrame,
+            transactionCompletion: { transactionResult = $0 },
+            completion: { contentReceiptCount += 1 }
+        )
+
+        guard case .failed(.alignmentUnresolved(_, let error), _) = transactionResult else {
+            return XCTFail("Expected the post-layout alignment proof to reject the frame")
+        }
+        XCTAssertGreaterThan(error, 0.5)
+        XCTAssertEqual(contentReceiptCount, 0)
+        XCTAssertEqual(controller.datasource.map(\.primary), skeletonPrimaries)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertEqual(collectionView.contentOffset.y, skeletonOffsetY, accuracy: 0.001)
+        XCTAssertEqual(
+            collectionView.recordedEvents.filter { $0.kind == .reload }.count,
+            2,
+            "the failed content reload must be followed by one in-transaction skeleton rollback"
+        )
+        XCTAssertTrue(controller.hasCommittedBootstrapSkeletonRows)
+        XCTAssertFalse(controller.hasCommittedRealContentInCurrentLifecycle)
+    }
+
+    func testObserverRefreshDuringPresentingIsCoalescedWithoutReplacingSkeleton() {
+        let (controller, _) = makeController()
+        installCommittedSkeleton(in: controller)
+        let skeletonPrimaries = controller.datasource.map(\.primary)
+        controller.pendingArchiveObserverRefresh = false
+        controller.initialLocalFirstFramePhase = .presenting(
+            ChatLocalFirstFrameDescriptor(target: .latest, request: nil)
+        )
+
+        controller.handleTimelineSessionRefresh()
+
+        XCTAssertTrue(controller.pendingArchiveObserverRefresh)
+        XCTAssertEqual(controller.datasource.map(\.primary), skeletonPrimaries)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+    }
+
+    func testPresentingPhaseCannotPublishLogicalReadinessReceipt() {
+        let (controller, _) = makeController()
+        let realRows = [makeDatasource(primary: "committed-before-phase")]
+        controller.applyChatDatasource(
+            realRows,
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
+        let descriptor = ChatLocalFirstFrameDescriptor(target: .latest, request: nil)
+        controller.initialLocalFirstFramePhase = .presenting(descriptor)
+        var receiptCount = 0
+
+        controller.whenBootstrapFirstFramePresentationIsReady {
+            receiptCount += 1
+        }
+        controller.resolvePendingBootstrapFirstFrameReadinessCompletionsIfPossible()
+
+        XCTAssertEqual(
+            receiptCount,
+            0,
+            "logical readiness must remain sealed until presenting advances to committed"
+        )
+
+        controller.initialLocalFirstFramePhase = .committed(descriptor)
+        controller.resolvePendingBootstrapFirstFrameReadinessCompletionsIfPossible()
+
+        XCTAssertEqual(receiptCount, 1)
+    }
+
+    func testSameNewestObserverRefreshIsDiscardedAfterInitialFrameReceipt() {
+        XCTAssertEqual(
+            ChatInitialFramePendingObserverRefreshPolicy.action(
+                displayedNewestPrimary: "newest",
+                residentNewestPrimary: "newest"
+            ),
+            .cancelAlreadyCurrent
+        )
+        XCTAssertEqual(
+            ChatInitialFramePendingObserverRefreshPolicy.action(
+                displayedNewestPrimary: "newest",
+                residentNewestPrimary: "newer-tail"
+            ),
+            .flushNewerTail
+        )
+    }
+
+    func testLiveTailObserverRefreshKeepsTheBoundedInitialWindow() {
+        XCTAssertTrue(
+            ChatTimelineObserverRefreshWindowPolicy.shouldReuseCurrentBoundedWindow(
+                isTimelineEmpty: false,
+                isResidentAtLiveTail: true,
+                isShowingBootstrapPlaceholder: false,
+                hasPendingForceLatestOpen: false
+            )
+        )
+        XCTAssertFalse(
+            ChatTimelineObserverRefreshWindowPolicy.shouldReuseCurrentBoundedWindow(
+                isTimelineEmpty: false,
+                isResidentAtLiveTail: true,
+                isShowingBootstrapPlaceholder: false,
+                hasPendingForceLatestOpen: true
+            )
+        )
+        XCTAssertFalse(
+            ChatTimelineObserverRefreshWindowPolicy.shouldReuseCurrentBoundedWindow(
+                isTimelineEmpty: true,
+                isResidentAtLiveTail: true,
+                isShowingBootstrapPlaceholder: false,
+                hasPendingForceLatestOpen: false
+            )
+        )
+    }
+
+    func testEmptyDatasourceAtomicApplyDoesNotPublishAnIntermediateRealFrame() {
+        let (controller, collectionView) = makeController()
+        installCommittedSkeleton(in: controller)
+        collectionView.resetRecordedEvents()
+        var receiptCount = 0
+
+        controller.applyChatDatasource(
+            [],
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true,
+            presentationCommitMode: .atomicInitialFrame,
+            completion: { receiptCount += 1 }
+        )
+
+        XCTAssertEqual(receiptCount, 1)
+        XCTAssertTrue(controller.datasource.isEmpty)
+        XCTAssertEqual(collectionView.numberOfSections, 0)
+        XCTAssertEqual(
+            collectionView.recordedEvents.filter { $0.kind == .reload }.count,
+            1
+        )
+    }
+
+    private func makeController() -> (
+        controller: ChatViewController,
+        collectionView: RecordingMessagesCollectionView
+    ) {
+        let collectionView = RecordingMessagesCollectionView()
+        let controller = ChatViewController()
+        controller.messagesCollectionView = collectionView
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = .regular
+        controller.ownerSender = Sender(id: owner, displayName: "Owner")
+        controller.opponentSender = Sender(id: jid, displayName: "Peer")
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.layoutIfNeeded()
+        controller.configureDataset()
+        return (controller, collectionView)
+    }
+
+    private func installCommittedSkeleton(in controller: ChatViewController) {
+        let skeletonRows = (0..<30).map {
+            makeDatasource(primary: "skeleton-\($0)", isFakeMessage: true)
+        }
+        controller.appliedBootstrapLoadingState = .blockingArchive
+        controller.showSkeletonObserver.accept(true)
+        controller.applyChatDatasource(
+            skeletonRows,
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+        XCTAssertTrue(controller.hasCommittedBootstrapSkeletonRows)
+    }
+
+    private func bottomDistance(in controller: ChatViewController) -> CGFloat {
+        ChatTailAppendBottomPinPolicy.bottomDistance(
+            contentHeight: controller.messagesCollectionView.contentSize.height,
+            viewportHeight: controller.messagesCollectionView.bounds.height,
+            contentInsets: controller.messagesCollectionView.contentInset,
+            contentOffsetY: controller.messagesCollectionView.contentOffset.y
+        )
+    }
+
+    private func viewportY(
+        for primary: String,
+        in controller: ChatViewController
+    ) -> CGFloat? {
+        guard let section = controller.datasourceSnapshot.primaryIndex[primary] else {
+            return nil
+        }
+        let indexPath = IndexPath(item: 0, section: section)
+        let frame = controller.messagesCollectionView
+            .layoutAttributesForItem(at: indexPath)?.frame
+            ?? controller.messagesCollectionView.cellForItem(at: indexPath)?.frame
+        return frame.map { $0.minY - controller.messagesCollectionView.contentOffset.y }
+    }
+
+    private func makeDatasource(
+        primary: String,
+        isFakeMessage: Bool = false
+    ) -> ChatViewController.Datasource {
+        ChatViewController.Datasource(
+            primary: primary,
+            jid: jid,
+            owner: owner,
+            outgoing: false,
+            sender: Sender(id: jid, displayName: "Peer"),
+            messageId: "\(primary)-message-id",
+            sentDate: Date(timeIntervalSince1970: 1_700_000_000),
+            editDate: nil,
+            kind: isFakeMessage
+                ? .skeleton(NSAttributedString(string: primary))
+                : .attributedText(NSAttributedString(
+                    string: "\(primary) \(String(repeating: "history ", count: 8))"
+                )),
+            withAuthor: false,
+            withAvatar: false,
+            error: false,
+            errorType: "",
+            canPinMessage: false,
+            canEditMessage: false,
+            canDeleteMessage: false,
+            forwards: [],
+            isOutgoing: false,
+            isEdited: false,
+            groupchatAuthorRole: "",
+            groupchatAuthorId: "",
+            groupchatAuthorNickname: "",
+            groupchatAuthorBadge: "",
+            isHasAttachedMessages: false,
+            isDownloaded: true,
+            state: .read,
+            searchString: nil,
+            errorMetadata: nil,
+            burnDate: -1,
+            afterburnInterval: -1,
+            archivedId: "archive-\(primary)",
+            queryIds: nil,
+            isRead: true,
+            selectedSearchResultId: nil,
+            isHadHistoryGap: false,
+            tailed: false,
+            isFakeMessage: isFakeMessage,
+            images: [],
+            videos: [],
+            files: [],
+            audios: [],
+            timeMarkerText: NSAttributedString(string: "12:00"),
+            indicator: .read,
+            avatarUrl: nil,
+            attributedAuthor: nil
+        )
+    }
+}
+
+private final class RecordingMessagesCollectionView: MessagesCollectionView {
+    enum EventKind: Equatable {
+        case reload
+        case layout
+        case offset
+    }
+
+    struct Event: Equatable {
+        let kind: EventKind
+        let actionsDisabled: Bool
+        let viewAnimationsEnabled: Bool
+        let offsetY: CGFloat
+        let presentationTransactionToken: String?
+    }
+
+    private(set) var recordedEvents: [Event] = []
+    private var recordsEvents = false
+    private var didRecordOffsetSinceReset = false
+    var injectOffsetDriftAfterNextOffset: CGFloat?
+
+    func resetRecordedEvents() {
+        recordedEvents.removeAll(keepingCapacity: true)
+        recordsEvents = true
+        didRecordOffsetSinceReset = false
+    }
+
+    override func reloadData() {
+        record(.reload)
+        super.reloadData()
+    }
+
+    override func layoutSubviews() {
+        record(.layout)
+        super.layoutSubviews()
+        if recordsEvents,
+           didRecordOffsetSinceReset,
+           let drift = injectOffsetDriftAfterNextOffset {
+            injectOffsetDriftAfterNextOffset = nil
+            super.setContentOffset(
+                CGPoint(x: contentOffset.x, y: contentOffset.y + drift),
+                animated: false
+            )
+        }
+    }
+
+    override func setContentOffset(_ contentOffset: CGPoint, animated: Bool) {
+        if recordsEvents {
+            if injectOffsetDriftAfterNextOffset != nil,
+               contentOffset.y > 500 {
+                didRecordOffsetSinceReset = true
+            }
+            recordedEvents.append(Event(
+                kind: .offset,
+                actionsDisabled: CATransaction.disableActions(),
+                viewAnimationsEnabled: UIView.areAnimationsEnabled,
+                offsetY: contentOffset.y,
+                presentationTransactionToken: ChatDatasourcePresentationTransactionContext.currentToken
+            ))
+        }
+        super.setContentOffset(contentOffset, animated: animated)
+    }
+
+    private func record(_ kind: EventKind) {
+        guard recordsEvents else { return }
+        recordedEvents.append(Event(
+            kind: kind,
+            actionsDisabled: CATransaction.disableActions(),
+            viewAnimationsEnabled: UIView.areAnimationsEnabled,
+            offsetY: contentOffset.y,
+            presentationTransactionToken: ChatDatasourcePresentationTransactionContext.currentToken
+        ))
+    }
+}

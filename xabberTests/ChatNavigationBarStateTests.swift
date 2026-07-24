@@ -422,15 +422,55 @@ final class ChatNavigationBarStateTests: XCTestCase {
                 jid: "romeo@example.com",
                 conversationType: .regular
             )
+            let seededBackItem = UIBarButtonItem(
+                title: "Chats",
+                style: .plain,
+                target: self,
+                action: #selector(legacyBackAction)
+            )
+            seededBackItem.accessibilityIdentifier = "legacy-back"
+            lastChats.navigationItem.backBarButtonItem = seededBackItem
             _ = lastChats.chatNavigationSingleFlight.request(target: target, token: token)
             lastChats.beginOutgoingChatOpenNavigationDeferral(
                 token: token,
                 preparationTimeout: 60
             )
-            XCTAssertNotNil(
+            let nativeBackItem = try XCTUnwrap(
                 lastChats.navigationItem.backBarButtonItem,
                 "the source must provide UIKit a stable Back item before the animated push begins"
             )
+            XCTAssertTrue(
+                nativeBackItem === seededBackItem,
+                "normalization must retain an existing source Back item identity"
+            )
+            XCTAssertEqual(
+                nativeBackItem.title,
+                "",
+                "the explicit UIKit-owned Back item must not publish a visual title"
+            )
+            XCTAssertNil(
+                nativeBackItem.target,
+                "the source Back item must leave activation in UINavigationController ownership"
+            )
+            XCTAssertNil(
+                nativeBackItem.action,
+                "the source Back item must not replace UIKit's native pop action"
+            )
+            XCTAssertFalse(
+                nativeBackItem.accessibilityLabel?.isEmpty ?? true,
+                "the title-free native Back item must retain localized accessibility semantics"
+            )
+            nativeBackItem.title = "Chats"
+            nativeBackItem.target = self
+            nativeBackItem.action = #selector(legacyBackAction)
+            lastChats.beginOutgoingChatOpenNavigationDeferral(
+                token: token,
+                preparationTimeout: 60
+            )
+            XCTAssertTrue(lastChats.navigationItem.backBarButtonItem === nativeBackItem)
+            XCTAssertEqual(nativeBackItem.title, "")
+            XCTAssertNil(nativeBackItem.target)
+            XCTAssertNil(nativeBackItem.action)
             XCTAssertTrue(lastChats.commitChatNavigationPush(token: token, target: target))
 
             let chat = ChatViewController()
@@ -457,6 +497,15 @@ final class ChatNavigationBarStateTests: XCTestCase {
             XCTAssertTrue(navigationController.topViewController === chat)
             XCTAssertTrue(navigationController.navigationBar.topItem === chat.navigationItem)
             XCTAssertTrue(navigationController.navigationBar.backItem === lastChats.navigationItem)
+            XCTAssertTrue(
+                navigationController.navigationBar.backItem?.backBarButtonItem === nativeBackItem,
+                "repeated source and destination callbacks must preserve the native Back item identity"
+            )
+            XCTAssertEqual(
+                navigationController.navigationBar.backItem?.backBarButtonItem?.title,
+                "",
+                "the animated push must keep the native Back indicator visually title-free"
+            )
             XCTAssertTrue(
                 lastChats.isNavigationTransitionActive,
                 "the hidden source must remain frozen until it is both top and appeared"
@@ -486,6 +535,13 @@ final class ChatNavigationBarStateTests: XCTestCase {
             )
             XCTAssertGreaterThanOrEqual(backFrame.width, 44)
             XCTAssertGreaterThanOrEqual(backFrame.height, 44)
+            XCTAssertTrue(
+                visibleTexts(
+                    in: navigationBar,
+                    horizontalRegion: 0...120
+                ).isEmpty,
+                "the native Back affordance must render only the chevron, without a visible source title"
+            )
             XCTAssertEqual(
                 navigationBar.backItem?
                     .backBarButtonItem?
@@ -529,6 +585,9 @@ final class ChatNavigationBarStateTests: XCTestCase {
             XCTAssertTrue(lastChats.navigationItem.leftBarButtonItem === lastChats.accountBarButton)
         }
     }
+
+    @objc
+    private func legacyBackAction() {}
 
     func testNarrowChatTitleUsesStableMaximumWidthConstraintWithoutMinimumWidthChurn() throws {
         let rootViewController = UIViewController()
@@ -945,6 +1004,26 @@ final class ChatNavigationBarStateTests: XCTestCase {
 
     private func descendantViews(in view: UIView) -> [UIView] {
         view.subviews + view.subviews.flatMap(descendantViews(in:))
+    }
+
+    private func visibleTexts(
+        in navigationBar: UINavigationBar,
+        horizontalRegion: ClosedRange<CGFloat>
+    ) -> [String] {
+        descendantViews(in: navigationBar).compactMap { view in
+            guard let label = view as? UILabel,
+                  isEffectivelyVisible(label, in: navigationBar),
+                  let text = label.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !text.isEmpty else {
+                return nil
+            }
+            let frame = label.convert(label.bounds, to: navigationBar)
+            guard frame.maxX > horizontalRegion.lowerBound,
+                  frame.minX < horizontalRegion.upperBound else {
+                return nil
+            }
+            return text
+        }
     }
 
     private func effectiveInteractiveFrame(

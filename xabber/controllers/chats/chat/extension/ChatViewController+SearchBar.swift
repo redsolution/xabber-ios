@@ -3706,6 +3706,23 @@ extension ChatViewController {
         self.finishActiveAnchorExecution(token: self.activeAnchorExecutionState?.transactionToken)
     }
 
+    internal func rollbackPreparedLocalFirstFrameAnchor(
+        request: ChatOpenMessageRequest
+    ) {
+        guard let executionState = self.activeAnchorExecutionState,
+              executionState.request == request else {
+            return
+        }
+        self.cancelActiveAnchorExecution(
+            token: executionState.transactionToken,
+            failure: .targetMissing,
+            invokeFailureHook: false
+        )
+        // The visual transaction failed, not the user's navigation intent.
+        // Keep the request available for the next generation-scoped attempt.
+        self.pendingOpenMessageRequest = request
+    }
+
     private func initialAnchorExecutionState(
         for request: ChatOpenMessageRequest
     ) -> ChatAnchorExecutionState {

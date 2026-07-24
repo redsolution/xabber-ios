@@ -1297,26 +1297,36 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         if self.navigationItem.backButtonDisplayMode != .minimal {
             self.navigationItem.backButtonDisplayMode = .minimal
         }
+        let nativeBackAccessibilityLabel = "Back".localizeString(
+            id: "chat_attachment_action_back",
+            arguments: []
+        )
         if self.navigationItem.backBarButtonItem == nil {
             // On iOS 26 an implicit Back can be replaced by a non-interactive
             // portal snapshot of this controller's account item during an
             // animated push. Supplying the source back item up front keeps
             // rendering and activation in UINavigationController ownership;
-            // the destination still never installs or clears a left item.
+            // an empty title keeps the native indicator visually minimal.
             let backItem = UIBarButtonItem(
-                title: self.navigationItem.title
-                    ?? self.title
-                    ?? "Chats".localizeString(
-                        id: "toolbar__menu_item__chats",
-                        arguments: []
-                    ),
+                title: "",
                 style: .plain,
                 target: nil,
                 action: nil
             )
             backItem.accessibilityIdentifier =
                 Self.nativeChatBackAccessibilityIdentifier
+            backItem.accessibilityLabel = nativeBackAccessibilityLabel
             self.navigationItem.backBarButtonItem = backItem
+        }
+        if let backItem = self.navigationItem.backBarButtonItem {
+            if backItem.title != "" {
+                backItem.title = ""
+            }
+            backItem.target = nil
+            backItem.action = nil
+            backItem.accessibilityIdentifier =
+                Self.nativeChatBackAccessibilityIdentifier
+            backItem.accessibilityLabel = nativeBackAccessibilityLabel
         }
         let replacesPendingPreparation = outgoingChatOpenNavigationDeferralToken != nil
         if let previousToken = outgoingChatOpenNavigationDeferralToken,
@@ -3924,7 +3934,6 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         reconcileChatNavigationTransactionOnDidAppear()
         cancelPendingBottomSearchDismissalAfterCancelledRoute()
         updateTitle(filter.value)
-        self.navigationItem.backButtonTitle = "Chats"
         UIView.performWithoutAnimation {
             syncSelectedChatSelection()
         }

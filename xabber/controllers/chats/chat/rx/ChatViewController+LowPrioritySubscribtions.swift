@@ -436,6 +436,10 @@ extension ChatViewController {
 //            .skip(1)
             .observe(on: MainScheduler.asyncInstance)
             .subscribe { value in
+                if case .presenting = self.initialLocalFirstFramePhase {
+                    self.pendingArchiveObserverRefresh = true
+                    return
+                }
                 var didReloadInitialWindow = false
 //                self.runDatasetUpdateTask(shouldScrollToLastMessage: true)
                 if value {

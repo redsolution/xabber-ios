@@ -137,10 +137,35 @@ final class MessagesCollectionViewFlowLayoutTests: XCTestCase {
             encoding: .utf8
         )
         let body = try XCTUnwrap(functionBody(named: "applyChatDatasource", in: source))
-        let install = try XCTUnwrap(body.range(of: "cache.install(preparedLayouts)"))
-        let firstReload = try XCTUnwrap(body.range(of: "reloadData()"))
+        let atomicStart = try XCTUnwrap(
+            body.range(of: "runAtomicInitialFrameVisualCommit {")
+        )
+        let standardMarker =
+            "\n        if let preparedLayouts {\n" +
+            "            flowLayout?.cache.install(preparedLayouts)\n" +
+            "        }\n\n" +
+            "        switch mode {"
+        let tail = String(body[atomicStart.lowerBound...])
+        let standardStart = try XCTUnwrap(tail.range(of: standardMarker))
+        let atomicPath = String(tail[..<standardStart.lowerBound])
+        let standardPath = String(tail[standardStart.lowerBound...])
+        let atomicInstall = try XCTUnwrap(
+            atomicPath.range(of: "cache.install(preparedLayouts)")
+        )
+        let atomicDatasource = try XCTUnwrap(
+            atomicPath.range(of: "self.datasource = items")
+        )
+        let atomicReload = try XCTUnwrap(atomicPath.range(of: "reloadData()"))
+        let atomicFinish = try XCTUnwrap(atomicPath.range(of: "finish()"))
+        XCTAssertLessThan(atomicInstall.lowerBound, atomicDatasource.lowerBound)
+        XCTAssertLessThan(atomicDatasource.lowerBound, atomicReload.lowerBound)
+        XCTAssertLessThan(atomicReload.lowerBound, atomicFinish.lowerBound)
 
-        XCTAssertLessThan(install.lowerBound, firstReload.lowerBound)
+        let standardInstall = try XCTUnwrap(
+            standardPath.range(of: "cache.install(preparedLayouts)")
+        )
+        let standardReload = try XCTUnwrap(standardPath.range(of: "reloadData()"))
+        XCTAssertLessThan(standardInstall.lowerBound, standardReload.lowerBound)
         XCTAssertFalse(body.contains("oldSizeProvider: { flowLayout?.sizeForMessage"))
         XCTAssertFalse(body.contains("newSizeProvider: { flowLayout?.sizeForMessage"))
     }
@@ -160,8 +185,8 @@ final class MessagesCollectionViewFlowLayoutTests: XCTestCase {
             separatedBy: "preparedLayouts: mappingResult.layoutSnapshot"
         ).count - 1
 
-        XCTAssertEqual(mappingCount, 8)
-        XCTAssertEqual(preparedApplyCount, 10)
+        XCTAssertEqual(mappingCount, 9)
+        XCTAssertEqual(preparedApplyCount, 11)
     }
 
     private var forwardSize: MessageAttachmentSizes {

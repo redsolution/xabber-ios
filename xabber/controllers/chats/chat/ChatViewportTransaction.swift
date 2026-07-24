@@ -104,6 +104,7 @@ struct ChatViewportTransactionDiagnostics: Equatable {
 
 enum ChatViewportTransactionFailure: Error, Equatable {
     case targetMissing(primary: String)
+    case alignmentUnresolved(target: String, error: CGFloat)
 }
 
 enum ChatViewportTransactionResult: Equatable {

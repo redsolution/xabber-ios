@@ -5056,6 +5056,38 @@ enum ChatTimelineObserverRefreshPolicy {
     }
 }
 
+enum ChatTimelineObserverRefreshWindowPolicy {
+    static func shouldReuseCurrentBoundedWindow(
+        isTimelineEmpty: Bool,
+        isResidentAtLiveTail: Bool,
+        isShowingBootstrapPlaceholder: Bool,
+        hasPendingForceLatestOpen: Bool
+    ) -> Bool {
+        !isTimelineEmpty &&
+        isResidentAtLiveTail &&
+        !isShowingBootstrapPlaceholder &&
+        !hasPendingForceLatestOpen
+    }
+}
+
+enum ChatInitialFramePendingObserverRefreshPolicy {
+    enum Action: Equatable {
+        case cancelAlreadyCurrent
+        case flushNewerTail
+    }
+
+    static func action(
+        displayedNewestPrimary: String?,
+        residentNewestPrimary: String?
+    ) -> Action {
+        guard let displayedNewestPrimary,
+              displayedNewestPrimary == residentNewestPrimary else {
+            return .flushNewerTail
+        }
+        return .cancelAlreadyCurrent
+    }
+}
+
 enum ChatObserverRefreshAnchorRestorePolicy {
     static func shouldSuppressOpenLatest(
         isSearchModeActive: Bool,
@@ -6442,6 +6474,7 @@ struct ChatLocalFirstFrameDescriptor: Equatable {
 enum ChatLocalFirstFramePhase: Equatable {
     case idle
     case preparing(ChatLocalFirstFrameDescriptor)
+    case presenting(ChatLocalFirstFrameDescriptor)
     case committed(ChatLocalFirstFrameDescriptor)
     case blockedArchiveBootstrap(ChatLocalFirstFrameDescriptor)
     case blockedMissingTarget(ChatLocalFirstFrameDescriptor)
@@ -6875,6 +6908,23 @@ enum ChatDatasourceApplyMode {
     case fullReload(keepOffset: Bool = false)
     case windowReload(keepOffset: Bool = false)
     case targetedDiff
+}
+
+enum ChatDatasourcePresentationCommitMode: Equatable {
+    case standard
+    case atomicInitialFrame
+}
+
+enum ChatDatasourcePresentationTransactionContext {
+    private static let tokenKey = "com.xabber.chat.initial-frame-visual-transaction"
+
+    static var currentToken: String? {
+        CATransaction.value(forKey: tokenKey) as? String
+    }
+
+    static func install(token: String) {
+        CATransaction.setValue(token, forKey: tokenKey)
+    }
 }
 
 struct ChatReloadInvalidationPlan {
@@ -8680,6 +8730,7 @@ extension ChatViewController {
         anchorRestorePhase: ChatHistoryPageAnchorRestorePhase = .none,
         anchorPrimary: String? = nil,
         restoreAnchor: ChatHistoryPageAnchor? = nil,
+        presentationCommitMode: ChatDatasourcePresentationCommitMode = .standard,
         transactionCompletion: ((ChatViewportTransactionResult) -> Void)? = nil,
         completion: (() -> Void)? = nil
     ) {
@@ -8699,6 +8750,10 @@ extension ChatViewController {
         let oldContentOffset = self.messagesCollectionView.contentOffset
         let oldContentSize = self.messagesCollectionView.contentSize
         let oldContentInsets = self.messagesCollectionView.contentInset
+        let oldVerticalScrollIndicatorInsets =
+            self.messagesCollectionView.verticalScrollIndicatorInsets
+        let oldHorizontalScrollIndicatorInsets =
+            self.messagesCollectionView.horizontalScrollIndicatorInsets
         let oldBottomDistance = ChatTailAppendBottomPinPolicy.bottomDistance(
             contentHeight: oldContentSize.height,
             viewportHeight: self.messagesCollectionView.bounds.height,
@@ -8708,6 +8763,7 @@ extension ChatViewController {
         let oldFirstArchivedId = self.datasource.first?.archivedId
         let oldLastArchivedId = self.datasource.last?.archivedId
         let newSnapshot = ChatDatasourceCoordinator.makeSnapshot(items: items)
+        let previousDatasource = self.datasource
         let previousSnapshot = datasourceSnapshot
         let flowLayout = self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout
         let previousLayoutSnapshot = flowLayout?.cache.reuseSnapshot() ?? .empty
@@ -8733,7 +8789,8 @@ extension ChatViewController {
         self.scrollFrameOperationCounter.record(.structuralMoves, by: targetedDiff?.moves.count ?? 0)
         let containsOnlyFakeMessages = !items.isEmpty && items.allSatisfy(\.isFakeMessage)
         let containsRealMessages = items.contains { !$0.isFakeMessage }
-        if containsRealMessages {
+        if containsRealMessages,
+           presentationCommitMode == .standard {
             // A real frame owns presentation as soon as its transaction starts.
             // Cancelling the independent skeleton generation here closes the
             // interval before the real transaction's committed marker is set.
@@ -8888,6 +8945,7 @@ extension ChatViewController {
             reloadedItemCount: targetedDiff?.reloads.count ?? 0,
             contentOnlyItemCount: targetedDiff?.contentOnlyUpdates.count ?? 0
         )
+        var completedViewportTransactionResult: ChatViewportTransactionResult?
         let viewportTransaction = ChatViewportTransaction(
             snapshotDiff: viewportSnapshotDiff,
             contentChanges: contentChanges,
@@ -8895,6 +8953,10 @@ extension ChatViewController {
             initialInsets: oldContentInsets,
             anchorStrategy: anchorStrategy,
             completion: { result in
+                completedViewportTransactionResult = result
+                guard presentationCommitMode == .standard else {
+                    return
+                }
                 transactionCompletion?(result)
                 if case .committed = result {
                     completion?()
@@ -8930,6 +8992,7 @@ extension ChatViewController {
             ("oldBottomDistance", Int(oldBottomDistance))
         ])
         var didFinish = false
+        var pendingLogicalCommit: (() -> Void)?
         let finish: () -> Void = {
             guard !didFinish else { return }
             didFinish = true
@@ -8950,9 +9013,13 @@ extension ChatViewController {
             let insetsMs = ChatArchiveDebugTrace.milliseconds(since: insetsStartedAt)
             var transactionFailure: ChatViewportTransactionFailure?
             var anchorError: CGFloat?
+            var bottomAlignmentError: CGFloat?
+            var alignmentTargetDescription = "none"
             var forcedBottomAlignmentApplied = false
+            var resolvedBottomTargetIndexPath: IndexPath?
             switch anchorStrategy {
             case .message(let anchor):
+                alignmentTargetDescription = "anchor"
                 guard let section = self.datasourceSnapshot.primaryIndex[anchor.primary] else {
                     transactionFailure = .targetMissing(primary: anchor.primary)
                     break
@@ -8992,6 +9059,7 @@ extension ChatViewController {
                         anchor.viewportRelativeMinY
                 )
             case .preserveContentOffset(let requestedOffsetY):
+                alignmentTargetDescription = "preservedOffset"
                 let minOffsetY = -self.messagesCollectionView.adjustedContentInset.top
                 let maxOffsetY = max(
                     minOffsetY,
@@ -9015,6 +9083,9 @@ extension ChatViewController {
                     )
                 }
             case .bottom:
+                alignmentTargetDescription = forceBottomAlignmentTarget == nil
+                    ? "bottom"
+                    : forceBottomAlignmentDescription
                 var targetIndexPath: IndexPath?
                 var missingTargetPrimary: String?
                 if let forceBottomAlignmentTarget {
@@ -9045,6 +9116,7 @@ extension ChatViewController {
                     transactionFailure = .targetMissing(primary: missingTargetPrimary)
                     break
                 }
+                resolvedBottomTargetIndexPath = targetIndexPath
                 let targetMaxY = targetIndexPath.flatMap {
                     self.messagesCollectionView.layoutAttributesForItem(at: $0)?.frame.maxY
                         ?? self.messagesCollectionView.cellForItem(at: $0)?.frame.maxY
@@ -9066,9 +9138,118 @@ extension ChatViewController {
                         animated: shouldAnimateApply && !isExplicitBottomTarget
                     )
                 }
+                bottomAlignmentError = abs(
+                    self.messagesCollectionView.contentOffset.y - targetOffsetY
+                )
             case .none:
                 break
             }
+            if presentationCommitMode == .atomicInitialFrame {
+                self.messagesCollectionView.setNeedsLayout()
+            }
+            self.messagesCollectionView.layoutIfNeeded()
+            if presentationCommitMode == .atomicInitialFrame,
+               transactionFailure == nil {
+                switch anchorStrategy {
+                case .message(let anchor):
+                    if let section = self.datasourceSnapshot.primaryIndex[anchor.primary] {
+                        let indexPath = IndexPath(item: 0, section: section)
+                        if let frame = self.messagesCollectionView.layoutAttributesForItem(at: indexPath)?.frame
+                            ?? self.messagesCollectionView.cellForItem(at: indexPath)?.frame {
+                            let minOffsetY =
+                                -self.messagesCollectionView.adjustedContentInset.top
+                            let maxOffsetY = max(
+                                minOffsetY,
+                                self.messagesCollectionView.contentSize.height -
+                                    self.messagesCollectionView.bounds.height +
+                                    self.messagesCollectionView.adjustedContentInset.bottom
+                            )
+                            let resolvedTargetOffsetY =
+                                ChatViewportTransactionTargetPolicy.targetContentOffsetY(
+                                    anchor: anchor,
+                                    resolvedAnchorMinY: frame.minY,
+                                    minimumContentOffsetY: minOffsetY,
+                                    maximumContentOffsetY: maxOffsetY
+                                )
+                            anchorError = abs(
+                                self.messagesCollectionView.contentOffset.y -
+                                    resolvedTargetOffsetY
+                            )
+                        } else {
+                            transactionFailure = .targetMissing(primary: anchor.primary)
+                        }
+                    } else {
+                        transactionFailure = .targetMissing(primary: anchor.primary)
+                    }
+                    if let anchorError, anchorError > 1 {
+                        transactionFailure = .alignmentUnresolved(
+                            target: "anchor",
+                            error: anchorError
+                        )
+                    }
+                case .bottom:
+                    let finalTargetMaxY: CGFloat?
+                    if let resolvedBottomTargetIndexPath {
+                        finalTargetMaxY =
+                            self.messagesCollectionView.layoutAttributesForItem(
+                                at: resolvedBottomTargetIndexPath
+                            )?.frame.maxY
+                            ?? self.messagesCollectionView.cellForItem(
+                                at: resolvedBottomTargetIndexPath
+                            )?.frame.maxY
+                        if finalTargetMaxY == nil {
+                            transactionFailure = .targetMissing(
+                                primary: alignmentTargetDescription
+                            )
+                        }
+                    } else {
+                        finalTargetMaxY = self.messagesCollectionView.contentSize.height
+                    }
+                    if let finalTargetMaxY {
+                        let finalTargetOffsetY =
+                            ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+                                targetMaxY: finalTargetMaxY,
+                                contentHeight: self.messagesCollectionView.contentSize.height,
+                                viewportHeight: self.messagesCollectionView.bounds.height,
+                                contentInsets: self.messagesCollectionView.contentInset
+                            )
+                        bottomAlignmentError = abs(
+                            self.messagesCollectionView.contentOffset.y -
+                                finalTargetOffsetY
+                        )
+                    }
+                    if transactionFailure == nil,
+                       let bottomAlignmentError,
+                       bottomAlignmentError > 0.5 {
+                        transactionFailure = .alignmentUnresolved(
+                            target: alignmentTargetDescription,
+                            error: bottomAlignmentError
+                        )
+                    }
+                case .none, .preserveContentOffset:
+                    break
+                }
+            }
+            if presentationCommitMode == .atomicInitialFrame,
+               transactionFailure != nil {
+                self.datasource = previousDatasource
+                self.datasourceSnapshot = previousSnapshot
+                flowLayout?.cache.install(previousLayoutSnapshot)
+                self.messagesCollectionView.contentInset = oldContentInsets
+                self.messagesCollectionView.verticalScrollIndicatorInsets =
+                    oldVerticalScrollIndicatorInsets
+                self.messagesCollectionView.horizontalScrollIndicatorInsets =
+                    oldHorizontalScrollIndicatorInsets
+                self.scrollFrameOperationCounter.record(.reloads)
+                self.messagesCollectionView.reloadData()
+                self.messagesCollectionView.layoutIfNeeded()
+                self.messagesCollectionView.setContentOffset(
+                    oldContentOffset,
+                    animated: false
+                )
+                self.messagesCollectionView.layoutIfNeeded()
+            }
+            let logicalCommit: () -> Void = {
             let completionStartedAt = Date()
             let transactionCommitted: Bool
             if let transactionFailure {
@@ -9097,15 +9278,19 @@ extension ChatViewController {
             if didCommitCurrentConversationContent {
                 self.hasCommittedRealContentInCurrentLifecycle = true
             }
-            if transactionCommitted {
+            if transactionCommitted,
+               presentationCommitMode == .standard {
                 self.resolvePendingBootstrapFirstFrameReadinessCompletionsIfPossible()
             }
             let completionMs = ChatArchiveDebugTrace.milliseconds(since: completionStartedAt)
-            self.handleChatDatasourceAuxiliaryRefreshAfterApply(
-                containsRealMessages: containsRealMessages,
-                containsOnlyFakeMessages: containsOnlyFakeMessages
-            )
-            if self.initialHistoryAppearancePending,
+            if transactionCommitted || presentationCommitMode == .standard {
+                self.handleChatDatasourceAuxiliaryRefreshAfterApply(
+                    containsRealMessages: containsRealMessages,
+                    containsOnlyFakeMessages: containsOnlyFakeMessages
+                )
+            }
+            if transactionCommitted,
+               self.initialHistoryAppearancePending,
                ChatInitialHistoryAppearancePolicy.shouldFinish(itemCount: items.count, containsOnlyFakeMessages: containsOnlyFakeMessages) {
                 self.hasRenderedStableInitialHistory = true
                 self.finishInitialHistoryAppearanceIfPossible()
@@ -9173,11 +9358,24 @@ extension ChatViewController {
                 ("forcedBottomAlignmentApplied", forcedBottomAlignmentApplied),
                 ("outgoingAutoScroll", "\(outgoingAutoScrollDecision)")
             ])
-            datasourceApplySignpost.end()
             if didCommitCurrentConversationContent,
                let initialBootstrapQueryIdAtApplyStart,
                self.initialBootstrapQueryId == initialBootstrapQueryIdAtApplyStart {
                 _ = self.completeInitialBootstrapIfNeeded()
+            }
+            datasourceApplySignpost.end()
+            if presentationCommitMode == .atomicInitialFrame,
+               let completedViewportTransactionResult {
+                transactionCompletion?(completedViewportTransactionResult)
+                if case .committed = completedViewportTransactionResult {
+                    completion?()
+                }
+            }
+            }
+            if presentationCommitMode == .atomicInitialFrame {
+                pendingLogicalCommit = logicalCommit
+            } else {
+                logicalCommit()
             }
         }
 
@@ -9188,6 +9386,19 @@ extension ChatViewController {
                 updates()
             }
             CATransaction.commit()
+        }
+
+        let runAtomicInitialFrameVisualCommit: (@escaping () -> Void) -> Void = { updates in
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            ChatDatasourcePresentationTransactionContext.install(token: UUID().uuidString)
+            UIView.performWithoutAnimation {
+                updates()
+            }
+            CATransaction.commit()
+            let logicalCommit = pendingLogicalCommit
+            pendingLogicalCommit = nil
+            logicalCommit?()
         }
 
         let applyNonStructuralUpdates: () -> Void = {
@@ -9201,6 +9412,73 @@ extension ChatViewController {
                     changeMask: targetedDiff.changeMasksByPrimary[update.primary] ?? .all
                 )
             }
+        }
+
+        if presentationCommitMode == .atomicInitialFrame {
+            let preflightFailure: ChatViewportTransactionFailure?
+            switch anchorStrategy {
+            case .message(let anchor):
+                preflightFailure = newSnapshot.primaryIndex[anchor.primary] == nil
+                    ? .targetMissing(primary: anchor.primary)
+                    : nil
+            case .bottom:
+                if let forceBottomAlignmentTarget,
+                   ChatBottomAlignmentTargetPolicy.indexPath(
+                    for: forceBottomAlignmentTarget,
+                    in: items
+                   ) == nil {
+                    let missingPrimary: String
+                    switch forceBottomAlignmentTarget {
+                    case .message(let anchor):
+                        missingPrimary = anchor.messagePrimary
+                            ?? anchor.archivedId
+                            ?? anchor.messageId
+                            ?? "message-anchor"
+                    case .newestRealMessage:
+                        missingPrimary = "newest-real-message"
+                    }
+                    preflightFailure = .targetMissing(primary: missingPrimary)
+                } else {
+                    preflightFailure = nil
+                }
+            case .none, .preserveContentOffset:
+                preflightFailure = nil
+            }
+            if let preflightFailure {
+                _ = viewportTransaction.fail(preflightFailure)
+                datasourceApplySignpost.end()
+                if let completedViewportTransactionResult {
+                    transactionCompletion?(completedViewportTransactionResult)
+                }
+                return
+            }
+        }
+
+        if presentationCommitMode == .atomicInitialFrame {
+            runAtomicInitialFrameVisualCommit {
+                if let preparedLayouts {
+                    flowLayout?.cache.install(preparedLayouts)
+                }
+                if containsRealMessages {
+                    self.cancelBootstrapSkeletonMappingJobs()
+                }
+                self.datasource = items
+                self.datasourceSnapshot = newSnapshot
+                let reloadStartedAt = Date()
+                self.scrollFrameOperationCounter.record(.reloads)
+                self.messagesCollectionView.reloadData()
+                ChatArchiveDebugTrace.log("chatDatasourceReload", [
+                    ("owner", self.owner),
+                    ("jid", self.jid),
+                    ("conversationType", self.conversationType.rawValue),
+                    ("mode", modeDescription),
+                    ("keepOffset", modeKeepsOffset),
+                    ("durationMs", ChatArchiveDebugTrace.milliseconds(since: reloadStartedAt)),
+                    ("count", items.count)
+                ])
+                finish()
+            }
+            return
         }
 
         if let preparedLayouts {
@@ -12017,6 +12295,9 @@ extension ChatViewController {
         case .preparing(let current)
             where current == descriptor && !hasTrustedPersistedBootstrapPage:
             return true
+        case .presenting(let current)
+            where current == descriptor && !hasTrustedPersistedBootstrapPage:
+            return true
         case .committed(let current)
             where current == descriptor && !hasTrustedPersistedBootstrapPage:
             self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
@@ -12176,7 +12457,8 @@ extension ChatViewController {
                     descriptor: descriptor,
                     preparedFrame: preparedFrame,
                     committedSnapshot: committedSnapshot,
-                    mappingResult: mappingResult
+                    mappingResult: mappingResult,
+                    mappingGeneration: mappingGeneration
                 )
             }
         }
@@ -12259,23 +12541,28 @@ extension ChatViewController {
         descriptor: ChatLocalFirstFrameDescriptor,
         preparedFrame: ChatTimelinePreparedInitialFrame,
         committedSnapshot: ChatTimelineSessionSnapshot,
-        mappingResult: ChatDatasourceMappingResult
+        mappingResult: ChatDatasourceMappingResult,
+        mappingGeneration: Int
     ) {
-        self.initialLocalFirstFramePhase = .committed(descriptor)
-        self.initialFirstContentApplyCount += 1
+        let presentationStartedAt = Date()
         let previousBootstrapState = self.appliedBootstrapLoadingState ?? .blockingArchive
         let retainedRetryState = previousBootstrapState.showsRetry
             ? previousBootstrapState
             : nil
-        self.lastBootstrapAtomicRevealPlan = ChatBootstrapAtomicRevealPlan.resolve(
-            previous: previousBootstrapState,
-            destinationRowCount: mappingResult.datasource.count
-        )
-        self.allowsBootstrapFailureFallback = retainedRetryState != nil
-        self.appliedBootstrapLoadingState =
-            retainedRetryState ??
-            (committedSnapshot.items.isEmpty ? .empty : .content)
-        self.setBootstrapFailureVisible(retainedRetryState != nil)
+        let previousBoundaryPlaceholder = self.activeHistoryBoundaryPlaceholder
+        let previousResidentDatasetWindow = self.residentDatasetWindow
+        let rollbackPresentationState: () -> Void = { [weak self] in
+            guard let self else {
+                return
+            }
+            self.activeHistoryBoundaryPlaceholder = previousBoundaryPlaceholder
+            self.syncCurrentPage(with: previousResidentDatasetWindow)
+            if case .anchor = preparedFrame.alignment,
+               let request = descriptor.request {
+                self.rollbackPreparedLocalFirstFrameAnchor(request: request)
+            }
+        }
+        self.initialLocalFirstFramePhase = .presenting(descriptor)
         self.activeHistoryBoundaryPlaceholder = nil
         self.syncCurrentPage(
             with: ChatDatasetWindow(minIndex: 0, maxIndex: committedSnapshot.items.count)
@@ -12283,102 +12570,234 @@ extension ChatViewController {
         self.invalidateEditedMessageLayoutCache(
             primaries: mappingResult.editedMessagePrimariesNeedingLayoutInvalidation
         )
-        self.setSkeletonVisible(false)
-        self.setDatasourceLoadingEnabled(true)
-        self.setShouldShowInitialMessage(
-            retainedRetryState == nil && committedSnapshot.items.isEmpty
-        )
-        self.rebuildUnreadMentionItems()
-        ConnectionDiagnosticsLogger.log(
-            event: "chat_anchor_local_first_frame_committed",
-            stream: .primary,
-            jid: nil,
-            details: [
-                "source": descriptor.request?.source.rawValue ?? "default",
-                "anchorAligned": {
-                    if case .anchor = preparedFrame.alignment { return true }
-                    return false
-                }(),
-                "residentAtLiveTail": committedSnapshot.state.isResidentAtLiveTail,
-                "realMessageCount": mappingResult.datasource.lazy.filter { !$0.isFakeMessage }.count
-            ]
-        )
+        if case .anchor = preparedFrame.alignment,
+           let request = descriptor.request {
+            self.beginPreparedLocalFirstFrameAnchor(request: request)
+        }
 
-        ChatArchiveDebugTrace.log("chatInitialLocalFirstFramePrepared", [
-            ("owner", self.owner),
-            ("jid", self.jid),
-            ("conversationType", self.conversationType.rawValue),
-            ("target", String(describing: descriptor.target)),
-            ("messageCount", preparedFrame.metrics.preparedMessageCount),
-            ("storeQueryCount", preparedFrame.metrics.storeQueryCount),
-            ("fullScanCount", preparedFrame.metrics.fullScanCount),
-            ("maxCandidateCount", preparedFrame.metrics.maxCandidateCount),
-            ("preparedOnMainThread", preparedFrame.metrics.preparedOnMainThread),
-            ("contentApplyCount", self.initialFirstContentApplyCount)
-        ])
+        var presentationAttempt = 0
+        var applyPreparedFrame: (() -> Void)?
+        let handlePresentationResult: (ChatViewportTransactionResult) -> Void = { [weak self] result in
+            guard let self,
+                  self.initialLocalFirstFramePhase == .presenting(descriptor) else {
+                applyPreparedFrame = nil
+                return
+            }
 
-        let completion = { [weak self] in
-            guard let self else { return }
-            switch preparedFrame.alignment {
-            case .bottom:
-                self.pendingForceLatestOpen = false
-                self.pendingForceLatestOpenAnimated = false
-                self.initialLatestOpenStabilizationState = committedSnapshot.items.isEmpty
-                    ? .inactive
-                    : .bottomAligned
-            case .anchor(let primary, let archivedId):
-                if let request = descriptor.request {
-                    self.finishPreparedLocalFirstFrameAnchor(
-                        request: request,
-                        primary: primary,
-                        archivedId: archivedId
+            switch result {
+            case .committed(let diagnostics):
+                applyPreparedFrame = nil
+                self.initialLocalFirstFrameMappingToken = nil
+                self.initialLocalFirstFramePhase = .committed(descriptor)
+                self.initialFirstContentApplyCount += 1
+                self.lastBootstrapAtomicRevealPlan = ChatBootstrapAtomicRevealPlan.resolve(
+                    previous: previousBootstrapState,
+                    destinationRowCount: mappingResult.datasource.count
+                )
+                self.allowsBootstrapFailureFallback = retainedRetryState != nil
+                self.appliedBootstrapLoadingState =
+                    retainedRetryState ??
+                    (committedSnapshot.items.isEmpty ? .empty : .content)
+                self.setBootstrapFailureVisible(retainedRetryState != nil)
+                self.setSkeletonVisible(false)
+                self.setDatasourceLoadingEnabled(true)
+                self.setShouldShowInitialMessage(
+                    retainedRetryState == nil && committedSnapshot.items.isEmpty
+                )
+                self.rebuildUnreadMentionItems()
+                self.resolvePendingBootstrapFirstFrameReadinessCompletionsIfPossible()
+
+                ConnectionDiagnosticsLogger.log(
+                    event: "chat_anchor_local_first_frame_committed",
+                    stream: .primary,
+                    jid: nil,
+                    details: [
+                        "source": descriptor.request?.source.rawValue ?? "default",
+                        "anchorAligned": {
+                            if case .anchor = preparedFrame.alignment { return true }
+                            return false
+                        }(),
+                        "residentAtLiveTail": committedSnapshot.state.isResidentAtLiveTail,
+                        "realMessageCount": mappingResult.datasource.lazy.filter { !$0.isFakeMessage }.count
+                    ]
+                )
+                ChatArchiveDebugTrace.log("chatInitialLocalFirstFramePrepared", [
+                    ("owner", self.owner),
+                    ("jid", self.jid),
+                    ("conversationType", self.conversationType.rawValue),
+                    ("target", String(describing: descriptor.target)),
+                    ("messageCount", preparedFrame.metrics.preparedMessageCount),
+                    ("storeQueryCount", preparedFrame.metrics.storeQueryCount),
+                    ("fullScanCount", preparedFrame.metrics.fullScanCount),
+                    ("maxCandidateCount", preparedFrame.metrics.maxCandidateCount),
+                    ("preparedOnMainThread", preparedFrame.metrics.preparedOnMainThread),
+                    ("contentApplyCount", self.initialFirstContentApplyCount)
+                ])
+
+                let realRowCount = mappingResult.datasource.lazy.filter { !$0.isFakeMessage }.count
+                let skeletonRowCount = mappingResult.datasource.count - realRowCount
+                let bottomDistance = ChatTailAppendBottomPinPolicy.bottomDistance(
+                    contentHeight: self.messagesCollectionView.contentSize.height,
+                    viewportHeight: self.messagesCollectionView.bounds.height,
+                    contentInsets: self.messagesCollectionView.contentInset,
+                    contentOffsetY: self.messagesCollectionView.contentOffset.y
+                )
+                let targetKind: String
+                switch preparedFrame.alignment {
+                case .bottom:
+                    targetKind = committedSnapshot.items.isEmpty ? "empty" : "latest"
+                case .anchor:
+                    targetKind = "anchor"
+                }
+                ChatArchiveDebugTrace.log("chatInitialFramePresentationCommitted", [
+                    ("targetKind", targetKind),
+                    ("realRows", realRowCount),
+                    ("skeletonRows", skeletonRowCount),
+                    ("visualCommitCount", 1),
+                    ("attemptCount", presentationAttempt + 1),
+                    ("alignmentResult", "committed"),
+                    ("bottomDistanceMilliPoints", Int(bottomDistance * 1_000)),
+                    ("anchorErrorMilliPoints", Int((diagnostics.anchorError ?? 0) * 1_000)),
+                    ("durationMs", ChatArchiveDebugTrace.milliseconds(since: presentationStartedAt))
+                ])
+
+                switch preparedFrame.alignment {
+                case .bottom:
+                    self.pendingForceLatestOpen = false
+                    self.pendingForceLatestOpenAnimated = false
+                    self.initialLatestOpenStabilizationState = committedSnapshot.items.isEmpty
+                        ? .inactive
+                        : .bottomAligned
+                case .anchor(let primary, let archivedId):
+                    if let request = descriptor.request {
+                        self.finishPreparedLocalFirstFrameAnchor(
+                            request: request,
+                            primary: primary,
+                            archivedId: archivedId
+                        )
+                    }
+                }
+                self.cancelInitialBootstrapTimeout()
+                self.initialBootstrapPresentationDeadline = nil
+                self.releaseInteractiveChatOpenGate()
+                self.finishInitialLocalFirstFramePreparation()
+
+            case .failed(let failure, _):
+                let canRetry = presentationAttempt == 0 &&
+                    ChatDatasourceApplyGenerationPolicy.shouldApply(
+                        requestGeneration: mappingGeneration,
+                        currentGeneration: self.datasetMappingGeneration
+                    ) &&
+                    !self.isStackedNavigationPresentationPreparationCancelled
+                if canRetry {
+                    presentationAttempt = 1
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else {
+                            applyPreparedFrame = nil
+                            return
+                        }
+                        guard self.initialLocalFirstFramePhase == .presenting(descriptor) else {
+                            applyPreparedFrame = nil
+                            if self.isStackedNavigationPresentationPreparationCancelled {
+                                rollbackPresentationState()
+                            }
+                            return
+                        }
+                        guard ChatDatasourceApplyGenerationPolicy.shouldApply(
+                            requestGeneration: mappingGeneration,
+                            currentGeneration: self.datasetMappingGeneration
+                        ) else {
+                            applyPreparedFrame = nil
+                            rollbackPresentationState()
+                            self.initialLocalFirstFrameMappingToken = nil
+                            self.initialLocalFirstFramePhase = .idle
+                            self.retryInitialLocalFirstFramePreparation()
+                            return
+                        }
+                        applyPreparedFrame?()
+                    }
+                    return
+                }
+
+                applyPreparedFrame = nil
+                rollbackPresentationState()
+                self.initialLocalFirstFrameMappingToken = nil
+                self.initialLocalFirstFramePhase = .blockedMissingTarget(descriptor)
+                let failureKind: String
+                switch failure {
+                case .targetMissing:
+                    failureKind = "targetMissing"
+                case .alignmentUnresolved:
+                    failureKind = "alignmentUnresolved"
+                }
+                ChatArchiveDebugTrace.log("chatInitialFramePresentationFailed", [
+                    ("targetKind", {
+                        if case .anchor = preparedFrame.alignment { return "anchor" }
+                        return "latest"
+                    }()),
+                    ("failureKind", failureKind),
+                    ("attemptCount", presentationAttempt + 1),
+                    ("durationMs", ChatArchiveDebugTrace.milliseconds(since: presentationStartedAt))
+                ])
+                if let retainedRetryState {
+                    self.applyBootstrapLoadingState(retainedRetryState, forceRender: true)
+                } else {
+                    self.applyBootstrapViewState(
+                        .skeleton,
+                        forceRender: true,
+                        synchronousSkeletonCommit: self.isPreparingStackedNavigationPresentation
                     )
                 }
+                self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
             }
-            self.cancelInitialBootstrapTimeout()
-            self.initialBootstrapPresentationDeadline = nil
-            self.releaseInteractiveChatOpenGate()
-            self.finishInitialLocalFirstFramePreparation()
         }
 
-        switch preparedFrame.alignment {
-        case .bottom:
-            self.applyChatDatasource(
-                mappingResult.datasource,
-                mode: .fullReload(),
-                animated: false,
-                invalidateLayout: false,
-                preparedLayouts: mappingResult.layoutSnapshot,
-                suppressDefaultBottomScroll: true,
-                forceBottomAlignmentTarget: committedSnapshot.items.isEmpty ? nil : .newestRealMessage,
-                completion: completion
-            )
-        case .anchor(let primary, _):
-            if let request = descriptor.request {
-                self.beginPreparedLocalFirstFrameAnchor(request: request)
+        applyPreparedFrame = { [weak self] in
+            guard let self,
+                  self.initialLocalFirstFramePhase == .presenting(descriptor) else {
+                return
             }
-            let targetHeight = mappingResult.layoutSnapshot
-                .layout(forPrimary: primary)?.cellSize.height ?? 0
-            self.applyChatDatasource(
-                mappingResult.datasource,
-                mode: .fullReload(),
-                animated: false,
-                invalidateLayout: false,
-                preparedLayouts: mappingResult.layoutSnapshot,
-                suppressDefaultBottomScroll: true,
-                applyCategory: .default,
-                anchorRestorePhase: .applyTransaction,
-                anchorPrimary: primary,
-                restoreAnchor: ChatHistoryPageAnchor(
-                    primary: primary,
-                    viewportRelativeMinY: ChatAnchorCenteringPolicy.viewportRelativeMinY(
-                        viewportHeight: self.messagesCollectionView.bounds.height,
-                        targetHeight: targetHeight
-                    )
-                ),
-                completion: completion
-            )
+            switch preparedFrame.alignment {
+            case .bottom:
+                self.applyChatDatasource(
+                    mappingResult.datasource,
+                    mode: .fullReload(),
+                    animated: false,
+                    invalidateLayout: false,
+                    preparedLayouts: mappingResult.layoutSnapshot,
+                    suppressDefaultBottomScroll: true,
+                    forceBottomAlignmentTarget: committedSnapshot.items.isEmpty
+                        ? nil
+                        : .newestRealMessage,
+                    presentationCommitMode: .atomicInitialFrame,
+                    transactionCompletion: handlePresentationResult
+                )
+            case .anchor(let primary, _):
+                let targetHeight = mappingResult.layoutSnapshot
+                    .layout(forPrimary: primary)?.cellSize.height ?? 0
+                self.applyChatDatasource(
+                    mappingResult.datasource,
+                    mode: .fullReload(),
+                    animated: false,
+                    invalidateLayout: false,
+                    preparedLayouts: mappingResult.layoutSnapshot,
+                    suppressDefaultBottomScroll: true,
+                    applyCategory: .default,
+                    anchorRestorePhase: .applyTransaction,
+                    anchorPrimary: primary,
+                    restoreAnchor: ChatHistoryPageAnchor(
+                        primary: primary,
+                        viewportRelativeMinY: ChatAnchorCenteringPolicy.viewportRelativeMinY(
+                            viewportHeight: self.messagesCollectionView.bounds.height,
+                            targetHeight: targetHeight
+                        )
+                    ),
+                    presentationCommitMode: .atomicInitialFrame,
+                    transactionCompletion: handlePresentationResult
+                )
+            }
         }
+        applyPreparedFrame?()
     }
 
     private func retryInitialLocalFirstFramePreparation() {
@@ -12408,10 +12827,13 @@ extension ChatViewController {
         if self.pendingArchiveObserverRefresh {
             let displayedNewestPrimary = self.datasource.last(where: { !$0.isFakeMessage })?.primary
             let residentNewestPrimary = self.timelineSession?.snapshot.items.last?.primary
-            if displayedNewestPrimary != nil,
-               displayedNewestPrimary == residentNewestPrimary {
+            switch ChatInitialFramePendingObserverRefreshPolicy.action(
+                displayedNewestPrimary: displayedNewestPrimary,
+                residentNewestPrimary: residentNewestPrimary
+            ) {
+            case .cancelAlreadyCurrent:
                 self.cancelPendingArchiveObserverRefresh(reason: "initialFirstFrameAlreadyCurrent")
-            } else {
+            case .flushNewerTail:
                 _ = self.flushPendingArchiveObserverRefreshIfPossible(
                     reason: "initialFirstFrameCommitted"
                 )
@@ -12438,6 +12860,11 @@ extension ChatViewController {
     }
 
     internal var isCommittedStackedNavigationFirstFrameReady: Bool {
+        if case .presenting = self.initialLocalFirstFramePhase {
+            // Visual state is complete, but the high-level content commit has
+            // not published readiness or released the presentation gate yet.
+            return false
+        }
         let hasCommittedRealRows = self.hasCommittedRealContentInCurrentLifecycle &&
             self.datasource.contains { !$0.isFakeMessage }
         let hasCommittedEmptyState = self.hasCommittedTimelinePresentationInCurrentLifecycle &&
@@ -12518,7 +12945,9 @@ extension ChatViewController {
             mode: .fullReload(),
             animated: false,
             invalidateLayout: false,
-            suppressDefaultBottomScroll: true
+            suppressDefaultBottomScroll: true,
+            forceBottomAlignmentTarget: .newestRealMessage,
+            presentationCommitMode: .atomicInitialFrame
         )
         return self.isCommittedStackedNavigationFirstFrameReady
     }
@@ -13230,7 +13659,10 @@ extension ChatViewController {
     }
 
     internal var isArchiveObserverRefreshPressureActive: Bool {
-        self.isInitialBootstrapInFlight ||
+        if case .presenting = self.initialLocalFirstFramePhase {
+            return true
+        }
+        return self.isInitialBootstrapInFlight ||
         self.timelineInteractionState.isLoading ||
         self.interactiveHistoryPageLoadContext != nil ||
         self.virtualTimelineState.activeRemoteLoad != nil ||
@@ -13244,6 +13676,13 @@ extension ChatViewController {
     }
 
     internal func handleTimelineSessionRefresh() {
+        if case .presenting = self.initialLocalFirstFramePhase {
+            self.pendingArchiveObserverRefresh = true
+            self.archiveObserverRefreshWorkItem?.cancel()
+            self.archiveObserverRefreshWorkItem = nil
+            self.logArchiveObserverRefreshBackpressure(action: "deferUntilInitialFrameCommit")
+            return
+        }
         if let snapshot = self.timelineSession?.snapshot,
            case .preserveViewport(let showNewMessageBadge) = ChatIncrementalViewportPolicy.decision(
                insertedItems: [],
@@ -13351,6 +13790,13 @@ extension ChatViewController {
 
     @discardableResult
     internal func flushPendingArchiveObserverRefreshIfPossible(reason: String) -> Bool {
+        if case .presenting = self.initialLocalFirstFramePhase {
+            self.pendingArchiveObserverRefresh = true
+            self.logArchiveObserverRefreshBackpressure(
+                action: "flushDeferredForInitialFrame:\(reason)"
+            )
+            return false
+        }
         let motionState = self.currentScrollMotionState()
         let action = ChatObserverRefreshBackpressurePolicy.flushAction(
             hasPendingRefresh: self.pendingArchiveObserverRefresh,
@@ -15257,6 +15703,15 @@ extension ChatViewController {
 
     
     func didReceiveChangeset() {
+        if case .presenting = self.initialLocalFirstFramePhase {
+            self.pendingArchiveObserverRefresh = true
+            self.archiveObserverRefreshWorkItem?.cancel()
+            self.archiveObserverRefreshWorkItem = nil
+            self.logArchiveObserverRefreshBackpressure(
+                action: "changesetDeferredForInitialFrame"
+            )
+            return
+        }
         var observerRefreshSignpost = ChatPerformanceSignposts.begin(.observerRefresh)
         defer {
             observerRefreshSignpost.end()
@@ -15402,12 +15857,26 @@ extension ChatViewController {
                 completion: applyCompletion
             )
         case .followDefault where shouldOpenLatest:
-            self.mapAndApplyTimelineLatest(
-                mode: .targetedDiff,
-                animated: self.shouldAnimateInitialHistoryAppearance,
-                invalidateLayout: false,
-                completion: completion
-            )
+            if ChatTimelineObserverRefreshWindowPolicy.shouldReuseCurrentBoundedWindow(
+                isTimelineEmpty: normalizedState.isEmpty,
+                isResidentAtLiveTail: normalizedState.isResidentAtLiveTail,
+                isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder,
+                hasPendingForceLatestOpen: self.pendingForceLatestOpen
+            ) {
+                self.mapAndApplyTimelineCurrent(
+                    mode: .targetedDiff,
+                    animated: self.shouldAnimateInitialHistoryAppearance,
+                    invalidateLayout: false,
+                    completion: completion
+                )
+            } else {
+                self.mapAndApplyTimelineLatest(
+                    mode: .targetedDiff,
+                    animated: self.shouldAnimateInitialHistoryAppearance,
+                    invalidateLayout: false,
+                    completion: completion
+                )
+            }
         case .followDefault:
             self.mapAndApplyTimelineCurrent(
                 mode: .targetedDiff,

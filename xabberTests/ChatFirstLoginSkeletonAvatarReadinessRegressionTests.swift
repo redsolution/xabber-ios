@@ -853,7 +853,14 @@ final class ChatFirstLoginSkeletonAvatarReadinessRegressionTests: XCTestCase {
             controller.datasource.contains {
                 !$0.isFakeMessage && $0.archivedId == message.archivedId
             } && !controller.showSkeletonObserver.value
-        }, "the superseded mapping must not leave the committed skeleton terminal")
+        }, """
+        the superseded mapping must not leave the committed skeleton terminal; \
+        phase=\(controller.initialLocalFirstFramePhase), \
+        rows=\(controller.datasource.count), \
+        contentSize=\(controller.messagesCollectionView.contentSize), \
+        bounds=\(controller.messagesCollectionView.bounds), \
+        offset=\(controller.messagesCollectionView.contentOffset)
+        """)
         let realRows = controller.datasource.filter { !$0.isFakeMessage }
         XCTAssertEqual(realRows.count, 1)
         XCTAssertEqual(realRows.first?.archivedId, message.archivedId)

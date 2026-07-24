@@ -26418,6 +26418,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         XCTAssertEqual(controller.remoteHistoryQueryCoordinator.activeQueryCount, 0)
         switch controller.initialLocalFirstFramePhase {
         case .preparing(let descriptor),
+             .presenting(let descriptor),
              .blockedArchiveBootstrap(let descriptor),
              .blockedMissingTarget(let descriptor):
             XCTAssertEqual(descriptor.request, request)
