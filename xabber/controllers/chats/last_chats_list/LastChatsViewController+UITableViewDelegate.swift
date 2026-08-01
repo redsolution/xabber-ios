@@ -24,6 +24,20 @@ import RealmSwift
 import CocoaLumberjack
 
 extension LastChatsViewController: UITableViewDelegate {
+    private static var unreadMentionCandidateLimit: Int { 8 }
+
+    private static func notificationMetadataNeedle(key: String, value: String) -> String? {
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: value,
+            options: .fragmentsAllowed
+        ),
+        let encodedValue = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+
+        return "\"\(key)\":\(encodedValue)"
+    }
+
     func tableView(_ tableView: UITableView, canFocusRowAt indexPath: IndexPath) -> Bool {
         false
     }
@@ -52,35 +66,52 @@ extension LastChatsViewController: UITableViewDelegate {
             return nil
         }
 
-        let notification = realm.objects(NotificationStorageItem.self)
-            .filter(
-                "owner == %@ AND category_ == %@ AND isRead == false",
-                owner,
-                XMPPNotificationsManager.Category.mention.rawValue
+        let archivedIdNeedle = Self.notificationMetadataNeedle(
+            key: "sourceArchivedId",
+            value: mentionId
+        )
+        let candidates: [NotificationStorageItem]
+        let hasPersistedCandidate: Bool
+        if let archivedIdNeedle {
+            let scopedCandidates = realm.objects(NotificationStorageItem.self)
+                .filter(
+                    "owner == %@ AND category_ == %@ AND associatedJid == %@ AND metadata_ CONTAINS %@",
+                    owner,
+                    XMPPNotificationsManager.Category.mention.rawValue,
+                    jid,
+                    archivedIdNeedle
+                )
+            candidates = Array(
+                scopedCandidates
+                    .filter("isRead == false")
+                    .sorted(by: [
+                        SortDescriptor(keyPath: "date", ascending: false),
+                        SortDescriptor(keyPath: "primary", ascending: false)
+                    ])
+                    .prefix(Self.unreadMentionCandidateLimit)
             )
-            .toArray()
-            .filter {
-                ($0.sourceConversationType ?? .group) == .group
-                    && $0.sourceChatJid == jid
-                    && $0.sourceArchivedId == mentionId
-                    && $0.mentionLinkStatus != .invalidated
-                    && $0.mentionLinkStatus != .missing
-            }
-            .sorted { lhs, rhs in
-                let lhsDate = lhs.sourceMessageDate ?? lhs.date
-                let rhsDate = rhs.sourceMessageDate ?? rhs.date
-                if lhsDate != rhsDate {
-                    return lhsDate > rhsDate
-                }
+            hasPersistedCandidate = candidates.isNotEmpty || scopedCandidates.first != nil
+        } else {
+            candidates = []
+            hasPersistedCandidate = false
+        }
 
-                return (lhs.sourceArchivedId ?? "") > (rhs.sourceArchivedId ?? "")
-            }
-            .first
+        let exactCandidates = candidates.filter {
+            ($0.sourceConversationType ?? .group) == .group
+                && $0.sourceChatJid == jid
+                && $0.sourceArchivedId == mentionId
+        }
+        let notification = exactCandidates.first {
+            $0.mentionLinkStatus != .invalidated
+                && $0.mentionLinkStatus != .missing
+        }
+        if notification == nil, hasPersistedCandidate {
+            return nil
+        }
 
         let sourceDate = notification?.sourceMessageDate
             ?? notification?.date
             ?? (chat.messageDate == Date(timeIntervalSince1970: 0) ? nil : chat.messageDate)
-            ?? Date()
 
         let request = ChatOpenMessageRequest(
             chatJid: jid,
@@ -250,27 +281,6 @@ extension LastChatsViewController: UITableViewDelegate {
         }
     }
 
-    private func applyUnreadMentionIntentIfAllowed(
-        _ openMessageRequest: ChatOpenMessageRequest?,
-        to chatVc: ChatViewController
-    ) {
-        if let openMessageRequest,
-           ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: openMessageRequest.source) {
-            chatVc.queueOpenMessageRequest(openMessageRequest)
-            return
-        }
-
-        if chatVc.pendingOpenMessageRequest != nil || chatVc.activeAnchorExecutionState != nil {
-            chatVc.performPendingOpenMessageRequestIfNeeded()
-            return
-        }
-
-        if !chatVc.pendingForceLatestOpen,
-           ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen() {
-            chatVc.requestForceLatestOpen(animated: false)
-        }
-    }
-    
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         if isShowingSearchResults {
             return 84
@@ -300,29 +310,19 @@ extension LastChatsViewController: UITableViewDelegate {
             case .invite:
                 self.leftMenuSelectRootCategoryDelegate?.selectRootScreenAndCategory(screen: "groups", category: "show_all_invites")
             case .none:
+                let openMessageRequest = item.conversationType == .group
+                    ? self.unreadMentionOpenRequest(
+                        owner: item.owner,
+                        jid: item.jid,
+                        conversationType: item.conversationType
+                    )
+                    : nil
                 self.stackNewChat(
                     owner: item.owner,
                     jid: item.jid,
                     conversationType: item.conversationType,
-                    openMessageRequest: nil
-                ) { [weak self] chatVc in
-                    guard let self,
-                          let chatVc,
-                          item.conversationType == .group else {
-                        return
-                    }
-                    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                        guard let self else { return }
-                        let openMessageRequest = self.unreadMentionOpenRequest(
-                            owner: item.owner,
-                            jid: item.jid,
-                            conversationType: item.conversationType
-                        )
-                        DispatchQueue.main.async {
-                            self.applyUnreadMentionIntentIfAllowed(openMessageRequest, to: chatVc)
-                        }
-                    }
-                }
+                    openMessageRequest: openMessageRequest
+                )
         }
     }
     

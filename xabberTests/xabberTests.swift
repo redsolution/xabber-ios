@@ -32852,7 +32852,9 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         archivedId: String = "mention-1",
         messageId: String = "origin-1",
         authorId: String = "author-1",
-        date: Date = Date(timeIntervalSince1970: 1_711_283_201)
+        date: Date = Date(timeIntervalSince1970: 1_711_283_201),
+        isRead: Bool = false,
+        linkStatus: NotificationStorageItem.MentionLinkStatus? = .resolved
     ) throws {
         let realm = try WRealm.safe()
         let notification = NotificationStorageItem()
@@ -32862,8 +32864,9 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         notification.uniqueId = archivedId
         notification.messageId = archivedId
         notification.category = .mention
-        notification.isRead = false
+        notification.isRead = isRead
         notification.shouldShow = true
+        notification.associatedJid = jid
         notification.sourceConversationType = .group
         notification.sourceChatJid = jid
         notification.sourceArchivedId = archivedId
@@ -32871,10 +32874,74 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         notification.sourceSenderId = authorId
         notification.sourceMessageDate = date
         notification.sourceBodyFingerprint = MentionNotificationSync.normalizedBodyFingerprint("Hello @you")
-        notification.mentionLinkStatus = .resolved
+        notification.mentionLinkStatus = linkStatus
 
         try realm.write {
             realm.add(notification, update: .modified)
+        }
+    }
+
+    private func insertUnrelatedUnreadMentionNotifications(count: Int) throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            for index in 0..<count {
+                let jid = "unrelated-group-\(index)@example.com"
+                let archivedId = "unrelated-mention-\(index)"
+                let notification = NotificationStorageItem()
+                notification.primary = NotificationStorageItem.genPrimary(
+                    owner: owner,
+                    jid: jid,
+                    uniqueId: archivedId
+                )
+                notification.owner = owner
+                notification.jid = jid
+                notification.uniqueId = archivedId
+                notification.messageId = archivedId
+                notification.category = .mention
+                notification.isRead = false
+                notification.shouldShow = true
+                notification.associatedJid = jid
+                notification.sourceConversationType = .group
+                notification.sourceChatJid = jid
+                notification.sourceArchivedId = archivedId
+                notification.sourceMessageDate = Date(timeIntervalSince1970: 1_711_000_000 + Double(index))
+                notification.mentionLinkStatus = .resolved
+                realm.add(notification, update: .modified)
+            }
+        }
+    }
+
+    private func insertReadMentionCopies(
+        jid: String,
+        archivedId: String,
+        count: Int
+    ) throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            for index in 0..<count {
+                let uniqueId = "read-copy-\(index)"
+                let notification = NotificationStorageItem()
+                notification.primary = NotificationStorageItem.genPrimary(
+                    owner: owner,
+                    jid: jid,
+                    uniqueId: uniqueId
+                )
+                notification.owner = owner
+                notification.jid = jid
+                notification.uniqueId = uniqueId
+                notification.messageId = uniqueId
+                notification.category = .mention
+                notification.isRead = true
+                notification.shouldShow = true
+                notification.associatedJid = jid
+                notification.sourceConversationType = .group
+                notification.sourceChatJid = jid
+                notification.sourceArchivedId = archivedId
+                notification.sourceMessageId = "read-origin-\(index)"
+                notification.sourceMessageDate = Date(timeIntervalSince1970: 1_712_000_000 + Double(index))
+                notification.mentionLinkStatus = .resolved
+                realm.add(notification, update: .modified)
+            }
         }
     }
 
@@ -33296,6 +33363,188 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         XCTAssertEqual(request.anchor.sourceDate, Date(timeIntervalSince1970: 1_711_283_200))
     }
 
+    func testLastChatsUnreadMentionOpenRequestReturnsNilWithoutStoredMentionId() throws {
+        try insertLastChat(
+            jid: "group@example.com",
+            conversationType: .group,
+            mentionId: nil
+        )
+
+        XCTAssertNil(
+            LastChatsViewController.unreadMentionOpenRequest(
+                owner: owner,
+                jid: "group@example.com",
+                conversationType: .group,
+                in: try WRealm.safe()
+            )
+        )
+    }
+
+    func testLastChatsUnreadMentionOpenRequestRejectsMissingAndInvalidatedNotifications() throws {
+        let cases: [(String, NotificationStorageItem.MentionLinkStatus)] = [
+            ("missing-group@example.com", .missing),
+            ("invalidated-group@example.com", .invalidated)
+        ]
+
+        for (jid, linkStatus) in cases {
+            let archivedId = "mention-\(linkStatus.rawValue)"
+            try insertLastChat(
+                jid: jid,
+                conversationType: .group,
+                mentionId: archivedId
+            )
+            try insertUnreadMentionNotification(
+                jid: jid,
+                archivedId: archivedId,
+                linkStatus: linkStatus
+            )
+
+            XCTAssertNil(
+                LastChatsViewController.unreadMentionOpenRequest(
+                    owner: owner,
+                    jid: jid,
+                    conversationType: .group,
+                    in: try WRealm.safe()
+                ),
+                "\(linkStatus.rawValue) mention metadata must not reopen a stale exact target"
+            )
+        }
+    }
+
+    func testLastChatsUnreadMentionOpenRequestRejectsAlreadyReadNotification() throws {
+        try insertLastChat(
+            jid: "group@example.com",
+            conversationType: .group,
+            mentionId: "mention-1"
+        )
+        try insertUnreadMentionNotification(
+            jid: "group@example.com",
+            archivedId: "mention-1",
+            isRead: true
+        )
+
+        XCTAssertNil(
+            LastChatsViewController.unreadMentionOpenRequest(
+                owner: owner,
+                jid: "group@example.com",
+                conversationType: .group,
+                in: try WRealm.safe()
+            )
+        )
+    }
+
+    func testLastChatsUnreadMentionOpenRequestDoesNotLetReadCopiesExhaustCandidateCap() throws {
+        try insertLastChat(
+            jid: "group@example.com",
+            conversationType: .group,
+            mentionId: "mention-1"
+        )
+        try insertReadMentionCopies(
+            jid: "group@example.com",
+            archivedId: "mention-1",
+            count: 32
+        )
+        try insertUnreadMentionNotification(
+            jid: "group@example.com",
+            archivedId: "mention-1",
+            messageId: "unread-origin",
+            date: Date(timeIntervalSince1970: 1_711_000_000)
+        )
+
+        let request = try XCTUnwrap(
+            LastChatsViewController.unreadMentionOpenRequest(
+                owner: owner,
+                jid: "group@example.com",
+                conversationType: .group,
+                in: try WRealm.safe()
+            )
+        )
+
+        XCTAssertEqual(request.anchor.archivedId, "mention-1")
+        XCTAssertEqual(request.anchor.messageId, "unread-origin")
+    }
+
+    func testLastChatsUnreadMentionOpenRequestEscapesMetadataArchivedIdNeedle() throws {
+        let archivedId = "mention-\"quoted\\path/segment"
+        try insertLastChat(
+            jid: "group@example.com",
+            conversationType: .group,
+            mentionId: archivedId
+        )
+        try insertUnreadMentionNotification(
+            jid: "group@example.com",
+            archivedId: archivedId,
+            messageId: "encoded-origin"
+        )
+
+        let request = try XCTUnwrap(
+            LastChatsViewController.unreadMentionOpenRequest(
+                owner: owner,
+                jid: "group@example.com",
+                conversationType: .group,
+                in: try WRealm.safe()
+            )
+        )
+
+        XCTAssertEqual(request.anchor.archivedId, archivedId)
+        XCTAssertEqual(request.anchor.messageId, "encoded-origin")
+    }
+
+    func testLastChatsUnreadMentionResolverIsIndependentOfUnrelatedOwnerMentionCardinality() throws {
+        try insertLastChat(
+            jid: "group@example.com",
+            conversationType: .group,
+            mentionId: "mention-1"
+        )
+        try insertUnrelatedUnreadMentionNotifications(count: 512)
+        try insertUnreadMentionNotification(
+            jid: "group@example.com",
+            archivedId: "mention-1",
+            messageId: "origin-target"
+        )
+        let realm = try WRealm.safe()
+
+        let request = try XCTUnwrap(
+            LastChatsViewController.unreadMentionOpenRequest(
+                owner: owner,
+                jid: "group@example.com",
+                conversationType: .group,
+                in: realm
+            )
+        )
+
+        XCTAssertEqual(request.anchor.archivedId, "mention-1")
+        XCTAssertEqual(request.anchor.messageId, "origin-target")
+    }
+
+    func testLastChatsUnreadMentionResolverPredicatesAndCapsBeforeMaterialization() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "xabber/controllers/chats/last_chats_list/LastChatsViewController+UITableViewDelegate.swift"
+            ),
+            encoding: .utf8
+        )
+        let start = try XCTUnwrap(source.range(of: "internal static func unreadMentionOpenRequest("))
+        let end = try XCTUnwrap(
+            source.range(
+                of: "internal static func initialOpenRequest(",
+                range: start.upperBound..<source.endIndex
+            )
+        )
+        let resolver = String(source[start.lowerBound..<end.lowerBound])
+
+        XCTAssertTrue(resolver.contains("owner == %@"))
+        XCTAssertTrue(resolver.contains("category_ == %@"))
+        XCTAssertTrue(resolver.contains("associatedJid == %@"))
+        XCTAssertTrue(resolver.contains("metadata_ CONTAINS %@"))
+        XCTAssertTrue(resolver.contains(".filter(\"isRead == false\")"))
+        XCTAssertTrue(resolver.contains(".prefix("))
+        XCTAssertFalse(resolver.contains(".toArray()"))
+    }
+
     func testLastChatsNormalSelectionQueuesUnreadBoundaryWhenServerUnreadExists() throws {
         try insertLastChat(
             jid: "romeo@example.com",
@@ -33578,7 +33827,7 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
     }
 
     @MainActor
-    func testSelectingGroupChatKeepsUnreadBoundaryWhenMentionAnchorIsSuppressed() throws {
+    func testSelectingGroupChatSeedsMentionBeforeInitialFirstFramePreparation() throws {
         try insertLastChat(
             jid: "group@example.com",
             conversationType: .group,
@@ -33590,30 +33839,67 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
             jid: "group@example.com",
             archivedId: "mention-1"
         )
+        let realm = try WRealm.safe()
+        let mentionRequest = try XCTUnwrap(
+            LastChatsViewController.unreadMentionOpenRequest(
+                owner: owner,
+                jid: "group@example.com",
+                conversationType: .group,
+                in: realm
+            )
+        )
         let controller = LastChatsViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         navigationController.loadViewIfNeeded()
-        let datasource = makeDatasource(hasUnreadMention: true)
-        let sections = LastChatsViewController.makeDatasourceSections(
-            from: [datasource],
-            showsSkeleton: false
-        )
-        controller.setDatasource([datasource], sections: sections, showsSkeleton: false)
-        controller.showSkeleton.accept(false)
+        var requestAtConfigureBoundary: ChatOpenMessageRequest?
 
-        controller.tableView(
-            controller.tableView,
-            didSelectRowAt: IndexPath(row: 0, section: 0)
-        )
-
-        let chat = try XCTUnwrap(navigationController.topViewController as? ChatViewController)
-        waitFor {
-            chat.pendingOpenMessageRequest?.source == .initialUnreadBoundary
+        controller.stackNewChat(
+            owner: owner,
+            jid: "group@example.com",
+            conversationType: .group,
+            openMessageRequest: mentionRequest
+        ) { chat in
+            requestAtConfigureBoundary = chat?.pendingOpenMessageRequest
+                ?? chat?.activeAnchorExecutionState?.request
         }
-        let request = try XCTUnwrap(chat.pendingOpenMessageRequest)
-        XCTAssertFalse(chat.pendingForceLatestOpen)
-        XCTAssertEqual(request.anchor.archivedId, "1711283295000000")
-        XCTAssertEqual(request.targetResolution, .firstIncomingAfterBoundary("1711283295000000"))
+
+        let configuredRequest = try XCTUnwrap(requestAtConfigureBoundary)
+        XCTAssertEqual(configuredRequest.source, .mentionNotification)
+        XCTAssertEqual(configuredRequest.anchor.archivedId, "mention-1")
+        XCTAssertTrue(configuredRequest.markReadOnVisible)
+
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "xabber/controllers/chats/last_chats_list/LastChatsViewController+UITableViewDelegate.swift"
+            ),
+            encoding: .utf8
+        )
+        let selectionStart = try XCTUnwrap(
+            source.range(of: "func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath)")
+        )
+        let selectionEnd = try XCTUnwrap(
+            source.range(
+                of: "public func stackNewChat(",
+                range: selectionStart.upperBound..<source.endIndex
+            )
+        )
+        let selection = String(source[selectionStart.lowerBound..<selectionEnd.lowerBound])
+        let mentionResolution = try XCTUnwrap(
+            selection.range(of: "self.unreadMentionOpenRequest(")
+        )
+        let stackedPreparation = try XCTUnwrap(selection.range(of: "self.stackNewChat("))
+
+        XCTAssertLessThan(
+            selection.distance(from: selection.startIndex, to: mentionResolution.lowerBound),
+            selection.distance(from: selection.startIndex, to: stackedPreparation.lowerBound),
+            "the detached mention request must exist before stackNewChat starts first-frame preparation"
+        )
+        XCTAssertTrue(selection.contains("openMessageRequest: openMessageRequest"))
+        XCTAssertFalse(selection.contains("DispatchQueue.global"))
+        XCTAssertFalse(selection.contains("applyUnreadMentionIntentIfAllowed"))
     }
 
     func testSearchChatListMapperCarriesUnreadMentionFlagForGroupResults() throws {
