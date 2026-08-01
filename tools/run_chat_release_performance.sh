@@ -12,6 +12,8 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 destination="${XABBER_DESTINATION:-}"
 cache_root="${XABBER_XCODE_CACHE_ROOT:-$HOME/Library/Caches/XabberCodex/xabber-chat-performance-goal}"
+fixture_bundle_identifier="xabber.ios.codex-chat-performance"
+fixture_push_extension_bundle_identifier="xabber.ios.codex-chat-performance.xabber-push-extension"
 
 if [[ "$destination" != *id=* ]]; then
   echo "error: XABBER_DESTINATION must contain an explicit simulator id" >&2
@@ -45,19 +47,36 @@ echo "  artifact root: $artifact_root/current"
   SWIFT_ACTIVE_COMPILATION_CONDITIONS=CHAT_PERFORMANCE_LAB \
   SWIFT_OPTIMIZATION_LEVEL=-O \
   ONLY_ACTIVE_ARCH=YES \
-  ARCHS=arm64
+  ARCHS=arm64 \
+  "XABBER_APP_BUNDLE_IDENTIFIER=$fixture_bundle_identifier" \
+  "XABBER_PUSH_EXTENSION_BUNDLE_IDENTIFIER=$fixture_push_extension_bundle_identifier"
 
 app_path="$cache_root/DerivedData/Build/Products/Release-iphonesimulator/xabber.app"
 if [[ ! -d "$app_path" ]]; then
   echo "error: missing Release lab app at $app_path" >&2
   exit 66
 fi
+push_extension_path="$app_path/PlugIns/xabber-push-extension.appex"
+if [[ ! -d "$push_extension_path" ]]; then
+  echo "error: missing Release lab push extension at $push_extension_path" >&2
+  exit 66
+fi
+
+built_bundle_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Info.plist")"
+if [[ "$built_bundle_identifier" != "$fixture_bundle_identifier" ]]; then
+  echo "error: built app bundle id '$built_bundle_identifier' does not match fixture '$fixture_bundle_identifier'" >&2
+  exit 65
+fi
+built_push_extension_bundle_identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$push_extension_path/Info.plist")"
+if [[ "$built_push_extension_bundle_identifier" != "$fixture_push_extension_bundle_identifier" ]]; then
+  echo "error: built push extension bundle id '$built_push_extension_bundle_identifier' does not match fixture '$fixture_push_extension_bundle_identifier'" >&2
+  exit 65
+fi
 
 xcrun simctl bootstatus "$simulator_udid" -b
-xcrun simctl uninstall "$simulator_udid" xabber.ios.codex-hosted-tests >/dev/null 2>&1 || true
-xcrun simctl uninstall "$simulator_udid" xabber.ios >/dev/null 2>&1 || true
+xcrun simctl uninstall "$simulator_udid" "$fixture_bundle_identifier" >/dev/null 2>&1 || true
 xcrun simctl install "$simulator_udid" "$app_path"
-data_container="$(xcrun simctl get_app_container "$simulator_udid" xabber.ios data)"
+data_container="$(xcrun simctl get_app_container "$simulator_udid" "$fixture_bundle_identifier" data)"
 release_report_path="$data_container/tmp/chat-performance-release-report.txt"
 
 record_trace() {

@@ -219,6 +219,36 @@ final class ChatFinalIntegrationGateTests: XCTestCase {
         XCTAssertTrue(analyzer.contains("42/42/42/0/0"))
     }
 
+    func testPerformanceFixtureRunnersOwnOnlyDedicatedBundleAndContainer() throws {
+        let root = try XCTUnwrap(repositoryRoot())
+        let goalRunner = try String(
+            contentsOf: root.appendingPathComponent("tools/run_chat_goal_tests.sh"),
+            encoding: .utf8
+        )
+        let releaseRunner = try String(
+            contentsOf: root.appendingPathComponent("tools/run_chat_release_performance.sh"),
+            encoding: .utf8
+        )
+
+        let fixtureBundleIdentifier = "xabber.ios.codex-chat-performance"
+        let fixturePushBundleIdentifier = "xabber.ios.codex-chat-performance.xabber-push-extension"
+        for runner in [goalRunner, releaseRunner] {
+            XCTAssertTrue(runner.contains(fixtureBundleIdentifier))
+            XCTAssertTrue(runner.contains(fixturePushBundleIdentifier))
+            XCTAssertTrue(runner.contains("\"XABBER_APP_BUNDLE_IDENTIFIER=$fixture_bundle_identifier\""))
+            XCTAssertTrue(runner.contains("\"XABBER_PUSH_EXTENSION_BUNDLE_IDENTIFIER=$fixture_push_extension_bundle_identifier\""))
+        }
+
+        XCTAssertTrue(releaseRunner.contains("built_bundle_identifier="))
+        XCTAssertTrue(releaseRunner.contains("built_push_extension_bundle_identifier="))
+        XCTAssertTrue(releaseRunner.contains("CFBundleIdentifier"))
+        XCTAssertTrue(releaseRunner.contains("simctl uninstall \"$simulator_udid\" \"$fixture_bundle_identifier\""))
+        XCTAssertTrue(releaseRunner.contains("simctl get_app_container \"$simulator_udid\" \"$fixture_bundle_identifier\" data"))
+        XCTAssertFalse(releaseRunner.contains("simctl uninstall \"$simulator_udid\" xabber.ios"))
+        XCTAssertFalse(releaseRunner.contains("simctl uninstall \"$simulator_udid\" xabber.ios.codex-hosted-tests"))
+        XCTAssertFalse(releaseRunner.contains("simctl get_app_container \"$simulator_udid\" xabber.ios data"))
+    }
+
     func testLiveReportGateRequiresTheFullReadOnlyAndMutationSafetyMatrix() throws {
         let root = try XCTUnwrap(repositoryRoot())
         let runner = try String(

@@ -119,6 +119,8 @@ done
 cache_root="${XABBER_XCODE_CACHE_ROOT:-$HOME/Library/Caches/XabberCodex/xabber-chat-performance-goal}"
 scheme="${XABBER_SCHEME:-Debug (xabber Workspace)}"
 destination="${XABBER_DESTINATION:-}"
+fixture_bundle_identifier="xabber.ios.codex-chat-performance"
+fixture_push_extension_bundle_identifier="xabber.ios.codex-chat-performance.xabber-push-extension"
 head_commit="$(git -C "$repo_root" rev-parse HEAD)"
 
 if [[ -z "$destination" ]]; then
@@ -270,7 +272,9 @@ case "$phase" in
       XABBER_SCHEME="Chat Performance UI Tests" \
       "$script_dir/xcodebuild_cached.sh" test \
         -parallel-testing-enabled NO \
-        -only-testing:xabberChatPerformanceUITests/ChatPerformanceUITests
+        -only-testing:xabberChatPerformanceUITests/ChatPerformanceUITests \
+        "XABBER_APP_BUNDLE_IDENTIFIER=$fixture_bundle_identifier" \
+        "XABBER_PUSH_EXTENSION_BUNDLE_IDENTIFIER=$fixture_push_extension_bundle_identifier"
     ;;
   release-performance)
     "$script_dir/run_chat_release_performance.sh" "$task_id"
