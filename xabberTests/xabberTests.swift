@@ -19,6 +19,7 @@
 
 import XCTest
 import UIKit
+import Darwin
 import MapKit
 import CallKit
 import RealmSwift
@@ -10235,6 +10236,55 @@ final class SensitiveMediaAnalysisStartupSchedulerTests: XCTestCase {
 
 final class PushNotificationHardeningTests: XCTestCase {
 
+    private enum StandardOutputCaptureError: Error {
+        case couldNotDuplicateDescriptor
+        case couldNotRedirectDescriptor
+    }
+
+    private final class PushCapturingXMPPStream: XMPPStream {
+        private(set) var sentElements: [DDXMLElement] = []
+
+        override func send(_ element: DDXMLElement) {
+            sentElements.append(element)
+        }
+    }
+
+    private func captureStandardOutput(_ operation: () throws -> Void) throws -> String {
+        Darwin.fflush(Darwin.stdout)
+        let originalDescriptor = Darwin.dup(STDOUT_FILENO)
+        guard originalDescriptor >= 0 else {
+            throw StandardOutputCaptureError.couldNotDuplicateDescriptor
+        }
+
+        let pipe = Pipe()
+        guard Darwin.dup2(pipe.fileHandleForWriting.fileDescriptor, STDOUT_FILENO) >= 0 else {
+            Darwin.close(originalDescriptor)
+            throw StandardOutputCaptureError.couldNotRedirectDescriptor
+        }
+
+        var operationError: Error?
+        do {
+            try operation()
+        } catch {
+            operationError = error
+        }
+
+        Darwin.fflush(Darwin.stdout)
+        _ = Darwin.dup2(originalDescriptor, STDOUT_FILENO)
+        Darwin.close(originalDescriptor)
+        pipe.fileHandleForWriting.closeFile()
+
+        let output = pipe.fileHandleForReading.readDataToEndOfFile()
+        if let operationError {
+            throw operationError
+        }
+        return String(decoding: output, as: UTF8.self)
+    }
+
+    private func makeSensitiveDiagnosticSentinel() -> String {
+        "push-sensitive-\(UUID().uuidString)-\(UUID().uuidString)"
+    }
+
     private func makeIQ(xml: String) throws -> XMPPIQ {
         let document = try DDXMLDocument(xmlString: xml, options: 0)
         return XMPPIQ(from: try XCTUnwrap(document.rootElement()))
@@ -10336,6 +10386,120 @@ final class PushNotificationHardeningTests: XCTestCase {
         XCTAssertTrue(didCleanup)
         XCTAssertEqual(outcome, .noData)
         XCTAssertEqual(completionResults, [.noData])
+    }
+
+    func testPushConfigureDoesNotWritePersistedSecretToStandardOutput() throws {
+        let node = "push-node-\(UUID().uuidString)"
+        let owner = "privacy@example.invalid"
+        let sentinel = makeSensitiveDiagnosticSentinel()
+        let defaults = try XCTUnwrap(
+            UserDefaults(suiteName: CredentialsManager.uniqueAccessGroup())
+        )
+        defaults.set(
+            [
+                "secret": sentinel,
+                "username": "privacy-user"
+            ],
+            forKey: node
+        )
+        defer {
+            PushNotificationsManager.removeDefaultsForPush(target: node, jid: owner)
+        }
+
+        let manager = PushNotificationsManager(withOwner: owner)
+        let output = try captureStandardOutput {
+            manager.configure(node: node, service: "push.example.invalid")
+        }
+
+        XCTAssertEqual(manager.node, node)
+        XCTAssertEqual(manager.service, "push.example.invalid")
+        XCTAssertFalse(
+            output.contains(sentinel),
+            "Push configure diagnostics must not expose a persisted secret"
+        )
+        XCTAssertFalse(
+            output.contains("PUSH DEFAULTS"),
+            "Push configure diagnostics must not expose the defaults dictionary"
+        )
+    }
+
+    func testPushEnablePreservesEncryptionKeyWithoutWritingGeneratedSecretToStandardOutput() throws {
+        let owner = "privacy@example.invalid"
+        let node = "push-node-\(UUID().uuidString)"
+        let manager = PushNotificationsManager(withOwner: owner)
+        manager.node = node
+        manager.service = "push.example.invalid"
+
+        let stream = PushCapturingXMPPStream()
+        stream.myJID = XMPPJID(string: "\(owner)/ios")
+        var callbackResults: [Bool] = []
+        defer {
+            CredentialsManager.shared.removePushCredentials(for: node)
+            PushNotificationsManager.removeDefaultsForPush(target: node, jid: owner)
+        }
+
+        let output = try captureStandardOutput {
+            manager.enable(xmppStream: stream) { callbackResults.append($0) }
+        }
+
+        let credentials = try CredentialsManager.shared.getPushCredentials(for: node)
+        let sentIQ = try XCTUnwrap(stream.sentElements.first)
+        let sentKey = try XCTUnwrap(
+            sentIQ.element(forName: "enable")?
+                .element(forName: "security")?
+                .element(forName: "encryption-key")?
+                .stringValue
+        )
+
+        XCTAssertEqual(sentKey, credentials.secret.toBase64())
+        XCTAssertEqual(
+            PushNotificationsManager.getDefaultsForPush(for: node)["secret"],
+            credentials.secret
+        )
+        XCTAssertEqual(manager.enableState, .pending(queryId: try XCTUnwrap(manager.queryIds.first)))
+        XCTAssertTrue(callbackResults.isEmpty)
+        XCTAssertFalse(
+            output.contains(credentials.secret),
+            "Push enable diagnostics must not expose the generated secret"
+        )
+        XCTAssertFalse(
+            output.contains(credentials.secret.toBase64()),
+            "Push enable diagnostics must not expose the encoded encryption key"
+        )
+        XCTAssertFalse(
+            output.contains("secret key:") || output.contains("set user defaults for secret"),
+            "Push enable diagnostics must not expose secret-bearing labels"
+        )
+    }
+
+    func testPushSecretDefaultsUpdatePersistsValueWithoutWritingItToStandardOutput() throws {
+        let node = "push-node-\(UUID().uuidString)"
+        let owner = "privacy@example.invalid"
+        let sentinel = makeSensitiveDiagnosticSentinel()
+        defer {
+            PushNotificationsManager.removeDefaultsForPush(target: node, jid: owner)
+        }
+
+        let output = try captureStandardOutput {
+            PushNotificationsManager.updateDefaultsForPush(
+                node,
+                key: "secret",
+                value: sentinel
+            )
+        }
+
+        XCTAssertEqual(
+            PushNotificationsManager.getDefaultsForPush(for: node)["secret"],
+            sentinel
+        )
+        XCTAssertFalse(
+            output.contains(sentinel),
+            "Push defaults diagnostics must not expose the stored secret"
+        )
+        XCTAssertFalse(
+            output.contains("dict") || output.contains("set user defaults for secret"),
+            "Push defaults diagnostics must not expose a complete dictionary or secret field"
+        )
     }
 
     func testPushEnableStaysPendingUntilIQResultArrives() {

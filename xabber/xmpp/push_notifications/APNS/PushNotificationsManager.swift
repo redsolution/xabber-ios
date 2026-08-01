@@ -121,7 +121,6 @@ class PushNotificationsManager: AbstractXMPPManager {
     func configure(node: String, service: String) {
         self.node = node
         self.service = service
-        print("PUSH DEFAULTS", PushNotificationsManager.getDefaultsForPush(for: node))
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             user.push.enable(xmppStream: stream) { result in
                 user.pushStatusMessage.accept(result)
@@ -153,7 +152,6 @@ class PushNotificationsManager: AbstractXMPPManager {
         let elementId = xmppStream.generateUUID
         
         let secret = String.randomString(length: 32, includeNumber: false)
-        print("secret key: \(secret)")
         let enable: DDXMLElement
         if isAvailable(jid.domain) {
             enable = DDXMLElement(name: "enable", xmlns: getPrimaryNamespace())
@@ -190,7 +188,6 @@ class PushNotificationsManager: AbstractXMPPManager {
                 service: "",
                 jwt: ""
             )
-            print(error)
         }
         
         
@@ -301,8 +298,6 @@ class PushNotificationsManager: AbstractXMPPManager {
         dict[key] = value
         if let defaults = UserDefaults.init(suiteName: CredentialsManager.uniqueAccessGroup()) {
             defaults.set(dict, forKey: target)
-            print("dict", getDefaultsForPush(for: target))
-            print("set user defaults for \(key): \(value)")
         }
     }
     
