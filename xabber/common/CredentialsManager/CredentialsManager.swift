@@ -956,7 +956,7 @@ class CredentialsManager: NSObject {
 
         let json = String(data: data, encoding: .utf8)
         if let json = json {
-            credentialsDebugLog("CredentialsManager: push credential stored node=\(node) jid=\(jid) hostPresent=\(host.isEmpty == false) servicePresent=\(service.isEmpty == false)")
+            credentialsDebugLog("CredentialsManager: push credential stored hostPresent=\(host.isEmpty == false) servicePresent=\(service.isEmpty == false)")
             keychain.set(json, forKey: node, withAccessibility: .always)
         }
     }

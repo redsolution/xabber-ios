@@ -10281,6 +10281,38 @@ final class PushNotificationHardeningTests: XCTestCase {
         return String(decoding: output, as: UTF8.self)
     }
 
+    private func captureStandardError(_ operation: () throws -> Void) throws -> String {
+        Darwin.fflush(Darwin.stderr)
+        let originalDescriptor = Darwin.dup(STDERR_FILENO)
+        guard originalDescriptor >= 0 else {
+            throw StandardOutputCaptureError.couldNotDuplicateDescriptor
+        }
+
+        let pipe = Pipe()
+        guard Darwin.dup2(pipe.fileHandleForWriting.fileDescriptor, STDERR_FILENO) >= 0 else {
+            Darwin.close(originalDescriptor)
+            throw StandardOutputCaptureError.couldNotRedirectDescriptor
+        }
+
+        var operationError: Error?
+        do {
+            try operation()
+        } catch {
+            operationError = error
+        }
+
+        Darwin.fflush(Darwin.stderr)
+        _ = Darwin.dup2(originalDescriptor, STDERR_FILENO)
+        Darwin.close(originalDescriptor)
+        pipe.fileHandleForWriting.closeFile()
+
+        let output = pipe.fileHandleForReading.readDataToEndOfFile()
+        if let operationError {
+            throw operationError
+        }
+        return String(decoding: output, as: UTF8.self)
+    }
+
     private func makeSensitiveDiagnosticSentinel() -> String {
         "push-sensitive-\(UUID().uuidString)-\(UUID().uuidString)"
     }
@@ -10499,6 +10531,52 @@ final class PushNotificationHardeningTests: XCTestCase {
         XCTAssertFalse(
             output.contains("dict") || output.contains("set user defaults for secret"),
             "Push defaults diagnostics must not expose a complete dictionary or secret field"
+        )
+    }
+
+    func testPushCredentialStoreRoundTripsWithoutWritingRawIdentityToStandardError() throws {
+        let node = "push-node-\(UUID().uuidString)-\(UUID().uuidString)"
+        let username = "push-user-\(UUID().uuidString)"
+        let jid = "\(username)@identity.example.invalid"
+        let host = "push-host-\(UUID().uuidString).example.invalid"
+        let secret = makeSensitiveDiagnosticSentinel()
+        let service = "https://push-\(UUID().uuidString).example.invalid"
+        let jwt = "push-jwt-\(UUID().uuidString)-\(UUID().uuidString)"
+        defer {
+            CredentialsManager.shared.removePushCredentials(for: node)
+        }
+
+        let output = try captureStandardError {
+            try CredentialsManager.shared.storePushCredentials(
+                node: node,
+                jid: jid,
+                host: host,
+                secret: secret,
+                service: service,
+                jwt: jwt
+            )
+        }
+
+        let stored = try CredentialsManager.shared.getPushCredentials(for: node)
+        XCTAssertTrue(stored.jid == jid, "Stored push JID must round-trip")
+        XCTAssertTrue(stored.host == host, "Stored push host must round-trip")
+        XCTAssertTrue(stored.secret == secret, "Stored push secret must round-trip")
+        XCTAssertTrue(stored.service == service, "Stored push service must round-trip")
+        XCTAssertTrue(stored.jwt == jwt, "Stored push JWT must round-trip")
+
+        XCTAssertFalse(
+            output.contains(node) || output.contains(Data(node.utf8).base64EncodedString()),
+            "Push credential diagnostics must not expose the node identity"
+        )
+        XCTAssertFalse(
+            output.contains(username)
+                || output.contains(jid)
+                || output.contains(Data(jid.utf8).base64EncodedString()),
+            "Push credential diagnostics must not expose the account identity"
+        )
+        XCTAssertFalse(
+            [host, secret, service, jwt].contains(where: output.contains),
+            "Push credential diagnostics must not expose stored credential fields"
         )
     }
 
