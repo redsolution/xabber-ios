@@ -148,14 +148,15 @@ struct PushNotificationRoutePayload: Equatable {
         stanza: String?,
         senderJid: String?,
         senderNickname: String?,
-        groupchat: String?
+        groupchat: String?,
+        timestamp: TimeInterval? = nil
     ) -> PushNotificationRoutePayload {
         PushNotificationRoutePayload(
             kind: .message,
             owner: owner,
             routeJid: routeJid,
             conversationType: conversationType,
-            timestamp: nil,
+            timestamp: timestamp,
             stanzaId: stanzaId,
             messageId: messageId,
             stanza: stanza,
@@ -227,7 +228,7 @@ struct PushNotificationRoutePayload: Equatable {
         if let conversationType {
             userInfo[PushNotificationUserInfoKey.conversationType] = conversationType
         }
-        if let timestamp = timestamp ?? self.timestamp {
+        if let timestamp = self.timestamp ?? timestamp {
             userInfo[PushNotificationUserInfoKey.timestamp] = timestamp
         }
         if let stanzaId {
@@ -366,11 +367,18 @@ enum PushNotificationArchiveParser {
         static let voiceMessages = "https://xabber.com/protocol/voice-messages"
         static let groups = "https://xabber.com/protocol/groups"
         static let forward = "urn:xmpp:forward:0"
+        static let delay = "urn:xmpp:delay"
+        static let carbons = "urn:xmpp:carbons:2"
         static let trust = "urn:xmpp:trust:0"
         static let xen = "urn:xabber:xen:0"
         static let addresses = "http://jabber.org/protocol/address"
         static let markup = "https://xabber.com/protocol/markup"
         static let systemMessage = "https://xabber.com/protocol/system-message"
+    }
+
+    private struct MessageEnvelope {
+        let message: DDXMLElement
+        let timestamp: TimeInterval?
     }
 
     static func parseArchivedMessage(xmlString: String, owner: String) -> PushNotificationPreview? {
@@ -382,26 +390,102 @@ enum PushNotificationArchiveParser {
     }
 
     static func parseArchivedMessage(_ archiveMessage: DDXMLElement, owner: String) -> PushNotificationPreview? {
-        let message = forwardedMessage(in: archiveMessage) ?? archiveMessage
+        guard let envelope = messageEnvelope(in: archiveMessage) else {
+            return nil
+        }
+        let message = envelope.message
         if let verification = verificationRequestMessage(from: message) {
             return parseVerificationRequest(verification, owner: owner)
         }
         if let invite = parseInvite(message, owner: owner) {
             return invite
         }
-        return parseVisibleMessage(message, archiveMessage: archiveMessage, owner: owner)
+        return parseVisibleMessage(
+            message,
+            archiveMessage: archiveMessage,
+            owner: owner,
+            timestamp: envelope.timestamp
+        )
     }
 
-    private static func forwardedMessage(in archiveMessage: DDXMLElement) -> DDXMLElement? {
-        let result = archiveMessage.firstChild(named: "result")
-        return result?.firstChild(named: "forwarded", xmlns: XMLNS.forward)?.firstChild(named: "message")
-            ?? result?.firstChild(named: "forwarded")?.firstChild(named: "message")
+    private static func messageEnvelope(in archiveMessage: DDXMLElement) -> MessageEnvelope? {
+        var message = archiveMessage
+        var timestamp: TimeInterval?
+
+        if let result = archiveMessage.firstChild(named: "result"),
+           let forwarded = forwardedElement(in: result) {
+            guard let innerMessage = forwarded.firstChild(named: "message") else {
+                return nil
+            }
+            message = innerMessage
+            timestamp = forwardedTimestamp(in: forwarded)
+        }
+
+        let carbonWrappers = message.children(named: "sent", xmlns: XMLNS.carbons)
+            + message.children(named: "received", xmlns: XMLNS.carbons)
+        guard carbonWrappers.count <= 1 else {
+            return nil
+        }
+        if let carbon = carbonWrappers.first {
+            guard let forwarded = forwardedElement(in: carbon),
+                  let innerMessage = forwarded.firstChild(named: "message") else {
+                return nil
+            }
+            message = innerMessage
+            timestamp = forwardedTimestamp(in: forwarded) ?? timestamp
+        }
+
+        return MessageEnvelope(message: message, timestamp: timestamp)
+    }
+
+    private static func forwardedElement(in parent: DDXMLElement) -> DDXMLElement? {
+        parent.firstChild(named: "forwarded", xmlns: XMLNS.forward)
+            ?? parent.children(named: "forwarded").first(where: { trimmed($0.xmlns()) == nil })
+    }
+
+    private static func forwardedTimestamp(in forwarded: DDXMLElement) -> TimeInterval? {
+        let delay = forwarded.firstChild(named: "delay", xmlns: XMLNS.delay)
+            ?? forwarded.children(named: "delay").first(where: { trimmed($0.xmlns()) == nil })
+        guard let stamp = trimmed(delay?.attributeString("stamp")),
+              let date = xmppDate(from: stamp) else {
+            return nil
+        }
+        return date.timeIntervalSinceReferenceDate
+    }
+
+    private static func xmppDate(from stamp: String) -> Date? {
+        let internetFormatter = ISO8601DateFormatter()
+        internetFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = internetFormatter.date(from: stamp) {
+            return date
+        }
+        internetFormatter.formatOptions = [.withInternetDateTime]
+        if let date = internetFormatter.date(from: stamp) {
+            return date
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        for format in [
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
+            "yyyy-MM-dd'T'HH:mm:ssZ"
+        ] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: stamp) {
+                return date
+            }
+        }
+        return nil
     }
 
     private static func parseVisibleMessage(
         _ message: DDXMLElement,
         archiveMessage: DDXMLElement,
-        owner: String
+        owner: String,
+        timestamp: TimeInterval?
     ) -> PushNotificationPreview? {
         let fromBare = bareJid(message.attributeString("from") ?? "")
         let toBare = bareJid(message.attributeString("to") ?? "")
@@ -441,7 +525,8 @@ enum PushNotificationArchiveParser {
             stanza: archiveMessage.xmlString,
             senderJid: senderJid,
             senderNickname: senderNickname,
-            groupchat: isGroupMessage ? routeJid : nil
+            groupchat: isGroupMessage ? routeJid : nil,
+            timestamp: timestamp
         )
         return PushNotificationPreview(
             route: route,

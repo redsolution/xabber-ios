@@ -306,6 +306,109 @@ final class PushNotificationRoutingTests: XCTestCase {
         XCTAssertEqual(request.source, .pushNotification)
     }
 
+    func testSentCarbonUsesInnerMessageForCanonicalExactOpenRequest() throws {
+        let sentAt = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2018-04-18T12:00:00Z")
+        )
+        let preview = try XCTUnwrap(
+            PushNotificationArchiveParser.parseArchivedMessage(
+                xmlString: """
+                <message from='romeo@example.com/laptop' to='romeo@example.com/ios' type='chat'>
+                  <sent xmlns='urn:xmpp:carbons:2'>
+                    <forwarded xmlns='urn:xmpp:forward:0'>
+                      <delay xmlns='urn:xmpp:delay' stamp='2018-04-18T12:00:00Z'/>
+                      <message from='romeo@example.com/laptop' to='juliet@example.com/mobile' type='chat' id='own-carbon-1'>
+                        <body>Sent while the phone was sleeping</body>
+                        <stanza-id xmlns='urn:xmpp:sid:0' by='romeo@example.com' id='own-archive-1'/>
+                      </message>
+                    </forwarded>
+                  </sent>
+                </message>
+                """,
+                owner: owner
+            )
+        )
+        let decodedRoute = try XCTUnwrap(
+            PushNotificationRoutePayload(
+                userInfo: preview.route.userInfo(
+                    timestamp: sentAt.addingTimeInterval(3_600).timeIntervalSinceReferenceDate
+                )
+            )
+        )
+        let request = try XCTUnwrap(
+            PushNotificationMessageOpenRequestFactory.make(
+                route: decodedRoute,
+                fallbackConversationType: .regular
+            )
+        )
+
+        XCTAssertEqual(decodedRoute.routeJid, "juliet@example.com")
+        XCTAssertEqual(decodedRoute.senderJid, owner)
+        XCTAssertEqual(decodedRoute.messageId, "own-carbon-1")
+        XCTAssertEqual(decodedRoute.stanzaId, "own-archive-1")
+        XCTAssertEqual(decodedRoute.timestamp, sentAt.timeIntervalSinceReferenceDate)
+        XCTAssertEqual(request.chatJid, "juliet@example.com")
+        XCTAssertEqual(request.owner, owner)
+        XCTAssertEqual(request.conversationType, .regular)
+        XCTAssertEqual(request.anchor.archivedId, "own-archive-1")
+        XCTAssertEqual(request.anchor.messageId, "own-carbon-1")
+        XCTAssertEqual(request.anchor.authorId, owner)
+        XCTAssertEqual(request.anchor.sourceDate, sentAt)
+        XCTAssertEqual(request.source, .pushNotification)
+        XCTAssertTrue(request.highlight)
+        XCTAssertTrue(request.markReadOnVisible)
+    }
+
+    func testReceivedCarbonUsesInnerIncomingMessageAndForwardedDelay() throws {
+        let receivedAt = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2018-04-18T12:05:00Z")
+        )
+        let preview = try XCTUnwrap(
+            PushNotificationArchiveParser.parseArchivedMessage(
+                xmlString: """
+                <message from='romeo@example.com/laptop' to='romeo@example.com/ios' type='chat'>
+                  <received xmlns='urn:xmpp:carbons:2'>
+                    <forwarded xmlns='urn:xmpp:forward:0'>
+                      <delay xmlns='urn:xmpp:delay' stamp='2018-04-18T12:05:00Z'/>
+                      <message from='juliet@example.com/mobile' to='romeo@example.com/laptop' type='chat' id='received-carbon-1'>
+                        <body>Received on another resource</body>
+                        <stanza-id xmlns='urn:xmpp:sid:0' by='juliet@example.com' id='received-archive-1'/>
+                      </message>
+                    </forwarded>
+                  </received>
+                </message>
+                """,
+                owner: owner
+            )
+        )
+
+        XCTAssertEqual(preview.route.routeJid, "juliet@example.com")
+        XCTAssertEqual(preview.route.senderJid, "juliet@example.com")
+        XCTAssertEqual(preview.route.messageId, "received-carbon-1")
+        XCTAssertEqual(preview.route.stanzaId, "received-archive-1")
+        XCTAssertEqual(preview.route.timestamp, receivedAt.timeIntervalSinceReferenceDate)
+        XCTAssertEqual(preview.body, "Received on another resource")
+    }
+
+    func testMalformedCarbonWrapperIsRejectedInsteadOfRoutingToOwner() {
+        let malformedCarbon = """
+        <message from='romeo@example.com/laptop' to='romeo@example.com/ios' type='chat'>
+          <sent xmlns='urn:xmpp:carbons:2'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <delay xmlns='urn:xmpp:delay' stamp='2018-04-18T12:00:00Z'/>
+            </forwarded>
+          </sent>
+        </message>
+        """
+
+        XCTAssertNil(
+            PushNotificationArchiveParser.parseArchivedMessage(
+                xmlString: malformedCarbon,
+                owner: owner
+            )
+        )
+    }
+
     private func parseArchivedMessage(_ messageXML: String) throws -> PushNotificationPreview {
         try XCTUnwrap(parseOptionalArchivedMessage(messageXML))
     }

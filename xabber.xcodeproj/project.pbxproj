@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		4E5039120000000000000001 /* RedmineIssue50391Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5039110000000000000001 /* RedmineIssue50391Tests.swift */; };
+		4E5039220000000000000001 /* RedmineIssue50392Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5039210000000000000001 /* RedmineIssue50392Tests.swift */; };
 		7C2000023200000000ABC001 /* CloudStorageAvailabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2000013200000000ABC001 /* CloudStorageAvailabilityTests.swift */; };
 		7C2000043200000000ABC001 /* ChatFirstAccountBootstrapRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2000033200000000ABC001 /* ChatFirstAccountBootstrapRegressionTests.swift */; };
 		7C2300023200000000ABC001 /* ChatFirstLoginChatOpenRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2300013200000000ABC001 /* ChatFirstLoginChatOpenRegressionTests.swift */; };
@@ -1019,6 +1021,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		4E5039110000000000000001 /* RedmineIssue50391Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedmineRegression/RedmineIssue50391Tests.swift; sourceTree = "<group>"; };
+		4E5039210000000000000001 /* RedmineIssue50392Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedmineRegression/RedmineIssue50392Tests.swift; sourceTree = "<group>"; };
 		7C2000013200000000ABC001 /* CloudStorageAvailabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStorageAvailabilityTests.swift; sourceTree = "<group>"; };
 		7C2000033200000000ABC001 /* ChatFirstAccountBootstrapRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFirstAccountBootstrapRegressionTests.swift; sourceTree = "<group>"; };
 		7C2300013200000000ABC001 /* ChatFirstLoginChatOpenRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFirstLoginChatOpenRegressionTests.swift; sourceTree = "<group>"; };
@@ -4136,6 +4140,8 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				4E5039110000000000000001 /* RedmineIssue50391Tests.swift */,
+				4E5039210000000000000001 /* RedmineIssue50392Tests.swift */,
 				7C2000013200000000ABC001 /* CloudStorageAvailabilityTests.swift */,
 				7C2000033200000000ABC001 /* ChatFirstAccountBootstrapRegressionTests.swift */,
 				7C2300013200000000ABC001 /* ChatFirstLoginChatOpenRegressionTests.swift */,
@@ -6349,6 +6355,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4E5039120000000000000001 /* RedmineIssue50391Tests.swift in Sources */,
+				4E5039220000000000000001 /* RedmineIssue50392Tests.swift in Sources */,
 				7C2000023200000000ABC001 /* CloudStorageAvailabilityTests.swift in Sources */,
 				7C2000043200000000ABC001 /* ChatFirstAccountBootstrapRegressionTests.swift in Sources */,
 				7C2300023200000000ABC001 /* ChatFirstLoginChatOpenRegressionTests.swift in Sources */,
