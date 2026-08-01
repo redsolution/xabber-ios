@@ -14694,6 +14694,8 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
+        ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
+        ChatRemoteHistoryCompletionCoordinator.resetPersistenceFlushesForTests()
         MessageArchiveEndPageDispatcher.resetForTests()
         MessageArchiveRequestFailureDispatcher.resetForTests()
         previousRealmConfiguration = Realm.Configuration.defaultConfiguration
@@ -14707,6 +14709,8 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
     }
 
     override func tearDown() {
+        ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
+        ChatRemoteHistoryCompletionCoordinator.resetPersistenceFlushesForTests()
         MessageArchiveEndPageDispatcher.resetForTests()
         MessageArchiveRequestFailureDispatcher.resetForTests()
         Realm.Configuration.defaultConfiguration = previousRealmConfiguration
@@ -14783,6 +14787,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
     func testDefaultOpenUsesLatestFirstFrame() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 320)
+        try assertSeededConversationHasDurableArchiveCoverage()
         let controller = makeController()
 
         controller.loadViewIfNeeded()
@@ -16502,6 +16507,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
         try realm.write {
             realm.add(chat, update: .modified)
+            synchronizeArchiveCoverageFixture(for: chat, in: realm)
         }
     }
 
@@ -16519,7 +16525,87 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         )
         try realm.write {
             update(chat)
+            synchronizeArchiveCoverageFixture(for: chat, in: realm)
         }
+    }
+
+    private func synchronizeArchiveCoverageFixture(
+        for chat: LastChatsStorageItem,
+        in realm: Realm
+    ) {
+        let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(
+            owner: chat.owner,
+            jid: chat.jid,
+            conversationType: chat.conversationType,
+            in: realm
+        )
+        archiveState.lastSnapshotArchiveId = chat.syncSnapshotLastArchiveId
+        archiveState.newerLiveEdgeReached =
+            chat.isSynced && chat.isInitialArchiveLoaded
+
+        guard archiveState.newerLiveEdgeReached else {
+            return
+        }
+        let coveredBoundaryIds = [
+            chat.syncSnapshotLastArchiveId,
+            chat.syncUnreadCount > 0 ? chat.syncUnreadAfterId : nil
+        ].compactMap(RegularChatArchiveSyncStateStorageItem.normalizedArchiveId)
+        guard let first = coveredBoundaryIds.first else {
+            return
+        }
+        archiveState.mergeLoadedRange(
+            first: first,
+            last: coveredBoundaryIds.last ?? first,
+            updateKind: .bootstrapNewest
+        )
+    }
+
+    private func assertSeededConversationHasDurableArchiveCoverage(
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let realm = try WRealm.safe()
+        let chat = try XCTUnwrap(
+            realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: .regular
+                )
+            ),
+            file: file,
+            line: line
+        )
+        let archiveState = try XCTUnwrap(
+            realm.object(
+                ofType: RegularChatArchiveSyncStateStorageItem.self,
+                forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: .regular
+                )
+            ),
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            ConversationArchiveDurableReadinessPolicy.isReady(
+                chat: chat,
+                archiveState: archiveState,
+                conversationType: .regular,
+                localMessageCount:
+                    ConversationArchiveDurableReadinessPolicy.localMessageCount(
+                        owner: owner,
+                        jid: jid,
+                        conversationType: .regular,
+                        in: realm
+                    )
+            ),
+            "the synchronized first-frame fixture must include current persisted MAM coverage",
+            file: file,
+            line: line
+        )
     }
 
     private func assertSeededUnreadState(
