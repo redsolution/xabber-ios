@@ -2,6 +2,60 @@ import XCTest
 @testable import xabber
 
 final class ChatMessageLayoutCacheTests: XCTestCase {
+    @MainActor
+    func testViewDidAppearPreservesInstalledSnapshotForTerminalNavigationFrame() throws {
+        let width: CGFloat = 390
+        let message = makeDatasource(
+            primary: "navigation-terminal-message",
+            text: "Prepared text must survive terminal navigation appearance"
+        )
+        let controller = MessagesViewController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 844)
+        controller.view.layoutIfNeeded()
+        let flowLayout = try XCTUnwrap(
+            controller.messagesCollectionView.collectionViewLayout
+                as? MessagesCollectionViewFlowLayout
+        )
+        let snapshot = ChatMessageLayoutPrewarmer.prewarm(
+            items: [message],
+            context: context(width: width),
+            reuse: .empty,
+            capacity: flowLayout.cache.capacity
+        )
+        let expectedKey = try XCTUnwrap(snapshot.key(forPrimary: message.primary))
+        let expectedLayout = try XCTUnwrap(snapshot.layout(forPrimary: message.primary))
+        XCTAssertGreaterThan(expectedLayout.textInlineViewSize.width, 0)
+        XCTAssertGreaterThan(expectedLayout.textInlineViewSize.height, 0)
+        XCTAssertGreaterThan(expectedLayout.timeMarkerSize.width, 0)
+        XCTAssertGreaterThan(expectedLayout.timeMarkerSize.height, 0)
+        flowLayout.cache.install(snapshot)
+        let readyMissesBeforeAppearance = flowLayout.cache.operationCounter
+            .snapshot.readyMisses
+
+        controller.viewDidAppear(false)
+
+        let retainedSnapshot = flowLayout.cache.reuseSnapshot()
+        let resolvedLayout = flowLayout.cache.layout(forPrimary: message.primary)
+            ?? ChatMessageLayout.fallback(for: message, width: width)
+        XCTAssertEqual(flowLayout.cache.count, 1)
+        XCTAssertEqual(retainedSnapshot.key(forPrimary: message.primary), expectedKey)
+        XCTAssertEqual(retainedSnapshot.layout(forPrimary: message.primary), expectedLayout)
+        XCTAssertEqual(resolvedLayout, expectedLayout)
+        XCTAssertGreaterThan(resolvedLayout.textInlineViewSize.width, 0)
+        XCTAssertGreaterThan(resolvedLayout.textInlineViewSize.height, 0)
+        XCTAssertGreaterThan(resolvedLayout.timeMarkerSize.width, 0)
+        XCTAssertGreaterThan(resolvedLayout.timeMarkerSize.height, 0)
+        XCTAssertNotEqual(
+            resolvedLayout,
+            ChatMessageLayout.fallback(for: message, width: width)
+        )
+        XCTAssertEqual(
+            flowLayout.cache.operationCounter.snapshot.readyMisses,
+            readyMissesBeforeAppearance
+        )
+    }
+
     func testCooperativePrewarmStopsAtSixteenItemBatchBoundary() {
         let items = (0..<100).map { makeDatasource(primary: "cancel-\($0)") }
         var continuationChecks = 0
