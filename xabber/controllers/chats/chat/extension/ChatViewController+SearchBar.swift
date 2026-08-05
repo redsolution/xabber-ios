@@ -1347,7 +1347,9 @@ enum ChatAnchorExecutionPolicy {
         trigger: ChatAnchorExecutionResumeTrigger,
         pageSize: Int
     ) -> ChatAnchorExecutionAction {
-        if state.isPositioning || state.isRemoteFetchInFlight {
+        if state.isPositioning ||
+            state.isRemoteFetchInFlight ||
+            state.isPersistenceMaterializationInFlight {
             return .none
         }
 
@@ -4423,6 +4425,10 @@ extension ChatViewController {
         if let remoteQueryId = executionState.remoteQueryId {
             queryIds.insert(remoteQueryId)
         }
+        for (queryId, token) in self.anchorTransactionTokenByQueryId
+            where token == executionState.transactionToken {
+            queryIds.insert(queryId)
+        }
         queryIds.forEach { queryId in
             self.anchorTransactionTimeoutWorkItems.removeValue(forKey: queryId)?.cancel()
             self.anchorTransactionTokenByQueryId.removeValue(forKey: queryId)
@@ -7109,7 +7115,9 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                 ) == .accepted else {
                     return
                 }
-                self.anchorTransactionTimeoutWorkItems.removeValue(forKey: queryId)?.cancel()
+                // Raw MAM <fin> ends transport only. Defer timeout cleanup to
+                // the query persistence handler; an off-resident search keeps
+                // terminal ownership through materialization and UI release.
             }
             if self.abortedRemoteHistoryQueryIds.contains(queryId),
                self.interactiveHistoryPageLoadContext?.queryId != queryId {
@@ -7607,12 +7615,22 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
     }
 #endif
 
-    private func shouldRematerializeBlockedAnchorPersistence(
+    private func shouldMaterializeAnchorPersistenceWindow(
         request: ChatOpenMessageRequest,
         persistedMessageCount: Int
     ) -> Bool {
         guard persistedMessageCount > 0,
-              self.initialFirstContentApplyCount == 0 else {
+              self.localAnchorMessage(for: request) == nil else {
+            return false
+        }
+        if request.source == .search {
+            // A search result can already exist in Realm while remaining
+            // outside the bounded resident observation. An updated-existing
+            // persistence summary therefore cannot rely on an observer tick;
+            // bind and commit the bounded provider window explicitly.
+            return true
+        }
+        guard self.initialFirstContentApplyCount == 0 else {
             return false
         }
         let descriptor = ChatLocalFirstFrameDescriptorPolicy.descriptor(
@@ -7628,7 +7646,7 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
         return blockedDescriptor == descriptor
     }
 
-    private func beginBlockedAnchorPersistenceRematerialization(
+    private func beginAnchorPersistenceWindowMaterialization(
         request: ChatOpenMessageRequest,
         transactionToken: ChatAnchorTransactionToken,
         persistedMessageCount: Int
@@ -7788,22 +7806,34 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
             return false
         }
 
-        self.anchorTransactionTokenByQueryId.removeValue(forKey: queryId)
-        self.anchorTransactionTimeoutWorkItems.removeValue(forKey: queryId)?.cancel()
-        self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+        let request = self.pendingOpenMessageRequest
+        let shouldMaterializePersistenceWindow = request.map {
+            self.shouldMaterializeAnchorPersistenceWindow(
+                request: $0,
+                persistedMessageCount: state.persistedMessageCount
+            )
+        } ?? false
+        if shouldMaterializePersistenceWindow {
+            self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+        } else {
+            self.anchorTransactionTokenByQueryId.removeValue(forKey: queryId)
+            self.anchorTransactionTimeoutWorkItems
+                .removeValue(forKey: queryId)?
+                .cancel()
+            self.unregisterRemoteHistoryPersistenceSource(queryId: queryId)
+        }
 
         executionState.isRemoteFetchInFlight = false
-        executionState.remoteQueryId = nil
+        if !shouldMaterializePersistenceWindow {
+            executionState.remoteQueryId = nil
+        }
         executionState.isPositioning = false
         self.activeAnchorExecutionState = executionState
         self.syncAnchorExecutionFlags()
 
-        if let request = self.pendingOpenMessageRequest,
-           self.shouldRematerializeBlockedAnchorPersistence(
-            request: request,
-            persistedMessageCount: state.persistedMessageCount
-           ) {
-            self.beginBlockedAnchorPersistenceRematerialization(
+        if let request,
+           shouldMaterializePersistenceWindow {
+            self.beginAnchorPersistenceWindowMaterialization(
                 request: request,
                 transactionToken: executionState.transactionToken,
                 persistedMessageCount: state.persistedMessageCount

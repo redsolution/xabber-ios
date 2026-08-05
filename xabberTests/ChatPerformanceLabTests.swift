@@ -6780,6 +6780,255 @@ final class ChatPerformanceLabTests: XCTestCase {
 
     }
 
+    @MainActor
+    func testCommittedSearchDateWindowUpdatedExistingMaterializesOffResidentTargetWithoutObserverAndReleasesNavigation() {
+        let owner = "off-resident-search-owner@example.test"
+        let jid = "off-resident-search-peer@example.test"
+        let conversationType =
+            ClientSynchronizationManager.ConversationType.regular
+        let messages = (0..<121).map { ordinal -> MessageStorageItem in
+            let message = MessageStorageItem()
+            message.primary = "off-resident-search-primary-\(ordinal)"
+            message.owner = owner
+            message.opponent = jid
+            message.conversationType = conversationType
+            message.archivedId = String(2_200_000_000_000_000 + ordinal)
+            message.messageId = "off-resident-search-message-\(ordinal)"
+            message.date = Date(
+                timeIntervalSince1970: TimeInterval(24_000 + ordinal)
+            )
+            message.sentDate = message.date
+            message.body = "off-resident search row \(ordinal)"
+            message.outgoing = false
+            message.isRead = true
+            message.state = .read
+            return message
+        }
+        let target = messages[40]
+        let store = ChatMaterializationBarrierStore(messages: messages)
+        let session = ChatTimelineSession(
+            store: store,
+            pageSize: ChatInitialFirstFrameHistoryConfiguration.pageSize,
+            conversationKey: ChatTimelineConversationKey(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType
+            ),
+            archiveState: .unresolved(
+                primaryKey: LastChatsStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: conversationType
+                )
+            ),
+            observesStoreImmediately: false
+        )
+        let baseline = session.openLatest(
+            limit: ChatInitialFirstFrameHistoryConfiguration.pageSize
+        )
+        XCTAssertEqual(baseline.items.count, 80)
+        XCTAssertNil(baseline.item(primary: target.primary))
+
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = conversationType
+        controller.ownerSender = Sender(id: owner, displayName: "Owner")
+        controller.opponentSender = Sender(id: jid, displayName: "Peer")
+        controller.loadViewIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+        controller.cancelDatasetMappingJobs()
+        controller.timelineSession?.deactivateStoreObservation()
+        controller.timelineSession = session
+        controller.cancelPendingArchiveObserverRefresh(
+            reason: "offResidentSearchTestInstall"
+        )
+        controller.observerRefreshGenerationCoalescer =
+            ChatObserverRefreshGenerationCoalescer()
+        controller.datasource = []
+        controller.datasourceSnapshot = .empty
+        controller.initialLocalFirstFramePhase = .idle
+        controller.showSkeletonObserver.accept(false)
+        controller.messagesCollectionView.reloadData()
+        controller.messagesCollectionView.layoutIfNeeded()
+        defer {
+            store.searchResolutionBarrier?.signal()
+            store.searchResolutionBarrier = nil
+            store.onSearchResolutionStarted = nil
+            session.deactivateStoreObservation()
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+
+        let baselineMapped = expectation(
+            description: "latest resident chat content is already committed"
+        )
+        controller.mapAndApplyTimelineCurrent(
+            mode: .fullReload(),
+            animated: false,
+            invalidateLayout: false,
+            completion: { baselineMapped.fulfill() }
+        )
+        wait(for: [baselineMapped], timeout: 2)
+        controller.initialFirstContentApplyCount = 1
+        controller.hasCommittedRealContentInCurrentLifecycle = true
+        controller.hasCommittedTimelinePresentationInCurrentLifecycle = true
+        XCTAssertEqual(
+            controller.datasource.lazy.filter { !$0.isFakeMessage }.count,
+            80
+        )
+        XCTAssertFalse(controller.datasource.contains {
+            $0.primary == target.primary
+        })
+        XCTAssertNil(store.observation)
+
+        let request = ChatOpenMessageRequest(
+            chatJid: jid,
+            owner: owner,
+            conversationType: conversationType,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: target.archivedId,
+                messageId: target.messageId,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: target.date
+            ),
+            highlight: true,
+            markReadOnVisible: false,
+            source: .search
+        )
+        let queryId = "off-resident-search-date-window"
+        var state = ChatAnchorExecutionState(request: request)
+        state.lastAttemptedRemotePlan = .dateWindow(
+            start: target.date.addingTimeInterval(-1),
+            end: target.date.addingTimeInterval(1),
+            max: controller.datasourcePageSize
+        )
+        state.remoteQueryId = queryId
+        state.remoteFetchSnapshotGenerationAtStart = baseline.generation
+        state.isRemoteFetchInFlight = true
+        controller.pendingOpenMessageRequest = request
+        controller.activeAnchorExecutionState = state
+        _ = controller.anchorTransactionGate.begin(
+            token: state.transactionToken,
+            requestIdentity: "off-resident-search-date-window"
+        )
+        XCTAssertTrue(controller.anchorTransactionGate.acquire(
+            .query(queryId),
+            token: state.transactionToken
+        ))
+        XCTAssertTrue(controller.anchorTransactionGate.acquire(
+            .loader,
+            token: state.transactionToken
+        ))
+        XCTAssertTrue(controller.anchorTransactionGate.acquire(
+            .scrollLock,
+            token: state.transactionToken
+        ))
+        controller.anchorTransactionTokenByQueryId[queryId] =
+            state.transactionToken
+        let terminalWatchdog = DispatchWorkItem {}
+        controller.anchorTransactionTimeoutWorkItems[queryId] =
+            terminalWatchdog
+        controller.searchAnchorNavigationWasScrollEnabled = true
+        controller.messagesCollectionView.isScrollEnabled = false
+        controller.setLoadingIndicatorVisible(true)
+        controller.setDatasourceLoadingEnabled(false)
+        controller.syncAnchorExecutionFlags()
+
+        let materializationStarted = expectation(
+            description: "bounded off-resident materialization starts"
+        )
+        let materializationBarrier = DispatchSemaphore(value: 0)
+        store.searchResolutionBarrier = materializationBarrier
+        store.onSearchResolutionStarted = {
+            materializationStarted.fulfill()
+        }
+        var positioningStartedCount = 0
+        var positionedCount = 0
+        let positioned = expectation(
+            description: "off-resident target is positioned without observer"
+        )
+        controller.activeAnchorExecutionHooks = ChatAnchorExecutionHooks(
+            direction: .up,
+            animatedScroll: false,
+            onPositioningStarted: { positioningStartedCount += 1 },
+            onFailed: {
+                XCTFail("Persisted off-resident search target must materialize")
+                positioned.fulfill()
+            },
+            onPositioned: {
+                positionedCount += 1
+                positioned.fulfill()
+            }
+        )
+
+        XCTAssertTrue(
+            controller.performanceTestConsumeAnchorRemotePersistenceTerminal(
+                queryId: queryId,
+                serverResultCardinality: 1_000_000,
+                persistedMessageCount: 1
+            )
+        )
+        wait(for: [materializationStarted], timeout: 2)
+        XCTAssertTrue(
+            controller.activeAnchorExecutionState?
+                .isPersistenceMaterializationInFlight == true
+        )
+        XCTAssertEqual(
+            controller.anchorTransactionTokenByQueryId[queryId],
+            state.transactionToken
+        )
+        XCTAssertNotNil(controller.anchorTransactionTimeoutWorkItems[queryId])
+        XCTAssertFalse(terminalWatchdog.isCancelled)
+
+        controller.performPendingOpenMessageRequestIfNeeded(
+            trigger: .observerRefresh
+        )
+        XCTAssertEqual(store.searchResolutionInvocationCount, 1)
+        XCTAssertTrue(
+            controller.activeAnchorExecutionState?
+                .isPersistenceMaterializationInFlight == true
+        )
+        XCTAssertEqual(
+            controller.activeAnchorExecutionState?.remoteQueryId,
+            queryId
+        )
+
+        materializationBarrier.signal()
+        wait(for: [positioned], timeout: 3)
+
+        XCTAssertNil(store.observation)
+        XCTAssertEqual(store.searchResolutionInvocationCount, 1)
+        XCTAssertEqual(store.mainThreadSearchResolutionInvocationCount, 0)
+        XCTAssertGreaterThan(session.snapshot.generation, baseline.generation)
+        XCTAssertEqual(session.snapshot.cause, .command)
+        XCTAssertLessThanOrEqual(session.snapshot.items.count, 80)
+        XCTAssertEqual(positioningStartedCount, 1)
+        XCTAssertEqual(positionedCount, 1)
+        XCTAssertTrue(controller.datasource.contains {
+            $0.primary == target.primary
+        })
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+        XCTAssertFalse(controller.isExecutingOpenMessageRequest)
+        XCTAssertFalse(controller.isMessageAnchorNavigationInFlight)
+        XCTAssertFalse(controller.showLoadingIndicator.value)
+        XCTAssertTrue(controller.messagesCollectionView.isScrollEnabled)
+        XCTAssertNil(controller.searchAnchorNavigationWasScrollEnabled)
+        XCTAssertNil(controller.anchorTransactionTokenByQueryId[queryId])
+        XCTAssertNil(controller.anchorTransactionTimeoutWorkItems[queryId])
+        XCTAssertTrue(terminalWatchdog.isCancelled)
+        XCTAssertNil(controller.anchorTransactionGate.snapshot.activeToken)
+        XCTAssertTrue(controller.anchorTransactionGate.snapshot.queryIds.isEmpty)
+        XCTAssertFalse(controller.anchorTransactionGate.snapshot.ownsLoader)
+        XCTAssertFalse(controller.anchorTransactionGate.snapshot.ownsScrollLock)
+        XCTAssertEqual(
+            controller.anchorTransactionGate.snapshot.lastTerminalOutcome,
+            .positioned
+        )
+    }
+
     func testCommittedResidentExactSearchPrimaryResolvesBeforeTemporarilyStaleStore() {
         let owner = "resident-search-owner@example.test"
         let jid = "resident-search-peer@example.test"
@@ -12080,6 +12329,8 @@ private final class ChatMaterializationBarrierStore: ChatTimelineSessionStore {
     private var messages: [MessageStorageItem]
     var forcesSearchResolutionMiss = false
     var forcedSearchResolutionFailure: ChatAnchorTransactionFailure?
+    var searchResolutionBarrier: DispatchSemaphore?
+    var onSearchResolutionStarted: (() -> Void)?
     private(set) var searchResolutionInvocationCount = 0
     private(set) var mainThreadSearchResolutionInvocationCount = 0
     private(set) var messageLookupInvocationCount = 0
@@ -12162,6 +12413,8 @@ private final class ChatMaterializationBarrierStore: ChatTimelineSessionStore {
         if Thread.isMainThread {
             mainThreadSearchResolutionInvocationCount += 1
         }
+        onSearchResolutionStarted?()
+        _ = searchResolutionBarrier?.wait(timeout: .now() + 2)
         if let forcedSearchResolutionFailure {
             return .failed(forcedSearchResolutionFailure)
         }
