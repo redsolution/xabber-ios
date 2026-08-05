@@ -59,6 +59,169 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
         )
     }
 
+    func testJoinedCommittedReceiptSurvivesSnapshotInvalidationUntilUIObservationAttaches() {
+        let coordinator = ChatInitialBootstrapRequestCoordinator(
+            automaticallySchedulesTimeouts: false
+        )
+        let key = ChatInitialBootstrapRequestKey(
+            owner: "first-process-owner@example.com",
+            jid: "first-process-peer@example.com",
+            conversationType: .regular
+        )
+        guard case .start(let snapshotLease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "first-process-snapshot",
+            timeout: 45,
+            purpose: .snapshotRepair,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("snapshot persistence must own the first lease")
+        }
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: snapshotLease.queryId,
+            // The page itself reached durable Realm persistence, but the
+            // first-process snapshot can already require a follow-up boundary.
+            hasDurableCoverage: false,
+            resultCount: 1,
+            persistedRowsForQuery: 1,
+            visibleRowsForConversation: 1
+        )
+
+        guard case .joined(let joinedLease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "first-process-interactive-open",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("interactive open must join the committed receipt")
+        }
+        XCTAssertEqual(joinedLease.queryId, snapshotLease.queryId)
+
+        // The snapshot pump can invalidate its terminal ownership in the exact
+        // interval between `acquireOrJoin` and the controller registering its
+        // readiness observer. The joined UI must still see the persisted page
+        // and its follow-up proof;
+        // otherwise it has already skipped starting transport and its committed
+        // skeleton has no remaining terminal source.
+        XCTAssertTrue(coordinator.invalidateCommittedReceipt(
+            key: key,
+            queryId: snapshotLease.queryId
+        ))
+
+        var observedPhase: ConversationArchiveLoadPhase?
+        let observation = coordinator.observe(
+            key: key,
+            consumesInteractiveCommittedJoin: true
+        ) { readiness in
+            observedPhase = readiness?.phase
+        }
+        XCTAssertEqual(observedPhase, .committed)
+        XCTAssertEqual(
+            coordinator.readiness(for: key)?.persistedVisibleRowCount,
+            1
+        )
+        XCTAssertNotNil(coordinator.cachedCommittedPage(
+            key: key,
+            queryId: snapshotLease.queryId
+        ))
+
+        coordinator.detach(key: key, observation: observation)
+        XCTAssertNil(coordinator.readiness(for: key))
+    }
+
+    func testAbandonedInteractiveCommittedJoinReleasesItsInvalidationReservation() {
+        let coordinator = ChatInitialBootstrapRequestCoordinator(
+            automaticallySchedulesTimeouts: false
+        )
+        let key = ChatInitialBootstrapRequestKey(
+            owner: "abandoned-owner@example.com",
+            jid: "abandoned-peer@example.com",
+            conversationType: .regular
+        )
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "abandoned-snapshot",
+            timeout: 45,
+            purpose: .snapshotRepair,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("snapshot persistence must own the first lease")
+        }
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: lease.queryId,
+            hasDurableCoverage: false,
+            resultCount: 1,
+            persistedRowsForQuery: 1,
+            visibleRowsForConversation: 1
+        )
+        guard case .joined = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "abandoned-interactive",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("interactive open must reserve the committed receipt")
+        }
+
+        XCTAssertTrue(coordinator.invalidateCommittedReceipt(
+            key: key,
+            queryId: lease.queryId
+        ))
+        XCTAssertTrue(coordinator.releaseInteractiveCommittedJoinReservation(
+            key: key,
+            queryId: lease.queryId
+        ))
+        XCTAssertNil(coordinator.readiness(for: key))
+    }
+
+    func testSnapshotRepairJoinDoesNotReserveCommittedReceiptFromInvalidation() {
+        let coordinator = ChatInitialBootstrapRequestCoordinator(
+            automaticallySchedulesTimeouts: false
+        )
+        let key = ChatInitialBootstrapRequestKey(
+            owner: "snapshot-only-owner@example.com",
+            jid: "snapshot-only-peer@example.com",
+            conversationType: .regular
+        )
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "snapshot-only-first",
+            timeout: 45,
+            purpose: .snapshotRepair,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("snapshot persistence must own the first lease")
+        }
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: lease.queryId,
+            hasDurableCoverage: false
+        )
+        guard case .joined = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "snapshot-only-join",
+            timeout: 45,
+            purpose: .snapshotRepair,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("snapshot repair must join the existing receipt")
+        }
+
+        XCTAssertFalse(coordinator.releaseInteractiveCommittedJoinReservation(
+            key: key,
+            queryId: lease.queryId
+        ))
+        XCTAssertTrue(coordinator.invalidateCommittedReceipt(
+            key: key,
+            queryId: lease.queryId
+        ))
+        XCTAssertNil(coordinator.readiness(for: key))
+    }
+
     func testRawFinalReleasesMamLaneAndLeaseSurvivesUntilQueryPersistenceTerminates() throws {
         var now = Date(timeIntervalSince1970: 10_000)
         let coordinator = ChatInitialBootstrapRequestCoordinator(
@@ -412,13 +575,18 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
         XCTAssertEqual(controller.initialBootstrapQueryId, lease.queryId)
         XCTAssertTrue(controller.isInitialBootstrapInFlight)
 
-        allowPersistence.signal()
-        if leaseSurvivedReopen {
-            XCTAssertTrue(waitUntil {
-                coordinator.cachedCommittedPage(key: key, queryId: lease.queryId) != nil
-            })
-            XCTAssertTrue(coordinator.complete(key: key, queryId: lease.queryId))
+        let persistenceCommitted = expectation(
+            description: "raw final persistence committed after reopen"
+        )
+        let readinessToken = coordinator.observe(key: key) { readiness in
+            if readiness?.phase == .committed {
+                persistenceCommitted.fulfill()
+            }
         }
+        allowPersistence.signal()
+        wait(for: [persistenceCommitted], timeout: 2)
+        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .committed)
+        coordinator.detach(key: key, observation: readinessToken)
         controller.performTerminalChatResourceTeardownForTesting()
         manager.messagePersistenceChunkObserver = nil
         manager.unsubscribeReceiver()

@@ -69,6 +69,11 @@ final class BottomOverlayInsetCoordinator {
         overlays: [UIView],
         clearance: CGFloat = RootBottomBarInsetPolicy.clearance
     ) {
+        guard let containerWindow = containerView.window,
+              scrollView.window === containerWindow else {
+            return
+        }
+
         scrollView.layoutIfNeeded()
 
         let oldRange = RootBottomBarInsetPolicy.contentOffsetRange(

@@ -5,7 +5,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  tools/xcodebuild_cached.sh [build|test|resolve|clean-cache] [xcodebuild args...]
+  tools/xcodebuild_cached.sh [build|test|build-for-testing|test-without-building|resolve|clean-cache] [xcodebuild args...]
 
 Environment overrides:
   XABBER_XCODE_CACHE_ROOT  Default: $HOME/Library/Caches/XabberCodex/xabber-ios-core
@@ -17,6 +17,8 @@ Environment overrides:
 Examples:
   tools/xcodebuild_cached.sh build
   XABBER_DESTINATION='platform=iOS Simulator,name=iPhone 17 Pro,OS=26.0' tools/xcodebuild_cached.sh test
+  XABBER_DESTINATION='platform=iOS Simulator,id=<UUID>' tools/xcodebuild_cached.sh build-for-testing
+  XABBER_DESTINATION='platform=iOS Simulator,id=<UUID>' tools/xcodebuild_cached.sh test-without-building
   tools/xcodebuild_cached.sh resolve
   tools/xcodebuild_cached.sh clean-cache
 USAGE
@@ -38,7 +40,7 @@ destination="${XABBER_DESTINATION:-}"
 action="build"
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    build|test|resolve|clean-cache)
+    build|test|build-for-testing|test-without-building|resolve|clean-cache)
       action="$1"
       shift
       ;;
@@ -86,7 +88,7 @@ case "$action" in
       "${common_package_args[@]}" \
       "$@"
     ;;
-  build|test)
+  build|test|build-for-testing|test-without-building)
     build_args=(
       -workspace "$workspace_path"
       -scheme "$scheme"
@@ -102,7 +104,7 @@ case "$action" in
 
     disable_account_autoconnect="${TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT:-}"
     isolated_storage="${TEST_RUNNER_XABBER_ISOLATED_STORAGE:-}"
-    if [[ "$action" == "test" && ( -n "$disable_account_autoconnect" || -n "$isolated_storage" ) ]]; then
+    if [[ ( "$action" == "test" || "$action" == "test-without-building" ) && ( -n "$disable_account_autoconnect" || -n "$isolated_storage" ) ]]; then
       if [[ "$disable_account_autoconnect" != "1" || "$isolated_storage" != "1" ]]; then
         echo "error: hosted isolated tests require both TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT=1 and TEST_RUNNER_XABBER_ISOLATED_STORAGE=1." >&2
         exit 64

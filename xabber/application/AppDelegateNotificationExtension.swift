@@ -93,7 +93,6 @@ extension AppDelegate : UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
-        let content = response.notification.request.content.mutableCopy() as! UNNotificationContent
         switch response.actionIdentifier {
         case NotifyManager.notificationMessageActionReply:
             _ = NotifyManager.shared.onReplyMessageNotification(response: response, handler: completionHandler)
@@ -108,28 +107,12 @@ extension AppDelegate : UNUserNotificationCenterDelegate {
         case NotifyManager.notificationMessageActionDeclineGroup:
             _ = NotifyManager.shared.onDeclineGroupNotification(response: response, handler: completionHandler)
         default:
-            switch content.categoryIdentifier {
-            case NotifyManager.notificationMessageCategory,
-                NotifyManager.notificationPushMessageCategory,
-                NotifyManager.notificationSubscribtionCategory,
-                NotifyManager.notificationInviteCategory,
-                NotifyManager.notificationVerificationCategory:
-                if let id = content.userInfo["stanzaId"] as? String {
-                    NotifyManager.shared.deliveredNotificationsIds.insert(id)
-                }
-                let handled = NotifyManager.shared.onTouchNotificationRoute(
-                    userInfo: content.userInfo,
-                    atStart: false,
-                    handler: completionHandler
-                )
-                if !handled {
-                    completionHandler()
-                }
-                break
-            default:
-                completionHandler()
-                break
-            }
+            _ = NotifyManager.shared.onTouchNotificationRequest(
+                response.notification.request,
+                actionIdentifier: response.actionIdentifier,
+                atStart: false,
+                handler: completionHandler
+            )
         }
     }
 }

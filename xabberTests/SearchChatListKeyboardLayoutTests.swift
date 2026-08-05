@@ -145,7 +145,124 @@ final class SearchChatListKeyboardLayoutTests: XCTestCase {
         )
     }
 
-    func testChatComposerReturnsToNormalKeyboardLayoutImmediatelyAfterSearchReset() throws {
+    func testNormalChatComposerIsKeyboardOwnedWithoutKeyboardHeightTail() throws {
+        let controller = makeLoadedChatController()
+
+        controller.keyboardWillChangeFrameNotification(
+            Notification(
+                name: UIResponder.keyboardWillChangeFrameNotification,
+                object: nil,
+                userInfo: [
+                    UIResponder.keyboardFrameEndUserInfoKey: NSValue(
+                        cgRect: CGRect(x: 0, y: 544, width: 390, height: 300)
+                    ),
+                    UIResponder.keyboardAnimationDurationUserInfoKey: NSNumber(value: 0)
+                ]
+            )
+        )
+        controller.view.layoutIfNeeded()
+
+        let keyboardTopConstraint = try XCTUnwrap(controller.xabberInputViewKeyboardTopConstraint)
+        XCTAssertTrue(keyboardTopConstraint.isActive)
+        XCTAssertTrue(keyboardTopConstraint.firstItem === controller.xabberInputView)
+        XCTAssertEqual(keyboardTopConstraint.firstAttribute, .bottom)
+        XCTAssertTrue(keyboardTopConstraint.secondItem === controller.view.keyboardLayoutGuide)
+        XCTAssertEqual(keyboardTopConstraint.secondAttribute, .top)
+        XCTAssertFalse(try XCTUnwrap(controller.xabberInputViewBottomConstraint).isActive)
+        XCTAssertEqual(controller.xabberInputView.keyboardHeight, 0, accuracy: 0.001)
+        XCTAssertEqual(
+            try XCTUnwrap(controller.xabberInputView.heightConstraint).constant,
+            ModernXabberInputView.defaultBarHeight,
+            accuracy: 0.001
+        )
+    }
+
+    func testAutoLayoutOwnedComposerSetupFramesDoesNotOverrideGuidePosition() {
+        let controller = makeLoadedChatController()
+        let originalFrame = controller.xabberInputView.frame
+
+        controller.xabberInputView.setupFrames(
+            CGRect(
+                x: originalFrame.minX,
+                y: 0,
+                width: originalFrame.width,
+                height: originalFrame.height
+            )
+        )
+
+        XCTAssertEqual(controller.xabberInputView.frame, originalFrame)
+    }
+
+    func testNormalComposerSequentialKeyboardFramesUpdateCollectionClearance() {
+        let controller = makeLoadedChatController()
+        let overlaps: [CGFloat] = [300, 164, 84, 0]
+
+        for overlap in overlaps {
+            controller.keyboardWillChangeFrameNotification(
+                Notification(
+                    name: UIResponder.keyboardWillChangeFrameNotification,
+                    object: nil,
+                    userInfo: [
+                        UIResponder.keyboardFrameEndUserInfoKey: NSValue(
+                            cgRect: CGRect(
+                                x: 0,
+                                y: controller.view.bounds.height - overlap,
+                                width: controller.view.bounds.width,
+                                height: 300
+                            )
+                        ),
+                        UIResponder.keyboardAnimationDurationUserInfoKey:
+                            NSNumber(value: 0)
+                    ]
+                )
+            )
+
+            let metrics = controller.currentChatComposerKeyboardLayoutMetrics()
+            XCTAssertEqual(
+                controller.messagesCollectionView.contentInset.bottom,
+                metrics.collectionObstructionHeight +
+                    ChatFloatingHeaderLayoutPolicy.composerMessageSpacing,
+                accuracy: 0.001,
+                "Unexpected collection clearance for overlap \(overlap)"
+            )
+        }
+    }
+
+    func testContextPreviewKeepsComposerVisualHeightFreeOfKeyboardAndSafeAreaTail() throws {
+        let controller = makeLoadedChatController()
+        controller.keyboardWillChangeFrameNotification(
+            Notification(
+                name: UIResponder.keyboardWillChangeFrameNotification,
+                object: nil,
+                userInfo: [
+                    UIResponder.keyboardFrameEndUserInfoKey: NSValue(
+                        cgRect: CGRect(x: 0, y: 544, width: 390, height: 300)
+                    ),
+                    UIResponder.keyboardAnimationDurationUserInfoKey: NSNumber(value: 0)
+                ]
+            )
+        )
+
+        controller.xabberInputView.showEditPanel()
+        controller.view.layoutIfNeeded()
+
+        let visualHeight = try XCTUnwrap(
+            controller.xabberInputView.heightConstraint
+        ).constant
+        XCTAssertEqual(controller.xabberInputView.keyboardHeight, 0, accuracy: 0.001)
+        XCTAssertEqual(
+            visualHeight,
+            controller.xabberInputView.barHeight + controller.xabberInputView.topInset,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            controller.messagesCollectionView.contentInset.bottom,
+            visualHeight + 300 + ChatFloatingHeaderLayoutPolicy.composerMessageSpacing,
+            accuracy: 0.001
+        )
+    }
+
+    func testChatComposerStaysKeyboardOwnedAfterSearchReset() throws {
         let controller = makeLoadedChatController()
 
         controller.inSearchMode.accept(true)
@@ -171,12 +288,67 @@ final class SearchChatListKeyboardLayoutTests: XCTestCase {
         controller.view.layoutIfNeeded()
 
         XCTAssertEqual(controller.xabberInputView.state, .normal)
-        XCTAssertTrue(try XCTUnwrap(controller.xabberInputViewBottomConstraint).isActive)
-        XCTAssertFalse(try XCTUnwrap(controller.xabberInputViewKeyboardTopConstraint).isActive)
-        XCTAssertEqual(controller.xabberInputView.keyboardHeight, 300, accuracy: 0.001)
-        XCTAssertGreaterThan(
+        XCTAssertFalse(try XCTUnwrap(controller.xabberInputViewBottomConstraint).isActive)
+        XCTAssertTrue(try XCTUnwrap(controller.xabberInputViewKeyboardTopConstraint).isActive)
+        XCTAssertEqual(controller.xabberInputView.keyboardHeight, 0, accuracy: 0.001)
+        XCTAssertEqual(
             try XCTUnwrap(controller.xabberInputView.heightConstraint).constant,
-            ModernXabberInputView.defaultBarHeight + 250
+            ModernXabberInputView.defaultBarHeight,
+            accuracy: 0.001
+        )
+    }
+
+    func testInteractiveKeyboardMotionSkipsNestedAnimationUntilDragFinishes() {
+        let interactiveUpdate = ChatKeyboardMotionPolicy.isInteractiveUpdate(
+            usesInteractiveDismissMode: true,
+            isTracking: true,
+            isDragging: true
+        )
+
+        XCTAssertTrue(interactiveUpdate)
+        XCTAssertFalse(
+            ChatSearchMotionMutationPolicy.shouldAnimate(
+                requestedAnimated: true,
+                isNavigationTransitionActive: false,
+                isPreparingFirstFrame: false,
+                isInteractiveKeyboardUpdate: interactiveUpdate
+            )
+        )
+
+        let settledUpdate = ChatKeyboardMotionPolicy.isInteractiveUpdate(
+            usesInteractiveDismissMode: true,
+            isTracking: false,
+            isDragging: false
+        )
+        XCTAssertFalse(settledUpdate)
+        XCTAssertTrue(
+            ChatSearchMotionMutationPolicy.shouldAnimate(
+                requestedAnimated: true,
+                isNavigationTransitionActive: false,
+                isPreparingFirstFrame: false,
+                isInteractiveKeyboardUpdate: settledUpdate
+            )
+        )
+    }
+
+    func testKeyboardMotionIsNotInteractiveForNonInteractiveDismissMode() {
+        XCTAssertFalse(
+            ChatKeyboardMotionPolicy.isInteractiveUpdate(
+                usesInteractiveDismissMode: false,
+                isTracking: true,
+                isDragging: true
+            )
+        )
+    }
+
+    func testUndockedKeyboardDoesNotCreateBottomObstruction() {
+        XCTAssertEqual(
+            ChatViewController.keyboardOverlapHeight(
+                viewBounds: CGRect(x: 0, y: 0, width: 1024, height: 1366),
+                keyboardFrameInView: CGRect(x: 540, y: 720, width: 420, height: 320)
+            ),
+            0,
+            accuracy: 0.001
         )
     }
 

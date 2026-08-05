@@ -1029,34 +1029,46 @@ final class CloudStorageAvailabilityTests: XCTestCase {
         XCTAssertEqual(result, .pending)
     }
 
-    func testAttachmentRoutingDistinguishesPendingFromUnsupported() {
+    func testAttachmentEntryAlwaysPresentsAndOnlyTemporaryAvailabilityResumes() {
         XCTAssertEqual(
-            ChatAttachmentPickerRoutingPolicy.route(
+            ChatAttachmentPickerEntryPlan.make(
                 isTelegramAttachmentPickerEnabled: true,
                 availabilityState: .discovering
             ),
-            .blocked(.cloudStoragePending)
+            ChatAttachmentPickerEntryPlan(
+                presentsPicker: true,
+                resumesAvailability: true
+            )
         )
         XCTAssertEqual(
-            ChatAttachmentPickerRoutingPolicy.route(
+            ChatAttachmentPickerEntryPlan.make(
                 isTelegramAttachmentPickerEnabled: true,
                 availabilityState: .retryableFailure(stage: .authorization, endpoint: endpoint)
             ),
-            .blocked(.cloudStoragePending)
+            ChatAttachmentPickerEntryPlan(
+                presentsPicker: true,
+                resumesAvailability: true
+            )
         )
         XCTAssertEqual(
-            ChatAttachmentPickerRoutingPolicy.route(
+            ChatAttachmentPickerEntryPlan.make(
                 isTelegramAttachmentPickerEnabled: true,
                 availabilityState: .unsupported
             ),
-            .blocked(.cloudStorageUnavailable)
+            ChatAttachmentPickerEntryPlan(
+                presentsPicker: true,
+                resumesAvailability: false
+            )
         )
         XCTAssertEqual(
-            ChatAttachmentPickerRoutingPolicy.route(
+            ChatAttachmentPickerEntryPlan.make(
                 isTelegramAttachmentPickerEnabled: true,
                 availabilityState: .ready(endpoint: endpoint)
             ),
-            .telegramAttachmentFlow
+            ChatAttachmentPickerEntryPlan(
+                presentsPicker: true,
+                resumesAvailability: false
+            )
         )
     }
 

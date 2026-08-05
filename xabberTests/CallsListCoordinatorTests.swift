@@ -203,6 +203,52 @@ final class CallsListCoordinatorTests: XCTestCase {
         XCTAssertTrue(actions.allSatisfy { $0.state == .off })
     }
 
+    func testDetachedDatasourceApplyCommitsOnlyLatestSnapshotBeforeFirstFrame() {
+        let controller = LastCallsViewController()
+        controller.loadViewIfNeeded()
+        let stale = makeCallDatasource(messagePrimary: "stale", jid: "stale@example.com")
+        let current = [
+            makeCallDatasource(messagePrimary: "current-1", jid: "current-1@example.com"),
+            makeCallDatasource(messagePrimary: "current-2", jid: "current-2@example.com")
+        ]
+
+        XCTAssertNil(controller.tableView.window)
+        XCTAssertEqual(
+            LastCallsDatasourceApplyPolicy.mode(isTableAttachedToWindow: false),
+            .detachedSnapshot
+        )
+
+        controller.applyCallDatasource([stale])
+        controller.applyCallDatasource(current)
+
+        XCTAssertEqual(controller.datasource.map(\.messagePrimary), ["current-1", "current-2"])
+        XCTAssertEqual(controller.tableView.numberOfRows(inSection: 0), 2)
+    }
+
+    func testAttachedDatasourceApplyPolicyKeepsIncrementalDiffs() {
+        XCTAssertEqual(
+            LastCallsDatasourceApplyPolicy.mode(isTableAttachedToWindow: true),
+            .incrementalDiff
+        )
+    }
+
+    private func makeCallDatasource(
+        messagePrimary: String,
+        jid: String
+    ) -> LastCallsViewController.Datasource {
+        LastCallsViewController.Datasource(
+            owner: owner,
+            jid: jid,
+            username: jid,
+            avatarUrl: nil,
+            date: Date(timeIntervalSince1970: 1),
+            direction: .incoming,
+            outgoing: false,
+            messagePrimary: messagePrimary,
+            referencePrimary: nil
+        )
+    }
+
     private func addCall(
         to realm: Realm,
         owner: String? = nil,

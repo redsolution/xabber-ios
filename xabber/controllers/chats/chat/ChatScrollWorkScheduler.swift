@@ -11,6 +11,23 @@ struct ChatScrollWorkOptions: OptionSet, Equatable {
     static let evaluateBoundaryPaging = ChatScrollWorkOptions(rawValue: 1 << 4)
 }
 
+/// A coalesced scroll frame is the deterministic trigger for pending mention
+/// reconciliation. Ordinary message read state is deliberately absent: an
+/// unread notification continues to own its candidate after read-last marks
+/// the linked message read.
+enum ChatVisibleMentionReadScrollTriggerPolicy {
+    static func shouldFlush(
+        pendingMessagePrimaries: Set<String>,
+        meaningfullyVisibleMessagePrimaries: Set<String>,
+        effectiveWork: ChatScrollWorkOptions
+    ) -> Bool {
+        effectiveWork.contains(.advanceReadBoundary) &&
+            !pendingMessagePrimaries.isDisjoint(
+                with: meaningfullyVisibleMessagePrimaries
+            )
+    }
+}
+
 final class ChatUIResponsivenessGate {
     enum Reason: Equatable {
         case chatOpen
@@ -160,7 +177,13 @@ struct ChatScrollWorkRequest: Equatable {
     let isUserScrolling: Bool
     let visibleIndexPaths: [IndexPath]
     let visibleMetadata: ChatScrollVisibleMetadata
+    let meaningfullyVisibleReadPrimaries: Set<String>
     let work: ChatScrollWorkOptions
+    /// The atomic first-frame receipt owns one geometry resample after every
+    /// callback captured before that receipt has been revoked. This request is
+    /// current presentation work, even while the chat-open interaction gate is
+    /// still winding down.
+    let isPostAtomicInitialFrameReceiptResample: Bool
 
     init(
         contentOffsetY: CGFloat,
@@ -168,14 +191,20 @@ struct ChatScrollWorkRequest: Equatable {
         isUserScrolling: Bool,
         visibleIndexPaths: [IndexPath],
         visibleMetadata: ChatScrollVisibleMetadata = .empty,
-        work: ChatScrollWorkOptions
+        meaningfullyVisibleReadPrimaries: Set<String>? = nil,
+        work: ChatScrollWorkOptions,
+        isPostAtomicInitialFrameReceiptResample: Bool = false
     ) {
         self.contentOffsetY = contentOffsetY
         self.gestureTranslationY = gestureTranslationY
         self.isUserScrolling = isUserScrolling
         self.visibleIndexPaths = visibleIndexPaths
         self.visibleMetadata = visibleMetadata
+        self.meaningfullyVisibleReadPrimaries = meaningfullyVisibleReadPrimaries ??
+            Set(visibleMetadata.rows.map(\.primary))
         self.work = work
+        self.isPostAtomicInitialFrameReceiptResample =
+            isPostAtomicInitialFrameReceiptResample
     }
 
     func effectiveWork(
@@ -193,7 +222,9 @@ struct ChatScrollWorkRequest: Equatable {
         if !isUserScrolling {
             effectiveWork.remove(.evaluateBoundaryPaging)
         }
-        if isInteractionGateActive && !isUserScrolling {
+        if isInteractionGateActive,
+           !isUserScrolling,
+           !isPostAtomicInitialFrameReceiptResample {
             effectiveWork.remove(.updateFloatingDate)
             effectiveWork.remove(.updateVoiceQueue)
         }
@@ -201,12 +232,18 @@ struct ChatScrollWorkRequest: Equatable {
     }
 
     func merging(with newer: ChatScrollWorkRequest) -> ChatScrollWorkRequest {
-        ChatScrollWorkRequest(
+        assert(
+            !isPostAtomicInitialFrameReceiptResample &&
+                !newer.isPostAtomicInitialFrameReceiptResample,
+            "Receipt-owned work must execute through the isolated scheduler path"
+        )
+        return ChatScrollWorkRequest(
             contentOffsetY: newer.contentOffsetY,
             gestureTranslationY: newer.gestureTranslationY,
             isUserScrolling: newer.isUserScrolling,
             visibleIndexPaths: newer.visibleIndexPaths,
             visibleMetadata: newer.visibleMetadata,
+            meaningfullyVisibleReadPrimaries: newer.meaningfullyVisibleReadPrimaries,
             work: work.union(newer.work)
         )
     }
@@ -230,6 +267,10 @@ final class ChatScrollWorkScheduler {
     }
 
     func enqueue(_ request: ChatScrollWorkRequest) {
+        if request.isPostAtomicInitialFrameReceiptResample {
+            executeIsolatedReceiptWork(request)
+            return
+        }
         if let pendingRequest {
             self.pendingRequest = pendingRequest.merging(with: request)
         } else {
@@ -258,6 +299,19 @@ final class ChatScrollWorkScheduler {
         isScheduled = false
         generation += 1
         runPending()
+    }
+
+    /// Executes a receipt-owned request synchronously after revoking every
+    /// pending scheduler generation. Because the request is never stored as
+    /// `pendingRequest`, normal work admitted reentrantly by the handler or
+    /// immediately afterward starts a distinct, non-privileged generation.
+    func executeIsolatedReceiptWork(_ request: ChatScrollWorkRequest) {
+        assert(
+            request.isPostAtomicInitialFrameReceiptResample,
+            "Only receipt-owned work may bypass scheduler coalescing"
+        )
+        cancel()
+        handler(request)
     }
 
     func cancel() {

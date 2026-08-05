@@ -2107,6 +2107,7 @@ class ModernXabberInputView: UIView {
     
     public var keyboardHeight: CGFloat = 0
     private var screenHeight: CGFloat = 0
+    private var includesBottomSafeAreaWhenKeyboardHidden = true
     
     private(set) var currentComposerActionMode: ComposerActionMode = .record
     private var voiceRecordButtonMode: VoiceRecordButtonMode = .record
@@ -2999,7 +3000,11 @@ class ModernXabberInputView: UIView {
     }
 
     public func setupFrames(_ frame: CGRect) {
-        self.frame = frame
+        let isPositionOwnedByAutoLayout =
+            !self.translatesAutoresizingMaskIntoConstraints && self.superview != nil
+        if !isPositionOwnedByAutoLayout {
+            self.frame = frame
+        }
         self.updateComposerContentLayout()
         self.backgroundColor = .clear
         self.layoutLiquidGlassAppearance()
@@ -3311,14 +3316,22 @@ class ModernXabberInputView: UIView {
     var topInset: CGFloat = 0
     var activeContextPreviewMode: ComposerContextPreviewView.Mode? = nil
 
+    private func resolvedInputHeight(keyboardHeight: CGFloat) -> CGFloat {
+        var inputHeight = self.barHeight + keyboardHeight + self.topInset
+        if keyboardHeight == 0,
+           self.includesBottomSafeAreaWhenKeyboardHidden,
+           let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?
+            .window?.safeAreaInsets.bottom {
+            inputHeight += bottomInset
+        }
+        return inputHeight
+    }
+
     private func notifyHeightChangedForCurrentContext() {
         self.barHeight = self.currentComposerContentHeight() + LiquidGlassMetrics.verticalReserve
-        var inputHeight: CGFloat = self.barHeight + self.keyboardHeight + self.topInset
-        if self.keyboardHeight == 0 {
-            if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                inputHeight += bottomInset
-            }
-        }
+        let inputHeight = self.resolvedInputHeight(
+            keyboardHeight: self.keyboardHeight
+        )
 
         self.delegate?.onHeightChanged(to: inputHeight, bar: 0)
     }
@@ -3423,7 +3436,7 @@ class ModernXabberInputView: UIView {
     final func update(
         screenHeight: CGFloat,
         keyboardHeight: CGFloat,
-        includeBottomSafeAreaWhenKeyboardHidden: Bool = true,
+        includeBottomSafeAreaWhenKeyboardHidden: Bool? = nil,
         animate: Bool = false,
         additionalAnimations: (() -> Void)? = nil
     ) {
@@ -3437,19 +3450,28 @@ class ModernXabberInputView: UIView {
         
         self.keyboardHeight = keyboardHeight
         self.screenHeight = screenHeight
-        var inputHeight: CGFloat = self.barHeight + keyboardHeight + topInset
-        if keyboardHeight == 0, includeBottomSafeAreaWhenKeyboardHidden {
-            if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                inputHeight += bottomInset
-            }
+        if let includeBottomSafeAreaWhenKeyboardHidden {
+            self.includesBottomSafeAreaWhenKeyboardHidden =
+                includeBottomSafeAreaWhenKeyboardHidden
         }
+        let inputHeight = self.resolvedInputHeight(
+            keyboardHeight: keyboardHeight
+        )
+        let isPositionOwnedByAutoLayout =
+            !self.translatesAutoresizingMaskIntoConstraints && self.superview != nil
         let targetFrame = CGRect(
-            origin: CGPoint(x: self.frame.minX, y: screenHeight - inputHeight),
+            origin: CGPoint(
+                x: self.frame.minX,
+                y: isPositionOwnedByAutoLayout
+                    ? self.frame.minY
+                    : screenHeight - inputHeight
+            ),
             size: CGSize(width: self.bounds.width, height: inputHeight)
         )
         doAnimate {
             var geometryChanged = false
-            if self.frame != targetFrame {
+            if !isPositionOwnedByAutoLayout,
+               self.frame != targetFrame {
                 self.frame = targetFrame
                 geometryChanged = true
             }
@@ -4320,12 +4342,9 @@ class ModernXabberInputView: UIView {
         
         let contentHeight = self.currentComposerContentHeight()
         self.barHeight = contentHeight + LiquidGlassMetrics.verticalReserve
-        var inputHeight: CGFloat = self.barHeight + keyboardHeight + self.topInset
-        if keyboardHeight == 0 {
-            if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                inputHeight += bottomInset
-            }
-        }
+        let inputHeight = self.resolvedInputHeight(
+            keyboardHeight: self.keyboardHeight
+        )
         
         //UIView.animate(withDuration: 0.16, delay: 0.0, options: [.curveEaseIn]) {
         UIView.performWithoutAnimation {

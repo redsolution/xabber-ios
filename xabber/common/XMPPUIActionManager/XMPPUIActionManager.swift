@@ -93,6 +93,13 @@ final class XMPPUIActionPendingRequestRegistry {
         }
         return entries.remove(at: index)
     }
+
+#if DEBUG
+    func count(owner: String?) -> Int {
+        guard let owner else { return entries.count }
+        return entries.lazy.filter { $0.owner == owner }.count
+    }
+#endif
 }
 
 final class XMPPUIActionLifecycleCoordinator {
@@ -273,6 +280,19 @@ class XMPPUIActionManager: NSObject {
     var queue: DispatchQueue
     private let queueKey = DispatchSpecificKey<Void>()
     private let pendingRequestRegistry = XMPPUIActionPendingRequestRegistry()
+#if DEBUG
+    private var frameworkActivePhaseOverrideForTests:
+        AccountStreamLifecyclePhase?
+    struct AuthenticatedReconnectDispatchReceiptForTests: Equatable {
+        let generation: UInt64
+        let resumedRequestCount: Int
+    }
+    private let authenticatedReconnectDispatchReceiptLock = NSLock()
+    private var nextAuthenticatedReconnectDispatchGenerationForTests: UInt64 = 0
+    private var authenticatedReconnectDispatchReceiptsForTests: [
+        String: AuthenticatedReconnectDispatchReceiptForTests
+    ] = [:]
+#endif
 
     var groupchat: GroupchatManager? = nil
     var avatarUploader: AvatarUploadManager? = nil
@@ -445,6 +465,123 @@ class XMPPUIActionManager: NSObject {
             queue.async(execute: work)
         }
     }
+
+#if DEBUG
+    /// Stages only the connection state needed to make the next production
+    /// `performRequest` enter the existing pending-auth registry. It does not
+    /// enqueue, resolve, or execute an action itself and never opens a socket.
+    final func preparePendingAuthenticationForTests(
+        owner: String,
+        stream: XMPPStream,
+        archiveManager: MessageArchiveManager,
+        messageManager: MessageManager
+    ) {
+        performSynchronouslyOnManagerQueueForTests {
+            _ = self.pendingRequestRegistry.takeAll()
+            self.lifecycleCoordinator.reset(clearOwner: true)
+            self.currentJid = owner
+            self.stream = stream
+            self.messages = messageManager
+            self.mam = archiveManager
+            self.canSendStanzas = false
+            self.preRoutedMamCompletionIQIds.removeAll()
+            self.frameworkActivePhaseOverrideForTests = .connecting
+            guard case .start = self.lifecycleCoordinator.beginOpen(
+                owner: owner,
+                activePhase: nil
+            ) else {
+                assertionFailure("test pending-auth setup must own one connecting attempt")
+                return
+            }
+        }
+    }
+
+    /// Runs the same pending-request dispatcher used by
+    /// `xmppStreamDidAuthenticate`, on the manager's production owner queue.
+    /// The socket/authentication handshake itself remains outside unit tests.
+    @discardableResult
+    final func dispatchAuthenticatedReconnectForTests(owner: String) -> UInt64 {
+        authenticatedReconnectDispatchReceiptLock.lock()
+        nextAuthenticatedReconnectDispatchGenerationForTests &+= 1
+        let generation = nextAuthenticatedReconnectDispatchGenerationForTests
+        authenticatedReconnectDispatchReceiptsForTests[owner] = nil
+        authenticatedReconnectDispatchReceiptLock.unlock()
+
+        let dispatch = {
+            let resumedRequestCount: Int
+            if self.currentJid == owner {
+                let phase = self.lifecycleCoordinator.snapshot().phase
+                if phase != .online {
+                    self.lifecycleCoordinator.markTLSNegotiating()
+                    self.lifecycleCoordinator.markAuthenticating()
+                    self.lifecycleCoordinator.markBinding()
+                    self.lifecycleCoordinator.markOnline()
+                }
+                self.frameworkActivePhaseOverrideForTests = .online
+                self.canSendStanzas = true
+                resumedRequestCount = self.pendingRequestRegistry.count(
+                    owner: owner
+                )
+                self.resumePendingPerformRequests(owner: owner)
+            } else {
+                resumedRequestCount = 0
+            }
+            self.authenticatedReconnectDispatchReceiptLock.lock()
+            self.authenticatedReconnectDispatchReceiptsForTests[owner] =
+                AuthenticatedReconnectDispatchReceiptForTests(
+                    generation: generation,
+                    resumedRequestCount: resumedRequestCount
+                )
+            self.authenticatedReconnectDispatchReceiptLock.unlock()
+        }
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            dispatch()
+        } else {
+            queue.async(execute: dispatch)
+        }
+        return generation
+    }
+
+    final func authenticatedReconnectDispatchReceiptForTests(
+        owner: String
+    ) -> AuthenticatedReconnectDispatchReceiptForTests? {
+        authenticatedReconnectDispatchReceiptLock.lock()
+        defer { authenticatedReconnectDispatchReceiptLock.unlock() }
+        return authenticatedReconnectDispatchReceiptsForTests[owner]
+    }
+
+    final func pendingPerformRequestCountForTests(owner: String? = nil) -> Int {
+        performSynchronouslyOnManagerQueueForTests {
+            self.pendingRequestRegistry.count(owner: owner)
+        }
+    }
+
+    final func resetPendingAuthenticationForTests() {
+        performSynchronouslyOnManagerQueueForTests {
+            _ = self.pendingRequestRegistry.takeAll()
+            self.authenticatedReconnectDispatchReceiptLock.lock()
+            self.nextAuthenticatedReconnectDispatchGenerationForTests = 0
+            self.authenticatedReconnectDispatchReceiptsForTests.removeAll()
+            self.authenticatedReconnectDispatchReceiptLock.unlock()
+            self.frameworkActivePhaseOverrideForTests = nil
+            self.lifecycleCoordinator.reset(clearOwner: true)
+            self.currentJid = nil
+            self.canSendStanzas = false
+            self.stream = XMPPStream()
+            self.clearFeatureManagers()
+            self.shouldRecreate = true
+        }
+    }
+
+    private func performSynchronouslyOnManagerQueueForTests<Result>(
+        _ work: () -> Result
+    ) -> Result {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            return work()
+        }
+        return queue.sync(execute: work)
+    }
+#endif
 
     private func enqueuePendingPerformRequest(
         owner: String,
@@ -791,6 +928,11 @@ class XMPPUIActionManager: NSObject {
     }
 
     private func frameworkActivePhase() -> AccountStreamLifecyclePhase? {
+#if DEBUG
+        if let frameworkActivePhaseOverrideForTests {
+            return frameworkActivePhaseOverrideForTests
+        }
+#endif
         if self.stream.isAuthenticated {
             return .online
         }

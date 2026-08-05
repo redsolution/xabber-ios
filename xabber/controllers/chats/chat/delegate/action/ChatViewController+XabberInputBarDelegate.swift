@@ -515,8 +515,11 @@ extension ChatViewController: XabberInputBarDelegate {
     func onHeightChanged(to height: CGFloat, bar barHeight: CGFloat) {
         let wasNearBottom = self.isNearBottom()
         let visibleAnchor = wasNearBottom ? nil : self.capturePagingAnchorIfNeeded(direction: .older)
+        let inputMetrics = self.currentChatComposerKeyboardLayoutMetrics(
+            visualHeight: height
+        )
         self.applyChatComposerFrameUpdate(
-            inputHeight: height,
+            inputHeight: inputMetrics.collectionObstructionHeight,
             source: .composerHeight,
             wasNearBottom: wasNearBottom,
             visibleAnchor: visibleAnchor

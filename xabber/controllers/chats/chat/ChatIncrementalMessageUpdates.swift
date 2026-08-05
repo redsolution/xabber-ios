@@ -68,6 +68,27 @@ struct ChatIncrementalMessageIdentity: Hashable {
     }
 }
 
+/// Bounded, value-only revision used to bridge the interval between an
+/// initial-frame Realm lease and deferred notification registration. Identity
+/// alone cannot detect an edit, delivery-state transition, tombstone, or
+/// attachment/reference change to the same Realm row.
+struct ChatTimelineObservedMessageFingerprint: Equatable {
+    let identity: ChatIncrementalMessageIdentity
+    let richRevision: ChatMessageRichStorageRevision
+    let chromeRevision: ChatMessageChromeStorageRevision
+    let isDeleted: Bool
+
+    init(message: MessageStorageItem) {
+        identity = ChatIncrementalMessageIdentity(message: message)
+        richRevision = ChatMessageRichStorageRevision.capture(
+            message,
+            revealedSensitiveMediaPrimaries: []
+        )
+        chromeRevision = ChatMessageChromeStorageRevision.capture(message)
+        isDeleted = message.isDeleted
+    }
+}
+
 enum ChatIncrementalLatestObservationAction: Equatable {
     case upsert
     case delete
@@ -126,6 +147,20 @@ struct ChatIncrementalMessageMutation<Payload> {
 struct ChatIncrementalMessageMutationBatch<Payload> {
     let mutations: [ChatIncrementalMessageMutation<Payload>]
     let enqueuedMutationCount: Int
+    /// Resident Realm callbacks can outlive the bounded registration that
+    /// produced them. Revisions absent from this map are independent
+    /// latest-message mutations and must survive a resident replacement.
+    let residentGenerationByRevision: [UInt64: UInt64]
+
+    init(
+        mutations: [ChatIncrementalMessageMutation<Payload>],
+        enqueuedMutationCount: Int,
+        residentGenerationByRevision: [UInt64: UInt64] = [:]
+    ) {
+        self.mutations = mutations
+        self.enqueuedMutationCount = enqueuedMutationCount
+        self.residentGenerationByRevision = residentGenerationByRevision
+    }
 
     var applyCount: Int {
         mutations.isEmpty ? 0 : 1
@@ -246,6 +281,9 @@ struct ChatIncrementalResidentReducer {
         hardLimit: Int
     ) -> ChatIncrementalResidentApplyResult {
         var items = currentItems
+        // Capture once: every unknown upsert in this batch is classified
+        // against the same committed live-tail boundary.
+        let liveTailBoundary = items.last.map(ChatTimelinePositionKey.init(message:))
         var inserted: [String] = []
         var updated: [String] = []
         var deleted: [String] = []
@@ -284,11 +322,19 @@ struct ChatIncrementalResidentReducer {
                     items[existingIndex] = item
                     updated.append(stablePrimary)
                     applied += 1
-                } else if isResidentAtLiveTail {
+                } else if isResidentAtLiveTail,
+                          liveTailBoundary.map({
+                              $0 < ChatTimelinePositionKey(message: item)
+                          }) ?? true {
+                    // A Realm latest-row notification can point at the newest
+                    // row of an older MAM page while that page is still being
+                    // persisted. It is not a live-tail insertion: admitting it
+                    // here shifts the paging boundary before the terminal page
+                    // refetch and makes an 80-row repair publish 161 rows.
                     items.append(item)
                     inserted.append(item.primary)
                     applied += 1
-                } else if !item.outgoing {
+                } else if !isResidentAtLiveTail, !item.outgoing {
                     nonResidentIncoming.append(item.primary)
                 }
             }

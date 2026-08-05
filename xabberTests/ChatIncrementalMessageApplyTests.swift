@@ -210,6 +210,133 @@ final class ChatIncrementalMessageApplyTests: XCTestCase {
         XCTAssertEqual(result.diagnostics.applyCount, 1)
     }
 
+    func testHistoricalArchiveUpsertDoesNotMutateLiveTailResidentWindow() {
+        var reducer = ChatIncrementalResidentReducer()
+        let current = (240..<320).map {
+            message(
+                primary: "message-\($0)",
+                messageId: "origin-\($0)",
+                archivedId: "\($0)",
+                date: TimeInterval($0),
+                outgoing: false
+            )
+        }
+        let historical = message(
+            primary: "message-239",
+            messageId: "origin-239",
+            archivedId: "239",
+            date: 239,
+            outgoing: false
+        )
+
+        let result = reducer.apply(
+            currentItems: current,
+            mutations: [
+                .upsert(
+                    identity: ChatIncrementalMessageIdentity(message: historical),
+                    revision: 1,
+                    payload: historical
+                )
+            ],
+            isResidentAtLiveTail: true,
+            hardLimit: 480
+        )
+
+        XCTAssertEqual(result.items.map(\.primary), current.map(\.primary))
+        XCTAssertTrue(result.changeSet.isEmpty)
+        XCTAssertEqual(result.diagnostics.appliedMutationCount, 0)
+    }
+
+    func testGenuineNewerIncomingStillAppendsAtLiveTail() {
+        var reducer = ChatIncrementalResidentReducer()
+        let current = (240..<320).map {
+            message(
+                primary: "message-\($0)",
+                messageId: "origin-\($0)",
+                archivedId: "\($0)",
+                date: TimeInterval($0),
+                outgoing: false
+            )
+        }
+        let incoming = message(
+            primary: "message-320",
+            messageId: "origin-320",
+            archivedId: "320",
+            date: 320,
+            outgoing: false
+        )
+
+        let result = reducer.apply(
+            currentItems: current,
+            mutations: [
+                .upsert(
+                    identity: ChatIncrementalMessageIdentity(message: incoming),
+                    revision: 1,
+                    payload: incoming
+                )
+            ],
+            isResidentAtLiveTail: true,
+            hardLimit: 480
+        )
+
+        XCTAssertEqual(result.items.count, 81)
+        XCTAssertEqual(result.items.last?.primary, "message-320")
+        XCTAssertEqual(result.changeSet.insertedPrimaries, ["message-320"])
+        XCTAssertEqual(result.diagnostics.appliedMutationCount, 1)
+    }
+
+    func testOutOfOrderNewerBatchUsesOriginalLiveTailBoundary() {
+        var reducer = ChatIncrementalResidentReducer()
+        let current = (240..<320).map {
+            message(
+                primary: "message-\($0)",
+                messageId: "origin-\($0)",
+                archivedId: "\($0)",
+                date: TimeInterval($0),
+                outgoing: false
+            )
+        }
+        let newestFirst = message(
+            primary: "message-321",
+            messageId: "origin-321",
+            archivedId: "321",
+            date: 321,
+            outgoing: false
+        )
+        let earlierSecond = message(
+            primary: "message-320",
+            messageId: "origin-320",
+            archivedId: "320",
+            date: 320,
+            outgoing: false
+        )
+
+        let result = reducer.apply(
+            currentItems: current,
+            mutations: [
+                .upsert(
+                    identity: ChatIncrementalMessageIdentity(message: newestFirst),
+                    revision: 1,
+                    payload: newestFirst
+                ),
+                .upsert(
+                    identity: ChatIncrementalMessageIdentity(message: earlierSecond),
+                    revision: 2,
+                    payload: earlierSecond
+                )
+            ],
+            isResidentAtLiveTail: true,
+            hardLimit: 480
+        )
+
+        XCTAssertEqual(result.items.suffix(2).map(\.primary), ["message-320", "message-321"])
+        XCTAssertEqual(
+            result.changeSet.insertedPrimaries,
+            ["message-321", "message-320"]
+        )
+        XCTAssertEqual(result.diagnostics.appliedMutationCount, 2)
+    }
+
     func testUnknownIncomingAwayFromLiveTailDoesNotReplaceResidentWindow() {
         var reducer = ChatIncrementalResidentReducer()
         let current = (0..<4).map {

@@ -28,7 +28,186 @@ import MaterialComponents
 import SignalProtocolObjC
 @testable import xabber
 
+/// Resolves the real application scene used by hosted XCTest. The helper waits
+/// through a transient lifecycle transition, but never creates, substitutes,
+/// or requests activation of a scene. It fails closed when the single-scene
+/// test host has no unambiguous foreground-active application session.
+@MainActor
+func requireHostedForegroundWindowScene(
+    timeout: TimeInterval = 3,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) throws -> UIWindowScene {
+    func diagnosticSnapshot() -> String {
+        let openSessions = UIApplication.shared.openSessions.map {
+            "session=\($0.persistentIdentifier),role=\($0.role.rawValue)"
+        }.sorted().joined(separator: ";")
+        let connectedScenes = UIApplication.shared.connectedScenes.map {
+            "session=\($0.session.persistentIdentifier)," +
+                "role=\($0.session.role.rawValue)," +
+                "state=\($0.activationState.rawValue)"
+        }.sorted().joined(separator: ";")
+        return "open=[\(openSessions)] connected=[\(connectedScenes)] " +
+            "applicationState=\(UIApplication.shared.applicationState.rawValue)"
+    }
+
+    func activeWindowScenes(for session: UISceneSession) -> [UIWindowScene] {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter {
+                $0.session.role == .windowApplication &&
+                    $0.session.persistentIdentifier ==
+                        session.persistentIdentifier &&
+                    $0.activationState == .foregroundActive
+            }
+    }
+
+    let applicationSessions = UIApplication.shared.openSessions.filter {
+        $0.role == .windowApplication
+    }
+    guard applicationSessions.count == 1,
+          let session = applicationSessions.first else {
+        XCTFail(
+            "hosted tests require exactly one real application scene session; " +
+                "applicationSessions=\(applicationSessions.count) " +
+                diagnosticSnapshot(),
+            file: file,
+            line: line
+        )
+        throw HostedForegroundWindowSceneError.unavailable
+    }
+
+    let initiallyActiveScenes = activeWindowScenes(for: session)
+    guard initiallyActiveScenes.count <= 1 else {
+        XCTFail(
+            "hosted test session resolved multiple active window scenes; " +
+                "session=\(session.persistentIdentifier) " +
+                "role=\(session.role.rawValue) " + diagnosticSnapshot(),
+            file: file,
+            line: line
+        )
+        throw HostedForegroundWindowSceneError.unavailable
+    }
+    if let scene = initiallyActiveScenes.first {
+        return scene
+    }
+
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        let activeScenes = activeWindowScenes(for: session)
+        guard activeScenes.count <= 1 else {
+            XCTFail(
+                "hosted test session resolved multiple active window scenes; " +
+                    "session=\(session.persistentIdentifier) " +
+                    "role=\(session.role.rawValue) " + diagnosticSnapshot(),
+                file: file,
+                line: line
+            )
+            throw HostedForegroundWindowSceneError.unavailable
+        }
+        if let scene = activeScenes.first {
+            return scene
+        }
+        RunLoop.current.run(
+            mode: .default,
+            before: Date().addingTimeInterval(0.01)
+        )
+    }
+
+    XCTFail(
+        "hosted test scene did not become foreground-active; " +
+        "session=\(session.persistentIdentifier) " +
+            "role=\(session.role.rawValue) " + diagnosticSnapshot(),
+        file: file,
+        line: line
+    )
+    throw HostedForegroundWindowSceneError.unavailable
+}
+
+private enum HostedForegroundWindowSceneError: Error {
+    case unavailable
+}
+
 final class AppLaunchEnvironmentPolicyTests: XCTestCase {
+    func testHostedXCTestSuppressesLastChatsNotificationAuthorizationPrompt() {
+        XCTAssertFalse(
+            LastChatsNotificationAuthorizationPromptPolicy.shouldRequest(
+                isLastChatsVisible: true,
+                applicationState: .active,
+                sceneActivationState: .foregroundActive,
+                environment: [
+                    AppLaunchEnvironmentPolicy.hostedXCTestEnvironmentKey:
+                        "/tmp/test.xctestconfiguration",
+                    AppLaunchEnvironmentPolicy
+                        .disableAccountAutoconnectEnvironmentKey: "1",
+                    AppLaunchEnvironmentPolicy.isolatedStorageEnvironmentKey:
+                        "1"
+                ],
+                arguments: ["xabber"]
+            )
+        )
+    }
+
+    func testPerformanceFixtureSuppressesLastChatsNotificationAuthorizationPrompt() {
+        XCTAssertFalse(
+            LastChatsNotificationAuthorizationPromptPolicy.shouldRequest(
+                isLastChatsVisible: true,
+                applicationState: .active,
+                sceneActivationState: .foregroundActive,
+                environment: [
+                    ChatPerformanceUITestLaunchPolicy.uiTestMarkerKey: "1"
+                ],
+                arguments: [
+                    "xabber",
+                    ChatPerformanceUITestLaunchPolicy.launchArgument,
+                    ChatPerformanceFixtureScale.small.rawValue
+                ]
+            )
+        )
+    }
+
+    func testNormalVisibleForegroundLastChatsAllowsNotificationAuthorizationPrompt() {
+        XCTAssertTrue(
+            LastChatsNotificationAuthorizationPromptPolicy.shouldRequest(
+                isLastChatsVisible: true,
+                applicationState: .active,
+                sceneActivationState: .foregroundActive,
+                environment: [:],
+                arguments: ["xabber"]
+            )
+        )
+    }
+
+    func testHiddenOrInactiveLastChatsSuppressesNotificationAuthorizationPrompt() {
+        XCTAssertFalse(
+            LastChatsNotificationAuthorizationPromptPolicy.shouldRequest(
+                isLastChatsVisible: false,
+                applicationState: .active,
+                sceneActivationState: .foregroundActive,
+                environment: [:],
+                arguments: ["xabber"]
+            )
+        )
+        XCTAssertFalse(
+            LastChatsNotificationAuthorizationPromptPolicy.shouldRequest(
+                isLastChatsVisible: true,
+                applicationState: .inactive,
+                sceneActivationState: .foregroundActive,
+                environment: [:],
+                arguments: ["xabber"]
+            )
+        )
+        XCTAssertFalse(
+            LastChatsNotificationAuthorizationPromptPolicy.shouldRequest(
+                isLastChatsVisible: true,
+                applicationState: .active,
+                sceneActivationState: .foregroundInactive,
+                environment: [:],
+                arguments: ["xabber"]
+            )
+        )
+    }
+
     func testHostedXCTestCanDisableAccountAutoconnect() {
         XCTAssertFalse(AppLaunchEnvironmentPolicy.shouldAutoconnectAccounts(
             isPushKit: false,
@@ -71,6 +250,22 @@ final class AppLaunchEnvironmentPolicyTests: XCTestCase {
                 AppLaunchEnvironmentPolicy.isolatedStorageEnvironmentKey: "1"
             ]
         ))
+    }
+
+    @MainActor
+    func testHostedForegroundWindowSceneUsesSoleApplicationSession() throws {
+        let scene = try requireHostedForegroundWindowScene()
+        let applicationSessions = UIApplication.shared.openSessions.filter {
+            $0.role == .windowApplication
+        }
+
+        XCTAssertEqual(applicationSessions.count, 1)
+        XCTAssertEqual(scene.session.role, .windowApplication)
+        XCTAssertEqual(
+            scene.session.persistentIdentifier,
+            try XCTUnwrap(applicationSessions.first?.persistentIdentifier)
+        )
+        XCTAssertEqual(scene.activationState, .foregroundActive)
     }
 }
 
@@ -963,8 +1158,9 @@ final class InfoCardChatSearchRoutingTests: XCTestCase {
             jid: String,
             conversationType: ClientSynchronizationManager.ConversationType,
             openMessageRequest: ChatOpenMessageRequest?,
+            navigationSource: ChatOpenNavigationSource,
             configure: ((ChatViewController?) -> Void)?
-        ) {
+        ) -> Bool {
             capturedRoutes.append(CapturedRoute(
                 owner: owner,
                 jid: jid,
@@ -972,6 +1168,7 @@ final class InfoCardChatSearchRoutingTests: XCTestCase {
                 openMessageRequest: openMessageRequest,
                 configure: configure
             ))
+            return true
         }
     }
 
@@ -2688,7 +2885,7 @@ final class ChatSearchArchiveGapRepairTests: XCTestCase {
                 state: state,
                 hasLocalMatch: false,
                 persistedMessageCount: 0,
-                remoteResultCount: 0,
+                hasObservedNewerSnapshot: false,
                 pageSize: ChatHistoryPagingConfiguration.pageSize
             ),
             .startRemoteFetch(.dateWindow(
@@ -2796,7 +2993,7 @@ final class ChatSearchArchiveGapRepairTests: XCTestCase {
                 state: state,
                 hasLocalMatch: stored != nil,
                 persistedMessageCount: result.state.persistedMessageCount,
-                remoteResultCount: 1,
+                hasObservedNewerSnapshot: true,
                 pageSize: ChatHistoryPagingConfiguration.pageSize
             ),
             .resolveLocally
@@ -12207,6 +12404,1179 @@ final class NotificationsFeatureTests: XCTestCase {
     }
 }
 
+@MainActor
+final class MentionOpenRoutingTests: XCTestCase {
+
+    private final class RouteSpy: LeftMenuSelectRootScreenDelegate {
+        private(set) var receivedRequest: ChatOpenMessageRequest?
+        private(set) var receivedRequests: [ChatOpenMessageRequest?] = []
+        private(set) var receivedNavigationSource: ChatOpenNavigationSource?
+        private(set) var receivedConfigureWasNil = false
+        private(set) var openCount = 0
+        var routeResult = true
+
+        func selectRootScreenAndCategory(screen key: String, category: String?) {}
+
+        func openChatlistWithChat(
+            owner: String,
+            jid: String,
+            conversationType: ClientSynchronizationManager.ConversationType,
+            openMessageRequest: ChatOpenMessageRequest?,
+            navigationSource: ChatOpenNavigationSource,
+            configure: ((ChatViewController?) -> Void)?
+        ) -> Bool {
+            receivedRequest = openMessageRequest
+            receivedRequests.append(openMessageRequest)
+            receivedNavigationSource = navigationSource
+            receivedConfigureWasNil = configure == nil
+            openCount += 1
+            return routeResult
+        }
+    }
+
+    private let owner = "mention-route-owner@example.com"
+    private let groupchatJid = "mention-route-room@example.com"
+    private let unrelatedGroupchatJid = "unrelated-room@example.com"
+    private let currentMemberId = "member-self"
+    private var previousRealmConfiguration: Realm.Configuration!
+    private var previousPresentedController: UIViewController?
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "MentionOpenRoutingTests-\(name)"
+        )
+        let modalAccess = ModalPresentationCurrentControllerAccess.application
+        previousPresentedController = modalAccess.get()
+        modalAccess.set(nil)
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.deleteAll()
+        }
+    }
+
+    override func tearDownWithError() throws {
+        ModalPresentationCurrentControllerAccess.application.set(
+            previousPresentedController
+        )
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        try super.tearDownWithError()
+    }
+
+    func testDeletedTappedMentionAdvancesOrFailsWithoutReportingLatestAsSuccess() throws {
+        let realm = try WRealm.safe()
+        let deletedMessage = makeMessage(
+            primary: "deleted-message",
+            archivedId: "100",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 10),
+            isDeleted: true
+        )
+        let nextMessage = makeMessage(
+            primary: "next-message",
+            archivedId: "200",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 20),
+            isDeleted: false
+        )
+        let terminalDeletedMessage = makeMessage(
+            primary: "terminal-deleted-message",
+            archivedId: "300",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 30),
+            isDeleted: true
+        )
+        let unrelatedMessage = makeMessage(
+            primary: "unrelated-message",
+            archivedId: "900",
+            groupchatJid: unrelatedGroupchatJid,
+            date: Date(timeIntervalSince1970: 90),
+            isDeleted: false
+        )
+        let deletedNotification = makeNotification(
+            primary: "deleted-notification",
+            archivedId: "100",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 10)
+        )
+        let nextNotification = makeNotification(
+            primary: "next-notification",
+            archivedId: "200",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 20)
+        )
+        let terminalDeletedNotification = makeNotification(
+            primary: "terminal-deleted-notification",
+            archivedId: "300",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 30)
+        )
+        let unrelatedNotification = makeNotification(
+            primary: "unrelated-notification",
+            archivedId: "900",
+            groupchatJid: unrelatedGroupchatJid,
+            date: Date(timeIntervalSince1970: 90)
+        )
+        let chat = makeLastChat(
+            jid: groupchatJid,
+            mentionId: deletedNotification.sourceArchivedId
+        )
+        let unrelatedChat = makeLastChat(
+            jid: unrelatedGroupchatJid,
+            mentionId: unrelatedNotification.sourceArchivedId
+        )
+
+        try realm.write {
+            [
+                deletedMessage,
+                nextMessage,
+                terminalDeletedMessage,
+                unrelatedMessage
+            ].forEach { realm.add($0, update: .modified) }
+            [
+                deletedNotification,
+                nextNotification,
+                terminalDeletedNotification,
+                unrelatedNotification
+            ].forEach { realm.add($0, update: .modified) }
+            [chat, unrelatedChat].forEach { realm.add($0, update: .modified) }
+        }
+
+        let previousActiveCoordinator = AppRootCoordinator.active
+        let modalAccess = ModalPresentationCurrentControllerAccess.application
+        let previousPresentedController = modalAccess.get()
+        defer {
+            AppRootCoordinator.active = previousActiveCoordinator
+            ModalPresentationCurrentControllerAccess.application.set(previousPresentedController)
+        }
+        AppRootCoordinator.active = nil
+        modalAccess.set(nil)
+        let routeSpy = RouteSpy()
+        let controller = NotificationsListViewController()
+        controller.leftMenuDelegate = routeSpy
+        controller.datasource = [
+            NotificationsListViewController.Datasource(
+                title: "Mentions",
+                key: "notifications",
+                childs: [
+                    NotificationsListViewController.DatasourceChild(
+                        primary: deletedNotification.primary,
+                        category: .mention,
+                        owner: owner,
+                        jid: groupchatJid,
+                        title: NSAttributedString(string: "Mention"),
+                        date: deletedNotification.date,
+                        badgeIcon: "at",
+                        isRead: false,
+                        isHeader: false
+                    )
+                ]
+            )
+        ]
+
+        let selectedIndexPath = controller.tableView(
+            controller.tableView,
+            willSelectRowAt: IndexPath(row: 0, section: 0)
+        )
+        XCTAssertEqual(selectedIndexPath, IndexPath(row: 0, section: 0))
+        XCTAssertFalse(deletedNotification.isRead)
+
+        controller.tableView(
+            controller.tableView,
+            didSelectRowAt: IndexPath(row: 0, section: 0)
+        )
+
+        let request = try XCTUnwrap(routeSpy.receivedRequest)
+        XCTAssertEqual(routeSpy.openCount, 1)
+        XCTAssertEqual(routeSpy.receivedNavigationSource, .standard)
+        XCTAssertTrue(routeSpy.receivedConfigureWasNil)
+        XCTAssertEqual(request.source, .mentionNotification)
+        XCTAssertEqual(request.chatJid, groupchatJid)
+        XCTAssertEqual(request.conversationType, .group)
+        XCTAssertEqual(request.anchor.archivedId, nextNotification.sourceArchivedId)
+        XCTAssertTrue(request.highlight)
+        XCTAssertTrue(request.markReadOnVisible)
+
+        XCTAssertEqual(deletedNotification.mentionLinkStatus, .missing)
+        XCTAssertTrue(deletedNotification.isRead)
+        XCTAssertFalse(deletedNotification.shouldShow)
+        XCTAssertFalse(deletedMessage.isRead)
+        XCTAssertFalse(nextNotification.isRead)
+        XCTAssertTrue(nextNotification.shouldShow)
+        XCTAssertFalse(nextMessage.isRead)
+        XCTAssertEqual(chat.mentionId, terminalDeletedNotification.sourceArchivedId)
+
+        var unavailableResolution: NotificationsMentionOpenResolution?
+        try realm.write {
+            nextNotification.isRead = true
+            nextNotification.shouldShow = false
+            unavailableResolution = NotificationsMentionOpenRouter.resolve(
+                notificationPrimary: terminalDeletedNotification.primary,
+                in: realm
+            )
+        }
+
+        XCTAssertEqual(
+            unavailableResolution,
+            .unavailable(.deletedTargetHasNoFollowingMention)
+        )
+        XCTAssertEqual(terminalDeletedNotification.mentionLinkStatus, .missing)
+        XCTAssertTrue(terminalDeletedNotification.isRead)
+        XCTAssertFalse(terminalDeletedNotification.shouldShow)
+        XCTAssertFalse(terminalDeletedMessage.isRead)
+        XCTAssertNil(chat.mentionId)
+
+        XCTAssertFalse(unrelatedNotification.isRead)
+        XCTAssertTrue(unrelatedNotification.shouldShow)
+        XCTAssertEqual(unrelatedNotification.mentionLinkStatus, .resolved)
+        XCTAssertFalse(unrelatedMessage.isRead)
+        XCTAssertEqual(unrelatedChat.mentionId, unrelatedNotification.sourceArchivedId)
+    }
+
+    func testP13DeletedMentionWithoutFollowingTargetDoesNotNavigateOrReportLatestSuccess()
+        throws {
+        let previousActiveCoordinator = AppRootCoordinator.active
+        let previousInterfaceType =
+            CommonConfigManager.shared.config.interface_type
+        let previousUsers = AccountManager.shared.users
+        let previousActiveUsers = AccountManager.shared.activeUsers.value
+        let previousAuthenticatedUsers =
+            AccountManager.shared.authenticatedUsers.value
+        let previousConnectingUsers =
+            AccountManager.shared.connectingUsers.value
+        let scene = try requireHostedForegroundWindowScene()
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            NotifyManager.shared
+                .resetPendingMessageNotificationChatRouteForTesting()
+            AccountManager.shared.users = previousUsers
+            AccountManager.shared.activeUsers.accept(previousActiveUsers)
+            AccountManager.shared.authenticatedUsers.accept(
+                previousAuthenticatedUsers
+            )
+            AccountManager.shared.connectingUsers.accept(
+                previousConnectingUsers
+            )
+            CommonConfigManager.shared.config.interface_type =
+                previousInterfaceType
+            AppRootCoordinator.active = previousActiveCoordinator
+            previousKeyWindow?.makeKey()
+            ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
+        }
+
+        let descriptor = ChatPerformanceUITestLaunchDescriptor(
+            scale: .small,
+            openScenario: .mentionDeletedAdvance
+        )
+        let coordinator = AppRootCoordinator(window: window, appDelegate: nil)
+        coordinator.startChatPerformanceProductionRouteFixture(
+            descriptor: descriptor
+        )
+        let tabController = try XCTUnwrap(
+            window.rootViewController as? XabberTabBarViewController
+        )
+        let chatsNavigationController = try XCTUnwrap(
+            tabController.viewControllers?.first as? UINavigationController
+        )
+        let lastChatsHost = try XCTUnwrap(
+            chatsNavigationController.viewControllers.first as?
+                ChatPerformanceLastChatsRouteHostViewController
+        )
+        let destination = try XCTUnwrap(
+            lastChatsHost.compactChatDestinationFactory() as?
+                ChatPerformanceFixtureViewController
+        )
+        let notificationsNavigationController = try XCTUnwrap(
+            tabController.viewControllers?[2] as? UINavigationController
+        )
+        let notificationsHost = try XCTUnwrap(
+            notificationsNavigationController.viewControllers.first as?
+                ChatPerformanceMentionNotificationsRouteHostViewController
+        )
+        defer {
+            chatsNavigationController.delegate = nil
+            destination.performOpenScenarioTerminalResourceTeardown()
+        }
+
+        try destination.prepareP13NoFollowingMentionBranchForTesting()
+        let stagingRealm = try WRealm.safe()
+        let stagedFollowingNotification = try XCTUnwrap(
+            stagingRealm.object(
+                ofType: NotificationStorageItem.self,
+                forPrimaryKey:
+                    destination.p13NextMentionNotificationPrimaryForTesting
+            )
+        )
+        XCTAssertFalse(
+            destination
+                .isP13DeletedMentionTapBoundaryPreparedForTesting
+        )
+        XCTAssertEqual(
+            stagedFollowingNotification.mentionLinkStatus,
+            .resolved
+        )
+        XCTAssertTrue(stagedFollowingNotification.isRead)
+        XCTAssertFalse(stagedFollowingNotification.shouldShow)
+        XCTAssertFalse(try XCTUnwrap(stagingRealm.object(
+            ofType: MessageStorageItem.self,
+            forPrimaryKey: destination.openScenarioPrimary(
+                ChatOpenRealPipelineFixturePlan(
+                    scenario: .mentionDeletedAdvance
+                ).p13NextValidMentionOrdinal
+            )
+        )).isDeleted)
+        XCTAssertTrue(
+            (notificationsHost.leftMenuDelegate as AnyObject?) ===
+                (coordinator as AnyObject)
+        )
+        XCTAssertEqual(tabController.selectedIndex, 2)
+        XCTAssertNil(destination.pendingOpenMessageRequest)
+        XCTAssertNil(lastChatsHost.chatNavigationSingleFlight.state)
+        XCTAssertEqual(chatsNavigationController.viewControllers.count, 1)
+
+        window.makeKeyAndVisible()
+        XCTAssertTrue(waitForP13Condition(timeout: 8) {
+            notificationsHost.performanceP13SourceRowVisibleForTesting
+        })
+        stagingRealm.refresh()
+        XCTAssertTrue(
+            destination
+                .isP13DeletedMentionTapBoundaryPreparedForTesting
+        )
+        XCTAssertTrue(try XCTUnwrap(stagingRealm.object(
+            ofType: MessageStorageItem.self,
+            forPrimaryKey: destination.openScenarioPrimary(
+                ChatOpenRealPipelineFixturePlan(
+                    scenario: .mentionDeletedAdvance
+                ).p13DeletedMentionOrdinal
+            )
+        )).isDeleted)
+        XCTAssertFalse(try XCTUnwrap(stagingRealm.object(
+            ofType: MessageStorageItem.self,
+            forPrimaryKey: destination.openScenarioPrimary(
+                ChatOpenRealPipelineFixturePlan(
+                    scenario: .mentionDeletedAdvance
+                ).p13NextValidMentionOrdinal
+            )
+        )).isDeleted)
+        XCTAssertEqual(
+            stagedFollowingNotification.mentionLinkStatus,
+            .resolved
+        )
+        XCTAssertTrue(stagedFollowingNotification.isRead)
+        XCTAssertFalse(stagedFollowingNotification.shouldShow)
+        XCTAssertTrue(
+            notificationsHost.performanceP13DatasourceWasProductionAppliedForTesting
+        )
+        XCTAssertTrue(notificationsHost.performP13SourceRowTapForTesting())
+        XCTAssertTrue(waitForP13Condition(timeout: 4) {
+            notificationsHost.performanceP13AttemptCountForTesting == 1
+        })
+
+        XCTAssertEqual(
+            notificationsHost.performanceP13SourceRowTapCountForTesting,
+            1
+        )
+        XCTAssertEqual(
+            notificationsHost.performanceP13InvalidationCountForTesting,
+            1
+        )
+        XCTAssertEqual(
+            notificationsHost.performanceP13AdvanceCountForTesting,
+            0
+        )
+        XCTAssertEqual(
+            notificationsHost.performanceP13UnavailableCountForTesting,
+            1
+        )
+        XCTAssertEqual(
+            notificationsHost
+                .performanceP13SelectedNextIdentityCountForTesting,
+            0
+        )
+        XCTAssertEqual(
+            notificationsHost
+                .performanceP13UnrelatedGroupPreservedCountForTesting,
+            1
+        )
+        XCTAssertEqual(tabController.selectedIndex, 2)
+        XCTAssertNil(lastChatsHost.chatNavigationSingleFlight.state)
+        XCTAssertNil(lastChatsHost.chatOpenIntentOwnership)
+        XCTAssertEqual(chatsNavigationController.viewControllers.count, 1)
+        XCTAssertTrue(
+            chatsNavigationController.viewControllers.first === lastChatsHost
+        )
+        XCTAssertFalse(destination.isViewLoaded)
+        XCTAssertNil(destination.pendingOpenMessageRequest)
+        XCTAssertNil(destination.openScenarioStableReceipt)
+        XCTAssertEqual(
+            lastChatsHost.performanceRouteHostDiagnosticsSnapshot
+                .routeAttemptCount,
+            0
+        )
+        XCTAssertEqual(
+            lastChatsHost.performanceRouteHostDiagnosticsSnapshot
+                .nativePushCount,
+            0
+        )
+
+        let realm = try WRealm.safe()
+        let deleted = try XCTUnwrap(realm.object(
+            ofType: NotificationStorageItem.self,
+            forPrimaryKey:
+                destination.p13DeletedMentionNotificationPrimaryForTesting
+        ))
+        let unrelated = try XCTUnwrap(realm.object(
+            ofType: NotificationStorageItem.self,
+            forPrimaryKey:
+                destination.p13UnrelatedMentionNotificationPrimaryForTesting
+        ))
+        XCTAssertEqual(deleted.mentionLinkStatus, .missing)
+        XCTAssertTrue(deleted.isRead)
+        XCTAssertFalse(deleted.shouldShow)
+        XCTAssertEqual(unrelated.mentionLinkStatus, .resolved)
+        XCTAssertFalse(unrelated.isRead)
+        XCTAssertTrue(unrelated.shouldShow)
+        XCTAssertTrue(waitForP13Condition(timeout: 4) {
+            !notificationsHost.datasource.contains { section in
+                section.childs.contains {
+                    $0.primary == deleted.primary
+                }
+            }
+        })
+    }
+
+    func testRapidDeletedMentionRowTapResolvesOnceAndRoutesOnlySelectedNextIdentity()
+        throws {
+        let realm = try WRealm.safe()
+        let deletedMessage = makeMessage(
+            primary: "rapid-deleted-message",
+            archivedId: "100",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 10),
+            isDeleted: true
+        )
+        let nextMessage = makeMessage(
+            primary: "rapid-next-message",
+            archivedId: "200",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 20),
+            isDeleted: false
+        )
+        let deletedNotification = makeNotification(
+            primary: "rapid-deleted-notification",
+            archivedId: "100",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 10)
+        )
+        let nextNotification = makeNotification(
+            primary: "rapid-next-notification",
+            archivedId: "200",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 20)
+        )
+        try realm.write {
+            realm.add(makeEnabledAccount(), update: .modified)
+            realm.add(deletedMessage, update: .modified)
+            realm.add(nextMessage, update: .modified)
+            realm.add(deletedNotification, update: .modified)
+            realm.add(nextNotification, update: .modified)
+            realm.add(
+                makeLastChat(
+                    jid: groupchatJid,
+                    mentionId: deletedNotification.sourceArchivedId
+                ),
+                update: .modified
+            )
+        }
+
+        let routeSpy = RouteSpy()
+        let controller = makeMappedNotificationsController(
+            routeSpy: routeSpy
+        )
+        let indexPath = try notificationIndexPath(
+            primary: deletedNotification.primary,
+            in: controller
+        )
+        var attempts: [NotificationsMentionOpenAttemptDiagnostics] = []
+        var duplicateDrops: [String] = []
+        var realmEntries: [NotificationsMentionOpenRealmEntryDiagnostics] = []
+        controller.mentionOpenAttemptObserverForTests = {
+            attempts.append($0)
+        }
+        controller.mentionOpenDuplicateDropObserverForTests = {
+            duplicateDrops.append($0)
+        }
+        controller.mentionOpenRealmEntryObserverForTests = {
+            realmEntries.append($0)
+        }
+
+        controller.tableView(controller.tableView, didSelectRowAt: indexPath)
+        controller.tableView(controller.tableView, didSelectRowAt: indexPath)
+
+        XCTAssertEqual(attempts.count, 1)
+        XCTAssertEqual(attempts.first?.tappedNotificationPrimary, deletedNotification.primary)
+        let expectedRequest = try XCTUnwrap(
+            NotificationsListViewController.mentionOpenRequest(
+                for: nextNotification
+            )
+        )
+        XCTAssertEqual(
+            attempts.first?.resolution,
+            .exact(
+                expectedRequest,
+                invalidatedNotificationPrimary: deletedNotification.primary
+            )
+        )
+        XCTAssertEqual(
+            attempts.first?.selectedNotificationPrimary,
+            nextNotification.primary
+        )
+        XCTAssertEqual(attempts.first?.didNavigate, true)
+        XCTAssertEqual(duplicateDrops, [deletedNotification.primary])
+        XCTAssertEqual(
+            realmEntries,
+            [
+                NotificationsMentionOpenRealmEntryDiagnostics(
+                    notificationPrimary: deletedNotification.primary,
+                    phase: .authoritativeCategory,
+                    claimWasHeld: true
+                ),
+                NotificationsMentionOpenRealmEntryDiagnostics(
+                    notificationPrimary: deletedNotification.primary,
+                    phase: .mentionResolution,
+                    claimWasHeld: true
+                )
+            ],
+            "the admitted callback must hold its claim at every Realm entry, while the rapid duplicate emits no entry"
+        )
+        XCTAssertTrue(realmEntries.allSatisfy(\.claimWasHeld))
+        XCTAssertEqual(routeSpy.openCount, 1)
+        XCTAssertEqual(
+            routeSpy.receivedRequest?.anchor.archivedId,
+            nextNotification.sourceArchivedId
+        )
+        XCTAssertEqual(
+            controller.claimedMentionOpenNotificationPrimariesForTests,
+            [deletedNotification.primary]
+        )
+        realm.refresh()
+        XCTAssertEqual(deletedNotification.mentionLinkStatus, .missing)
+        XCTAssertTrue(deletedNotification.isRead)
+        XCTAssertFalse(deletedNotification.shouldShow)
+        XCTAssertFalse(nextNotification.isRead)
+        XCTAssertTrue(nextNotification.shouldShow)
+    }
+
+    func testFailedValidMentionRouteReleasesClaimForExplicitRetry() throws {
+        let realm = try WRealm.safe()
+        let message = makeMessage(
+            primary: "failed-route-message",
+            archivedId: "400",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 40),
+            isDeleted: false
+        )
+        let notification = makeNotification(
+            primary: "failed-route-notification",
+            archivedId: "400",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 40)
+        )
+        try realm.write {
+            realm.add(makeEnabledAccount(), update: .modified)
+            realm.add(message, update: .modified)
+            realm.add(notification, update: .modified)
+            realm.add(
+                makeLastChat(
+                    jid: groupchatJid,
+                    mentionId: notification.sourceArchivedId
+                ),
+                update: .modified
+            )
+        }
+
+        let routeSpy = RouteSpy()
+        routeSpy.routeResult = false
+        let controller = makeMappedNotificationsController(
+            routeSpy: routeSpy
+        )
+        let indexPath = try notificationIndexPath(
+            primary: notification.primary,
+            in: controller
+        )
+        var attempts: [NotificationsMentionOpenAttemptDiagnostics] = []
+        var duplicateDrops: [String] = []
+        controller.mentionOpenAttemptObserverForTests = {
+            attempts.append($0)
+        }
+        controller.mentionOpenDuplicateDropObserverForTests = {
+            duplicateDrops.append($0)
+        }
+
+        controller.tableView(controller.tableView, didSelectRowAt: indexPath)
+        XCTAssertTrue(controller.claimedMentionOpenNotificationPrimariesForTests.isEmpty)
+        controller.tableView(controller.tableView, didSelectRowAt: indexPath)
+
+        let expectedRequest = try XCTUnwrap(
+            NotificationsListViewController.mentionOpenRequest(
+                for: notification
+            )
+        )
+        XCTAssertEqual(routeSpy.openCount, 2)
+        XCTAssertEqual(attempts.count, 2)
+        XCTAssertEqual(
+            attempts.map(\.resolution),
+            [
+                .exact(
+                    expectedRequest,
+                    invalidatedNotificationPrimary: nil
+                ),
+                .exact(
+                    expectedRequest,
+                    invalidatedNotificationPrimary: nil
+                )
+            ]
+        )
+        XCTAssertTrue(attempts.allSatisfy { !$0.didNavigate })
+        XCTAssertTrue(attempts.allSatisfy {
+            $0.selectedNotificationPrimary == notification.primary
+        })
+        XCTAssertTrue(duplicateDrops.isEmpty)
+        XCTAssertTrue(controller.claimedMentionOpenNotificationPrimariesForTests.isEmpty)
+        realm.refresh()
+        XCTAssertFalse(notification.isRead)
+        XCTAssertTrue(notification.shouldShow)
+        XCTAssertEqual(notification.mentionLinkStatus, .resolved)
+    }
+
+    func testCachedMentionWhoseAuthoritativeCategoryChangedReleasesPreclaim()
+        throws {
+        let realm = try WRealm.safe()
+        let message = makeMessage(
+            primary: "category-changed-message",
+            archivedId: "450",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 45),
+            isDeleted: false
+        )
+        let notification = makeNotification(
+            primary: "category-changed-notification",
+            archivedId: "450",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 45)
+        )
+        try realm.write {
+            realm.add(makeEnabledAccount(), update: .modified)
+            realm.add(message, update: .modified)
+            realm.add(notification, update: .modified)
+            realm.add(
+                makeLastChat(
+                    jid: groupchatJid,
+                    mentionId: notification.sourceArchivedId
+                ),
+                update: .modified
+            )
+        }
+
+        let routeSpy = RouteSpy()
+        let controller = makeMappedNotificationsController(
+            routeSpy: routeSpy
+        )
+        let indexPath = try notificationIndexPath(
+            primary: notification.primary,
+            in: controller
+        )
+        XCTAssertEqual(
+            controller.datasource[indexPath.section]
+                .childs[indexPath.row].category,
+            .mention
+        )
+        try realm.write {
+            notification.category = .info
+        }
+        var attempts: [NotificationsMentionOpenAttemptDiagnostics] = []
+        var duplicateDrops: [String] = []
+        var realmEntries: [NotificationsMentionOpenRealmEntryDiagnostics] = []
+        controller.mentionOpenAttemptObserverForTests = {
+            attempts.append($0)
+        }
+        controller.mentionOpenDuplicateDropObserverForTests = {
+            duplicateDrops.append($0)
+        }
+        controller.mentionOpenRealmEntryObserverForTests = {
+            realmEntries.append($0)
+        }
+
+        controller.tableView(controller.tableView, didSelectRowAt: indexPath)
+        controller.tableView(controller.tableView, didSelectRowAt: indexPath)
+
+        XCTAssertEqual(
+            realmEntries,
+            [
+                NotificationsMentionOpenRealmEntryDiagnostics(
+                    notificationPrimary: notification.primary,
+                    phase: .authoritativeCategory,
+                    claimWasHeld: true
+                ),
+                NotificationsMentionOpenRealmEntryDiagnostics(
+                    notificationPrimary: notification.primary,
+                    phase: .authoritativeCategory,
+                    claimWasHeld: true
+                )
+            ]
+        )
+        XCTAssertTrue(attempts.isEmpty)
+        XCTAssertTrue(duplicateDrops.isEmpty)
+        XCTAssertEqual(routeSpy.openCount, 0)
+        XCTAssertTrue(
+            controller.claimedMentionOpenNotificationPrimariesForTests.isEmpty
+        )
+    }
+
+    func testCachedNonMentionWhoseAuthoritativeCategoryIsMentionClaimsBeforeResolver()
+        throws {
+        let realm = try WRealm.safe()
+        let message = makeMessage(
+            primary: "category-promoted-message",
+            archivedId: "475",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 47),
+            isDeleted: false
+        )
+        let notification = makeNotification(
+            primary: "category-promoted-notification",
+            archivedId: "475",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 47)
+        )
+        try realm.write {
+            realm.add(makeEnabledAccount(), update: .modified)
+            realm.add(message, update: .modified)
+            realm.add(notification, update: .modified)
+            realm.add(
+                makeLastChat(
+                    jid: groupchatJid,
+                    mentionId: notification.sourceArchivedId
+                ),
+                update: .modified
+            )
+        }
+
+        let routeSpy = RouteSpy()
+        let controller = makeMappedNotificationsController(
+            routeSpy: routeSpy
+        )
+        let indexPath = try notificationIndexPath(
+            primary: notification.primary,
+            in: controller
+        )
+        controller.datasource[indexPath.section]
+            .childs[indexPath.row].category = .info
+        var attempts: [NotificationsMentionOpenAttemptDiagnostics] = []
+        var duplicateDrops: [String] = []
+        var realmEntries: [NotificationsMentionOpenRealmEntryDiagnostics] = []
+        controller.mentionOpenAttemptObserverForTests = {
+            attempts.append($0)
+        }
+        controller.mentionOpenDuplicateDropObserverForTests = {
+            duplicateDrops.append($0)
+        }
+        controller.mentionOpenRealmEntryObserverForTests = {
+            realmEntries.append($0)
+        }
+
+        controller.tableView(controller.tableView, didSelectRowAt: indexPath)
+        controller.tableView(controller.tableView, didSelectRowAt: indexPath)
+
+        let expectedRequest = try XCTUnwrap(
+            NotificationsListViewController.mentionOpenRequest(
+                for: notification
+            )
+        )
+        XCTAssertEqual(
+            attempts,
+            [
+                NotificationsMentionOpenAttemptDiagnostics(
+                    tappedNotificationPrimary: notification.primary,
+                    resolution: .exact(
+                        expectedRequest,
+                        invalidatedNotificationPrimary: nil
+                    ),
+                    selectedNotificationPrimary: notification.primary,
+                    didNavigate: true
+                )
+            ]
+        )
+        XCTAssertEqual(duplicateDrops, [notification.primary])
+        XCTAssertEqual(routeSpy.openCount, 1)
+        XCTAssertEqual(
+            realmEntries,
+            [
+                NotificationsMentionOpenRealmEntryDiagnostics(
+                    notificationPrimary: notification.primary,
+                    phase: .authoritativeCategory,
+                    claimWasHeld: true
+                ),
+                NotificationsMentionOpenRealmEntryDiagnostics(
+                    notificationPrimary: notification.primary,
+                    phase: .mentionResolution,
+                    claimWasHeld: true
+                )
+            ],
+            "every notifications row must be claimed before authoritative category lookup"
+        )
+        XCTAssertEqual(
+            controller.claimedMentionOpenNotificationPrimariesForTests,
+            [notification.primary]
+        )
+    }
+
+    func testRapidTerminalDeletedMentionTapRoutesZeroAndReleasesOnlyAfterAppliedDatasourceDropsRow()
+        throws {
+        let realm = try WRealm.safe()
+        let deletedMessage = makeMessage(
+            primary: "terminal-rapid-message",
+            archivedId: "500",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 50),
+            isDeleted: true
+        )
+        let deletedNotification = makeNotification(
+            primary: "terminal-rapid-notification",
+            archivedId: "500",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 50)
+        )
+        let unrelatedMessage = makeMessage(
+            primary: "terminal-unrelated-message",
+            archivedId: "900",
+            groupchatJid: unrelatedGroupchatJid,
+            date: Date(timeIntervalSince1970: 90),
+            isDeleted: false
+        )
+        let unrelatedNotification = makeNotification(
+            primary: "terminal-unrelated-notification",
+            archivedId: "900",
+            groupchatJid: unrelatedGroupchatJid,
+            date: Date(timeIntervalSince1970: 90)
+        )
+        try realm.write {
+            realm.add(makeEnabledAccount(), update: .modified)
+            realm.add(deletedMessage, update: .modified)
+            realm.add(deletedNotification, update: .modified)
+            realm.add(unrelatedMessage, update: .modified)
+            realm.add(unrelatedNotification, update: .modified)
+            realm.add(
+                makeLastChat(
+                    jid: groupchatJid,
+                    mentionId: deletedNotification.sourceArchivedId
+                ),
+                update: .modified
+            )
+            realm.add(
+                makeLastChat(
+                    jid: unrelatedGroupchatJid,
+                    mentionId: unrelatedNotification.sourceArchivedId
+                ),
+                update: .modified
+            )
+        }
+
+        let routeSpy = RouteSpy()
+        let controller = makeMappedNotificationsController(
+            routeSpy: routeSpy
+        )
+        let indexPath = try notificationIndexPath(
+            primary: deletedNotification.primary,
+            in: controller
+        )
+        var attempts: [NotificationsMentionOpenAttemptDiagnostics] = []
+        var duplicateDrops: [String] = []
+        controller.mentionOpenAttemptObserverForTests = {
+            attempts.append($0)
+        }
+        controller.mentionOpenDuplicateDropObserverForTests = {
+            duplicateDrops.append($0)
+        }
+
+        controller.tableView(controller.tableView, didSelectRowAt: indexPath)
+        controller.tableView(controller.tableView, didSelectRowAt: indexPath)
+
+        XCTAssertEqual(
+            attempts.map(\.resolution),
+            [.unavailable(.deletedTargetHasNoFollowingMention)]
+        )
+        XCTAssertEqual(attempts.map(\.didNavigate), [false])
+        XCTAssertEqual(duplicateDrops, [deletedNotification.primary])
+        XCTAssertEqual(routeSpy.openCount, 0)
+        XCTAssertEqual(
+            controller.claimedMentionOpenNotificationPrimariesForTests,
+            [deletedNotification.primary]
+        )
+
+        let unrelatedIndexPath = try notificationIndexPath(
+            primary: unrelatedNotification.primary,
+            in: controller
+        )
+        controller.tableView(
+            controller.tableView,
+            didSelectRowAt: unrelatedIndexPath
+        )
+        XCTAssertEqual(routeSpy.openCount, 1)
+        XCTAssertEqual(
+            attempts.last?.resolution,
+            .exact(
+                try XCTUnwrap(
+                    NotificationsListViewController.mentionOpenRequest(
+                        for: unrelatedNotification
+                    )
+                ),
+                invalidatedNotificationPrimary: nil
+            )
+        )
+        XCTAssertEqual(
+            attempts.last?.selectedNotificationPrimary,
+            unrelatedNotification.primary
+        )
+        XCTAssertEqual(attempts.last?.didNavigate, true)
+        XCTAssertEqual(
+            controller.claimedMentionOpenNotificationPrimariesForTests,
+            [deletedNotification.primary, unrelatedNotification.primary]
+        )
+
+        let applied = controller.buildDatasourceSnapshot(
+            filter: .all,
+            filterAccount: owner
+        )
+        controller.applyMentionOpenDatasourceForTests(applied.datasource)
+        XCTAssertEqual(
+            controller.claimedMentionOpenNotificationPrimariesForTests,
+            [unrelatedNotification.primary]
+        )
+    }
+
+    func testAcceptedMentionClaimClearsOnControllerLifecycleBoundary() throws {
+        let realm = try WRealm.safe()
+        let message = makeMessage(
+            primary: "lifecycle-message",
+            archivedId: "600",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 60),
+            isDeleted: false
+        )
+        let notification = makeNotification(
+            primary: "lifecycle-notification",
+            archivedId: "600",
+            groupchatJid: groupchatJid,
+            date: Date(timeIntervalSince1970: 60)
+        )
+        try realm.write {
+            realm.add(makeEnabledAccount(), update: .modified)
+            realm.add(message, update: .modified)
+            realm.add(notification, update: .modified)
+            realm.add(
+                makeLastChat(
+                    jid: groupchatJid,
+                    mentionId: notification.sourceArchivedId
+                ),
+                update: .modified
+            )
+        }
+
+        let routeSpy = RouteSpy()
+        let controller = makeMappedNotificationsController(
+            routeSpy: routeSpy
+        )
+        let indexPath = try notificationIndexPath(
+            primary: notification.primary,
+            in: controller
+        )
+        var attempts: [NotificationsMentionOpenAttemptDiagnostics] = []
+        controller.mentionOpenAttemptObserverForTests = {
+            attempts.append($0)
+        }
+
+        controller.tableView(controller.tableView, didSelectRowAt: indexPath)
+        XCTAssertEqual(
+            controller.claimedMentionOpenNotificationPrimariesForTests,
+            [notification.primary]
+        )
+
+        controller.viewDidDisappear(false)
+        XCTAssertTrue(controller.claimedMentionOpenNotificationPrimariesForTests.isEmpty)
+        controller.mentionOpenAttemptObserverForTests = {
+            attempts.append($0)
+        }
+
+        controller.tableView(controller.tableView, didSelectRowAt: indexPath)
+        XCTAssertEqual(routeSpy.openCount, 2)
+        let expectedRequest = try XCTUnwrap(
+            NotificationsListViewController.mentionOpenRequest(
+                for: notification
+            )
+        )
+        XCTAssertEqual(
+            attempts.map(\.resolution),
+            [
+                .exact(
+                    expectedRequest,
+                    invalidatedNotificationPrimary: nil
+                ),
+                .exact(
+                    expectedRequest,
+                    invalidatedNotificationPrimary: nil
+                )
+            ]
+        )
+        XCTAssertTrue(attempts.allSatisfy {
+            $0.selectedNotificationPrimary == notification.primary &&
+                $0.didNavigate
+        })
+    }
+
+    /// This is a deterministic table-materialization seam for the focused
+    /// entrypoint regression. It uses production Realm mapping and is not
+    /// canonical P13 hosted/video evidence.
+    private func makeMappedNotificationsController(
+        routeSpy: RouteSpy
+    ) -> NotificationsListViewController {
+        let controller = NotificationsListViewController()
+        controller.leftMenuDelegate = routeSpy
+        controller.loadViewIfNeeded()
+        let snapshot = controller.buildDatasourceSnapshot(
+            filter: .all,
+            filterAccount: owner
+        )
+        controller.applyMentionOpenDatasourceForTests(snapshot.datasource)
+        return controller
+    }
+
+    private func notificationIndexPath(
+        primary: String,
+        in controller: NotificationsListViewController
+    ) throws -> IndexPath {
+        let indexPath = controller.datasource.enumerated().compactMap {
+            sectionIndex,
+            section -> IndexPath? in
+            guard let rowIndex = section.childs.firstIndex(where: {
+                $0.primary == primary
+            }) else {
+                return nil
+            }
+            return IndexPath(row: rowIndex, section: sectionIndex)
+        }.first
+        return try XCTUnwrap(indexPath)
+    }
+
+    private func waitForP13Condition(
+        timeout: TimeInterval,
+        condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() && Date() < deadline {
+            RunLoop.current.run(
+                mode: .default,
+                before: Date().addingTimeInterval(0.01)
+            )
+        }
+        return condition()
+    }
+
+    private func makeEnabledAccount() -> AccountStorageItem {
+        let account = AccountStorageItem()
+        account.jid = owner
+        account.username = "mention-route-owner"
+        account.enabled = true
+        return account
+    }
+
+    private func makeMessage(
+        primary: String,
+        archivedId: String,
+        groupchatJid: String,
+        date: Date,
+        isDeleted: Bool
+    ) -> MessageStorageItem {
+        let message = MessageStorageItem()
+        message.primary = primary
+        message.owner = owner
+        message.opponent = groupchatJid
+        message.conversationType = .group
+        message.archivedId = archivedId
+        message.messageId = "message-\(archivedId)"
+        message.body = "Hello @you"
+        message.displayAs = .text
+        message.date = date
+        message.sentDate = date
+        message.outgoing = false
+        message.isRead = false
+        message.isDeleted = isDeleted
+
+        let author = MessageReferenceStorageItem()
+        author.kind = .groupchat
+        author.metadata = ["id": "member-author"]
+        message.references.append(author)
+
+        let mention = MessageReferenceStorageItem()
+        mention.kind = .mention
+        mention.metadata = [
+            "memberId": currentMemberId,
+            "groupchatJid": groupchatJid,
+            "uri": "xmpp:\(groupchatJid)?members;id=\(currentMemberId)"
+        ]
+        message.references.append(mention)
+        return message
+    }
+
+    private func makeNotification(
+        primary: String,
+        archivedId: String,
+        groupchatJid: String,
+        date: Date
+    ) -> NotificationStorageItem {
+        let notification = NotificationStorageItem()
+        notification.primary = primary
+        notification.owner = owner
+        notification.jid = "notifications.example.com"
+        notification.category = .mention
+        notification.associatedJid = groupchatJid
+        notification.isRead = false
+        notification.shouldShow = true
+        notification.date = date
+        notification.sourceConversationType = .group
+        notification.sourceChatJid = groupchatJid
+        notification.sourceArchivedId = archivedId
+        notification.sourceMessageId = "message-\(archivedId)"
+        notification.sourceSenderId = "member-author"
+        notification.sourceMessageDate = date
+        notification.sourceBodyFingerprint = MentionNotificationSync.normalizedBodyFingerprint("Hello @you")
+        notification.mentionTargetUserId = currentMemberId
+        notification.mentionLinkStatus = .resolved
+        return notification
+    }
+
+    private func makeLastChat(jid: String, mentionId: String?) -> LastChatsStorageItem {
+        let chat = LastChatsStorageItem()
+        chat.primary = LastChatsStorageItem.genPrimary(
+            jid: jid,
+            owner: owner,
+            conversationType: .group
+        )
+        chat.owner = owner
+        chat.jid = jid
+        chat.conversationType = .group
+        chat.groupchatMyId = currentMemberId
+        chat.mentionId = mentionId
+        return chat
+    }
+}
+
 final class MessageReceiverBatchingTests: XCTestCase {
 
     private let owner = "igor.boldin@xmppdev01.xabber.com"
@@ -14928,6 +16298,29 @@ private func waitForInitialDatasource(
     XCTAssertTrue(completed, "Initial local first frame did not complete before timeout")
 }
 
+private struct ChatFirstFramePersistenceMutationState: Equatable {
+    let targetIsRead: Bool
+    let runtimeUnreadCount: Int
+    let syncUnreadCount: Int
+    let unreadCount: Int
+    let lastReadId: String?
+    let displayedId: String?
+}
+
+private struct ChatFirstFrameSideEffectCounts: Equatable {
+    static let zero = ChatFirstFrameSideEffectCounts(
+        readMutations: 0,
+        displayedMarkerMutations: 0,
+        unreadMutations: 0,
+        mentionMutations: 0
+    )
+
+    let readMutations: Int
+    let displayedMarkerMutations: Int
+    let unreadMutations: Int
+    let mentionMutations: Int
+}
+
 @MainActor
 final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
     private var previousRealmConfiguration: Realm.Configuration!
@@ -15090,28 +16483,46 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
     }
 
     func testSavedVisiblePositionPresentUsesAnchoredFirstFrame() throws {
+        let targetIndex = 50
+        let latestIndex = 319
+        let savedWindowOldestIndex = targetIndex - ChatInitialFirstFrameHistoryConfiguration.pageSize / 2
+        let savedWindowNewestIndex = savedWindowOldestIndex + ChatInitialFirstFrameHistoryConfiguration.pageSize - 1
         try seedChat(
             isSynced: true,
             isInitialArchiveLoaded: true,
             lastMessageId: "last-message",
-            syncSnapshotLastArchiveId: "snapshot-last"
+            syncSnapshotLastArchiveId: archiveId(for: latestIndex)
         )
-        try seedMessages(count: 320)
+        try seedNumericArchiveMessages(count: latestIndex + 1)
         try updateSeededChat { chat in
-            chat.lastVisibleMessagePrimary = "first-frame-message-50"
-            chat.lastVisibleMessageArchivedId = "archive-50"
-            chat.lastVisibleMessageId = "message-50"
-            chat.lastVisibleMessageDate = Date(timeIntervalSince1970: 1_700_000_050)
+            chat.lastVisibleMessagePrimary = "first-frame-message-\(targetIndex)"
+            chat.lastVisibleMessageArchivedId = archiveId(for: targetIndex)
+            chat.lastVisibleMessageId = "message-\(targetIndex)"
+            chat.lastVisibleMessageDate = Date(
+                timeIntervalSince1970: TimeInterval(1_700_000_000 + targetIndex)
+            )
             chat.lastVisiblePositionSavedAtLastMessageId = "last-message"
-            chat.lastVisiblePositionSavedAtSnapshotLastArchiveId = "snapshot-last"
+            chat.lastVisiblePositionSavedAtSnapshotLastArchiveId = archiveId(for: latestIndex)
         }
+        try replaceSeededArchiveRanges([
+            RegularChatArchiveIDRange(
+                oldestArchiveId: archiveId(for: savedWindowOldestIndex),
+                newestArchiveId: archiveId(for: savedWindowNewestIndex)
+            ),
+            RegularChatArchiveIDRange(
+                oldestArchiveId: archiveId(for: latestIndex),
+                newestArchiveId: archiveId(for: latestIndex)
+            )
+        ])
         let controller = makeController()
         controller.queueOpenMessageRequest(
             makeSavedPositionRequest(
-                primary: "first-frame-message-50",
-                archivedId: "archive-50",
-                messageId: "message-50",
-                sourceDate: Date(timeIntervalSince1970: 1_700_000_050)
+                primary: "first-frame-message-\(targetIndex)",
+                archivedId: archiveId(for: targetIndex),
+                messageId: "message-\(targetIndex)",
+                sourceDate: Date(
+                    timeIntervalSince1970: TimeInterval(1_700_000_000 + targetIndex)
+                )
             )
         )
 
@@ -15120,8 +16531,8 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
         let realMessages = controller.datasource.filter { !$0.isFakeMessage }
         XCTAssertEqual(realMessages.count, ChatInitialFirstFrameHistoryConfiguration.pageSize)
-        XCTAssertTrue(realMessages.contains { $0.primary == "first-frame-message-50" })
-        XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-319" })
+        XCTAssertTrue(realMessages.contains { $0.primary == "first-frame-message-\(targetIndex)" })
+        XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-\(latestIndex)" })
         XCTAssertFalse(controller.virtualTimelineState.isResidentAtLiveTail)
         XCTAssertNil(controller.pendingOpenMessageRequest)
         XCTAssertNil(controller.activeAnchorExecutionState)
@@ -15129,6 +16540,641 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.messagesCollectionView.layoutIfNeeded()
         XCTAssertEqual(controller.initialFirstContentApplyCount, 1)
+    }
+
+    func testUnsyncedSavedAnchorKeepsStableSkeletonAndDoesNotPublishStaleRows() throws {
+        let targetIndex = 50
+        let staleLocalLatestIndex = 319
+        let remoteLatestIndex = 400
+        let savedWindowOldestIndex = targetIndex - ChatInitialFirstFrameHistoryConfiguration.pageSize / 2
+        let savedWindowNewestIndex = savedWindowOldestIndex + ChatInitialFirstFrameHistoryConfiguration.pageSize - 1
+        let savedWindowRange = RegularChatArchiveIDRange(
+            oldestArchiveId: archiveId(for: savedWindowOldestIndex),
+            newestArchiveId: archiveId(for: savedWindowNewestIndex)
+        )
+        let currentEdgeRange = RegularChatArchiveIDRange(
+            oldestArchiveId: archiveId(for: remoteLatestIndex),
+            newestArchiveId: archiveId(for: remoteLatestIndex)
+        )
+        try seedChat(
+            isSynced: false,
+            isInitialArchiveLoaded: false,
+            lastMessageId: "message-\(remoteLatestIndex)",
+            syncSnapshotLastArchiveId: archiveId(for: remoteLatestIndex)
+        )
+        try seedNumericArchiveMessages(count: staleLocalLatestIndex + 1)
+        try seedMessage(
+            index: remoteLatestIndex,
+            archivedId: archiveId(for: remoteLatestIndex)
+        )
+        try updateSeededChat { chat in
+            chat.lastVisibleMessagePrimary = "first-frame-message-\(targetIndex)"
+            chat.lastVisibleMessageArchivedId = archiveId(for: targetIndex)
+            chat.lastVisibleMessageId = "message-\(targetIndex)"
+            chat.lastVisibleMessageDate = Date(
+                timeIntervalSince1970: TimeInterval(1_700_000_000 + targetIndex)
+            )
+            chat.lastVisiblePositionSavedAtLastMessageId = "message-\(remoteLatestIndex)"
+            chat.lastVisiblePositionSavedAtSnapshotLastArchiveId = archiveId(for: remoteLatestIndex)
+        }
+
+        let realm = try WRealm.safe()
+        let request = try XCTUnwrap(
+            LastChatsViewController.initialOpenRequest(
+                owner: owner,
+                jid: jid,
+                conversationType: .regular,
+                explicitOpenMessageRequest: nil,
+                in: realm
+            )
+        )
+        XCTAssertEqual(request.source, .savedVisiblePosition)
+        XCTAssertEqual(request.anchor.messagePrimary, "first-frame-message-\(targetIndex)")
+        XCTAssertEqual(request.anchor.archivedId, archiveId(for: targetIndex))
+
+        // The production policy requires unread == 0 to produce the saved
+        // request. Seed mutations only after that request exists so the
+        // blocked first frame can prove it does not advance any read state.
+        try updateSeededChat { chat in
+            chat.runtimeUnreadCount = 3
+            LastChatUnreadCounter.refreshTotal(for: chat)
+        }
+        try updateSeededMessage(index: targetIndex) { message in
+            message.isRead = false
+        }
+
+        let controller = makeWarmupRecordingController()
+        controller.queueOpenMessageRequest(request)
+        let semanticFingerprint = controller.currentInitialBootstrapTargetFingerprint
+        guard case .savedPosition = semanticFingerprint.target else {
+            return XCTFail("unsynced saved opening must retain its semantic target")
+        }
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let leaseKey = controller.initialBootstrapRequestKey
+        guard case .start(let sharedLease) = coordinator.acquireOrJoin(
+            key: leaseKey,
+            proposedQueryId: "unsynced-saved-bootstrap",
+            timeout: 45,
+            targetFingerprint: semanticFingerprint,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("the shared coordinator must own one semantic saved lease")
+        }
+        XCTAssertEqual(sharedLease.targetFingerprint, semanticFingerprint)
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        var committedViewportDiagnostics: [ChatPerformanceInitialFrameCommitDiagnostics] = []
+        controller.performanceFixtureInitialFrameCommitDiagnosticsHandler = {
+            committedViewportDiagnostics.append($0)
+        }
+#endif
+        controller.loadViewIfNeeded()
+        waitForInitialDatasource(controller)
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let skeletonPrimaries = ChatSkeletonTemplate.descriptors.map(\.primary)
+        let skeletonHeights = datasourceRowHeights(in: controller)
+        XCTAssertEqual(skeletonPrimaries.count, 30)
+        XCTAssertTrue(skeletonHeights.allSatisfy { $0 > 0 })
+        XCTAssertEqual(controller.datasource.map(\.primary), skeletonPrimaries)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 0)
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+        XCTAssertFalse(controller.datasource.contains {
+            $0.primary == "first-frame-message-\(staleLocalLatestIndex)"
+        })
+        XCTAssertFalse(controller.datasource.contains {
+            $0.primary == "first-frame-message-\(remoteLatestIndex)"
+        })
+
+        controller.requestInitialBootstrapArchive()
+        XCTAssertEqual(controller.initialBootstrapQueryId, sharedLease.queryId)
+        XCTAssertEqual(controller.initialBootstrapLeaseKey, leaseKey)
+        XCTAssertEqual(controller.initialBootstrapTargetFingerprint, semanticFingerprint)
+        XCTAssertTrue(coordinator.isActive(key: leaseKey, queryId: sharedLease.queryId))
+        controller.requestInitialBootstrapArchive()
+        XCTAssertEqual(
+            controller.initialBootstrapQueryId,
+            sharedLease.queryId,
+            "a repeated controller callback must join the same semantic lease"
+        )
+        XCTAssertTrue(coordinator.isActive(key: leaseKey, queryId: sharedLease.queryId))
+        XCTAssertEqual(controller.datasource.map(\.primary), skeletonPrimaries)
+        XCTAssertEqual(datasourceRowHeights(in: controller), skeletonHeights)
+
+        let skeletonSessionIdentity = controller.timelineSession.map { ObjectIdentifier($0) }
+        let skeletonMappingGeneration = controller.datasetMappingGeneration
+        let skeletonOffset = controller.messagesCollectionView.contentOffset
+        let baselineMutationState = try firstFramePersistenceMutationState(
+            targetIndex: targetIndex
+        )
+
+        controller.scrollFrameOperationCounter.setEnabled(true)
+        controller.scrollFrameOperationCounter.reset()
+        try updateSeededChat { chat in
+            chat.isSynced = true
+            chat.isInitialArchiveLoaded = true
+        }
+        let currentEdgeOnlyRanges = try seededArchiveRanges()
+        XCTAssertEqual(currentEdgeOnlyRanges, [currentEdgeRange])
+        XCTAssertEqual(controller.currentBootstrapLoadingState(), .blockingTarget)
+        XCTAssertTrue(controller.reloadInitialWindowAfterBootstrapIfNeeded(
+            force: true,
+            hasTrustedPersistedBootstrapPage: true
+        ))
+        controller.handleTimelineSessionRefresh()
+        controller.applyBootstrapLoadingState(
+            controller.currentBootstrapLoadingState(),
+            forceRender: true
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        XCTAssertEqual(controller.datasource.map(\.primary), skeletonPrimaries)
+        XCTAssertEqual(datasourceRowHeights(in: controller), skeletonHeights)
+        XCTAssertEqual(
+            controller.timelineSession.map { ObjectIdentifier($0) },
+            skeletonSessionIdentity
+        )
+        XCTAssertEqual(controller.datasetMappingGeneration, skeletonMappingGeneration)
+        XCTAssertEqual(controller.messagesCollectionView.contentOffset.x, skeletonOffset.x, accuracy: 0.001)
+        XCTAssertEqual(controller.messagesCollectionView.contentOffset.y, skeletonOffset.y, accuracy: 0.001)
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 0)
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
+        XCTAssertTrue(coordinator.isActive(key: leaseKey, queryId: sharedLease.queryId))
+        XCTAssertEqual(controller.initialBootstrapQueryId, sharedLease.queryId)
+        XCTAssertEqual(controller.messagesToReadObserver.value.count, 0)
+        XCTAssertEqual(
+            try firstFrameSideEffectCounts(
+                controller: controller,
+                baseline: baselineMutationState,
+                targetIndex: targetIndex
+            ),
+            .zero
+        )
+        let currentEdgeOnlyOperations = controller.scrollFrameOperationCounter.snapshot()
+        XCTAssertEqual(currentEdgeOnlyOperations[.datasourceApplies], 0)
+        XCTAssertEqual(currentEdgeOnlyOperations[.reloads], 0)
+        XCTAssertEqual(currentEdgeOnlyOperations[.offsetMutations], 0)
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        XCTAssertEqual(committedViewportDiagnostics.count, 0)
+#endif
+
+        // Positive target-window coverage admits one prepared generation.
+        // Hold it after preparation but before mapping, remove only that
+        // target range while keeping global current-edge readiness valid,
+        // and prove the immediate precommit check rejects the stale frame.
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        try replaceSeededArchiveRanges([savedWindowRange, currentEdgeRange])
+        XCTAssertEqual(
+            controller.currentBootstrapLoadingState(),
+            .blockingTarget,
+            "new coverage is not trusted until the post-mapping finalized proof captures it off main"
+        )
+        let preparedGenerationReachedBarrier = expectation(
+            description: "saved first frame prepared before target coverage invalidation"
+        )
+        let releasePreparedGeneration = DispatchSemaphore(value: 0)
+        controller.initialFirstFrameMappingBarrierForTests = {
+            preparedGenerationReachedBarrier.fulfill()
+            _ = releasePreparedGeneration.wait(timeout: .now() + 2)
+        }
+        controller.scrollFrameOperationCounter.reset()
+        let sessionGenerationBeforeRejectedCommit = controller.timelineSession?.snapshot.generation
+        var rejectedPreparationFinished = false
+        XCTAssertTrue(controller.reloadInitialWindowAfterBootstrapIfNeeded(
+            force: true,
+            hasTrustedPersistedBootstrapPage: true
+        ) {
+            rejectedPreparationFinished = true
+        })
+        XCTAssertEqual(
+            XCTWaiter.wait(
+                for: [preparedGenerationReachedBarrier],
+                timeout: 2
+            ),
+            .completed
+        )
+        let routeDiagnosticsAtPreparedBarrier = try XCTUnwrap(
+            controller.timelineSession?.routeStoreDiagnosticsSnapshot
+        )
+        try replaceSeededArchiveRanges([currentEdgeRange])
+        XCTAssertEqual(controller.currentBootstrapLoadingState(), .blockingTarget)
+        releasePreparedGeneration.signal()
+        XCTAssertTrue(waitUntil { rejectedPreparationFinished })
+        controller.initialFirstFrameMappingBarrierForTests = nil
+        controller.messagesCollectionView.layoutIfNeeded()
+        let routeDiagnosticsAfterRejectedPrecommit = try XCTUnwrap(
+            controller.timelineSession?.routeStoreDiagnosticsSnapshot
+        )
+
+        XCTAssertEqual(
+            routeDiagnosticsAfterRejectedPrecommit.queryCount,
+            routeDiagnosticsAtPreparedBarrier.queryCount + 1,
+            "the only post-mapping operation must be the finalized unread/readiness proof"
+        )
+        XCTAssertEqual(
+            routeDiagnosticsAfterRejectedPrecommit
+                .operationCandidateCounts["messageWindow"],
+            routeDiagnosticsAtPreparedBarrier
+                .operationCandidateCounts["messageWindow"],
+            "fresh coverage rejection must not re-resolve or rematerialize the saved target window"
+        )
+        XCTAssertEqual(
+            Set(routeDiagnosticsAfterRejectedPrecommit.operationCandidateCounts.keys),
+            Set(routeDiagnosticsAtPreparedBarrier.operationCandidateCounts.keys)
+                .union(["unread"])
+        )
+        XCTAssertEqual(
+            routeDiagnosticsAfterRejectedPrecommit.fullScanCount,
+            routeDiagnosticsAtPreparedBarrier.fullScanCount
+        )
+        XCTAssertLessThanOrEqual(
+            routeDiagnosticsAfterRejectedPrecommit.maxCandidateCount,
+            ChatInitialFirstFrameHistoryConfiguration.pageSize
+        )
+        XCTAssertEqual(
+            routeDiagnosticsAfterRejectedPrecommit.mainThreadQueryCount,
+            0
+        )
+
+        XCTAssertEqual(controller.datasource.map(\.primary), skeletonPrimaries)
+        XCTAssertEqual(datasourceRowHeights(in: controller), skeletonHeights)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertEqual(
+            controller.timelineSession?.snapshot.generation,
+            sessionGenerationBeforeRejectedCommit,
+            "the rejected prepared generation must not commit to the timeline session"
+        )
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 0)
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
+        XCTAssertEqual(controller.messagesCollectionView.contentOffset.x, skeletonOffset.x, accuracy: 0.001)
+        XCTAssertEqual(controller.messagesCollectionView.contentOffset.y, skeletonOffset.y, accuracy: 0.001)
+        let rejectedGenerationOperations = controller.scrollFrameOperationCounter.snapshot()
+        XCTAssertEqual(rejectedGenerationOperations[.datasourceApplies], 0)
+        XCTAssertEqual(rejectedGenerationOperations[.reloads], 0)
+        XCTAssertEqual(rejectedGenerationOperations[.offsetMutations], 0)
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        XCTAssertEqual(committedViewportDiagnostics.count, 0)
+#endif
+        XCTAssertEqual(
+            try firstFrameSideEffectCounts(
+                controller: controller,
+                baseline: baselineMutationState,
+                targetIndex: targetIndex
+            ),
+            .zero
+        )
+        XCTAssertTrue(coordinator.isActive(key: leaseKey, queryId: sharedLease.queryId))
+#else
+        XCTFail("the deterministic precommit barrier requires a DEBUG/lab test build")
+#endif
+
+        // Restoring positive coverage for the full proposed 80-row interval
+        // must reevaluate the retained semantic request and publish it once.
+        try replaceSeededArchiveRanges([savedWindowRange, currentEdgeRange])
+        XCTAssertEqual(controller.currentBootstrapLoadingState(), .blockingTarget)
+        controller.scrollFrameOperationCounter.reset()
+        var committed = false
+        XCTAssertTrue(controller.reloadInitialWindowAfterBootstrapIfNeeded(
+            force: true,
+            hasTrustedPersistedBootstrapPage: true
+        ) {
+            committed = true
+        })
+        XCTAssertTrue(waitUntil {
+            committed &&
+                !controller.showSkeletonObserver.value &&
+                controller.pendingOpenMessageRequest == nil &&
+                controller.initialFirstContentApplyCount == 1
+        })
+        controller.messagesCollectionView.layoutIfNeeded()
+        let committedOffset = controller.messagesCollectionView.contentOffset
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        controller.messagesCollectionView.layoutIfNeeded()
+        XCTAssertEqual(controller.messagesCollectionView.contentOffset.x, committedOffset.x, accuracy: 0.001)
+        XCTAssertEqual(controller.messagesCollectionView.contentOffset.y, committedOffset.y, accuracy: 0.001)
+
+        let realMessages = controller.datasource.filter { !$0.isFakeMessage }
+        XCTAssertEqual(realMessages.count, ChatInitialFirstFrameHistoryConfiguration.pageSize)
+        XCTAssertTrue(realMessages.contains {
+            $0.primary == "first-frame-message-\(targetIndex)"
+        })
+        XCTAssertFalse(realMessages.contains {
+            $0.primary == "first-frame-message-\(staleLocalLatestIndex)"
+        })
+        XCTAssertFalse(realMessages.contains {
+            $0.primary == "first-frame-message-\(remoteLatestIndex)"
+        })
+        XCTAssertFalse(controller.datasource.contains(where: \.isFakeMessage))
+        XCTAssertFalse(controller.virtualTimelineState.isResidentAtLiveTail)
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 1)
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
+        let committedGenerationOperations = controller.scrollFrameOperationCounter.snapshot()
+        XCTAssertEqual(committedGenerationOperations[.datasourceApplies], 1)
+        XCTAssertEqual(committedGenerationOperations[.reloads], 1)
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        XCTAssertEqual(committedViewportDiagnostics.count, 1)
+        let committedDiagnostics = try XCTUnwrap(committedViewportDiagnostics.first)
+        XCTAssertEqual(committedDiagnostics.requestSource, .savedVisiblePosition)
+        XCTAssertEqual(committedDiagnostics.targetKind, .anchor)
+        XCTAssertFalse(committedDiagnostics.preparedOnMainThread)
+        XCTAssertFalse(committedDiagnostics.mappedOnMainThread)
+        XCTAssertEqual(committedDiagnostics.mainThreadStoreQueryCount, 0)
+        XCTAssertEqual(committedDiagnostics.fullScanCount, 0)
+        XCTAssertGreaterThan(committedDiagnostics.storeQueryCount, 0)
+        XCTAssertEqual(committedDiagnostics.realDatasourceApplyCount, 1)
+        XCTAssertEqual(
+            committedDiagnostics.realRowCount,
+            ChatInitialFirstFrameHistoryConfiguration.pageSize
+        )
+        XCTAssertEqual(
+            committedDiagnostics.viewportDiagnostics.finalAlignmentCorrectionCount,
+            0
+        )
+        XCTAssertEqual(
+            committedDiagnostics.viewportDiagnostics.nextRunLoopCorrectionCount,
+            0
+        )
+#endif
+        XCTAssertEqual(
+            try firstFrameSideEffectCounts(
+                controller: controller,
+                baseline: baselineMutationState,
+                targetIndex: targetIndex
+            ),
+            .zero
+        )
+
+        let targetViewportY = try viewportY(
+            for: "first-frame-message-\(targetIndex)",
+            in: controller
+        )
+        XCTAssertGreaterThanOrEqual(targetViewportY, -1)
+        XCTAssertLessThanOrEqual(
+            targetViewportY,
+            controller.messagesCollectionView.bounds.height + 1
+        )
+    }
+
+    func testSavedAnchorCrossingKnownGapKeepsSkeletonAndRepairsWithoutLatest() throws {
+        let targetIndex = 120
+        let latestIndex = 179
+        let gap = RegularChatArchiveGap(
+            olderRangeNewestArchiveId: archiveId(for: 130),
+            newerRangeOldestArchiveId: archiveId(for: 140)
+        )
+        try seedChat(
+            isSynced: true,
+            isInitialArchiveLoaded: true,
+            lastMessageId: "message-\(latestIndex)",
+            syncSnapshotLastArchiveId: archiveId(for: latestIndex)
+        )
+        try seedNumericArchiveMessages(count: latestIndex + 1)
+        try updateSeededChat { chat in
+            chat.lastVisibleMessagePrimary = nil
+            chat.lastVisibleMessageArchivedId = nil
+            chat.lastVisibleMessageId = "message-\(targetIndex)"
+            chat.lastVisibleMessageDate = Date(
+                timeIntervalSince1970: TimeInterval(1_700_000_000 + targetIndex)
+            )
+            chat.lastVisiblePositionSavedAtLastMessageId = "message-\(latestIndex)"
+            chat.lastVisiblePositionSavedAtSnapshotLastArchiveId = archiveId(for: latestIndex)
+        }
+        try replaceSeededArchiveRanges([
+            RegularChatArchiveIDRange(
+                oldestArchiveId: archiveId(for: 0),
+                newestArchiveId: gap.olderRangeNewestArchiveId
+            ),
+            RegularChatArchiveIDRange(
+                oldestArchiveId: gap.newerRangeOldestArchiveId,
+                newestArchiveId: archiveId(for: latestIndex)
+            )
+        ])
+
+        let request = makeSavedPositionRequest(
+            primary: nil,
+            archivedId: nil,
+            messageId: "message-\(targetIndex)",
+            // A conflicting newer date proves stable message identity wins
+            // before the legacy date fallback.
+            sourceDate: Date(timeIntervalSince1970: TimeInterval(1_700_000_000 + latestIndex))
+        )
+        let controller = makeController()
+        controller.queueOpenMessageRequest(request)
+
+        controller.loadViewIfNeeded()
+        waitForInitialDatasource(controller)
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let skeletonPrimaries = ChatSkeletonTemplate.descriptors.map(\.primary)
+        XCTAssertEqual(skeletonPrimaries.count, 30)
+        XCTAssertEqual(controller.datasource.map(\.primary), skeletonPrimaries)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 0)
+        XCTAssertEqual(controller.pendingOpenMessageRequest, request)
+        XCTAssertFalse(controller.hasLocalAnchorForBootstrap(request))
+        XCTAssertFalse(controller.datasource.contains {
+            $0.primary == "first-frame-message-\(latestIndex)"
+        })
+
+        guard case .blockingRepair(let repair) = controller.savedPositionFirstFrameDecision(
+            for: request
+        ) else {
+            return XCTFail("the known gap must block the saved-position first frame")
+        }
+        XCTAssertEqual(repair.gap, gap)
+        XCTAssertEqual(repair.direction, .newer)
+
+        let semanticFingerprint = controller.currentInitialBootstrapTargetFingerprint
+        guard case .savedPosition(
+            let primary,
+            let archivedId,
+            let messageId,
+            let sourceDate
+        ) = semanticFingerprint.target else {
+            return XCTFail("the coordinator identity must remain the saved-position target")
+        }
+        XCTAssertNil(primary)
+        XCTAssertNil(archivedId)
+        XCTAssertEqual(messageId, "message-\(targetIndex)")
+        XCTAssertEqual(
+            sourceDate,
+            Date(timeIntervalSince1970: TimeInterval(1_700_000_000 + latestIndex))
+        )
+
+        let transportTarget = controller.initialBootstrapTransportTarget(
+            for: semanticFingerprint.target
+        )
+        guard case .savedPositionGapRepair(
+            let olderRangeNewestArchiveId,
+            let newerRangeOldestArchiveId,
+            let direction
+        ) = transportTarget else {
+            return XCTFail("the saved target must transport a bounded gap repair")
+        }
+        XCTAssertEqual(olderRangeNewestArchiveId, gap.olderRangeNewestArchiveId)
+        XCTAssertEqual(newerRangeOldestArchiveId, gap.newerRangeOldestArchiveId)
+        XCTAssertEqual(direction, .newer)
+
+        let requestPlan = MessageArchiveManager.regularBootstrapRequestPlan(
+            jid: jid,
+            pageSize: controller.initialBootstrapArchiveRequestPageSize,
+            target: transportTarget
+        )
+        XCTAssertEqual(requestPlan.kind, .gapRepair)
+        XCTAssertEqual(requestPlan.purpose, .gapRepair)
+        XCTAssertNil(requestPlan.nextPage)
+        XCTAssertEqual(requestPlan.prevPage, gap.olderRangeNewestArchiveId)
+        XCTAssertNil(requestPlan.ids)
+        XCTAssertEqual(requestPlan.max, controller.initialBootstrapArchiveRequestPageSize)
+        XCTAssertEqual(
+            requestPlan.coverageUpdateKind,
+            .gapRepairNewer(cursorArchiveId: gap.olderRangeNewestArchiveId)
+        )
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "saved-gap-repair",
+            timeout: 45,
+            targetFingerprint: semanticFingerprint,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("the first saved-gap request must own one repair lease")
+        }
+        guard case .joined(let joinedLease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "saved-gap-repair-duplicate",
+            timeout: 45,
+            targetFingerprint: semanticFingerprint,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("a duplicate open must join the bounded repair lease")
+        }
+        XCTAssertEqual(joinedLease.queryId, lease.queryId)
+        XCTAssertEqual(joinedLease.targetFingerprint, semanticFingerprint)
+        XCTAssertEqual(controller.datasource.map(\.primary), skeletonPrimaries)
+        controller.requestInitialBootstrapArchive()
+        XCTAssertEqual(controller.initialBootstrapQueryId, lease.queryId)
+        XCTAssertEqual(controller.initialBootstrapLeaseKey, key)
+        XCTAssertEqual(
+            controller.initialBootstrapTargetFingerprint,
+            semanticFingerprint
+        )
+
+        try mergeSeededArchiveRange(
+            first: gap.olderRangeNewestArchiveId,
+            last: gap.newerRangeOldestArchiveId,
+            updateKind: .gapRepairNewer(
+                cursorArchiveId: gap.olderRangeNewestArchiveId
+            )
+        )
+        XCTAssertEqual(
+            controller.currentInitialFrameReadinessProof()?.knownGaps,
+            [gap],
+            "Realm coverage does not mutate an already-published readiness snapshot"
+        )
+        XCTAssertEqual(
+            controller.currentInitialBootstrapTargetFingerprint.target,
+            semanticFingerprint.target,
+            "coverage persistence must not rewrite the active saved-position identity"
+        )
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: lease.queryId,
+            hasDurableCoverage: true,
+            boundaryFingerprint:
+                MessageArchiveManager.currentConversationArchiveBoundaryFingerprint(
+                    owner: owner,
+                    jid: jid,
+                    conversationType: .regular
+                ),
+            resultCount: 1,
+            persistedRowsForQuery: 1,
+            visibleRowsForConversation: latestIndex + 1,
+            confirmsEmptyConversation: false,
+            hasPresentationMaterialization: true
+        )
+        XCTAssertTrue(waitUntil {
+            guard let proof = controller.currentInitialFrameReadinessProof()
+            else {
+                return false
+            }
+            return proof.hasDurableArchiveReadiness &&
+                proof.knownGaps.isEmpty &&
+                !controller.showSkeletonObserver.value &&
+                controller.pendingOpenMessageRequest == nil &&
+                controller.initialFirstContentApplyCount == 1
+        }, "the persistence terminal must publish the closed-gap proof and one saved frame")
+        XCTAssertTrue(controller.hasLocalAnchorForBootstrap(request))
+        XCTAssertEqual(
+            controller.initialBootstrapTransportTarget(
+                for: semanticFingerprint.target
+            ),
+            semanticFingerprint.target,
+            "once persistence closes the gap, the saved target needs no second repair transport"
+        )
+
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let realMessages = controller.datasource.filter { !$0.isFakeMessage }
+        XCTAssertEqual(realMessages.count, ChatInitialFirstFrameHistoryConfiguration.pageSize)
+        XCTAssertTrue(realMessages.contains {
+            $0.primary == "first-frame-message-\(targetIndex)"
+        })
+        XCTAssertFalse(realMessages.contains {
+            $0.primary == "first-frame-message-\(latestIndex)"
+        })
+        let syntheticRows = controller.datasource.filter(\.isFakeMessage)
+        XCTAssertEqual(
+            syntheticRows.count,
+            1,
+            "the saved frame owns only its leading date separator"
+        )
+        let dateSeparator = try XCTUnwrap(syntheticRows.first)
+        guard case .date = dateSeparator.kind else {
+            return XCTFail("the only synthetic content row must be a date separator")
+        }
+        XCTAssertEqual(
+            dateSeparator.primary,
+            "\(try XCTUnwrap(realMessages.first).primary) date changed"
+        )
+        XCTAssertTrue(
+            Set(controller.datasource.map(\.primary)).isDisjoint(
+                with: Set(skeletonPrimaries)
+            )
+        )
+        XCTAssertFalse(controller.datasource.contains { item in
+            if case .skeleton = item.kind {
+                return true
+            }
+            return false
+        })
+        XCTAssertFalse(controller.virtualTimelineState.isResidentAtLiveTail)
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 1)
+
+        let targetViewportY = try viewportY(
+            for: "first-frame-message-\(targetIndex)",
+            in: controller
+        )
+        XCTAssertGreaterThanOrEqual(targetViewportY, -1)
+        XCTAssertLessThanOrEqual(
+            targetViewportY,
+            controller.messagesCollectionView.bounds.height + 1
+        )
     }
 
     func testMissingLocalAnchorOpenRequestKeepsBlockingSkeletonWithoutLatest() throws {
@@ -15190,6 +17236,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertFalse(controller.showSkeletonObserver.value)
         XCTAssertTrue(controller.datasource.contains { $0.primary == "first-frame-message-50" })
         XCTAssertFalse(controller.datasource.contains { $0.primary == "first-frame-message-319" })
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 1)
         XCTAssertNil(controller.pendingOpenMessageRequest)
         XCTAssertNil(controller.activeAnchorExecutionState)
 
@@ -15201,6 +17248,32 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertFalse(controller.showSkeletonObserver.value)
         XCTAssertTrue(controller.datasource.contains { $0.primary == "first-frame-message-50" })
         XCTAssertFalse(controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 1)
+    }
+
+    func testUnsyncedSearchLocalTargetRetainsExplicitFirstFrameEligibility() throws {
+        try seedChat(isSynced: false, isInitialArchiveLoaded: false)
+        try seedMessages(count: 320)
+        let controller = makeWarmupRecordingController()
+        let request = makeSearchRequest(
+            archivedId: "archive-120",
+            sourceDate: Date(timeIntervalSince1970: 1_700_000_120)
+        )
+        controller.queueOpenMessageRequest(request)
+
+        controller.loadViewIfNeeded()
+        waitForInitialDatasource(controller)
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let realMessages = controller.datasource.filter { !$0.isFakeMessage }
+        XCTAssertTrue(realMessages.contains { $0.primary == "first-frame-message-120" })
+        XCTAssertFalse(realMessages.contains { $0.primary == "first-frame-message-319" })
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertFalse(controller.virtualTimelineState.isResidentAtLiveTail)
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 1)
+        XCTAssertEqual(controller.latestBottomScrollCallCount, 0)
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
     }
 
     func testPreparedNotificationAnchorDoesNotReturnToSkeletonWhenViewWillAppearResubscribes() throws {
@@ -15446,6 +17519,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
     }
 
     func testSkeletonRevealDoesNotClearUnreadCountersBeforeVisibleReadBoundary() throws {
+        let bootstrapQueryId = "initial-bootstrap-unread-boundary"
         try seedChat(
             isSynced: false,
             isInitialArchiveLoaded: false,
@@ -15462,13 +17536,35 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertTrue(controller.showSkeletonObserver.value)
         XCTAssertNil(controller.pendingOpenMessageRequest)
         XCTAssertNil(controller.activeAnchorExecutionState)
+        controller.beginInitialBootstrapTracking(queryId: bootstrapQueryId)
 
         try updateSeededChat { chat in
             chat.isSynced = true
             chat.isInitialArchiveLoaded = true
         }
-        controller.applyBootstrapViewState(.content, forceRender: true)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertTrue(
+            controller.handleInitialBootstrapEndPageIfNeeded(
+                queryId: bootstrapQueryId,
+                state: MessageArchivePageEndState(
+                    queryExhausted: false,
+                    archiveEnded: false,
+                    persistedMessageCount: 320
+                ),
+                count: 320,
+                persistedMessageCount: 320,
+                persistedRowsForQuery: 320,
+                visibleRowsForConversation: 320
+            )
+        )
+        XCTAssertTrue(
+            waitUntil {
+                !controller.showSkeletonObserver.value &&
+                    controller.datasource
+                        .filter { !$0.isFakeMessage }
+                        .last?.primary == "first-frame-message-319"
+            },
+            "the trusted content transition must causally commit the local newest frame"
+        )
         controller.messagesCollectionView.layoutIfNeeded()
 
         XCTAssertFalse(controller.showSkeletonObserver.value)
@@ -16144,6 +18240,80 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         XCTAssertNil(controller.interactiveHistoryPageLoadContext)
     }
 
+    func testBoundaryPagingIsRejectedUntilInitialFrameFormallyCommits() throws {
+        try seedChat(isSynced: true, isInitialArchiveLoaded: true)
+        try seedMessages(count: 620)
+        let controller = makeController()
+
+        controller.loadViewIfNeeded()
+        waitForInitialDatasource(controller)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.messagesCollectionView.setContentOffset(
+            CGPoint(
+                x: 0,
+                y: -controller.messagesCollectionView.adjustedContentInset.top
+            ),
+            animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+        let descriptor = ChatLocalFirstFrameDescriptor(
+            target: .latest,
+            request: nil
+        )
+        controller.initialLocalFirstFramePhase = .presenting(descriptor)
+        controller.canLoadDatasource = true
+        let context = controller.pagingBoundaryContext(
+            visibleSections: controller.messagesCollectionView
+                .indexPathsForVisibleItems
+                .map(\.section)
+        )
+        defer {
+            controller.timelineSession?.cancelLocalPagePreparations()
+            controller.clearPendingLocalHistoryPagingPreparation()
+        }
+
+        let action = controller.handleBoundaryPagingCandidate(
+            direction: .older,
+            boundaryContext: context,
+            motionState: .decelerating,
+            trigger: "initial-frame-presenting-regression"
+        )
+
+        XCTAssertEqual(
+            action,
+            .none,
+            "real rows and canLoadDatasource are insufficient until phase advances from presenting to committed"
+        )
+        XCTAssertNil(controller.pendingLocalHistoryPagingIntent)
+        XCTAssertNil(controller.pendingPreparedLocalHistoryPage)
+        XCTAssertNil(controller.pendingDeferredRemoteHistoryDirection)
+    }
+
+    func testBoundaryPagingRemainsAvailableAfterCommittedControllerReentry() {
+        let descriptor = ChatLocalFirstFrameDescriptor(
+            target: .latest,
+            request: nil
+        )
+        XCTAssertTrue(
+            ChatInitialFrameBoundaryPagingAdmissionPolicy.shouldAdmit(
+                phase: .committed(descriptor),
+                hasCommittedTimelinePresentation: true,
+                hasRealDatasourceRows: true,
+                isShowingSkeleton: false
+            )
+        )
+        XCTAssertTrue(
+            ChatInitialFrameBoundaryPagingAdmissionPolicy.shouldAdmit(
+                phase: .idle,
+                hasCommittedTimelinePresentation: true,
+                hasRealDatasourceRows: true,
+                isShowingSkeleton: false
+            ),
+            "teardown resets the phase to idle; a committed real timeline must remain pageable after reentry"
+        )
+    }
+
     func testPreparedOlderPageAppliesAfterScrollRestAndPreservesAnchor() throws {
         try seedChat(isSynced: true, isInitialArchiveLoaded: true)
         try seedMessages(count: 620)
@@ -16668,6 +18838,75 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         return frame.minY - controller.messagesCollectionView.contentOffset.y
     }
 
+    private func datasourceRowHeights(
+        in controller: ChatViewController
+    ) -> [CGFloat] {
+        controller.messagesCollectionView.layoutIfNeeded()
+        return controller.datasource.indices.map { section in
+            controller.messagesCollectionView.layoutAttributesForItem(
+                at: IndexPath(item: 0, section: section)
+            )?.frame.height ?? -1
+        }
+    }
+
+    private func firstFramePersistenceMutationState(
+        targetIndex: Int
+    ) throws -> ChatFirstFramePersistenceMutationState {
+        let realm = try WRealm.safe()
+        let chat = try XCTUnwrap(
+            realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: .regular
+                )
+            )
+        )
+        let target = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: "first-frame-message-\(targetIndex)"
+            )
+        )
+        return ChatFirstFramePersistenceMutationState(
+            targetIsRead: target.isRead,
+            runtimeUnreadCount: chat.runtimeUnreadCount,
+            syncUnreadCount: chat.syncUnreadCount,
+            unreadCount: chat.unread,
+            lastReadId: chat.lastReadId,
+            displayedId: chat.displayedId
+        )
+    }
+
+    private func firstFrameSideEffectCounts(
+        controller: WarmupOffsetRecordingChatViewController,
+        baseline: ChatFirstFramePersistenceMutationState,
+        targetIndex: Int
+    ) throws -> ChatFirstFrameSideEffectCounts {
+        let current = try firstFramePersistenceMutationState(
+            targetIndex: targetIndex
+        )
+        let unreadMutations = [
+            baseline.runtimeUnreadCount != current.runtimeUnreadCount,
+            baseline.syncUnreadCount != current.syncUnreadCount,
+            baseline.unreadCount != current.unreadCount
+        ].filter { $0 }.count
+        let displayedMarkerMutations = controller.displayedMarkerMutationCount + [
+            baseline.lastReadId != current.lastReadId,
+            baseline.displayedId != current.displayedId
+        ].filter { $0 }.count
+        return ChatFirstFrameSideEffectCounts(
+            readMutations:
+                controller.viewportReadMutationCount +
+                (baseline.targetIsRead == current.targetIsRead ? 0 : 1),
+            displayedMarkerMutations: displayedMarkerMutations,
+            unreadMutations: unreadMutations,
+            mentionMutations:
+                controller.readVisiblePresentationCoordinator.successfulFlushCount
+        )
+    }
+
     private func makeDatasource(
         index: Int,
         kind: MessageKind? = nil,
@@ -16802,6 +19041,67 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
         )
     }
 
+    private func replaceSeededArchiveRanges(
+        _ ranges: [RegularChatArchiveIDRange]
+    ) throws {
+        let realm = try WRealm.safe()
+        let archiveState = try XCTUnwrap(
+            realm.object(
+                ofType: RegularChatArchiveSyncStateStorageItem.self,
+                forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: .regular
+                )
+            )
+        )
+        try realm.write {
+            archiveState.loadedRanges = ranges
+            archiveState.newerLiveEdgeReached = true
+            archiveState.recomputeBoundsAndGaps()
+        }
+    }
+
+    private func seededArchiveRanges() throws -> [RegularChatArchiveIDRange] {
+        let realm = try WRealm.safe()
+        return try XCTUnwrap(
+            realm.object(
+                ofType: RegularChatArchiveSyncStateStorageItem.self,
+                forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: .regular
+                )
+            )
+        ).loadedRanges
+    }
+
+    private func mergeSeededArchiveRange(
+        first: String,
+        last: String,
+        updateKind: RegularArchiveCoverageUpdateKind
+    ) throws {
+        let realm = try WRealm.safe()
+        let archiveState = try XCTUnwrap(
+            realm.object(
+                ofType: RegularChatArchiveSyncStateStorageItem.self,
+                forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: .regular
+                )
+            )
+        )
+        try realm.write {
+            archiveState.mergeLoadedRange(
+                first: first,
+                last: last,
+                updateKind: updateKind
+            )
+        }
+        XCTAssertTrue(archiveState.knownGaps.isEmpty)
+    }
+
     private func assertSeededConversationHasDurableArchiveCoverage(
         file: StaticString = #filePath,
         line: UInt = #line
@@ -16905,11 +19205,35 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 
     private func seedMessage(
         index: Int,
+        archivedId: String? = nil,
         conversationType: ClientSynchronizationManager.ConversationType = .regular
     ) throws {
         let realm = try WRealm.safe()
         try realm.write {
-            realm.add(makeMessage(index: index, conversationType: conversationType), update: .modified)
+            realm.add(
+                makeMessage(
+                    index: index,
+                    archivedId: archivedId,
+                    conversationType: conversationType
+                ),
+                update: .modified
+            )
+        }
+    }
+
+    private func updateSeededMessage(
+        index: Int,
+        update: (MessageStorageItem) -> Void
+    ) throws {
+        let realm = try WRealm.safe()
+        let message = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: "first-frame-message-\(index)"
+            )
+        )
+        try realm.write {
+            update(message)
         }
     }
 
@@ -16936,7 +19260,7 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
     }
 
     private func makeSavedPositionRequest(
-        primary: String,
+        primary: String?,
         archivedId: String?,
         messageId: String?,
         sourceDate: Date
@@ -17050,8 +19374,26 @@ final class ChatFirstFrameLocalHistoryRegressionTests: XCTestCase {
 private final class WarmupOffsetRecordingChatViewController: ChatViewController {
     var shouldRecordLatestBottomScroll = false
     private(set) var latestBottomScrollCallCount = 0
+    private(set) var viewportReadMutationCount = 0
+    private(set) var displayedMarkerMutationCount = 0
     private(set) var recordedOffsetBeforeLatestBottomScroll: CGFloat?
     private(set) var recordedTargetOffsetBeforeLatestBottomScroll: CGFloat?
+
+    override func advanceReadBoundary(to target: ChatScrollVisibleRow) -> Bool {
+        let didAdvance = super.advanceReadBoundary(to: target)
+        if didAdvance {
+            viewportReadMutationCount += 1
+        }
+        return didAdvance
+    }
+
+    override func flushPendingVisibleReadTarget() -> Bool {
+        let didFlush = super.flushPendingVisibleReadTarget()
+        if didFlush {
+            displayedMarkerMutationCount += 1
+        }
+        return didFlush
+    }
 
     override func finishLatestBottomScroll(animated: Bool, consumePendingForceLatest: Bool) {
         latestBottomScrollCallCount += 1
@@ -17170,6 +19512,102 @@ final class ChatInitialLatestOpenStabilizationPolicyTests: XCTestCase {
 }
 
 final class ChatInitialHistoryAppearancePolicyTests: XCTestCase {
+
+    func testSavedPositionWindowRequiresPositiveCoverageOfEveryPreparedArchiveId() throws {
+        let savedWindowArchiveIds = (10...89).map {
+            String((Int64(1_700_000_000) + Int64($0)) * 1_000_000)
+        }
+        let optionalSavedWindowArchiveIds: [String?] =
+            savedWindowArchiveIds.map { $0 }
+        let currentEdgeArchiveId = String(
+            (Int64(1_700_000_000) + 400) * 1_000_000
+        )
+        let currentEdgeOnly = [RegularChatArchiveIDRange(
+            oldestArchiveId: currentEdgeArchiveId,
+            newestArchiveId: currentEdgeArchiveId
+        )]
+        let unrelatedOlderArchiveId = String(Int64(1_699_999_999) * 1_000_000)
+        let unrelatedOlder = RegularChatArchiveIDRange(
+            oldestArchiveId: unrelatedOlderArchiveId,
+            newestArchiveId: unrelatedOlderArchiveId
+        )
+        XCTAssertFalse(
+            ChatSavedPositionDurableWindowCoveragePolicy.isCovered(
+                requestSource: .savedVisiblePosition,
+                windowArchiveIds: optionalSavedWindowArchiveIds,
+                loadedRanges: [unrelatedOlder] + currentEdgeOnly
+            ),
+            "unrelated ranges before and after must not authorize an old saved window"
+        )
+
+        let savedWindowCoverage = RegularChatArchiveIDRange(
+            oldestArchiveId: try XCTUnwrap(savedWindowArchiveIds.first),
+            newestArchiveId: try XCTUnwrap(savedWindowArchiveIds.last)
+        )
+        XCTAssertTrue(
+            ChatSavedPositionDurableWindowCoveragePolicy.isCovered(
+                requestSource: .savedVisiblePosition,
+                windowArchiveIds: optionalSavedWindowArchiveIds,
+                loadedRanges: [savedWindowCoverage] + currentEdgeOnly
+            )
+        )
+        XCTAssertFalse(
+            ChatSavedPositionDurableWindowCoveragePolicy.isCovered(
+                requestSource: .savedVisiblePosition,
+                windowArchiveIds: [nil] + optionalSavedWindowArchiveIds.dropFirst(),
+                loadedRanges: [savedWindowCoverage]
+            ),
+            "message-id/date fallback without stable archive bounds needs a target persistence receipt"
+        )
+        XCTAssertTrue(
+            ChatSavedPositionDurableWindowCoveragePolicy.isCovered(
+                requestSource: .pushNotification,
+                windowArchiveIds: [],
+                loadedRanges: []
+            ),
+            "explicit targets must not inherit saved-position range coverage"
+        )
+    }
+
+    func testLocalAnchorFirstFrameEligibilitySeparatesSavedReadinessFromExplicitTargets() {
+        XCTAssertFalse(
+            ChatLocalAnchorFirstFrameEligibilityPolicy.isEligible(
+                requestSource: .savedVisiblePosition,
+                hasStructurallySafeLocalAnchor: true,
+                hasDurableArchiveReadiness: false
+            )
+        )
+        XCTAssertTrue(
+            ChatLocalAnchorFirstFrameEligibilityPolicy.isEligible(
+                requestSource: .savedVisiblePosition,
+                hasStructurallySafeLocalAnchor: true,
+                hasDurableArchiveReadiness: true
+            )
+        )
+        XCTAssertFalse(
+            ChatLocalAnchorFirstFrameEligibilityPolicy.isEligible(
+                requestSource: .savedVisiblePosition,
+                hasStructurallySafeLocalAnchor: false,
+                hasDurableArchiveReadiness: true
+            )
+        )
+
+        for source in [
+            ChatOpenMessageRequestSource.pushNotification,
+            .search,
+            .initialUnreadBoundary,
+            .mentionNotification
+        ] {
+            XCTAssertTrue(
+                ChatLocalAnchorFirstFrameEligibilityPolicy.isEligible(
+                    requestSource: source,
+                    hasStructurallySafeLocalAnchor: true,
+                    hasDurableArchiveReadiness: false
+                ),
+                "Explicit anchor source \(source) must not inherit the saved-position readiness gate"
+            )
+        }
+    }
 
     func testInitialAppearanceStartsWhenDatasourceIsPlaceholder() {
         XCTAssertTrue(
@@ -17433,6 +19871,22 @@ final class ChatInitialHistoryAppearancePolicyTests: XCTestCase {
                 decision: .standardContent
             )
         )
+
+        XCTAssertFalse(
+            ChatSavedPositionFirstFramePolicy.shouldApplySynchronously(
+                bootstrapState: .content,
+                isShowingBootstrapPlaceholder: true,
+                decision: .blockingRepair(
+                    ChatSavedPositionGapRepairPlan(
+                        gap: RegularChatArchiveGap(
+                            olderRangeNewestArchiveId: "350",
+                            newerRangeOldestArchiveId: "400"
+                        ),
+                        direction: .newer
+                    )
+                )
+            )
+        )
     }
 
     func testSavedPositionFirstFrameSkipsWhenAnchorWindowCrossesKnownArchiveGap() {
@@ -17455,7 +19909,12 @@ final class ChatInitialHistoryAppearancePolicyTests: XCTestCase {
                 ],
                 knownGaps: [gap]
             ),
-            .standardContent
+            .blockingRepair(
+                ChatSavedPositionGapRepairPlan(
+                    gap: gap,
+                    direction: .newer
+                )
+            )
         )
     }
 
@@ -17482,6 +19941,35 @@ final class ChatInitialHistoryAppearancePolicyTests: XCTestCase {
             .savedPosition(
                 anchorIndex: 120,
                 window: ChatDatasetWindow(minIndex: 70, maxIndex: 170)
+            )
+        )
+    }
+
+    func testSavedPositionFirstFrameRepairsOlderFromAnchorOnNewerGapSide() {
+        let gap = RegularChatArchiveGap(
+            olderRangeNewestArchiveId: "200",
+            newerRangeOldestArchiveId: "400"
+        )
+
+        XCTAssertEqual(
+            ChatSavedPositionFirstFramePolicy.decision(
+                requestSource: .savedVisiblePosition,
+                isSynced: true,
+                observerCount: 180,
+                localAnchorIndex: 120,
+                pageSize: 100,
+                archivedIdsByIndex: [
+                    70: "150",
+                    120: "450",
+                    169: "500"
+                ],
+                knownGaps: [gap]
+            ),
+            .blockingRepair(
+                ChatSavedPositionGapRepairPlan(
+                    gap: gap,
+                    direction: .older
+                )
             )
         )
     }
@@ -25191,6 +27679,26 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
         XCTAssertEqual(ChatInitialPositionPolicy.decision(for: state, explicitRequest: nil), .bottom)
     }
 
+    func testBlankSyncUnreadAfterIdOpensBottomWithoutLastReadFallback() {
+        for blankBoundary in ["", " ", "\n\t"] {
+            let state = makeState(
+                unread: 3,
+                syncUnreadCount: 3,
+                syncUnreadAfterId: blankBoundary,
+                lastReadId: "1711283294000000"
+            )
+
+            XCTAssertEqual(
+                ChatInitialPositionPolicy.decision(
+                    for: state,
+                    explicitRequest: nil
+                ),
+                .bottom,
+                "blank sync unread boundary must not fall back to lastReadId"
+            )
+        }
+    }
+
     func testUnreadBoundaryWithoutAnchorOpensBottom() {
         let state = makeState(unread: 1, syncUnreadCount: 1, syncUnreadAfterId: nil, lastReadId: nil)
 
@@ -25751,11 +28259,30 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         controller.jid = "group@xabber.example"
         controller.conversationType = .group
         controller.loadViewIfNeeded()
+        // Loading the view installs the production timeline and may leave an
+        // empty first-frame preparation active. This fixture represents an
+        // already committed displayed chat, so retire that unrelated work
+        // before publishing its loaded anchor row.
+        controller.cancelStackedNavigationPresentationPreparation()
+        controller.isStackedNavigationPresentationPreparationCancelled = false
         controller.datasource = [
             makeDatasource(primary: "loaded", archivedId: "archived-loaded", messageId: "message-loaded")
         ]
         controller.datasourceSnapshot = ChatDatasourceCoordinator.makeSnapshot(
             items: controller.datasource
+        )
+        controller.initialLocalFirstFramePhase = .committed(
+            ChatLocalFirstFrameDescriptor(target: .latest, request: nil)
+        )
+        controller.initialFirstContentApplyCount = 1
+        controller.appliedBootstrapLoadingState = .content
+        controller.showSkeletonObserver.accept(false)
+        controller.loadDatasourceObserver.accept(true)
+        controller.syncCurrentPage(
+            with: ChatDatasetWindow(
+                minIndex: 0,
+                maxIndex: controller.datasource.count
+            )
         )
         controller.messagesCollectionView.reloadData()
         controller.messagesCollectionView.layoutIfNeeded()
@@ -26109,7 +28636,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testRemoteSearchAnchorFinalWaitsWhenFinArrivesBeforeResultRowPersistence() {
+    func testRemoteSearchAnchorPersistenceTerminalWaitsForNewerObserverGeneration() {
         let controller = ChatViewController()
         controller.owner = "owner@example.com"
         controller.jid = "contact@example.com"
@@ -26135,6 +28662,8 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         var state = ChatAnchorExecutionState(request: request)
         state.lastAttemptedRemotePlan = .exactArchivedId("archive-1")
         state.remoteQueryId = "MAM jump exact: test"
+        state.remoteFetchSnapshotGenerationAtStart =
+            controller.timelineSession?.snapshot.generation ?? 0
         state.isRemoteFetchInFlight = true
         controller.pendingOpenMessageRequest = request
         controller.activeAnchorExecutionState = state
@@ -26144,11 +28673,11 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             state: MessageArchivePageEndState(
                 queryExhausted: true,
                 archiveEnded: true,
-                persistedMessageCount: 0
+                persistedMessageCount: 1
             ),
             first: "archive-1",
             last: "archive-1",
-            count: 1
+            count: 1_000_000
         )
         RunLoop.main.run(until: Date().addingTimeInterval(0.02))
 
@@ -26159,7 +28688,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testDuplicateRemoteSearchFinalDuringDelayedPersistenceKeepsAnchorWorkActive() {
+    func testDuplicateRemoteSearchPersistenceTerminalKeepsObserverBarrierActive() {
         let controller = ChatViewController()
         controller.owner = "owner@example.com"
         controller.jid = "contact@example.com"
@@ -26174,6 +28703,8 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         var state = ChatAnchorExecutionState(request: request)
         state.lastAttemptedRemotePlan = .exactArchivedId("archive-delayed")
         state.remoteQueryId = queryId
+        state.remoteFetchSnapshotGenerationAtStart =
+            controller.timelineSession?.snapshot.generation ?? 0
         state.isRemoteFetchInFlight = true
         controller.pendingOpenMessageRequest = request
         controller.activeAnchorExecutionState = state
@@ -26182,7 +28713,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         let finalState = MessageArchivePageEndState(
             queryExhausted: true,
             archiveEnded: true,
-            persistedMessageCount: 0
+            persistedMessageCount: 1
         )
 
         controller.didReceiveEndPage(
@@ -26190,7 +28721,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             state: finalState,
             first: "archive-delayed",
             last: "archive-delayed",
-            count: 1
+            count: 1_000_000
         )
         RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         controller.didReceiveEndPage(
@@ -26198,7 +28729,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             state: finalState,
             first: "archive-delayed",
             last: "archive-delayed",
-            count: 1
+            count: 1_000_000
         )
         RunLoop.main.run(until: Date().addingTimeInterval(0.02))
 
@@ -27308,23 +29839,26 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         )
     }
 
-    func testAnchorResultDeliveryPolicyWaitsWhenFinalArrivesBeforeAllRowsPersist() {
+    func testAnchorRemoteObserverBarrierWaitsOnlyForPersistedRowsAndNewerGeneration() {
         XCTAssertTrue(
-            ChatAnchorRemoteResultDeliveryPolicy.shouldWaitForDeliveredRows(
-                remoteResultCount: 28,
-                persistedMessageCount: 27
+            ChatAnchorRemoteObserverBarrierPolicy.shouldWaitForNewerSnapshot(
+                persistedMessageCount: 1,
+                baselineGeneration: 7,
+                observedGeneration: 7
             )
         )
         XCTAssertFalse(
-            ChatAnchorRemoteResultDeliveryPolicy.shouldWaitForDeliveredRows(
-                remoteResultCount: 28,
-                persistedMessageCount: 28
+            ChatAnchorRemoteObserverBarrierPolicy.shouldWaitForNewerSnapshot(
+                persistedMessageCount: 1,
+                baselineGeneration: 7,
+                observedGeneration: 8
             )
         )
         XCTAssertFalse(
-            ChatAnchorRemoteResultDeliveryPolicy.shouldWaitForDeliveredRows(
-                remoteResultCount: 0,
-                persistedMessageCount: 0
+            ChatAnchorRemoteObserverBarrierPolicy.shouldWaitForNewerSnapshot(
+                persistedMessageCount: 0,
+                baselineGeneration: 7,
+                observedGeneration: 7
             )
         )
     }
@@ -27397,7 +29931,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         )
     }
 
-    func testAnchorExecutionPolicyFallsBackImmediatelyAfterPersistedExactRemoteMiss() {
+    func testAnchorExecutionPolicyFallsBackAfterNewerObserverConfirmsExactRemoteMiss() {
         let request = makeRequest()
         var state = ChatAnchorExecutionState(request: request)
         state.lastAttemptedRemotePlan = .exactArchivedId("archived-42")
@@ -27407,7 +29941,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
                 state: state,
                 hasLocalMatch: false,
                 persistedMessageCount: 1,
-                remoteResultCount: 0,
+                hasObservedNewerSnapshot: true,
                 pageSize: ChatHistoryPagingConfiguration.pageSize
             ),
             .startRemoteFetch(.dateWindow(
@@ -27418,7 +29952,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         )
     }
 
-    func testAnchorExecutionPolicyWaitsAfterNonEmptyExactRemoteResultBeforePersistence() {
+    func testAnchorExecutionPolicyWaitsAfterPersistedExactRemoteResultBeforeObserver() {
         let request = makeRequest()
         var state = ChatAnchorExecutionState(request: request)
         state.lastAttemptedRemotePlan = .exactArchivedId("archived-42")
@@ -27427,8 +29961,8 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             ChatAnchorExecutionPolicy.remoteCompletionAction(
                 state: state,
                 hasLocalMatch: false,
-                persistedMessageCount: 0,
-                remoteResultCount: 101,
+                persistedMessageCount: 1,
+                hasObservedNewerSnapshot: false,
                 pageSize: ChatHistoryPagingConfiguration.pageSize
             ),
             .waitForObserverSync
@@ -27450,8 +29984,8 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             ChatAnchorExecutionPolicy.remoteCompletionAction(
                 state: state,
                 hasLocalMatch: false,
-                persistedMessageCount: 0,
-                remoteResultCount: 100,
+                persistedMessageCount: 1,
+                hasObservedNewerSnapshot: false,
                 pageSize: ChatHistoryPagingConfiguration.pageSize
             ),
             .waitForObserverSync
@@ -27462,7 +29996,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
                 state: state,
                 hasLocalMatch: false,
                 persistedMessageCount: 100,
-                remoteResultCount: 100,
+                hasObservedNewerSnapshot: true,
                 pageSize: ChatHistoryPagingConfiguration.pageSize
             ),
             .fail
@@ -27481,7 +30015,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
                 state: state,
                 hasLocalMatch: false,
                 persistedMessageCount: 0,
-                remoteResultCount: 0,
+                hasObservedNewerSnapshot: false,
                 pageSize: ChatHistoryPagingConfiguration.pageSize
             ),
             .startRemoteFetch(
@@ -27503,8 +30037,8 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             ChatAnchorExecutionPolicy.remoteCompletionAction(
                 state: state,
                 hasLocalMatch: false,
-                persistedMessageCount: 0,
-                remoteResultCount: 100,
+                persistedMessageCount: 1,
+                hasObservedNewerSnapshot: false,
                 pageSize: ChatHistoryPagingConfiguration.pageSize
             ),
             .waitForObserverSync
@@ -27533,12 +30067,11 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         )
     }
 
-    func testAnchorExecutionPolicyDoesNotWaitForObserverRefreshDuringManualResume() {
+    func testAnchorExecutionPolicyCannotBypassObserverBarrierDuringManualResume() {
         var state = ChatAnchorExecutionState(request: makeRequest())
         state.lastAttemptedRemotePlan = .exactArchivedId("archived-42")
         state.isWaitingForObserverSync = true
 
-        let sourceDate = state.request.anchor.sourceDate!
         XCTAssertEqual(
             ChatAnchorExecutionPolicy.resumeAction(
                 state: state,
@@ -27546,20 +30079,14 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
                 trigger: .manual,
                 pageSize: ChatHistoryPagingConfiguration.pageSize
             ),
-            .startRemoteFetch(
-                .dateWindow(
-                    start: sourceDate.addingTimeInterval(-60),
-                    end: sourceDate.addingTimeInterval(60),
-                    max: ChatHistoryPagingConfiguration.pageSize
-                )
-            )
+            .waitForObserverSync
         )
     }
 
-    func testAnchorExecutionPolicyResolvesLocallyWhenObserverRefreshMakesAnchorVisible() {
+    func testAnchorExecutionPolicyResolvesLocallyAfterObserverBarrierClears() {
         var state = ChatAnchorExecutionState(request: makeRequest())
         state.lastAttemptedRemotePlan = .exactArchivedId("archived-42")
-        state.isWaitingForObserverSync = true
+        state.isWaitingForObserverSync = false
 
         XCTAssertEqual(
             ChatAnchorExecutionPolicy.resumeAction(
@@ -27572,13 +30099,13 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         )
     }
 
-    func testAnchorExecutionPolicyFallsBackAfterObserverRefreshWhenExactFetchStillMisses() {
+    func testAnchorExecutionPolicyFallsBackAfterObserverBarrierClearsAndTargetStillMisses() {
         let sourceDate = Date(timeIntervalSince1970: 1_700_000_000)
         var state = ChatAnchorExecutionState(
             request: makeRequest(sourceDate: sourceDate)
         )
         state.lastAttemptedRemotePlan = .exactArchivedId("archived-42")
-        state.isWaitingForObserverSync = true
+        state.isWaitingForObserverSync = false
 
         XCTAssertEqual(
             ChatAnchorExecutionPolicy.resumeAction(
@@ -27597,7 +30124,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         )
     }
 
-    func testAnchorExecutionPolicyFailsAfterObserverRefreshWhenNoFurtherFallbackExists() {
+    func testAnchorExecutionPolicyFailsAfterObserverBarrierClearsWithNoFallback() {
         let sourceDate = Date(timeIntervalSince1970: 1_700_000_000)
         var state = ChatAnchorExecutionState(
             request: makeRequest(archivedId: nil, messageId: "message-42", sourceDate: sourceDate)
@@ -27607,7 +30134,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             end: sourceDate.addingTimeInterval(60),
             max: ChatHistoryPagingConfiguration.pageSize
         )
-        state.isWaitingForObserverSync = true
+        state.isWaitingForObserverSync = false
 
         XCTAssertEqual(
             ChatAnchorExecutionPolicy.resumeAction(
@@ -29320,6 +31847,77 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertEqual(recordedSummaries.first?.persistedRows, 1)
         XCTAssertEqual(recordedPersistencePassCount, 1)
         XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
+    }
+
+    func testDuplicateFinalBeforeLastIngressWaitsForOneExactPersistenceSummary()
+        throws {
+        let manager = MessageManager(
+            withOwner: "owner@example.com",
+            activeStream: false
+        )
+        let queryId = "duplicate-fin-before-exact-ingress"
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryId }
+        manager.beginArchiveQueryBatch(
+            queryId: queryId,
+            priority: .interactive
+        )
+
+        let bothFinals = expectation(
+            description: "duplicate finals join the same exact persistence"
+        )
+        bothFinals.expectedFulfillmentCount = 2
+        bothFinals.assertForOverFulfill = true
+        let stateLock = NSLock()
+        var summaries: [MessageManager.ArchivePersistenceSummary] = []
+        var persistencePassCount = 0
+        manager.messagePersistenceChunkObserver = { _, _ in
+            stateLock.lock()
+            persistencePassCount += 1
+            stateLock.unlock()
+        }
+        defer {
+            manager.messagePersistenceChunkObserver = nil
+        }
+
+        let record: (MessageManager.ArchivePersistenceSummary) -> Void = {
+            summary in
+            stateLock.lock()
+            summaries.append(summary)
+            stateLock.unlock()
+            bothFinals.fulfill()
+        }
+        for _ in 0..<2 {
+            manager.sealArchiveQueryBatch(
+                queryId: queryId,
+                priority: .interactive,
+                expectedReceivedCount: 1,
+                completion: record
+            )
+        }
+        manager.performMessageQueueSync {}
+        stateLock.lock()
+        let summaryCountBeforeIngress = summaries.count
+        stateLock.unlock()
+        XCTAssertEqual(summaryCountBeforeIngress, 0)
+        XCTAssertTrue(manager.isArchiveQueryBatchActive(queryId: queryId))
+
+        manager.receiveArchived(
+            try makeArchivedMessage(index: 1, queryId: queryId)
+        )
+        wait(for: [bothFinals], timeout: 5)
+        manager.performMessageQueueSync {}
+
+        stateLock.lock()
+        let recordedSummaries = summaries
+        let recordedPersistencePassCount = persistencePassCount
+        stateLock.unlock()
+        XCTAssertEqual(recordedSummaries.count, 2)
+        XCTAssertTrue(recordedSummaries.allSatisfy { $0.received == 1 })
+        XCTAssertTrue(recordedSummaries.allSatisfy { $0.persistedRows == 1 })
+        XCTAssertEqual(recordedPersistencePassCount, 1)
+        XCTAssertFalse(manager.isArchiveQueryBatchActive(queryId: queryId))
+        XCTAssertFalse(manager.hasPendingMessages(forQueryId: queryId))
     }
 
     func testSealedArchiveBatchDoesNotPublishTerminalBeforePersistenceFinishes() throws {
@@ -33851,19 +36449,88 @@ final class ChatListUnreadMentionBadgeTests: XCTestCase {
         let controller = LastChatsViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         navigationController.loadViewIfNeeded()
+        controller.chatNavigationRouteResolver = { _ in
+            .currentNavigationPush
+        }
+        var configuredChat: ChatViewController?
         var requestAtConfigureBoundary: ChatOpenMessageRequest?
+        var phaseAtConfigureBoundary: ChatLocalFirstFramePhase?
+        var admittedRequest: ChatOpenMessageRequest?
+        var admissionViewWasLoaded: Bool?
+        var phaseAtAdmission: ChatLocalFirstFramePhase?
+        var admissionCount = 0
+        controller.compactChatDestinationFactory = {
+            let destination = ChatViewController()
+            destination.performanceOpenMessageRequestAdmissionObserver = {
+                request,
+                isViewLoaded in
+                admissionCount += 1
+                admittedRequest = request
+                admissionViewWasLoaded = isViewLoaded
+                phaseAtAdmission = destination.initialLocalFirstFramePhase
+            }
+            return destination
+        }
 
-        controller.stackNewChat(
+        let routeAcknowledged = controller.stackNewChat(
             owner: owner,
             jid: "group@example.com",
             conversationType: .group,
             openMessageRequest: mentionRequest
         ) { chat in
+            configuredChat = chat
             requestAtConfigureBoundary = chat?.pendingOpenMessageRequest
                 ?? chat?.activeAnchorExecutionState?.request
+            phaseAtConfigureBoundary = chat?.initialLocalFirstFramePhase
         }
 
-        let configuredRequest = try XCTUnwrap(requestAtConfigureBoundary)
+        let destination = try XCTUnwrap(configuredChat)
+        XCTAssertTrue(routeAcknowledged)
+        XCTAssertEqual(destination.owner, owner)
+        XCTAssertEqual(destination.jid, "group@example.com")
+        XCTAssertEqual(destination.conversationType, .group)
+        XCTAssertNil(
+            requestAtConfigureBoundary,
+            "configuration intentionally precedes synchronous intent delivery"
+        )
+        XCTAssertEqual(phaseAtConfigureBoundary, .idle)
+        XCTAssertEqual(admissionCount, 1)
+        XCTAssertEqual(admittedRequest, mentionRequest)
+        XCTAssertEqual(admissionViewWasLoaded, false)
+        XCTAssertEqual(phaseAtAdmission, .idle)
+        XCTAssertEqual(
+            controller.chatOpenIntentOwnership?.destinationIdentifier,
+            ObjectIdentifier(destination)
+        )
+        XCTAssertEqual(
+            controller.chatOpenIntentOwnership?.intent,
+            .message(mentionRequest)
+        )
+        XCTAssertEqual(
+            controller.chatOpenIntentOwnership?.navigationSource,
+            .standard
+        )
+        XCTAssertFalse(destination.pendingForceLatestOpen)
+
+        let requestOwnedBeforeFirstFrame: ChatOpenMessageRequest?
+        if let pendingRequest = destination.pendingOpenMessageRequest {
+            requestOwnedBeforeFirstFrame = pendingRequest
+        } else if let activeRequest = destination.activeAnchorExecutionState?.request {
+            requestOwnedBeforeFirstFrame = activeRequest
+        } else {
+            switch destination.initialLocalFirstFramePhase {
+            case .idle:
+                requestOwnedBeforeFirstFrame = nil
+            case .preparing(let descriptor),
+                 .presenting(let descriptor),
+                 .committed(let descriptor),
+                 .blockedArchiveBootstrap(let descriptor),
+                 .blockedMissingTarget(let descriptor),
+                 .failedPresentation(let descriptor):
+                requestOwnedBeforeFirstFrame = descriptor.request
+            }
+        }
+        let configuredRequest = try XCTUnwrap(requestOwnedBeforeFirstFrame)
         XCTAssertEqual(configuredRequest.source, .mentionNotification)
         XCTAssertEqual(configuredRequest.anchor.archivedId, "mention-1")
         XCTAssertTrue(configuredRequest.markReadOnVisible)
@@ -41752,6 +44419,122 @@ final class ChatUnreadMentionsTests: XCTestCase {
     private let groupchatJid = "trio@example.com"
     private let currentMemberId = "me-1"
 
+    private struct V15MentionRealmState: Equatable {
+        let notificationPrimary: String
+        let notificationIsRead: Bool
+        let notificationShouldShow: Bool
+        let notificationLinkStatus: String?
+        let sourceChatJid: String?
+        let sourceArchivedId: String?
+        let sourceMessageId: String?
+        let targetMemberId: String?
+        let targetPrimary: String
+        let targetArchivedId: String
+        let targetMessageId: String
+        let targetIsRead: Bool
+        let targetState: Int
+        let chatMentionId: String?
+
+        var stableTargetAndNotificationIdentity: [String?] {
+            [
+                notificationPrimary,
+                notificationLinkStatus,
+                sourceChatJid,
+                sourceArchivedId,
+                sourceMessageId,
+                targetMemberId,
+                targetPrimary,
+                targetArchivedId,
+                targetMessageId,
+                chatMentionId
+            ]
+        }
+    }
+
+    private enum DeletedMentionBadgeCanonicalJSON: Equatable {
+        case absent
+        case canonical(String)
+        case invalidRaw(String)
+    }
+
+    private struct DeletedMentionBadgeNotificationState: Equatable {
+        let primary: String
+        let owner: String
+        let jid: String
+        let uniqueId: String
+        let messageId: String
+        let stanzaId: String
+        let category: String
+        let associatedJid: String?
+        let date: Date
+        let shouldShow: Bool
+        let isRead: Bool
+        let sourceConversationType: String?
+        let sourceChatJid: String?
+        let sourceArchivedId: String?
+        let sourceMessageId: String?
+        let sourceSenderId: String?
+        let mentionTargetUserId: String?
+        let sourceMessageDate: Date?
+        let sourceBodyFingerprint: String?
+        let mentionLinkStatus: String?
+        let linkedAt: Date?
+        let displayedNick: String?
+        let text: String?
+        let notificationType: String?
+        let originalSenderJid: String?
+        let fallbackText: String?
+        let metadata: DeletedMentionBadgeCanonicalJSON
+    }
+
+    private struct DeletedMentionBadgeReferenceState: Equatable {
+        let primary: String
+        let owner: String
+        let messageId: String
+        let jid: String
+        let kind: String
+        let metadata: DeletedMentionBadgeCanonicalJSON
+    }
+
+    private struct DeletedMentionBadgeMessageState: Equatable {
+        let primary: String
+        let owner: String
+        let opponent: String
+        let conversationType: String
+        let archivedId: String
+        let messageId: String
+        let messageType: String
+        let displayAs: String
+        let body: String
+        let legacyBody: String
+        let isRead: Bool
+        let isDeleted: Bool
+        let outgoing: Bool
+        let state: Int
+        let unreadCounterBucket: String
+        let date: Date
+        let sentDate: Date
+        let references: [DeletedMentionBadgeReferenceState]
+    }
+
+    @MainActor
+    private struct HostedDeletedMentionBadgeFixture {
+        let controller: ChatUnreadMentionV15HostedController
+        let badgeButton: UIButton
+        let owner: String
+        let groupchatJid: String
+        let account: Account
+        let staleNotificationPrimary: String
+        let staleMessagePrimary: String
+        let staleArchivedId: String
+        let followingNotificationPrimary: String?
+        let followingMessagePrimary: String?
+        let followingArchivedId: String?
+        let unrelatedNotificationPrimary: String
+        let unrelatedMessagePrimary: String
+        let chatPrimary: String
+    }
+
     override func setUpWithError() throws {
         let realm = try WRealm.safe()
         try realm.write {
@@ -41772,15 +44555,21 @@ final class ChatUnreadMentionsTests: XCTestCase {
 
     private func insertLastChat(
         jid: String? = nil,
-        conversationType: ClientSynchronizationManager.ConversationType = .group
+        conversationType: ClientSynchronizationManager.ConversationType = .group,
+        fixtureOwner: String? = nil
     ) throws {
         let jid = jid ?? groupchatJid
+        let resolvedOwner = fixtureOwner ?? owner
         let realm = try WRealm.safe()
         let chat = LastChatsStorageItem()
-        chat.owner = owner
+        chat.owner = resolvedOwner
         chat.jid = jid
         chat.conversationType = conversationType
-        chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)
+        chat.primary = LastChatsStorageItem.genPrimary(
+            jid: jid,
+            owner: resolvedOwner,
+            conversationType: conversationType
+        )
         chat.groupchatMyId = currentMemberId
 
         try realm.write {
@@ -41791,17 +44580,23 @@ final class ChatUnreadMentionsTests: XCTestCase {
     private func insertMyGroupUser(
         jid: String? = nil,
         userId: String? = nil,
-        isHidden: Bool = false
+        isHidden: Bool = false,
+        fixtureOwner: String? = nil
     ) throws {
         let jid = jid ?? groupchatJid
         let userId = userId ?? currentMemberId
+        let resolvedOwner = fixtureOwner ?? owner
         let realm = try WRealm.safe()
         let member = GroupchatUserStorageItem()
-        member.owner = owner
+        member.owner = resolvedOwner
         member.userId = userId
-        member.jid = owner
-        member.groupchatId = [jid, owner].prp()
-        member.primary = GroupchatUserStorageItem.genPrimary(id: userId, groupchat: jid, owner: owner)
+        member.jid = resolvedOwner
+        member.groupchatId = [jid, resolvedOwner].prp()
+        member.primary = GroupchatUserStorageItem.genPrimary(
+            id: userId,
+            groupchat: jid,
+            owner: resolvedOwner
+        )
         member.isMe = true
         member.isHidden = isHidden
 
@@ -41828,13 +44623,17 @@ final class ChatUnreadMentionsTests: XCTestCase {
         isRead: Bool = false,
         isDeleted: Bool = false,
         mentionMemberIds: [String] = [],
-        date: Date
+        date: Date,
+        fixtureOwner: String? = nil,
+        fixtureGroupchatJid: String? = nil
     ) -> MessageStorageItem {
+        let resolvedOwner = fixtureOwner ?? owner
+        let resolvedGroupchatJid = fixtureGroupchatJid ?? groupchatJid
         let message = MessageStorageItem()
         message.primary = primary
         message.archivedId = archivedId
-        message.owner = owner
-        message.opponent = groupchatJid
+        message.owner = resolvedOwner
+        message.opponent = resolvedGroupchatJid
         message.body = mentionMemberIds.isEmpty ? "Hello" : "Hello @you"
         message.displayAs = .text
         message.conversationType = .group
@@ -41858,9 +44657,9 @@ final class ChatUnreadMentionsTests: XCTestCase {
             let mentionReference = makeReference(
                 kind: .mention,
                 metadata: [
-                    "uri": "xmpp:\(groupchatJid)?members;id=\(memberId)",
+                    "uri": "xmpp:\(resolvedGroupchatJid)?members;id=\(memberId)",
                     "memberId": memberId,
-                    "groupchatJid": groupchatJid,
+                    "groupchatJid": resolvedGroupchatJid,
                     "nickname": "@\(memberId)"
                 ]
             )
@@ -41880,15 +44679,19 @@ final class ChatUnreadMentionsTests: XCTestCase {
         linkStatus: NotificationStorageItem.MentionLinkStatus? = .resolved,
         conversationType: ClientSynchronizationManager.ConversationType? = .group,
         sourceChatJid: String? = nil,
-        date: Date
+        date: Date,
+        fixtureOwner: String? = nil,
+        fixtureGroupchatJid: String? = nil
     ) -> NotificationStorageItem {
+        let resolvedOwner = fixtureOwner ?? owner
+        let resolvedGroupchatJid = fixtureGroupchatJid ?? groupchatJid
         let notification = NotificationStorageItem()
         notification.primary = primary
-        notification.owner = owner
+        notification.owner = resolvedOwner
         notification.category = .mention
         notification.isRead = isRead
         notification.sourceConversationType = conversationType
-        notification.sourceChatJid = sourceChatJid ?? groupchatJid
+        notification.sourceChatJid = sourceChatJid ?? resolvedGroupchatJid
         notification.sourceArchivedId = archivedId
         notification.sourceMessageId = messageId
         notification.sourceSenderId = authorId
@@ -41912,6 +44715,1054 @@ final class ChatUnreadMentionsTests: XCTestCase {
             archivedId: notification.sourceArchivedId,
             messageId: notification.sourceMessageId
         )?.primary
+    }
+
+    private func canonicalDeletedMentionBadgeJSON(
+        _ raw: String?
+    ) -> DeletedMentionBadgeCanonicalJSON {
+        guard let raw else {
+            return .absent
+        }
+        guard let data = raw.data(using: .utf8) else {
+            return .invalidRaw(raw)
+        }
+        do {
+            let object = try JSONSerialization.jsonObject(
+                with: data,
+                options: [.fragmentsAllowed]
+            )
+            let canonicalData = try JSONSerialization.data(
+                withJSONObject: object,
+                options: [.sortedKeys, .fragmentsAllowed]
+            )
+            guard let canonical = String(
+                data: canonicalData,
+                encoding: .utf8
+            ) else {
+                return .invalidRaw(raw)
+            }
+            return .canonical(canonical)
+        } catch {
+            return .invalidRaw(raw)
+        }
+    }
+
+    private func deletedMentionBadgeNotificationState(
+        primary: String
+    ) throws -> DeletedMentionBadgeNotificationState {
+        let realm = try WRealm.safe()
+        realm.refresh()
+        let notification = try XCTUnwrap(
+            realm.object(
+                ofType: NotificationStorageItem.self,
+                forPrimaryKey: primary
+            )
+        )
+        return DeletedMentionBadgeNotificationState(
+            primary: notification.primary,
+            owner: notification.owner,
+            jid: notification.jid,
+            uniqueId: notification.uniqueId,
+            messageId: notification.messageId,
+            stanzaId: notification.stanzaId,
+            category: notification.category_,
+            associatedJid: notification.associatedJid,
+            date: notification.date,
+            shouldShow: notification.shouldShow,
+            isRead: notification.isRead,
+            sourceConversationType:
+                notification.sourceConversationType?.rawValue,
+            sourceChatJid: notification.sourceChatJid,
+            sourceArchivedId: notification.sourceArchivedId,
+            sourceMessageId: notification.sourceMessageId,
+            sourceSenderId: notification.sourceSenderId,
+            mentionTargetUserId: notification.mentionTargetUserId,
+            sourceMessageDate: notification.sourceMessageDate,
+            sourceBodyFingerprint: notification.sourceBodyFingerprint,
+            mentionLinkStatus: notification.mentionLinkStatus?.rawValue,
+            linkedAt: notification.linkedAt,
+            displayedNick: notification.displayedNick,
+            text: notification.text,
+            notificationType: notification.notificationType,
+            originalSenderJid: notification.originalSenderJid,
+            fallbackText: notification.fallbackText,
+            metadata: canonicalDeletedMentionBadgeJSON(
+                notification.metadata_
+            )
+        )
+    }
+
+    private func deletedMentionBadgeMessageState(
+        primary: String
+    ) throws -> DeletedMentionBadgeMessageState {
+        let realm = try WRealm.safe()
+        realm.refresh()
+        let message = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: primary
+            )
+        )
+        let references = message.references.map {
+            DeletedMentionBadgeReferenceState(
+                primary: $0.primary,
+                owner: $0.owner,
+                messageId: $0.messageId,
+                jid: $0.jid,
+                kind: $0.kind_,
+                metadata: self.canonicalDeletedMentionBadgeJSON($0.metadata_)
+            )
+        }.sorted { $0.primary < $1.primary }
+        return DeletedMentionBadgeMessageState(
+            primary: message.primary,
+            owner: message.owner,
+            opponent: message.opponent,
+            conversationType: message.conversationType_,
+            archivedId: message.archivedId,
+            messageId: message.messageId,
+            messageType: message.messageType,
+            displayAs: message.displayAs.rawValue,
+            body: message.body,
+            legacyBody: message.legacyBody,
+            isRead: message.isRead,
+            isDeleted: message.isDeleted,
+            outgoing: message.outgoing,
+            state: message.state_,
+            unreadCounterBucket: message.unreadCounterBucket_,
+            date: message.date,
+            sentDate: message.sentDate,
+            references: references
+        )
+    }
+
+    @MainActor
+    private func waitForHostedDeletedMentionBadgeQuiescence(
+        _ fixture: HostedDeletedMentionBadgeFixture,
+        expectsEmptyMentionUI: Bool = false
+    ) throws {
+        XCTAssertTrue(
+            waitUntilV15(timeout: 4) {
+                let controller = fixture.controller
+                let mentionUIIsConverged = !expectsEmptyMentionUI || (
+                    controller.unreadMentionsState == .empty &&
+                        !controller.shouldShowUnreadMentionsNavigator.value &&
+                        controller.unreadMentionsNavigatorView.isHidden
+                )
+                return mentionUIIsConverged &&
+                    !controller.isUnreadMentionNavigationInFlight &&
+                    controller.pendingOpenMessageRequest == nil &&
+                    controller.pendingUnreadMentionNavigationRequest == nil &&
+                    controller.activeAnchorExecutionState == nil &&
+                    controller.scrollWorkScheduler.pendingRequestCount == 0
+            },
+            "deleted-mention navigation and visible UI must converge"
+        )
+        let session = try XCTUnwrap(fixture.controller.timelineSession)
+        XCTAssertTrue(
+            waitUntilV15TimelineObserverIdle(session),
+            "deleted-mention timeline observation must become idle"
+        )
+        XCTAssertTrue(
+            waitUntilV15(timeout: 2) {
+                fixture.account.isActionQueueQuiescentForTests &&
+                    fixture.controller
+                        .visibleUnreadMentionReconciliationWorkItem == nil &&
+                    fixture.controller
+                        .readVisibleStableLayoutRetryWorkItem == nil &&
+                    fixture.controller.scrollWorkScheduler.pendingRequestCount == 0
+            },
+            "deleted-mention Realm/action/UI work must become quiescent"
+        )
+    }
+
+    @MainActor
+    private func withHostedDeletedMentionBadgeFixture(
+        includesFollowingMention: Bool,
+        _ body: (HostedDeletedMentionBadgeFixture) throws -> Void
+    ) throws {
+        let fixtureID = UUID().uuidString.lowercased()
+        let fixtureIdentity = "in-chat-deleted-\(fixtureID)"
+        let fixtureOwner = "\(fixtureIdentity)@invalid"
+        let fixtureGroupchatJid = groupchatJid
+        let staleNotificationPrimary =
+            "\(fixtureIdentity)-stale-notification"
+        let staleMessagePrimary = "\(fixtureIdentity)-stale-message"
+        let staleArchivedId = "100"
+        let staleMessageId = "\(fixtureIdentity)-stale-message-id"
+        let followingNotificationPrimary =
+            "\(fixtureIdentity)-following-notification"
+        let followingMessagePrimary = "\(fixtureIdentity)-following-message"
+        let followingArchivedId = "200"
+        let followingMessageId = "\(fixtureIdentity)-following-message-id"
+        let unrelatedNotificationPrimary =
+            "\(fixtureIdentity)-unrelated-notification"
+        let unrelatedMessagePrimary = "\(fixtureIdentity)-unrelated-message"
+        let unrelatedGroupchatJid = "unrelated-trio@example.com"
+        let windowScene = try requireHostedForegroundWindowScene()
+        let previousKeyWindow = windowScene.windows.first(where: \.isKeyWindow)
+        let accountManager = AccountManager.shared
+        let previousUsers = accountManager.users
+        let previousActiveUsers = accountManager.activeUsers.value
+        let previousAuthenticatedUsers = accountManager.authenticatedUsers.value
+        let previousConnectingUsers = accountManager.connectingUsers.value
+        XCTAssertFalse(previousUsers.contains { $0.jid == fixtureOwner })
+        XCTAssertFalse(previousActiveUsers.contains(fixtureOwner))
+        XCTAssertFalse(previousAuthenticatedUsers.contains(fixtureOwner))
+        XCTAssertFalse(previousConnectingUsers.contains(fixtureOwner))
+        let realm = try WRealm.safe()
+        XCTAssertNil(
+            realm.object(
+                ofType: AccountStorageItem.self,
+                forPrimaryKey: fixtureOwner
+            )
+        )
+
+        try insertLastChat(
+            jid: fixtureGroupchatJid,
+            fixtureOwner: fixtureOwner
+        )
+        try insertMyGroupUser(
+            jid: fixtureGroupchatJid,
+            fixtureOwner: fixtureOwner
+        )
+
+        let staleMessage = makeMessage(
+            primary: staleMessagePrimary,
+            archivedId: staleArchivedId,
+            messageId: staleMessageId,
+            authorId: "stale-author",
+            mentionMemberIds: [currentMemberId],
+            date: Date(timeIntervalSince1970: 100),
+            fixtureOwner: fixtureOwner,
+            fixtureGroupchatJid: fixtureGroupchatJid
+        )
+        let followingMessage = makeMessage(
+            primary: followingMessagePrimary,
+            archivedId: followingArchivedId,
+            messageId: followingMessageId,
+            authorId: "following-author",
+            mentionMemberIds: [currentMemberId],
+            date: Date(timeIntervalSince1970: 200),
+            fixtureOwner: fixtureOwner,
+            fixtureGroupchatJid: fixtureGroupchatJid
+        )
+        let trailingMessages = (0..<42).map { index in
+            makeMessage(
+                primary: "\(fixtureIdentity)-trailing-\(index)",
+                archivedId: String(300 + index),
+                messageId: "\(fixtureIdentity)-trailing-message-id-\(index)",
+                authorId: "trailing-author",
+                date: Date(timeIntervalSince1970: TimeInterval(300 + index)),
+                fixtureOwner: fixtureOwner,
+                fixtureGroupchatJid: fixtureGroupchatJid
+            )
+        }
+        let latestMessage = try XCTUnwrap(trailingMessages.last)
+        var seededMessages = [staleMessage]
+        if includesFollowingMention {
+            seededMessages.append(followingMessage)
+        }
+        seededMessages.append(contentsOf: trailingMessages)
+        seededMessages.forEach {
+            $0.legacyBody = $0.body
+            $0.state = .deliver
+            $0.isRead = false
+            $0.unreadCounterBucket = .runtime
+        }
+
+        let staleNotification = makeMentionNotification(
+            primary: staleNotificationPrimary,
+            archivedId: staleArchivedId,
+            messageId: staleMessageId,
+            authorId: "stale-author",
+            targetMemberId: currentMemberId,
+            date: staleMessage.date,
+            fixtureOwner: fixtureOwner,
+            fixtureGroupchatJid: fixtureGroupchatJid
+        )
+        staleNotification.jid = "notifications.example.com"
+        staleNotification.uniqueId = staleNotificationPrimary
+        staleNotification.messageId = staleNotificationPrimary
+        staleNotification.stanzaId = staleArchivedId
+        staleNotification.associatedJid = fixtureGroupchatJid
+        staleNotification.shouldShow = true
+        staleNotification.date = staleMessage.date
+        staleNotification.linkedAt = staleMessage.date.addingTimeInterval(1)
+        staleNotification.sourceBodyFingerprint =
+            MentionNotificationSync.normalizedBodyFingerprint(staleMessage.body)
+
+        let followingNotification = makeMentionNotification(
+            primary: followingNotificationPrimary,
+            archivedId: followingArchivedId,
+            messageId: followingMessageId,
+            authorId: "following-author",
+            targetMemberId: currentMemberId,
+            date: followingMessage.date,
+            fixtureOwner: fixtureOwner,
+            fixtureGroupchatJid: fixtureGroupchatJid
+        )
+        followingNotification.jid = "notifications.example.com"
+        followingNotification.uniqueId = followingNotificationPrimary
+        followingNotification.messageId = followingNotificationPrimary
+        followingNotification.stanzaId = followingArchivedId
+        followingNotification.associatedJid = fixtureGroupchatJid
+        followingNotification.shouldShow = true
+        followingNotification.date = followingMessage.date
+        followingNotification.linkedAt = followingMessage.date.addingTimeInterval(1)
+        followingNotification.sourceBodyFingerprint =
+            MentionNotificationSync.normalizedBodyFingerprint(followingMessage.body)
+
+        let unrelatedMessage = makeMessage(
+            primary: unrelatedMessagePrimary,
+            archivedId: "150",
+            messageId: "\(fixtureIdentity)-unrelated-message-id",
+            authorId: "unrelated-author",
+            date: Date(timeIntervalSince1970: 150),
+            fixtureOwner: fixtureOwner,
+            fixtureGroupchatJid: unrelatedGroupchatJid
+        )
+        unrelatedMessage.body = "Hello unrelated @you"
+        unrelatedMessage.legacyBody = unrelatedMessage.body
+        unrelatedMessage.state = .deliver
+        unrelatedMessage.references.append(
+            makeReference(
+                kind: .mention,
+                metadata: [
+                    "uri": "xmpp:\(unrelatedGroupchatJid)?members;id=\(currentMemberId)",
+                    "memberId": currentMemberId,
+                    "groupchatJid": unrelatedGroupchatJid,
+                    "nickname": "@\(currentMemberId)"
+                ]
+            )
+        )
+        let unrelatedNotification = makeMentionNotification(
+            primary: unrelatedNotificationPrimary,
+            archivedId: unrelatedMessage.archivedId,
+            messageId: unrelatedMessage.messageId,
+            authorId: "unrelated-author",
+            targetMemberId: currentMemberId,
+            sourceChatJid: unrelatedGroupchatJid,
+            date: unrelatedMessage.date,
+            fixtureOwner: fixtureOwner,
+            fixtureGroupchatJid: unrelatedGroupchatJid
+        )
+        unrelatedNotification.jid = "notifications.example.com"
+        unrelatedNotification.uniqueId = unrelatedNotificationPrimary
+        unrelatedNotification.messageId = unrelatedNotificationPrimary
+        unrelatedNotification.stanzaId = unrelatedMessage.archivedId
+        unrelatedNotification.associatedJid = unrelatedGroupchatJid
+        unrelatedNotification.shouldShow = true
+        unrelatedNotification.date = unrelatedMessage.date
+        unrelatedNotification.linkedAt = unrelatedMessage.date.addingTimeInterval(1)
+        unrelatedNotification.sourceBodyFingerprint =
+            MentionNotificationSync.normalizedBodyFingerprint(unrelatedMessage.body)
+
+        let chatPrimary = LastChatsStorageItem.genPrimary(
+            jid: fixtureGroupchatJid,
+            owner: fixtureOwner,
+            conversationType: .group
+        )
+        try realm.write {
+            let accountStorage = AccountStorageItem()
+            accountStorage.jid = fixtureOwner
+            accountStorage.username = "fixture"
+            accountStorage.enabled = true
+            realm.add(accountStorage, update: .modified)
+
+            seededMessages.forEach {
+                realm.add($0, update: .modified)
+            }
+            realm.add(staleNotification, update: .modified)
+            if includesFollowingMention {
+                realm.add(followingNotification, update: .modified)
+            }
+            realm.add(unrelatedMessage, update: .modified)
+            realm.add(unrelatedNotification, update: .modified)
+
+            let chat = try XCTUnwrap(
+                realm.object(
+                    ofType: LastChatsStorageItem.self,
+                    forPrimaryKey: chatPrimary
+                )
+            )
+            chat.lastMessage = latestMessage
+            chat.lastMessageId = latestMessage.messageId
+            chat.messageDate = latestMessage.sentDate
+            chat.unread = seededMessages.count
+            chat.runtimeUnreadCount = seededMessages.count
+            chat.syncUnreadCount = seededMessages.count
+            chat.syncUnreadAfterId = "90"
+            chat.syncSnapshotLastArchiveId = latestMessage.archivedId
+            chat.lastReadId = "90"
+            chat.mentionId = staleArchivedId
+            chat.isSynced = true
+            chat.isInitialArchiveLoaded = true
+            chat.fullArchiveLoaded = true
+            chat.isAllHistoryLoaded = true
+            let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(
+                owner: fixtureOwner,
+                jid: fixtureGroupchatJid,
+                conversationType: .group,
+                in: realm
+            )
+            archiveState.olderArchiveEndReached = true
+            archiveState.newerLiveEdgeReached = true
+            archiveState.lastSnapshotArchiveId = latestMessage.archivedId
+            archiveState.mergeLoadedRange(
+                first: staleArchivedId,
+                last: latestMessage.archivedId,
+                updateKind: .bootstrapNewest
+            )
+        }
+
+        let accountQueue = DispatchQueue(
+            label: "ChatUnreadMentionsTests.deletedMentionBadge.\(fixtureID)"
+        )
+        let account = Account(jid: fixtureOwner, queue: accountQueue)
+        account.manuallySetHost = false
+        account.host = ""
+        account.port = 5222
+        account.xmppStream.hostName = nil
+        account.xmppStream.hostPort = 5222
+        account.connectionGate.markDisconnecting()
+        XCTAssertTrue(account.xmppStream.isDisconnected)
+        XCTAssertEqual(
+            account.connectionGate.snapshot().phase.rawValue,
+            AccountStreamLifecyclePhase.disconnecting.rawValue
+        )
+        XCTAssertFalse(
+            account.connectionGate.snapshot().phase.allowsNewConnect
+        )
+        accountManager.users = previousUsers + [account]
+        accountManager.activeUsers.accept(
+            previousActiveUsers.union([fixtureOwner])
+        )
+        accountManager.authenticatedUsers.accept(
+            previousAuthenticatedUsers.subtracting([fixtureOwner])
+        )
+        accountManager.connectingUsers.accept(
+            previousConnectingUsers.subtracting([fixtureOwner])
+        )
+        XCTAssertTrue(accountManager.find(for: fixtureOwner) === account)
+        XCTAssertFalse(
+            accountManager.authenticatedUsers.value.contains(fixtureOwner)
+        )
+        XCTAssertFalse(
+            accountManager.connectingUsers.value.contains(fixtureOwner)
+        )
+
+        var didAppear = false
+        let controller = ChatUnreadMentionV15HostedController()
+        controller.owner = fixtureOwner
+        controller.jid = fixtureGroupchatJid
+        controller.conversationType = .group
+        controller.ownerSender = Sender(
+            id: fixtureOwner,
+            displayName: fixtureOwner
+        )
+        controller.opponentSender = Sender(
+            id: fixtureGroupchatJid,
+            displayName: fixtureGroupchatJid
+        )
+        controller.onActualViewDidAppear = {
+            didAppear = true
+        }
+        let navigationController = UINavigationController(
+            rootViewController: controller
+        )
+        let window = UIWindow(windowScene: windowScene)
+        window.frame = windowScene.coordinateSpace.bounds
+        window.rootViewController = navigationController
+        window.makeKeyAndVisible()
+        navigationController.loadViewIfNeeded()
+        controller.loadViewIfNeeded()
+        window.layoutIfNeeded()
+        navigationController.view.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+
+        defer {
+            XCTAssertTrue(
+                waitUntilV15(timeout: 2) {
+                    account.isActionQueueQuiescentForTests
+                },
+                "hosted deleted-mention cleanup must drain Account.action work"
+            )
+            controller.unreadMentionBadgeOpenResolutionObserverForTests = nil
+            controller.unreadMentionBadgeSuccessFeedbackObserverForTests = nil
+            controller.unreadMentionBadgeDuplicateDropObserverForTests = nil
+            controller.performanceOpenMessageRequestAdmissionObserver = nil
+            controller.onActualViewDidAppear = nil
+            controller.performTerminalChatResourceTeardownForTesting()
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKey()
+            account.messages.updateSendingMessagesTimer?.invalidate()
+            account.messages.updateSendingMessagesTimer = nil
+            account.disconnect(hard: true)
+            account.connectionGate.markDisconnected()
+            accountManager.users = previousUsers
+            accountManager.activeUsers.accept(previousActiveUsers)
+            accountManager.authenticatedUsers.accept(previousAuthenticatedUsers)
+            accountManager.connectingUsers.accept(previousConnectingUsers)
+            XCTAssertEqual(accountManager.users.count, previousUsers.count)
+            zip(accountManager.users, previousUsers).forEach {
+                XCTAssertTrue($0.0 === $0.1)
+            }
+            XCTAssertEqual(accountManager.activeUsers.value, previousActiveUsers)
+            XCTAssertEqual(
+                accountManager.authenticatedUsers.value,
+                previousAuthenticatedUsers
+            )
+            XCTAssertEqual(
+                accountManager.connectingUsers.value,
+                previousConnectingUsers
+            )
+            if let cleanupRealm = try? WRealm.safe(),
+               !cleanupRealm.isInWriteTransaction {
+                try? cleanupRealm.write {
+                    cleanupRealm.objects(MessageStorageItem.self)
+                        .filter("owner == %@", fixtureOwner)
+                        .forEach { cleanupRealm.delete($0) }
+                    cleanupRealm.objects(NotificationStorageItem.self)
+                        .filter("owner == %@", fixtureOwner)
+                        .forEach { cleanupRealm.delete($0) }
+                    cleanupRealm.objects(LastChatsStorageItem.self)
+                        .filter("owner == %@", fixtureOwner)
+                        .forEach { cleanupRealm.delete($0) }
+                    cleanupRealm.objects(GroupchatUserStorageItem.self)
+                        .filter("owner == %@", fixtureOwner)
+                        .forEach { cleanupRealm.delete($0) }
+                    cleanupRealm.objects(RegularChatArchiveSyncStateStorageItem.self)
+                        .filter("owner == %@", fixtureOwner)
+                        .forEach { cleanupRealm.delete($0) }
+                    if let inserted = cleanupRealm.object(
+                        ofType: AccountStorageItem.self,
+                        forPrimaryKey: fixtureOwner
+                    ) {
+                        cleanupRealm.delete(inserted)
+                    }
+                }
+            }
+        }
+
+        XCTAssertTrue(
+            waitUntilV15(timeout: 5) {
+                didAppear &&
+                    controller.datasource.contains(where: {
+                        $0.primary == latestMessage.primary
+                    }) &&
+                    controller.unreadMentionItems.contains(where: {
+                        $0.notificationPrimary == staleNotificationPrimary
+                    }) &&
+                    (!includesFollowingMention ||
+                        controller.unreadMentionItems.contains(where: {
+                            $0.notificationPrimary == followingNotificationPrimary
+                        }))
+            },
+            "the real hosted group timeline must publish persisted mentions"
+        )
+        XCTAssertTrue(accountManager.find(for: fixtureOwner) === account)
+        XCTAssertTrue(account.xmppStream.isDisconnected)
+        XCTAssertEqual(
+            account.connectionGate.snapshot().phase.rawValue,
+            AccountStreamLifecyclePhase.disconnecting.rawValue
+        )
+        XCTAssertFalse(
+            account.connectionGate.snapshot().phase.allowsNewConnect
+        )
+        XCTAssertFalse(
+            accountManager.authenticatedUsers.value.contains(fixtureOwner)
+        )
+        XCTAssertFalse(
+            accountManager.connectingUsers.value.contains(fixtureOwner)
+        )
+        let latestSection = try XCTUnwrap(
+            controller.datasourceSnapshot.primaryIndex[latestMessage.primary]
+        )
+        controller.messagesCollectionView.scrollToItem(
+            at: IndexPath(item: 0, section: latestSection),
+            at: .bottom,
+            animated: false
+        )
+        window.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.currentUnreadMentionNotificationPrimary = nil
+        controller.rebuildUnreadMentionItems()
+        controller.refreshUnreadMentionsNavigatorState(animated: false)
+        controller.updateUnreadMentionsNavigatorFrame(animated: false)
+        window.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+
+        XCTAssertEqual(
+            controller.unreadMentionsState.jumpTarget?.notificationPrimary,
+            staleNotificationPrimary,
+            "the durable Last Chats mention hint must select the stale resolved candidate"
+        )
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertFalse(controller.isUnreadMentionNavigationInFlight)
+        let badgeButton = try unreadMentionBadgeButton(
+            in: controller.unreadMentionsNavigatorView
+        )
+        XCTAssertEqual(
+            badgeButton.accessibilityIdentifier,
+            "chat-unread-mentions-button"
+        )
+        XCTAssertTrue(controller.shouldShowUnreadMentionsNavigator.value)
+        XCTAssertTrue(badgeButton.window === window)
+        XCTAssertFalse(badgeButton.isHidden)
+        XCTAssertTrue(badgeButton.isUserInteractionEnabled)
+        XCTAssertGreaterThan(controller.unreadMentionsNavigatorView.alpha, 0.99)
+        XCTAssertTrue(
+            window.bounds.intersects(badgeButton.convert(badgeButton.bounds, to: window)),
+            "the test entry must be the real onscreen mention badge"
+        )
+
+        try realm.write {
+            let storedStaleMessage = try XCTUnwrap(
+                realm.object(
+                    ofType: MessageStorageItem.self,
+                    forPrimaryKey: staleMessagePrimary
+                )
+            )
+            storedStaleMessage.isDeleted = true
+        }
+        realm.refresh()
+        let deletedMessage = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: staleMessagePrimary
+            )
+        )
+        let unresolvedStale = try deletedMentionBadgeNotificationState(
+            primary: staleNotificationPrimary
+        )
+        XCTAssertTrue(deletedMessage.isDeleted)
+        XCTAssertFalse(unresolvedStale.isRead)
+        XCTAssertTrue(unresolvedStale.shouldShow)
+        XCTAssertEqual(
+            unresolvedStale.mentionLinkStatus,
+            NotificationStorageItem.MentionLinkStatus.resolved.rawValue
+        )
+        XCTAssertNotNil(unresolvedStale.linkedAt)
+        XCTAssertEqual(
+            controller.unreadMentionsState.jumpTarget?.notificationPrimary,
+            staleNotificationPrimary,
+            "the real precomputed badge target must still be stale at the tap boundary"
+        )
+
+        try body(
+            HostedDeletedMentionBadgeFixture(
+                controller: controller,
+                badgeButton: badgeButton,
+                owner: fixtureOwner,
+                groupchatJid: fixtureGroupchatJid,
+                account: account,
+                staleNotificationPrimary: staleNotificationPrimary,
+                staleMessagePrimary: staleMessagePrimary,
+                staleArchivedId: staleArchivedId,
+                followingNotificationPrimary: includesFollowingMention
+                    ? followingNotificationPrimary
+                    : nil,
+                followingMessagePrimary: includesFollowingMention
+                    ? followingMessagePrimary
+                    : nil,
+                followingArchivedId: includesFollowingMention
+                    ? followingArchivedId
+                    : nil,
+                unrelatedNotificationPrimary: unrelatedNotificationPrimary,
+                unrelatedMessagePrimary: unrelatedMessagePrimary,
+                chatPrimary: chatPrimary
+            )
+        )
+    }
+
+    @MainActor
+    func testDeletedResolvedMentionBadgeTapReconcilesAndAdvancesOnlyToNextValidMention() throws {
+        try withHostedDeletedMentionBadgeFixture(
+            includesFollowingMention: true
+        ) { fixture in
+            let staleMessageBefore = try deletedMentionBadgeMessageState(
+                primary: fixture.staleMessagePrimary
+            )
+            XCTAssertTrue(staleMessageBefore.isDeleted)
+            XCTAssertFalse(staleMessageBefore.isRead)
+            let unrelatedMessageBefore = try deletedMentionBadgeMessageState(
+                primary: fixture.unrelatedMessagePrimary
+            )
+            let unrelatedBefore = try deletedMentionBadgeNotificationState(
+                primary: fixture.unrelatedNotificationPrimary
+            )
+            var causalEvents: [String] = []
+            var observedResolution: NotificationsMentionOpenResolution?
+            var selectedNotificationPrimary: String?
+            var admittedRequests: [ChatOpenMessageRequest] = []
+            var successFeedbackCount = 0
+            fixture.controller.unreadMentionBadgeOpenResolutionObserverForTests = {
+                resolution,
+                selectedPrimary in
+                causalEvents.append("resolved")
+                observedResolution = resolution
+                selectedNotificationPrimary = selectedPrimary
+                let freshStale = try? self.deletedMentionBadgeNotificationState(
+                    primary: fixture.staleNotificationPrimary
+                )
+                XCTAssertEqual(freshStale?.isRead, true)
+                XCTAssertEqual(freshStale?.shouldShow, false)
+                XCTAssertEqual(
+                    freshStale?.mentionLinkStatus,
+                    NotificationStorageItem.MentionLinkStatus.missing.rawValue
+                )
+            }
+            fixture.controller.unreadMentionBadgeSuccessFeedbackObserverForTests = {
+                causalEvents.append("feedback")
+                successFeedbackCount += 1
+                let freshStale = try? self.deletedMentionBadgeNotificationState(
+                    primary: fixture.staleNotificationPrimary
+                )
+                XCTAssertEqual(
+                    freshStale?.mentionLinkStatus,
+                    NotificationStorageItem.MentionLinkStatus.missing.rawValue
+                )
+            }
+            fixture.controller.performanceOpenMessageRequestAdmissionObserver = {
+                request,
+                isViewLoaded in
+                causalEvents.append("admission")
+                XCTAssertTrue(isViewLoaded)
+                admittedRequests.append(request)
+                let freshStale = try? self.deletedMentionBadgeNotificationState(
+                    primary: fixture.staleNotificationPrimary
+                )
+                XCTAssertEqual(
+                    freshStale?.mentionLinkStatus,
+                    NotificationStorageItem.MentionLinkStatus.missing.rawValue
+                )
+            }
+
+            fixture.badgeButton.sendActions(for: .touchUpInside)
+            try waitForHostedDeletedMentionBadgeQuiescence(fixture)
+
+            let followingNotificationPrimary = try XCTUnwrap(
+                fixture.followingNotificationPrimary
+            )
+            let followingMessagePrimary = try XCTUnwrap(
+                fixture.followingMessagePrimary
+            )
+            let followingArchivedId = try XCTUnwrap(
+                fixture.followingArchivedId
+            )
+            XCTAssertEqual(selectedNotificationPrimary, followingNotificationPrimary)
+            switch observedResolution {
+            case .exact(let request, let invalidatedNotificationPrimary):
+                XCTAssertEqual(request.anchor.archivedId, followingArchivedId)
+                XCTAssertEqual(
+                    invalidatedNotificationPrimary,
+                    fixture.staleNotificationPrimary
+                )
+            default:
+                XCTFail("the stale persisted mention must resolve to the next exact mention")
+            }
+            XCTAssertEqual(successFeedbackCount, 1)
+            XCTAssertEqual(admittedRequests.count, 1)
+            let admitted = try XCTUnwrap(admittedRequests.first)
+            XCTAssertEqual(admitted.owner, fixture.owner)
+            XCTAssertEqual(admitted.chatJid, fixture.groupchatJid)
+            XCTAssertEqual(admitted.conversationType, .group)
+            XCTAssertEqual(admitted.source, .mentionNotification)
+            XCTAssertEqual(admitted.anchor.messagePrimary, followingMessagePrimary)
+            XCTAssertEqual(admitted.anchor.archivedId, followingArchivedId)
+            XCTAssertNotEqual(admitted.anchor.archivedId, fixture.staleArchivedId)
+            XCTAssertFalse(admitted.highlight)
+            XCTAssertFalse(admitted.markReadOnVisible)
+            XCTAssertEqual(causalEvents, ["resolved", "feedback", "admission"])
+
+            let staleAfter = try deletedMentionBadgeNotificationState(
+                primary: fixture.staleNotificationPrimary
+            )
+            let followingAfter = try deletedMentionBadgeNotificationState(
+                primary: followingNotificationPrimary
+            )
+            let unrelatedAfter = try deletedMentionBadgeNotificationState(
+                primary: fixture.unrelatedNotificationPrimary
+            )
+            XCTAssertTrue(staleAfter.isRead)
+            XCTAssertFalse(staleAfter.shouldShow)
+            XCTAssertEqual(
+                staleAfter.mentionLinkStatus,
+                NotificationStorageItem.MentionLinkStatus.missing.rawValue
+            )
+            XCTAssertFalse(followingAfter.isRead)
+            XCTAssertTrue(followingAfter.shouldShow)
+            XCTAssertEqual(
+                followingAfter.mentionLinkStatus,
+                NotificationStorageItem.MentionLinkStatus.resolved.rawValue
+            )
+            XCTAssertEqual(unrelatedAfter, unrelatedBefore)
+            let staleMessageAfter = try deletedMentionBadgeMessageState(
+                primary: fixture.staleMessagePrimary
+            )
+            let unrelatedMessageAfter = try deletedMentionBadgeMessageState(
+                primary: fixture.unrelatedMessagePrimary
+            )
+            XCTAssertEqual(staleMessageAfter, staleMessageBefore)
+            XCTAssertTrue(staleMessageAfter.isDeleted)
+            XCTAssertFalse(staleMessageAfter.isRead)
+            XCTAssertEqual(unrelatedMessageAfter, unrelatedMessageBefore)
+            let freshRealm = try WRealm.safe()
+            freshRealm.refresh()
+            XCTAssertEqual(
+                freshRealm.object(
+                    ofType: LastChatsStorageItem.self,
+                    forPrimaryKey: fixture.chatPrimary
+                )?.mentionId,
+                followingArchivedId
+            )
+        }
+    }
+
+    @MainActor
+    func testDeletedResolvedMentionBadgeTapWithoutFollowingTargetQueuesNothingAndReportsTypedUnavailable() throws {
+        try withHostedDeletedMentionBadgeFixture(
+            includesFollowingMention: false
+        ) { fixture in
+            let staleMessageBefore = try deletedMentionBadgeMessageState(
+                primary: fixture.staleMessagePrimary
+            )
+            XCTAssertTrue(staleMessageBefore.isDeleted)
+            XCTAssertFalse(staleMessageBefore.isRead)
+            let unrelatedMessageBefore = try deletedMentionBadgeMessageState(
+                primary: fixture.unrelatedMessagePrimary
+            )
+            let unrelatedBefore = try deletedMentionBadgeNotificationState(
+                primary: fixture.unrelatedNotificationPrimary
+            )
+            var resolutions: [NotificationsMentionOpenResolution] = []
+            var selectedNotificationPrimaries: [String?] = []
+            var successFeedbackCount = 0
+            var admittedRequests: [ChatOpenMessageRequest] = []
+            fixture.controller.unreadMentionBadgeOpenResolutionObserverForTests = {
+                resolution,
+                selectedPrimary in
+                resolutions.append(resolution)
+                selectedNotificationPrimaries.append(selectedPrimary)
+            }
+            fixture.controller.unreadMentionBadgeSuccessFeedbackObserverForTests = {
+                successFeedbackCount += 1
+            }
+            fixture.controller.performanceOpenMessageRequestAdmissionObserver = {
+                request,
+                _ in
+                admittedRequests.append(request)
+            }
+
+            fixture.badgeButton.sendActions(for: .touchUpInside)
+            try waitForHostedDeletedMentionBadgeQuiescence(
+                fixture,
+                expectsEmptyMentionUI: true
+            )
+
+            XCTAssertEqual(
+                resolutions,
+                [.unavailable(.deletedTargetHasNoFollowingMention)]
+            )
+            XCTAssertEqual(selectedNotificationPrimaries.count, 1)
+            XCTAssertNil(selectedNotificationPrimaries[0])
+            XCTAssertEqual(successFeedbackCount, 0)
+            XCTAssertTrue(admittedRequests.isEmpty)
+            XCTAssertNil(fixture.controller.pendingOpenMessageRequest)
+            XCTAssertNil(
+                fixture.controller.pendingUnreadMentionNavigationRequest
+            )
+            XCTAssertNil(fixture.controller.activeAnchorExecutionState)
+            XCTAssertFalse(fixture.controller.isUnreadMentionNavigationInFlight)
+            XCTAssertEqual(
+                fixture.controller.scrollWorkScheduler.pendingRequestCount,
+                0
+            )
+            XCTAssertEqual(fixture.controller.unreadMentionsState, .empty)
+            XCTAssertFalse(
+                fixture.controller.shouldShowUnreadMentionsNavigator.value
+            )
+            XCTAssertTrue(
+                fixture.controller.unreadMentionsNavigatorView.isHidden
+            )
+
+            let staleAfter = try deletedMentionBadgeNotificationState(
+                primary: fixture.staleNotificationPrimary
+            )
+            let unrelatedAfter = try deletedMentionBadgeNotificationState(
+                primary: fixture.unrelatedNotificationPrimary
+            )
+            XCTAssertTrue(staleAfter.isRead)
+            XCTAssertFalse(staleAfter.shouldShow)
+            XCTAssertEqual(
+                staleAfter.mentionLinkStatus,
+                NotificationStorageItem.MentionLinkStatus.missing.rawValue
+            )
+            XCTAssertEqual(unrelatedAfter, unrelatedBefore)
+            let staleMessageAfter = try deletedMentionBadgeMessageState(
+                primary: fixture.staleMessagePrimary
+            )
+            let unrelatedMessageAfter = try deletedMentionBadgeMessageState(
+                primary: fixture.unrelatedMessagePrimary
+            )
+            XCTAssertEqual(staleMessageAfter, staleMessageBefore)
+            XCTAssertTrue(staleMessageAfter.isDeleted)
+            XCTAssertFalse(staleMessageAfter.isRead)
+            XCTAssertEqual(unrelatedMessageAfter, unrelatedMessageBefore)
+            let freshRealm = try WRealm.safe()
+            freshRealm.refresh()
+            XCTAssertNil(
+                freshRealm.object(
+                    ofType: LastChatsStorageItem.self,
+                    forPrimaryKey: fixture.chatPrimary
+                )?.mentionId
+            )
+        }
+    }
+
+    @MainActor
+    func testDeletedResolvedMentionRapidBadgeTapInvalidatesAndAdvancesExactlyOnce() throws {
+        try withHostedDeletedMentionBadgeFixture(
+            includesFollowingMention: true
+        ) { fixture in
+            let staleMessageBefore = try deletedMentionBadgeMessageState(
+                primary: fixture.staleMessagePrimary
+            )
+            XCTAssertTrue(staleMessageBefore.isDeleted)
+            XCTAssertFalse(staleMessageBefore.isRead)
+            let unrelatedMessageBefore = try deletedMentionBadgeMessageState(
+                primary: fixture.unrelatedMessagePrimary
+            )
+            let unrelatedNotificationBefore =
+                try deletedMentionBadgeNotificationState(
+                    primary: fixture.unrelatedNotificationPrimary
+                )
+            let observationRealm = try WRealm.safe()
+            let staleResults = observationRealm.objects(NotificationStorageItem.self)
+                .filter("primary == %@", fixture.staleNotificationPrimary)
+            let observationReady = expectation(
+                description: "stale mention observation installed"
+            )
+            var staleMutationCount = 0
+            let observation = staleResults.observe { change in
+                switch change {
+                case .initial:
+                    observationReady.fulfill()
+                case .update(_, _, _, let modifications):
+                    if modifications.contains(0) {
+                        staleMutationCount += 1
+                    }
+                case .error(let error):
+                    XCTFail("stale mention observation failed: \(error)")
+                }
+            }
+            defer {
+                observation.invalidate()
+            }
+            wait(for: [observationReady], timeout: 2)
+
+            var resolutionCount = 0
+            var droppedNotificationPrimaries: [String] = []
+            var selectedNotificationPrimaries: [String?] = []
+            var successFeedbackCount = 0
+            var admittedRequests: [ChatOpenMessageRequest] = []
+            fixture.controller.unreadMentionBadgeOpenResolutionObserverForTests = {
+                _,
+                selectedPrimary in
+                resolutionCount += 1
+                selectedNotificationPrimaries.append(selectedPrimary)
+            }
+            fixture.controller.unreadMentionBadgeSuccessFeedbackObserverForTests = {
+                successFeedbackCount += 1
+            }
+            fixture.controller.unreadMentionBadgeDuplicateDropObserverForTests = {
+                droppedNotificationPrimaries.append($0)
+            }
+            fixture.controller.performanceOpenMessageRequestAdmissionObserver = {
+                request,
+                _ in
+                admittedRequests.append(request)
+            }
+
+            fixture.badgeButton.sendActions(for: .touchUpInside)
+            fixture.badgeButton.sendActions(for: .touchUpInside)
+
+            XCTAssertEqual(
+                droppedNotificationPrimaries,
+                [fixture.staleNotificationPrimary]
+            )
+            XCTAssertNil(
+                fixture.controller.pendingUnreadMentionNavigationRequest,
+                "the duplicate stale badge callback must be dropped, never queued"
+            )
+            XCTAssertTrue(
+                waitUntilV15(timeout: 2) {
+                    staleMutationCount == 1
+                },
+                "one rapid badge gesture pair must commit one stale invalidation"
+            )
+            try waitForHostedDeletedMentionBadgeQuiescence(fixture)
+            observationRealm.refresh()
+            XCTAssertEqual(staleMutationCount, 1)
+            XCTAssertEqual(resolutionCount, 1)
+            XCTAssertEqual(successFeedbackCount, 1)
+            XCTAssertEqual(admittedRequests.count, 1)
+            XCTAssertEqual(
+                droppedNotificationPrimaries,
+                [fixture.staleNotificationPrimary]
+            )
+            XCTAssertNil(fixture.controller.pendingOpenMessageRequest)
+            XCTAssertNil(
+                fixture.controller.pendingUnreadMentionNavigationRequest
+            )
+            XCTAssertNil(fixture.controller.activeAnchorExecutionState)
+            XCTAssertFalse(fixture.controller.isUnreadMentionNavigationInFlight)
+            XCTAssertEqual(
+                fixture.controller.scrollWorkScheduler.pendingRequestCount,
+                0
+            )
+            XCTAssertEqual(
+                selectedNotificationPrimaries,
+                [fixture.followingNotificationPrimary]
+            )
+            let admitted = try XCTUnwrap(admittedRequests.first)
+            XCTAssertEqual(admitted.source, .mentionNotification)
+            XCTAssertEqual(admitted.anchor.messagePrimary, fixture.followingMessagePrimary)
+            XCTAssertEqual(admitted.anchor.archivedId, fixture.followingArchivedId)
+            XCTAssertNotEqual(admitted.anchor.archivedId, fixture.staleArchivedId)
+            XCTAssertFalse(admitted.highlight)
+            XCTAssertFalse(admitted.markReadOnVisible)
+
+            let staleAfter = try deletedMentionBadgeNotificationState(
+                primary: fixture.staleNotificationPrimary
+            )
+            XCTAssertTrue(staleAfter.isRead)
+            XCTAssertFalse(staleAfter.shouldShow)
+            XCTAssertEqual(
+                staleAfter.mentionLinkStatus,
+                NotificationStorageItem.MentionLinkStatus.missing.rawValue
+            )
+            let unrelatedNotificationAfter =
+                try deletedMentionBadgeNotificationState(
+                    primary: fixture.unrelatedNotificationPrimary
+                )
+            let staleMessageAfter = try deletedMentionBadgeMessageState(
+                primary: fixture.staleMessagePrimary
+            )
+            let unrelatedMessageAfter = try deletedMentionBadgeMessageState(
+                primary: fixture.unrelatedMessagePrimary
+            )
+            XCTAssertEqual(
+                unrelatedNotificationAfter,
+                unrelatedNotificationBefore
+            )
+            XCTAssertEqual(staleMessageAfter, staleMessageBefore)
+            XCTAssertTrue(staleMessageAfter.isDeleted)
+            XCTAssertFalse(staleMessageAfter.isRead)
+            XCTAssertEqual(unrelatedMessageAfter, unrelatedMessageBefore)
+        }
     }
 
     func testUnreadMentionMatcherUsesUnreadNotificationStateInsteadOfMessageReadState() throws {
@@ -42386,6 +46237,65 @@ final class ChatUnreadMentionsTests: XCTestCase {
         XCTAssertEqual(state.currentTarget?.notificationPrimary, "n2")
     }
 
+    func testUnreadNotificationOwnedMentionRemainsRetainedForReadUntilMeaningfullyVisible() throws {
+        let item = ChatUnreadMentionItem(
+            notificationPrimary: "n-retained",
+            messagePrimary: "m-already-read",
+            archivedId: "a-retained",
+            messageId: "mid-retained",
+            chatPrimary: "chat-1",
+            authorId: "other-1",
+            date: Date(timeIntervalSince1970: 10),
+            targetMemberId: currentMemberId,
+            groupchatJid: groupchatJid
+        )
+        let state = ChatUnreadMentionNavigationPolicy.resolveState(
+            items: [item],
+            residentPrimaryPositions: ["m-already-read": 0],
+            visiblePrimaries: []
+        )
+
+        XCTAssertTrue(
+            state.visibleUnreadNotificationPrimaries.isEmpty,
+            "offscreen rows must not be admitted as visible"
+        )
+        let retainedNotificationPrimaries =
+            ChatUnreadMentionReadCandidateRetentionPolicy
+                .notificationPrimariesToRetain(items: state.items)
+        XCTAssertEqual(retainedNotificationPrimaries, ["n-retained"])
+
+        let coordinator = ChatReadVisiblePresentationCoordinator()
+        coordinator.enqueue([
+            ChatPendingMentionReadCandidate(
+                notificationPrimary: "n-retained",
+                messagePrimary: "m-already-read"
+            )
+        ])
+        coordinator.recordPresentationReceipt()
+        let visibleSnapshot = readVisiblePresentationSnapshot(
+            isTopNavigationDestination: true
+        )
+
+        XCTAssertNil(
+            coordinator.takeFlush(
+                snapshot: visibleSnapshot,
+                visibleMessagePrimaries: []
+            ),
+            "retention cannot read an offscreen mention"
+        )
+        XCTAssertEqual(coordinator.pendingCandidateCount, 1)
+        XCTAssertEqual(
+            try XCTUnwrap(
+                coordinator.takeFlush(
+                    snapshot: visibleSnapshot,
+                    visibleMessagePrimaries: ["m-already-read"]
+                )
+            ).notificationPrimaries,
+            retainedNotificationPrimaries,
+            "the unread notification remains eligible even after ordinary message-read state changes"
+        )
+    }
+
     func testUnreadMentionNavigationPolicyUsesSelectedNotificationAsCurrentAndJumpTarget() {
         let state = ChatUnreadMentionNavigationPolicy.resolveState(
             items: [
@@ -42776,6 +46686,1274 @@ final class ChatUnreadMentionsTests: XCTestCase {
         ), ["n1"])
     }
 
+    func testRejectedPreparedExpandedSplitDoesNotMarkMentionReadUntilStructurallyVisible() throws {
+        let coordinator = ChatReadVisiblePresentationCoordinator()
+        coordinator.beginPresentationPreparation()
+        coordinator.enqueue([
+            ChatPendingMentionReadCandidate(
+                notificationPrimary: "rejected-notification",
+                messagePrimary: "rejected-message"
+            )
+        ])
+
+        XCTAssertNil(
+            coordinator.takeFlush(
+                snapshot: readVisiblePresentationSnapshot(
+                    isWindowAttached: false,
+                    isVisibleSplitSecondary: true
+                ),
+                visibleMessagePrimaries: ["rejected-message"]
+            ),
+            "an offscreen prepared split destination has no presentation receipt"
+        )
+
+        coordinator.invalidatePresentation()
+        coordinator.beginPresentationPreparation()
+        coordinator.enqueue([
+            ChatPendingMentionReadCandidate(
+                notificationPrimary: "accepted-notification",
+                messagePrimary: "accepted-message"
+            )
+        ])
+        coordinator.recordPresentationReceipt()
+
+        let flush = try XCTUnwrap(
+            coordinator.takeFlush(
+                snapshot: readVisiblePresentationSnapshot(
+                    isVisibleSplitSecondary: true
+                ),
+                visibleMessagePrimaries: ["accepted-message"]
+            )
+        )
+        XCTAssertEqual(flush.notificationPrimaries, ["accepted-notification"])
+        XCTAssertFalse(flush.notificationPrimaries.contains("rejected-notification"))
+    }
+
+    func testSuccessfulStructurallyVisibleMentionFlushesExactlyOnce() throws {
+        let coordinator = ChatReadVisiblePresentationCoordinator()
+        let candidate = ChatPendingMentionReadCandidate(
+            notificationPrimary: "n-visible",
+            messagePrimary: "m-visible"
+        )
+        coordinator.enqueue([candidate])
+        coordinator.recordPresentationReceipt()
+
+        let flush = try XCTUnwrap(
+            coordinator.takeFlush(
+                snapshot: readVisiblePresentationSnapshot(
+                    isTopNavigationDestination: true
+                ),
+                visibleMessagePrimaries: [candidate.messagePrimary]
+            )
+        )
+        XCTAssertEqual(flush.notificationPrimaries, [candidate.notificationPrimary])
+        coordinator.complete(flush: flush, succeeded: true)
+        XCTAssertFalse(coordinator.complete(flush: flush, succeeded: true))
+
+        coordinator.enqueue([candidate])
+        XCTAssertNil(
+            coordinator.takeFlush(
+                snapshot: readVisiblePresentationSnapshot(
+                    isTopNavigationDestination: true
+                ),
+                visibleMessagePrimaries: [candidate.messagePrimary]
+            )
+        )
+        XCTAssertEqual(coordinator.successfulFlushCount, 1)
+    }
+
+    func testMentionReadCandidateInitializerRetainsExactIdentityAndLegacyDefault() {
+        let expectedIdentity = ChatReadVisibleMessageIdentity(
+            primary: "m-exact",
+            owner: "owner@example.com",
+            jid: "room@example.com",
+            messageId: "message-id-exact",
+            sentDate: Date(timeIntervalSince1970: 42)
+        )
+
+        let exactCandidate = ChatPendingMentionReadCandidate(
+            notificationPrimary: "n-exact",
+            messagePrimary: "m-exact",
+            expectedMessageIdentity: expectedIdentity
+        )
+        let legacyCandidate = ChatPendingMentionReadCandidate(
+            notificationPrimary: "n-legacy",
+            messagePrimary: "m-legacy"
+        )
+
+        XCTAssertEqual(exactCandidate.expectedMessageIdentity, expectedIdentity)
+        XCTAssertNil(legacyCandidate.expectedMessageIdentity)
+    }
+
+    func testSuccessfulSplitSecondaryMentionFlushesExactlyOnce() throws {
+        let coordinator = ChatReadVisiblePresentationCoordinator()
+        let candidate = ChatPendingMentionReadCandidate(
+            notificationPrimary: "n-split-visible",
+            messagePrimary: "m-split-visible"
+        )
+        coordinator.enqueue([candidate])
+        coordinator.recordPresentationReceipt()
+
+        let flush = try XCTUnwrap(
+            coordinator.takeFlush(
+                snapshot: readVisiblePresentationSnapshot(
+                    isVisibleSplitSecondary: true
+                ),
+                visibleMessagePrimaries: [candidate.messagePrimary]
+            )
+        )
+        XCTAssertTrue(coordinator.complete(flush: flush, succeeded: true))
+        XCTAssertFalse(coordinator.complete(flush: flush, succeeded: true))
+        XCTAssertEqual(coordinator.successfulFlushCount, 1)
+    }
+
+    func testFailedMentionFlushRequeuesCandidateWithoutDuplicateInFlight() throws {
+        let coordinator = ChatReadVisiblePresentationCoordinator()
+        let candidate = ChatPendingMentionReadCandidate(
+            notificationPrimary: "n-retry",
+            messagePrimary: "m-retry"
+        )
+        coordinator.enqueue([candidate])
+        coordinator.recordPresentationReceipt()
+        let visibleSnapshot = readVisiblePresentationSnapshot(
+            isTopNavigationDestination: true
+        )
+
+        let firstFlush = try XCTUnwrap(
+            coordinator.takeFlush(
+                snapshot: visibleSnapshot,
+                visibleMessagePrimaries: [candidate.messagePrimary]
+            )
+        )
+        XCTAssertTrue(coordinator.complete(flush: firstFlush, succeeded: false))
+        XCTAssertEqual(coordinator.pendingCandidateCount, 1)
+
+        let retryFlush = try XCTUnwrap(
+            coordinator.takeFlush(
+                snapshot: visibleSnapshot,
+                visibleMessagePrimaries: [candidate.messagePrimary]
+            )
+        )
+        XCTAssertEqual(retryFlush.candidates, [candidate])
+    }
+
+    func testCoveredByModalMentionReadRemainsPending() throws {
+        let coordinator = ChatReadVisiblePresentationCoordinator()
+        let candidate = ChatPendingMentionReadCandidate(
+            notificationPrimary: "n-covered",
+            messagePrimary: "m-covered"
+        )
+        coordinator.enqueue([candidate])
+        coordinator.recordPresentationReceipt()
+
+        XCTAssertNil(
+            coordinator.takeFlush(
+                snapshot: readVisiblePresentationSnapshot(
+                    isTopNavigationDestination: true,
+                    hasCoveringPresentation: true
+                ),
+                visibleMessagePrimaries: [candidate.messagePrimary]
+            )
+        )
+        XCTAssertEqual(coordinator.pendingCandidateCount, 1)
+
+        let flush = try XCTUnwrap(
+            coordinator.takeFlush(
+                snapshot: readVisiblePresentationSnapshot(
+                    isTopNavigationDestination: true
+                ),
+                visibleMessagePrimaries: [candidate.messagePrimary]
+            )
+        )
+        XCTAssertEqual(flush.notificationPrimaries, [candidate.notificationPrimary])
+    }
+
+    func testSupersededPreparedControllerProducesZeroMentionReadFlushes() {
+        let coordinator = ChatReadVisiblePresentationCoordinator()
+        coordinator.beginPresentationPreparation()
+        coordinator.enqueue([
+            ChatPendingMentionReadCandidate(
+                notificationPrimary: "n-superseded",
+                messagePrimary: "m-superseded"
+            )
+        ])
+        coordinator.recordPresentationReceipt()
+
+        XCTAssertNil(
+            coordinator.takeFlush(
+                snapshot: readVisiblePresentationSnapshot(
+                    isVisibleSplitSecondary: true,
+                    isTransitionActive: true
+                ),
+                visibleMessagePrimaries: ["m-superseded"]
+            )
+        )
+
+        coordinator.invalidatePresentation()
+        XCTAssertNil(
+            coordinator.takeFlush(
+                snapshot: readVisiblePresentationSnapshot(
+                    isVisibleSplitSecondary: true
+                ),
+                visibleMessagePrimaries: ["m-superseded"]
+            )
+        )
+        XCTAssertEqual(coordinator.successfulFlushCount, 0)
+        XCTAssertEqual(coordinator.pendingCandidateCount, 0)
+    }
+
+    func testTransitionAndBackgroundPresentationStatesKeepMentionReadPending() throws {
+        let coordinator = ChatReadVisiblePresentationCoordinator()
+        let candidate = ChatPendingMentionReadCandidate(
+            notificationPrimary: "n-pending",
+            messagePrimary: "m-pending"
+        )
+        coordinator.enqueue([candidate])
+        coordinator.recordPresentationReceipt()
+
+        XCTAssertNil(
+            coordinator.takeFlush(
+                snapshot: readVisiblePresentationSnapshot(
+                    isTopNavigationDestination: true,
+                    isTransitionActive: true
+                ),
+                visibleMessagePrimaries: [candidate.messagePrimary]
+            )
+        )
+        XCTAssertNil(
+            coordinator.takeFlush(
+                snapshot: readVisiblePresentationSnapshot(
+                    isApplicationActive: false,
+                    isWindowSceneForegroundActive: false,
+                    isTopNavigationDestination: true
+                ),
+                visibleMessagePrimaries: [candidate.messagePrimary]
+            )
+        )
+        XCTAssertEqual(coordinator.pendingCandidateCount, 1)
+
+        XCTAssertNotNil(
+            coordinator.takeFlush(
+                snapshot: readVisiblePresentationSnapshot(
+                    isTopNavigationDestination: true
+                ),
+                visibleMessagePrimaries: [candidate.messagePrimary]
+            )
+        )
+    }
+
+    func testVisibleTopAndSplitSecondaryPresentationStatesAuthorizeRead() {
+        let top = readVisiblePresentationSnapshot(isTopNavigationDestination: true)
+        let split = readVisiblePresentationSnapshot(isVisibleSplitSecondary: true)
+
+        XCTAssertTrue(
+            ChatReadVisiblePresentationPolicy.canAdvanceReadState(
+                hasPresentationReceipt: true,
+                snapshot: top
+            )
+        )
+        XCTAssertTrue(
+            ChatReadVisiblePresentationPolicy.canAdvanceReadState(
+                hasPresentationReceipt: true,
+                snapshot: split
+            )
+        )
+        XCTAssertFalse(
+            ChatReadVisiblePresentationPolicy.canAdvanceReadState(
+                hasPresentationReceipt: false,
+                snapshot: top
+            )
+        )
+        XCTAssertFalse(
+            ChatReadVisiblePresentationPolicy.canAdvanceReadState(
+                hasPresentationReceipt: true,
+                snapshot: readVisiblePresentationSnapshot(
+                    isKeyWindow: false,
+                    isTopNavigationDestination: true
+                )
+            )
+        )
+    }
+
+    func testMeaningfullyVisiblePendingMentionTriggersFlushWithoutUnreadReadBoundaryTarget() {
+        let pending = Set(["m-notification-owned"])
+        let meaningfullyVisible = Set(["m-notification-owned"])
+
+        XCTAssertTrue(
+            ChatVisibleMentionReadScrollTriggerPolicy.shouldFlush(
+                pendingMessagePrimaries: pending,
+                meaningfullyVisibleMessagePrimaries: meaningfullyVisible,
+                effectiveWork: [.advanceReadBoundary]
+            ),
+            "ordinary read state cannot suppress the notification-owned mention trigger"
+        )
+        XCTAssertFalse(
+            ChatVisibleMentionReadScrollTriggerPolicy.shouldFlush(
+                pendingMessagePrimaries: pending,
+                meaningfullyVisibleMessagePrimaries: [],
+                effectiveWork: [.advanceReadBoundary]
+            )
+        )
+        XCTAssertFalse(
+            ChatVisibleMentionReadScrollTriggerPolicy.shouldFlush(
+                pendingMessagePrimaries: pending,
+                meaningfullyVisibleMessagePrimaries: meaningfullyVisible,
+                effectiveWork: [.updateFloatingDate]
+            ),
+            "a stale/effectively filtered read frame cannot trigger mention persistence"
+        )
+    }
+
+    func testHiddenMentionRemainsPendingAcrossJumpToBottomAndSendRefreshes() throws {
+        let coordinator = ChatReadVisiblePresentationCoordinator()
+        let candidate = ChatPendingMentionReadCandidate(
+            notificationPrimary: "n-hidden",
+            messagePrimary: "m-hidden"
+        )
+        coordinator.enqueue([candidate])
+        coordinator.recordPresentationReceipt()
+        let visibleSnapshot = readVisiblePresentationSnapshot(
+            isTopNavigationDestination: true
+        )
+
+        XCTAssertNil(
+            coordinator.takeFlush(
+                snapshot: visibleSnapshot,
+                visibleMessagePrimaries: ["m-latest-after-jump"]
+            )
+        )
+        XCTAssertNil(
+            coordinator.takeFlush(
+                snapshot: visibleSnapshot,
+                visibleMessagePrimaries: ["m-latest-after-send"]
+            )
+        )
+        XCTAssertEqual(coordinator.pendingCandidateCount, 1)
+
+        let flush = try XCTUnwrap(
+            coordinator.takeFlush(
+                snapshot: visibleSnapshot,
+                visibleMessagePrimaries: [candidate.messagePrimary]
+            )
+        )
+        XCTAssertEqual(flush.notificationPrimaries, [candidate.notificationPrimary])
+    }
+
+    @MainActor
+    func testJumpToBottomAndSendDoNotReadOffscreenMentionTargets() throws {
+        let owner = "v15-offscreen-mention-\(UUID().uuidString.lowercased())@invalid"
+        let notificationPrimary = "v15-mention-notification"
+        let targetPrimary = "v15-mention-target"
+        let targetArchivedId = "200"
+        let targetMessageId = "v15-mention-message-id"
+        let laterPrimary = "v15-later-message"
+        let latestPrimary = "v15-latest-message"
+        let sendBody = "V15 local send"
+        let windowScene = try requireHostedForegroundWindowScene()
+        XCTAssertEqual(UIApplication.shared.applicationState, .active)
+        let previousKeyWindow = windowScene.windows.first(where: \.isKeyWindow)
+        let accountQueue = DispatchQueue(label: "ChatUnreadMentionsTests.v15.account")
+        let account = Account(jid: owner, queue: accountQueue)
+        account.manuallySetHost = false
+        account.host = ""
+        account.port = 5222
+        account.xmppStream.hostName = nil
+        account.xmppStream.hostPort = 5222
+        // A real viewDidAppear asks the account to recover foreground
+        // connectivity. Keep this integration fixture local without replacing
+        // that lifecycle call or allowing a socket attempt.
+        account.connectionGate.markDisconnecting()
+        XCTAssertTrue(
+            account.xmppStream.isDisconnected,
+            "V15 must start with a fully local disconnected account"
+        )
+        let accountManager = AccountManager.shared
+        let previousUsers = accountManager.users
+        let previousActiveUsers = accountManager.activeUsers.value
+        let previousAuthenticatedUsers = accountManager.authenticatedUsers.value
+        let previousConnectingUsers = accountManager.connectingUsers.value
+        var notificationObservation: NotificationToken?
+        var outgoingObservation: NotificationToken?
+        var hostedController: ChatUnreadMentionV15HostedController?
+        var hostedWindow: UIWindow?
+        var insertedAccountStorage = false
+        defer {
+            XCTAssertTrue(
+                waitUntilV15(timeout: 2) {
+                    account.isActionQueueQuiescentForTests
+                },
+                "failure-path cleanup must drain parent and nested Account.action work"
+            )
+            notificationObservation?.invalidate()
+            outgoingObservation?.invalidate()
+            hostedController?.datasourceDidSetForTests = nil
+            hostedController?.onActualViewDidAppear = nil
+            hostedController?.visibleMentionReadAfterFirstPersistentMutationBarrierForTests = nil
+            hostedController?.visibleMentionReadUIRefreshForTests = nil
+            hostedController?.visibleMentionReadTerminalForTests = nil
+            hostedController?.visibleMentionReadScheduledForTests = nil
+            hostedController?.visibleMentionReadScrollTriggerForTests = nil
+            hostedController?.visibleUnreadMentionReconciliationWorkItem?.cancel()
+            hostedController?.readVisibleStableLayoutRetryWorkItem?.cancel()
+            hostedController?.performTerminalChatResourceTeardownForTesting()
+            hostedWindow?.isHidden = true
+            hostedWindow?.rootViewController = nil
+            previousKeyWindow?.makeKey()
+            account.messages.updateSendingMessagesTimer?.invalidate()
+            account.messages.updateSendingMessagesTimer = nil
+            account.disconnect(hard: true)
+            account.connectionGate.markDisconnected()
+            accountManager.users = previousUsers
+            accountManager.activeUsers.accept(previousActiveUsers)
+            accountManager.authenticatedUsers.accept(previousAuthenticatedUsers)
+            accountManager.connectingUsers.accept(previousConnectingUsers)
+            if let cleanupRealm = try? WRealm.safe(),
+               !cleanupRealm.isInWriteTransaction {
+                try? cleanupRealm.write {
+                    cleanupRealm.objects(MessageStorageItem.self)
+                        .filter("owner == %@", owner)
+                        .forEach { cleanupRealm.delete($0) }
+                    cleanupRealm.objects(NotificationStorageItem.self)
+                        .filter("owner == %@", owner)
+                        .forEach { cleanupRealm.delete($0) }
+                    cleanupRealm.objects(MessageStanzaStorageItem.self)
+                        .filter("owner == %@", owner)
+                        .forEach { cleanupRealm.delete($0) }
+                    cleanupRealm.objects(LastChatsStorageItem.self)
+                        .filter("owner == %@", owner)
+                        .forEach { cleanupRealm.delete($0) }
+                    cleanupRealm.objects(GroupchatUserStorageItem.self)
+                        .filter("owner == %@", owner)
+                        .forEach { cleanupRealm.delete($0) }
+                    cleanupRealm.objects(RegularChatArchiveSyncStateStorageItem.self)
+                        .filter("owner == %@", owner)
+                        .forEach { cleanupRealm.delete($0) }
+                    if insertedAccountStorage,
+                       let inserted = cleanupRealm.object(
+                           ofType: AccountStorageItem.self,
+                           forPrimaryKey: owner
+                       ) {
+                        cleanupRealm.delete(inserted)
+                    }
+                }
+            }
+        }
+        accountManager.users = previousUsers.filter { $0.jid != owner } + [account]
+        accountManager.activeUsers.accept(previousActiveUsers.union([owner]))
+        accountManager.authenticatedUsers.accept(
+            previousAuthenticatedUsers.subtracting([owner])
+        )
+        accountManager.connectingUsers.accept(
+            previousConnectingUsers.subtracting([owner])
+        )
+
+        let leading = (0..<30).map { index in
+            makeMessage(
+                primary: "v15-leading-\(index)",
+                archivedId: String(101 + index),
+                messageId: "v15-leading-message-id-\(index)",
+                authorId: "v15-author",
+                date: Date(timeIntervalSince1970: TimeInterval(101 + index)),
+                fixtureOwner: owner
+            )
+        }
+        let target = makeMessage(
+            primary: targetPrimary,
+            archivedId: targetArchivedId,
+            messageId: targetMessageId,
+            authorId: "v15-author",
+            mentionMemberIds: [currentMemberId],
+            date: Date(timeIntervalSince1970: 200),
+            fixtureOwner: owner
+        )
+        let trailing = (0..<30).map { index in
+            makeMessage(
+                primary: "v15-trailing-\(index)",
+                archivedId: String(201 + index),
+                messageId: "v15-trailing-message-id-\(index)",
+                authorId: "v15-author",
+                date: Date(timeIntervalSince1970: TimeInterval(201 + index)),
+                fixtureOwner: owner
+            )
+        }
+        let later = makeMessage(
+            primary: laterPrimary,
+            archivedId: "300",
+            messageId: "v15-later-message-id",
+            authorId: "v15-author",
+            date: Date(timeIntervalSince1970: 300),
+            fixtureOwner: owner
+        )
+        let latest = makeMessage(
+            primary: latestPrimary,
+            archivedId: "400",
+            messageId: "v15-latest-message-id",
+            authorId: "v15-author",
+            date: Date(timeIntervalSince1970: 400),
+            fixtureOwner: owner
+        )
+        let seededMessages = leading + [target] + trailing + [later, latest]
+        seededMessages.forEach {
+            $0.legacyBody = $0.body
+            $0.state = .deliver
+            $0.isRead = false
+            $0.unreadCounterBucket = .runtime
+        }
+        let notification = makeMentionNotification(
+            primary: notificationPrimary,
+            archivedId: targetArchivedId,
+            messageId: targetMessageId,
+            authorId: "v15-author",
+            targetMemberId: currentMemberId,
+            date: target.date,
+            fixtureOwner: owner
+        )
+        notification.uniqueId = notificationPrimary
+        notification.messageId = notificationPrimary
+        notification.stanzaId = targetArchivedId
+        notification.associatedJid = groupchatJid
+        notification.shouldShow = true
+
+        try insertLastChat(fixtureOwner: owner)
+        try insertMyGroupUser(fixtureOwner: owner)
+        let seedRealm = try WRealm.safe()
+        let chatPrimary = LastChatsStorageItem.genPrimary(
+            jid: groupchatJid,
+            owner: owner,
+            conversationType: .group
+        )
+        try seedRealm.write {
+            if seedRealm.object(
+                ofType: AccountStorageItem.self,
+                forPrimaryKey: owner
+            ) == nil {
+                let accountStorage = AccountStorageItem()
+                accountStorage.jid = owner
+                accountStorage.username = "fixture"
+                accountStorage.enabled = true
+                seedRealm.add(accountStorage, update: .modified)
+                insertedAccountStorage = true
+            }
+            seededMessages.forEach {
+                seedRealm.add($0, update: .modified)
+            }
+            seedRealm.add(notification, update: .modified)
+            let chat = try XCTUnwrap(
+                seedRealm.object(
+                    ofType: LastChatsStorageItem.self,
+                    forPrimaryKey: chatPrimary
+                )
+            )
+            chat.lastMessage = latest
+            chat.lastMessageId = latest.messageId
+            chat.messageDate = latest.sentDate
+            chat.unread = seededMessages.count
+            chat.runtimeUnreadCount = seededMessages.count
+            chat.syncUnreadCount = seededMessages.count
+            chat.syncUnreadAfterId = "100"
+            chat.syncSnapshotLastArchiveId = latest.archivedId
+            chat.lastReadId = "100"
+            chat.mentionId = targetArchivedId
+            chat.isSynced = true
+            chat.isInitialArchiveLoaded = true
+            chat.fullArchiveLoaded = true
+            chat.isAllHistoryLoaded = true
+            let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(
+                owner: owner,
+                jid: groupchatJid,
+                conversationType: .group,
+                in: seedRealm
+            )
+            archiveState.olderArchiveEndReached = true
+            archiveState.newerLiveEdgeReached = true
+            archiveState.lastSnapshotArchiveId = latest.archivedId
+            archiveState.mergeLoadedRange(
+                first: try XCTUnwrap(chat.syncUnreadAfterId),
+                last: latest.archivedId,
+                updateKind: .bootstrapNewest
+            )
+        }
+        let seededChat = try XCTUnwrap(
+            seedRealm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: chatPrimary
+            )
+        )
+        let seededArchiveState = try XCTUnwrap(
+            seedRealm.object(
+                ofType: RegularChatArchiveSyncStateStorageItem.self,
+                forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
+                    jid: groupchatJid,
+                    owner: owner,
+                    conversationType: .group
+                )
+            )
+        )
+        XCTAssertTrue(
+            ConversationArchiveDurableReadinessPolicy.isReady(
+                chat: seededChat,
+                archiveState: seededArchiveState,
+                conversationType: .group,
+                localMessageCount: seededMessages.count
+            ),
+            "V15 must enter hosted navigation with a complete persisted unread-to-snapshot page"
+        )
+
+        let eventLock = NSLock()
+        var causalEvents: [String] = []
+        var scheduledCandidateCounts: [Int] = []
+        var notificationReadTransitions = 0
+        var lastObservedNotificationRead = false
+        let recordEvent: (String) -> Void = { event in
+            eventLock.lock()
+            causalEvents.append(event)
+            eventLock.unlock()
+        }
+        let observationReady = expectation(
+            description: "actual Realm notification observation installed"
+        )
+        let notificationResults = seedRealm.objects(NotificationStorageItem.self)
+            .filter("primary == %@", notificationPrimary)
+        notificationObservation = notificationResults.observe { change in
+            switch change {
+            case .initial(let rows):
+                lastObservedNotificationRead = rows.first?.isRead ?? true
+                observationReady.fulfill()
+            case .update(let rows, _, _, let modifications):
+                guard modifications.contains(0),
+                      let isRead = rows.first?.isRead else {
+                    return
+                }
+                let didBecomeRead = !lastObservedNotificationRead && isRead
+                lastObservedNotificationRead = isRead
+                guard didBecomeRead else {
+                    return
+                }
+                eventLock.lock()
+                notificationReadTransitions += 1
+                causalEvents.append("realm.notification.read")
+                eventLock.unlock()
+            case .error(let error):
+                XCTFail("V15 Realm notification observation failed: \(error)")
+            }
+        }
+        var outgoingRowPersistedExpectation: XCTestExpectation?
+        let outgoingObservationReady = expectation(
+            description: "outgoing Realm observation installed"
+        )
+        var observedOutgoingPrimary: String?
+        var lastObservedOutgoingCount = 0
+        let outgoingResults = seedRealm.objects(MessageStorageItem.self)
+            .filter(
+                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND outgoing == true AND body == %@",
+                owner,
+                groupchatJid,
+                ClientSynchronizationManager.ConversationType.group.rawValue,
+                sendBody
+            )
+        outgoingObservation = outgoingResults.observe { change in
+            switch change {
+            case .initial(let rows):
+                lastObservedOutgoingCount = rows.count
+                XCTAssertEqual(rows.count, 0)
+                outgoingObservationReady.fulfill()
+            case .update(let rows, _, _, _):
+                let didInsertExactRow = lastObservedOutgoingCount == 0 && rows.count == 1
+                lastObservedOutgoingCount = rows.count
+                guard didInsertExactRow, let row = rows.first else {
+                    return
+                }
+                observedOutgoingPrimary = row.primary
+                recordEvent("send.realm-outgoing-row")
+                outgoingRowPersistedExpectation?.fulfill()
+            case .error(let error):
+                XCTFail("V15 outgoing Realm observation failed: \(error)")
+            }
+        }
+        wait(for: [observationReady, outgoingObservationReady], timeout: 2)
+
+        let actualViewDidAppear = expectation(
+            description: "UIKit delivered the hosted chat viewDidAppear"
+        )
+        let productionDatasourceReady = expectation(
+            description: "production initial timeline mapped the seeded target"
+        )
+        productionDatasourceReady.assertForOverFulfill = false
+        let controller = ChatUnreadMentionV15HostedController()
+        hostedController = controller
+        controller.owner = owner
+        controller.jid = groupchatJid
+        controller.conversationType = .group
+        controller.ownerSender = Sender(id: owner, displayName: owner)
+        controller.opponentSender = Sender(id: groupchatJid, displayName: groupchatJid)
+        controller.onActualViewDidAppear = {
+            actualViewDidAppear.fulfill()
+        }
+        controller.visibleMentionReadScheduledForTests = { count in
+            eventLock.lock()
+            scheduledCandidateCounts.append(count)
+            eventLock.unlock()
+        }
+        controller.visibleMentionReadScrollTriggerForTests = {
+            recordEvent("mention.scroll-frame-trigger")
+        }
+        var didObserveProductionDatasource = false
+        controller.datasourceDidSetForTests = { rows in
+            guard !didObserveProductionDatasource,
+                  rows.contains(where: { $0.primary == targetPrimary }),
+                  rows.contains(where: { $0.primary == leading[0].primary }) else {
+                return
+            }
+            didObserveProductionDatasource = true
+            productionDatasourceReady.fulfill()
+        }
+        let navigationController = UINavigationController(
+            rootViewController: controller
+        )
+        let window = UIWindow(windowScene: windowScene)
+        hostedWindow = window
+        window.frame = windowScene.coordinateSpace.bounds
+        window.rootViewController = navigationController
+        window.makeKeyAndVisible()
+        navigationController.loadViewIfNeeded()
+        controller.loadViewIfNeeded()
+        window.layoutIfNeeded()
+        navigationController.view.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        wait(
+            for: [actualViewDidAppear, productionDatasourceReady],
+            timeout: 5,
+            enforceOrder: false
+        )
+        controller.datasourceDidSetForTests = nil
+        XCTAssertTrue(
+            controller.messagesCollectionView.collectionViewLayout
+                is MessagesCollectionViewFlowLayout,
+            "V15 must retain the production message layout"
+        )
+        XCTAssertTrue(waitUntilV15(timeout: 2) {
+            window.layoutIfNeeded()
+            controller.view.layoutIfNeeded()
+            controller.messagesCollectionView.layoutIfNeeded()
+            let snapshot = controller.readVisiblePresentationSnapshot()
+            return controller.readVisiblePresentationCoordinator.hasPresentationReceipt &&
+                snapshot.isApplicationActive &&
+                snapshot.isWindowAttached &&
+                snapshot.isWindowSceneForegroundActive &&
+                snapshot.isKeyWindow &&
+                snapshot.isTopNavigationDestination &&
+                !snapshot.hasCoveringPresentation &&
+                !snapshot.isTransitionActive
+        }, "the actual key-window/top-destination viewDidAppear receipt must settle")
+
+        let session = try XCTUnwrap(controller.timelineSession)
+        XCTAssertTrue(waitUntilV15(timeout: 2) {
+            return controller.unreadMentionsState.currentTarget?.notificationPrimary ==
+                notificationPrimary
+        }, "the production initial-frame/subscription path must publish the mention candidate")
+        XCTAssertEqual(
+            controller.unreadMentionsState.currentTarget?.messagePrimary,
+            targetPrimary
+        )
+        XCTAssertEqual(
+            controller.readVisiblePresentationCoordinator.pendingCandidateCount,
+            1,
+            "the unread notification must retain its offscreen linked-message candidate"
+        )
+        let leadingSection = try XCTUnwrap(
+            controller.datasourceSnapshot.primaryIndex[leading[0].primary]
+        )
+        controller.messagesCollectionView.scrollToItem(
+            at: IndexPath(item: 0, section: leadingSection),
+            at: .top,
+            animated: false
+        )
+        window.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        controller.messagesCollectionView.layoutIfNeeded()
+        controller.scrollViewDidScroll(controller.messagesCollectionView)
+        controller.flushPendingScrollWork()
+        XCTAssertFalse(
+            controller.meaningfullyVisibleRealMessagePrimariesForRead()
+                .contains(targetPrimary),
+            "the production layout must keep the linked target offscreen before jump/send"
+        )
+        XCTAssertTrue(
+            controller.readVisiblePresentationCoordinator.hasPresentationReceipt,
+            "the receipt must come from the real hosted viewDidAppear"
+        )
+
+        let beforeJump = try captureV15MentionRealmState(
+            notificationPrimary: notificationPrimary,
+            targetPrimary: targetPrimary,
+            chatPrimary: chatPrimary
+        )
+        XCTAssertFalse(beforeJump.notificationIsRead)
+        XCTAssertTrue(beforeJump.notificationShouldShow)
+        XCTAssertEqual(beforeJump.notificationLinkStatus, "resolved")
+        XCTAssertEqual(beforeJump.chatMentionId, targetArchivedId)
+        XCTAssertFalse(beforeJump.targetIsRead)
+        XCTAssertEqual(beforeJump.targetState, MessageStorageItem.MessageSendingState.deliver.rawValue)
+
+        XCTAssertEqual(controller.scrollDownButtonTarget(), .latest)
+        recordEvent("jump.requested")
+        controller.onScrollDownChatButtonTouchUpInside(controller.scrollDownButton)
+        XCTAssertTrue(waitUntilV15(timeout: 4) {
+            window.layoutIfNeeded()
+            controller.messagesCollectionView.layoutIfNeeded()
+            return controller.isNearBottom(threshold: 1) &&
+                controller.visibleRealMessagePrimaries().contains(latestPrimary)
+        }, "production jump-to-bottom must visibly settle on the latest row")
+        recordEvent("jump.latest.applied")
+        XCTAssertFalse(
+            controller.meaningfullyVisibleRealMessagePrimariesForRead()
+                .contains(targetPrimary)
+        )
+        let afterJump = try captureV15MentionRealmState(
+            notificationPrimary: notificationPrimary,
+            targetPrimary: targetPrimary,
+            chatPrimary: chatPrimary
+        )
+        XCTAssertEqual(
+            afterJump,
+            beforeJump,
+            "jump-to-bottom cannot consume or retarget a hidden mention"
+        )
+
+        XCTAssertTrue(
+            waitUntilV15TimelineObserverIdle(session),
+            "the production initial-frame commit must install its observer before send"
+        )
+
+        let outgoingRowPersisted = expectation(
+            description: "real send persisted its outgoing local row"
+        )
+        outgoingRowPersisted.assertForOverFulfill = true
+        outgoingRowPersistedExpectation = outgoingRowPersisted
+        let outgoingDatasourceApplied = expectation(
+            description: "production send refresh applied the outgoing row"
+        )
+        outgoingDatasourceApplied.assertForOverFulfill = false
+        var appliedOutgoingPrimary: String?
+        controller.datasourceDidSetForTests = { rows in
+            guard appliedOutgoingPrimary == nil,
+                  let outgoing = rows.first(where: {
+                      guard !$0.isFakeMessage,
+                            $0.outgoing,
+                            $0.owner == owner,
+                            $0.jid == self.groupchatJid,
+                            case .attributedText(let text) = $0.kind else {
+                          return false
+                      }
+                      return text.string == sendBody
+                  }) else {
+                return
+            }
+            appliedOutgoingPrimary = outgoing.primary
+            recordEvent("send.datasource-refresh")
+            outgoingDatasourceApplied.fulfill()
+        }
+        controller.xabberInputView.setComposerText(sendBody)
+        recordEvent("send.requested")
+        controller.sendButtonTouchUp(with: sendBody)
+
+        wait(
+            for: [outgoingRowPersisted, outgoingDatasourceApplied],
+            timeout: 4,
+            enforceOrder: false
+        )
+        XCTAssertTrue(
+            waitUntilV15(timeout: 2) {
+                account.isActionQueueQuiescentForTests
+            },
+            "all parent and nested Account.action work must be complete"
+        )
+        XCTAssertTrue(
+            waitUntilV15TimelineObserverIdle(session),
+            "the production outgoing-row refresh must reach quiescence"
+        )
+        let didReachOutgoingUIKitApplyTerminal = waitUntilV15(timeout: 2) {
+            !controller.isChatDatasourceStructuralTransactionActive
+        }
+        XCTAssertTrue(
+            didReachOutgoingUIKitApplyTerminal,
+            "the outgoing datasource hook precedes UIKit batch completion; target scrolling requires its structural terminal"
+        )
+        guard didReachOutgoingUIKitApplyTerminal else { return }
+        controller.datasourceDidSetForTests = nil
+        recordEvent("send.refresh.complete")
+        XCTAssertTrue(
+            account.xmppStream.isDisconnected,
+            "the real send path must remain on a local disconnected stream"
+        )
+        seedRealm.refresh()
+        let outgoing = try XCTUnwrap(outgoingResults.first)
+        XCTAssertTrue(outgoing.outgoing)
+        XCTAssertEqual(outgoing.owner, owner)
+        XCTAssertEqual(outgoing.opponent, groupchatJid)
+        XCTAssertEqual(outgoing.body, sendBody)
+        XCTAssertEqual(observedOutgoingPrimary, outgoing.primary)
+        XCTAssertEqual(appliedOutgoingPrimary, outgoing.primary)
+        XCTAssertTrue(
+            controller.datasource.contains(where: {
+                $0.primary == outgoing.primary && $0.outgoing
+            }),
+            "the production timeline refresh must publish the persisted local row"
+        )
+        let afterSendRefresh = try captureV15MentionRealmState(
+            notificationPrimary: notificationPrimary,
+            targetPrimary: targetPrimary,
+            chatPrimary: chatPrimary
+        )
+        XCTAssertFalse(afterSendRefresh.notificationIsRead)
+        XCTAssertTrue(afterSendRefresh.notificationShouldShow)
+        XCTAssertTrue(
+            afterSendRefresh.targetIsRead,
+            "ordinary send/read-last may read the linked message without reading the mention notification"
+        )
+        XCTAssertEqual(
+            afterSendRefresh.targetState,
+            MessageStorageItem.MessageSendingState.read.rawValue
+        )
+        XCTAssertEqual(
+            afterSendRefresh.stableTargetAndNotificationIdentity,
+            beforeJump.stableTargetAndNotificationIdentity,
+            "send completion/read-last may update ordinary message state, but not mention authority"
+        )
+        eventLock.lock()
+        let transitionsBeforeVisibility = notificationReadTransitions
+        eventLock.unlock()
+        XCTAssertEqual(transitionsBeforeVisibility, 0)
+        XCTAssertEqual(
+            controller.unreadMentionsState.currentTarget?.notificationPrimary,
+            notificationPrimary
+        )
+        XCTAssertEqual(
+            controller.unreadMentionsState.currentTarget?.messagePrimary,
+            targetPrimary
+        )
+        XCTAssertFalse(
+            controller.meaningfullyVisibleRealMessagePrimariesForRead()
+                .contains(targetPrimary),
+            "the exact target remains offscreen after the real send refresh"
+        )
+        XCTAssertEqual(
+            controller.readVisiblePresentationCoordinator.pendingCandidateCount,
+            1,
+            "ordinary read-last may update the message but cannot orphan notification-owned mention authority"
+        )
+
+        let targetSection = try XCTUnwrap(
+            controller.datasourceSnapshot.primaryIndex[targetPrimary]
+        )
+        let presentationGenerationBeforeTargetVisibility =
+            controller.readVisiblePresentationCoordinator.generation
+        let geometryGenerationBeforeTargetVisibility =
+            controller.readVisiblePresentationCoordinator.geometryGeneration
+        controller.visibleMentionReadAfterFirstPersistentMutationBarrierForTests = {
+            recordEvent("mention.first-persistent-mutation")
+        }
+        controller.visibleMentionReadUIRefreshForTests = {
+            recordEvent("mention.ui-refresh")
+        }
+        controller.visibleMentionReadTerminalForTests = { didCommit in
+            recordEvent(didCommit ? "mention.terminal.success" : "mention.terminal.rejected")
+        }
+        let targetIndexPath = IndexPath(item: 0, section: targetSection)
+        controller.messagesCollectionView.scrollToItem(
+            at: targetIndexPath,
+            at: .centeredVertically,
+            animated: false
+        )
+        window.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        controller.messagesCollectionView.layoutIfNeeded()
+        let didReachMeaningfulTargetVisibility = waitUntilV15(timeout: 2) {
+            controller.messagesCollectionView.cellForItem(at: targetIndexPath) != nil &&
+                controller.meaningfullyVisibleRealMessagePrimariesForRead(
+                    indexPaths: [targetIndexPath]
+                ) == Set([targetPrimary])
+        }
+        XCTAssertTrue(
+            didReachMeaningfulTargetVisibility,
+            "the production cell frame must cross the meaningful viewport boundary"
+        )
+        guard didReachMeaningfulTargetVisibility else { return }
+        recordEvent("target.meaningfully-visible")
+
+        let visiblePresentationSnapshot =
+            controller.readVisiblePresentationSnapshot()
+        XCTAssertTrue(
+            ChatReadVisiblePresentationPolicy.canAdvanceReadState(
+                hasPresentationReceipt:
+                    controller.readVisiblePresentationCoordinator
+                        .hasPresentationReceipt,
+                snapshot: visiblePresentationSnapshot
+            ),
+            "the exact visible frame must retain structural read authority"
+        )
+        let canAdvanceAtVisibleTarget =
+            controller.canAdvanceReadStateFromVisiblePresentation()
+        XCTAssertTrue(
+            canAdvanceAtVisibleTarget,
+            "read admission blocker: phase=\(controller.initialLocalFirstFramePhase), " +
+                "structural=\(controller.isChatDatasourceStructuralTransactionActive), " +
+                "pendingOpen=\(controller.pendingOpenMessageRequest != nil), " +
+                "activeAnchor=\(controller.activeAnchorExecutionState != nil), " +
+                "bootstrapAnchor=\(controller.isApplyingBootstrapAnchorWindow)"
+        )
+        guard canAdvanceAtVisibleTarget else { return }
+        XCTAssertEqual(
+            controller.readVisiblePresentationCoordinator.generation,
+            presentationGenerationBeforeTargetVisibility,
+            "target visibility cannot rotate presentation ownership"
+        )
+        XCTAssertGreaterThanOrEqual(
+            controller.readVisiblePresentationCoordinator.geometryGeneration,
+            geometryGenerationBeforeTargetVisibility
+        )
+        let visibleRowIdentities =
+            controller.meaningfullyVisibleRealMessagePresentationIdentitiesForRead(
+                indexPaths: [targetIndexPath]
+            )
+        XCTAssertEqual(
+            visibleRowIdentities[targetPrimary]?.message.primary,
+            targetPrimary,
+            "the trigger must own the exact realized target identity"
+        )
+        eventLock.lock()
+        let didScheduleResolvedCandidate = scheduledCandidateCounts.contains(1)
+        eventLock.unlock()
+        XCTAssertTrue(
+            didScheduleResolvedCandidate,
+            "the unread notification must have scheduled its resolved message candidate"
+        )
+        let retainedOrAdmittedCandidateCount =
+            controller.readVisiblePresentationCoordinator.pendingCandidateCount +
+            controller.readVisiblePresentationCoordinator.inFlightFlushCount +
+            controller.readVisiblePresentationCoordinator.successfulFlushCount
+        XCTAssertEqual(
+            retainedOrAdmittedCandidateCount,
+            1,
+            "the notification must remain pending, in flight, or exactly-once committed at the visible frame"
+        )
+        let visibleMomentRealmState = try captureV15MentionRealmState(
+            notificationPrimary: notificationPrimary,
+            targetPrimary: targetPrimary,
+            chatPrimary: chatPrimary
+        )
+        XCTAssertTrue(visibleMomentRealmState.targetIsRead)
+        XCTAssertEqual(
+            visibleMomentRealmState.chatMentionId,
+            visibleMomentRealmState.notificationIsRead ? nil : targetArchivedId,
+            "notification and Last Chats mention authority must transition together"
+        )
+        controller.scrollViewDidScroll(controller.messagesCollectionView)
+        controller.flushPendingScrollWork()
+        recordEvent("viewport.read-boundary.flushed")
+        eventLock.lock()
+        let didRunScrollFrameMentionTrigger =
+            causalEvents.contains("mention.scroll-frame-trigger")
+        eventLock.unlock()
+        XCTAssertTrue(
+            didRunScrollFrameMentionTrigger,
+            "the current coalesced scroll frame must directly retry its meaningfully visible pending mention"
+        )
+        guard didRunScrollFrameMentionTrigger else { return }
+        let didObserveVisibleMentionCommit = waitUntilV15(timeout: 2) {
+            eventLock.lock()
+            defer { eventLock.unlock() }
+            return notificationReadTransitions == 1 &&
+                causalEvents.contains("mention.terminal.success")
+        }
+        XCTAssertTrue(
+            didObserveVisibleMentionCommit,
+            "meaningful visibility must produce one Realm notification transition and one successful terminal"
+        )
+        guard didObserveVisibleMentionCommit else { return }
+
+        let afterVisibleCommit = try captureV15MentionRealmState(
+            notificationPrimary: notificationPrimary,
+            targetPrimary: targetPrimary,
+            chatPrimary: chatPrimary
+        )
+        XCTAssertTrue(afterVisibleCommit.notificationIsRead)
+        XCTAssertTrue(afterVisibleCommit.notificationShouldShow)
+        XCTAssertEqual(afterVisibleCommit.notificationLinkStatus, "resolved")
+        XCTAssertNil(afterVisibleCommit.chatMentionId)
+        XCTAssertEqual(
+            Array(afterVisibleCommit.stableTargetAndNotificationIdentity.dropLast()),
+            Array(beforeJump.stableTargetAndNotificationIdentity.dropLast()),
+            "the read transition may clear mentionId but cannot rewrite the exact target identity"
+        )
+        eventLock.lock()
+        let committedTransitionCount = notificationReadTransitions
+        let committedEvents = causalEvents
+        eventLock.unlock()
+        XCTAssertEqual(committedTransitionCount, 1)
+        XCTAssertEqual(
+            controller.readVisiblePresentationCoordinator.successfulFlushCount,
+            1
+        )
+        XCTAssertEqual(
+            controller.readVisiblePresentationCoordinator.pendingCandidateCount,
+            0
+        )
+        XCTAssertLessThan(
+            try XCTUnwrap(committedEvents.firstIndex(of: "jump.requested")),
+            try XCTUnwrap(committedEvents.firstIndex(of: "send.requested"))
+        )
+        XCTAssertLessThan(
+            try XCTUnwrap(committedEvents.firstIndex(of: "send.refresh.complete")),
+            try XCTUnwrap(committedEvents.firstIndex(of: "target.meaningfully-visible"))
+        )
+        XCTAssertLessThan(
+            try XCTUnwrap(committedEvents.firstIndex(of: "mention.scroll-frame-trigger")),
+            try XCTUnwrap(committedEvents.firstIndex(of: "mention.first-persistent-mutation"))
+        )
+        XCTAssertLessThan(
+            try XCTUnwrap(committedEvents.firstIndex(of: "target.meaningfully-visible")),
+            try XCTUnwrap(committedEvents.firstIndex(of: "realm.notification.read"))
+        )
+
+        controller.refreshUnreadMentionsNavigatorState(animated: false)
+        controller.flushPendingVisibleUnreadMentionReconciliationIfPossible()
+        controller.retryPendingVisibleUnreadMentionReconciliation()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.35))
+        eventLock.lock()
+        let finalTransitionCount = notificationReadTransitions
+        let terminalSuccessCount = causalEvents.filter {
+            $0 == "mention.terminal.success"
+        }.count
+        eventLock.unlock()
+        XCTAssertEqual(finalTransitionCount, 1)
+        XCTAssertEqual(terminalSuccessCount, 1)
+        XCTAssertEqual(
+            controller.readVisiblePresentationCoordinator.successfulFlushCount,
+            1,
+            "duplicate visible refresh/flush callbacks are causally inert"
+        )
+    }
+
+    func testMentionReadRequiresMeaningfulTargetIntersection() {
+        let messageFrame = CGRect(x: 0, y: 100, width: 300, height: 80)
+
+        XCTAssertFalse(
+            ChatReadVisiblePresentationPolicy.isMeaningfullyVisible(
+                itemFrame: messageFrame,
+                viewport: CGRect(x: 0, y: 170, width: 300, height: 100)
+            ),
+            "a ten-point sliver must not count as a visible mention"
+        )
+        XCTAssertTrue(
+            ChatReadVisiblePresentationPolicy.isMeaningfullyVisible(
+                itemFrame: messageFrame,
+                viewport: CGRect(x: 0, y: 136, width: 300, height: 100)
+            )
+        )
+    }
+
+    private func readVisiblePresentationSnapshot(
+        isApplicationActive: Bool = true,
+        isWindowAttached: Bool = true,
+        isWindowSceneForegroundActive: Bool = true,
+        isKeyWindow: Bool = true,
+        isTopNavigationDestination: Bool = false,
+        isVisibleSplitSecondary: Bool = false,
+        hasCoveringPresentation: Bool = false,
+        isTransitionActive: Bool = false
+    ) -> ChatReadVisiblePresentationSnapshot {
+        ChatReadVisiblePresentationSnapshot(
+            isApplicationActive: isApplicationActive,
+            isWindowAttached: isWindowAttached,
+            isWindowSceneForegroundActive: isWindowSceneForegroundActive,
+            isKeyWindow: isKeyWindow,
+            isTopNavigationDestination: isTopNavigationDestination,
+            isVisibleSplitSecondary: isVisibleSplitSecondary,
+            hasCoveringPresentation: hasCoveringPresentation,
+            isTransitionActive: isTransitionActive
+        )
+    }
+
+    private func captureV15MentionRealmState(
+        notificationPrimary: String,
+        targetPrimary: String,
+        chatPrimary: String
+    ) throws -> V15MentionRealmState {
+        let realm = try WRealm.safe()
+        realm.refresh()
+        let notification = try XCTUnwrap(
+            realm.object(
+                ofType: NotificationStorageItem.self,
+                forPrimaryKey: notificationPrimary
+            )
+        )
+        let target = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: targetPrimary
+            )
+        )
+        let chat = try XCTUnwrap(
+            realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: chatPrimary
+            )
+        )
+        return V15MentionRealmState(
+            notificationPrimary: notification.primary,
+            notificationIsRead: notification.isRead,
+            notificationShouldShow: notification.shouldShow,
+            notificationLinkStatus: notification.mentionLinkStatus?.rawValue,
+            sourceChatJid: notification.sourceChatJid,
+            sourceArchivedId: notification.sourceArchivedId,
+            sourceMessageId: notification.sourceMessageId,
+            targetMemberId: notification.mentionTargetUserId,
+            targetPrimary: target.primary,
+            targetArchivedId: target.archivedId,
+            targetMessageId: target.messageId,
+            targetIsRead: target.isRead,
+            targetState: target.state.rawValue,
+            chatMentionId: chat.mentionId
+        )
+    }
+
+    @MainActor
+    private func waitUntilV15TimelineObserverIdle(
+        _ session: ChatTimelineSession,
+        timeout: TimeInterval = 2
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while (!session.hasActiveStoreObservationForTests ||
+                session.activeStoreObservationWorkCount > 0),
+              Date() < deadline {
+            RunLoop.current.run(
+                mode: .default,
+                before: Date().addingTimeInterval(0.01)
+            )
+        }
+        return session.hasActiveStoreObservationForTests &&
+            session.activeStoreObservationWorkCount == 0
+    }
+
+    @MainActor
+    private func waitUntilV15(
+        timeout: TimeInterval,
+        _ condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(
+                mode: .default,
+                before: Date().addingTimeInterval(0.01)
+            )
+        } while Date() < deadline
+        return condition()
+    }
+
     func testFloatingControlsLayoutPolicyStacksMentionIndicatorAboveScrollButton() throws {
         let inputHeight: CGFloat = 83
         let sendButtonFrame = CGRect(x: 318, y: 700, width: 44, height: 44)
@@ -43067,6 +48245,19 @@ final class ChatUnreadMentionsTests: XCTestCase {
             )
         )
         XCTAssertEqual(chat.mentionId, "a-valid")
+    }
+}
+
+@MainActor
+private final class ChatUnreadMentionV15HostedController: ChatViewController {
+    var onActualViewDidAppear: (() -> Void)?
+    private var didReportActualViewDidAppear = false
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !didReportActualViewDidAppear else { return }
+        didReportActualViewDidAppear = true
+        onActualViewDidAppear?()
     }
 }
 

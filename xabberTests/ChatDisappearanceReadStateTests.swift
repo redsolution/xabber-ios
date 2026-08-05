@@ -33,7 +33,7 @@ final class ChatDisappearanceReadStateTests: XCTestCase {
         super.tearDown()
     }
 
-    func testNavigationDisappearanceFlushesPendingVisibleTargetWithoutReadingNewest() throws {
+    func testNavigationDisappearanceDoesNotFlushPendingReadWithoutActivePresentation() throws {
         let account = Account(jid: owner, queue: DispatchQueue(label: "ChatDisappearanceReadStateTests.account"))
         AccountManager.shared.users.append(account)
         let controller = makeController()
@@ -47,10 +47,11 @@ final class ChatDisappearanceReadStateTests: XCTestCase {
         controller.runNavigationDisappearanceCleanupIfNeeded()
 
         let chat = try storedChat()
-        XCTAssertEqual(chat.syncUnreadCount, 0)
+        XCTAssertEqual(chat.syncUnreadCount, 1)
         XCTAssertEqual(chat.runtimeUnreadCount, 1)
-        XCTAssertEqual(chat.unread, 1)
-        XCTAssertEqual(chat.lastReadId, "100")
+        XCTAssertEqual(chat.unread, 2)
+        XCTAssertEqual(chat.lastReadId, "50")
+        XCTAssertEqual(controller.messagesToReadObserver.value, ["visible-primary"])
     }
 
     func testBackgroundCleanupDoesNotClearUnreadWhenNoVisibleTargetPending() throws {

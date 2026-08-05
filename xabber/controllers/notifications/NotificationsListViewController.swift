@@ -154,6 +154,229 @@ enum NotificationsMentionRoutePolicy {
     }
 }
 
+enum NotificationsMentionOpenUnavailableReason: Equatable {
+    case notificationUnavailable
+    case sourceChatUnavailable
+    case targetUnavailable
+    case deletedTargetHasNoFollowingMention
+}
+
+enum NotificationsMentionOpenResolution: Equatable {
+    case exact(ChatOpenMessageRequest, invalidatedNotificationPrimary: String?)
+    case unavailable(NotificationsMentionOpenUnavailableReason)
+}
+
+struct NotificationsMentionOpenSelection: Equatable {
+    let resolution: NotificationsMentionOpenResolution
+    let selectedNotificationPrimary: String?
+}
+
+#if DEBUG || CHAT_PERFORMANCE_LAB
+struct NotificationsMentionOpenAttemptDiagnostics: Equatable {
+    let tappedNotificationPrimary: String
+    let resolution: NotificationsMentionOpenResolution
+    let selectedNotificationPrimary: String?
+    let didNavigate: Bool
+}
+
+enum NotificationsMentionOpenRealmEntryPhase: Equatable {
+    case authoritativeCategory
+    case mentionResolution
+}
+
+struct NotificationsMentionOpenRealmEntryDiagnostics: Equatable {
+    let notificationPrimary: String
+    let phase: NotificationsMentionOpenRealmEntryPhase
+    let claimWasHeld: Bool
+}
+#endif
+
+enum NotificationsMentionOpenRouter {
+    static func resolve(
+        notificationPrimary: String,
+        in realm: Realm
+    ) -> NotificationsMentionOpenResolution {
+        resolveSelection(
+            notificationPrimary: notificationPrimary,
+            in: realm
+        ).resolution
+    }
+
+    static func resolveSelection(
+        notificationPrimary: String,
+        in realm: Realm
+    ) -> NotificationsMentionOpenSelection {
+        guard let notification = realm.object(
+            ofType: NotificationStorageItem.self,
+            forPrimaryKey: notificationPrimary
+        ), notification.isMentionNotification else {
+            return NotificationsMentionOpenSelection(
+                resolution: .unavailable(.notificationUnavailable),
+                selectedNotificationPrimary: nil
+            )
+        }
+
+        guard let sourceChatJid = notification.sourceChatJid ?? notification.associatedJid,
+              sourceChatJid.isNotEmpty else {
+            return NotificationsMentionOpenSelection(
+                resolution: .unavailable(.sourceChatUnavailable),
+                selectedNotificationPrimary: nil
+            )
+        }
+
+        let tappedOrder = orderKey(for: notification)
+        reconcileLocallyMaterializedTargetIfNeeded(notification, in: realm)
+        let tappedWasInvalidated = isInvalidated(notification)
+
+        if !tappedWasInvalidated {
+            guard let request = NotificationsListViewController.mentionOpenRequest(for: notification) else {
+                return NotificationsMentionOpenSelection(
+                    resolution: .unavailable(.targetUnavailable),
+                    selectedNotificationPrimary: nil
+                )
+            }
+            return NotificationsMentionOpenSelection(
+                resolution: .exact(
+                    request,
+                    invalidatedNotificationPrimary: nil
+                ),
+                selectedNotificationPrimary: notification.primary
+            )
+        }
+
+        let candidates = realm.objects(NotificationStorageItem.self)
+            .filter(
+                "owner == %@ AND category_ == %@ AND isRead == false AND associatedJid == %@",
+                notification.owner,
+                XMPPNotificationsManager.Category.mention.rawValue,
+                sourceChatJid
+            )
+            .toArray()
+            .filter {
+                $0.primary != notification.primary
+                    && $0.shouldShow
+                    && ($0.sourceConversationType ?? .group) == .group
+                    && ($0.sourceChatJid ?? $0.associatedJid) == sourceChatJid
+                    && orderKey(for: $0) > tappedOrder
+            }
+            .sorted { orderKey(for: $0) < orderKey(for: $1) }
+
+        for candidate in candidates {
+            reconcileLocallyMaterializedTargetIfNeeded(candidate, in: realm)
+            guard !isInvalidated(candidate),
+                  let request = NotificationsListViewController.mentionOpenRequest(for: candidate) else {
+                continue
+            }
+            MentionNotificationSync.refreshLastChatMentionId(
+                owner: notification.owner,
+                groupchatJid: sourceChatJid,
+                in: realm
+            )
+            return NotificationsMentionOpenSelection(
+                resolution: .exact(
+                    request,
+                    invalidatedNotificationPrimary: notification.primary
+                ),
+                selectedNotificationPrimary: candidate.primary
+            )
+        }
+
+        MentionNotificationSync.refreshLastChatMentionId(
+            owner: notification.owner,
+            groupchatJid: sourceChatJid,
+            in: realm
+        )
+        return NotificationsMentionOpenSelection(
+            resolution: .unavailable(
+                notification.mentionLinkStatus == .missing
+                    ? .deletedTargetHasNoFollowingMention
+                    : .targetUnavailable
+            ),
+            selectedNotificationPrimary: nil
+        )
+    }
+
+    private static func isInvalidated(_ notification: NotificationStorageItem) -> Bool {
+        notification.mentionLinkStatus == .missing
+            || notification.mentionLinkStatus == .invalidated
+            || !notification.shouldShow
+    }
+
+    private static func reconcileLocallyMaterializedTargetIfNeeded(
+        _ notification: NotificationStorageItem,
+        in realm: Realm
+    ) {
+        guard notification.mentionLinkStatus != .missing,
+              notification.mentionLinkStatus != .invalidated,
+              hasLocallyMaterializedStableTarget(notification, in: realm) else {
+            return
+        }
+        _ = MentionNotificationSync.reconcile(notification: notification, in: realm)
+    }
+
+    private static func hasLocallyMaterializedStableTarget(
+        _ notification: NotificationStorageItem,
+        in realm: Realm
+    ) -> Bool {
+        guard let sourceChatJid = notification.sourceChatJid ?? notification.associatedJid,
+              sourceChatJid.isNotEmpty else {
+            return false
+        }
+        let conversationType = notification.sourceConversationType ?? .group
+
+        if let archivedId = notification.sourceArchivedId,
+           archivedId.isNotEmpty,
+           realm.objects(MessageStorageItem.self)
+            .filter(
+                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND archivedId == %@",
+                notification.owner,
+                sourceChatJid,
+                conversationType.rawValue,
+                archivedId
+            )
+            .first != nil {
+            return true
+        }
+
+        if let messageId = notification.sourceMessageId,
+           messageId.isNotEmpty,
+           realm.objects(MessageStorageItem.self)
+            .filter(
+                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND messageId == %@",
+                notification.owner,
+                sourceChatJid,
+                conversationType.rawValue,
+                messageId
+            )
+            .first != nil {
+            return true
+        }
+
+        return false
+    }
+
+    private static func orderKey(
+        for notification: NotificationStorageItem
+    ) -> MentionOrderKey {
+        MentionOrderKey(
+            date: notification.sourceMessageDate ?? notification.date,
+            primary: notification.primary
+        )
+    }
+
+    private struct MentionOrderKey: Comparable {
+        let date: Date
+        let primary: String
+
+        static func < (lhs: MentionOrderKey, rhs: MentionOrderKey) -> Bool {
+            if lhs.date != rhs.date {
+                return lhs.date < rhs.date
+            }
+            return lhs.primary < rhs.primary
+        }
+    }
+}
+
 enum NotificationsSupport {
     private static let sectionTitleFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -594,6 +817,31 @@ class NotificationsListViewController: SimpleBaseViewController {
     private var datasourceGeneration: Int = 0
     private var notificationSearchQuery: String = ""
     private var lastConfiguredBarsState: (filter: Filter, account: String?, unreadOnly: Bool)?
+    private var claimedMentionOpenNotificationPrimaries: Set<String> = []
+
+#if DEBUG || CHAT_PERFORMANCE_LAB
+    internal var mentionOpenAttemptObserverForTests:
+        ((NotificationsMentionOpenAttemptDiagnostics) -> Void)?
+    internal var mentionOpenDuplicateDropObserverForTests:
+        ((String) -> Void)?
+    internal var mentionOpenRealmEntryObserverForTests:
+        ((NotificationsMentionOpenRealmEntryDiagnostics) -> Void)?
+
+    internal var claimedMentionOpenNotificationPrimariesForTests: Set<String> {
+        claimedMentionOpenNotificationPrimaries
+    }
+
+    /// Applies a production-derived datasource in focused entrypoint tests.
+    /// Canonical P13 evidence must still use the real async datasource path.
+    internal func applyMentionOpenDatasourceForTests(
+        _ datasource: [Datasource]
+    ) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        self.datasource = datasource
+        tableView.reloadData()
+        reconcileMentionOpenClaimsAfterApplying(datasource)
+    }
+#endif
 
     internal final var isNotificationsCompactBottomBarHidden: Bool {
         notificationsCompactBottomBarView.superview == nil || notificationsCompactBottomBarView.isHidden
@@ -1228,6 +1476,9 @@ class NotificationsListViewController: SimpleBaseViewController {
                 let previousDatasource = self.datasource
                 let isCompatible = self.compatibleSectionShape(old: previousDatasource, new: snapshot.datasource)
                 self.datasource = snapshot.datasource
+                self.reconcileMentionOpenClaimsAfterApplying(
+                    snapshot.datasource
+                )
                 let descriptor = Self.emptyStateDescriptor(
                     filter: filter,
                     hasResolvedSnapshot: snapshot.hasResolvedSnapshot,
@@ -1303,7 +1554,7 @@ class NotificationsListViewController: SimpleBaseViewController {
         configureBars(animated: false)
     }
     
-    var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
+    weak var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
     
     @objc
     private final func onBackButtonTouchUpInside(_ sender: UIBarButtonItem) {
@@ -1373,6 +1624,16 @@ class NotificationsListViewController: SimpleBaseViewController {
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        claimedMentionOpenNotificationPrimaries.removeAll()
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        mentionOpenAttemptObserverForTests = nil
+        mentionOpenDuplicateDropObserverForTests = nil
+        mentionOpenRealmEntryObserverForTests = nil
+#endif
     }
     
     override func subscribe() {
@@ -1677,6 +1938,17 @@ extension NotificationsListViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let section = self.datasource[indexPath.section]
         let item = section.childs[indexPath.row]
+        let preclaimedNotificationRow: Bool
+        if section.key == "notifications" {
+            guard claimMentionOpenNotification(
+                primary: item.primary
+            ) else {
+                return
+            }
+            preclaimedNotificationRow = true
+        } else {
+            preclaimedNotificationRow = false
+        }
 //        section.childs[indexPath.row].isRead = true
         let routeCategory: XMPPNotificationsManager.Category = {
             guard section.key == "notifications" else {
@@ -1684,6 +1956,17 @@ extension NotificationsListViewController: UITableViewDelegate {
             }
 
             do {
+#if DEBUG || CHAT_PERFORMANCE_LAB
+                self.mentionOpenRealmEntryObserverForTests?(
+                    NotificationsMentionOpenRealmEntryDiagnostics(
+                        notificationPrimary: item.primary,
+                        phase: .authoritativeCategory,
+                        claimWasHeld:
+                            self.claimedMentionOpenNotificationPrimaries
+                                .contains(item.primary)
+                    )
+                )
+#endif
                 let realm = try WRealm.safe()
                 return realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: item.primary)?.category ?? item.category
             } catch {
@@ -1692,7 +1975,18 @@ extension NotificationsListViewController: UITableViewDelegate {
             }
         }()
 
-        switch NotificationsDetailPresentationPolicy.presentation(sectionKey: section.key, category: routeCategory) {
+        let presentation = NotificationsDetailPresentationPolicy.presentation(
+            sectionKey: section.key,
+            category: routeCategory
+        )
+        if preclaimedNotificationRow,
+           presentation != .mentionChat {
+            releaseMentionOpenNotificationClaim(
+                primary: item.primary
+            )
+        }
+
+        switch presentation {
             case .modalContainedContactInfo:
                 let vc = ContactInfoViewController()
                 vc.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
@@ -1713,29 +2007,82 @@ extension NotificationsListViewController: UITableViewDelegate {
                     DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
                 }
             case .mentionChat:
+                if !preclaimedNotificationRow {
+                    guard claimMentionOpenNotification(
+                        primary: item.primary
+                    ) else {
+                        return
+                    }
+                }
                 do {
+#if DEBUG || CHAT_PERFORMANCE_LAB
+                    self.mentionOpenRealmEntryObserverForTests?(
+                        NotificationsMentionOpenRealmEntryDiagnostics(
+                            notificationPrimary: item.primary,
+                            phase: .mentionResolution,
+                            claimWasHeld:
+                                self.claimedMentionOpenNotificationPrimaries
+                                    .contains(item.primary)
+                        )
+                    )
+#endif
                     let realm = try WRealm.safe()
-                    let currentItem = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: item.primary)
                     switch NotificationsMentionRoutePolicy.action(isBlockedByUnrelatedPresentedModal: hasUnrelatedPresentedModal()) {
                     case .openChat:
-                        guard let notification = currentItem else {
-                            break
+                        var selection = NotificationsMentionOpenSelection(
+                            resolution: .unavailable(.notificationUnavailable),
+                            selectedNotificationPrimary: nil
+                        )
+                        var sourceRemainsInAppliedDatasource = false
+                        try realm.write {
+                            selection = NotificationsMentionOpenRouter.resolveSelection(
+                                notificationPrimary: item.primary,
+                                in: realm
+                            )
+                            sourceRemainsInAppliedDatasource = realm.object(
+                                ofType: NotificationStorageItem.self,
+                                forPrimaryKey: item.primary
+                            )?.shouldShow == true
                         }
-                        guard let request = Self.mentionOpenRequest(for: notification) else {
-                            self.view.makeToast("Original chat is unavailable")
-                            break
+                        var didNavigate = false
+                        switch selection.resolution {
+                        case .exact(let request, _):
+                            didNavigate = self.leftMenuDelegate?.openChatlistWithChat(
+                                owner: request.owner,
+                                jid: request.chatJid,
+                                conversationType: request.conversationType,
+                                openMessageRequest: request,
+                                configure: nil
+                            ) ?? false
+                        case .unavailable:
+                            self.view.makeToast("Original mention is unavailable")
                         }
-                        self.leftMenuDelegate?.openChatlistWithChat(
-                            owner: request.owner,
-                            jid: request.chatJid,
-                            conversationType: request.conversationType
-                        ) { vc in
-                            vc?.queueOpenMessageRequest(request)
+#if DEBUG || CHAT_PERFORMANCE_LAB
+                        self.mentionOpenAttemptObserverForTests?(
+                            NotificationsMentionOpenAttemptDiagnostics(
+                                tappedNotificationPrimary: item.primary,
+                                resolution: selection.resolution,
+                                selectedNotificationPrimary:
+                                    selection.selectedNotificationPrimary,
+                                didNavigate: didNavigate
+                            )
+                        )
+#endif
+                        if !didNavigate && sourceRemainsInAppliedDatasource {
+                            releaseMentionOpenNotificationClaim(
+                                primary: item.primary
+                            )
                         }
                     case .ignore:
+                        releaseMentionOpenNotificationClaim(
+                            primary: item.primary
+                        )
                         break
                     }
                 } catch {
+                    releaseMentionOpenNotificationClaim(
+                        primary: item.primary
+                    )
                     DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
                 }
 //                if let cell = tableView.cellForRow(at: indexPath) as? NotificationItemCell {
@@ -1761,6 +2108,40 @@ extension NotificationsListViewController: UITableViewDelegate {
         }
 
         return true
+    }
+
+    private func claimMentionOpenNotification(primary: String) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard !claimedMentionOpenNotificationPrimaries.contains(primary) else {
+#if DEBUG || CHAT_PERFORMANCE_LAB
+            mentionOpenDuplicateDropObserverForTests?(primary)
+#endif
+            return false
+        }
+        claimedMentionOpenNotificationPrimaries.insert(primary)
+        return true
+    }
+
+    private func releaseMentionOpenNotificationClaim(primary: String) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        claimedMentionOpenNotificationPrimaries.remove(primary)
+    }
+
+    private func reconcileMentionOpenClaimsAfterApplying(
+        _ datasource: [Datasource]
+    ) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard !claimedMentionOpenNotificationPrimaries.isEmpty else {
+            return
+        }
+        let materializedPrimaries = Set(
+            datasource.flatMap { section in
+                section.childs.map(\.primary)
+            }
+        )
+        claimedMentionOpenNotificationPrimaries.formIntersection(
+            materializedPrimaries
+        )
     }
 }
 

@@ -62,6 +62,7 @@ enum ChatAnchorTransactionOwnership: Hashable {
 }
 
 struct ChatAnchorTransactionSnapshot: Equatable {
+    let transactionBeginCount: Int
     let activeToken: ChatAnchorTransactionToken?
     let requestIdentity: String?
     let queryIds: Set<String>
@@ -84,9 +85,11 @@ final class ChatAnchorTransactionGate {
 
     private var active: ActiveTransaction?
     private var lastTerminalOutcome: ChatAnchorTransactionTerminalOutcome?
+    private var transactionBeginCount = 0
 
     var snapshot: ChatAnchorTransactionSnapshot {
         ChatAnchorTransactionSnapshot(
+            transactionBeginCount: transactionBeginCount,
             activeToken: active?.token,
             requestIdentity: active?.requestIdentity,
             queryIds: active?.queryIds ?? [],
@@ -102,6 +105,7 @@ final class ChatAnchorTransactionGate {
         token: ChatAnchorTransactionToken,
         requestIdentity: String
     ) -> ChatAnchorTransactionToken? {
+        transactionBeginCount += 1
         let previousToken = active?.token
         if previousToken != nil {
             lastTerminalOutcome = .failed(.superseded)
@@ -221,6 +225,25 @@ enum ChatAnchorCenteringPolicy {
     }
 }
 
+enum ChatAnchorContentOffsetPolicy {
+    static func centeredOffsetY(
+        targetMidY: CGFloat,
+        viewportHeight: CGFloat,
+        contentHeight: CGFloat,
+        adjustedContentInsets: UIEdgeInsets
+    ) -> CGFloat {
+        let minimumOffsetY = -adjustedContentInsets.top
+        let maximumOffsetY = max(
+            minimumOffsetY,
+            contentHeight - viewportHeight + adjustedContentInsets.bottom
+        )
+        return min(
+            max(targetMidY - (viewportHeight / 2), minimumOffsetY),
+            maximumOffsetY
+        )
+    }
+}
+
 enum ChatAnchorPositionVerificationPolicy {
     static func isPositioned(
         expectedPrimary: String,
@@ -297,11 +320,12 @@ enum ChatAnchorHighlightOverlay {
     private static let tag = 0xA11D10
     private static let accessibilityPrefix = "chat-anchor-highlight:"
 
+    @discardableResult
     static func install(
         on cell: MessageContentCell,
         primary: String,
         revision: String? = nil
-    ) {
+    ) -> UIView {
         remove(from: cell)
 
         let overlay = UIView(frame: cell.contentView.bounds)
@@ -312,10 +336,23 @@ enum ChatAnchorHighlightOverlay {
         overlay.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.16)
         overlay.isUserInteractionEnabled = false
         cell.contentView.addSubview(overlay)
+        return overlay
     }
 
     static func remove(from cell: MessageContentCell) {
         cell.contentView.viewWithTag(tag)?.removeFromSuperview()
+    }
+
+    @discardableResult
+    static func remove(
+        from cell: MessageContentCell,
+        ifCurrent overlay: UIView
+    ) -> Bool {
+        guard cell.contentView.viewWithTag(tag) === overlay else {
+            return false
+        }
+        overlay.removeFromSuperview()
+        return true
     }
 
     static func representedPrimary(in cell: MessageContentCell) -> String? {

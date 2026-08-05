@@ -592,12 +592,42 @@ private final class AccountDeletionDiagnosticsSessionBox {
     }
 }
 
+/// Identity-free notification that the in-memory Account registry snapshot is
+/// now different. It deliberately carries no object or userInfo: observers may
+/// re-resolve their own scoped state, but the signal cannot disclose account
+/// identity, credentials, service endpoints, tokens, or mutation details.
+enum AccountManagerRegistryMutationSignal {
+    static let notification = Notification.Name(
+        "com.xabber.account-manager.registry-did-mutate"
+    )
+
+    static func publish(center: NotificationCenter = .default) {
+        let post = {
+            center.post(
+                name: notification,
+                object: nil,
+                userInfo: nil
+            )
+        }
+        if Thread.isMainThread {
+            post()
+        } else {
+            DispatchQueue.main.async(execute: post)
+        }
+    }
+}
+
 final class AccountManagerSnapshotStorage<Element> {
     private let lock = NSLock()
     private var elements: [Element]
+    private let didMutate: () -> Void
 
-    init(_ elements: [Element] = []) {
+    init(
+        _ elements: [Element] = [],
+        didMutate: @escaping () -> Void = {}
+    ) {
         self.elements = elements
+        self.didMutate = didMutate
     }
 
     func snapshot() -> [Element] {
@@ -612,6 +642,7 @@ final class AccountManagerSnapshotStorage<Element> {
         let displacedElements = elements
         elements = newElements
         lock.unlock()
+        didMutate()
 
         // Account teardown may re-enter AccountManager.find(for:). Keep removed
         // accounts alive until after the registry lock has been released.
@@ -622,18 +653,25 @@ final class AccountManagerSnapshotStorage<Element> {
         lock.lock()
         elements.append(element)
         lock.unlock()
+        didMutate()
     }
 
     @discardableResult
     func removeFirst(where predicate: (Element) -> Bool) -> Element? {
         lock.lock()
         let removedElement: Element?
+        let didRemove: Bool
         if let index = elements.firstIndex(where: predicate) {
             removedElement = elements.remove(at: index)
+            didRemove = true
         } else {
             removedElement = nil
+            didRemove = false
         }
         lock.unlock()
+        if didRemove {
+            didMutate()
+        }
 
         // Returning the removed element guarantees that its destruction, which
         // may re-enter AccountManager, happens after the lock is released.
@@ -699,7 +737,9 @@ public class AccountManager: NSObject {
     var newAccountJid: String = ""
     var newAccountObservable: BehaviorRelay<UserObserver> = BehaviorRelay(value: UserObserver(jid: "", state: .none))
     
-    private let userStorage = AccountManagerSnapshotStorage<Account>()
+    private let userStorage = AccountManagerSnapshotStorage<Account>(
+        didMutate: { AccountManagerRegistryMutationSignal.publish() }
+    )
     var users: [Account] {
         get { userStorage.snapshot() }
         set { userStorage.replace(with: newValue) }

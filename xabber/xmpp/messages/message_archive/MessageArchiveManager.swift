@@ -1408,7 +1408,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         case snapshotRepair
     }
 
-    enum RegularArchiveGapRepairDirection {
+    enum RegularArchiveGapRepairDirection: Equatable, Hashable {
         case older
         case newer
     }
@@ -1443,6 +1443,11 @@ class MessageArchiveManager: AbstractXMPPManager {
             archivedId: String?,
             messageId: String?,
             sourceDate: Date?
+        )
+        case savedPositionGapRepair(
+            olderRangeNewestArchiveId: String,
+            newerRangeOldestArchiveId: String,
+            direction: RegularArchiveGapRepairDirection
         )
     }
 
@@ -1615,6 +1620,21 @@ class MessageArchiveManager: AbstractXMPPManager {
                 max: 1,
                 usesServerArchiveId: archivedId != nil,
                 coverageUpdateKind: .disjointWindow
+            )
+        case .savedPositionGapRepair(
+            let olderRangeNewestArchiveId,
+            let newerRangeOldestArchiveId,
+            let direction
+        ):
+            return archiveGapRepairRequestPlan(
+                jid: jid,
+                conversationType: .regular,
+                gap: RegularChatArchiveGap(
+                    olderRangeNewestArchiveId: olderRangeNewestArchiveId,
+                    newerRangeOldestArchiveId: newerRangeOldestArchiveId
+                ),
+                direction: direction,
+                pageSize: pageSize
             )
         }
     }
@@ -2034,6 +2054,8 @@ class MessageArchiveManager: AbstractXMPPManager {
     private var deferredArchiveTransportProofsByQueryId: [String: DeferredArchiveTransportProof] = [:]
     private var deferredArchiveCommitsByQueryId: [String: DeferredArchiveCommitDescriptor] = [:]
     private var deferredArchiveCommitOrder: [String] = []
+    private var persistenceIngressExpectationsByQueryId: [String: Int] = [:]
+    private var persistenceIngressExpectationOrder: [String] = []
     private var committedArchiveConsumerProofsByQueryId: [String: CommittedArchiveConsumerProof] = [:]
     private var committedArchiveConsumerProofOrder: [String] = []
     private let maximumDeferredArchiveCommitCount = 128
@@ -2464,8 +2486,24 @@ class MessageArchiveManager: AbstractXMPPManager {
             return false
         }
         archiveQueryPurposeLock.lock()
-        defer { archiveQueryPurposeLock.unlock() }
-        return archiveQueryPurposeByQueryId[queryId]?.isArchiveHistoryProducing ?? false
+        let isActiveArchiveQuery =
+            archiveQueryPurposeByQueryId[queryId]?.isArchiveHistoryProducing ??
+            false
+        archiveQueryPurposeLock.unlock()
+        if isActiveArchiveQuery {
+            return true
+        }
+
+        // A raw MAM `<fin>` is transport completion, not persistence
+        // completion. MessageManager ingress may legitimately arrive after
+        // the final IQ, so keep accepting the query identity while its
+        // deferred commit or exact ingress budget is still retained.
+        deferredArchiveCommitLock.lock()
+        let isAwaitingPersistence =
+            deferredArchiveCommitsByQueryId[queryId] != nil ||
+            persistenceIngressExpectationsByQueryId[queryId] != nil
+        deferredArchiveCommitLock.unlock()
+        return isAwaitingPersistence
     }
 
     internal func pendingArchiveRequestQueryIds(archiveProducingOnly: Bool = true) -> [String] {
@@ -2516,6 +2554,11 @@ class MessageArchiveManager: AbstractXMPPManager {
             completion: completion ?? {}
         )
         zip(pendingItems, events).forEach { item, event in
+            _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
+                owner: self.owner,
+                queryID: event.queryId,
+                terminal: .failed
+            )
             if item.task.purpose == .search {
                 _ = self.failSearchArchiveSession(
                     queryId: event.queryId,
@@ -2671,6 +2714,11 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
 
         if let item = self.firstCallbackQueueItem(where: { $0.elementId == queryId }) {
+            _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
+                owner: self.owner,
+                queryID: queryId,
+                terminal: .cancelled
+            )
             self.removePendingArchiveRequestAfterFailure(item)
             return true
         }
@@ -2681,6 +2729,11 @@ class MessageArchiveManager: AbstractXMPPManager {
         guard hadState else {
             return false
         }
+        _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
+            owner: self.owner,
+            queryID: queryId,
+            terminal: .cancelled
+        )
         self.removeArchiveRequestStateAfterFailure(queryId: queryId)
         return true
     }
@@ -3309,6 +3362,11 @@ class MessageArchiveManager: AbstractXMPPManager {
             ])
             if let item = self.firstCallbackQueueItem(where: { $0.elementId == elementId }) {
                 let queryId = item.task.queryId ?? elementId
+                _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
+                    owner: self.owner,
+                    queryID: queryId,
+                    terminal: .failed
+                )
                 if item.task.purpose.routesMamServerErrorAsRequestFailure {
                     let event = MessageArchiveRequestFailureEvent(
                         owner: self.owner,
@@ -3376,6 +3434,11 @@ class MessageArchiveManager: AbstractXMPPManager {
                 persistedMessageCount: self.persistedMessageCountsByQueryId.removeValue(forKey: elementId) ?? 0,
                 requestCursorId: nil
             )
+            _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
+                owner: self.owner,
+                queryID: elementId,
+                terminal: .failed
+            )
             let fallbackDelivered = Self.notifyFallbackEndPageIfNeeded(
                 owner: self.owner,
                 queryId: elementId,
@@ -3403,6 +3466,11 @@ class MessageArchiveManager: AbstractXMPPManager {
             return false
         }
         guard let set = fin.element(forName: "set", xmlns: "http://jabber.org/protocol/rsm") else {
+            _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
+                owner: self.owner,
+                queryID: queryId,
+                terminal: .failed
+            )
             guard let item = self.firstCallbackQueueItem(where: {
                 $0.elementId == elementId && $0.task.purpose == .search
             }) else {
@@ -3433,15 +3501,42 @@ class MessageArchiveManager: AbstractXMPPManager {
         // this page. Keep it informational and use the wire ledger as the
         // compatibility count when the server omits it.
         let serverResultCount = set.element(forName: "count")?.stringValueAsNSInteger()
+        let localCallbackRegistered = self.callbackQueueContains {
+            $0.elementId == elementId
+        }
+        let dispatcherRegistered = MessageArchiveEndPageDispatcher.hasHandler(
+            owner: self.owner,
+            queryId: queryId
+        )
+        let fallbackRegistered = Self.hasFallbackEndPageCallback(
+            owner: self.owner,
+            queryId: queryId
+        )
+        let localQueryRegistered =
+            self.queryIds.contains(elementId) ||
+            self.queryIds.contains(queryId)
+        guard localCallbackRegistered ||
+                dispatcherRegistered ||
+                fallbackRegistered ||
+                localQueryRegistered else {
+            ChatArchiveDebugTrace.log("mamFinalIgnoredNoActiveContext", [
+                ("owner", self.owner),
+                ("queryId", queryId),
+                ("elementId", elementId),
+                ("streamKind", streamKind.rawValue)
+            ])
+            return false
+        }
         let transportProof =
             self.takeArchiveTransportProof(queryId: queryId) ??
             DeferredArchiveTransportProof()
         let deliveredResultCount = transportProof.deliveredResultCount
+        _ = ChatArchivePerformanceTraceRegistry.shared.rawFinal(
+            owner: self.owner,
+            queryID: queryId,
+            deliveredCount: deliveredResultCount
+        )
         let resultCount = serverResultCount ?? deliveredResultCount
-        let localCallbackRegistered = self.callbackQueueContains { $0.elementId == elementId }
-        let dispatcherRegistered = MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: queryId)
-        let fallbackRegistered = Self.hasFallbackEndPageCallback(owner: self.owner, queryId: queryId)
-        let localQueryRegistered = self.queryIds.contains(elementId) || self.queryIds.contains(queryId)
         ChatArchiveDebugTrace.log("mamFinalReceived", [
             ("owner", self.owner),
             ("queryId", queryId),
@@ -3576,7 +3671,10 @@ class MessageArchiveManager: AbstractXMPPManager {
                     }
                 } else {
                     self.completeCallback(item.callback)
-                    let count = resultCount
+                    // Non-search consumers require this page's delivered
+                    // envelope count. RSM `<count>` remains whole-result-set
+                    // metadata and must never become an ingress/page budget.
+                    let count = deliveredResultCount
                     do {
                             let realm: Realm?
                             if item.task.deferCoverageCommitUntilConsumerProof {
@@ -3651,13 +3749,23 @@ class MessageArchiveManager: AbstractXMPPManager {
                 self.unregisterArchiveQueryId(queryId)
                 self.removeCallbackQueueItem(item)
             } else {
-                let count = resultCount
+                // Keep orphan/fallback delivery on the same page-local count
+                // contract as registered non-search callbacks.
+                let count = deliveredResultCount
                 let pageEndState = MessageArchivePageEndState(
                     queryExhausted: count == 0 || complete,
                     archiveEnded: count == 0 || complete,
                     persistedMessageCount: self.persistedMessageCountsByQueryId.removeValue(forKey: queryId) ?? 0,
                     requestCursorId: nil
                 )
+                if dispatcherRegistered ||
+                    fallbackRegistered ||
+                    localQueryRegistered {
+                    storePersistenceIngressExpectation(
+                        queryId: queryId,
+                        transportProof: transportProof
+                    )
+                }
                 let fallbackDelivered = Self.notifyFallbackEndPageIfNeeded(
                     owner: self.owner,
                     queryId: queryId,
@@ -3933,6 +4041,10 @@ class MessageArchiveManager: AbstractXMPPManager {
             _ = cancelPendingArchiveRequest(queryId: entry.queryId)
         }
 
+        // An explicit query identifier starts a new wire transaction. Drop
+        // any bounded ingress/deferred proof left by an older use of the same
+        // identifier before the new callback item can accept envelopes.
+        abortDeferredCommit(queryId: queryId)
         let entry = RegularArchiveInFlightEntry(queryId: queryId, priority: priority)
         regularArchiveInFlightByKey[key] = entry
         regularArchiveRequestKeyByQueryId[queryId] = key
@@ -3976,6 +4088,13 @@ class MessageArchiveManager: AbstractXMPPManager {
         // this helper, so relying on the common tail of read(_:withIQ:) leaves
         // the query active forever and lets a later Retry join stale state.
         queryIds.remove(queryId)
+        if state != nil,
+           let transportProof {
+            storePersistenceIngressExpectation(
+                queryId: queryId,
+                transportProof: transportProof
+            )
+        }
         if let state,
            item.task.deferCoverageCommitUntilConsumerProof {
             prepareDeferredArchiveCommit(
@@ -4007,6 +4126,35 @@ class MessageArchiveManager: AbstractXMPPManager {
             )
         }
 
+    }
+
+    private func storePersistenceIngressExpectation(
+        queryId: String,
+        transportProof: DeferredArchiveTransportProof
+    ) {
+        guard queryId.isNotEmpty else {
+            return
+        }
+        let expectedReceivedCount = max(
+            0,
+            transportProof.deliveredResultCount -
+                transportProof.intentionallyConsumedResultCount
+        )
+        deferredArchiveCommitLock.lock()
+        if persistenceIngressExpectationsByQueryId[queryId] == nil {
+            persistenceIngressExpectationOrder.append(queryId)
+        }
+        persistenceIngressExpectationsByQueryId[queryId] =
+            expectedReceivedCount
+        while persistenceIngressExpectationOrder.count >
+                maximumDeferredArchiveCommitCount {
+            let expiredQueryId = persistenceIngressExpectationOrder
+                .removeFirst()
+            persistenceIngressExpectationsByQueryId.removeValue(
+                forKey: expiredQueryId
+            )
+        }
+        deferredArchiveCommitLock.unlock()
     }
 
     private func prepareDeferredArchiveCommit(
@@ -4144,15 +4292,24 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
         deferredArchiveCommitLock.lock()
         defer { deferredArchiveCommitLock.unlock() }
-        guard let descriptor =
-                deferredArchiveCommitsByQueryId[queryId] else {
-            return nil
+        if let descriptor = deferredArchiveCommitsByQueryId[queryId] {
+            return max(
+                0,
+                descriptor.transportProof.deliveredResultCount -
+                    descriptor.transportProof.intentionallyConsumedResultCount
+            )
         }
-        return max(
-            0,
-            descriptor.transportProof.deliveredResultCount -
-                descriptor.transportProof.intentionallyConsumedResultCount
-        )
+        return persistenceIngressExpectationsByQueryId[queryId]
+    }
+
+    internal func discardPersistenceIngressExpectation(queryId: String) {
+        guard queryId.isNotEmpty else {
+            return
+        }
+        deferredArchiveCommitLock.lock()
+        persistenceIngressExpectationsByQueryId.removeValue(forKey: queryId)
+        persistenceIngressExpectationOrder.removeAll { $0 == queryId }
+        deferredArchiveCommitLock.unlock()
     }
 
     internal func abortDeferredCommit(queryId: String) {
@@ -4161,6 +4318,8 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
         deferredArchiveCommitLock.lock()
         deferredArchiveTransportProofsByQueryId.removeValue(forKey: queryId)
+        persistenceIngressExpectationsByQueryId.removeValue(forKey: queryId)
+        persistenceIngressExpectationOrder.removeAll { $0 == queryId }
         let removedDescriptor = deferredArchiveCommitsByQueryId.removeValue(forKey: queryId)
         if removedDescriptor != nil {
             deferredArchiveCommitOrder.removeAll { $0 == queryId }
@@ -4182,6 +4341,8 @@ class MessageArchiveManager: AbstractXMPPManager {
         persistenceSummary: MessageManager.ArchivePersistenceSummary
     ) -> DeferredArchiveCommitResult {
         deferredArchiveCommitLock.lock()
+        persistenceIngressExpectationsByQueryId.removeValue(forKey: queryId)
+        persistenceIngressExpectationOrder.removeAll { $0 == queryId }
         let descriptor = deferredArchiveCommitsByQueryId.removeValue(forKey: queryId)
         if descriptor != nil {
             deferredArchiveCommitOrder.removeAll { $0 == queryId }
@@ -4410,7 +4571,6 @@ class MessageArchiveManager: AbstractXMPPManager {
 
         let confirmsEmptyConversation = canConfirmEmptyConversation
         let requiresBoundaryRepair =
-            applyResult.boundaryChanged ||
             conversationRequiresFollowUpRepair(task: descriptor.task)
         let effectiveFollowUpTarget =
             recommendedFollowUpTarget ??
@@ -4709,11 +4869,16 @@ class MessageArchiveManager: AbstractXMPPManager {
         pageReachesNewestLiveEdge: Bool,
         computedHasDurableNewestCoverage: Bool
     ) -> Bool {
+        if pageReachesNewestLiveEdge {
+            // A snapshot may advance while this query is on the wire. If the
+            // page merged in the same Realm transaction already covers that
+            // current boundary, the fresh computed proof supersedes the
+            // request-start fingerprint and no identical latest repair is
+            // needed.
+            return computedHasDurableNewestCoverage
+        }
         guard !boundaryChanged else {
             return false
-        }
-        if pageReachesNewestLiveEdge {
-            return computedHasDurableNewestCoverage
         }
         // A target-only page (saved position or a truncated unread page)
         // cannot prove the live edge by itself. It also must not revoke a
@@ -4730,7 +4895,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         return value
     }
 
-    private static func conversationArchiveBoundaryFingerprint(
+    static func conversationArchiveBoundaryFingerprint(
         chat: LastChatsStorageItem?,
         archiveState: RegularChatArchiveSyncStateStorageItem?
     ) -> ConversationArchiveBoundaryFingerprint {
@@ -4989,6 +5154,11 @@ class MessageArchiveManager: AbstractXMPPManager {
             requestedEnd: end
         )
         guard !dateConstraint.shouldSkipRequest else {
+            _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
+                owner: self.owner,
+                queryID: elementId,
+                terminal: .cancelled
+            )
             self.completeSkippedArchiveRequest(
                 queryId: elementId,
                 before: before,
@@ -5178,6 +5348,10 @@ class MessageArchiveManager: AbstractXMPPManager {
             ("flipPage", flipPage),
             ("archiveProducing", purpose.isArchiveHistoryProducing)
         ])
+        _ = ChatArchivePerformanceTraceRegistry.shared.transportStarted(
+            owner: self.owner,
+            queryID: elementId
+        )
         if isGroupchat {
             stream.send(XMPPIQ(iqType: .set, to: jid == nil ? nil : XMPPJID(string: jid ?? ""), elementID: elementId, child: query))
         } else {
@@ -5843,7 +6017,6 @@ class MessageArchiveManager: AbstractXMPPManager {
             
 //            if item.originalOutgoing || item.state == .read {
 //                item.isRead = true
-            let conversationType = conversationTypeByMessage(item.message)
             let readDate = item.readDate ??  nil
             if let readDate = readDate,
                item.date < readDate {
@@ -6796,6 +6969,11 @@ class MessageArchiveManager: AbstractXMPPManager {
         let pendingItems = self.drainCallbackQueueItems()
         let pendingCallbacks = pendingItems.compactMap(\.callback)
         pendingItems.forEach { item in
+            _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
+                owner: self.owner,
+                queryID: item.task.queryId ?? item.elementId,
+                terminal: .cancelled
+            )
             self.unregisterFallbackEndPageCallbacks(queryId: item.elementId)
             if let taskQueryId = item.task.queryId,
                taskQueryId != item.elementId {
@@ -6811,10 +6989,11 @@ class MessageArchiveManager: AbstractXMPPManager {
         self.regularArchiveRequestKeyByQueryId.removeAll()
         self.deferredArchiveCommitLock.lock()
         // A raw `<fin>` transfers ownership from the stream session to the
-        // query-scoped persistence transaction. Its descriptor (and the
-        // committed proof awaiting coordinator consumption) must therefore
-        // survive a socket/module reset. Only proofs for requests that were
-        // still on the wire belong to the session being discarded.
+        // query-scoped persistence transaction. Its descriptor, bounded
+        // ingress expectation, and committed proof awaiting coordinator
+        // consumption must therefore survive a socket/module reset. Only
+        // proofs for requests still on the wire belong to the discarded
+        // session.
         self.deferredArchiveTransportProofsByQueryId.removeAll()
         self.deferredArchiveCommitLock.unlock()
         self.clearArchiveQueryPurposeRegistry()

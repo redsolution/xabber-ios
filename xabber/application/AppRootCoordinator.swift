@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import UserNotifications
 
 let EULA_VERSION = "2026-05-04"
 
@@ -590,6 +591,11 @@ final class AppRootCoordinator: NSObject {
     var currentPresentedVc: UIViewController? {
         didSet {
             appDelegate?.currentPresentedVc = currentPresentedVc
+            if currentPresentedVc == nil {
+                DispatchQueue.main.async { [weak self] in
+                    self?.retryPendingMessageNotificationChatRouteIfPossible()
+                }
+            }
         }
     }
 
@@ -611,18 +617,42 @@ final class AppRootCoordinator: NSObject {
         #if DEBUG || CHAT_PERFORMANCE_LAB
         if let descriptor = ChatPerformanceUITestLaunchPolicy.descriptor() {
             performanceFixtureDescriptor = descriptor
-            window.rootViewController = UINavigationController(
-                rootViewController: ChatPerformanceFixtureViewController(descriptor: descriptor)
-            )
-            applyCompatibilityReferences()
+            if ChatPerformanceManualNativeBackLaunchPolicy.isEnabled() {
+                startChatPerformanceManualNativeBackFixture(
+                    descriptor: descriptor
+                )
+            } else if let scenario = descriptor.openScenario,
+               ChatPerformanceFixtureRootPolicy.mode(for: scenario) ==
+                .lastChatsNativeRoute {
+                startChatPerformanceProductionRouteFixture(
+                    descriptor: descriptor
+                )
+            } else {
+                window.rootViewController = UINavigationController(
+                    rootViewController:
+                        ChatPerformanceFixtureViewController(
+                            descriptor: descriptor
+                        )
+                )
+                applyCompatibilityReferences()
+            }
             return
         }
         #endif
 
-        let launchUserInfo = connectionOptions.notificationResponse?.notification.request.content.userInfo
-        pendingRoute = route(from: connectionOptions) ?? route(from: restorationActivity)
+        let launchNotificationResponse = connectionOptions.notificationResponse
+        let launchUserInfo = launchNotificationResponse?.notification.request
+            .content.userInfo
+        pendingRoute = launchNotificationResponse == nil
+            ? route(from: connectionOptions) ?? route(from: restorationActivity)
+            : nil
         rebuildRoot(userInfo: launchUserInfo)
-        if let pendingRoute {
+        if let launchNotificationResponse {
+            _ = routeSceneNotificationRequest(
+                launchNotificationResponse.notification.request,
+                actionIdentifier: launchNotificationResponse.actionIdentifier
+            )
+        } else if let pendingRoute {
             if case .chat = pendingRoute,
                CommonConfigManager.shared.interfaceType == .split,
                launchUserInfo != nil {
@@ -632,11 +662,13 @@ final class AppRootCoordinator: NSObject {
             route(pendingRoute)
             self.pendingRoute = nil
         }
+        retryPendingMessageNotificationChatRouteIfPossible()
     }
 
     func rebuildRoot(userInfo: [AnyHashable: Any]?) {
         splitController = nil
         tabController = nil
+        NotifyManager.shared.leftMenuDelegate = nil
         clearPresentedModalStateForRootRebuild()
 
         switch Self.rootKind(
@@ -659,6 +691,7 @@ final class AppRootCoordinator: NSObject {
 
         applyCompatibilityReferences()
         ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
+        retryPendingMessageNotificationChatRouteIfPossible()
     }
 
     func sceneWillResignActive() {
@@ -738,6 +771,7 @@ final class AppRootCoordinator: NSObject {
             details: ["source": "appRootCoordinator"]
         )
         removeBlurredScreen()
+        retryPendingMessageNotificationChatRouteIfPossible()
     }
 
     func sceneDidDisconnect() {
@@ -749,7 +783,7 @@ final class AppRootCoordinator: NSObject {
     }
 
     @discardableResult
-    func route(_ route: AppRoute) -> Bool {
+    func route(_ route: AppRoute, atStart: Bool = false) -> Bool {
         guard Self.canRoute(hasPresentedModal: currentPresentedVc != nil) else {
             return false
         }
@@ -766,7 +800,11 @@ final class AppRootCoordinator: NSObject {
                 configure: configure
             )
         case let .notification(route):
-            return NotifyManager.shared.onTouchNotificationRoute(route, atStart: false, handler: nil)
+            return NotifyManager.shared.onTouchNotificationRoute(
+                route,
+                atStart: atStart,
+                handler: nil
+            )
         case .externalURL:
             return false
         case .userActivity:
@@ -774,8 +812,64 @@ final class AppRootCoordinator: NSObject {
         }
     }
 
+    @discardableResult
+    internal func routeNotificationRequest(
+        _ request: UNNotificationRequest,
+        actionIdentifier: String,
+        atStart: Bool
+    ) -> Bool {
+        NotifyManager.shared.onTouchNotificationRequest(
+            request,
+            actionIdentifier: actionIdentifier,
+            atStart: atStart,
+            handler: nil
+        )
+    }
+
+    @discardableResult
+    internal func routeSceneNotificationRequest(
+        _ request: UNNotificationRequest,
+        actionIdentifier: String
+    ) -> Bool {
+        routeNotificationRequest(
+            request,
+            actionIdentifier: actionIdentifier,
+            atStart: true
+        )
+    }
+
     func clearPresentedModalStateForRootRebuild() {
         currentPresentedVc = nil
+    }
+
+    @discardableResult
+    internal func retryPendingMessageNotificationChatRouteIfPossible() -> Bool {
+        guard Self.active === self,
+              currentPresentedVc == nil else {
+            return false
+        }
+        return NotifyManager.shared.retryPendingMessageNotificationChatRouteIfPossible()
+    }
+
+    @discardableResult
+    internal func routeNotificationChat(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        openMessageRequest: ChatOpenMessageRequest?,
+        configure: ((ChatViewController?) -> Void)?
+    ) -> Bool {
+        guard Self.canRoute(hasPresentedModal: currentPresentedVc != nil) else {
+            return false
+        }
+        return openChat(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType,
+            openMessageRequest: openMessageRequest,
+            navigationSource: .notification,
+            configure: configure
+        )
     }
 
     @discardableResult
@@ -927,16 +1021,22 @@ final class AppRootCoordinator: NSObject {
         return vc
     }
 
-    private func makeTabRoot() -> UITabBarController {
+    private func makeTabRoot(
+        chatsViewController: LastChatsViewController? = nil,
+        notificationsViewController:
+            NotificationsListViewController? = nil
+    ) -> UITabBarController {
         let vc = XabberTabBarViewController()
         vc.restorationIdentifier = "MainTabBarController"
         vc.restoresFocusAfterTransition = true
 
-        let chatsVc = LastChatsViewController()
+        let chatsVc = chatsViewController ?? LastChatsViewController()
         let contactsVc = ContactsViewController()
         let archivedVc = LastChatsViewController()
         archivedVc.filter.accept(.archived)
-        let notificationsVc = NotificationsListViewController()
+        let notificationsVc = notificationsViewController ??
+            NotificationsListViewController()
+        notificationsVc.leftMenuDelegate = self
         let callsVc = LastCallsViewController()
         let chatsNavigationController = Self.makeTopLevelSectionNavigationController(rootViewController: chatsVc)
         let contactsNavigationController = Self.makeTopLevelSectionNavigationController(rootViewController: contactsVc)
@@ -965,34 +1065,192 @@ final class AppRootCoordinator: NSObject {
         return vc
     }
 
+    #if DEBUG || CHAT_PERFORMANCE_LAB
+    internal func startChatPerformanceManualNativeBackFixture(
+        descriptor: ChatPerformanceUITestLaunchDescriptor
+    ) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        precondition(
+            descriptor.openScenario == nil,
+            "The native-back fixture must stay outside the open matrix"
+        )
+        CommonConfigManager.shared.config.interface_type =
+            CommonConfigManager.InterfaceType.tabs.rawValue
+        splitController = nil
+        tabController = nil
+        NotifyManager.shared.leftMenuDelegate = nil
+        NotifyManager.shared.resetPendingMessageNotificationChatRouteForTesting()
+
+        let destination = ChatPerformanceFixtureViewController(
+            descriptor: descriptor
+        )
+        let host =
+            ChatPerformanceManualNativeBackLastChatsHostViewController(
+                destination: destination
+            )
+        let root = makeTabRoot(chatsViewController: host)
+        window.rootViewController = root
+        root.view.accessibilityIdentifier =
+            ChatPerformanceManualNativeBackAccessibility.tabShell
+        if let navigationController = root.viewControllers?.first
+            as? UINavigationController {
+            navigationController.view.accessibilityIdentifier =
+                ChatPerformanceManualNativeBackAccessibility.navigationShell
+        }
+        applyCompatibilityReferences()
+    }
+
+    internal func startChatPerformanceProductionRouteFixture(
+        descriptor: ChatPerformanceUITestLaunchDescriptor
+    ) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        CommonConfigManager.shared.config.interface_type =
+            CommonConfigManager.InterfaceType.tabs.rawValue
+        splitController = nil
+        tabController = nil
+        NotifyManager.shared.leftMenuDelegate = nil
+        NotifyManager.shared.resetPendingMessageNotificationChatRouteForTesting()
+
+        let destination = ChatPerformanceFixtureViewController(
+            descriptor: descriptor
+        )
+        let host = ChatPerformanceLastChatsRouteHostViewController(
+            descriptor: descriptor,
+            destination: destination,
+            rootCoordinator: self
+        )
+        let notificationsHost:
+            ChatPerformanceMentionNotificationsRouteHostViewController? =
+                descriptor.openScenario == .mentionDeletedAdvance
+                ? ChatPerformanceMentionNotificationsRouteHostViewController(
+                    descriptor: descriptor,
+                    destination: destination
+                )
+                : nil
+
+        var coldPendingBeforeRoot = 0
+        if descriptor.openScenario == .coldPushExact {
+            guard let request = destination.pendingOpenMessageRequest,
+                  request.source == .pushNotification,
+                  request.owner == destination.owner,
+                  request.chatJid == destination.jid,
+                  request.conversationType == destination.conversationType,
+                  request.anchor.archivedId?.isEmpty == false ||
+                    request.anchor.messageId?.isEmpty == false else {
+                preconditionFailure(
+                    "P04 requires one complete exact push request"
+                )
+            }
+            let payload = PushNotificationRoutePayload.message(
+                owner: request.owner,
+                routeJid: request.chatJid,
+                conversationType: request.conversationType.rawValue,
+                stanzaId: request.anchor.archivedId,
+                messageId: request.anchor.messageId,
+                stanza: nil,
+                senderJid: request.anchor.authorId,
+                senderNickname: nil,
+                groupchat: request.conversationType == .group
+                    ? request.chatJid
+                    : nil,
+                timestamp: request.anchor.sourceDate?
+                    .timeIntervalSinceReferenceDate
+            )
+            _ = NotifyManager.shared.onTouchNotificationRoute(
+                payload,
+                atStart: true,
+                handler: nil
+            )
+            guard let pendingRoute = NotifyManager.shared
+                .performancePendingMessageNotificationChatRoute else {
+                preconditionFailure(
+                    "P04 notification must remain pending before root install"
+                )
+            }
+            coldPendingBeforeRoot = 1
+            host.installColdPendingRoute(pendingRoute)
+        }
+
+        let root = makeTabRoot(
+            chatsViewController: host,
+            notificationsViewController: notificationsHost
+        )
+        window.rootViewController = root
+        if let notificationsHost {
+            host.attachP13SourceHost(notificationsHost)
+            notificationsHost.bind(
+                lastChatsRouteHost: host,
+                rootCoordinator: self
+            )
+            root.selectedIndex = 2
+        }
+        host.rootDidInstall(coldPendingBeforeRoot: coldPendingBeforeRoot)
+        applyCompatibilityReferences()
+    }
+    #endif
+
     private func openChat(
         owner: String,
         jid: String,
         conversationType: ClientSynchronizationManager.ConversationType,
         openMessageRequest: ChatOpenMessageRequest? = nil,
+        navigationSource explicitNavigationSource: ChatOpenNavigationSource? = nil,
         configure configureCallback: ((ChatViewController?) -> Void)? = nil
     ) -> Bool {
+        let navigationSource = explicitNavigationSource ?? (
+            openMessageRequest?.source == .pushNotification
+                ? .notification
+                : .standard
+        )
         switch CommonConfigManager.shared.interfaceType {
         case .split:
             if let leftMenuDelegate = NotifyManager.shared.leftMenuDelegate {
-                leftMenuDelegate.openChatlistWithChat(
+                return leftMenuDelegate.openChatlistWithChat(
                     owner: owner,
                     jid: jid,
                     conversationType: conversationType,
                     openMessageRequest: openMessageRequest,
+                    navigationSource: navigationSource,
                     configure: configureCallback
                 )
-                return true
+            }
+
+            if let lastChats = splitController?.viewController(for: .supplementary)
+                as? UINavigationController,
+               let lastChats = lastChats.topViewController
+                as? LastChatsViewController {
+                return lastChats.stackNewChat(
+                    owner: owner,
+                    jid: jid,
+                    conversationType: conversationType,
+                    openMessageRequest: openMessageRequest,
+                    navigationSource: navigationSource,
+                    configure: configureCallback
+                )
+            }
+
+            guard navigationSource != .notification else {
+                return false
             }
 
             let vc = ChatViewController()
             vc.owner = owner
             vc.jid = jid
             vc.conversationType = conversationType
+            _ = vc.acceptChatOpenPerformanceTrace(
+                purpose: .fallbackRoute,
+                semanticTargetFingerprint:
+                    vc.chatOpenPerformanceSemanticTargetFingerprint(
+                        for: openMessageRequest
+                    ),
+                bootstrapTarget: vc.chatOpenPerformanceSemanticTarget(
+                    for: openMessageRequest
+                )
+            )
+            configureCallback?(vc)
             if let openMessageRequest {
                 vc.queueOpenMessageRequest(openMessageRequest)
             }
-            configureCallback?(vc)
             if let presenter = splitController?.viewControllers
                 .compactMap({ $0 as? UINavigationController })
                 .first(where: { $0.topViewController is LastChatsViewController })?
@@ -1010,25 +1268,39 @@ final class AppRootCoordinator: NSObject {
             tabController.selectedIndex = 0
             let root = navigationController.viewControllers.first
             if let lastChats = root as? LastChatsViewController {
-                lastChats.stackNewChat(
+                return lastChats.stackNewChat(
                     owner: owner,
                     jid: jid,
                     conversationType: conversationType,
                     openMessageRequest: openMessageRequest,
+                    navigationSource: navigationSource,
                     configure: configureCallback
                 )
             } else {
+                guard navigationSource != .notification else {
+                    return false
+                }
                 let vc = ChatViewController()
                 vc.owner = owner
                 vc.jid = jid
                 vc.conversationType = conversationType
+                _ = vc.acceptChatOpenPerformanceTrace(
+                    purpose: .fallbackRoute,
+                    semanticTargetFingerprint:
+                        vc.chatOpenPerformanceSemanticTargetFingerprint(
+                            for: openMessageRequest
+                        ),
+                    bootstrapTarget: vc.chatOpenPerformanceSemanticTarget(
+                        for: openMessageRequest
+                    )
+                )
+                configureCallback?(vc)
                 if let openMessageRequest {
                     vc.queueOpenMessageRequest(openMessageRequest)
                 }
-                configureCallback?(vc)
                 navigationController.pushViewController(vc, animated: false)
+                return true
             }
-            return true
         }
     }
 
@@ -1047,6 +1319,32 @@ extension AppRootCoordinator: UISplitViewControllerDelegate {
     ) -> UISplitViewController.Column {
         NavigationLargeTitlePolicy.apply(to: svc)
         return .supplementary
+    }
+}
+
+extension AppRootCoordinator: LeftMenuSelectRootScreenDelegate {
+    func selectRootScreenAndCategory(screen key: String, category: String?) {
+        guard key == "chat" else { return }
+        tabController?.selectedIndex = 0
+    }
+
+    @discardableResult
+    func openChatlistWithChat(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        openMessageRequest: ChatOpenMessageRequest?,
+        navigationSource: ChatOpenNavigationSource,
+        configure: ((ChatViewController?) -> Void)?
+    ) -> Bool {
+        openChat(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType,
+            openMessageRequest: openMessageRequest,
+            navigationSource: navigationSource,
+            configure: configure
+        )
     }
 }
 

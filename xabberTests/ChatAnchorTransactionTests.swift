@@ -107,6 +107,47 @@ final class ChatAnchorTransactionTests: XCTestCase {
         )
     }
 
+    func testCenteredContentOffsetUsesOneInsetAwareClampedTarget() {
+        let adjustedInsets = UIEdgeInsets(
+            top: 90,
+            left: 0,
+            bottom: 58,
+            right: 0
+        )
+
+        XCTAssertEqual(
+            ChatAnchorContentOffsetPolicy.centeredOffsetY(
+                targetMidY: 720,
+                viewportHeight: 800,
+                contentHeight: 1_600,
+                adjustedContentInsets: adjustedInsets
+            ),
+            320,
+            accuracy: 0.001,
+            "asymmetric adjusted insets constrain the range but must not create a second centering formula"
+        )
+        XCTAssertEqual(
+            ChatAnchorContentOffsetPolicy.centeredOffsetY(
+                targetMidY: 20,
+                viewportHeight: 800,
+                contentHeight: 1_600,
+                adjustedContentInsets: adjustedInsets
+            ),
+            -90,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ChatAnchorContentOffsetPolicy.centeredOffsetY(
+                targetMidY: 1_580,
+                viewportHeight: 800,
+                contentHeight: 1_600,
+                adjustedContentInsets: adjustedInsets
+            ),
+            858,
+            accuracy: 0.001
+        )
+    }
+
     func testPositionVerificationRequiresExactIdentityAndCenterTolerance() {
         XCTAssertTrue(
             ChatAnchorPositionVerificationPolicy.isPositioned(
@@ -203,6 +244,61 @@ final class ChatAnchorTransactionTests: XCTestCase {
 
         XCTAssertNil(ChatAnchorHighlightOverlay.representedPrimary(in: cell))
         XCTAssertNil(ChatAnchorHighlightOverlay.representedRevision(in: cell))
+    }
+
+    @MainActor
+    func testLateHighlightLeaseCannotRemoveFreshOverlayForSameRevision() {
+        let cell = MessageContentCell(
+            frame: CGRect(x: 0, y: 0, width: 320, height: 80)
+        )
+        let staleOverlay = ChatAnchorHighlightOverlay.install(
+            on: cell,
+            primary: "message-a",
+            revision: "revision-a"
+        )
+        staleOverlay.alpha = 0
+        let freshOverlay = ChatAnchorHighlightOverlay.install(
+            on: cell,
+            primary: "message-a",
+            revision: "revision-a"
+        )
+
+        XCTAssertFalse(
+            ChatAnchorHighlightOverlay.remove(
+                from: cell,
+                ifCurrent: staleOverlay
+            )
+        )
+        XCTAssertTrue(
+            cell.contentView.subviews.contains { $0 === freshOverlay }
+        )
+        XCTAssertEqual(
+            ChatAnchorHighlightOverlay.representedPrimary(in: cell),
+            "message-a"
+        )
+    }
+
+    @MainActor
+    func testExactZeroAlphaHighlightLeaseStillRemovesItsOwnOverlay() {
+        let cell = MessageContentCell(
+            frame: CGRect(x: 0, y: 0, width: 320, height: 80)
+        )
+        let overlay = ChatAnchorHighlightOverlay.install(
+            on: cell,
+            primary: "message-a",
+            revision: "revision-a"
+        )
+        overlay.alpha = 0
+
+        XCTAssertTrue(
+            ChatAnchorHighlightOverlay.remove(
+                from: cell,
+                ifCurrent: overlay
+            )
+        )
+        XCTAssertNil(
+            ChatAnchorHighlightOverlay.representedPrimary(in: cell)
+        )
     }
 
     func testPositioningSourceContainsNoDirectionalStagingOrFixedDelayCompletion() throws {

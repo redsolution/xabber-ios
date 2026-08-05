@@ -13,39 +13,29 @@ enum ChatAttachmentFlowError: Error, Equatable {
     case sendBlocked(ChatAttachmentSendBlockReason)
 }
 
-enum ChatAttachmentPickerBlockReason: Equatable {
-    case cloudStorageUnavailable
-    case cloudStoragePending
-}
+struct ChatAttachmentPickerEntryPlan: Equatable {
+    let presentsPicker: Bool
+    let resumesAvailability: Bool
 
-enum ChatAttachmentPickerRoute: Equatable {
-    case telegramAttachmentFlow
-    case blocked(ChatAttachmentPickerBlockReason)
-}
-
-enum ChatAttachmentPickerRoutingPolicy {
-    static func route(
+    static func make(
         isTelegramAttachmentPickerEnabled: Bool?,
         availabilityState: CloudStorageAvailabilityState
-    ) -> ChatAttachmentPickerRoute {
+    ) -> ChatAttachmentPickerEntryPlan {
+        _ = isTelegramAttachmentPickerEnabled
+
+        let resumesAvailability: Bool
         switch availabilityState {
         case .ready:
-            return .telegramAttachmentFlow
+            resumesAvailability = false
         case .discovering, .authorizing, .retryableFailure:
-            return .blocked(.cloudStoragePending)
+            resumesAvailability = true
         case .unsupported:
-            return .blocked(.cloudStorageUnavailable)
-        }
-    }
-
-    static func route(
-        isTelegramAttachmentPickerEnabled: Bool?,
-        isCloudStorageAvailable: Bool
-    ) -> ChatAttachmentPickerRoute {
-        guard isCloudStorageAvailable else {
-            return .blocked(.cloudStorageUnavailable)
+            resumesAvailability = false
         }
 
-        return .telegramAttachmentFlow
+        return ChatAttachmentPickerEntryPlan(
+            presentsPicker: true,
+            resumesAvailability: resumesAvailability
+        )
     }
 }

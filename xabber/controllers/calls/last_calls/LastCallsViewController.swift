@@ -29,6 +29,17 @@ import YubiKit
 import CocoaLumberjack
 import MaterialComponents.MDCPalettes
 
+enum LastCallsDatasourceApplyPolicy {
+    enum Mode: Equatable {
+        case detachedSnapshot
+        case incrementalDiff
+    }
+
+    static func mode(isTableAttachedToWindow: Bool) -> Mode {
+        isTableAttachedToWindow ? .incrementalDiff : .detachedSnapshot
+    }
+}
+
 class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuieting {
     
     enum DisplayCallDirection: Equatable {
@@ -358,6 +369,14 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
 
     internal func applyCallDatasource(_ results: [Datasource]) {
+        guard LastCallsDatasourceApplyPolicy.mode(
+            isTableAttachedToWindow: tableView.window != nil
+        ) == .incrementalDiff else {
+            datasource = results
+            tableView.reloadData()
+            return
+        }
+
         let changes = diff(old: self.datasource, new: results)
         UIView.performWithoutAnimation {
             self.tableView.reload(

@@ -39,6 +39,29 @@ final class ChatLocalHistoryPageProviderWindowingTests: XCTestCase {
         XCTAssertLessThanOrEqual(diagnostics.maxCandidateCount, 12)
     }
 
+    func testInitialLatestWindowUsesOneExactEightyCandidateOperation() throws {
+        try insertMessages((0..<320).map {
+            spec(
+                primary: "p\($0)",
+                archivedId: "\($0)",
+                timestamp: TimeInterval($0)
+            )
+        })
+
+        let diagnostics = ChatLocalHistoryPageProviderDiagnostics()
+        let items = try provider(diagnostics: diagnostics)
+            .initialLatestWindow(limit: 80)
+
+        XCTAssertEqual(items.count, 80)
+        XCTAssertEqual(items.first?.primary, "p240")
+        XCTAssertEqual(items.last?.primary, "p319")
+        XCTAssertEqual(diagnostics.records.map(\.operation), ["latestWindow"])
+        XCTAssertEqual(diagnostics.records.map(\.candidateCount), [80])
+        XCTAssertEqual(diagnostics.queryCount, 1)
+        XCTAssertEqual(diagnostics.fullScanCount, 0)
+        XCTAssertEqual(diagnostics.maxCandidateCount, 80)
+    }
+
     func testOlderBeforeBoundaryDedupeUsesBoundedCandidates() throws {
         try insertMessages([
             spec(primary: "p0", archivedId: "0", timestamp: 0),
@@ -117,6 +140,96 @@ final class ChatLocalHistoryPageProviderWindowingTests: XCTestCase {
         XCTAssertEqual(diagnostics.records.map(\.operation), ["older", "newer"])
     }
 
+    func testFirstIncomingWindowSkipsOutgoingRowsAndUsesOneExactBoundedOperation() throws {
+        let start = sharedDate.timeIntervalSince1970
+        try insertMessages((0..<120).map { index in
+            let timestamp = start + TimeInterval(index)
+            return spec(
+                primary: "p\(index)",
+                archivedId: "\(Int64(timestamp * 1_000_000))",
+                timestamp: timestamp,
+                outgoing: index == 40 || index == 41
+            )
+        })
+
+        let diagnostics = ChatLocalHistoryPageProviderDiagnostics()
+        let window = try XCTUnwrap(
+            try provider(diagnostics: diagnostics).firstIncomingWindow(
+                afterArchiveBoundaryId: "\(Int64((start + 39) * 1_000_000))",
+                before: 40,
+                after: 39
+            )
+        )
+
+        XCTAssertEqual(window.target.primary, "p42")
+        XCTAssertEqual(window.items.count, 80)
+        XCTAssertEqual(window.resultCount, 80)
+        XCTAssertEqual(window.materializedCandidateCount, 80)
+        XCTAssertEqual(window.items.first?.primary, "p2")
+        XCTAssertEqual(window.items.last?.primary, "p81")
+        XCTAssertTrue(window.items.contains { $0.primary == window.target.primary })
+        XCTAssertEqual(diagnostics.records.map(\.operation), ["firstIncomingWindow"])
+        XCTAssertEqual(diagnostics.records.map(\.candidateCount), [80])
+        XCTAssertEqual(diagnostics.queryCount, 1)
+        XCTAssertEqual(diagnostics.fullScanCount, 0)
+        XCTAssertLessThanOrEqual(diagnostics.maxCandidateCount, 80)
+    }
+
+    func testMessageWindowPreservesLookupPriorityWithOneBoundedOperationPerResolution() throws {
+        let start = sharedDate.timeIntervalSince1970
+        let specs = (0..<120).map { index in
+            let timestamp = start + TimeInterval(index)
+            return spec(
+                primary: "p\(index)",
+                archivedId: "\(Int64(timestamp * 1_000_000))",
+                timestamp: timestamp
+            )
+        }
+        try insertMessages(specs)
+
+        let diagnostics = ChatLocalHistoryPageProviderDiagnostics()
+        let provider = try provider(diagnostics: diagnostics)
+        let primaryWins = try XCTUnwrap(provider.messageWindow(
+            primary: "p42",
+            archivedId: specs[50].archivedId,
+            messageId: specs[60].messageId,
+            before: 40,
+            after: 39
+        ))
+        let archiveFallback = try XCTUnwrap(provider.messageWindow(
+            primary: "missing-primary",
+            archivedId: specs[50].archivedId,
+            messageId: specs[60].messageId,
+            before: 40,
+            after: 39
+        ))
+        let messageFallback = try XCTUnwrap(provider.messageWindow(
+            primary: "missing-primary",
+            archivedId: "missing-archive",
+            messageId: specs[60].messageId,
+            before: 40,
+            after: 39
+        ))
+
+        XCTAssertEqual(primaryWins.target.primary, "p42")
+        XCTAssertEqual(archiveFallback.target.primary, "p50")
+        XCTAssertEqual(messageFallback.target.primary, "p60")
+        XCTAssertEqual(primaryWins.items.count, 80)
+        XCTAssertEqual(archiveFallback.items.count, 80)
+        XCTAssertEqual(messageFallback.items.count, 80)
+        XCTAssertEqual(primaryWins.materializedCandidateCount, 80)
+        XCTAssertEqual(archiveFallback.materializedCandidateCount, 80)
+        XCTAssertEqual(messageFallback.materializedCandidateCount, 80)
+        XCTAssertEqual(
+            diagnostics.records.map(\.operation),
+            ["messageWindow", "messageWindow", "messageWindow"]
+        )
+        XCTAssertEqual(diagnostics.records.map(\.candidateCount), [80, 80, 80])
+        XCTAssertEqual(diagnostics.queryCount, 3)
+        XCTAssertEqual(diagnostics.fullScanCount, 0)
+        XCTAssertLessThanOrEqual(diagnostics.maxCandidateCount, 80)
+    }
+
     func testLargeConversationUsesBoundedCandidateWindows() throws {
         try insertMessages((0..<6_000).map {
             spec(primary: "p\($0)", archivedId: "\($0)", timestamp: TimeInterval($0))
@@ -175,13 +288,15 @@ final class ChatLocalHistoryPageProviderWindowingTests: XCTestCase {
         primary: String,
         archivedId: String,
         messageId: String? = nil,
-        timestamp: TimeInterval
+        timestamp: TimeInterval,
+        outgoing: Bool = false
     ) -> MessageSpec {
         MessageSpec(
             primary: primary,
             archivedId: archivedId,
             messageId: messageId ?? "message-\(primary)",
-            date: Date(timeIntervalSince1970: timestamp)
+            date: Date(timeIntervalSince1970: timestamp),
+            outgoing: outgoing
         )
     }
 
@@ -199,6 +314,8 @@ final class ChatLocalHistoryPageProviderWindowingTests: XCTestCase {
                 message.date = spec.date
                 message.sentDate = spec.date
                 message.body = spec.primary
+                message.outgoing = spec.outgoing
+                message.refreshHistoryPositionComponents()
                 realm.add(message, update: .modified)
             }
         }
@@ -209,5 +326,6 @@ final class ChatLocalHistoryPageProviderWindowingTests: XCTestCase {
         let archivedId: String
         let messageId: String
         let date: Date
+        let outgoing: Bool
     }
 }

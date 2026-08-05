@@ -232,6 +232,28 @@ protocol AsyncStackedNavigationPresentationPreparing: AnyObject {
     func stackedNavigationPresentationPreparationDidTimeOut()
 }
 
+/// A narrow per-destination seam for controlling only the asynchronous
+/// preparation boundary. Production Chat destinations keep using
+/// `AsyncStackedNavigationPresentationPreparing`; integration hosts can hold
+/// the completion while the real guarded presentation path remains intact.
+protocol StackedNavigationPresentationPreparationControlling: AnyObject {
+    func makeStackedNavigationPresentationPreparation(
+        targetBounds: CGRect?,
+        completion: @escaping () -> Void
+    ) -> StackedNavigationPresentationPreparationHandle
+}
+
+/// Registers the completion of the native presentation epoch without owning
+/// the presentation mutation itself. Ordinary destinations use UIKit's
+/// transition coordinator; deterministic integration destinations may retain
+/// the same completion to exercise success and cancellation ownership.
+protocol StackedNavigationNativeTransitionCompletionRegistering: AnyObject {
+    func registerStackedNavigationNativeTransitionCompletion(
+        transitionOwner: UIViewController?,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool
+}
+
 extension AsyncStackedNavigationPresentationPreparing {
     func cancelStackedNavigationPresentationPreparation() {}
     func stackedNavigationPresentationPreparationDidTimeOut() {}
@@ -614,6 +636,13 @@ private func prepareStackedDestination(
     targetBounds: CGRect?,
     completion: @escaping () -> Void
 ) -> StackedNavigationPresentationPreparationHandle {
+    if let controller =
+        vc as? StackedNavigationPresentationPreparationControlling {
+        return controller.makeStackedNavigationPresentationPreparation(
+            targetBounds: targetBounds,
+            completion: completion
+        )
+    }
     let start = CFAbsoluteTimeGetCurrent()
     let asyncDestination = vc as? AsyncStackedNavigationPresentationPreparing
     let handle = StackedNavigationPresentationPreparationHandle(
@@ -731,16 +760,88 @@ func performGuardedStackedNavigationPresentation(
     return true
 }
 
+private func completeStackedNavigationPresentationAfterNativeTransition(
+    didPresent: Bool,
+    destination: UIViewController,
+    transitionOwner: UIViewController?,
+    completion: ((Bool) -> Void)?
+) {
+    guard didPresent else {
+        completion?(false)
+        return
+    }
+    if let registrar =
+        destination as? StackedNavigationNativeTransitionCompletionRegistering,
+       registrar.registerStackedNavigationNativeTransitionCompletion(
+        transitionOwner: transitionOwner,
+        completion: { completion?($0) }
+       ) {
+        return
+    }
+    if let coordinator = transitionOwner?.transitionCoordinator {
+        let registered = coordinator.animate(
+            alongsideTransition: nil,
+            completion: { context in
+                completion?(!context.isCancelled)
+            }
+        )
+        if registered {
+            return
+        }
+    }
+    DispatchQueue.main.async {
+        transitionOwner?.viewIfLoaded?.layoutIfNeeded()
+        completion?(true)
+    }
+}
+
 @discardableResult
 public func showStacked(
     _ vc: UIViewController,
     in presenter: UIViewController,
+    destinationIsPrepared: Bool = false,
     commitPresentation: (() -> Bool)? = nil,
     completion: ((Bool) -> Void)? = nil
 ) -> StackedNavigationPresentationPreparationHandle {
+    showStackedImplementation(
+        vc,
+        in: presenter,
+        route: stackedNavigationRoute(for: presenter),
+        destinationIsPrepared: destinationIsPrepared,
+        commitPresentation: commitPresentation,
+        completion: completion
+    )
+}
+
+@discardableResult
+func showStacked(
+    _ vc: UIViewController,
+    in presenter: UIViewController,
+    using route: StackedNavigationRoute,
+    destinationIsPrepared: Bool = false,
+    commitPresentation: (() -> Bool)? = nil,
+    completion: ((Bool) -> Void)? = nil
+) -> StackedNavigationPresentationPreparationHandle {
+    showStackedImplementation(
+        vc,
+        in: presenter,
+        route: route,
+        destinationIsPrepared: destinationIsPrepared,
+        commitPresentation: commitPresentation,
+        completion: completion
+    )
+}
+
+private func showStackedImplementation(
+    _ vc: UIViewController,
+    in presenter: UIViewController,
+    route: StackedNavigationRoute,
+    destinationIsPrepared: Bool,
+    commitPresentation: (() -> Bool)?,
+    completion: ((Bool) -> Void)?
+) -> StackedNavigationPresentationPreparationHandle {
     let start = CFAbsoluteTimeGetCurrent()
     let splitViewController = splitController(for: presenter)
-    let route = stackedNavigationRoute(for: presenter)
     let preparationHandle: StackedNavigationPresentationPreparationHandle
 
     switch route {
@@ -759,9 +860,21 @@ public func showStacked(
                     presenter.show(vc, sender: presenter)
                 }
             }
-            completion?(didPresent)
+            completeStackedNavigationPresentationAfterNativeTransition(
+                didPresent: didPresent,
+                destination: vc,
+                transitionOwner: navigationController.map {
+                    $0 as UIViewController
+                } ?? presenter,
+                completion: completion
+            )
         }
-        if backgroundMode != .stockCompact || vc is AsyncStackedNavigationPresentationPreparing {
+        if destinationIsPrepared {
+            preparationHandle = StackedNavigationPresentationPreparationHandle(
+                completion: present
+            )
+            preparationHandle.finish()
+        } else if backgroundMode != .stockCompact || vc is AsyncStackedNavigationPresentationPreparing {
             preparationHandle = prepareStackedDestination(
                 vc,
                 targetBounds: targetBounds,
@@ -781,13 +894,7 @@ public func showStacked(
             )
 //            nvc.setNavigationBarHidden(false, animated: false)
             configureStackedChatBackgroundPresentation(vc, route: route, presenter: presenter)
-            preparationHandle = prepareStackedDestination(
-                vc,
-                targetBounds: splitSecondaryTargetBounds(
-                    splitViewController: splitViewController,
-                    presenter: presenter
-                )
-            ) {
+            let present = {
                 let didPresent = performGuardedStackedNavigationPresentation(
                     commitPresentation: commitPresentation
                 ) {
@@ -795,21 +902,58 @@ public func showStacked(
                     splitViewController.show(.secondary)
                     hidePrimaryAfterDetailTransition(splitViewController)
                 }
-                completion?(didPresent)
+                completeStackedNavigationPresentationAfterNativeTransition(
+                    didPresent: didPresent,
+                    destination: vc,
+                    transitionOwner: splitViewController,
+                    completion: completion
+                )
+            }
+            if destinationIsPrepared {
+                preparationHandle = StackedNavigationPresentationPreparationHandle(
+                    completion: present
+                )
+                preparationHandle.finish()
+            } else {
+                preparationHandle = prepareStackedDestination(
+                    vc,
+                    targetBounds: splitSecondaryTargetBounds(
+                        splitViewController: splitViewController,
+                        presenter: presenter
+                    ),
+                    completion: present
+                )
             }
         } else {
             let navigationController = currentNavigationController(for: presenter)
             configureStackedChatBackgroundPresentation(vc, route: .currentNavigationPush, presenter: presenter)
-            preparationHandle = prepareStackedDestination(
-                vc,
-                targetBounds: navigationController?.view.bounds ?? presenter.view.bounds
-            ) {
+            let present = {
                 let didPresent = performGuardedStackedNavigationPresentation(
                     commitPresentation: commitPresentation
                 ) {
                     navigationController?.pushViewController(vc, animated: true)
                 }
-                completion?(didPresent)
+                completeStackedNavigationPresentationAfterNativeTransition(
+                    didPresent: didPresent,
+                    destination: vc,
+                    transitionOwner: navigationController.map {
+                        $0 as UIViewController
+                    } ?? presenter,
+                    completion: completion
+                )
+            }
+            if destinationIsPrepared {
+                preparationHandle = StackedNavigationPresentationPreparationHandle(
+                    completion: present
+                )
+                preparationHandle.finish()
+            } else {
+                preparationHandle = prepareStackedDestination(
+                    vc,
+                    targetBounds: navigationController?.view.bounds
+                        ?? presenter.view.bounds,
+                    completion: present
+                )
             }
         }
     }

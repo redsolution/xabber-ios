@@ -67,6 +67,9 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         gestureTranslationY: CGFloat,
         boundaryContext: ChatHistoryPagingBoundaryContext
     ) -> ChatHistoryPageDirection? {
+        guard self.canAdmitBoundaryPagingAfterInitialFrame else {
+            return nil
+        }
         let availability = self.boundaryPagingAvailability()
         let suppressionContext = self.shortContentRemotePagingSuppressionContext(availability: availability)
         let residentCount = self.virtualTimelineState.residentPrimaryKeys.count
@@ -167,12 +170,18 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         visibleIndexPaths: [IndexPath],
         work: ChatScrollWorkOptions
     ) -> ChatScrollWorkRequest {
-        ChatScrollWorkRequest(
+        self.synchronizeReadVisibleGeometryEpoch()
+        let meaningfullyVisibleReadPrimaries =
+            self.meaningfullyVisibleRealMessagePrimariesForRead(
+                indexPaths: visibleIndexPaths
+            )
+        return ChatScrollWorkRequest(
             contentOffsetY: scrollView.contentOffset.y,
             gestureTranslationY: scrollView.panGestureRecognizer.translation(in: scrollView).y,
             isUserScrolling: scrollView.isDragging || scrollView.isDecelerating || scrollView.isTracking,
             visibleIndexPaths: visibleIndexPaths,
             visibleMetadata: self.scrollResidentMetadata.capture(indexPaths: visibleIndexPaths),
+            meaningfullyVisibleReadPrimaries: meaningfullyVisibleReadPrimaries,
             work: work
         )
     }
@@ -239,7 +248,23 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
 
         if effectiveWork.contains(.advanceReadBoundary),
            let readTarget = frameDecision.readTarget {
-            self.advanceReadBoundary(to: readTarget)
+            self.advanceReadBoundaryIfStillMeaningfullyVisible(to: readTarget)
+        }
+
+        if ChatVisibleMentionReadScrollTriggerPolicy.shouldFlush(
+            pendingMessagePrimaries:
+                self.readVisiblePresentationCoordinator.pendingMessagePrimaries,
+            meaningfullyVisibleMessagePrimaries:
+                request.meaningfullyVisibleReadPrimaries,
+            effectiveWork: effectiveWork
+        ), self.canAdvanceReadStateFromVisiblePresentation() {
+#if DEBUG || CHAT_PERFORMANCE_LAB
+            self.visibleMentionReadScrollTriggerForTests?()
+#endif
+            // The request only provides a bounded trigger. The flush
+            // synchronously re-samples exact row identity, geometry and
+            // structural presentation before creating a mutation permit.
+            self.flushPendingVisibleUnreadMentionReconciliationIfPossible()
         }
 
         if effectiveWork.contains(.updateVoiceQueue),

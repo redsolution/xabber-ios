@@ -330,6 +330,93 @@ final class ChatInitialPresentationAtomicityRegressionTests: XCTestCase {
         )
     }
 
+    func testBootstrapCannotFinishWhilePersistedInitialFrameIsStillPresenting() {
+        ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
+        defer {
+            ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
+        }
+        let (controller, _) = makeController()
+        let descriptor = ChatLocalFirstFrameDescriptor(
+            target: .latest,
+            request: nil
+        )
+        controller.appliedBootstrapLoadingState = .blockingArchive
+        controller.applyChatDatasource(
+            [makeDatasource(primary: "low-level-committed-row")],
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
+        controller.initialLocalFirstFramePhase = .presenting(descriptor)
+        controller.initialBootstrapQueryId = "presenting-bootstrap-query"
+        controller.isInitialBootstrapInFlight = true
+        controller.didReceiveInitialBootstrapEndPage = true
+        controller.initialBootstrapPersistedMessageCount = 1
+        controller.initialBootstrapPersistedRowsForQuery = 1
+        controller.initialBootstrapVisibleRowsForConversation = 1
+
+        XCTAssertFalse(
+            controller.completeInitialBootstrapIfNeeded(),
+            "a low-level datasource commit is not the formal atomic first-frame receipt"
+        )
+        XCTAssertTrue(controller.isInitialBootstrapInFlight)
+        XCTAssertEqual(
+            controller.initialLocalFirstFramePhase,
+            .presenting(descriptor)
+        )
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 0)
+    }
+
+    func testCoverageFollowUpFailureCannotOverlayRetryOnCommittedContent() {
+        XCTAssertEqual(
+            ChatBootstrapStateApplicationPolicy.decision(
+                previous: .content,
+                next: .failure(fallback: .content),
+                hasCommittedContent: true,
+                forceRender: true
+            ),
+            .apply,
+            "ordinary archive failures over stale content must retain their Retry affordance"
+        )
+
+        let (controller, collectionView) = makeController()
+        let committedRows = (0..<12).map {
+            makeDatasource(primary: "committed-before-follow-up-\($0)")
+        }
+        controller.applyChatDatasource(
+            committedRows,
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
+        controller.appliedBootstrapLoadingState = .content
+        controller.showSkeletonObserver.accept(false)
+        controller.initialFirstContentApplyCount = 1
+        collectionView.resetRecordedEvents()
+        controller.hasAttemptedInitialBootstrapBoundaryFollowUp = true
+        controller.beginInitialBootstrapTracking(
+            queryId: "coverage-only-failure",
+            timeout: nil
+        )
+
+        controller.handleInitialBootstrapRemoteArchiveFailure(
+            queryId: "coverage-only-failure",
+            reason: .timeout,
+            streamKind: .primary,
+            errorDescription: nil
+        )
+
+        XCTAssertEqual(controller.appliedBootstrapLoadingState, .content)
+        XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+        XCTAssertFalse(controller.allowsBootstrapFailureFallback)
+        XCTAssertEqual(
+            controller.datasource.map(\.primary),
+            committedRows.map(\.primary)
+        )
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 1)
+        XCTAssertTrue(collectionView.recordedEvents.isEmpty)
+    }
+
     func testStoreChangeIsCoalescedWhileInitialFrameIsPreparingOrPresenting() {
         let descriptor = ChatLocalFirstFrameDescriptor(
             target: .latest,

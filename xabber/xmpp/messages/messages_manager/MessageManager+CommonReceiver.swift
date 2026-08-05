@@ -350,6 +350,10 @@ extension MessageManager {
         var didJoin = false
         var effectivePriority = priority ?? .background
         var activeRequestCount = 0
+        let traceContext = ChatArchivePerformanceTraceRegistry.shared.context(
+            owner: self.owner,
+            queryID: queryId
+        )
         self.archivePersistenceSchedulingLock.lock()
         if let summary = self.completedArchiveQueryBatchSummariesByQueryId[queryId] {
             completedSummary = summary
@@ -369,6 +373,9 @@ extension MessageManager {
                 if let completion {
                     request.completions.append(completion)
                 }
+                if request.traceContext == nil {
+                    request.traceContext = traceContext
+                }
             } else {
                 self.archivePersistenceRequestSequence &+= 1
                 self.sealedArchivePersistenceRequestsByQueryId[queryId] = ArchivePersistenceRequest(
@@ -376,6 +383,7 @@ extension MessageManager {
                     sequence: self.archivePersistenceRequestSequence,
                     priority: effectivePriority,
                     expectedReceivedCount: expectedReceivedCount.map { max(0, $0) },
+                    traceContext: traceContext,
                     completion: completion
                 )
             }
@@ -386,6 +394,13 @@ extension MessageManager {
             }
         }
         self.archivePersistenceSchedulingLock.unlock()
+
+        _ = ChatArchivePerformanceTraceRegistry.shared.sealExpectedIngress(
+            owner: self.owner,
+            queryID: queryId,
+            context: traceContext,
+            expectedCount: expectedReceivedCount
+        )
 
         ChatArchiveDebugTrace.log("messageArchiveBatchSeal", [
             ("priority", effectivePriority.rawValue),
@@ -457,6 +472,16 @@ extension MessageManager {
         summary: ArchivePersistenceSummary
     ) -> [(ArchivePersistenceSummary) -> Void] {
         let request = self.sealedArchivePersistenceRequestsByQueryId.removeValue(forKey: queryId)
+        if let traceContext = request?.traceContext {
+            _ = ChatArchivePerformanceTraceRegistry.shared.persistenceTerminal(
+                owner: self.owner,
+                queryID: queryId,
+                context: traceContext,
+                terminal: summary.failed > 0 ? .failed : .committed,
+                persistedCount: summary.persistedRows,
+                failedCount: summary.failed
+            )
+        }
         self.archivePersistencePriorityByQueryId.removeValue(forKey: queryId)
         self.completedArchiveQueryBatchSummariesByQueryId[queryId] = summary
         self.completedArchiveQueryBatchSummaryOrder.removeAll { $0 == queryId }
@@ -1075,6 +1100,14 @@ extension MessageManager {
             defer {
                 if let queryId,
                    queryId.isNotEmpty {
+                    let receivedCount = self
+                        .archivePersistenceSummariesByQueryId[queryId]?
+                        .received ?? 0
+                    _ = ChatArchivePerformanceTraceRegistry.shared.recordIngress(
+                        owner: self.owner,
+                        queryID: queryId,
+                        receivedCount: receivedCount
+                    )
                     self.wakeArchivePersistenceRequestAfterIngress(
                         queryId: queryId
                     )
@@ -1133,7 +1166,6 @@ extension MessageManager {
                                      date: getDeliveryTime(messageBare, owner: owner) ?? Date(),
                                      state: .sended,
                                      queryId: getMAMQueryId(message)))
-            guard let from = messageBare.from?.bare else { return }
 //            do {
 //                let conversationType = conversationTypeByMessage(message)
 //                let realm = try WRealm.safe()

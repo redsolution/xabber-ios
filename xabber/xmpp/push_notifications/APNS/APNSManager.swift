@@ -25,6 +25,8 @@ import CryptoSwift
 import RealmSwift
 
 class APNSManager: NSObject {
+
+    private let diagnostics: APNSDiagnosticLogger
     
     struct NodeData: Codable {
         let action: String?
@@ -82,6 +84,16 @@ class APNSManager: NSObject {
         }
         return APNSManagerSingleton.instance
     }
+
+    override init() {
+        self.diagnostics = .live
+        super.init()
+    }
+
+    init(diagnostics: APNSDiagnosticLogger) {
+        self.diagnostics = diagnostics
+        super.init()
+    }
     
     internal var voipToken: String? = nil
     internal var deviceToken: String? = nil
@@ -94,10 +106,21 @@ class APNSManager: NSObject {
         #endif
     }
     
-    static func apiUrl(for url: String) -> String {
+    static func apiUrl(
+        for url: String,
+        diagnostics: APNSDiagnosticLogger = .live
+    ) -> String {
+        let pathCategory = APNSDiagnosticPathCategory.classify(url)
         guard let path = Bundle.main.path(forResource: "push_service", ofType: "plist"),
               let xml = FileManager.default.contents(atPath: path),
               let service = try? PropertyListDecoder().decode(PushService.self, from: xml) else {
+              diagnostics.record(
+                .endpointResolved(
+                    hasScheme: false,
+                    hasHost: false,
+                    pathCategory: pathCategory
+                )
+              )
               return ""
           }
         var api = ""
@@ -107,12 +130,16 @@ class APNSManager: NSObject {
         api = service.debug_url
         #endif
         
-        print("\(api)\(url)")
-        if url.starts(with: "/") {
-            return "\(api)/\(url)"
-        } else {
-            return "\(api)/\(url)"
-        }
+        let resolvedURL = "\(api)/\(url)"
+        let components = URLComponents(string: resolvedURL)
+        diagnostics.record(
+            .endpointResolved(
+                hasScheme: components?.scheme?.isEmpty == false,
+                hasHost: components?.host?.isEmpty == false,
+                pathCategory: pathCategory
+            )
+        )
+        return resolvedURL
     }
     
     static func authKey() -> String {
@@ -186,18 +213,19 @@ class APNSManager: NSObject {
     func receive(_ pushData: [AnyHashable: Any], completionHandler: (() -> Void)?) throws -> ReceiveResult {
 //        logThisPush()
 //        return
-        DDLogDebug("receive push, start check target type, \(pushData)")
         let dict = pushData as NSDictionary
         let targetTypeStr = dict.value(forKey: "target_type") as? String ?? "node"
         let target = dict.value(forKey: "target") as? String
-        print(target)
+        diagnostics.record(
+            .received(
+                targetType: APNSDiagnosticTargetCategory.classify(targetTypeStr),
+                hasTarget: target?.isEmpty == false,
+                hasBody: dict.value(forKey: "body") != nil
+            )
+        )
         let targetType: TargetType
-        DDLogDebug(["receive push", "type \(targetTypeStr)", #function].joined(separator: ". "))
         switch targetTypeStr {
         case "node":
-            DDLogDebug("receive push. start check node body")
-            
-            print(dict.value(forKey: "body"))
             guard let nodeBody = dict.value(forKey: "body") as? String else { throw APNSError.invalidPayload }
             targetType = .node(nodeBody)
             break
@@ -207,15 +235,16 @@ class APNSManager: NSObject {
         default: throw APNSError.undefinedTargetType
         }
         
-        DDLogDebug(["receive push", "target type \(targetType)", #function].joined(separator: ". "))
         switch targetType {
         case .node(let base64EncodedString):
-            DDLogDebug("receive push. start check base64 encoded json. \(base64EncodedString)")
             let json = try Self.decodeNodeData(from: base64EncodedString)
-            DDLogDebug(["receive push", "json action \(json.action)", #function].joined(separator: ". "))
+            diagnostics.record(
+                .decoded(
+                    action: APNSDiagnosticActionCategory.classify(json.action)
+                )
+            )
             switch json.action{
             case "regjid":
-                print("REGJID json", json)
                 try self.register(json, completionHandler: completionHandler)
                 return .registration
 //            case "message":
@@ -240,16 +269,21 @@ class APNSManager: NSObject {
     }
     
     func register(_ registrationInfo: NodeData, completionHandler: (() -> Void)?) throws {
-        print("register")
 //        return
-        print(registrationInfo)
+        diagnostics.record(
+            .registration(
+                result: APNSDiagnosticRegistrationResultCategory.classify(
+                    registrationInfo.result
+                ),
+                hasJID: registrationInfo.jid?.isEmpty == false,
+                hasNode: registrationInfo.node?.isEmpty == false,
+                hasService: registrationInfo.service?.isEmpty == false
+            )
+        )
         guard let result = registrationInfo.result else { throw APNSError.registrationFailed }
-        print(result)
         if result != "success" { throw APNSError.registrationFailed }
         guard let jid = registrationInfo.jid else { throw APNSError.invalidPayload }
-        print(jid)
         guard let service = registrationInfo.service else { throw APNSError.invalidPayload }
-        print(service)
         guard let decoratedJid = XMPPJID(string: jid) else { throw APNSError.invalidPayload }
         guard AccountManager.shared.find(for: decoratedJid.bare) != nil else {
             throw APNSError.userNotExist
@@ -257,7 +291,6 @@ class APNSManager: NSObject {
         guard let node = registrationInfo.node, node.isNotEmpty else {
             throw APNSError.invalidPayload
         }
-        print("REGISTR INFO", node, service)
         AccountManager.shared.find(for: decoratedJid.bare)?.update(forPushNode: node, withService: service)
 //        PushLogger.shared.push("receive node & service of push service for \(jid)")
         
@@ -315,7 +348,9 @@ class APNSManager: NSObject {
             let stanzaIds = displayedElement
                 .elements(forName: "stanza-id")
                 .compactMap { return $0.attributeStringValue(forName: "id") }
-            print(stanzaIds)
+            diagnostics.record(
+                .displayed(stanzaIDCount: stanzaIds.count)
+            )
             UNUserNotificationCenter.current().getDeliveredNotifications { (notifications) in
                 stanzaIds.forEach {
                     stanzaId in

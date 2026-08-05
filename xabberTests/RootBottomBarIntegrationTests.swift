@@ -18,12 +18,14 @@ final class RootBottomBarIntegrationTests: XCTestCase {
         private let contentSizeCategory: UIContentSizeCategory
 
         init(
+            windowScene: UIWindowScene,
             horizontalSizeClass: UIUserInterfaceSizeClass,
             contentSizeCategory: UIContentSizeCategory = .large
         ) {
             self.horizontalSizeClass = horizontalSizeClass
             self.contentSizeCategory = contentSizeCategory
-            super.init(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+            super.init(windowScene: windowScene)
+            frame = CGRect(x: 0, y: 0, width: 393, height: 852)
         }
 
         required init?(coder: NSCoder) {
@@ -39,14 +41,46 @@ final class RootBottomBarIntegrationTests: XCTestCase {
         }
     }
 
+    private final class HeldMentionChatViewController:
+        ChatViewController,
+        StackedNavigationPresentationPreparationControlling {
+        private var preparationHandle:
+            StackedNavigationPresentationPreparationHandle?
+
+        func makeStackedNavigationPresentationPreparation(
+            targetBounds: CGRect?,
+            completion: @escaping () -> Void
+        ) -> StackedNavigationPresentationPreparationHandle {
+            let handle = StackedNavigationPresentationPreparationHandle(
+                completion: completion
+            )
+            preparationHandle = handle
+            return handle
+        }
+    }
+
     private var previousInterfaceType: String!
     private var previousRealmConfiguration: Realm.Configuration!
+    private weak var previousKeyWindow: UIWindow?
+    private weak var fixtureWindowScene: UIWindowScene?
     private var retainedTraitWindows: [UIWindow] = []
+    private var retainedTraitContainers: [UIViewController] = []
 
     override func setUp() {
         super.setUp()
         previousInterfaceType = CommonConfigManager.shared.config.interface_type
         previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        guard let previousKeyWindow = (UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: { window in
+                window.isKeyWindow && window.windowScene?.activationState == .foregroundActive
+            })),
+            let fixtureWindowScene = previousKeyWindow.windowScene else {
+            preconditionFailure("A foreground XCTest key window is required for UIKit fixtures")
+        }
+        self.previousKeyWindow = previousKeyWindow
+        self.fixtureWindowScene = fixtureWindowScene
         CommonConfigManager.shared.config.interface_type = CommonConfigManager.InterfaceType.split.rawValue
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "RootBottomBarIntegrationTests-\(name)-\(UUID().uuidString)"
@@ -59,13 +93,22 @@ final class RootBottomBarIntegrationTests: XCTestCase {
     }
 
     override func tearDown() {
-        retainedTraitWindows.forEach { $0.isHidden = true }
+        retainedTraitWindows.reversed().forEach { window in
+            window.endEditing(true)
+            window.isHidden = true
+            window.rootViewController = nil
+            window.subviews.forEach { $0.removeFromSuperview() }
+        }
         retainedTraitWindows.removeAll()
+        retainedTraitContainers.removeAll()
+        previousKeyWindow?.makeKey()
         AccountManager.shared.users.removeAll()
         CommonConfigManager.shared.config.interface_type = previousInterfaceType
         Realm.Configuration.defaultConfiguration = previousRealmConfiguration
         previousInterfaceType = nil
         previousRealmConfiguration = nil
+        previousKeyWindow = nil
+        fixtureWindowScene = nil
         super.tearDown()
     }
 
@@ -206,9 +249,11 @@ final class RootBottomBarIntegrationTests: XCTestCase {
         }
     }
 
-    func testContactsAndGroupsAvailabilityMatrixKeepsPrimaryAndSearchFixed() {
+    func testContactsAndGroupsAvailabilityMatrixKeepsPrimaryAndSearchFixed() async {
+        var controllers: [ContactsViewController] = []
         for isGroup in [false, true] {
             let controller = ContactsViewController()
+            controllers.append(controller)
             controller.isGroup = isGroup
             let navigationController = embedInTraitContainer(
                 UINavigationController(rootViewController: controller),
@@ -251,6 +296,8 @@ final class RootBottomBarIntegrationTests: XCTestCase {
                 isGroup ? "groups_create_group_bottom_button" : "contacts_add_contact_bottom_button"
             )
         }
+
+        await quiesceContactsDatasetWorkBeforeFixtureDetachment(controllers)
     }
 
     func testCallsAvailabilityMatrixAlwaysHidesStartCallAndKeepsSearchFixed() {
@@ -315,6 +362,175 @@ final class RootBottomBarIntegrationTests: XCTestCase {
         XCTAssertEqual(frame(of: controller.bottomSearchHostView.collapsedButton, in: controller.view), searchFrame)
     }
 
+    func testProductionTabRootMentionTapUsesSceneCoordinatorAndKeepsExactRequestWithoutLatestFallback() throws {
+        let owner = "tabs-mention-owner@example.com"
+        let groupchatJid = "tabs-mention-room@example.com"
+        let sourceDate = Date(timeIntervalSince1970: 1_722_614_400)
+        let previousActiveCoordinator = AppRootCoordinator.active
+        let previousNotifyDelegate = NotifyManager.shared.leftMenuDelegate
+        let modalAccess = ModalPresentationCurrentControllerAccess.application
+        let previousPresentedController = modalAccess.get()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        var lastChats: LastChatsViewController?
+        var retainedDestination: HeldMentionChatViewController?
+        defer {
+            lastChats?.resetChatNavigationTransaction(cancelled: true)
+            retainedDestination?.performTerminalChatResourceTeardownForTesting()
+            window.isHidden = true
+            window.rootViewController = nil
+            NotifyManager.shared.leftMenuDelegate = previousNotifyDelegate
+            modalAccess.set(previousPresentedController)
+            AppRootCoordinator.active = previousActiveCoordinator
+        }
+
+        CommonConfigManager.shared.config.interface_type =
+            CommonConfigManager.InterfaceType.tabs.rawValue
+        addEnabledAccount(owner: owner)
+        let notification = NotificationStorageItem()
+        notification.primary = "tabs-mention-notification"
+        notification.owner = owner
+        notification.jid = "notifications.example.com"
+        notification.associatedJid = groupchatJid
+        notification.uniqueId = "tabs-mention-wrapper"
+        notification.messageId = "outer-notification-id"
+        notification.category = .mention
+        notification.isRead = false
+        notification.shouldShow = true
+        notification.date = sourceDate
+        notification.sourceConversationType = .group
+        notification.sourceChatJid = groupchatJid
+        notification.sourceArchivedId = "mention-archived-id"
+        notification.sourceMessageId = "mention-message-id"
+        notification.sourceSenderId = "mention-author-id"
+        notification.sourceBodyFingerprint =
+            MentionNotificationSync.normalizedBodyFingerprint("Hello @you")
+        notification.sourceMessageDate = sourceDate
+        notification.mentionLinkStatus = .resolved
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.add(notification, update: .modified)
+        }
+        let expectedRequest = try XCTUnwrap(
+            NotificationsListViewController.mentionOpenRequest(for: notification)
+        )
+
+        modalAccess.set(nil)
+        let coordinator = AppRootCoordinator(window: window, appDelegate: nil)
+        coordinator.rebuildRoot(userInfo: nil)
+        modalAccess.set(nil)
+        let tabController = try XCTUnwrap(coordinator.tabController)
+        let chatsNavigationController = try XCTUnwrap(
+            tabController.viewControllers?.first as? UINavigationController
+        )
+        let productionLastChats = try XCTUnwrap(
+            chatsNavigationController.viewControllers.first
+                as? LastChatsViewController
+        )
+        lastChats = productionLastChats
+        let destination = HeldMentionChatViewController()
+        var destinationFactoryCount = 0
+        retainedDestination = destination
+        productionLastChats.compactChatDestinationFactory = {
+            destinationFactoryCount += 1
+            return destination
+        }
+        let notificationsNavigationController = try XCTUnwrap(
+            tabController.viewControllers?[2] as? UINavigationController
+        )
+        let notifications = try XCTUnwrap(
+            notificationsNavigationController.viewControllers.first
+                as? NotificationsListViewController
+        )
+        // This synthetic datasource is only the row-materialization seam. The
+        // selected Realm item, UIKit didSelect, route authority, Last Chats
+        // single-flight and exact request ownership below are production paths;
+        // this selector is not canonical hosted/video evidence.
+        notifications.datasource = [
+            NotificationsListViewController.Datasource(
+                title: "Mentions",
+                key: "notifications",
+                childs: [
+                    NotificationsListViewController.DatasourceChild(
+                        primary: notification.primary,
+                        category: .mention,
+                        owner: owner,
+                        jid: groupchatJid,
+                        title: NSAttributedString(string: "Mention"),
+                        date: sourceDate,
+                        badgeIcon: "at",
+                        isRead: false,
+                        isHeader: false
+                    )
+                ]
+            )
+        ]
+
+        XCTAssertTrue(
+            (notifications.leftMenuDelegate as AnyObject?) ===
+                (coordinator as AnyObject),
+            "The production tabs root must install its scene coordinator as the route authority"
+        )
+        tabController.selectedIndex = 2
+        XCTAssertEqual(destinationFactoryCount, 0)
+        XCTAssertNil(productionLastChats.chatNavigationSingleFlight.state)
+        XCTAssertNil(productionLastChats.retainedCompactChatNavigationDestination)
+        XCTAssertNil(productionLastChats.chatOpenIntentOwnership)
+        XCTAssertFalse(destination.isViewLoaded)
+
+        notifications.tableView(
+            notifications.tableView,
+            didSelectRowAt: IndexPath(row: 0, section: 0)
+        )
+
+        let ownership = try XCTUnwrap(
+            productionLastChats.chatOpenIntentOwnership,
+            "A real mention tap must not be silently dropped by an unwired optional delegate"
+        )
+        let retained = try XCTUnwrap(
+            productionLastChats.retainedCompactChatNavigationDestination
+        )
+        let singleFlight = try XCTUnwrap(
+            productionLastChats.chatNavigationSingleFlight.state
+        )
+        XCTAssertEqual(tabController.selectedIndex, 0)
+        XCTAssertEqual(destinationFactoryCount, 1)
+        XCTAssertTrue(retained.controller === destination)
+        XCTAssertEqual(retained.token, singleFlight.token)
+        XCTAssertEqual(retained.target, singleFlight.target)
+        XCTAssertEqual(singleFlight.phase, .preparing)
+        XCTAssertEqual(ownership.target.owner, owner)
+        XCTAssertEqual(ownership.target.jid, groupchatJid)
+        XCTAssertEqual(ownership.target.conversationType, .group)
+        XCTAssertEqual(singleFlight.target, ownership.target)
+        XCTAssertEqual(
+            ownership.destinationIdentifier,
+            ObjectIdentifier(destination)
+        )
+        guard case .message(let routedRequest) = ownership.intent else {
+            return XCTFail("A mention tap must retain the exact request, never latest")
+        }
+        XCTAssertEqual(routedRequest, expectedRequest)
+        XCTAssertEqual(routedRequest.source, .mentionNotification)
+        XCTAssertEqual(routedRequest.owner, owner)
+        XCTAssertEqual(routedRequest.chatJid, groupchatJid)
+        XCTAssertEqual(routedRequest.conversationType, .group)
+        XCTAssertEqual(routedRequest.anchor.archivedId, "mention-archived-id")
+        XCTAssertEqual(routedRequest.anchor.messageId, "mention-message-id")
+        XCTAssertEqual(destination.pendingOpenMessageRequest, expectedRequest)
+        XCTAssertFalse(destination.isViewLoaded)
+        XCTAssertEqual(chatsNavigationController.viewControllers.count, 1)
+        XCTAssertTrue(
+            chatsNavigationController.viewControllers.first ===
+                productionLastChats
+        )
+        XCTAssertFalse(
+            chatsNavigationController.viewControllers.contains {
+                $0 is ChatViewController
+            },
+            "The held production route must not be rescued by a direct fallback push"
+        )
+    }
+
     func testAllActionVisibilityCombinationsKeepFramesAndHiddenStateDeterministic() {
         let view = FloatingBottomBarView(frame: CGRect(x: 0, y: 0, width: 360, height: 44))
         view.layoutIfNeeded()
@@ -348,10 +564,12 @@ final class RootBottomBarIntegrationTests: XCTestCase {
 
     func testSearchMatrixSettlesBothRapidReversalsAndReduceMotionEndpoints() throws {
         let view = BottomSearchHostView(frame: CGRect(x: 0, y: 0, width: 393, height: 44))
-        let window = TraitWindow(horizontalSizeClass: .compact)
+        let window = makeTraitWindow(horizontalSizeClass: .compact)
         window.addSubview(view)
-        window.isHidden = false
         retainedTraitWindows.append(window)
+        window.makeKeyAndVisible()
+        XCTAssertTrue(window.windowScene === fixtureWindowScene)
+        XCTAssertTrue(window.isKeyWindow)
         window.layoutIfNeeded()
         view.layoutIfNeeded()
         view.animatorFactory = { _, curve in UIViewPropertyAnimator(duration: 10, curve: curve) }
@@ -399,10 +617,18 @@ final class RootBottomBarIntegrationTests: XCTestCase {
             (notifications, notifications.tableView, notifications.bottomSearchHostView, notifications.updateNotificationsTableInsetsForBottomSearch)
         ]
 
-        harnesses.forEach { controller, tableView, searchHost, updateInsets in
-            controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
-            controller.loadViewIfNeeded()
-            controller.view.layoutIfNeeded()
+        for (controller, tableView, searchHost, updateInsets) in harnesses {
+            let navigationController = embedInTraitContainer(
+                UINavigationController(rootViewController: controller),
+                horizontalSizeClass: .compact
+            )
+            layout(navigationController, root: controller)
+            guard let attachedWindow = controller.view.window else {
+                XCTFail("The table owner must be attached before layout and inset updates")
+                continue
+            }
+            XCTAssertTrue(controller.navigationController === navigationController)
+            XCTAssertTrue(retainedTraitWindows.contains { $0 === attachedWindow })
             tableView.contentSize = CGSize(width: 393, height: 1_600)
             tableView.contentOffset.y = 200
 
@@ -432,19 +658,19 @@ final class RootBottomBarIntegrationTests: XCTestCase {
         let calls = LastCallsViewController()
         let notifications = NotificationsListViewController()
 
-        let chatNavigation = embedInTraitContainer(
+        let chatNavigation = embedInDetachedTraitContainer(
             UINavigationController(rootViewController: chats),
             horizontalSizeClass: .regular
         )
-        let contactsNavigation = embedInTraitContainer(
+        let contactsNavigation = embedInDetachedTraitContainer(
             UINavigationController(rootViewController: contacts),
             horizontalSizeClass: .regular
         )
-        let callsNavigation = embedInTraitContainer(
+        let callsNavigation = embedInDetachedTraitContainer(
             UINavigationController(rootViewController: calls),
             horizontalSizeClass: .regular
         )
-        let notificationsNavigation = embedInTraitContainer(
+        let notificationsNavigation = embedInDetachedTraitContainer(
             UINavigationController(rootViewController: notifications),
             horizontalSizeClass: .regular
         )
@@ -455,7 +681,8 @@ final class RootBottomBarIntegrationTests: XCTestCase {
             (notificationsNavigation, notifications as UIViewController)
         ]
         roots.forEach { navigationController, root in
-            layout(navigationController, root: root)
+            XCTAssertEqual(navigationController.traitCollection.horizontalSizeClass, .regular)
+            XCTAssertNil(root.view.window)
         }
         let contactsIdentifiers = contacts.navigationItem.rightBarButtonItems?.compactMap(\.accessibilityIdentifier)
         let callsIdentifiers = calls.navigationItem.rightBarButtonItems?.compactMap(\.accessibilityIdentifier)
@@ -495,6 +722,12 @@ final class RootBottomBarIntegrationTests: XCTestCase {
         XCTAssertEqual(controller.contactsCompactBottomBarPrimaryButton.bounds.height, FloatingBottomBarView.Metrics.height)
         XCTAssertTrue(controller.contactsCompactBottomBarPrimaryButton.isAccessibilityElement)
         XCTAssertEqual(controller.bottomSearchHostView.collapsedButton.accessibilityLabel, "Search")
+        guard let attachedWindow = controller.view.window else {
+            return XCTFail("The accessibility search fixture must be attached before expansion")
+        }
+        attachedWindow.makeKeyAndVisible()
+        XCTAssertTrue(attachedWindow.windowScene === fixtureWindowScene)
+        XCTAssertTrue(attachedWindow.isKeyWindow)
         controller.bottomSearchHostView.setExpanded(true, animated: false)
         XCTAssertEqual(controller.bottomSearchHostView.cancelButton.accessibilityLabel, "Cancel search")
         XCTAssertFalse(controller.bottomSearchHostView.searchTextField.isHidden)
@@ -527,6 +760,71 @@ final class RootBottomBarIntegrationTests: XCTestCase {
         horizontalSizeClass: UIUserInterfaceSizeClass,
         contentSizeCategory: UIContentSizeCategory = .large
     ) -> UINavigationController {
+        let navigationController = embedInDetachedTraitContainer(
+            child,
+            horizontalSizeClass: horizontalSizeClass,
+            contentSizeCategory: contentSizeCategory
+        )
+        guard let parent = navigationController.parent else {
+            preconditionFailure("The retained trait container must own its navigation child")
+        }
+        let window = makeTraitWindow(
+            horizontalSizeClass: horizontalSizeClass,
+            contentSizeCategory: contentSizeCategory
+        )
+        parent.view.frame = window.bounds
+        navigationController.view.frame = parent.view.bounds
+        retainedTraitWindows.append(window)
+        window.addSubview(parent.view)
+        window.layoutIfNeeded()
+        return navigationController
+    }
+
+    private func makeTraitWindow(
+        horizontalSizeClass: UIUserInterfaceSizeClass,
+        contentSizeCategory: UIContentSizeCategory = .large
+    ) -> TraitWindow {
+        guard let fixtureWindowScene else {
+            preconditionFailure("The fixture window scene must be captured during setUp")
+        }
+        return TraitWindow(
+            windowScene: fixtureWindowScene,
+            horizontalSizeClass: horizontalSizeClass,
+            contentSizeCategory: contentSizeCategory
+        )
+    }
+
+    private func quiesceContactsDatasetWorkBeforeFixtureDetachment(
+        _ controllers: [ContactsViewController]
+    ) async {
+        controllers.forEach { controller in
+            controller.unsubscribe()
+            controller.datasetGeneration += 1
+        }
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+
+        for controller in controllers {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                controller.updateQueue.async {
+                    DispatchQueue.main.async {
+                        continuation.resume()
+                    }
+                }
+            }
+        }
+    }
+
+    @discardableResult
+    private func embedInDetachedTraitContainer(
+        _ child: UIViewController,
+        horizontalSizeClass: UIUserInterfaceSizeClass,
+        contentSizeCategory: UIContentSizeCategory = .large
+    ) -> UINavigationController {
         let navigationController: UINavigationController
         if let child = child as? UINavigationController {
             navigationController = child
@@ -534,14 +832,8 @@ final class RootBottomBarIntegrationTests: XCTestCase {
             navigationController = UINavigationController(rootViewController: child)
         }
         let parent = UIViewController()
-        let window = TraitWindow(
-            horizontalSizeClass: horizontalSizeClass,
-            contentSizeCategory: contentSizeCategory
-        )
-        window.rootViewController = parent
-        window.isHidden = false
-        retainedTraitWindows.append(window)
         parent.loadViewIfNeeded()
+        parent.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
         parent.addChild(navigationController)
         parent.setOverrideTraitCollection(
             UITraitCollection(traitsFrom: [
@@ -551,9 +843,12 @@ final class RootBottomBarIntegrationTests: XCTestCase {
             forChild: navigationController
         )
         navigationController.loadViewIfNeeded()
-        navigationController.topViewController?.loadViewIfNeeded()
+        navigationController.view.frame = parent.view.bounds
+        navigationController.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         parent.view.addSubview(navigationController.view)
         navigationController.didMove(toParent: parent)
+        navigationController.topViewController?.loadViewIfNeeded()
+        retainedTraitContainers.append(parent)
         return navigationController
     }
 

@@ -26,35 +26,46 @@ extension ChatViewController {
     @objc
     internal func showImagePicker() {
         self.view.endEditing(false)
+#if DEBUG
+        if let entryHandler = self.chatAttachmentPickerEntryHandlerForTesting {
+            entryHandler()
+            return
+        }
+#endif
         DispatchQueue.main.async {
-            guard let account = AccountManager.shared.find(for: self.owner) else {
-                ToastPresenter().presentError(message: "File transfer is unavailable for this account.".localizeString(id: "media_picker_error_upload_unavailable", arguments: []))
+            guard self.chatAttachmentFlowCoordinator == nil else {
                 return
             }
-            let route = ChatAttachmentPickerRoutingPolicy.route(
+            guard let account = AccountManager.shared.find(for: self.owner) else {
+                self.presentChatAttachmentError(
+                    "File transfer is unavailable for this account."
+                        .localizeString(
+                            id: "media_picker_error_upload_unavailable",
+                            arguments: []
+                        )
+                )
+                return
+            }
+            let entryPlan = ChatAttachmentPickerEntryPlan.make(
                 isTelegramAttachmentPickerEnabled: CommonConfigManager.shared.config.use_telegram_attachment_picker,
                 availabilityState: account.cloudStorage.availabilityRelay.value
             )
 
-            switch route {
-            case .telegramAttachmentFlow:
-                self.presentTelegramAttachmentFlow()
-            case .blocked(.cloudStorageUnavailable):
-                ToastPresenter().presentError(message: "File transfer is unavailable for this account.".localizeString(id: "media_picker_error_upload_unavailable", arguments: []))
-            case .blocked(.cloudStoragePending):
+            if entryPlan.resumesAvailability {
                 account.cloudStorage.resumeAvailabilityWorkIfNeeded(
                     stream: account.xmppStream,
                     disco: account.disco
                 )
-                ToastPresenter().present(
-                    message: "Cloud Storage is still connecting. Please try again shortly."
-                        .localizeString(id: "media_picker_cloud_storage_connecting", arguments: [])
-                )
             }
+            guard entryPlan.presentsPicker else { return }
+            self.presentTelegramAttachmentFlow()
         }
     }
 
     private func presentTelegramAttachmentFlow() {
+        guard self.chatAttachmentFlowCoordinator == nil else {
+            return
+        }
         let coordinator = ChatAttachmentFlowCoordinator(
             presentingViewController: self,
             context: ChatAttachmentFlowContext(
@@ -68,6 +79,15 @@ extension ChatViewController {
         coordinator.delegate = self
         self.chatAttachmentFlowCoordinator = coordinator
         coordinator.start()
+    }
+
+    private func presentChatAttachmentError(_ message: String) {
+        self.view.makeToast(
+            message,
+            duration: 2,
+            image: imageLiteral("exclamationmark.circle"),
+            danger: true
+        )
     }
     
     @objc
@@ -87,7 +107,8 @@ extension ChatViewController {
     internal static func keyboardOverlapHeight(viewBounds: CGRect, keyboardFrameInView: CGRect) -> CGFloat {
         guard viewBounds.width > 0,
               viewBounds.height > 0,
-              !keyboardFrameInView.isEmpty else {
+              !keyboardFrameInView.isEmpty,
+              keyboardFrameInView.maxY >= viewBounds.maxY else {
             return 0
         }
 
@@ -143,23 +164,31 @@ extension ChatViewController {
         )
 
         let updates = {
-            let inputHeight = self.updateChatInputViewForCurrentKeyboardLayout(
+            let inputMetrics = self.updateChatInputViewForCurrentKeyboardLayout(
                 visibleKeyboardHeight: keyboardVisibleHeight
             )
             self.applyChatComposerFrameUpdate(
-                inputHeight: inputHeight,
+                inputHeight: inputMetrics.collectionObstructionHeight,
                 source: .keyboardFrame,
                 wasNearBottom: wasNearBottom,
                 visibleAnchor: visibleAnchor
             )
         }
 
+        let usesInteractiveDismissMode =
+            self.messagesCollectionView.keyboardDismissMode == .interactive
+        let isInteractiveKeyboardUpdate =
+            (self.isChatSearchInputKeyboardOwned && usesInteractiveDismissMode) ||
+            ChatKeyboardMotionPolicy.isInteractiveUpdate(
+                usesInteractiveDismissMode: usesInteractiveDismissMode,
+                isTracking: self.messagesCollectionView.isTracking,
+                isDragging: self.messagesCollectionView.isDragging
+            )
         let shouldAnimateKeyboardMutation = ChatSearchMotionMutationPolicy.shouldAnimate(
             requestedAnimated: duration > 0,
             isNavigationTransitionActive: self.isNavigationTransitionActive,
             isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation,
-            isInteractiveKeyboardUpdate: self.isChatSearchInputKeyboardOwned &&
-                self.messagesCollectionView.keyboardDismissMode == .interactive
+            isInteractiveKeyboardUpdate: isInteractiveKeyboardUpdate
         )
         if shouldAnimateKeyboardMutation {
             UIView.animate(
@@ -202,8 +231,8 @@ extension ChatViewController: ChatAttachmentFlowCoordinatorDelegate {
         didFailWith error: ChatAttachmentFlowError
     ) {
         clearChatAttachmentFlowCoordinatorIfNeeded(coordinator)
-        ToastPresenter().presentError(
-            message: "Unable to open attachment picker.".localizeString(
+        presentChatAttachmentError(
+            "Unable to open attachment picker.".localizeString(
                 id: "media_picker_error_open_failed",
                 arguments: []
             )

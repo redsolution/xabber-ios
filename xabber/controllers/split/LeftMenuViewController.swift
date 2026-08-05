@@ -522,6 +522,9 @@ enum LeftMenuSplitColumnInstaller {
 }
 
 class LeftMenuViewController: UIViewController {
+    internal var chatNavigationRouteResolver: (UIViewController) -> StackedNavigationRoute = {
+        stackedNavigationRoute(for: $0)
+    }
     private enum ExperimentLayout {
         static let menuSurfaceHorizontalInset: CGFloat = 16
         static let menuSurfaceBottomInset: CGFloat = 16
@@ -2232,57 +2235,216 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
     func selectRootScreenAndCategory(screen key: String, category: String?) {
         self.didSelectRootScreenBy(key: key, category: category)
     }
+
+    private func isInstalledChatListController(
+        _ controller: LastChatsViewController
+    ) -> Bool {
+        guard let supplementary = splitViewController?.viewController(
+            for: .supplementary
+        ) else {
+            return false
+        }
+        if supplementary === controller {
+            return true
+        }
+        guard let navigationController = supplementary as? UINavigationController else {
+            return false
+        }
+        return navigationController.topViewController === controller
+    }
+
+    private func expandedSplitChatActivationContext(
+        for controller: LastChatsViewController
+    ) -> LastChatsExpandedSplitActivationContext? {
+        guard let splitVC = splitViewController,
+              chatNavigationRouteResolver(splitVC) == .splitDetailReplacement else {
+            return nil
+        }
+
+        let expectedSupplementary = splitVC.viewController(for: .supplementary)
+        let expectedSupplementaryTop =
+            (expectedSupplementary as? UINavigationController)?.topViewController
+                ?? expectedSupplementary
+        let expectedSupplementaryIdentifier = expectedSupplementary
+            .map(ObjectIdentifier.init)
+        let expectedSupplementaryTopIdentifier = expectedSupplementaryTop
+            .map(ObjectIdentifier.init)
+        let installedNavigationController = expectedSupplementary as? UINavigationController
+        let reusesInstalledNavigationController = installedNavigationController?
+            .viewControllers
+            .contains(where: { $0 === controller }) == true
+        ContinuousSplitBackgroundExperiment.configureTransparentColumn(controller)
+        LeftMenuSplitDestinationPreparer.prepare(
+            controller,
+            targetBounds: LeftMenuSplitDestinationPreparer.targetBounds(
+                for: .supplementary,
+                in: splitVC,
+                presenter: self
+            )
+        )
+
+        let validate: () -> Bool = { [weak self, weak splitVC, weak controller] in
+            guard let self, let splitVC, let controller,
+                  self.chatNavigationRouteResolver(splitVC) == .splitDetailReplacement else {
+                return false
+            }
+            let currentSupplementary = splitVC.viewController(for: .supplementary)
+            let currentSupplementaryIdentifier = currentSupplementary
+                .map(ObjectIdentifier.init)
+            let currentTop = (currentSupplementary as? UINavigationController)?
+                .topViewController ?? currentSupplementary
+            let currentTopIdentifier = currentTop.map(ObjectIdentifier.init)
+            let window = splitVC.viewIfLoaded?.window
+            return currentSupplementaryIdentifier == expectedSupplementaryIdentifier &&
+                currentTopIdentifier == expectedSupplementaryTopIdentifier &&
+                UIApplication.shared.applicationState == .active &&
+                window != nil &&
+                window?.isHidden == false &&
+                (window?.alpha ?? 0) > 0 &&
+                window?.isKeyWindow == true &&
+                window?.windowScene?.activationState == .foregroundActive &&
+                splitVC.transitionCoordinator == nil &&
+                currentSupplementary?.transitionCoordinator == nil &&
+                currentTop?.transitionCoordinator == nil &&
+                controller.transitionCoordinator == nil &&
+                splitVC.presentedViewController == nil &&
+                currentSupplementary?.presentedViewController == nil &&
+                currentTop?.presentedViewController == nil &&
+                controller.presentedViewController == nil
+        }
+
+        let commit: () -> Bool = {
+            [weak self, weak splitVC, weak controller] in
+            guard let self,
+                  let splitVC,
+                  let controller,
+                  validate() else {
+                return false
+            }
+            let currentSupplementary = splitVC.viewController(for: .supplementary)
+            let preparedNavigationController: UINavigationController
+            if reusesInstalledNavigationController,
+               let installedNavigationController = currentSupplementary
+                    as? UINavigationController {
+                preparedNavigationController = installedNavigationController
+            } else if let owningNavigationController = controller.navigationController,
+                      owningNavigationController.viewControllers.contains(where: {
+                        $0 === controller
+                      }) {
+                guard owningNavigationController.viewIfLoaded?.window == nil else {
+                    return false
+                }
+                preparedNavigationController = owningNavigationController
+            } else {
+                preparedNavigationController = UINavigationController(
+                    rootViewController: controller
+                )
+            }
+            SearchSectionNavigationContainerPolicy
+                .applyTransparentSplitAppearanceIfAllowed(
+                    to: preparedNavigationController,
+                    in: splitVC
+                )
+            LeftMenuSplitDestinationPreparer.performWithoutAnimations {
+                if let index = preparedNavigationController.viewControllers
+                    .firstIndex(where: { $0 === controller }) {
+                    preparedNavigationController.setViewControllers(
+                        Array(preparedNavigationController.viewControllers.prefix(index + 1)),
+                        animated: false
+                    )
+                }
+                if !reusesInstalledNavigationController {
+                    splitVC.setViewController(
+                        preparedNavigationController,
+                        for: .supplementary
+                    )
+                }
+                self.applySelectionPresentation(to: splitVC)
+                splitVC.view.setNeedsLayout()
+                splitVC.view.layoutIfNeeded()
+            }
+            LeftMenuSplitDestinationPreparer.prepareAttached(
+                preparedNavigationController,
+                targetBounds: preparedNavigationController.view.bounds
+            )
+            return self.isInstalledChatListController(controller)
+        }
+
+        return LastChatsExpandedSplitActivationContext(
+            splitViewController: splitVC,
+            presentationPresenter: splitVC,
+            expectedSupplementaryContainerIdentifier:
+                expectedSupplementaryIdentifier,
+            expectedSupplementaryTopViewControllerIdentifier:
+                expectedSupplementaryTopIdentifier,
+            validate: validate,
+            commit: commit
+        )
+    }
     
+    @discardableResult
     func openChatlistWithChat(
         owner: String,
         jid: String,
         conversationType: ClientSynchronizationManager.ConversationType,
         openMessageRequest: ChatOpenMessageRequest?,
+        navigationSource: ChatOpenNavigationSource,
         configure: ((ChatViewController?) -> Void)?
-    ) {
+    ) -> Bool {
         self.previousSelectedKey = nil
-        if let vc = self.chatsVc {
-            vc.filter.accept(.chats)
-            if self.show(controller: vc, kind: .emptyChat) {
-                self.previousSelectedKey = "chat"
-            }
-            vc.leftMenuSelectRootCategoryDelegate = self
-            vc.stackNewChat(
-                owner: owner,
-                jid: jid,
-                conversationType: conversationType,
-                openMessageRequest: openMessageRequest,
-                configure: configure
-            )
-//                    self.showEmptyDetail(for: .emptyChat)
+        let vc: LastChatsViewController
+        if let chatsVc {
+            vc = chatsVc
         } else {
-            let vc = LastChatsViewController()
-            self.chatsVc = vc
-            if self.show(controller: vc, kind: .emptyChat) {
-                self.previousSelectedKey = "chat"
-            }
-            vc.leftMenuSelectRootCategoryDelegate = self
-            vc.stackNewChat(
+            vc = LastChatsViewController()
+            chatsVc = vc
+        }
+        vc.filter.accept(.chats)
+        vc.leftMenuSelectRootCategoryDelegate = self
+
+        if let activationContext = expandedSplitChatActivationContext(for: vc) {
+            self.previousSelectedKey = "chat"
+            return vc.stackNewChatForExpandedSplitActivation(
                 owner: owner,
                 jid: jid,
                 conversationType: conversationType,
                 openMessageRequest: openMessageRequest,
+                navigationSource: navigationSource,
+                activationContext: activationContext,
                 configure: configure
             )
-//                    self.showEmptyDetail(for: .emptyChat)
         }
+
+        if isInstalledChatListController(vc) {
+            self.previousSelectedKey = "chat"
+            _ = revealSelectedContentColumn()
+        } else if self.show(controller: vc, kind: .emptyChat) {
+            self.previousSelectedKey = "chat"
+        } else {
+            return false
+        }
+        return vc.stackNewChat(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType,
+            openMessageRequest: openMessageRequest,
+            navigationSource: navigationSource,
+            configure: configure
+        )
     }
 }
 
-protocol LeftMenuSelectRootScreenDelegate {
+protocol LeftMenuSelectRootScreenDelegate: AnyObject {
     func selectRootScreenAndCategory(screen key: String, category: String?)
+    @discardableResult
     func openChatlistWithChat(
         owner: String,
         jid: String,
         conversationType: ClientSynchronizationManager.ConversationType,
         openMessageRequest: ChatOpenMessageRequest?,
+        navigationSource: ChatOpenNavigationSource,
         configure: ((ChatViewController?) -> Void)?
-    )
+    ) -> Bool
 }
 
 extension LeftMenuSelectRootScreenDelegate {
@@ -2292,11 +2454,32 @@ extension LeftMenuSelectRootScreenDelegate {
         conversationType: ClientSynchronizationManager.ConversationType,
         configure: ((ChatViewController?) -> Void)?
     ) {
-        openChatlistWithChat(
+        _ = openChatlistWithChat(
             owner: owner,
             jid: jid,
             conversationType: conversationType,
             openMessageRequest: nil,
+            navigationSource: .standard,
+            configure: configure
+        )
+    }
+
+    @discardableResult
+    func openChatlistWithChat(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        openMessageRequest: ChatOpenMessageRequest?,
+        configure: ((ChatViewController?) -> Void)?
+    ) -> Bool {
+        openChatlistWithChat(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType,
+            openMessageRequest: openMessageRequest,
+            navigationSource: openMessageRequest?.source == .pushNotification
+                ? .notification
+                : .standard,
             configure: configure
         )
     }

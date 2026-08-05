@@ -3229,6 +3229,16 @@ final class Account: NSObject {
 //  XMPPFramework params
     var queue: DispatchQueue
     var xmppStream: XMPPStream
+#if DEBUG || CHAT_PERFORMANCE_LAB
+    /// Tracks the complete transitive closure of `action` work. Entering the
+    /// group happens before enqueue, so an action that schedules another
+    /// action cannot expose a false idle gap between the parent and child.
+    private let actionExecutionGroupForTests = DispatchGroup()
+
+    internal var isActionQueueQuiescentForTests: Bool {
+        actionExecutionGroupForTests.wait(timeout: .now()) == .success
+    }
+#endif
     lazy var interactiveChatOpenGate = AccountInteractiveChatOpenGate { [weak self] _ in
         self?.xmppTaskScheduler.interactiveChatOpenGateDidChange()
     }
@@ -5247,7 +5257,13 @@ final class Account: NSObject {
  *    }
  **/
     func action(_ toExecute: @escaping ((Account, XMPPStream) -> Void)) {
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        self.actionExecutionGroupForTests.enter()
+#endif
         self.queue.async {
+#if DEBUG || CHAT_PERFORMANCE_LAB
+            defer { self.actionExecutionGroupForTests.leave() }
+#endif
 //            [unowned self] in
             toExecute(self, self.xmppStream)
         }

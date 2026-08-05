@@ -30,6 +30,36 @@ import MaterialComponents.MDCPalettes
 import XMPPFramework.XMPPJID
 import AVFoundation
 
+enum LastChatsNotificationAuthorizationPromptPolicy {
+    static func shouldRequest(
+        isLastChatsVisible: Bool,
+        applicationState: UIApplication.State,
+        sceneActivationState: UIScene.ActivationState?,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        guard isLastChatsVisible,
+              applicationState == .active,
+              sceneActivationState == .foregroundActive,
+              environment[
+                AppLaunchEnvironmentPolicy.hostedXCTestEnvironmentKey
+              ] == nil else {
+            return false
+        }
+
+        #if DEBUG || CHAT_PERFORMANCE_LAB
+        guard ChatPerformanceUITestLaunchPolicy.descriptor(
+            arguments: arguments,
+            environment: environment
+        ) == nil else {
+            return false
+        }
+        #endif
+
+        return true
+    }
+}
+
 enum LastChatsNavigationTransitionMutationPolicy {
     static func shouldDeferMutation(
         isTransitionActive: Bool,
@@ -117,6 +147,15 @@ enum LastChatsBootstrapDatasetUpdatePolicy {
         // A cancelled navigation transition invalidates captured UI closures,
         // but the latest Realm-backed dataset still needs one fresh render.
         return .flush
+    }
+}
+
+enum LastChatsDatasourceApplyPolicy: Equatable {
+    case detachedSnapshot
+    case incrementalDiff
+
+    static func resolve(isTableAttachedToWindow: Bool) -> Self {
+        isTableAttachedToWindow ? .incrementalDiff : .detachedSnapshot
     }
 }
 
@@ -230,6 +269,261 @@ struct LastChatsNavigationSingleFlightCoordinator {
 
     mutating func reset() {
         state = nil
+    }
+}
+
+struct LastChatsRetainedCompactChatNavigationDestination {
+    let token: UUID
+    let target: LastChatsNavigationSingleFlightCoordinator.Target
+    let controller: ChatViewController
+    let accountEpoch: LastChatsChatNavigationAccountEpoch?
+}
+
+private struct LastChatsNavigationReturnTransitionCompletion {
+    let token: UUID
+    let cancelled: Bool
+}
+
+enum ChatOpenNavigationSource: Equatable {
+    case standard
+    case notification
+}
+
+enum LastChatsResolvedChatOpenIntent: Equatable {
+    case message(ChatOpenMessageRequest)
+    case latest
+}
+
+struct LastChatsChatOpenIntentOwnership {
+    let target: LastChatsNavigationSingleFlightCoordinator.Target
+    let destinationIdentifier: ObjectIdentifier
+    let intent: LastChatsResolvedChatOpenIntent
+    var navigationSource: ChatOpenNavigationSource
+}
+
+struct LastChatsChatNavigationAccountEpoch: Equatable {
+    let accountIdentifier: ObjectIdentifier?
+    let isPresent: Bool
+    let isEnabled: Bool
+
+    init(
+        accountIdentifier: ObjectIdentifier?,
+        isPresent: Bool? = nil,
+        isEnabled: Bool
+    ) {
+        self.accountIdentifier = accountIdentifier
+        self.isPresent = isPresent ?? (accountIdentifier != nil)
+        self.isEnabled = isEnabled
+    }
+
+    var isValidForChatNavigation: Bool {
+        accountIdentifier != nil && isPresent && isEnabled
+    }
+
+    func isExactValidMatch(
+        for currentEpoch: LastChatsChatNavigationAccountEpoch
+    ) -> Bool {
+        isValidForChatNavigation &&
+            currentEpoch.isValidForChatNavigation &&
+            self == currentEpoch
+    }
+}
+
+struct LastChatsExpandedSplitSecondarySnapshot {
+    let container: UIViewController?
+    let topViewController: UIViewController?
+}
+
+struct LastChatsExpandedSplitPresentationState: Equatable {
+    let hasActiveTransition: Bool
+    let hasPresentedModal: Bool
+
+    static let stable = LastChatsExpandedSplitPresentationState(
+        hasActiveTransition: false,
+        hasPresentedModal: false
+    )
+}
+
+struct LastChatsExpandedSplitEligibilityFingerprint: Equatable {
+    let route: StackedNavigationRoute
+    let accountEpoch: LastChatsChatNavigationAccountEpoch
+    let isApplicationActive: Bool
+    let windowIdentifier: ObjectIdentifier?
+    let isWindowVisible: Bool
+    let isKeyWindow: Bool
+    let isForegroundActiveScene: Bool
+    let supplementaryContainerIdentifier: ObjectIdentifier?
+    let supplementaryTopIdentifier: ObjectIdentifier?
+    let secondaryContainerIdentifier: ObjectIdentifier?
+    let secondaryTopIdentifier: ObjectIdentifier?
+    let hasActiveTransition: Bool
+    let presentedControllerIdentifier: ObjectIdentifier?
+}
+
+/// Describes an off-screen Last Chats column that may be installed only after
+/// the destination chat has finished preparing its first frame. The closures
+/// deliberately capture their owners weakly; the transaction must not retain a
+/// detached split root while an asynchronous preparation is outstanding.
+final class LastChatsExpandedSplitActivationContext {
+    weak var splitViewController: UISplitViewController?
+    weak var presentationPresenter: UIViewController?
+    let expectedSupplementaryContainerIdentifier: ObjectIdentifier?
+    let expectedSupplementaryTopViewControllerIdentifier: ObjectIdentifier?
+    let validate: () -> Bool
+    let commit: () -> Bool
+
+    init(
+        splitViewController: UISplitViewController,
+        presentationPresenter: UIViewController,
+        expectedSupplementaryContainerIdentifier: ObjectIdentifier?,
+        expectedSupplementaryTopViewControllerIdentifier: ObjectIdentifier?,
+        validate: @escaping () -> Bool,
+        commit: @escaping () -> Bool
+    ) {
+        self.splitViewController = splitViewController
+        self.presentationPresenter = presentationPresenter
+        self.expectedSupplementaryContainerIdentifier =
+            expectedSupplementaryContainerIdentifier
+        self.expectedSupplementaryTopViewControllerIdentifier =
+            expectedSupplementaryTopViewControllerIdentifier
+        self.validate = validate
+        self.commit = commit
+    }
+}
+
+struct LastChatsExpandedSplitChatNavigationTransaction {
+    enum Phase: Equatable {
+        case preparing
+        case waitingForEligibility
+        case presenting
+        case presented
+    }
+
+    let token: UUID
+    let target: LastChatsNavigationSingleFlightCoordinator.Target
+    let destination: ChatViewController
+    let previousVisibleDetail: ChatViewController?
+    let previousSecondarySnapshot: LastChatsExpandedSplitSecondarySnapshot
+    let accountEpoch: LastChatsChatNavigationAccountEpoch
+    let navigationSource: ChatOpenNavigationSource
+    let expectedSupplementaryContainerIdentifier: ObjectIdentifier?
+    let expectedSupplementaryTopViewControllerIdentifier: ObjectIdentifier?
+    var activationContext: LastChatsExpandedSplitActivationContext?
+    var preparationHandle: StackedNavigationPresentationPreparationHandle?
+    var phase: Phase
+    var lastRejectedEligibilityFingerprint:
+        LastChatsExpandedSplitEligibilityFingerprint?
+    var permitsOneUnchangedEligibilityRetry: Bool
+
+    func replacingNavigationSource(
+        _ navigationSource: ChatOpenNavigationSource
+    ) -> LastChatsExpandedSplitChatNavigationTransaction {
+        LastChatsExpandedSplitChatNavigationTransaction(
+            token: token,
+            target: target,
+            destination: destination,
+            previousVisibleDetail: previousVisibleDetail,
+            previousSecondarySnapshot: previousSecondarySnapshot,
+            accountEpoch: accountEpoch,
+            navigationSource: navigationSource,
+            expectedSupplementaryContainerIdentifier:
+                expectedSupplementaryContainerIdentifier,
+            expectedSupplementaryTopViewControllerIdentifier:
+                expectedSupplementaryTopViewControllerIdentifier,
+            activationContext: activationContext,
+            preparationHandle: preparationHandle,
+            phase: phase,
+            lastRejectedEligibilityFingerprint:
+                lastRejectedEligibilityFingerprint,
+            permitsOneUnchangedEligibilityRetry:
+                permitsOneUnchangedEligibilityRetry
+        )
+    }
+
+    func replacingAccountEpoch(
+        _ accountEpoch: LastChatsChatNavigationAccountEpoch
+    ) -> LastChatsExpandedSplitChatNavigationTransaction {
+        LastChatsExpandedSplitChatNavigationTransaction(
+            token: token,
+            target: target,
+            destination: destination,
+            previousVisibleDetail: previousVisibleDetail,
+            previousSecondarySnapshot: previousSecondarySnapshot,
+            accountEpoch: accountEpoch,
+            navigationSource: navigationSource,
+            expectedSupplementaryContainerIdentifier:
+                expectedSupplementaryContainerIdentifier,
+            expectedSupplementaryTopViewControllerIdentifier:
+                expectedSupplementaryTopViewControllerIdentifier,
+            activationContext: activationContext,
+            preparationHandle: preparationHandle,
+            phase: phase,
+            lastRejectedEligibilityFingerprint:
+                lastRejectedEligibilityFingerprint,
+            permitsOneUnchangedEligibilityRetry:
+                permitsOneUnchangedEligibilityRetry
+        )
+    }
+
+    func replacingSupplementaryIdentity(
+        containerIdentifier: ObjectIdentifier?,
+        topViewControllerIdentifier: ObjectIdentifier?
+    ) -> LastChatsExpandedSplitChatNavigationTransaction {
+        LastChatsExpandedSplitChatNavigationTransaction(
+            token: token,
+            target: target,
+            destination: destination,
+            previousVisibleDetail: previousVisibleDetail,
+            previousSecondarySnapshot: previousSecondarySnapshot,
+            accountEpoch: accountEpoch,
+            navigationSource: navigationSource,
+            expectedSupplementaryContainerIdentifier: containerIdentifier,
+            expectedSupplementaryTopViewControllerIdentifier:
+                topViewControllerIdentifier,
+            activationContext: activationContext,
+            preparationHandle: preparationHandle,
+            phase: phase,
+            lastRejectedEligibilityFingerprint:
+                lastRejectedEligibilityFingerprint,
+            permitsOneUnchangedEligibilityRetry:
+                permitsOneUnchangedEligibilityRetry
+        )
+    }
+}
+
+typealias LastChatsExpandedSplitChatPresentationHandler = (
+    _ destination: ChatViewController,
+    _ presenter: UIViewController,
+    _ commitPresentation: @escaping () -> Bool,
+    _ completion: @escaping (Bool) -> Void
+) -> StackedNavigationPresentationPreparationHandle
+
+enum LastChatsChatOpenAcknowledgementPolicy {
+    static func shouldAcknowledge(
+        navigationSource: ChatOpenNavigationSource,
+        request: ChatOpenMessageRequest?,
+        isStableVisibleDestination: Bool,
+        hasStableTargetAcknowledgement: Bool
+    ) -> Bool {
+        guard navigationSource == .notification else {
+            return true
+        }
+        return isStableVisibleDestination && hasStableTargetAcknowledgement
+    }
+
+    static func shouldAcknowledge(
+        request: ChatOpenMessageRequest?,
+        isStableVisibleDestination: Bool,
+        hasStableTargetAcknowledgement: Bool = false
+    ) -> Bool {
+        shouldAcknowledge(
+            navigationSource: request?.source == .pushNotification
+                ? .notification
+                : .standard,
+            request: request,
+            isStableVisibleDestination: isStableVisibleDestination,
+            hasStableTargetAcknowledgement: hasStableTargetAcknowledgement
+        )
     }
 }
 
@@ -859,6 +1153,13 @@ enum SavedMessagesAvailabilityPolicy {
 class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuieting {
     static let nativeChatBackAccessibilityIdentifier =
         "last_chats_native_chat_back_button"
+
+    #if DEBUG || CHAT_PERFORMANCE_LAB
+    internal var performanceChatRowAccessibilityIdentifierProvider:
+        ((Datasource) -> String?)?
+    internal var performanceChatRowSelectionObserver:
+        ((Datasource, IndexPath, ChatOpenMessageRequest?) -> Void)?
+    #endif
     
     enum Filter: Int {
         case chats
@@ -1032,7 +1333,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         public let updated: [Int]
     }
     
-    open var leftMenuSelectRootCategoryDelegate: LeftMenuSelectRootScreenDelegate? = nil
+    open weak var leftMenuSelectRootCategoryDelegate: LeftMenuSelectRootScreenDelegate? = nil
     
     internal lazy var tableView: UITableView = {
         let style = LastChatsTableStylePolicy.style(for: traitCollection.horizontalSizeClass)
@@ -1196,6 +1497,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     private var outgoingChatOpenNavigationPreparationHandle: StackedNavigationPresentationPreparationHandle?
     private var chatNavigationPreparationTimeoutWorkItem: DispatchWorkItem?
     private var shouldResetChatNavigationTransactionOnNextAppearance: Bool = false
+    private var completedChatNavigationReturnTransition:
+        LastChatsNavigationReturnTransitionCompletion?
+    private var pendingChatNavigationTransitionCompletionTokens: Set<UUID> = []
     private var bootstrapDatasetUpdateWorkItem: DispatchWorkItem?
     private var pendingDatasetUpdateAfterBootstrapCoalescing: Bool = false
     private var isExecutingBootstrapCoalescedDatasetUpdate: Bool = false
@@ -1240,6 +1544,118 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     open var currentChatVC: ChatViewController? = nil
     internal var chatNavigationSingleFlight = LastChatsNavigationSingleFlightCoordinator()
+    internal private(set) var retainedCompactChatNavigationDestination:
+        LastChatsRetainedCompactChatNavigationDestination?
+    internal private(set) var expandedSplitChatNavigationTransaction:
+        LastChatsExpandedSplitChatNavigationTransaction?
+    private var expandedSplitAccountRegistryMutationObserver: NSObjectProtocol?
+    internal private(set) var chatOpenIntentOwnership:
+        LastChatsChatOpenIntentOwnership?
+    internal var chatOpenMessageRequestResolverOverride:
+        ((LastChatsNavigationSingleFlightCoordinator.Target, ChatOpenMessageRequest?) -> ChatOpenMessageRequest?)?
+    internal var chatOpenIntentDeliveryHandler:
+        (LastChatsResolvedChatOpenIntent, ChatViewController) -> Void = {
+            intent,
+            destination in
+            switch intent {
+            case .message(let request):
+                destination.queueOpenMessageRequest(request)
+            case .latest:
+                if destination.pendingOpenMessageRequest != nil ||
+                    destination.activeAnchorExecutionState != nil {
+                    destination.performPendingOpenMessageRequestIfNeeded()
+                } else if !destination.pendingForceLatestOpen,
+                          ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen() {
+                    destination.requestForceLatestOpen(animated: false)
+                }
+            }
+        }
+    internal var chatNavigationRouteResolver: (UIViewController) -> StackedNavigationRoute = {
+        stackedNavigationRoute(for: $0)
+    }
+    internal var chatNavigationAccountEpochResolver:
+        (LastChatsNavigationSingleFlightCoordinator.Target) -> LastChatsChatNavigationAccountEpoch = {
+            target in
+            let account = AccountManager.shared.find(for: target.owner)
+            let accountStorage: AccountStorageItem?
+            let isEnabled: Bool
+            do {
+                accountStorage = try WRealm.safe()
+                    .object(ofType: AccountStorageItem.self, forPrimaryKey: target.owner)
+                isEnabled = accountStorage?.enabled == true
+            } catch {
+                accountStorage = nil
+                isEnabled = false
+            }
+            return LastChatsChatNavigationAccountEpoch(
+                accountIdentifier: account.map(ObjectIdentifier.init),
+                isPresent: account != nil && accountStorage != nil,
+                isEnabled: isEnabled
+            )
+        }
+    internal var expandedSplitStableVisibilityOverride: ((ChatViewController) -> Bool)?
+    internal var expandedSplitPresentationStateOverride:
+        ((UIViewController?, UIViewController?) -> LastChatsExpandedSplitPresentationState)?
+    internal var expandedSplitTransitionOwnerOverride:
+        (([UIViewController]) -> UIViewController?)?
+    internal var compactChatDestinationFactory: () -> ChatViewController = {
+        ChatViewController()
+    }
+    internal var expandedSplitChatDestinationFactory: () -> ChatViewController = {
+        ChatViewController()
+    }
+    internal var expandedSplitChatPresentationHandler:
+        LastChatsExpandedSplitChatPresentationHandler = {
+            destination,
+            presenter,
+            commitPresentation,
+            completion in
+            showStacked(
+                destination,
+                in: presenter,
+                using: .splitDetailReplacement,
+                commitPresentation: commitPresentation,
+                completion: completion
+            )
+        }
+    internal var expandedSplitPreparedChatPresentationHandler:
+        LastChatsExpandedSplitChatPresentationHandler = {
+            destination,
+            presenter,
+            commitPresentation,
+            completion in
+            showStacked(
+                destination,
+                in: presenter,
+                using: .splitDetailReplacement,
+                destinationIsPrepared: true,
+                commitPresentation: commitPresentation,
+                completion: completion
+            )
+        }
+    internal var expandedSplitPresentationAttemptObserver:
+        ((ChatViewController, Bool) -> Void)?
+    internal var pendingMessageNotificationRouteRetryHandler: () -> Bool = {
+        AppRootCoordinator.active?
+            .retryPendingMessageNotificationChatRouteIfPossible() ?? false
+    }
+    internal var pendingMessageNotificationTransitionRegistrar:
+        (UIViewController, @escaping (Bool) -> Void) -> Bool = {
+            owner,
+            completion in
+            guard let coordinator = owner.transitionCoordinator else {
+                return false
+            }
+            return coordinator.animate(
+                alongsideTransition: nil,
+                completion: { completion($0.isCancelled) }
+            )
+        }
+    internal var pendingMessageNotificationAsyncScheduler: (@escaping () -> Void) -> Void = {
+        DispatchQueue.main.async(execute: $0)
+    }
+    private var pendingMessageNotificationRetryGeneration: UInt = 0
+    internal private(set) var isPendingMessageNotificationRetryScheduled = false
     internal var hasActiveOutgoingChatOpenNavigationDeferral: Bool {
         outgoingChatOpenNavigationDeferralToken != nil
     }
@@ -1274,8 +1690,15 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }()
 
     internal func beginNavigationTransitionDeferralIfNeeded() {
-        guard let coordinator = self.transitionCoordinator else {
+        guard let coordinator = self.transitionCoordinator ??
+                self.navigationController?.transitionCoordinator else {
             return
+        }
+        let chatNavigationToken = chatNavigationSingleFlight.state?.token
+        if let chatNavigationToken {
+            pendingChatNavigationTransitionCompletionTokens.insert(
+                chatNavigationToken
+            )
         }
         if !self.isNavigationTransitionActive {
             self.navigationDatasetMutationGeneration &+= 1
@@ -1285,9 +1708,477 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             self.pendingDatasetUpdateAfterNavigationTransition = true
         }
         self.accountNavButton.setRenderingFrozen(true)
-        coordinator.animate(alongsideTransition: nil) { [weak self] context in
-            self?.completeNavigationTransitionDeferral(cancelled: context.isCancelled)
+        let registered = coordinator.animate(
+            alongsideTransition: nil
+        ) { [weak self] context in
+            guard let self else {
+                return
+            }
+            if let chatNavigationToken {
+                self.pendingChatNavigationTransitionCompletionTokens.remove(
+                    chatNavigationToken
+                )
+            }
+            self.completeNavigationTransitionDeferral(
+                cancelled: context.isCancelled
+            )
+            if let chatNavigationToken {
+                _ = self.completeChatNavigationReturnTransition(
+                    token: chatNavigationToken,
+                    cancelled: context.isCancelled
+                )
+            }
         }
+        if !registered, let chatNavigationToken {
+            pendingChatNavigationTransitionCompletionTokens.remove(
+                chatNavigationToken
+            )
+        }
+    }
+
+    internal func retainCompactChatNavigationDestination(
+        _ controller: ChatViewController,
+        token: UUID,
+        target: LastChatsNavigationSingleFlightCoordinator.Target,
+        accountEpoch: LastChatsChatNavigationAccountEpoch? = nil
+    ) {
+        retainedCompactChatNavigationDestination = .init(
+            token: token,
+            target: target,
+            controller: controller,
+            accountEpoch: accountEpoch
+        )
+    }
+
+    internal func retainedCompactChatNavigationDestination(
+        token: UUID,
+        target: LastChatsNavigationSingleFlightCoordinator.Target
+    ) -> ChatViewController? {
+        guard let destination = retainedCompactChatNavigationDestination,
+              destination.token == token,
+              destination.target == target else {
+            return nil
+        }
+        if let accountEpoch = destination.accountEpoch,
+           !accountEpoch.isExactValidMatch(
+            for: chatNavigationAccountEpochResolver(target)
+           ) {
+            return nil
+        }
+        return destination.controller
+    }
+
+    internal func clearRetainedCompactChatNavigationDestination(token: UUID? = nil) {
+        guard token == nil || retainedCompactChatNavigationDestination?.token == token else {
+            return
+        }
+        retainedCompactChatNavigationDestination = nil
+    }
+
+    internal func installExpandedSplitChatNavigationTransaction(
+        token: UUID,
+        target: LastChatsNavigationSingleFlightCoordinator.Target,
+        destination: ChatViewController,
+        previousVisibleDetail: ChatViewController?,
+        previousSecondarySnapshot: LastChatsExpandedSplitSecondarySnapshot,
+        accountEpoch: LastChatsChatNavigationAccountEpoch,
+        navigationSource: ChatOpenNavigationSource,
+        activationContext: LastChatsExpandedSplitActivationContext?,
+        expectedSupplementaryContainerIdentifier: ObjectIdentifier? = nil,
+        expectedSupplementaryTopViewControllerIdentifier: ObjectIdentifier? = nil
+    ) {
+        stopExpandedSplitAccountRegistryMutationObservation()
+        expandedSplitChatNavigationTransaction = .init(
+            token: token,
+            target: target,
+            destination: destination,
+            previousVisibleDetail: previousVisibleDetail,
+            previousSecondarySnapshot: previousSecondarySnapshot,
+            accountEpoch: accountEpoch,
+            navigationSource: navigationSource,
+            expectedSupplementaryContainerIdentifier:
+                expectedSupplementaryContainerIdentifier,
+            expectedSupplementaryTopViewControllerIdentifier:
+                expectedSupplementaryTopViewControllerIdentifier,
+            activationContext: activationContext,
+            preparationHandle: nil,
+            phase: .preparing,
+            lastRejectedEligibilityFingerprint: nil,
+            permitsOneUnchangedEligibilityRetry: false
+        )
+        startExpandedSplitAccountRegistryMutationObservationIfNeeded()
+    }
+
+    /// Account materialization can complete while a cached Last Chats controller
+    /// is not installed and therefore has no dataset subscription. Observation is
+    /// owned by the exact pending navigation transaction instead of visibility.
+    private func startExpandedSplitAccountRegistryMutationObservationIfNeeded() {
+        guard expandedSplitAccountRegistryMutationObserver == nil,
+              let transaction = expandedSplitChatNavigationTransaction,
+              transaction.navigationSource == .notification,
+              transaction.phase != .presented else {
+            return
+        }
+        expandedSplitAccountRegistryMutationObserver = NotificationCenter.default
+            .addObserver(
+                forName: AccountManagerRegistryMutationSignal.notification,
+                object: nil,
+                queue: .main,
+                using: { [weak self] notification in
+                    guard notification.object == nil,
+                          notification.userInfo == nil,
+                          let self,
+                          let transaction = self
+                            .expandedSplitChatNavigationTransaction,
+                          transaction.navigationSource == .notification,
+                          transaction.phase != .presented else {
+                        return
+                    }
+                    self
+                        .retryPendingMessageNotificationRouteOnLifecycleStability()
+                }
+            )
+    }
+
+    private func stopExpandedSplitAccountRegistryMutationObservation() {
+        guard let observer = expandedSplitAccountRegistryMutationObserver else {
+            return
+        }
+        NotificationCenter.default.removeObserver(observer)
+        expandedSplitAccountRegistryMutationObserver = nil
+    }
+
+    @discardableResult
+    internal func registerExpandedSplitChatNavigationPreparation(
+        _ handle: StackedNavigationPresentationPreparationHandle,
+        token: UUID
+    ) -> Bool {
+        guard var transaction = expandedSplitChatNavigationTransaction,
+              transaction.token == token else {
+            handle.cancel()
+            return false
+        }
+        guard transaction.phase == .preparing else {
+            handle.cancel()
+            return transaction.phase == .waitingForEligibility ||
+                transaction.phase == .presenting ||
+                transaction.phase == .presented
+        }
+        transaction.preparationHandle = handle
+        expandedSplitChatNavigationTransaction = transaction
+        return true
+    }
+
+    internal func promoteExpandedSplitChatNavigationSourceToNotification(
+        token: UUID
+    ) {
+        guard let transaction = expandedSplitChatNavigationTransaction,
+              transaction.token == token,
+              transaction.navigationSource != .notification else {
+            return
+        }
+        expandedSplitChatNavigationTransaction = transaction
+            .replacingNavigationSource(.notification)
+        startExpandedSplitAccountRegistryMutationObservationIfNeeded()
+    }
+
+    @discardableResult
+    internal func retainExpandedSplitChatNavigationForEligibilityWakeup(
+        token: UUID,
+        target: LastChatsNavigationSingleFlightCoordinator.Target,
+        destination: ChatViewController,
+        fingerprint: LastChatsExpandedSplitEligibilityFingerprint,
+        permitsOneUnchangedEligibilityRetry: Bool = false
+    ) -> Bool {
+        guard var transaction = expandedSplitChatNavigationTransaction,
+              transaction.token == token,
+              transaction.target == target,
+              transaction.destination === destination,
+              (transaction.phase == .preparing ||
+                transaction.phase == .presenting) else {
+            return false
+        }
+        transaction.phase = .waitingForEligibility
+        transaction.preparationHandle = nil
+        transaction.lastRejectedEligibilityFingerprint = fingerprint
+        transaction.permitsOneUnchangedEligibilityRetry =
+            permitsOneUnchangedEligibilityRetry
+        expandedSplitChatNavigationTransaction = transaction
+        return true
+    }
+
+    /// A repeated retained notification route is an observed eligibility wake.
+    /// While first-frame preparation is still outstanding it may adopt exactly
+    /// the current valid account epoch. The later commit continues to require
+    /// an exact match, so a second unobserved replacement remains blocked.
+    @discardableResult
+    internal func adoptExpandedSplitChatNavigationAccountEpochDuringPreparation(
+        token: UUID,
+        target: LastChatsNavigationSingleFlightCoordinator.Target,
+        destination: ChatViewController,
+        currentAccountEpoch: LastChatsChatNavigationAccountEpoch
+    ) -> Bool {
+        guard var transaction = expandedSplitChatNavigationTransaction,
+              transaction.token == token,
+              transaction.target == target,
+              transaction.destination === destination,
+              transaction.phase == .preparing,
+              transaction.navigationSource == .notification,
+              currentAccountEpoch.isValidForChatNavigation else {
+            return false
+        }
+        guard transaction.accountEpoch != currentAccountEpoch else {
+            return true
+        }
+        transaction = transaction.replacingAccountEpoch(currentAccountEpoch)
+        expandedSplitChatNavigationTransaction = transaction
+        return true
+    }
+
+    @discardableResult
+    internal func prepareRetainedExpandedSplitChatNavigationForRetry(
+        token: UUID,
+        currentAccountEpoch: LastChatsChatNavigationAccountEpoch,
+        currentFingerprint: LastChatsExpandedSplitEligibilityFingerprint
+    ) -> LastChatsExpandedSplitChatNavigationTransaction? {
+        guard var transaction = expandedSplitChatNavigationTransaction,
+              transaction.token == token,
+              transaction.phase == .waitingForEligibility,
+              currentAccountEpoch.isValidForChatNavigation else {
+            return nil
+        }
+
+        let accountEpochChanged = currentAccountEpoch != transaction.accountEpoch
+        if accountEpochChanged {
+            transaction = transaction.replacingAccountEpoch(
+                currentAccountEpoch
+            )
+        }
+        guard transaction.lastRejectedEligibilityFingerprint !=
+                currentFingerprint || accountEpochChanged ||
+                transaction.permitsOneUnchangedEligibilityRetry else {
+            return nil
+        }
+        transaction.phase = .preparing
+        transaction.preparationHandle = nil
+        transaction.permitsOneUnchangedEligibilityRetry = false
+        expandedSplitChatNavigationTransaction = transaction
+        return transaction
+    }
+
+    @discardableResult
+    internal func markExpandedSplitChatNavigationPresenting(
+        token: UUID,
+        target: LastChatsNavigationSingleFlightCoordinator.Target,
+        destination: ChatViewController
+    ) -> Bool {
+        guard var transaction = expandedSplitChatNavigationTransaction,
+              transaction.token == token,
+              transaction.target == target,
+              transaction.destination === destination,
+              transaction.phase == .preparing else {
+            return false
+        }
+        if let splitViewController {
+            let supplementary = splitViewController.viewController(
+                for: .supplementary
+            )
+            let supplementaryTop = (supplementary as? UINavigationController)?
+                .topViewController ?? supplementary
+            transaction = transaction.replacingSupplementaryIdentity(
+                containerIdentifier:
+                    supplementary.map(ObjectIdentifier.init),
+                topViewControllerIdentifier:
+                    supplementaryTop.map(ObjectIdentifier.init)
+            )
+        }
+        transaction.phase = .presenting
+        transaction.activationContext = nil
+        transaction.preparationHandle = nil
+        expandedSplitChatNavigationTransaction = transaction
+        return true
+    }
+
+    @discardableResult
+    internal func completeExpandedSplitChatNavigationPresentation(
+        token: UUID,
+        target: LastChatsNavigationSingleFlightCoordinator.Target,
+        destination: ChatViewController,
+        transitionOwner: UIViewController
+    ) -> Bool {
+        guard var transaction = expandedSplitChatNavigationTransaction,
+              transaction.token == token,
+              transaction.target == target,
+              transaction.destination === destination,
+              transaction.phase == .presenting else {
+            return false
+        }
+        transaction.phase = .presented
+        transaction.preparationHandle = nil
+        expandedSplitChatNavigationTransaction = transaction
+        stopExpandedSplitAccountRegistryMutationObservation()
+        currentChatVC = destination
+        playerViewToolbar.delegate = destination
+        if chatOpenIntentOwnership?.navigationSource == .standard {
+            clearChatOpenIntentOwnership(destination: destination)
+        }
+        schedulePendingMessageNotificationRouteRetryOrEnqueue(
+            after: transitionOwner
+        )
+        return true
+    }
+
+    internal func resetExpandedSplitChatNavigationTransaction(
+        restorePreviousDetail: Bool,
+        preserveIntentOwnership: Bool = false
+    ) {
+        stopExpandedSplitAccountRegistryMutationObservation()
+        guard let transaction = expandedSplitChatNavigationTransaction else {
+            return
+        }
+        transaction.preparationHandle?.cancel()
+        if restorePreviousDetail,
+           currentChatVC == nil || currentChatVC === transaction.destination {
+            currentChatVC = transaction.previousVisibleDetail
+            playerViewToolbar.delegate = transaction.previousVisibleDetail
+        }
+        expandedSplitChatNavigationTransaction = nil
+        if !preserveIntentOwnership {
+            clearChatOpenIntentOwnership(destination: transaction.destination)
+        }
+    }
+
+    @discardableResult
+    internal func completeChatNavigationPresentation(
+        token: UUID,
+        target: LastChatsNavigationSingleFlightCoordinator.Target,
+        destination: ChatViewController
+    ) -> Bool {
+        guard chatNavigationSingleFlight.markPresented(
+            token: token,
+            target: target
+        ) else {
+            return false
+        }
+        clearRetainedCompactChatNavigationDestination(token: token)
+        if chatOpenIntentOwnership?.navigationSource == .standard {
+            clearChatOpenIntentOwnership(destination: destination)
+        }
+        schedulePendingMessageNotificationRouteRetryOrEnqueue(
+            after: destination
+        )
+        return true
+    }
+
+    /// Transition ownership can disappear between eligibility inspection and
+    /// UIKit registration. Every call site uses this helper so that race keeps
+    /// one coalesced async wake instead of silently dropping the pending route.
+    internal func schedulePendingMessageNotificationRouteRetryOrEnqueue(
+        after destination: UIViewController
+    ) {
+        if !schedulePendingMessageNotificationRouteRetry(after: destination) {
+            enqueuePendingMessageNotificationRouteWakeup()
+        }
+    }
+
+    internal func enqueuePendingMessageNotificationRouteWakeup() {
+        guard !isPendingMessageNotificationRetryScheduled else {
+            return
+        }
+        isPendingMessageNotificationRetryScheduled = true
+        pendingMessageNotificationRetryGeneration &+= 1
+        let generation = pendingMessageNotificationRetryGeneration
+        pendingMessageNotificationAsyncScheduler { [weak self] in
+            guard let self,
+                  self.isPendingMessageNotificationRetryScheduled,
+                  self.pendingMessageNotificationRetryGeneration == generation else {
+                return
+            }
+            self.isPendingMessageNotificationRetryScheduled = false
+            _ = self.pendingMessageNotificationRouteRetryHandler()
+        }
+    }
+
+    @discardableResult
+    internal func schedulePendingMessageNotificationRouteRetry(
+        after destination: UIViewController
+    ) -> Bool {
+        guard !isPendingMessageNotificationRetryScheduled else {
+            return true
+        }
+        isPendingMessageNotificationRetryScheduled = true
+        pendingMessageNotificationRetryGeneration &+= 1
+        let generation = pendingMessageNotificationRetryGeneration
+
+        let retry: () -> Void = { [weak self] in
+            guard let self,
+                  self.isPendingMessageNotificationRetryScheduled,
+                  self.pendingMessageNotificationRetryGeneration == generation else {
+                return
+            }
+            self.isPendingMessageNotificationRetryScheduled = false
+            _ = self.pendingMessageNotificationRouteRetryHandler()
+        }
+
+        let registered = pendingMessageNotificationTransitionRegistrar(
+            destination,
+            { [weak self] _ in
+                guard let self,
+                      self.pendingMessageNotificationRetryGeneration == generation else {
+                    return
+                }
+                // Cancellation does not consume the notification route. UIKit
+                // has nevertheless completed this transition epoch, so retry.
+                self.pendingMessageNotificationAsyncScheduler(retry)
+            }
+        )
+        guard registered else {
+            if pendingMessageNotificationRetryGeneration == generation {
+                isPendingMessageNotificationRetryScheduled = false
+            }
+            return false
+        }
+        return true
+    }
+
+    internal func cancelPendingMessageNotificationRouteRetry() {
+        pendingMessageNotificationRetryGeneration &+= 1
+        isPendingMessageNotificationRetryScheduled = false
+    }
+
+    internal func retryPendingMessageNotificationRouteOnLifecycleStability() {
+        enqueuePendingMessageNotificationRouteWakeup()
+    }
+
+    internal func updateChatOpenIntentOwnershipIfNeeded(
+        target: LastChatsNavigationSingleFlightCoordinator.Target,
+        destinationIdentifier: ObjectIdentifier,
+        intent: LastChatsResolvedChatOpenIntent,
+        navigationSource: ChatOpenNavigationSource
+    ) {
+        guard chatOpenIntentOwnership?.target != target ||
+                chatOpenIntentOwnership?.destinationIdentifier != destinationIdentifier ||
+                chatOpenIntentOwnership?.intent != intent ||
+                chatOpenIntentOwnership?.navigationSource != navigationSource else {
+            return
+        }
+        chatOpenIntentOwnership = LastChatsChatOpenIntentOwnership(
+            target: target,
+            destinationIdentifier: destinationIdentifier,
+            intent: intent,
+            navigationSource: navigationSource
+        )
+    }
+
+    internal func clearChatOpenIntentOwnership(
+        destination: ChatViewController? = nil
+    ) {
+        guard destination == nil ||
+                chatOpenIntentOwnership?.destinationIdentifier == destination.map(ObjectIdentifier.init) else {
+            return
+        }
+        destination?.chatOpenStableVisibilityAcknowledgementHandler = nil
+        chatOpenIntentOwnership = nil
     }
 
     internal func beginOutgoingChatOpenNavigationDeferral(
@@ -1418,6 +2309,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
               endOutgoingChatOpenNavigationDeferral(token: token, cancelled: true) else {
             return false
         }
+        clearRetainedCompactChatNavigationDestination(token: token)
         switch reason {
         case .presentationGuardRejected:
             DDLogDebug("LAST_CHATS_NAVIGATION event=preparationCancelled reason=guardRejected")
@@ -1483,6 +2375,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal func resetChatNavigationTransaction(cancelled: Bool) {
         let hadOutgoingDeferral = outgoingChatOpenNavigationDeferralToken != nil
         let hadTransaction = chatNavigationSingleFlight.state != nil
+        let retainedDestination = retainedCompactChatNavigationDestination?.controller
         if let preparationToken = outgoingChatOpenNavigationPreparationToken {
             _ = cancelOutgoingChatOpenNavigationPreparation(token: preparationToken)
         }
@@ -1490,7 +2383,16 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         chatNavigationPreparationTimeoutWorkItem = nil
         outgoingChatOpenNavigationDeferralToken = nil
         shouldResetChatNavigationTransactionOnNextAppearance = false
+        completedChatNavigationReturnTransition = nil
+        pendingChatNavigationTransitionCompletionTokens.removeAll()
         chatNavigationSingleFlight.reset()
+        clearRetainedCompactChatNavigationDestination()
+        if let retainedDestination {
+            clearChatOpenIntentOwnership(destination: retainedDestination)
+        }
+        if cancelled {
+            cancelPendingMessageNotificationRouteRetry()
+        }
         if hadTransaction {
             DDLogDebug("LAST_CHATS_NAVIGATION event=reset phase=idle")
         }
@@ -1506,19 +2408,92 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         guard chatNavigationSingleFlight.state != nil else {
             return
         }
+        completedChatNavigationReturnTransition = nil
         shouldResetChatNavigationTransactionOnNextAppearance = true
     }
 
-    internal func reconcileChatNavigationTransactionOnDidAppear() {
+    /// Accepts only the native terminal callback for the exact navigation
+    /// token. A cancelled push can structurally restore Last Chats and invoke
+    /// `viewDidAppear` before the transition coordinator publishes terminal;
+    /// that temporary hierarchy must not unlock another chat open.
+    @discardableResult
+    internal func completeChatNavigationReturnTransition(
+        token: UUID,
+        cancelled: Bool,
+        scheduleLifecycleRetry: Bool = true
+    ) -> Bool {
+        guard shouldResetChatNavigationTransactionOnNextAppearance,
+              chatNavigationSingleFlight.state?.token == token else {
+            return false
+        }
+        let sourceIsCurrentNavigationTop = navigationController == nil ||
+            navigationController?.topViewController === self
+        guard sourceIsCurrentNavigationTop else {
+            return false
+        }
+        guard hasCompletedCurrentAppearance else {
+            completedChatNavigationReturnTransition = .init(
+                token: token,
+                cancelled: cancelled
+            )
+            return false
+        }
+
+        completedChatNavigationReturnTransition = nil
+        resetChatNavigationTransaction(cancelled: cancelled)
+        if scheduleLifecycleRetry {
+            retryPendingMessageNotificationRouteOnLifecycleStability()
+        }
+        return true
+    }
+
+    /// Returns true while this reconciliation owns the lifecycle retry. The
+    /// caller must not enqueue a second retry in that case.
+    @discardableResult
+    internal func reconcileChatNavigationTransactionOnDidAppear(
+        scheduleLifecycleRetry: Bool = false
+    ) -> Bool {
+        hasCompletedCurrentAppearance = true
         let preservesProgrammaticPreparation =
             chatNavigationSingleFlight.state?.phase == .preparing &&
             !shouldResetChatNavigationTransactionOnNextAppearance
-        shouldResetChatNavigationTransactionOnNextAppearance = false
         guard !preservesProgrammaticPreparation else {
             DDLogDebug("LAST_CHATS_NAVIGATION event=preparationPreserved reason=firstAppearance")
-            return
+            return false
         }
-        resetChatNavigationTransaction(cancelled: false)
+        guard let state = chatNavigationSingleFlight.state else {
+            shouldResetChatNavigationTransactionOnNextAppearance = false
+            completedChatNavigationReturnTransition = nil
+            return false
+        }
+        if !shouldResetChatNavigationTransactionOnNextAppearance {
+            shouldResetChatNavigationTransactionOnNextAppearance = true
+        }
+        if let completion = completedChatNavigationReturnTransition,
+           completion.token == state.token {
+            return completeChatNavigationReturnTransition(
+                token: completion.token,
+                cancelled: completion.cancelled,
+                scheduleLifecycleRetry: scheduleLifecycleRetry
+            )
+        }
+        if completedChatNavigationReturnTransition != nil {
+            completedChatNavigationReturnTransition = nil
+        }
+        if pendingChatNavigationTransitionCompletionTokens.contains(
+            state.token
+        ) {
+            return true
+        }
+        if self.transitionCoordinator != nil ||
+            navigationController?.transitionCoordinator != nil {
+            return true
+        }
+        return completeChatNavigationReturnTransition(
+            token: state.token,
+            cancelled: false,
+            scheduleLifecycleRetry: scheduleLifecycleRetry
+        )
     }
 
     /// Resolves the source-side navigation barrier. This is internal so the
@@ -1598,6 +2573,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     override func resetState() {
         super.resetState()
+        self.resetExpandedSplitChatNavigationTransaction(
+            restorePreviousDetail: false
+        )
         self.currentChatVC = nil
         self.resetChatNavigationTransaction(cancelled: true)
         self.selectedChatIdentity = nil
@@ -3057,7 +4035,10 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     }
                 }
                 let durationMs = Int(Date().timeIntervalSince(renderStartedAt) * 1000)
-                DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateFinish pressureActive=\(pressureActive) rows=\(newDataset.count) visibleRows=\(self.tableView.indexPathsForVisibleRows?.count ?? 0) durationMs=\(durationMs) animated=\(shouldAnimate)")
+                let visibleRowCount = self.tableView.window == nil
+                    ? 0
+                    : self.tableView.indexPathsForVisibleRows?.count ?? 0
+                DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateFinish pressureActive=\(pressureActive) rows=\(newDataset.count) visibleRows=\(visibleRowCount) durationMs=\(durationMs) animated=\(shouldAnimate)")
             }
         }
     }
@@ -3072,7 +4053,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
         self.isDatasetUpdateInFlight = false
         self.canUpdateDataset = true
-        self.syncSelectedChatSelection()
+        if self.tableView.window != nil {
+            self.syncSelectedChatSelection()
+        }
         guard self.needsDatasetRefresh else { return }
         if self.hasVisibleDatasetUpdatePressureInProgress {
             self.runDatasetUpdateTask()
@@ -3159,6 +4142,14 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         prepare: @escaping (() -> Void)
     ) {
         if self.deferDatasetMutationForNavigationTransitionIfNeeded() {
+            return
+        }
+        if LastChatsDatasourceApplyPolicy.resolve(
+            isTableAttachedToWindow: self.tableView.window != nil
+        ) == .detachedSnapshot {
+            prepare()
+            self.tableView.reloadData()
+            self.finishDatasetUpdateCycle()
             return
         }
         if changes.deletedSections.isEmpty &&
@@ -3259,7 +4250,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal func subscribe() {
         bag = DisposeBag()
         configureVoiceMessagePlaybackCoordinatorObserver()
-        
+
         do {
             let realm = try WRealm.safe()
             Observable
@@ -3379,6 +4370,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                         self.unreadAllMessagesButton.isEnabled = AccountManager.shared.connectingUsers.value.isEmpty
                         self.unreadAllMessagesButton.backgroundColor = AccountManager.shared.connectingUsers.value.isNotEmpty ? MDCPalette.grey.tint500 : AccountColorManager.shared.topPalette().tint500
                     }
+                    self.retryPendingMessageNotificationRouteOnLifecycleStability()
                 }).disposed(by: bag)
         } catch {
             DDLogDebug("LastChatsViewController: \(#function). \(error.localizedDescription)")
@@ -3931,7 +4923,10 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         hasCompletedCurrentAppearance = true
-        reconcileChatNavigationTransactionOnDidAppear()
+        let chatNavigationReconciliationOwnsLifecycleRetry =
+            reconcileChatNavigationTransactionOnDidAppear(
+                scheduleLifecycleRetry: true
+            )
         cancelPendingBottomSearchDismissalAfterCancelledRoute()
         updateTitle(filter.value)
         UIView.performWithoutAnimation {
@@ -3942,11 +4937,18 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             animated: true
         )
         NotifyManager.shared.setLastChats(displayed: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            let center = UNUserNotificationCenter.current()
-            center.requestAuthorization(options: [.alert, .sound, .badge]) {
-                (granted, error) in
-                
+        if !chatNavigationReconciliationOwnsLifecycleRetry {
+            retryPendingMessageNotificationRouteOnLifecycleStability()
+        }
+        if shouldRequestNotificationAuthorizationPrompt {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                guard self?.shouldRequestNotificationAuthorizationPrompt == true else {
+                    return
+                }
+                let center = UNUserNotificationCenter.current()
+                center.requestAuthorization(options: [.alert, .sound, .badge]) {
+                    _, _ in
+                }
             }
         }
         AccountManager.shared.users.compactMap { $0.jid }.forEach {
@@ -3959,6 +4961,26 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
         isFirstLayout = true
         completeLeftMenuFirstPresentationQuietModeAfterFirstStableFrame()
+    }
+
+    private var shouldRequestNotificationAuthorizationPrompt: Bool {
+        LastChatsNotificationAuthorizationPromptPolicy.shouldRequest(
+            isLastChatsVisible:
+                isAppeared && viewIfLoaded?.window != nil,
+            applicationState: UIApplication.shared.applicationState,
+            sceneActivationState:
+                viewIfLoaded?.window?.windowScene?.activationState
+        )
+    }
+
+    override func viewWillTransition(
+        to size: CGSize,
+        with coordinator: UIViewControllerTransitionCoordinator
+    ) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            self?.retryPendingMessageNotificationRouteOnLifecycleStability()
+        }
     }
     
     override func viewWillDisappear(_ animated: Bool) {
@@ -3982,6 +5004,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
     
     deinit {
+        stopExpandedSplitAccountRegistryMutationObservation()
         unsubscribe()
     }
 }

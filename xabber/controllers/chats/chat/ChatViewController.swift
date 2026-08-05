@@ -39,6 +39,84 @@ enum ChatInitialFirstFrameHistoryConfiguration {
     static let pageSize: Int = 80
 }
 
+/// In-memory UI-intent identity. Exact anchors that share the same MAM
+/// transport target (`latest`) must still own different open generations.
+/// This value is never emitted, exported, or persisted.
+enum ChatOpenPerformanceSemanticTargetFingerprint: Equatable {
+    case latest
+    case message(ChatOpenMessageRequest)
+}
+
+/// One-shot bridge between the committed chat presentation and route
+/// ownership. A structural navigation attachment is intentionally
+/// insufficient: only the current opaque trace generation and its complete
+/// semantic request fingerprint may acknowledge the first stable frame.
+struct ChatOpenStableTargetAcknowledgementGate {
+    private var acceptedContext: ChatOpenPerformanceTraceContext?
+    private var acceptedSemanticTarget:
+        ChatOpenPerformanceSemanticTargetFingerprint?
+    private var acknowledged = false
+
+    mutating func accept(
+        context: ChatOpenPerformanceTraceContext,
+        semanticTarget: ChatOpenPerformanceSemanticTargetFingerprint
+    ) {
+        guard acceptedContext != context ||
+                acceptedSemanticTarget != semanticTarget else {
+            return
+        }
+        acceptedContext = context
+        acceptedSemanticTarget = semanticTarget
+        acknowledged = false
+    }
+
+    @discardableResult
+    mutating func acknowledge(
+        context: ChatOpenPerformanceTraceContext,
+        semanticTarget: ChatOpenPerformanceSemanticTargetFingerprint
+    ) -> Bool {
+        guard acceptedContext == context,
+              acceptedSemanticTarget == semanticTarget,
+              !acknowledged else {
+            return false
+        }
+        acknowledged = true
+        return true
+    }
+
+    func matches(
+        context: ChatOpenPerformanceTraceContext,
+        semanticTarget: ChatOpenPerformanceSemanticTargetFingerprint
+    ) -> Bool {
+        acknowledged &&
+            acceptedContext == context &&
+            acceptedSemanticTarget == semanticTarget
+    }
+
+    mutating func reset() {
+        acceptedContext = nil
+        acceptedSemanticTarget = nil
+        acknowledged = false
+    }
+}
+
+/// Captured synchronously while `ChatViewController.configure()` installs the
+/// destination background, before `configureDataset()` can publish a row.
+/// This receipt is process-local and carries no conversation identifiers.
+struct ChatDestinationBackdropInstallationReceipt: Equatable {
+    let isOpaque: Bool
+    let priorDatasourceRowCount: Int
+
+    static let unavailable = ChatDestinationBackdropInstallationReceipt(
+        isOpaque: false,
+        priorDatasourceRowCount: 0
+    )
+
+    var isOpaqueBeforeFirstDatasourceRow: Bool {
+        isOpaque && priorDatasourceRowCount == 0
+    }
+}
+
 struct ChatSearchActivationRequest: Equatable {
     let activateKeyboard: Bool
     let animated: Bool
@@ -522,6 +600,18 @@ struct ChatSavedVisiblePosition: Equatable {
 }
 
 enum ChatNavigationTransitionMutationPolicy {
+    static func isCancelledReappearance(
+        didRunDisappearanceCleanup: Bool,
+        didScheduleDisappearanceCleanup: Bool,
+        didCancelDisappearanceTransition: Bool,
+        hasRegisteredChatObservers: Bool
+    ) -> Bool {
+        hasRegisteredChatObservers &&
+            !didRunDisappearanceCleanup &&
+            (didScheduleDisappearanceCleanup ||
+                didCancelDisappearanceTransition)
+    }
+
     static func shouldDeferMutation(
         isTransitionActive: Bool,
         isCriticalForFirstFrame: Bool
@@ -1252,6 +1342,626 @@ final class ChatFloatingActionPanelView: UIView {
     }
 }
 
+struct ChatReadVisiblePresentationSnapshot: Equatable {
+    let isApplicationActive: Bool
+    let isWindowAttached: Bool
+    let isWindowSceneForegroundActive: Bool
+    let isKeyWindow: Bool
+    let isTopNavigationDestination: Bool
+    let isVisibleSplitSecondary: Bool
+    let hasCoveringPresentation: Bool
+    let isTransitionActive: Bool
+}
+
+#if DEBUG || CHAT_PERFORMANCE_LAB
+/// Failure-only evidence for the exact structural predicate used by
+/// `readVisiblePresentationSnapshot()`. The production snapshot hot path does
+/// not create this value; hosted tests request it lazily only after a rejected
+/// presentation receipt.
+internal struct ChatReadVisibleViewHierarchyDiagnostics: Equatable,
+    CustomStringConvertible {
+    internal enum Blocker: String, Equatable {
+        case viewNotLoaded
+        case viewHasNoWindow
+        case windowHidden
+        case windowAlphaZero
+        case ancestorWindowMismatch
+        case ancestorHidden
+        case ancestorAlphaZero
+        case rootFrameEmpty
+        case viewportEmpty
+        case noIntersection
+        case insufficientWidth
+        case insufficientHeight
+        case visible
+    }
+
+    let blocker: Blocker
+    let failingViewType: String?
+    let failingViewDepth: Int?
+    let failingViewIsHidden: Bool?
+    let failingViewAlpha: CGFloat?
+    let failingViewUsesExpectedWindow: Bool?
+    let ancestorChain: [String]
+    let rootViewBounds: CGRect?
+    let rootFrameInWindow: CGRect?
+    let viewport: CGRect?
+    let intersection: CGRect?
+    let requiredWidth: CGFloat?
+    let requiredHeight: CGFloat?
+
+    var description: String {
+        [
+            "blocker=\(blocker.rawValue)",
+            "failingType=\(failingViewType ?? "nil")",
+            "failingDepth=\(failingViewDepth.map { String($0) } ?? "nil")",
+            "failingHidden=\(failingViewIsHidden.map { String($0) } ?? "nil")",
+            "failingAlpha=\(failingViewAlpha.map { String(describing: $0) } ?? "nil")",
+            "failingSameWindow=\(failingViewUsesExpectedWindow.map { String($0) } ?? "nil")",
+            "rootBounds=\(rootViewBounds.map { String(describing: $0) } ?? "nil")",
+            "frameInWindow=\(rootFrameInWindow.map { String(describing: $0) } ?? "nil")",
+            "viewport=\(viewport.map { String(describing: $0) } ?? "nil")",
+            "intersection=\(intersection.map { String(describing: $0) } ?? "nil")",
+            "required=\(requiredWidth.map { String(describing: $0) } ?? "nil")x\(requiredHeight.map { String(describing: $0) } ?? "nil")",
+            "chain=\(ancestorChain)"
+        ].joined(separator: " ")
+    }
+}
+#endif
+
+enum ChatReadVisiblePresentationPolicy {
+    static let minimumMeaningfulVisibleExtent: CGFloat = 44
+
+    static func canAdvanceReadState(
+        hasPresentationReceipt: Bool,
+        snapshot: ChatReadVisiblePresentationSnapshot
+    ) -> Bool {
+        hasPresentationReceipt &&
+        snapshot.isApplicationActive &&
+        snapshot.isWindowAttached &&
+        snapshot.isWindowSceneForegroundActive &&
+        snapshot.isKeyWindow &&
+        (snapshot.isTopNavigationDestination || snapshot.isVisibleSplitSecondary) &&
+        !snapshot.hasCoveringPresentation &&
+        !snapshot.isTransitionActive
+    }
+
+    static func isMeaningfullyVisible(
+        itemFrame: CGRect,
+        viewport: CGRect
+    ) -> Bool {
+        guard !itemFrame.isEmpty,
+              !viewport.isEmpty else {
+            return false
+        }
+        let intersection = itemFrame.intersection(viewport)
+        guard !intersection.isNull,
+              !intersection.isEmpty else {
+            return false
+        }
+        let requiredWidth = min(minimumMeaningfulVisibleExtent, itemFrame.width)
+        let requiredHeight = min(minimumMeaningfulVisibleExtent, itemFrame.height)
+        return intersection.width >= requiredWidth &&
+            intersection.height >= requiredHeight
+    }
+}
+
+struct ChatReadVisibleMessageIdentity: Hashable {
+    let primary: String
+    let owner: String
+    let jid: String
+    let messageId: String
+    let sentDate: Date
+}
+
+struct ChatReadVisibleRowPresentationIdentity: Hashable {
+    let message: ChatReadVisibleMessageIdentity
+    let section: Int
+    let datasourceGeneration: UInt64
+}
+
+struct ChatReadVisibleGeometrySignature: Equatable {
+    struct Row: Equatable {
+        let indexPath: IndexPath
+        let message: ChatReadVisibleMessageIdentity
+        let frame: CGRect
+    }
+
+    let viewport: CGRect
+    let datasourceGeneration: UInt64
+    let rows: [Row]
+}
+
+#if DEBUG || CHAT_PERFORMANCE_LAB
+struct ChatReadVisibleRowGeometryDiagnostics: Equatable {
+    let indexPath: IndexPath
+    let messageIdentity: ChatReadVisibleMessageIdentity?
+    let itemFrame: CGRect
+    let viewport: CGRect
+    let intersection: CGRect
+    let requiredWidth: CGFloat
+    let requiredHeight: CGFloat
+    let isMeaningfullyVisible: Bool
+}
+#endif
+
+struct ChatPendingMentionReadCandidate: Hashable {
+    let notificationPrimary: String
+    let messagePrimary: String
+    let expectedMessageIdentity: ChatReadVisibleMessageIdentity?
+    let initialFrameEffectToken: ChatInitialFrameEffectToken?
+
+    init(
+        notificationPrimary: String,
+        messagePrimary: String,
+        expectedMessageIdentity: ChatReadVisibleMessageIdentity? = nil,
+        initialFrameEffectToken: ChatInitialFrameEffectToken? = nil
+    ) {
+        self.notificationPrimary = notificationPrimary
+        self.messagePrimary = messagePrimary
+        self.expectedMessageIdentity = expectedMessageIdentity
+        self.initialFrameEffectToken = initialFrameEffectToken
+    }
+}
+
+struct ChatPendingMentionReadFlush: Equatable {
+    let identifier: UInt64
+    let generation: UInt64
+    let geometryGeneration: UInt64
+    let candidates: [ChatPendingMentionReadCandidate]
+    let rowPresentationIdentityByNotificationPrimary:
+        [String: ChatReadVisibleRowPresentationIdentity]
+
+    var notificationPrimaries: Set<String> {
+        Set(candidates.map(\.notificationPrimary))
+    }
+
+    /// Exact initial-frame owner shared by every candidate in this flush.
+    /// A mixed or natural-scroll flush deliberately has no single owner.
+    var exactInitialFrameEffectToken: ChatInitialFrameEffectToken? {
+        guard let first = candidates.first?.initialFrameEffectToken,
+              candidates.allSatisfy({
+                $0.initialFrameEffectToken == first
+              }) else {
+            return nil
+        }
+        return first
+    }
+}
+
+enum ChatReadVisiblePresentationLifecycleState: Equatable {
+    case awaitingPresentationReceipt
+    case active
+    case suspended(canResumeAfterForeground: Bool)
+}
+
+struct ChatReadVisiblePresentationReceiptHandoff: Equatable {
+    let presentationGeneration: UInt64
+}
+
+final class ChatReadVisiblePresentationCoordinator {
+    private let stateLock = NSLock()
+    private var generationValue: UInt64 = 0
+    private var geometryGenerationValue: UInt64 = 0
+    private var lifecycleStateValue:
+        ChatReadVisiblePresentationLifecycleState = .awaitingPresentationReceipt
+    private var successfulFlushCountValue: Int = 0
+    private var nextFlushIdentifier: UInt64 = 0
+
+    private var pendingByNotificationPrimary:
+        [String: ChatPendingMentionReadCandidate] = [:]
+    private var inFlightByNotificationPrimary:
+        [String: ChatPendingMentionReadCandidate] = [:]
+    private var inFlightFlushesByIdentifier:
+        [UInt64: ChatPendingMentionReadFlush] = [:]
+    private var consumedNotificationPrimaries: Set<String> = []
+    private var claimedCommitFlushIdentifiers: Set<UInt64> = []
+    private var startedMutationFlushIdentifiers: Set<UInt64> = []
+
+    var generation: UInt64 {
+        withStateLock { generationValue }
+    }
+
+    var hasPresentationReceipt: Bool {
+        withStateLock { lifecycleStateValue == .active }
+    }
+
+    var lifecycleState: ChatReadVisiblePresentationLifecycleState {
+        withStateLock { lifecycleStateValue }
+    }
+
+    var geometryGeneration: UInt64 {
+        withStateLock { geometryGenerationValue }
+    }
+
+    var successfulFlushCount: Int {
+        withStateLock { successfulFlushCountValue }
+    }
+
+    var pendingCandidateCount: Int {
+        withStateLock { pendingByNotificationPrimary.count }
+    }
+
+    var inFlightFlushCount: Int {
+        withStateLock { inFlightFlushesByIdentifier.count }
+    }
+
+    var pendingMessagePrimaries: Set<String> {
+        withStateLock {
+            Set(pendingByNotificationPrimary.values.map(\.messagePrimary))
+        }
+    }
+
+    func beginPresentationPreparation() {
+        invalidatePresentation()
+    }
+
+    func recordPresentationReceipt() {
+        withStateLock {
+            switch lifecycleStateValue {
+            case .awaitingPresentationReceipt, .active:
+                lifecycleStateValue = .active
+            case .suspended(canResumeAfterForeground: false):
+                // A controller backgrounded before its first presentation can
+                // still receive its first real viewDidAppear receipt later.
+                lifecycleStateValue = .active
+            case .suspended(canResumeAfterForeground: true):
+                // Once an already presented controller is suspended, an old
+                // appearance callback cannot silently reinstate its receipt.
+                break
+            }
+        }
+    }
+
+    /// Revokes captured work without discarding it. Unlike hard invalidation,
+    /// background suspension preserves pending candidates and returns every
+    /// uncommitted in-flight candidate to the pending set.
+    @discardableResult
+    func suspendForApplicationBackground() -> Bool {
+        withStateLock {
+            if case .suspended = lifecycleStateValue {
+                return false
+            }
+
+            let canResumeAfterForeground = lifecycleStateValue == .active
+            generationValue &+= 1
+            _ = requeueAllUnstartedFlushesLocked()
+            lifecycleStateValue = .suspended(
+                canResumeAfterForeground: canResumeAfterForeground
+            )
+            return true
+        }
+    }
+
+    /// Foreground activation is a new receipt only for the same controller
+    /// that was structurally presented before suspension, and only while the
+    /// complete current structural policy is true.
+    @discardableResult
+    func resumeAfterApplicationForeground(
+        snapshot: ChatReadVisiblePresentationSnapshot
+    ) -> Bool {
+        withStateLock {
+            guard lifecycleStateValue == .suspended(
+                canResumeAfterForeground: true
+            ),
+                  ChatReadVisiblePresentationPolicy.canAdvanceReadState(
+                    hasPresentationReceipt: true,
+                    snapshot: snapshot
+                  ) else {
+                return false
+            }
+            lifecycleStateValue = .active
+            return true
+        }
+    }
+
+    func enqueue(_ candidates: [ChatPendingMentionReadCandidate]) {
+        withStateLock {
+            candidates.forEach { candidate in
+                guard candidate.notificationPrimary.isNotEmpty,
+                      candidate.messagePrimary.isNotEmpty,
+                      !consumedNotificationPrimaries.contains(candidate.notificationPrimary),
+                      inFlightByNotificationPrimary[candidate.notificationPrimary] == nil else {
+                    return
+                }
+                var replacement = candidate
+                if let pending = pendingByNotificationPrimary[
+                    candidate.notificationPrimary
+                ],
+                   pending.messagePrimary == candidate.messagePrimary {
+                    // A generic visibility resample carries less ownership
+                    // information than an exact initial-frame candidate and
+                    // may never erase its revocation token. Conversely, a
+                    // fresh non-nil token is an explicit new owner and must
+                    // replace the old one. Row identity follows the same
+                    // strongest-evidence rule independently of ownership.
+                    replacement = ChatPendingMentionReadCandidate(
+                        notificationPrimary: candidate.notificationPrimary,
+                        messagePrimary: candidate.messagePrimary,
+                        expectedMessageIdentity:
+                            candidate.expectedMessageIdentity ??
+                                pending.expectedMessageIdentity,
+                        initialFrameEffectToken:
+                            candidate.initialFrameEffectToken ??
+                                pending.initialFrameEffectToken
+                    )
+                    guard replacement != pending else { return }
+                }
+                pendingByNotificationPrimary[candidate.notificationPrimary] =
+                    replacement
+            }
+        }
+    }
+
+    /// Revokes only effects owned by the superseded initial frame. Natural
+    /// scroll candidates and candidates from a newer attempt remain intact.
+    /// A flush that already crossed its first persistent mutation is the
+    /// linearization winner and retains exactly-once completion ownership.
+    func revoke(initialFrameEffectToken token: ChatInitialFrameEffectToken) {
+        withStateLock {
+            pendingByNotificationPrimary = pendingByNotificationPrimary
+                .filter { $0.value.initialFrameEffectToken != token }
+            let revokedFlushes = inFlightFlushesByIdentifier.values.filter {
+                !startedMutationFlushIdentifiers.contains($0.identifier) &&
+                    $0.candidates.contains {
+                        $0.initialFrameEffectToken == token
+                    }
+            }
+            revokedFlushes.forEach { flush in
+                claimedCommitFlushIdentifiers.remove(flush.identifier)
+                inFlightFlushesByIdentifier.removeValue(
+                    forKey: flush.identifier
+                )
+                flush.candidates.forEach { candidate in
+                    if inFlightByNotificationPrimary[
+                        candidate.notificationPrimary
+                    ] == candidate {
+                        inFlightByNotificationPrimary.removeValue(
+                            forKey: candidate.notificationPrimary
+                        )
+                    }
+                    if candidate.initialFrameEffectToken != token,
+                       !consumedNotificationPrimaries.contains(
+                        candidate.notificationPrimary
+                       ) {
+                        pendingByNotificationPrimary[
+                            candidate.notificationPrimary
+                        ] = candidate
+                    }
+                }
+            }
+        }
+    }
+
+    func takeFlush(
+        snapshot: ChatReadVisiblePresentationSnapshot,
+        visibleMessagePrimaries: Set<String>,
+        rowPresentationIdentityByMessagePrimary:
+            [String: ChatReadVisibleRowPresentationIdentity] = [:],
+        candidateAdmission:
+            ((ChatPendingMentionReadCandidate) -> Bool)? = nil
+    ) -> ChatPendingMentionReadFlush? {
+        return withStateLock { () -> ChatPendingMentionReadFlush? in
+            guard ChatReadVisiblePresentationPolicy.canAdvanceReadState(
+                hasPresentationReceipt: lifecycleStateValue == .active,
+                snapshot: snapshot
+            ) else {
+                return nil
+            }
+
+            let requiresExactRowIdentity =
+                !rowPresentationIdentityByMessagePrimary.isEmpty
+            if let candidateAdmission {
+                pendingByNotificationPrimary = pendingByNotificationPrimary
+                    .filter { candidateAdmission($0.value) }
+            }
+            let candidates = pendingByNotificationPrimary.values
+                .compactMap { candidate -> ChatPendingMentionReadCandidate? in
+                    guard visibleMessagePrimaries.contains(
+                        candidate.messagePrimary
+                    ) else {
+                        return nil
+                    }
+                    guard requiresExactRowIdentity else {
+                        return candidate
+                    }
+                    guard let rowIdentity =
+                            rowPresentationIdentityByMessagePrimary[
+                                candidate.messagePrimary
+                            ],
+                          candidate.expectedMessageIdentity.map({
+                              $0 == rowIdentity.message
+                          }) ?? true else {
+                        return nil
+                    }
+                    return ChatPendingMentionReadCandidate(
+                        notificationPrimary: candidate.notificationPrimary,
+                        messagePrimary: candidate.messagePrimary,
+                        expectedMessageIdentity:
+                            candidate.expectedMessageIdentity ?? rowIdentity.message,
+                        initialFrameEffectToken:
+                            candidate.initialFrameEffectToken
+                    )
+                }
+                .sorted { $0.notificationPrimary < $1.notificationPrimary }
+            guard candidates.isNotEmpty else {
+                return nil
+            }
+
+            candidates.forEach { candidate in
+                pendingByNotificationPrimary.removeValue(
+                    forKey: candidate.notificationPrimary
+                )
+                inFlightByNotificationPrimary[candidate.notificationPrimary] = candidate
+            }
+            nextFlushIdentifier &+= 1
+            let flush = ChatPendingMentionReadFlush(
+                identifier: nextFlushIdentifier,
+                generation: generationValue,
+                geometryGeneration: geometryGenerationValue,
+                candidates: candidates,
+                rowPresentationIdentityByNotificationPrimary: Dictionary(
+                    uniqueKeysWithValues: candidates.compactMap { candidate in
+                        rowPresentationIdentityByMessagePrimary[
+                            candidate.messagePrimary
+                        ].map { (candidate.notificationPrimary, $0) }
+                    }
+                )
+            )
+            inFlightFlushesByIdentifier[flush.identifier] = flush
+            return flush
+        }
+    }
+
+    /// Main-owned scroll/layout changes rotate the geometry epoch and revoke
+    /// every flush that has not crossed the first persistent mutation. A
+    /// claimed permit remains deliberately revocable until that boundary.
+    /// Started transactions keep their exactly-once completion semantics.
+    @discardableResult
+    func invalidateUnstartedFlushesForGeometryChange() -> Bool {
+        withStateLock {
+            geometryGenerationValue &+= 1
+            return requeueAllUnstartedFlushesLocked()
+        }
+    }
+
+    /// Reserves a captured flush for one worker. This claim remains revocable
+    /// until `performFirstPersistentMutationIfPermitted` linearizes the first
+    /// actual Realm property mutation under the same state lock.
+    @discardableResult
+    func claimCurrentMutationPermit(
+        for flush: ChatPendingMentionReadFlush
+    ) -> Bool {
+        withStateLock {
+            guard flush.generation == generationValue,
+                  flush.geometryGeneration == geometryGenerationValue,
+                  lifecycleStateValue == .active,
+                  !claimedCommitFlushIdentifiers.contains(flush.identifier),
+                  !startedMutationFlushIdentifiers.contains(flush.identifier),
+                  inFlightFlushesByIdentifier[flush.identifier] == flush,
+                  flush.candidates.allSatisfy({ candidate in
+                      inFlightByNotificationPrimary[candidate.notificationPrimary] == candidate
+                  }) else {
+                return false
+            }
+            claimedCommitFlushIdentifiers.insert(flush.identifier)
+            return true
+        }
+    }
+
+    /// The closure must contain only the first real Realm property mutation.
+    /// Realm opening/querying, reconciliation, and AccountManager work remain
+    /// outside this minimal critical section. Background suspension that wins
+    /// this lock revokes/requeues the flush; once this closure runs, the flush
+    /// owns the transaction and must never be replayed on foreground.
+    @discardableResult
+    func performFirstPersistentMutationIfPermitted(
+        for flush: ChatPendingMentionReadFlush,
+        _ firstMutation: () -> Void
+    ) -> Bool {
+        withStateLock {
+            guard flush.generation == generationValue,
+                  flush.geometryGeneration == geometryGenerationValue,
+                  lifecycleStateValue == .active,
+                  claimedCommitFlushIdentifiers.contains(flush.identifier),
+                  !startedMutationFlushIdentifiers.contains(flush.identifier),
+                  inFlightFlushesByIdentifier[flush.identifier] == flush,
+                  flush.candidates.allSatisfy({ candidate in
+                      inFlightByNotificationPrimary[candidate.notificationPrimary] == candidate
+                  }) else {
+                return false
+            }
+            firstMutation()
+            claimedCommitFlushIdentifiers.remove(flush.identifier)
+            startedMutationFlushIdentifiers.insert(flush.identifier)
+            return true
+        }
+    }
+
+    @discardableResult
+    func complete(
+        flush: ChatPendingMentionReadFlush,
+        succeeded: Bool
+    ) -> Bool {
+        withStateLock {
+            let belongsToCurrentGeneration = flush.generation == generationValue
+            let startedBeforeInvalidation =
+                startedMutationFlushIdentifiers.contains(flush.identifier)
+            guard belongsToCurrentGeneration || startedBeforeInvalidation else {
+                return false
+            }
+            claimedCommitFlushIdentifiers.remove(flush.identifier)
+            startedMutationFlushIdentifiers.remove(flush.identifier)
+            inFlightFlushesByIdentifier.removeValue(forKey: flush.identifier)
+            var didCompleteCandidate = false
+            flush.candidates.forEach { candidate in
+                guard inFlightByNotificationPrimary[candidate.notificationPrimary] == candidate else {
+                    return
+                }
+                inFlightByNotificationPrimary.removeValue(
+                    forKey: candidate.notificationPrimary
+                )
+                didCompleteCandidate = true
+                if succeeded {
+                    consumedNotificationPrimaries.insert(candidate.notificationPrimary)
+                } else if !consumedNotificationPrimaries.contains(candidate.notificationPrimary) {
+                    pendingByNotificationPrimary[candidate.notificationPrimary] = candidate
+                }
+            }
+            if succeeded && didCompleteCandidate {
+                successfulFlushCountValue += 1
+            }
+            return belongsToCurrentGeneration && didCompleteCandidate
+        }
+    }
+
+    func invalidatePresentation() {
+        withStateLock {
+            generationValue &+= 1
+            geometryGenerationValue &+= 1
+            lifecycleStateValue = .awaitingPresentationReceipt
+            pendingByNotificationPrimary.removeAll(keepingCapacity: false)
+            inFlightByNotificationPrimary.removeAll(keepingCapacity: false)
+            inFlightFlushesByIdentifier.removeAll(keepingCapacity: false)
+            consumedNotificationPrimaries.removeAll(keepingCapacity: false)
+            claimedCommitFlushIdentifiers.removeAll(keepingCapacity: false)
+            startedMutationFlushIdentifiers.removeAll(keepingCapacity: false)
+        }
+    }
+
+    private func requeueAllUnstartedFlushesLocked() -> Bool {
+        let revokedFlushes = inFlightFlushesByIdentifier.values.filter {
+            !startedMutationFlushIdentifiers.contains($0.identifier)
+        }
+        var didRequeueCandidate = false
+        revokedFlushes.forEach { flush in
+            flush.candidates.forEach { candidate in
+                guard !consumedNotificationPrimaries.contains(
+                    candidate.notificationPrimary
+                ) else {
+                    return
+                }
+                pendingByNotificationPrimary[candidate.notificationPrimary] = candidate
+                if inFlightByNotificationPrimary[candidate.notificationPrimary] == candidate {
+                    inFlightByNotificationPrimary.removeValue(
+                        forKey: candidate.notificationPrimary
+                    )
+                }
+                didRequeueCandidate = true
+            }
+            inFlightFlushesByIdentifier.removeValue(forKey: flush.identifier)
+            claimedCommitFlushIdentifiers.remove(flush.identifier)
+        }
+        return didRequeueCandidate
+    }
+
+    private func withStateLock<T>(_ work: () throws -> T) rethrows -> T {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return try work()
+    }
+}
+
 class ChatViewController: MessagesViewController {
     static let staleDatasourceFallbackPrimary = "stale-datasource-fallback"
 
@@ -1500,8 +2210,20 @@ class ChatViewController: MessagesViewController {
     var datasource: [Datasource] = [] {
         didSet {
             rebuildScrollResidentMetadata()
+            assert(Thread.isMainThread, "Chat datasource geometry is main-owned")
+            self.lastReadVisibleGeometrySignature = nil
+            _ = self.readVisiblePresentationCoordinator
+                .invalidateUnstartedFlushesForGeometryChange()
+#if DEBUG || CHAT_PERFORMANCE_LAB
+            self.datasourceDidSetForTests?(self.datasource)
+#endif
         }
     }
+#if DEBUG || CHAT_PERFORMANCE_LAB
+    /// Captures the exact logical publication boundary for focused lifecycle
+    /// tests. Shipping controllers do not install or compile this observer.
+    internal var datasourceDidSetForTests: (([Datasource]) -> Void)?
+#endif
     var datasourceSnapshot: ChatDatasourceSnapshot = .empty
     var scrollResidentMetadata: ChatScrollResidentMetadata = .empty
     var scrollResidentMetadataGeneration: UInt64 = 0
@@ -1575,7 +2297,29 @@ class ChatViewController: MessagesViewController {
     var hasCompletedInitialHistoryViewAppearance: Bool = false
     var initialLatestOpenStabilizationState: ChatInitialLatestOpenStabilizationState = .inactive
     var initialLocalFirstFramePhase: ChatLocalFirstFramePhase = .idle
+    var initialLocalFirstFrameReadinessProof:
+        ChatTimelineInitialFrameReadinessProof? = nil
     var initialLocalFirstFrameMappingToken: ChatDatasetMappingCancellationToken? = nil
+    var initialLocalFirstFramePresentationGeneration: UInt64 = 0
+    var initialLocalFirstFramePresentationOwnership:
+        ChatInitialFramePresentationOwnership? = nil
+    var initialLocalFirstFrameLatestEffectToken:
+        ChatInitialFrameEffectToken? = nil
+    /// The generation whose outer Core Animation transaction has produced a
+    /// committed content/empty receipt. Before this boundary an exact rollback
+    /// snapshot may replace A; afterwards request routing uses normal loaded
+    /// navigation and must never regress the visible chat to skeleton.
+    var initialLocalFirstFrameCoreAnimationReceiptGeneration: UInt64? = nil
+    /// Non-nil only while the synchronous success terminal for this exact
+    /// publication is settling controller state. A reentrant replacement is
+    /// latched until the epilogue so it cannot start a nested mapping while A
+    /// is still draining its own callbacks.
+    var initialLocalFirstFrameTerminalizingAttempt:
+        ChatInitialFramePresentationAttempt? = nil
+    var deferredInitialLocalFirstFrameReplacement:
+        ChatDeferredInitialFrameReplacement? = nil
+    var activePostBootstrapInitialFrameAdmission:
+        ChatPostBootstrapInitialFrameAdmission? = nil
     var initialLocalFirstFramePresentationRetryDescriptor: ChatLocalFirstFrameDescriptor? = nil
     var initialLocalFirstFrameCompletions: [() -> Void] = []
     var pendingBootstrapFirstFrameReadinessCompletions: [() -> Void] = []
@@ -1603,6 +2347,9 @@ class ChatViewController: MessagesViewController {
     
 // attachments
     var chatAttachmentFlowCoordinator: ChatAttachmentFlowCoordinating? = nil
+#if DEBUG
+    internal var chatAttachmentPickerEntryHandlerForTesting: (() -> Void)?
+#endif
     
 // Status
     var statusTextObserver: BehaviorRelay<String> = BehaviorRelay(value: " ")
@@ -1713,6 +2460,8 @@ class ChatViewController: MessagesViewController {
     var searchResultNavigationState: ChatSearchResultNavigationState = .idle
     var pendingOpenMessageRequest: ChatOpenMessageRequest? = nil
     internal var backgroundPresentationMode: ChatBackgroundPresentationMode = .automatic
+    internal private(set) var chatDestinationBackdropInstallationReceipt:
+        ChatDestinationBackdropInstallationReceipt = .unavailable
     internal var isNavigationTransitionActive: Bool = false
     internal var isPreparingStackedNavigationPresentation: Bool = false
     internal var isStackedNavigationPresentationPreparationCancelled: Bool = false
@@ -1720,11 +2469,21 @@ class ChatViewController: MessagesViewController {
     internal var didDeferOpenMessageRequestForNavigationTransition: Bool = false
     internal var needsNavigationChromeReconciliationAfterCancelledTransition: Bool = false
     private var hasRegisteredNavigationTransitionCompletion: Bool = false
+    private var pendingNavigationTransitionReadStateHandoff:
+        ChatReadVisiblePresentationReceiptHandoff?
     private var pendingNavigationTransitionWork: [() -> Void] = []
     internal var didScheduleNavigationDisappearanceCleanup: Bool = false
     internal var didRunNavigationDisappearanceCleanup: Bool = false
+    /// Remains set after an interactive pop cancellation until the next
+    /// disappearance attempt. It closes the lifecycle ordering window where
+    /// UIKit may deliver a late `viewDidDisappear` after reporting that the
+    /// transition itself was cancelled.
+    internal var didCancelNavigationDisappearanceTransition: Bool = false
+    internal var isHandlingCancelledInteractiveReappearance: Bool = false
     var activeAnchorExecutionState: ChatAnchorExecutionState? = nil
     var activeAnchorExecutionHooks: ChatAnchorExecutionHooks? = nil
+    var activeAnchorPersistenceMaterializationAdmission:
+        ChatAnchorPersistenceMaterializationAdmission? = nil
     internal let anchorTransactionGate = ChatAnchorTransactionGate()
     internal var anchorTransactionTokenByQueryId: [String: ChatAnchorTransactionToken] = [:]
     internal var anchorTransactionTimeoutWorkItems: [String: DispatchWorkItem] = [:]
@@ -1754,6 +2513,24 @@ class ChatViewController: MessagesViewController {
     internal var chatArchiveMainStallProbeOperation: String?
     internal var chatOpenTimingSession: ChatOpenTimingSession?
     private var chatOpenFirstFrameSignpost: ChatPerformanceSignposts.Interval?
+    internal let chatOpenPerformanceTraceLifecycle =
+        ChatOpenPerformanceTraceLifecycle()
+    internal var chatOpenPerformanceTraceConversationKey:
+        ChatTimelineConversationKey?
+    internal var chatOpenPerformanceTraceTargetFingerprint:
+        ChatOpenPerformanceSemanticTargetFingerprint?
+    internal var chatOpenStableTargetAcknowledgementGate =
+        ChatOpenStableTargetAcknowledgementGate()
+    internal var chatOpenStableVisibilityAcknowledgementHandler:
+        ((ChatOpenPerformanceTraceContext,
+          ChatOpenPerformanceSemanticTargetFingerprint) -> Void)?
+    private var chatOpenPerformanceStableFrameDisplayLink: CADisplayLink?
+    private var chatOpenPerformanceStableFrameContext:
+        ChatOpenPerformanceTraceContext?
+    private var chatOpenPerformanceStableFrameTargetFingerprint:
+        ChatOpenPerformanceSemanticTargetFingerprint?
+    private var chatOpenPerformanceStableFrameInitialPresentationAttempt:
+        ChatInitialFramePresentationAttempt?
     private var pendingSendToLocalRowSignpost: ChatPerformanceSignposts.Interval?
     internal lazy var scrollWorkScheduler = ChatScrollWorkScheduler { [weak self] request in
         self?.performCoalescedScrollWork(request)
@@ -1784,11 +2561,26 @@ class ChatViewController: MessagesViewController {
     var isInitialBootstrapInFlight: Bool = false
     var initialBootstrapLeaseKey: ChatInitialBootstrapRequestKey? = nil
     var initialBootstrapTargetFingerprint: MessageArchiveManager.ChatBootstrapTargetFingerprint? = nil
+    var initialBootstrapPerformanceSemanticTargetFingerprint:
+        ChatOpenPerformanceSemanticTargetFingerprint? = nil
     var initialBootstrapFollowUpTargetOverride: MessageArchiveManager.ChatBootstrapPageTarget? = nil
+    var pendingInitialBootstrapArchiveRequestAfterSkeletonReceiptShowsFailure:
+        Bool?
+    var savedPositionFirstFrameProbeResult: ChatSavedPositionFirstFrameProbeResult? = nil
+    var isInitialBootstrapArchiveRequestDeferredForSavedPositionProbe: Bool = false
     var interactiveChatOpenGate: AccountInteractiveChatOpenGate? = nil
     var interactiveChatOpenGateToken: AccountInteractiveChatOpenGate.Token? = nil
     var initialBootstrapReadinessObservationToken: ChatInitialBootstrapRequestCoordinator.ObservationToken? = nil
     var initialBootstrapReadinessObservationKey: ChatInitialBootstrapRequestKey? = nil
+    /// UIKit publication eligibility is independent from archive transport and
+    /// persistence. Background work may finish preparing the current frame,
+    /// but only foreground may replace the committed skeleton with it.
+    var isInitialFramePresentationLifecycleEligible: Bool = true
+    var initialFramePresentationApplicationStateProvider: () -> UIApplication.State = {
+        UIApplication.shared.applicationState
+    }
+    var pendingInitialFrameLifecyclePresentation:
+        ChatInitialFrameLifecyclePresentation? = nil
     var didReceiveInitialBootstrapEndPage: Bool = false
     var initialBootstrapPageEndState: MessageArchivePageEndState? = nil
     var initialBootstrapResultCount: Int? = nil
@@ -1807,6 +2599,10 @@ class ChatViewController: MessagesViewController {
     var initialBootstrapLocalHistoryFallbackWorkItem: DispatchWorkItem? = nil
     var allowsStaleLocalHistoryDuringInitialBootstrap: Bool = false
     var allowsBootstrapFailureFallback: Bool = false
+    /// A user-triggered retry keeps the already committed terminal overlay
+    /// visible until a durable replacement frame commits. Transport and
+    /// persistence phases must not expose an intermediate bare skeleton.
+    var preservesBootstrapFailureOverlayUntilRetryCommit: Bool = false
     /// A persistence-confirmed page may still miss a synchronization boundary
     /// that advanced while its transport was in flight. Allow one interactive
     /// repair in the current controller lifecycle, then surface retry instead
@@ -1814,6 +2610,54 @@ class ChatViewController: MessagesViewController {
     var hasAttemptedInitialBootstrapBoundaryFollowUp: Bool = false
     var appliedBootstrapLoadingState: ChatBootstrapLoadingState?
     var lastBootstrapAtomicRevealPlan: ChatBootstrapAtomicRevealPlan?
+#if DEBUG || CHAT_PERFORMANCE_LAB
+    /// Counts admission into the local presentation retry without coupling a
+    /// focused regression test to its asynchronous mapping implementation.
+    var initialLocalFirstFrameRetryScheduledForTests: (() -> Void)?
+    /// Deterministic fixture observer emitted from the accepted production
+    /// initial-frame commit. Evidence stays process-local; its accessibility
+    /// projection is numeric or closed-enum only.
+    var performanceFixtureInitialFrameCommitDiagnosticsHandler:
+        ((ChatPerformanceInitialFrameCommitDiagnostics) -> Void)?
+    /// Deterministic DEBUG barrier entered after an initial frame is prepared
+    /// and before its off-main display mapping starts. Production leaves nil.
+    var initialFirstFrameMappingBarrierForTests: (() -> Void)?
+    /// Optional deterministic transport boundary for DEBUG/lab fixtures.
+    /// Production controllers leave it nil and retain normal archive dispatch.
+    var performanceFixtureRemoteHistoryActionHandler:
+        ((ChatPerformanceFixtureRemoteHistoryAction) ->
+            ChatPerformanceFixtureRemoteHistoryDisposition)?
+    /// DEBUG/lab-only production-shaped archive transport. The controller
+    /// consults this only after its real request admission has produced the
+    /// query identifiers and lifecycle owners used by production.
+    var performanceFixtureArchiveTransportProvider:
+        ((ChatPerformanceFixtureArchiveTransportRequest) ->
+            ChatPerformanceFixtureArchiveTransportSession?)?
+    /// One fixture-owned serial queue keeps the production-shaped archive
+    /// start/persist path off main without changing production scheduling.
+    var performanceFixtureArchiveTransportExecutor:
+        ((@escaping () -> Void) -> Void)?
+    var performanceFixtureArchiveTransportDidStartHandler:
+        ((ChatPerformanceFixtureArchiveTransportRequest) -> Void)?
+    var performanceFixtureArchiveTransportCancellationHandler:
+        ((String) -> Void)?
+    var performanceFixtureLinkedPageTraceContextHandler:
+        ((ChatOpenPerformanceTraceContext) -> Void)?
+    /// Query-scoped detached persistence remains active after the MAM parser
+    /// has delivered its raw final. Fixture stability must wait for the typed
+    /// flush + unregister terminal, not only for transport-queue idleness.
+    var performanceFixtureDetachedPersistenceQueryIds: Set<String> = []
+    var performanceFixtureDetachedPersistenceTerminalHandler:
+        ((String) -> Void)?
+    /// Exact DEBUG/lab receipt emitted only after the production
+    /// width-transition cache and staged semantic offset have committed.
+    /// Production controllers leave this nil.
+    var performanceFixtureWidthTransitionLayoutCommitHandler:
+        ((Int, CGSize) -> Void)?
+    /// Failure/dwell evidence intentionally terminates on the skeleton frame.
+    /// Successful opens leave this false and wait for content/empty instead.
+    var performanceFixtureAllowsSkeletonStableFrame = false
+#endif
     var hasConfirmedArchiveEndThisSession: Bool = false
     var hasUsedArchiveEndVerificationProbe: Bool = false
     var inSearchMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
@@ -1865,7 +2709,8 @@ class ChatViewController: MessagesViewController {
             self.isNavigationTransitionActive = true
         }
         guard !self.hasRegisteredNavigationTransitionCompletion,
-              let coordinator = self.transitionCoordinator else {
+              let coordinator = self.transitionCoordinator ??
+                self.navigationController?.transitionCoordinator else {
             return
         }
         self.isNavigationTransitionActive = true
@@ -1882,6 +2727,9 @@ class ChatViewController: MessagesViewController {
         self.hasRegisteredNavigationTransitionCompletion = false
         self.isNavigationTransitionActive = false
         self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = false
+        defer {
+            self.enqueuePendingNavigationTransitionReadStateRetryIfNeeded()
+        }
         guard !cancelled else {
             self.pendingNavigationTransitionWork.removeAll()
             self.didDeferOpenMessageRequestForNavigationTransition = false
@@ -2069,10 +2917,543 @@ class ChatViewController: MessagesViewController {
         }
     }
 
+    internal var chatOpenPerformanceTraceContext:
+        ChatOpenPerformanceTraceContext? {
+        self.chatOpenPerformanceTraceLifecycle.currentContext
+    }
+
+    /// Route acceptance is the sole creator of an initial-open generation.
+    /// A reopened controller may adopt the active account lease only when the
+    /// conversation and semantic target are identical; otherwise the previous
+    /// UI generation is cancelled before a fresh open event is emitted.
+    @discardableResult
+    internal func acceptChatOpenPerformanceTrace(
+        purpose: ChatOpenPerformanceTracePurpose,
+        semanticTargetFingerprint explicitSemanticTargetFingerprint:
+            ChatOpenPerformanceSemanticTargetFingerprint? = nil,
+        bootstrapTarget explicitBootstrapTarget:
+            MessageArchiveManager.ChatBootstrapPageTarget? = nil
+    ) -> ChatOpenPerformanceTraceContext {
+        assert(Thread.isMainThread, "Chat-open route acceptance must run on main")
+        let conversationKey = self.chatTimelineConversationKey
+        let semanticTargetFingerprint = explicitSemanticTargetFingerprint ??
+            self.chatOpenPerformanceSemanticTargetFingerprint(
+                for: self.pendingOpenMessageRequest
+            )
+        let targetFingerprint: MessageArchiveManager.ChatBootstrapTargetFingerprint
+        if let explicitBootstrapTarget {
+            targetFingerprint = MessageArchiveManager.ChatBootstrapTargetFingerprint(
+                target: explicitBootstrapTarget,
+                boundary: nil
+            )
+        } else {
+            targetFingerprint = self.currentInitialBootstrapTargetFingerprint
+        }
+        if self.chatOpenPerformanceTraceConversationKey == conversationKey,
+           self.chatOpenPerformanceTraceTargetFingerprint ==
+            semanticTargetFingerprint,
+           let current = self.chatOpenPerformanceTraceContext {
+            return current
+        }
+
+        let canAdoptAlreadyVisibleExactSkeleton =
+            self.chatOpenPerformanceTraceContext != nil &&
+            self.chatOpenPerformanceTraceConversationKey == conversationKey &&
+            self.hasCommittedExactBootstrapSkeletonRows &&
+            self.hasCommittedChatOpenPerformanceReceipt(.skeleton)
+
+        self.invalidateChatOpenPerformanceStableFrameDisplayLink()
+        if let current = self.chatOpenPerformanceTraceContext {
+            _ = self.chatOpenPerformanceTraceLifecycle.cancel(context: current)
+        }
+
+        let requestKey = ChatInitialBootstrapRequestKey(
+            owner: conversationKey.owner,
+            jid: conversationKey.jid,
+            conversationType: conversationKey.conversationType
+        )
+        let adoptedTrace = ChatInitialBootstrapRequestCoordinator.shared
+            .activePerformanceTraceAdoption(
+                for: requestKey,
+                targetFingerprint: targetFingerprint,
+                semanticTargetFingerprint: semanticTargetFingerprint
+            )
+        let context = adoptedTrace?.context ?? ChatOpenPerformanceTraceContextFactory.make(
+            kind: .initialOpen,
+            purpose: purpose
+        )
+        _ = self.chatOpenPerformanceTraceLifecycle.accept(
+            context: context,
+            emitsOpenRequest: adoptedTrace == nil
+        )
+        self.chatOpenPerformanceTraceConversationKey = conversationKey
+        self.chatOpenPerformanceTraceTargetFingerprint =
+            semanticTargetFingerprint
+        self.chatOpenStableTargetAcknowledgementGate.accept(
+            context: context,
+            semanticTarget: semanticTargetFingerprint
+        )
+        if adoptedTrace?.hasSkeletonReceipt == true {
+            if self.chatOpenPerformanceTraceLifecycle.adoptPresentationReceipt(
+                .skeleton,
+                context: context
+            ) {
+                self.resumeInitialBootstrapArchiveRequestAfterSkeletonReceiptIfNeeded()
+            }
+        } else if canAdoptAlreadyVisibleExactSkeleton {
+            // Exact skeleton rows are target-agnostic and already committed
+            // on screen. A same-conversation target supersession adopts that
+            // visible receipt after its own open event; it must not remap the
+            // datasource or wait forever behind the skeleton-before-lease
+            // gate merely because the opaque trace generation changed.
+            let didAdoptSkeleton = self.chatOpenPerformanceTraceLifecycle
+                .recordPresentationReceipt(
+                    .skeleton,
+                    context: context,
+                    schedulesStableFrame: false
+                )
+            if didAdoptSkeleton {
+                self.resumeInitialBootstrapArchiveRequestAfterSkeletonReceiptIfNeeded()
+            }
+        }
+        return context
+    }
+
+    internal func chatOpenPerformanceSemanticTargetFingerprint(
+        for request: ChatOpenMessageRequest?
+    ) -> ChatOpenPerformanceSemanticTargetFingerprint {
+        guard let request,
+              request.owner == self.owner,
+              request.chatJid == self.jid,
+              request.conversationType == self.conversationType,
+              ChatOpenMessageRequestHandlingPolicy
+                .shouldHonorMessageAnchorRequest(source: request.source) else {
+            return .latest
+        }
+        return .message(request)
+    }
+
+    internal func hasStableChatOpenAcknowledgement(
+        for request: ChatOpenMessageRequest?
+    ) -> Bool {
+        guard let context = self.chatOpenPerformanceTraceContext,
+              let semanticTarget =
+                self.chatOpenPerformanceTraceTargetFingerprint,
+              semanticTarget == self
+                .chatOpenPerformanceSemanticTargetFingerprint(for: request) else {
+            return false
+        }
+        return self.chatOpenStableTargetAcknowledgementGate.matches(
+            context: context,
+            semanticTarget: semanticTarget
+        )
+    }
+
+    /// Pure route-time target resolution. It intentionally does not queue the
+    /// request, touch the timeline, or start positioning before open_request.
+    internal func chatOpenPerformanceSemanticTarget(
+        for request: ChatOpenMessageRequest?
+    ) -> MessageArchiveManager.ChatBootstrapPageTarget {
+        guard self.conversationType == .regular,
+              let request,
+              request.owner == self.owner,
+              request.chatJid == self.jid,
+              request.conversationType == self.conversationType else {
+            return .latest
+        }
+        switch request.targetResolution {
+        case .firstIncomingAfterBoundary(let boundaryArchiveId):
+            return .firstUnread(afterArchiveId: boundaryArchiveId)
+        case .anchor where request.source == .savedVisiblePosition:
+            return .savedPosition(
+                messagePrimary: request.anchor.messagePrimary,
+                archivedId: request.anchor.archivedId,
+                messageId: request.anchor.messageId,
+                sourceDate: request.anchor.sourceDate
+            )
+        case .anchor:
+            return .savedPosition(
+                messagePrimary: request.anchor.messagePrimary,
+                archivedId: request.anchor.archivedId,
+                messageId: request.anchor.messageId,
+                sourceDate: request.anchor.sourceDate
+            )
+        }
+    }
+
+    /// Wraps the actual UIKit datasource/layout transaction. Skeleton records
+    /// its logical, already-visible commit synchronously so archive admission
+    /// cannot overtake it. Content/empty and every stable-frame arm wait until
+    /// Core Animation confirms the outer transaction completion.
+    internal func performChatOpenPerformancePresentationTransaction(
+        receipt: ChatOpenPerformancePresentationReceipt,
+        context explicitContext: ChatOpenPerformanceTraceContext? = nil,
+        initialFramePresentationAttempt:
+            ChatInitialFramePresentationAttempt? = nil,
+        schedulesStableFrame: Bool,
+        updates: () -> Void
+    ) {
+        assert(Thread.isMainThread, "Chat-open presentation must run on main")
+        if let explicitContext,
+           !self.chatOpenPerformanceTraceLifecycle.isCurrent(explicitContext) {
+            return
+        }
+        guard let context = explicitContext ?? self.chatOpenPerformanceTraceContext else {
+            guard let initialFramePresentationAttempt else {
+                updates()
+                return
+            }
+            CATransaction.begin()
+            CATransaction.setCompletionBlock { [weak self] in
+                guard let self,
+                      self.isCurrentInitialFramePresentationAttempt(
+                        initialFramePresentationAttempt,
+                        phase: .committed
+                      ) else {
+                    return
+                }
+                self.initialLocalFirstFrameCoreAnimationReceiptGeneration =
+                    initialFramePresentationAttempt.presentationGeneration
+                self.retireCommittedInitialFramePresentationAttempt(
+                    initialFramePresentationAttempt
+                )
+            }
+            updates()
+            CATransaction.commit()
+            return
+        }
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self else {
+                return
+            }
+            let ownsInitialFramePublication =
+                initialFramePresentationAttempt.map {
+                    self.isCurrentInitialFramePresentationAttempt(
+                        $0,
+                        phase: .committed
+                    )
+                } ?? true
+            let didCommit = ownsInitialFramePublication &&
+                self.chatOpenPerformanceTraceLifecycle.isCurrent(context) &&
+                self.hasCommittedChatOpenPerformanceReceipt(receipt)
+            if didCommit,
+               let initialFramePresentationAttempt {
+                self.initialLocalFirstFrameCoreAnimationReceiptGeneration =
+                    initialFramePresentationAttempt.presentationGeneration
+            }
+            if receipt != .skeleton {
+                if let attempt = initialFramePresentationAttempt {
+                    if ownsInitialFramePublication,
+                       attempt.ownsPerformancePresentingInterval {
+                        _ = self.chatOpenPerformanceTraceLifecycle.endPresenting(
+                            context: context,
+                            terminal: didCommit ? .committed : .cancelled
+                        )
+                    }
+                } else {
+                    _ = self.chatOpenPerformanceTraceLifecycle.endPresenting(
+                        context: context,
+                        terminal: didCommit ? .committed : .cancelled
+                    )
+                }
+            }
+            guard didCommit else {
+                return
+            }
+            if receipt != .skeleton {
+                _ = self.chatOpenPerformanceTraceLifecycle
+                    .recordPresentationReceipt(
+                        receipt,
+                        context: context,
+                        schedulesStableFrame: false
+                    )
+            }
+            guard self.chatOpenPerformanceTraceLifecycle
+                .hasRecordedPresentationReceipt(receipt, context: context) else {
+                return
+            }
+            if schedulesStableFrame,
+               self.chatOpenPerformanceTraceLifecycle.scheduleStableFrame(
+                after: receipt,
+                context: context
+               ) {
+                self.armChatOpenPerformanceStableFrameDisplayLink(
+                    context: context,
+                    initialFramePresentationAttempt:
+                        initialFramePresentationAttempt
+                )
+            }
+        }
+        updates()
+        if receipt == .skeleton,
+           self.hasCommittedChatOpenPerformanceReceipt(.skeleton) {
+            let didRecordSkeletonCommit = self.chatOpenPerformanceTraceLifecycle
+                .recordPresentationReceipt(
+                .skeleton,
+                context: context,
+                schedulesStableFrame: false
+            )
+            if didRecordSkeletonCommit {
+                self.resumeInitialBootstrapArchiveRequestAfterSkeletonReceiptIfNeeded()
+            }
+        }
+        CATransaction.commit()
+    }
+
+    private func hasCommittedChatOpenPerformanceReceipt(
+        _ receipt: ChatOpenPerformancePresentationReceipt
+    ) -> Bool {
+        switch receipt {
+        case .skeleton:
+            return self.hasCommittedBootstrapSkeletonRows &&
+                self.datasource.allSatisfy(\.isFakeMessage) &&
+                self.appliedBootstrapLoadingState?.showsSkeleton == true
+        case .content:
+            return self.hasCommittedTimelinePresentationInCurrentLifecycle &&
+                self.hasCommittedRealContentInCurrentLifecycle &&
+                self.datasource.contains { !$0.isFakeMessage }
+        case .empty:
+            return self.hasCommittedTimelinePresentationInCurrentLifecycle &&
+                self.datasource.isEmpty &&
+                self.appliedBootstrapLoadingState?.viewState == .empty
+        }
+    }
+
+    private func armChatOpenPerformanceStableFrameDisplayLink(
+        context: ChatOpenPerformanceTraceContext,
+        initialFramePresentationAttempt:
+            ChatInitialFramePresentationAttempt? = nil
+    ) {
+        guard self.chatOpenPerformanceTraceLifecycle.isCurrent(context),
+              let semanticTarget =
+                self.chatOpenPerformanceTraceTargetFingerprint else {
+            return
+        }
+        self.invalidateChatOpenPerformanceStableFrameDisplayLink()
+        self.chatOpenPerformanceStableFrameContext = context
+        self.chatOpenPerformanceStableFrameTargetFingerprint = semanticTarget
+        self.chatOpenPerformanceStableFrameInitialPresentationAttempt =
+            initialFramePresentationAttempt
+        let displayLink = CADisplayLink(
+            target: self,
+            selector: #selector(self.handleChatOpenPerformanceStableFrameDisplayLink(_:))
+        )
+        self.chatOpenPerformanceStableFrameDisplayLink = displayLink
+        displayLink.add(to: .main, forMode: .common)
+    }
+
+    @objc
+    private func handleChatOpenPerformanceStableFrameDisplayLink(
+        _ displayLink: CADisplayLink
+    ) {
+        guard displayLink === self.chatOpenPerformanceStableFrameDisplayLink,
+              let context = self.chatOpenPerformanceStableFrameContext,
+              let semanticTarget =
+                self.chatOpenPerformanceStableFrameTargetFingerprint,
+              self.chatOpenPerformanceTraceLifecycle.isCurrent(context),
+              self.chatOpenPerformanceStableFrameInitialPresentationAttempt
+                .map({
+                    self.isCurrentInitialFramePresentationAttempt(
+                        $0,
+                        phase: .committed
+                    )
+                }) ?? true else {
+            self.invalidateChatOpenPerformanceStableFrameDisplayLink()
+            return
+        }
+        let window = self.isViewLoaded ? self.view.window : nil
+        let navigationOwnsPresentation = self.navigationController.map {
+            $0.topViewController === self && $0.visibleViewController === self
+        } ?? true
+        let eligibility = ChatOpenPerformanceStableFrameEligibility(
+            hasWindow: window != nil,
+            isViewVisible: self.isViewLoaded &&
+                !self.view.isHidden &&
+                self.view.alpha > 0.01,
+            isForegroundActive:
+                self.initialFramePresentationApplicationStateProvider() == .active &&
+                self.isInitialFramePresentationLifecycleEligible,
+            isCurrentPresentation: navigationOwnsPresentation &&
+                self.presentedViewController == nil,
+            hasPendingCorrection:
+                self.isChatDatasourceStructuralTransactionActive ||
+                self.pendingOutgoingAutoScrollRequest != nil ||
+                self.initialLatestOpenStabilizationState != .inactive ||
+                self.pendingForceLatestOpen ||
+                self.isMessageAnchorNavigationInFlight ||
+                self.transitionCoordinator != nil ||
+                self.navigationController?.transitionCoordinator != nil ||
+                self.isNavigationTransitionActive ||
+                self.isPreparingStackedNavigationPresentation ||
+                self.messagesCollectionView.hasUncommittedUpdates ||
+                self.messagesCollectionView.isTracking ||
+                self.messagesCollectionView.isDragging ||
+                self.messagesCollectionView.isDecelerating,
+            isWindowVisible: window?.isHidden == false &&
+                (window?.alpha ?? 0) > 0.01,
+            isSceneForegroundActive:
+                window?.windowScene?.activationState == .foregroundActive
+        )
+        if self.consumeChatOpenStableFrame(
+            context: context,
+            semanticTarget: semanticTarget,
+            eligibility: eligibility
+        ) {
+            let committedAttempt =
+                self.chatOpenPerformanceStableFrameInitialPresentationAttempt
+            self.invalidateChatOpenPerformanceStableFrameDisplayLink()
+            if let committedAttempt {
+                self.retireCommittedInitialFramePresentationAttempt(
+                    committedAttempt
+                )
+            }
+        }
+    }
+
+    /// Shared by the production display-link owner and focused generation
+    /// regressions. The semantic acknowledgement remains strictly downstream
+    /// of a consumed eligible frame and a committed terminal receipt.
+    @discardableResult
+    internal func consumeChatOpenStableFrame(
+        context: ChatOpenPerformanceTraceContext,
+        semanticTarget: ChatOpenPerformanceSemanticTargetFingerprint,
+        eligibility: ChatOpenPerformanceStableFrameEligibility
+    ) -> Bool {
+        guard self.chatOpenPerformanceTraceLifecycle.consumeStableFrame(
+            context: context,
+            eligibility: eligibility
+        ) else {
+            return false
+        }
+        if self.chatOpenPerformanceTraceLifecycle
+            .hasCommittedTerminalPresentationReceipt(context: context),
+           self.chatOpenStableTargetAcknowledgementGate.acknowledge(
+            context: context,
+            semanticTarget: semanticTarget
+           ) {
+            self.chatOpenStableVisibilityAcknowledgementHandler?(
+                context,
+                semanticTarget
+            )
+        }
+        return true
+    }
+
+#if DEBUG || CHAT_PERFORMANCE_LAB
+    /// The artifact fixture owns a stricter terminal visual proof than the
+    /// ordinary navigation display-link: its datasource, viewport and active
+    /// work evidence have remained unchanged for the full quiet window. Seal
+    /// the same production lifecycle at that boundary when navigation
+    /// preparation has intentionally kept the ordinary display-link pending.
+    /// The lifecycle gate makes this idempotent and keeps the primary context.
+    @discardableResult
+    internal func sealChatOpenPerformanceStableFrameForArtifactExport(
+        context: ChatOpenPerformanceTraceContext,
+        requiredReceipt: ChatOpenPerformancePresentationReceipt
+    ) -> ChatOpenPerformanceStableFrameSealResult {
+        let snapshot = self.chatOpenPerformanceTraceLifecycle
+            .stableFrameLifecycleSnapshot(
+                context: context,
+                requiredReceipt: requiredReceipt
+            )
+        let semanticTarget = self.chatOpenPerformanceTraceTargetFingerprint
+        func diagnostics(
+            failureCode: ChatOpenPerformanceStableFrameSealFailureCode,
+            stableFrameConsumed: Bool = false,
+            stableFrameAlreadyEmitted: Bool? = nil
+        ) -> ChatOpenPerformanceStableFrameSealDiagnostics {
+            ChatOpenPerformanceStableFrameSealDiagnostics(
+                failureCode: failureCode,
+                attempted: true,
+                boundPrimaryContextAvailable: true,
+                currentPrimaryContextAvailable: true,
+                primaryContextMatches: true,
+                lifecycleContextMatches: snapshot.isCurrentContext,
+                semanticTargetAvailable: semanticTarget != nil,
+                requiredPresentationReceiptRecorded:
+                    snapshot.hasRequiredPresentationReceipt,
+                stableFrameScheduled: snapshot.hasPendingStableFrame,
+                stableFrameAlreadyEmitted:
+                    stableFrameAlreadyEmitted ??
+                    snapshot.hasEmittedStableFrame,
+                stableFrameConsumed: stableFrameConsumed
+            )
+        }
+        guard snapshot.isCurrentContext else {
+            return .rejected(diagnostics(
+                failureCode: .lifecycleContextMismatch
+            ))
+        }
+        guard let semanticTarget else {
+            return .rejected(diagnostics(
+                failureCode: .semanticTargetUnavailable
+            ))
+        }
+        if snapshot.hasEmittedStableFrame {
+            return .sealed(diagnostics(failureCode: .none))
+        }
+        guard snapshot.hasRequiredPresentationReceipt else {
+            return .retry(diagnostics(
+                failureCode: .presentationReceiptPending
+            ))
+        }
+        guard snapshot.hasPendingStableFrame else {
+            return .rejected(diagnostics(
+                failureCode: .stableFrameNotScheduled
+            ))
+        }
+        guard self.consumeChatOpenStableFrame(
+            context: context,
+            semanticTarget: semanticTarget,
+            eligibility: .eligible
+        ) else {
+            return .rejected(diagnostics(
+                failureCode: .stableFrameConsumeRejected
+            ))
+        }
+        return self.chatOpenPerformanceTraceLifecycle.hasEmittedStableFrame(
+            context: context
+        ) ? .sealed(diagnostics(
+            failureCode: .none,
+            stableFrameConsumed: true,
+            stableFrameAlreadyEmitted: true
+        )) : .rejected(diagnostics(
+            failureCode: .stableFrameConsumeRejected
+        ))
+    }
+#endif
+
+    internal func invalidateChatOpenPerformanceStableFrameDisplayLink() {
+        self.chatOpenPerformanceStableFrameDisplayLink?.invalidate()
+        self.chatOpenPerformanceStableFrameDisplayLink = nil
+        self.chatOpenPerformanceStableFrameContext = nil
+        self.chatOpenPerformanceStableFrameTargetFingerprint = nil
+        self.chatOpenPerformanceStableFrameInitialPresentationAttempt = nil
+    }
+
+    internal func cancelChatOpenPerformanceTrace() {
+        self.invalidateChatOpenPerformanceStableFrameDisplayLink()
+        if let context = self.chatOpenPerformanceTraceContext {
+            _ = self.chatOpenPerformanceTraceLifecycle.cancel(context: context)
+        }
+        self.chatOpenPerformanceTraceConversationKey = nil
+        self.chatOpenPerformanceTraceTargetFingerprint = nil
+        self.chatOpenStableTargetAcknowledgementGate.reset()
+        self.chatOpenStableVisibilityAcknowledgementHandler = nil
+        self.pendingInitialBootstrapArchiveRequestAfterSkeletonReceiptShowsFailure = nil
+    }
+
     internal func beginChatOpenTimingSessionIfNeeded(
         trigger: String,
         targetBounds: CGRect? = nil
     ) {
+        if self.chatOpenPerformanceTraceContext == nil,
+           !self.owner.isEmpty,
+           !self.jid.isEmpty {
+            _ = self.acceptChatOpenPerformanceTrace(purpose: .normalRoute)
+        }
         let now = Date()
         if let session = self.chatOpenTimingSession {
             var fields = self.chatOpenTimingBaseFields(session: session, now: now)
@@ -2095,7 +3476,9 @@ class ChatViewController: MessagesViewController {
             duration: ChatUIResponsivenessGate.chatOpenHoldDuration
         )
         self.chatOpenTimingSession = session
-        ChatPerformanceSignposts.event(.openRequest)
+        if self.chatOpenPerformanceTraceContext == nil {
+            ChatPerformanceSignposts.event(.openRequest)
+        }
         self.chatOpenFirstFrameSignpost = ChatPerformanceSignposts.begin(.chatOpenToFirstFrame)
         var fields = self.chatOpenTimingBaseFields(session: session, now: now)
         if let targetBounds {
@@ -2691,6 +4074,14 @@ class ChatViewController: MessagesViewController {
     internal var datasetMappingGeneration: Int = 0
     internal var bootstrapSkeletonMappingGeneration: Int = 0
     internal var layoutPreparationGeneration: Int = 0
+    internal var activeWidthTransitionLayoutTargetSize: CGSize?
+    internal var activeWidthTransitionLayoutGeneration: Int?
+    internal var pendingWidthTransitionLayoutRemap:
+        ChatPendingWidthTransitionLayoutRemap?
+    internal var pendingWidthTransitionLayoutFinalization:
+        ChatPendingWidthTransitionLayoutFinalization?
+    internal var widthTransitionLayoutSnapshotsByContext:
+        [ChatMessageLayoutContext: ChatMessageLayoutSnapshot] = [:]
     
     let sectionsDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -2902,11 +4293,89 @@ class ChatViewController: MessagesViewController {
     internal var shouldShowUnreadMentionsNavigator: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     internal var contentOffsetObserver: BehaviorRelay<CGFloat> = BehaviorRelay(value: 0)
     internal var unreadMentionItems: [ChatUnreadMentionItem] = []
+    internal var lastAppliedUnreadMentionPresentationMetadata:
+        ChatUnreadMentionPresentationMetadata? = nil
     internal var unreadMentionsState: ChatUnreadMentionsState = .empty
     internal var isUnreadMentionNavigationInFlight: Bool = false
     internal var pendingUnreadMentionNavigationRequest: ChatUnreadMentionNavigationRequest? = nil
     internal var currentUnreadMentionNotificationPrimary: String? = nil
+    internal var claimedUnreadMentionBadgeNotificationPrimary: String? = nil
     internal var visibleUnreadMentionReconciliationWorkItem: DispatchWorkItem? = nil
+    internal var readVisibleStableLayoutRetryWorkItem: DispatchWorkItem? = nil
+    internal let readVisiblePresentationCoordinator =
+        ChatReadVisiblePresentationCoordinator()
+    internal var lastReadVisibleGeometrySignature:
+        ChatReadVisibleGeometrySignature? = nil
+    internal var readVisiblePresentationSnapshotProvider:
+        (() -> ChatReadVisiblePresentationSnapshot)? = nil
+#if DEBUG || CHAT_PERFORMANCE_LAB
+    /// Deterministic production-path barriers and observers used by focused
+    /// read-visible concurrency/geometry tests. Shipping controllers leave nil.
+    internal var visibleMentionReadCommitBarrierForTests: (() -> Void)?
+    internal var visibleMentionReadPostClaimBarrierForTests: (() -> Void)?
+    internal var visibleMentionReadAfterFirstPersistentMutationBarrierForTests:
+        (() -> Void)?
+    internal var visibleMentionReadBackgroundSuspendedForTests: (() -> Void)?
+    internal var visibleMentionReadMessageWillExecuteForTests: ((String) -> Void)?
+    internal var visibleMentionReadUIRefreshForTests: (() -> Void)?
+    internal var visibleMentionReadRetryForTests: (() -> Void)?
+    internal var visibleMentionReadTerminalForTests: ((Bool) -> Void)?
+    internal var visibleMentionReadScheduledForTests: ((Int) -> Void)?
+    internal var visibleMentionReadScrollTriggerForTests: (() -> Void)?
+    /// Companion observers retain immutable effect ownership for hosted P14
+    /// diagnostics without changing the established generic test seams.
+    internal var visibleMentionReadScheduledEffectTokenForTests:
+        ((Int, ChatInitialFrameEffectToken?) -> Void)?
+    internal var visibleMentionReadAfterFirstPersistentMutationEffectTokenForTests:
+        ((ChatInitialFrameEffectToken?) -> Void)?
+    internal var visibleMentionReadTerminalEffectTokenForTests:
+        ((Bool, ChatInitialFrameEffectToken?) -> Void)?
+    internal var performanceOpenMessageRequestAdmissionObserver:
+        ((ChatOpenMessageRequest, Bool) -> Void)?
+    /// Stops a focused test at the exact generic-execution admission after
+    /// production ownership, navigation and request-identity guards. Release
+    /// builds do not contain this seam.
+    internal var pendingOpenMessageGenericExecutionInterceptorForTests:
+        (() -> Bool)?
+    /// Fires after a superseded atomic frame restored its pre-attempt
+    /// high-level paging state and before the deferred replacement is replayed.
+    internal var initialFrameSupersededRollbackForTests:
+        ((ChatDatasetWindow,
+          ChatHistoryBoundaryPlaceholderPosition?,
+          ChatScrollBoundaryAvailabilityCache) -> Void)?
+    internal var unreadMentionBadgeOpenResolutionObserverForTests:
+        ((NotificationsMentionOpenResolution, String?) -> Void)?
+    internal var unreadMentionBadgeSuccessFeedbackObserverForTests:
+        (() -> Void)?
+    internal var unreadMentionBadgeDuplicateDropObserverForTests:
+        ((String) -> Void)?
+    /// Owner-level counters for proving that observer-current model-only
+    /// assimilation does not repeat unread presentation work already owned by
+    /// the explicit read receipt. Shipping builds do not contain these seams.
+    internal var unreadMentionRebuildObserverForTests: (() -> Void)?
+    internal var unreadMentionFallbackRealmQueryObserverForTests: (() -> Void)?
+    internal var unreadMentionNavigatorRefreshObserverForTests: (() -> Void)?
+    internal var unreadMentionNavigatorFrameWriteObserverForTests: (() -> Void)?
+    internal var scrollDownButtonFrameWriteObserverForTests: (() -> Void)?
+    internal var observerModelOnlyAssimilationDecisionObserverForTests:
+        ((ChatObserverModelOnlyAssimilationDecision,
+          ChatObserverModelOnlyAssimilationRejectionReason?) -> Void)?
+    internal var readBoundaryPrecommitBarrierForTests:
+        ((ChatScrollVisibleRow) -> Void)?
+    internal var readVisibleItemFrameProviderForTests:
+        ((IndexPath) -> CGRect?)?
+    /// Deterministic seams for exercising the real transient-highlight
+    /// installation and animation completion without wall-clock waits.
+    internal var transientMessageHighlightCellProviderForTests:
+        ((IndexPath) -> MessageContentCell?)?
+    internal var defersTransientMessageHighlightAnimationForTests = false
+    internal var transientMessageHighlightAnimationCompletionForTests:
+        ((Bool) -> Void)?
+    internal var mentionReadOnVisibleSchedulingObserverForTests:
+        ((ChatOpenMessageRequest) -> Void)?
+    internal var initialFrameRollbackSnapshotWillCaptureForTests:
+        (() -> Void)?
+#endif
     
     internal var voiceMessageStateObserverToken: UUID? = nil
 
@@ -3078,6 +4547,7 @@ class ChatViewController: MessagesViewController {
     internal var xabberInputViewBottomConstraint: NSLayoutConstraint?
     internal var xabberInputViewKeyboardTopConstraint: NSLayoutConstraint?
     internal var lastAppliedChatKeyboardLayoutSignature: ChatKeyboardLayoutUpdateSignature?
+    internal var currentChatKeyboardVisibleHeight: CGFloat = 0
     
     internal var shouldRequestChatInfo: Bool = false
     
@@ -3182,10 +4652,8 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func floatingControlsInputHeight() -> CGFloat {
-        var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight
-        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
-        }
+        var inputHeight = self.currentChatComposerKeyboardLayoutMetrics()
+            .collectionObstructionHeight
         if self.xabberInputView?.isRecordingLockOverlayVisible == true {
             inputHeight += 52
         }
@@ -3290,6 +4758,9 @@ class ChatViewController: MessagesViewController {
             self.hasPositionedScrollDownButton &&
             !isVisibilitySuppressed
         let updates = {
+#if DEBUG || CHAT_PERFORMANCE_LAB
+            self.scrollDownButtonFrameWriteObserverForTests?()
+#endif
             self.scrollDownButton.frame = frame
         }
 
@@ -3461,7 +4932,10 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func initialLatestObserverRefreshAction(baseShouldOpenLatest: Bool) -> ChatInitialLatestOpenStabilizationPolicy.ObserverRefreshAction {
-        ChatInitialLatestOpenStabilizationPolicy.observerRefreshAction(
+        guard self.isInitialLatestOpenStabilizing else {
+            return .followDefault
+        }
+        return ChatInitialLatestOpenStabilizationPolicy.observerRefreshAction(
             state: self.initialLatestOpenStabilizationState,
             baseShouldOpenLatest: baseShouldOpenLatest,
             newestLocalPrimary: self.newestLocalMessagePrimaryForLatestOpen(),
@@ -3661,6 +5135,9 @@ class ChatViewController: MessagesViewController {
         }
         let shouldAnimate = self.shouldAnimateDuringInitialLatestStabilization(requestedAnimated: animated)
         let updates = {
+#if DEBUG || CHAT_PERFORMANCE_LAB
+            self.unreadMentionNavigatorFrameWriteObserverForTests?()
+#endif
             self.unreadMentionsNavigatorView.frame = frame
         }
 
@@ -3858,10 +5335,12 @@ class ChatViewController: MessagesViewController {
         self.applySearchResultsPanelState()
         self.xabberInputView.changeState(to: .search)
         self.hideDuplicateBottomSearchCancelIfNeeded()
-        let inputHeight = self.updateChatInputViewForCurrentKeyboardLayout(
+        let inputMetrics = self.updateChatInputViewForCurrentKeyboardLayout(
             visibleKeyboardHeight: 0
         )
-        self.updateChatCollectionInsets(inputHeight: inputHeight)
+        self.updateChatCollectionInsets(
+            inputHeight: inputMetrics.collectionObstructionHeight
+        )
         self.view.layoutIfNeeded()
         self.transitionSearchChrome(to: .visible, animated: shouldAnimate)
         self.refreshChatSearchAccessibilityOrder()
@@ -4072,6 +5551,9 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        commitPendingWidthTransitionLayoutRemapIfReady()
+        recordWidthTransitionLayoutFinalizationObservationIfNeeded()
+        synchronizeReadVisibleGeometryEpoch()
         updateNavbarTitleWidth()
         updateFloatingControlsFrames(animated: false, ensureComposerLayout: false)
         updateInitialMessageOverlayFrame()
@@ -4109,20 +5591,19 @@ class ChatViewController: MessagesViewController {
         messagesCollectionView.accountPalette = accountPallete
         self.updateScrollDownButtonAppearance()
         
-        var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight
-        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
-        }
+        let inputHeight = ModernXabberInputView.defaultBarHeight
         let horizontalInset = ModernXabberInputView.edgeHorizontalInset
         let leadingInset = self.view.safeAreaInsets.left + horizontalInset
         let trailingInset = self.view.safeAreaInsets.right + horizontalInset
         let frame = CGRect(
-            origin: CGPoint(x: leadingInset, y: self.view.bounds.height - inputHeight),
+            origin: CGPoint(
+                x: leadingInset,
+                y: self.view.bounds.height - self.view.safeAreaInsets.bottom - inputHeight
+            ),
             size: CGSize(width: max(0, self.view.bounds.width - leadingInset - trailingInset), height: inputHeight)
         )
         self.xabberInputView = ModernXabberInputView(frame: frame)
         self.xabberInputView.accountPalette = accountPallete
-        self.xabberInputView.delegate = self
         
         self.view.addSubview(self.scrollDownButton)
         self.view.addSubview(xabberInputView)
@@ -4135,24 +5616,37 @@ class ChatViewController: MessagesViewController {
         let heightConstraint = xabberInputView.heightAnchor.constraint(equalToConstant: inputHeight)
         let bottomConstraint = xabberInputView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         let keyboardTopConstraint = xabberInputView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
-        keyboardTopConstraint.isActive = false
+        view.keyboardLayoutGuide.followsUndockedKeyboard = false
         self.xabberInputViewBottomConstraint = bottomConstraint
         self.xabberInputViewKeyboardTopConstraint = keyboardTopConstraint
         NSLayoutConstraint.activate([
             xabberInputView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: ModernXabberInputView.edgeHorizontalInset),
             xabberInputView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -ModernXabberInputView.edgeHorizontalInset),
-            bottomConstraint,
+            keyboardTopConstraint,
             heightConstraint
         ])
         xabberInputView.heightConstraint = heightConstraint
         self.installSearchNavigationButtons()
         
         self.messagesCollectionView.keyboardDismissMode = .interactive
-        self.updateChatCollectionInsets(inputHeight: inputHeight)
+        let initialLayoutMetrics = ChatComposerKeyboardLayoutMetrics.make(
+            visualHeight: inputHeight,
+            visibleKeyboardHeight: 0,
+            bottomSafeAreaHeight: self.view.safeAreaInsets.bottom,
+            searchOwnsKeyboard: self.isChatSearchInputKeyboardOwned
+        )
+        self.updateChatCollectionInsets(
+            inputHeight: initialLayoutMetrics.collectionObstructionHeight
+        )
         
         
         
         self.configureBackground()
+        self.chatDestinationBackdropInstallationReceipt =
+            ChatDestinationBackdropInstallationReceipt(
+                isOpaque: self.view.isOpaque,
+                priorDatasourceRowCount: self.datasource.count
+            )
         self.configureNavbar()
         if self.inSearchMode.value {
             self.configureSearchModeForCurrentActivation(
@@ -4167,8 +5661,6 @@ class ChatViewController: MessagesViewController {
             self.searchTextObserver.accept(nil)
         }
         self.configureInputBar()
-        self.configureSelectionPanel()
-        self.configureMessagesPanel()
         self.configureCertificateUpdateTimer()
         self.configureDataset()
         self.previousFrame = self.view.bounds
@@ -4238,21 +5730,104 @@ class ChatViewController: MessagesViewController {
         )
         if let timelineSession = self.timelineSession,
            timelineSession.isConfigured(for: conversationKey) {
-            timelineSession.updateArchiveState(self.loadChatArchiveStateSnapshot())
             return
         }
-        let preservesCommittedRealContent = self.hasCommittedRealContentInCurrentLifecycle ||
-            self.datasource.contains { !$0.isFakeMessage }
+        let isConversationReplacement = self.timelineSession != nil
+        let preservesCommittedRealContent = !isConversationReplacement &&
+            (self.hasCommittedRealContentInCurrentLifecycle ||
+                self.datasource.contains { !$0.isFakeMessage })
         let preservesCommittedTimelinePresentation =
-            self.hasCommittedTimelinePresentationInCurrentLifecycle ||
-            preservesCommittedRealContent
+            !isConversationReplacement &&
+            (self.hasCommittedTimelinePresentationInCurrentLifecycle ||
+                preservesCommittedRealContent)
         self.timelineSession?.cancelInitialFramePreparations()
         self.timelineSession?.cancelLocalPagePreparations()
+        if isConversationReplacement {
+            // The old session and its real datasource form one presentation
+            // identity. Revoke all work that could still publish or consume A
+            // before installing B's deterministic first frame below.
+            self.resetInitialBootstrapTracking(
+                acknowledgeConsumedCommittedReceipt: false
+            )
+            let replacedRemoteQueryIds = Set([
+                self.interactiveHistoryPageLoadContext?.queryId,
+                self.remoteHistoryFinishingQueryId,
+                self.timelineSession?.snapshot.state.activeRemoteLoad?.queryId
+            ].compactMap { $0 })
+            self.clearRemoteHistoryEndPageDispatchers()
+            self.interactiveHistoryCompletionRetryWorkItem?.cancel()
+            self.interactiveHistoryCompletionRetryWorkItem = nil
+            replacedRemoteQueryIds.forEach {
+                _ = self.timelineSession?.abortRemoteLoad(queryId: $0)
+            }
+            if let pageContext = self.interactiveHistoryPageLoadContext,
+               let performanceTraceContext = pageContext.performanceTraceContext {
+                _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
+                    owner: pageContext.performanceTraceOwner ?? self.owner,
+                    queryID: pageContext.queryId,
+                    context: performanceTraceContext,
+                    terminal: .cancelled
+                )
+            }
+            self.interactiveHistoryPageLoadContext = nil
+            self.remoteHistoryFinishingQueryId = nil
+            // Do not route conversation replacement through the ordinary
+            // paging abort/fallback path: that path can flush observers and
+            // mutate the viewport. Revoke A's watchdog/UI lease directly;
+            // B's skeleton transaction below is the next visual boundary.
+            self.historyLoadingGeneration &+= 1
+            self.chatArchiveMainStallProbeWorkItem?.cancel()
+            self.chatArchiveMainStallProbeWorkItem = nil
+            self.chatArchiveMainStallProbeLastBeat = nil
+            self.chatArchiveMainStallProbeQueryId = nil
+            self.chatArchiveMainStallProbeOperation = nil
+            self.endAllChatHistoryLoadActivities(
+                reason: "conversationReplacement"
+            )
+            self.setLoadingIndicatorVisible(false)
+            self.setArchiveLoading(false)
+            self.cancelPendingArchiveObserverRefresh(
+                reason: "conversationReplacement"
+            )
+            self.initialBootstrapFollowUpTargetOverride = nil
+            self.hasAttemptedInitialBootstrapBoundaryFollowUp = false
+            self.cancelDatasetMappingJobs()
+            self.scrollWorkScheduler.cancel()
+            self.pendingOutgoingAutoScrollRequest = nil
+            self.visibleUnreadMentionReconciliationWorkItem?.cancel()
+            self.visibleUnreadMentionReconciliationWorkItem = nil
+            self.readVisibleStableLayoutRetryWorkItem?.cancel()
+            self.readVisibleStableLayoutRetryWorkItem = nil
+            self.readVisiblePresentationCoordinator.invalidatePresentation()
+            self.messagesToReadObserver.accept(Set<String>())
+            self.detachedViewportReadBoundaryPrimary = nil
+            self.detachedViewportReadBoundaryIndex = nil
+            self.detachedViewportReadBoundaryPosition = nil
+        }
         self.cancelActiveAnchorExecutionForLifecycle()
         self.retainedMessageAnchor = nil
+        if let request = self.pendingOpenMessageRequest,
+           request.owner != conversationKey.owner ||
+            request.chatJid != conversationKey.jid ||
+            request.conversationType != conversationKey.conversationType {
+            self.pendingOpenMessageRequest = nil
+        }
         self.clearPendingLocalHistoryPagingPreparation()
+        self.observerRefreshGenerationCoalescer =
+            ChatObserverRefreshGenerationCoalescer()
         self.initialLocalFirstFramePhase = .idle
+        self.initialLocalFirstFrameReadinessProof = nil
+        self.savedPositionFirstFrameProbeResult = nil
+        self.isInitialBootstrapArchiveRequestDeferredForSavedPositionProbe = false
         self.initialLocalFirstFrameMappingToken = nil
+        if let attempt =
+            self.initialLocalFirstFramePresentationOwnership?.attempt {
+            self.revokeInitialFramePresentationAttempt(attempt)
+        }
+        self.initialLocalFirstFrameTerminalizingAttempt = nil
+        self.initialLocalFirstFrameLatestEffectToken = nil
+        self.initialLocalFirstFrameCoreAnimationReceiptGeneration = nil
+        self.deferredInitialLocalFirstFrameReplacement = nil
         self.initialLocalFirstFramePresentationRetryDescriptor = nil
         self.initialLocalFirstFrameCompletions.removeAll(keepingCapacity: false)
         self.pendingBootstrapFirstFrameReadinessCompletions.removeAll(keepingCapacity: false)
@@ -4262,6 +5837,23 @@ class ChatViewController: MessagesViewController {
         self.hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle = false
         self.hasCommittedTimelinePresentationInCurrentLifecycle =
             preservesCommittedTimelinePresentation
+        if isConversationReplacement {
+            self.appliedBootstrapLoadingState = nil
+            self.lastBootstrapAtomicRevealPlan = nil
+            self.allowsBootstrapFailureFallback = false
+            self.preservesBootstrapFailureOverlayUntilRetryCommit = false
+            self.residentDatasetWindow = .empty
+            self.activeHistoryBoundaryPlaceholder = nil
+            self.timelineInteractionState.isLoading = false
+            self.timelineInteractionState.unlock()
+            self.unreadMessagePositionId = nil
+            self.unreadMentionItems = []
+            self.unreadMentionsState = .empty
+            self.isUnreadMentionNavigationInFlight = false
+            self.pendingUnreadMentionNavigationRequest = nil
+            self.currentUnreadMentionNotificationPrimary = nil
+            self.claimedUnreadMentionBadgeNotificationPrimary = nil
+        }
         let store = RealmChatTimelineSessionStore(
             owner: self.owner,
             jid: self.jid,
@@ -4271,7 +5863,14 @@ class ChatViewController: MessagesViewController {
             store: store,
             pageSize: self.datasourcePageSize,
             conversationKey: conversationKey,
-            archiveState: self.loadChatArchiveStateSnapshot()
+            archiveState: .unresolved(
+                primaryKey: LastChatsStorageItem.genPrimary(
+                    jid: self.jid,
+                    owner: self.owner,
+                    conversationType: self.conversationType
+                )
+            ),
+            observesStoreImmediately: false
         )
         session.onSnapshot = { [weak self, weak session] snapshot in
             let applySnapshot = {
@@ -4292,7 +5891,9 @@ class ChatViewController: MessagesViewController {
                         "initialFrameStoreChangeCoalesced"
                     )
                 case .apply:
-                    self.handleTimelineSessionRefresh()
+                    self.handleTimelineSessionRefresh(
+                        observedGeneration: snapshot.generation
+                    )
                 case .ignore:
                     break
                 }
@@ -4305,7 +5906,25 @@ class ChatViewController: MessagesViewController {
         }
         self.timelineSession = session
         self.unreadMentionItems = []
+        self.lastAppliedUnreadMentionPresentationMetadata = nil
         self.unreadMentionsState = .empty
+        if isConversationReplacement {
+            // A configured session can also be replaced before its view has
+            // loaded in a test or restoration path. Finish loading only after
+            // B owns the session, so the nested configure call is an unchanged
+            // key no-op and no A frame can be published.
+            self.loadViewIfNeeded()
+            let replacementLoadingState: ChatBootstrapLoadingState =
+                self.pendingOpenMessageRequest == nil
+                    ? .blockingArchive
+                    : .blockingTarget
+            self.applyBootstrapLoadingState(
+                replacementLoadingState,
+                forceRender: true,
+                synchronousSkeletonCommit: true,
+                replacingConversationDatasource: true
+            )
+        }
     }
     
     final func configureBackground() {
@@ -4625,7 +6244,8 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func updateChatCollectionInsets(inputHeight: CGFloat? = nil) {
-        let composerHeight = inputHeight ?? xabberInputView?.bounds.height ?? ModernXabberInputView.defaultBarHeight
+        let composerHeight = inputHeight ?? self.currentChatComposerKeyboardLayoutMetrics()
+            .collectionObstructionHeight
         let navigationHeight = currentNavigationVisualHeight()
         let indicatorInsets = ChatFloatingHeaderLayoutPolicy.scrollIndicatorInsets(
             composerHeight: composerHeight,
@@ -4672,41 +6292,61 @@ class ChatViewController: MessagesViewController {
             return
         }
 
-        let shouldUseKeyboardGuide = isChatSearchInputKeyboardOwned
-        if xabberInputViewBottomConstraint?.isActive == shouldUseKeyboardGuide {
-            xabberInputViewBottomConstraint?.isActive = !shouldUseKeyboardGuide
+        if xabberInputViewBottomConstraint?.isActive == true {
+            xabberInputViewBottomConstraint?.isActive = false
         }
-        if xabberInputViewKeyboardTopConstraint?.isActive != shouldUseKeyboardGuide {
-            xabberInputViewKeyboardTopConstraint?.isActive = shouldUseKeyboardGuide
+        if xabberInputViewKeyboardTopConstraint?.isActive != true {
+            xabberInputViewKeyboardTopConstraint?.isActive = true
         }
     }
 
     internal func inputKeyboardHeightForCurrentChatInputMode(
         visibleKeyboardHeight: CGFloat
     ) -> CGFloat {
-        isChatSearchInputKeyboardOwned ? 0 : visibleKeyboardHeight
+        _ = visibleKeyboardHeight
+        return 0
+    }
+
+    internal func currentChatComposerKeyboardLayoutMetrics(
+        visualHeight explicitVisualHeight: CGFloat? = nil
+    ) -> ChatComposerKeyboardLayoutMetrics {
+        let visualHeight = explicitVisualHeight ??
+            self.xabberInputView?.heightConstraint?.constant ??
+            self.xabberInputView?.bounds.height ??
+            ModernXabberInputView.defaultBarHeight
+        return ChatComposerKeyboardLayoutMetrics.make(
+            visualHeight: visualHeight,
+            visibleKeyboardHeight: self.currentChatKeyboardVisibleHeight,
+            bottomSafeAreaHeight: self.view.safeAreaInsets.bottom,
+            searchOwnsKeyboard: self.isChatSearchInputKeyboardOwned
+        )
     }
 
     @discardableResult
     internal func updateChatInputViewForCurrentKeyboardLayout(
         visibleKeyboardHeight: CGFloat
-    ) -> CGFloat {
+    ) -> ChatComposerKeyboardLayoutMetrics {
         guard let inputView = self.xabberInputView else {
-            return 0
+            return ChatComposerKeyboardLayoutMetrics.make(
+                visualHeight: 0,
+                visibleKeyboardHeight: visibleKeyboardHeight,
+                bottomSafeAreaHeight: self.view.safeAreaInsets.bottom,
+                searchOwnsKeyboard: self.isChatSearchInputKeyboardOwned
+            )
         }
 
+        self.currentChatKeyboardVisibleHeight = max(0, visibleKeyboardHeight)
         self.reconcileChatInputViewStateWithSearchModeIfNeeded()
         self.updateChatInputKeyboardLayoutMode()
-        let inputKeyboardHeight = self.inputKeyboardHeightForCurrentChatInputMode(
-            visibleKeyboardHeight: visibleKeyboardHeight
-        )
         let screenHeight = self.view.bounds.height > 0 ? self.view.bounds.height : UIScreen.main.bounds.height
         inputView.update(
             screenHeight: screenHeight,
-            keyboardHeight: inputKeyboardHeight,
-            includeBottomSafeAreaWhenKeyboardHidden: !self.isChatSearchInputKeyboardOwned
+            keyboardHeight: 0,
+            includeBottomSafeAreaWhenKeyboardHidden: false
         )
-        return inputView.bounds.height
+        return self.currentChatComposerKeyboardLayoutMetrics(
+            visualHeight: inputView.heightConstraint?.constant ?? inputView.bounds.height
+        )
     }
 
     private func currentNavigationVisualHeight() -> CGFloat {
@@ -4735,9 +6375,22 @@ class ChatViewController: MessagesViewController {
             self.xabberInputView.timerButton.isEnabled = false
         }
         _ = self.updateChatInputViewForCurrentKeyboardLayout(
-            visibleKeyboardHeight: self.xabberInputView.keyboardHeight
+            visibleKeyboardHeight: self.currentChatKeyboardVisibleHeight
         )
         self.xabberInputView.searchPanel.conversationType = self.conversationType
+        self.xabberInputView.mentionConversationType = self.conversationType
+        self.bindChatInputInteractions()
+    }
+
+    internal func bindChatInputInteractions() {
+        guard self.isViewLoaded,
+              self.xabberInputView != nil else {
+            return
+        }
+
+        self.xabberInputView.delegate = self
+        self.configureMessagesPanel()
+        self.configureSelectionPanel()
         self.xabberInputView.searchPanel.onChangeConversationTypeCallback = { [weak self] conversationType in
             self?.onSearchPanelChangeConversationType(conversationType)
         }
@@ -4748,7 +6401,6 @@ class ChatViewController: MessagesViewController {
             self?.onSearchPanelOpenCalendar()
         }
         self.xabberInputView.searchPanel.onCancelCallback = nil
-        self.xabberInputView.mentionConversationType = self.conversationType
         self.xabberInputView.mentionCandidatesProvider = { [weak self] query in
             self?.mentionCandidates(for: query) ?? []
         }
@@ -4758,6 +6410,27 @@ class ChatViewController: MessagesViewController {
         self.xabberInputView.mentionUsersReloadHandler = { [weak self] in
             self?.requestMentionUsersIfNeeded()
         }
+    }
+
+    internal func unbindChatInputInteractions() {
+        self.currentChatKeyboardVisibleHeight = 0
+        guard self.isViewLoaded,
+              self.xabberInputView != nil else {
+            return
+        }
+
+        self.xabberInputView.delegate = nil
+        self.xabberInputView.contextPreviewPanel.delegate = nil
+        self.xabberInputView.selectionPanel.delegate = nil
+        self.xabberInputView.searchPanel.onChangeConversationTypeCallback = nil
+        self.xabberInputView.searchPanel.onSeekUpCallback = nil
+        self.xabberInputView.searchPanel.onSeekDownCallback = nil
+        self.xabberInputView.searchPanel.onChangeViewStateCallback = nil
+        self.xabberInputView.searchPanel.onCalendarCallback = nil
+        self.xabberInputView.searchPanel.onCancelCallback = nil
+        self.xabberInputView.mentionCandidatesProvider = nil
+        self.xabberInputView.mentionMembersCountProvider = nil
+        self.xabberInputView.mentionUsersReloadHandler = nil
     }
 
     internal func mentionCandidates(for query: String) -> [ComposerMentionCandidate] {
@@ -4891,21 +6564,26 @@ class ChatViewController: MessagesViewController {
         self.messageLoadingActivityIndicator.frame = CGRect(width: 64, height: 64)
         self.messageLoadingActivityIndicator.center = CGPoint(x: self.view.center.x, y: navbarHeight + 32)
         
-        let inputHeight = self.updateChatInputViewForCurrentKeyboardLayout(
-            visibleKeyboardHeight: self.xabberInputView.keyboardHeight
+        let inputMetrics = self.updateChatInputViewForCurrentKeyboardLayout(
+            visibleKeyboardHeight: self.currentChatKeyboardVisibleHeight
         )
+        let inputHeight = inputMetrics.visualHeight
         
         let horizontalInset = ModernXabberInputView.edgeHorizontalInset
         let leadingInset = self.view.safeAreaInsets.left + horizontalInset
         let trailingInset = self.view.safeAreaInsets.right + horizontalInset
+        let keyboardGuideTop = self.view.keyboardLayoutGuide.layoutFrame.minY
+        let inputBottomY = keyboardGuideTop > 0
+            ? keyboardGuideTop
+            : self.view.bounds.height - self.view.safeAreaInsets.bottom
         let frame = CGRect(
-            origin: CGPoint(x: leadingInset, y: self.view.bounds.height - inputHeight),
+            origin: CGPoint(x: leadingInset, y: inputBottomY - inputHeight),
             size: CGSize(width: max(0, self.view.bounds.width - leadingInset - trailingInset), height: inputHeight)
         )
         self.xabberInputView.setupFrames(frame)
         self.xabberInputView.heightConstraint?.constant = inputHeight
         self.applyChatComposerFrameUpdate(
-            inputHeight: inputHeight,
+            inputHeight: inputMetrics.collectionObstructionHeight,
             source: .containerBounds,
             wasNearBottom: wasNearBottom,
             visibleAnchor: visibleAnchor
@@ -4925,7 +6603,14 @@ class ChatViewController: MessagesViewController {
                 layoutSignpost.end()
             }
             let anchorRestoration: ChatComposerFrameAnchorRestoration
-            if source == .keyboardFrame {
+            if source == .containerBounds,
+               self.activeWidthTransitionLayoutTargetSize != nil {
+                // The width-transition invalidation context owns the one
+                // semantic viewport adjustment. A second scroll-to-bottom or
+                // anchor restore here would become a visible post-commit
+                // correction.
+                anchorRestoration = .none
+            } else if source == .keyboardFrame {
                 anchorRestoration = ChatKeyboardFrameViewportPolicy.anchorRestoration(
                     wasNearBottom: wasNearBottom
                 )
@@ -4971,8 +6656,10 @@ class ChatViewController: MessagesViewController {
         case .updateInitialMessageOverlayFrame:
             self.updateInitialMessageOverlayFrame()
         case .invalidateLayoutCache:
-            (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
-                .cache.invalidate()
+            if self.activeWidthTransitionLayoutTargetSize == nil {
+                (self.messagesCollectionView.collectionViewLayout as?
+                    MessagesCollectionViewFlowLayout)?.cache.invalidate()
+            }
         case .invalidateLayout:
             self.messagesCollectionView.collectionViewLayout.invalidateLayout()
         case .reloadData:
@@ -5056,9 +6743,9 @@ class ChatViewController: MessagesViewController {
             if let residentIndex = snapshot.residentIndex.index(primary: boundary.primary) {
                 return residentIndex
             }
-            let precedingResidentIndex = snapshot.items.enumerated().last(where: {
-                ChatTimelinePositionKey(message: $0.element) <= boundary.position
-            })?.offset
+            let precedingResidentIndex = snapshot.items.indices.reversed().first(where: {
+                ChatTimelinePositionKey(message: snapshot.items[$0]) <= boundary.position
+            })
             return precedingResidentIndex ?? -1
         }
         if let primary = self.detachedViewportReadBoundaryPrimary {
@@ -5089,8 +6776,653 @@ class ChatViewController: MessagesViewController {
         }
     }
 
+    internal func readVisiblePresentationSnapshot() ->
+        ChatReadVisiblePresentationSnapshot {
+        if let readVisiblePresentationSnapshotProvider {
+            return readVisiblePresentationSnapshotProvider()
+        }
+
+        let applicationIsActive = UIApplication.shared.applicationState == .active
+        guard self.isViewLoaded,
+              let window = self.viewIfLoaded?.window else {
+            return ChatReadVisiblePresentationSnapshot(
+                isApplicationActive: applicationIsActive,
+                isWindowAttached: false,
+                isWindowSceneForegroundActive: false,
+                isKeyWindow: false,
+                isTopNavigationDestination: false,
+                isVisibleSplitSecondary: false,
+                hasCoveringPresentation: false,
+                isTransitionActive: self.isPreparingStackedNavigationPresentation ||
+                    self.isNavigationTransitionActive
+            )
+        }
+
+        let isWindowSceneForegroundActive = window.windowScene.map {
+            $0.activationState == .foregroundActive
+        } ?? applicationIsActive
+        let isWindowAttached = self.isViewHierarchyMeaningfullyVisible(in: window)
+        let navigationOwnsTopDestination = self.navigationController.map {
+            $0.topViewController === self && $0.visibleViewController === self
+        } ?? false
+        let isTopNavigationDestination = navigationOwnsTopDestination &&
+            (self.splitViewController?.isCollapsed ?? true)
+        let isVisibleSplitSecondary = self.isVisibleSplitSecondaryDestination(
+            in: window
+        )
+        let hasCoveringPresentation = self.isCoveredByPresentedController(
+            in: window
+        )
+        let isTransitionActive = self.isPreparingStackedNavigationPresentation ||
+            self.isNavigationTransitionActive ||
+            self.transitionCoordinator != nil ||
+            self.navigationController?.transitionCoordinator != nil ||
+            self.splitViewController?.transitionCoordinator != nil ||
+            self.isBeingPresented ||
+            self.isBeingDismissed
+
+        return ChatReadVisiblePresentationSnapshot(
+            isApplicationActive: applicationIsActive,
+            isWindowAttached: isWindowAttached,
+            isWindowSceneForegroundActive: isWindowSceneForegroundActive,
+            isKeyWindow: window.isKeyWindow,
+            isTopNavigationDestination: isTopNavigationDestination,
+            isVisibleSplitSecondary: isVisibleSplitSecondary,
+            hasCoveringPresentation: hasCoveringPresentation,
+            isTransitionActive: isTransitionActive
+        )
+    }
+
+    private func isViewHierarchyMeaningfullyVisible(in window: UIWindow) -> Bool {
+        guard !window.isHidden,
+              window.alpha > 0 else {
+            return false
+        }
+        var candidateView: UIView? = self.view
+        while let currentView = candidateView {
+            let isExpectedWindow = currentView === window
+            guard (isExpectedWindow || currentView.window === window),
+                  !currentView.isHidden,
+                  currentView.alpha > 0 else {
+                return false
+            }
+            if isExpectedWindow {
+                break
+            }
+            candidateView = currentView.superview
+        }
+        let frameInWindow = self.view.convert(self.view.bounds, to: window)
+        return ChatReadVisiblePresentationPolicy.isMeaningfullyVisible(
+            itemFrame: frameInWindow,
+            viewport: window.bounds
+        )
+    }
+
+#if DEBUG || CHAT_PERFORMANCE_LAB
+    internal func isViewHierarchyMeaningfullyVisibleForTesting(
+        in window: UIWindow
+    ) -> Bool {
+        isViewHierarchyMeaningfullyVisible(in: window)
+    }
+
+    /// Re-evaluates the exact structural visibility predicate only when a
+    /// hosted test asks for failure evidence. Keep this out of the display-link
+    /// and receipt-admission paths so diagnostics cannot alter first-frame
+    /// timing or hierarchy traversal count.
+    internal func readVisibleViewHierarchyDiagnosticsForTesting()
+        -> ChatReadVisibleViewHierarchyDiagnostics {
+        guard isViewLoaded else {
+            return ChatReadVisibleViewHierarchyDiagnostics(
+                blocker: .viewNotLoaded,
+                failingViewType: nil,
+                failingViewDepth: nil,
+                failingViewIsHidden: nil,
+                failingViewAlpha: nil,
+                failingViewUsesExpectedWindow: nil,
+                ancestorChain: [],
+                rootViewBounds: nil,
+                rootFrameInWindow: nil,
+                viewport: nil,
+                intersection: nil,
+                requiredWidth: nil,
+                requiredHeight: nil
+            )
+        }
+        guard let window = viewIfLoaded?.window else {
+            return ChatReadVisibleViewHierarchyDiagnostics(
+                blocker: .viewHasNoWindow,
+                failingViewType: String(describing: type(of: view)),
+                failingViewDepth: 0,
+                failingViewIsHidden: view.isHidden,
+                failingViewAlpha: view.alpha,
+                failingViewUsesExpectedWindow: nil,
+                ancestorChain: [],
+                rootViewBounds: view.bounds,
+                rootFrameInWindow: nil,
+                viewport: nil,
+                intersection: nil,
+                requiredWidth: nil,
+                requiredHeight: nil
+            )
+        }
+
+        let viewport = window.bounds
+        if window.isHidden {
+            return makeReadVisibleViewHierarchyDiagnostics(
+                blocker: .windowHidden,
+                failingView: window,
+                failingDepth: nil,
+                expectedWindow: window,
+                ancestorChain: [],
+                viewport: viewport
+            )
+        }
+        if window.alpha <= 0 {
+            return makeReadVisibleViewHierarchyDiagnostics(
+                blocker: .windowAlphaZero,
+                failingView: window,
+                failingDepth: nil,
+                expectedWindow: window,
+                ancestorChain: [],
+                viewport: viewport
+            )
+        }
+
+        var ancestorChain: [String] = []
+        var candidateView: UIView? = view
+        var depth = 0
+        while let currentView = candidateView {
+            let usesExpectedWindow = currentView.window === window
+            ancestorChain.append(
+                "\(depth):\(String(describing: type(of: currentView)))" +
+                    "(hidden=\(currentView.isHidden)," +
+                    "alpha=\(currentView.alpha)," +
+                    "sameWindow=\(usesExpectedWindow))"
+            )
+            if !usesExpectedWindow {
+                return makeReadVisibleViewHierarchyDiagnostics(
+                    blocker: .ancestorWindowMismatch,
+                    failingView: currentView,
+                    failingDepth: depth,
+                    expectedWindow: window,
+                    ancestorChain: ancestorChain,
+                    viewport: viewport
+                )
+            }
+            if currentView.isHidden {
+                return makeReadVisibleViewHierarchyDiagnostics(
+                    blocker: .ancestorHidden,
+                    failingView: currentView,
+                    failingDepth: depth,
+                    expectedWindow: window,
+                    ancestorChain: ancestorChain,
+                    viewport: viewport
+                )
+            }
+            if currentView.alpha <= 0 {
+                return makeReadVisibleViewHierarchyDiagnostics(
+                    blocker: .ancestorAlphaZero,
+                    failingView: currentView,
+                    failingDepth: depth,
+                    expectedWindow: window,
+                    ancestorChain: ancestorChain,
+                    viewport: viewport
+                )
+            }
+            candidateView = currentView.superview
+            depth += 1
+        }
+
+        let rootBounds = view.bounds
+        let frameInWindow = view.convert(rootBounds, to: window)
+        let intersection = frameInWindow.intersection(viewport)
+        let requiredWidth = min(
+            ChatReadVisiblePresentationPolicy.minimumMeaningfulVisibleExtent,
+            frameInWindow.width
+        )
+        let requiredHeight = min(
+            ChatReadVisiblePresentationPolicy.minimumMeaningfulVisibleExtent,
+            frameInWindow.height
+        )
+        let blocker: ChatReadVisibleViewHierarchyDiagnostics.Blocker
+        if frameInWindow.isEmpty {
+            blocker = .rootFrameEmpty
+        } else if viewport.isEmpty {
+            blocker = .viewportEmpty
+        } else if intersection.isNull || intersection.isEmpty {
+            blocker = .noIntersection
+        } else if intersection.width < requiredWidth {
+            blocker = .insufficientWidth
+        } else if intersection.height < requiredHeight {
+            blocker = .insufficientHeight
+        } else {
+            blocker = .visible
+        }
+        return ChatReadVisibleViewHierarchyDiagnostics(
+            blocker: blocker,
+            failingViewType: nil,
+            failingViewDepth: nil,
+            failingViewIsHidden: nil,
+            failingViewAlpha: nil,
+            failingViewUsesExpectedWindow: nil,
+            ancestorChain: ancestorChain,
+            rootViewBounds: rootBounds,
+            rootFrameInWindow: frameInWindow,
+            viewport: viewport,
+            intersection: intersection,
+            requiredWidth: requiredWidth,
+            requiredHeight: requiredHeight
+        )
+    }
+
+    private func makeReadVisibleViewHierarchyDiagnostics(
+        blocker: ChatReadVisibleViewHierarchyDiagnostics.Blocker,
+        failingView: UIView,
+        failingDepth: Int?,
+        expectedWindow: UIWindow,
+        ancestorChain: [String],
+        viewport: CGRect
+    ) -> ChatReadVisibleViewHierarchyDiagnostics {
+        let rootBounds = view.bounds
+        let frameInWindow = view.convert(rootBounds, to: expectedWindow)
+        let intersection = frameInWindow.intersection(viewport)
+        return ChatReadVisibleViewHierarchyDiagnostics(
+            blocker: blocker,
+            failingViewType: String(describing: type(of: failingView)),
+            failingViewDepth: failingDepth,
+            failingViewIsHidden: failingView.isHidden,
+            failingViewAlpha: failingView.alpha,
+            failingViewUsesExpectedWindow:
+                failingView.window === expectedWindow,
+            ancestorChain: ancestorChain,
+            rootViewBounds: rootBounds,
+            rootFrameInWindow: frameInWindow,
+            viewport: viewport,
+            intersection: intersection,
+            requiredWidth: min(
+                ChatReadVisiblePresentationPolicy
+                    .minimumMeaningfulVisibleExtent,
+                frameInWindow.width
+            ),
+            requiredHeight: min(
+                ChatReadVisiblePresentationPolicy
+                    .minimumMeaningfulVisibleExtent,
+                frameInWindow.height
+            )
+        )
+    }
+#endif
+
+    private func isVisibleSplitSecondaryDestination(in window: UIWindow) -> Bool {
+        guard let splitViewController = self.splitViewController,
+              !splitViewController.isCollapsed else {
+            return false
+        }
+        switch splitViewController.displayMode {
+        case .oneOverSecondary, .twoOverSecondary:
+            return false
+        default:
+            break
+        }
+        let secondaryController: UIViewController?
+        if #available(iOS 14.0, *) {
+            secondaryController = splitViewController.viewController(for: .secondary)
+        } else {
+            secondaryController = splitViewController.viewControllers.last
+        }
+        guard let secondaryController,
+              Self.isController(self, descendantOf: secondaryController),
+              secondaryController.viewIfLoaded?.window === window else {
+            return false
+        }
+        if let navigationController = self.navigationController {
+            return navigationController.topViewController === self &&
+                navigationController.visibleViewController === self
+        }
+        return secondaryController === self
+    }
+
+    private func isCoveredByPresentedController(in window: UIWindow) -> Bool {
+        guard var frontController = window.rootViewController else {
+            return true
+        }
+        while let presentedController = frontController.presentedViewController {
+            frontController = presentedController
+        }
+        return !Self.isController(self, descendantOf: frontController)
+    }
+
+    private static func isController(
+        _ controller: UIViewController,
+        descendantOf ancestor: UIViewController
+    ) -> Bool {
+        var candidate: UIViewController? = controller
+        while let current = candidate {
+            if current === ancestor {
+                return true
+            }
+            candidate = current.parent
+        }
+        return false
+    }
+
+    internal func canAdvanceReadStateFromVisiblePresentation() -> Bool {
+        guard self.readVisiblePresentationCoordinator.hasPresentationReceipt else {
+            return false
+        }
+        switch self.initialLocalFirstFramePhase {
+        case .preparing, .presenting:
+            return false
+        case .idle,
+             .committed,
+             .blockedArchiveBootstrap,
+             .blockedMissingTarget,
+             .failedPresentation:
+            break
+        }
+        guard !self.isChatDatasourceStructuralTransactionActive,
+              self.pendingOpenMessageRequest == nil,
+              self.activeAnchorExecutionState == nil,
+              !self.isApplyingBootstrapAnchorWindow else {
+            return false
+        }
+        return ChatReadVisiblePresentationPolicy.canAdvanceReadState(
+            hasPresentationReceipt: true,
+            snapshot: self.readVisiblePresentationSnapshot()
+        )
+    }
+
+    private func currentReadVisibleViewport() -> CGRect {
+        var viewport = self.messagesCollectionView.bounds
+        let insets = self.messagesCollectionView.adjustedContentInset
+        viewport.origin.x += insets.left
+        viewport.origin.y += insets.top
+        viewport.size.width = max(0, viewport.width - insets.left - insets.right)
+        viewport.size.height = max(0, viewport.height - insets.top - insets.bottom)
+        return viewport
+    }
+
+    private func currentReadVisibleItemFrame(
+        at indexPath: IndexPath
+    ) -> CGRect? {
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        if let readVisibleItemFrameProviderForTests {
+            return readVisibleItemFrameProviderForTests(indexPath)
+        }
+#endif
+        return self.messagesCollectionView.cellForItem(at: indexPath)?.frame
+    }
+
+    /// Advances the coordinator's geometry epoch only when the bounded set of
+    /// realized rows or its viewport actually changes. Any captured/claimed
+    /// mention flush remains revocable until its first Realm mutation.
+    internal func synchronizeReadVisibleGeometryEpoch(
+        scheduleStableRetry: Bool = true
+    ) {
+        assert(Thread.isMainThread, "Read-visible geometry is main-owned")
+        guard self.isViewLoaded else {
+            return
+        }
+        let generation = self.scrollResidentMetadata.generation
+        let rows = self.messagesCollectionView.indexPathsForVisibleItems
+            .sorted {
+                if $0.section != $1.section {
+                    return $0.section < $1.section
+                }
+                return $0.item < $1.item
+            }
+            .compactMap { indexPath -> ChatReadVisibleGeometrySignature.Row? in
+                guard let item = self.datasourceItem(at: indexPath),
+                      let frame = self.currentReadVisibleItemFrame(at: indexPath) else {
+                    return nil
+                }
+                return ChatReadVisibleGeometrySignature.Row(
+                    indexPath: indexPath,
+                    message: self.readVisibleMessageIdentity(for: item),
+                    frame: frame
+                )
+            }
+        let signature = ChatReadVisibleGeometrySignature(
+            viewport: self.currentReadVisibleViewport(),
+            datasourceGeneration: generation,
+            rows: rows
+        )
+        guard signature != self.lastReadVisibleGeometrySignature else {
+            return
+        }
+        self.lastReadVisibleGeometrySignature = signature
+        _ = self.readVisiblePresentationCoordinator
+            .invalidateUnstartedFlushesForGeometryChange()
+        if scheduleStableRetry {
+            self.scheduleReadVisibleStableLayoutRetryIfNeeded()
+        }
+    }
+
+    /// A stable layout receipt may immediately resample a still-visible
+    /// candidate that was revoked by the preceding geometry epoch. This is a
+    /// single coalesced main turn, not a timer or self-rescheduling poll.
+    internal func scheduleReadVisibleStableLayoutRetryIfNeeded() {
+        assert(Thread.isMainThread, "Read-visible geometry is main-owned")
+        guard self.readVisiblePresentationCoordinator.pendingCandidateCount > 0,
+              self.canAdvanceReadStateFromVisiblePresentation() else {
+            return
+        }
+        let pendingPrimaries =
+            self.readVisiblePresentationCoordinator.pendingMessagePrimaries
+        let visiblePrimaries = Set(
+            self.meaningfullyVisibleRealMessagePresentationIdentitiesForRead().keys
+        )
+        guard !pendingPrimaries.isDisjoint(with: visiblePrimaries) else {
+            return
+        }
+
+        self.readVisibleStableLayoutRetryWorkItem?.cancel()
+        let expectedPresentationGeneration =
+            self.readVisiblePresentationCoordinator.generation
+        let expectedGeometryGeneration =
+            self.readVisiblePresentationCoordinator.geometryGeneration
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.readVisiblePresentationCoordinator.generation ==
+                    expectedPresentationGeneration,
+                  self.readVisiblePresentationCoordinator.geometryGeneration ==
+                    expectedGeometryGeneration else {
+                return
+            }
+            self.readVisibleStableLayoutRetryWorkItem = nil
+            guard self.canAdvanceReadStateFromVisiblePresentation() else {
+                return
+            }
+            self.flushPendingVisibleUnreadMentionReconciliationIfPossible()
+        }
+        self.readVisibleStableLayoutRetryWorkItem = workItem
+        DispatchQueue.main.async(execute: workItem)
+    }
+
+    internal func meaningfullyVisibleRealMessageIndexPathsForRead(
+        _ candidateIndexPaths: [IndexPath]
+    ) -> [IndexPath] {
+        guard self.isViewLoaded else {
+            return []
+        }
+        let viewport = currentReadVisibleViewport()
+        var seen = Set<IndexPath>()
+        return candidateIndexPaths.compactMap { indexPath in
+            guard seen.insert(indexPath).inserted,
+                  let item = self.datasourceItem(at: indexPath),
+                  !item.isFakeMessage,
+                  let frame = self.currentReadVisibleItemFrame(at: indexPath),
+                  ChatReadVisiblePresentationPolicy.isMeaningfullyVisible(
+                    itemFrame: frame,
+                    viewport: viewport
+                  ) else {
+                return nil
+            }
+            return indexPath
+        }
+    }
+
+    internal func meaningfullyVisibleRealMessagePrimariesForRead(
+        indexPaths: [IndexPath]? = nil
+    ) -> Set<String> {
+        let candidates = indexPaths ?? self.messagesCollectionView.indexPathsForVisibleItems
+        return Set(
+            self.meaningfullyVisibleRealMessageIndexPathsForRead(candidates)
+                .compactMap { self.datasourceItem(at: $0)?.primary }
+        )
+    }
+
+    private func readVisibleMessageIdentity(
+        for item: Datasource
+    ) -> ChatReadVisibleMessageIdentity {
+        ChatReadVisibleMessageIdentity(
+            primary: item.primary,
+            owner: item.owner,
+            jid: item.jid,
+            messageId: item.messageId,
+            sentDate: item.sentDate
+        )
+    }
+
+#if DEBUG || CHAT_PERFORMANCE_LAB
+    /// Captures the exact content-coordinate row/viewport pair used by both
+    /// ordinary viewport reads and mention reads. This diagnostic is
+    /// side-effect free and never performs layout or Realm work.
+    internal func readVisibleRowGeometryDiagnosticsForTesting(
+        at indexPath: IndexPath
+    ) -> ChatReadVisibleRowGeometryDiagnostics? {
+        guard let item = self.datasourceItem(at: indexPath),
+              let itemFrame = self.currentReadVisibleItemFrame(
+                at: indexPath
+              ) else {
+            return nil
+        }
+        let viewport = self.currentReadVisibleViewport()
+        let intersection = itemFrame.intersection(viewport)
+        return ChatReadVisibleRowGeometryDiagnostics(
+            indexPath: indexPath,
+            messageIdentity: item.isFakeMessage
+                ? nil
+                : self.readVisibleMessageIdentity(for: item),
+            itemFrame: itemFrame,
+            viewport: viewport,
+            intersection: intersection,
+            requiredWidth: min(
+                ChatReadVisiblePresentationPolicy.minimumMeaningfulVisibleExtent,
+                itemFrame.width
+            ),
+            requiredHeight: min(
+                ChatReadVisiblePresentationPolicy.minimumMeaningfulVisibleExtent,
+                itemFrame.height
+            ),
+            isMeaningfullyVisible:
+                ChatReadVisiblePresentationPolicy.isMeaningfullyVisible(
+                    itemFrame: itemFrame,
+                    viewport: viewport
+                )
+        )
+    }
+#endif
+
+    /// Captures only realized, meaningfully visible rows on main. The
+    /// presentation generation and section distinguish a later same-primary
+    /// replacement from the exact row that authorized the flush.
+    internal func meaningfullyVisibleRealMessagePresentationIdentitiesForRead(
+        indexPaths: [IndexPath]? = nil
+    ) -> [String: ChatReadVisibleRowPresentationIdentity] {
+        assert(Thread.isMainThread, "Read-visible geometry is main-owned")
+        let candidates = indexPaths ??
+            self.messagesCollectionView.indexPathsForVisibleItems
+        let generation = self.scrollResidentMetadata.generation
+        return Dictionary(
+            self.meaningfullyVisibleRealMessageIndexPathsForRead(candidates)
+                .compactMap { indexPath in
+                    self.datasourceItem(at: indexPath).map { item in
+                        (
+                            item.primary,
+                            ChatReadVisibleRowPresentationIdentity(
+                                message: self.readVisibleMessageIdentity(for: item),
+                                section: indexPath.section,
+                                datasourceGeneration: generation
+                            )
+                        )
+                    }
+                },
+            uniquingKeysWith: { _, newest in newest }
+        )
+    }
+
+    /// Revalidates the exact captured row without a datasource scan, layout
+    /// pass, layout-attribute lookup, or Realm access. This method must run on
+    /// main immediately before the revocable persistence permit is claimed.
+    internal func canClaimMentionReadMutationPermit(
+        for flush: ChatPendingMentionReadFlush
+    ) -> Bool {
+        assert(Thread.isMainThread, "Read-visible geometry is main-owned")
+        guard self.canAdvanceReadStateFromVisiblePresentation(),
+              !flush.rowPresentationIdentityByNotificationPrimary.isEmpty,
+              flush.candidates.allSatisfy({ candidate in
+                guard let token = candidate.initialFrameEffectToken else {
+                    return true
+                }
+                return self.isLatestInitialFrameEffectToken(token)
+              }) else {
+            return false
+        }
+        let viewport = self.currentReadVisibleViewport()
+        return flush.candidates.allSatisfy { candidate in
+            guard let expected = flush
+                    .rowPresentationIdentityByNotificationPrimary[
+                        candidate.notificationPrimary
+                    ],
+                  expected.message.primary == candidate.messagePrimary,
+                  expected.message == candidate.expectedMessageIdentity,
+                  expected.datasourceGeneration ==
+                    self.scrollResidentMetadata.generation else {
+                return false
+            }
+            let indexPath = IndexPath(item: 0, section: expected.section)
+            guard let item = self.datasourceItem(at: indexPath),
+                  !item.isFakeMessage,
+                  self.readVisibleMessageIdentity(for: item) == expected.message,
+                  let frame = self.currentReadVisibleItemFrame(at: indexPath) else {
+                return false
+            }
+            return ChatReadVisiblePresentationPolicy.isMeaningfullyVisible(
+                itemFrame: frame,
+                viewport: viewport
+            )
+        }
+    }
+
+    private func isReadTargetCurrentlyMeaningfullyVisible(
+        _ target: ChatScrollVisibleRow
+    ) -> Bool {
+        let indexPath = IndexPath(item: 0, section: target.section)
+        guard self.datasourceItem(at: indexPath)?.primary == target.primary else {
+            return false
+        }
+        return self.meaningfullyVisibleRealMessageIndexPathsForRead([indexPath]) == [indexPath]
+    }
+
+    @discardableResult
+    internal func advanceReadBoundaryIfStillMeaningfullyVisible(
+        to target: ChatScrollVisibleRow
+    ) -> Bool {
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        self.readBoundaryPrecommitBarrierForTests?(target)
+#endif
+        guard self.isReadTargetCurrentlyMeaningfullyVisible(target) else {
+            return false
+        }
+        return self.advanceReadBoundary(to: target)
+    }
+
     @discardableResult
     internal func advanceReadBoundary(to target: ChatScrollVisibleRow) -> Bool {
+        guard self.canAdvanceReadStateFromVisiblePresentation() else {
+            return false
+        }
         let didAdvance: Bool
         if let session = self.timelineSession {
             didAdvance = session.advanceReadBoundary(toPrimary: target.primary)
@@ -5113,12 +7445,17 @@ class ChatViewController: MessagesViewController {
     @discardableResult
     internal func advanceReadBoundaryFromVisibleMessages(indexPaths: [IndexPath]) -> Bool {
         let visible = self.scrollResidentMetadata.capture(indexPaths: indexPaths)
+        let meaningfullyVisiblePrimaries =
+            self.meaningfullyVisibleRealMessagePrimariesForRead(
+                indexPaths: indexPaths
+            )
         let request = ChatScrollWorkRequest(
             contentOffsetY: self.messagesCollectionView.contentOffset.y,
             gestureTranslationY: 0,
             isUserScrolling: false,
             visibleIndexPaths: indexPaths,
             visibleMetadata: visible,
+            meaningfullyVisibleReadPrimaries: meaningfullyVisiblePrimaries,
             work: [.advanceReadBoundary]
         )
         guard let target = ChatScrollFramePlanner().plan(
@@ -5127,11 +7464,14 @@ class ChatViewController: MessagesViewController {
         ).readTarget else {
             return false
         }
-        return self.advanceReadBoundary(to: target)
+        return self.advanceReadBoundaryIfStillMeaningfullyVisible(to: target)
     }
 
     @discardableResult
     internal func flushPendingVisibleReadTarget() -> Bool {
+        guard self.canAdvanceReadStateFromVisiblePresentation() else {
+            return false
+        }
         let orderedMessages = self.orderedViewportReadMessages()
         let currentBoundaryIndex = self.currentViewportReadBoundaryIndex(in: orderedMessages)
         guard let target = ChatViewportReadBoundaryPolicy.newestPendingTarget(
@@ -5156,6 +7496,8 @@ class ChatViewController: MessagesViewController {
         }
         self.didRunNavigationDisappearanceCleanup = true
         self.didScheduleNavigationDisappearanceCleanup = false
+        self.didCancelNavigationDisappearanceTransition = false
+        self.flushPendingScrollWork()
         self.releaseNavigationAvatarItemAfterConfirmedRemoval()
         self.teardownChatSearchLifecycle(reason: .navigationAway)
         AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
@@ -5180,6 +7522,7 @@ class ChatViewController: MessagesViewController {
         guard !self.chatObserversRegistered else {
             return
         }
+        self.synchronizeInitialFramePresentationLifecycleWithApplicationState()
         self.lastAppliedChatKeyboardLayoutSignature = nil
         self.chatObserversRegistered = true
         super.addObservers()
@@ -5193,6 +7536,12 @@ class ChatViewController: MessagesViewController {
             self,
             selector: #selector(self.didEnterBackground),
             name: UIApplication.didEnterBackgroundNotification,
+            object: UIApplication.shared
+        )
+        chatNotificationCenter.addObserver(
+            self,
+            selector: #selector(self.didBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
             object: UIApplication.shared
         )
         chatNotificationCenter.addObserver(
@@ -5243,9 +7592,112 @@ class ChatViewController: MessagesViewController {
     
     @objc
     internal func willEnterForeground() {
+        self.synchronizeInitialFramePresentationLifecycleWithApplicationState()
+        if self.initialFramePresentationApplicationStateProvider() != .background {
+            self.setInitialFramePresentationLifecycleEligible(true)
+        }
         self.handleChatSearchApplicationWillEnterForeground()
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
         AccountManager.shared.find(for: self.owner)?.chatMarkers.updateDeleteEphemeralMessagesTimer()
+    }
+
+    @objc
+    internal func didBecomeActive() {
+        // `willEnterForeground` may fire while UIApplication still reports
+        // `.background`. Active is the definitive presentation admission and
+        // resumes the same prepared initial-frame continuation if it remained
+        // deferred through that transition.
+        self.setInitialFramePresentationLifecycleEligible(true)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+            _ = self.readVisiblePresentationCoordinator
+                .resumeAfterApplicationForeground(
+                    snapshot: self.readVisiblePresentationSnapshot()
+                )
+            _ = self.flushPendingVisibleReadTarget()
+            self.retryPendingVisibleUnreadMentionReconciliation()
+        }
+    }
+
+    /// Publishes the receipt synchronously while returning the exact generation
+    /// that owns its later terminal-boundary retry. `viewDidAppear` records this
+    /// before its appearance work, but must enqueue it only after that work has
+    /// had the opportunity to publish layout/anchor callbacks onto main.
+    internal func recordReadVisiblePresentationReceiptHandoff()
+        -> ChatReadVisiblePresentationReceiptHandoff {
+        assert(Thread.isMainThread, "Read-visible presentation is main-owned")
+        self.readVisiblePresentationCoordinator.recordPresentationReceipt()
+        let handoff = ChatReadVisiblePresentationReceiptHandoff(
+            presentationGeneration:
+                self.readVisiblePresentationCoordinator.generation
+        )
+        self.pendingNavigationTransitionReadStateHandoff =
+            self.isNavigationTransitionActive ? handoff : nil
+        return handoff
+    }
+
+    /// Transfers pending read-visible work to a fresh main-turn wakeup owned by
+    /// the recorded receipt. A pre-receipt reconciliation item may already be
+    /// executing, cancelled, or about to clear its slot; observing a non-nil
+    /// item therefore cannot prove that pending work will be retried. The
+    /// generation token also prevents a delayed receipt from waking a later
+    /// presentation. Re-sampling the realized viewport here is required for
+    /// ordinary rows whose pre-receipt atomic-frame attempt was safely rejected
+    /// before it could populate `messagesToReadObserver`.
+    internal func enqueuePendingReadStateRetry(
+        for handoff: ChatReadVisiblePresentationReceiptHandoff
+    ) {
+        assert(Thread.isMainThread, "Read-visible presentation is main-owned")
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.readVisiblePresentationCoordinator.generation ==
+                    handoff.presentationGeneration,
+                  self.readVisiblePresentationCoordinator
+                    .hasPresentationReceipt else {
+                return
+            }
+            _ = self.advanceReadBoundaryFromVisibleMessages(
+                indexPaths:
+                    self.messagesCollectionView.indexPathsForVisibleItems
+            )
+            _ = self.flushPendingVisibleReadTarget()
+            self.retryPendingVisibleUnreadMentionReconciliation()
+        }
+    }
+
+    private func enqueuePendingNavigationTransitionReadStateRetryIfNeeded() {
+        guard let handoff =
+                self.pendingNavigationTransitionReadStateHandoff else {
+            return
+        }
+        self.pendingNavigationTransitionReadStateHandoff = nil
+        self.enqueuePendingReadStateRetry(for: handoff)
+    }
+
+    private func retryReadStateAfterActivePresentationTransitionIfNeeded(
+        for handoff: ChatReadVisiblePresentationReceiptHandoff
+    ) {
+        guard let coordinator = self.transitionCoordinator ??
+            self.navigationController?.transitionCoordinator ??
+            self.splitViewController?.transitionCoordinator else {
+            return
+        }
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self,
+                      self.readVisiblePresentationCoordinator.generation ==
+                        handoff.presentationGeneration else {
+                    return
+                }
+                _ = self.readVisiblePresentationCoordinator
+                    .resumeAfterApplicationForeground(
+                        snapshot: self.readVisiblePresentationSnapshot()
+                    )
+                self.enqueuePendingReadStateRetry(for: handoff)
+            }
+        }
     }
     
     @objc
@@ -5254,6 +7706,16 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func handleApplicationDidEnterBackground() {
+        self.setInitialFramePresentationLifecycleEligible(false)
+        self.visibleUnreadMentionReconciliationWorkItem?.cancel()
+        self.visibleUnreadMentionReconciliationWorkItem = nil
+        self.readVisibleStableLayoutRetryWorkItem?.cancel()
+        self.readVisibleStableLayoutRetryWorkItem = nil
+        _ = self.readVisiblePresentationCoordinator
+            .suspendForApplicationBackground()
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        self.visibleMentionReadBackgroundSuspendedForTests?()
+#endif
         NotifyManager.shared.currentDialog = nil
         self.handleChatSearchApplicationDidEnterBackground()
         self.cancelActiveAudioRecordingForLifecycle()
@@ -5296,6 +7758,11 @@ class ChatViewController: MessagesViewController {
         chatNotificationCenter.removeObserver(
             self,
             name: UIApplication.didEnterBackgroundNotification,
+            object: UIApplication.shared
+        )
+        chatNotificationCenter.removeObserver(
+            self,
+            name: UIApplication.didBecomeActiveNotification,
             object: UIApplication.shared
         )
         chatNotificationCenter.removeObserver(
@@ -5410,7 +7877,8 @@ class ChatViewController: MessagesViewController {
         handleChatSearchLayoutInterruption()
         let sectionInsets = (messagesCollectionView.collectionViewLayout as? UICollectionViewFlowLayout)?
             .sectionInset.horizontal ?? 0
-        prepareAndApplyCurrentDatasourceLayouts(
+        prepareAndInstallCurrentDatasourceLayoutsForWidthTransition(
+            targetViewSize: size,
             layoutWidthOverride: max(1, size.width - sectionInsets)
         )
         coordinator.animate(alongsideTransition: { [weak self] _ in
@@ -5433,6 +7901,25 @@ class ChatViewController: MessagesViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         self.beginNavigationTransitionDeferralIfNeeded()
+        let isCancelledInteractiveReappearance =
+            ChatNavigationTransitionMutationPolicy.isCancelledReappearance(
+                didRunDisappearanceCleanup:
+                    self.didRunNavigationDisappearanceCleanup,
+                didScheduleDisappearanceCleanup:
+                    self.didScheduleNavigationDisappearanceCleanup,
+                didCancelDisappearanceTransition:
+                    self.didCancelNavigationDisappearanceTransition,
+                hasRegisteredChatObservers: self.chatObserversRegistered
+            )
+        if isCancelledInteractiveReappearance {
+            // The source controller never left its committed presentation.
+            // UIKit re-enters appearance while rolling an interactive pop
+            // back; resubscription or inset reconciliation here would create
+            // a reload/offset frame during that rollback.
+            self.isHandlingCancelledInteractiveReappearance = true
+            return
+        }
+        self.bindChatInputInteractions()
         self.recordChatOpenTimingViewWillAppear()
         self.refreshScrollBoundaryAvailabilityCache(reason: "viewWillAppear")
         self.didRunNavigationDisappearanceCleanup = false
@@ -5451,11 +7938,10 @@ class ChatViewController: MessagesViewController {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
         self.shouldChangeFrame()
-        var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight
-        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
-        }
-        self.updateChatCollectionInsets(inputHeight: inputHeight)
+        self.updateChatCollectionInsets(
+            inputHeight: self.currentChatComposerKeyboardLayoutMetrics()
+                .collectionObstructionHeight
+        )
 
         self.lowPrioritySubscribtions()
         self.observeScheduledMessagesForComposerButton()
@@ -5465,7 +7951,11 @@ class ChatViewController: MessagesViewController {
         )
         self.hasRenderedStableInitialHistory = false
         self.hasCompletedInitialHistoryViewAppearance = false
-        if self.datasource.isEmpty || self.pendingOpenMessageRequest != nil || self.activeAnchorExecutionState != nil {
+        if ChatStackedNavigationPreparationPolicy.shouldLoadInitialDatasource(
+            isDatasourceEmpty: self.datasource.isEmpty,
+            isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
+        ) || self.pendingOpenMessageRequest != nil ||
+            self.activeAnchorExecutionState != nil {
             self.scheduleInitialDatasourceLoadAfterNavigationStart(
                 performPendingOpenMessageRequest: !self.shouldDeferOpenMessageRequestsForNavigationTransition
             )
@@ -5531,6 +8021,15 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if self.isHandlingCancelledInteractiveReappearance {
+            self.isHandlingCancelledInteractiveReappearance = false
+            if self.isNavigationTransitionActive,
+               !self.hasRegisteredNavigationTransitionCompletion {
+                self.completeNavigationTransitionDeferral(cancelled: true)
+            }
+            self.reconcileNavigationChromeAfterCancelledTransition()
+            return
+        }
         if self.isNavigationTransitionActive,
            !self.hasRegisteredNavigationTransitionCompletion {
             // Some custom/interactive navigation drivers expose no transition
@@ -5547,6 +8046,15 @@ class ChatViewController: MessagesViewController {
             self.flushPendingNavigationTransitionWork()
         }
         self.reconcileNavigationChromeAfterCancelledTransition()
+        _ = self.readVisiblePresentationCoordinator
+            .resumeAfterApplicationForeground(
+                snapshot: self.readVisiblePresentationSnapshot()
+            )
+        let readVisiblePresentationReceiptHandoff =
+            self.recordReadVisiblePresentationReceiptHandoff()
+        self.retryReadStateAfterActivePresentationTransitionIfNeeded(
+            for: readVisiblePresentationReceiptHandoff
+        )
         if self.inSearchMode.value {
             self.configureSearchModeForCurrentActivation(
                 defaultActivateKeyboard: true,
@@ -5573,6 +8081,9 @@ class ChatViewController: MessagesViewController {
             reason: "viewDidAppear",
             modeDescription: "appearance"
         )
+        self.enqueuePendingReadStateRetry(
+            for: readVisiblePresentationReceiptHandoff
+        )
 //        self.topPanelState.accept(.audioPlayer)
         
 //        DispatchQueue.main.async {
@@ -5593,22 +8104,19 @@ class ChatViewController: MessagesViewController {
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        self.cancelDatasetMappingJobs()
-        self.flushPendingScrollWork()
-        self.collectionPrefetchCoordinator.cancelAll()
+        self.didCancelNavigationDisappearanceTransition = false
         self.beginNavigationTransitionDeferralIfNeeded(
             forceActiveWithoutCoordinator: animated
         )
-        self.cancelActiveAudioRecordingForLifecycle()
-        omemoDeviceListTimer?.invalidate()
-        omemoDeviceListTimer = nil
 
-        if let coordinator = self.transitionCoordinator {
+        if let coordinator = self.transitionCoordinator ??
+            self.navigationController?.transitionCoordinator {
             self.didScheduleNavigationDisappearanceCleanup = true
             coordinator.animate(alongsideTransition: nil) { [weak self] context in
                 guard let self else { return }
                 self.isNavigationTransitionActive = false
                 guard !context.isCancelled else {
+                    self.didCancelNavigationDisappearanceTransition = true
                     self.didScheduleNavigationDisappearanceCleanup = false
                     return
                 }
@@ -5621,7 +8129,8 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        if !self.didScheduleNavigationDisappearanceCleanup {
+        if !self.didScheduleNavigationDisappearanceCleanup,
+           !self.didCancelNavigationDisappearanceTransition {
             self.runNavigationDisappearanceCleanupIfNeeded()
         }
     }
@@ -5636,7 +8145,13 @@ class ChatViewController: MessagesViewController {
     /// mutated, so a warning cannot produce an empty/intermediate chat frame.
     internal func handleChatMemoryPressure() {
         self.displayModelCache.removeAll()
-        self.cancelDatasetMappingJobs()
+        // The initial frame is not speculative work. In particular, a fully
+        // prepared background continuation is the only owner of the consumed
+        // bootstrap receipt; cancelling its mapping generation here would
+        // leave the committed skeleton with no foreground retry path.
+        if !self.shouldPreserveInitialFramePipelineDuringMemoryPressure {
+            self.cancelDatasetMappingJobs()
+        }
         self.collectionPrefetchCoordinator.cancelAll()
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
             .cache.handleMemoryWarning()
@@ -5651,19 +8166,33 @@ class ChatViewController: MessagesViewController {
     }
 
     /// The sole terminal owner for controller-scoped asynchronous resources.
-    /// It is intentionally idempotent: disappearance, cancelled transitions
-    /// and deinit may all reach it without reviving or double-finishing work.
+    /// It is intentionally idempotent: confirmed disappearance and explicit
+    /// test teardown may both reach it without reviving or double-finishing
+    /// work. Cancelled navigation transitions must never enter this boundary.
     internal func performTerminalChatResourceTeardown() {
+        self.cancelActiveAudioRecordingForLifecycle()
+        self.cancelChatOpenPerformanceTrace()
+        self.revokeActivePostBootstrapInitialFrameAdmission()
         self.timelineSession?.cancelInitialFramePreparations()
         self.timelineSession?.cancelLocalPagePreparations()
         self.clearPendingLocalHistoryPagingPreparation()
         self.cancelDatasetMappingJobs()
         self.initialLocalFirstFrameMappingToken = nil
+        if let attempt =
+            self.initialLocalFirstFramePresentationOwnership?.attempt {
+            self.revokeInitialFramePresentationAttempt(attempt)
+        }
+        self.initialLocalFirstFrameTerminalizingAttempt = nil
+        self.initialLocalFirstFrameLatestEffectToken = nil
+        self.initialLocalFirstFrameCoreAnimationReceiptGeneration = nil
+        self.deferredInitialLocalFirstFrameReplacement = nil
         self.initialLocalFirstFramePhase = .idle
+        self.initialLocalFirstFrameReadinessProof = nil
         self.initialLocalFirstFramePresentationRetryDescriptor = nil
         self.initialLocalFirstFrameCompletions.removeAll(keepingCapacity: false)
         self.pendingBootstrapFirstFrameReadinessCompletions.removeAll(keepingCapacity: false)
         self.initialLocalFirstFrameShouldPerformPendingRequest = false
+        self.isHandlingCancelledInteractiveReappearance = false
         self.scrollWorkScheduler.cancel()
         self.collectionPrefetchCoordinator.cancelAll()
 
@@ -5681,6 +8210,23 @@ class ChatViewController: MessagesViewController {
         self.currentSearchQueryId = nil
         self.currentInChatSearchQueryContext = nil
         self.pendingOpenMessageRequest = nil
+        self.claimedUnreadMentionBadgeNotificationPrimary = nil
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        self.unreadMentionBadgeOpenResolutionObserverForTests = nil
+        self.unreadMentionBadgeSuccessFeedbackObserverForTests = nil
+        self.unreadMentionBadgeDuplicateDropObserverForTests = nil
+        self.unreadMentionRebuildObserverForTests = nil
+        self.unreadMentionFallbackRealmQueryObserverForTests = nil
+        self.unreadMentionNavigatorRefreshObserverForTests = nil
+        self.unreadMentionNavigatorFrameWriteObserverForTests = nil
+        self.scrollDownButtonFrameWriteObserverForTests = nil
+        self.observerModelOnlyAssimilationDecisionObserverForTests = nil
+        self.transientMessageHighlightCellProviderForTests = nil
+        self.defersTransientMessageHighlightAnimationForTests = false
+        self.transientMessageHighlightAnimationCompletionForTests = nil
+        self.mentionReadOnVisibleSchedulingObserverForTests = nil
+        self.initialFrameRollbackSnapshotWillCaptureForTests = nil
+#endif
 
         self.cancelInitialBootstrapTimeout()
         self.cancelInitialBootstrapLocalHistoryFallback()
@@ -5689,17 +8235,35 @@ class ChatViewController: MessagesViewController {
         self.initialBootstrapQueryId = nil
         self.initialBootstrapLeaseKey = nil
         self.initialBootstrapTargetFingerprint = nil
+        self.initialBootstrapPerformanceSemanticTargetFingerprint = nil
         self.initialBootstrapFollowUpTargetOverride = nil
+        self.savedPositionFirstFrameProbeResult = nil
+        self.isInitialBootstrapArchiveRequestDeferredForSavedPositionProbe = false
         self.initialBootstrapPresentationDeadline = nil
         self.isInitialBootstrapInFlight = false
+        self.preservesBootstrapFailureOverlayUntilRetryCommit = false
+        if self.isViewLoaded {
+            self.setBootstrapFailureVisible(false)
+        }
         self.initialBootstrapScopedRefreshQueryId = nil
         self.interactiveHistoryCompletionRetryWorkItem?.cancel()
         self.interactiveHistoryCompletionRetryWorkItem = nil
+        if let pageContext = self.interactiveHistoryPageLoadContext,
+           let performanceTraceContext = pageContext.performanceTraceContext {
+            _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
+                owner: pageContext.performanceTraceOwner ?? self.owner,
+                queryID: pageContext.queryId,
+                context: performanceTraceContext,
+                terminal: .cancelled
+            )
+        }
         self.interactiveHistoryPageLoadContext = nil
         self.remoteHistoryFinishingQueryId = nil
         self.cancelPendingArchiveObserverRefresh(reason: "terminalTeardown")
         self.visibleUnreadMentionReconciliationWorkItem?.cancel()
         self.visibleUnreadMentionReconciliationWorkItem = nil
+        self.readVisibleStableLayoutRetryWorkItem?.cancel()
+        self.readVisibleStableLayoutRetryWorkItem = nil
         self.scrollDownButtonVisibilitySuppressionWorkItem?.cancel()
         self.scrollDownButtonVisibilitySuppressionWorkItem = nil
         self.clearRemoteHistoryEndPageDispatchers()
@@ -5719,19 +8283,10 @@ class ChatViewController: MessagesViewController {
         self.pendingNavigationTransitionWork.removeAll(keepingCapacity: false)
         self.scheduledMessagesComposerButtonToken?.invalidate()
         self.scheduledMessagesComposerButtonToken = nil
+        self.readVisiblePresentationCoordinator.invalidatePresentation()
 
         if self.isViewLoaded {
-            self.xabberInputView.delegate = nil
-            self.xabberInputView.contextPreviewPanel.delegate = nil
-            self.xabberInputView.selectionPanel.delegate = nil
-            self.xabberInputView.searchPanel.onChangeConversationTypeCallback = nil
-            self.xabberInputView.searchPanel.onSeekUpCallback = nil
-            self.xabberInputView.searchPanel.onSeekDownCallback = nil
-            self.xabberInputView.searchPanel.onChangeViewStateCallback = nil
-            self.xabberInputView.searchPanel.onCancelCallback = nil
-            self.xabberInputView.mentionCandidatesProvider = nil
-            self.xabberInputView.mentionMembersCountProvider = nil
-            self.xabberInputView.mentionUsersReloadHandler = nil
+            self.unbindChatInputInteractions()
             self.sharedAudioPlayerPanel?.delegate = nil
         }
 
@@ -5868,6 +8423,7 @@ class ChatViewController: MessagesViewController {
         // Do not initialize lazy coordinators while the object is already in
         // deallocation. Normal disappearance runs the complete policy above;
         // this fallback touches only resources that already exist eagerly.
+        self.cancelChatOpenPerformanceTrace()
         self.cancelDatasetMappingJobs()
         self.timelineSession?.cancelInitialFramePreparations()
         self.timelineSession?.cancelLocalPagePreparations()
@@ -5877,6 +8433,7 @@ class ChatViewController: MessagesViewController {
         self.interactiveHistoryCompletionRetryWorkItem?.cancel()
         self.archiveObserverRefreshWorkItem?.cancel()
         self.visibleUnreadMentionReconciliationWorkItem?.cancel()
+        self.readVisibleStableLayoutRetryWorkItem?.cancel()
         self.chatArchiveMainStallProbeWorkItem?.cancel()
         self.anchorTransactionTimeoutWorkItems.values.forEach { $0.cancel() }
         self.scheduledMessagesComposerButtonToken?.invalidate()
@@ -6108,6 +8665,8 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
         targetBounds: CGRect?,
         completion: @escaping () -> Void
     ) {
+        self.synchronizeInitialFramePresentationLifecycleWithApplicationState()
+        self.readVisiblePresentationCoordinator.beginPresentationPreparation()
         self.beginChatOpenTimingSessionIfNeeded(
             trigger: "stackedNavigationPreparation",
             targetBounds: targetBounds
@@ -6122,6 +8681,7 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
            targetBounds.height > 0 {
             self.view.frame = CGRect(origin: .zero, size: targetBounds.size)
             UIView.performWithoutAnimation {
+                self.view.layoutIfNeeded()
                 self.configureBackground()
             }
         }
@@ -6173,10 +8733,25 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
         self.isStackedNavigationPresentationPreparationCancelled = true
         self.isPreparingStackedNavigationPresentation = false
         self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = false
+        self.visibleUnreadMentionReconciliationWorkItem?.cancel()
+        self.visibleUnreadMentionReconciliationWorkItem = nil
+        self.readVisibleStableLayoutRetryWorkItem?.cancel()
+        self.readVisibleStableLayoutRetryWorkItem = nil
+        self.readVisiblePresentationCoordinator.invalidatePresentation()
+        self.revokeActivePostBootstrapInitialFrameAdmission()
         self.timelineSession?.cancelInitialFramePreparations()
         self.initialLocalFirstFrameMappingToken?.cancel()
         self.initialLocalFirstFrameMappingToken = nil
+        if let attempt =
+            self.initialLocalFirstFramePresentationOwnership?.attempt {
+            self.revokeInitialFramePresentationAttempt(attempt)
+        }
+        self.initialLocalFirstFrameTerminalizingAttempt = nil
+        self.initialLocalFirstFrameLatestEffectToken = nil
+        self.initialLocalFirstFrameCoreAnimationReceiptGeneration = nil
+        self.deferredInitialLocalFirstFrameReplacement = nil
         self.initialLocalFirstFramePhase = .idle
+        self.initialLocalFirstFrameReadinessProof = nil
         self.initialLocalFirstFramePresentationRetryDescriptor = nil
         self.initialLocalFirstFrameCompletions.removeAll(keepingCapacity: false)
         self.pendingBootstrapFirstFrameReadinessCompletions.removeAll(keepingCapacity: false)

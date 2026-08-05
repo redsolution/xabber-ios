@@ -8,6 +8,99 @@ import UIKit
 @testable import xabber
 
 final class RootBottomBarInsetPolicyTests: XCTestCase {
+    private final class LayoutProbeScrollView: UIScrollView {
+        private(set) var layoutPassCount = 0
+
+        override func layoutSubviews() {
+            layoutPassCount += 1
+            super.layoutSubviews()
+        }
+
+        func resetLayoutPassCount() {
+            layoutPassCount = 0
+        }
+    }
+
+    func testDetachedApplyDoesNotForceLayoutOrMutateInsetsOrOffset() {
+        let fixture = makeCoordinatorFixture(
+            contentBottom: 8,
+            indicatorBottom: 5,
+            attachedToWindow: false
+        )
+        fixture.scrollView.contentSize = CGSize(width: 390, height: 1_600)
+        fixture.scrollView.contentOffset = CGPoint(x: 0, y: 420)
+        fixture.scrollView.setNeedsLayout()
+        fixture.scrollView.resetLayoutPassCount()
+        let originalContentInset = fixture.scrollView.contentInset
+        let originalIndicatorInsets =
+            fixture.scrollView.verticalScrollIndicatorInsets
+        let originalContentOffset = fixture.scrollView.contentOffset
+
+        fixture.coordinator.apply(
+            to: fixture.scrollView,
+            in: fixture.container,
+            overlays: [fixture.overlay]
+        )
+
+        XCTAssertNil(fixture.scrollView.window)
+        XCTAssertNil(fixture.container.window)
+        XCTAssertEqual(fixture.scrollView.layoutPassCount, 0)
+        XCTAssertEqual(fixture.scrollView.contentInset, originalContentInset)
+        XCTAssertEqual(
+            fixture.scrollView.verticalScrollIndicatorInsets,
+            originalIndicatorInsets
+        )
+        XCTAssertEqual(fixture.scrollView.contentOffset, originalContentOffset)
+        XCTAssertEqual(
+            fixture.coordinator.appliedBottomContribution,
+            0,
+            accuracy: 0.001
+        )
+    }
+
+    func testApplyAfterWindowAttachmentCatchesUpAndPreservesAwayFromBottomOffset() {
+        let fixture = makeCoordinatorFixture(
+            contentBottom: 8,
+            indicatorBottom: 5,
+            attachedToWindow: false
+        )
+        fixture.scrollView.contentSize = CGSize(width: 390, height: 1_600)
+        fixture.scrollView.contentOffset = CGPoint(x: 0, y: 420)
+
+        fixture.coordinator.apply(
+            to: fixture.scrollView,
+            in: fixture.container,
+            overlays: [fixture.overlay]
+        )
+        XCTAssertEqual(fixture.scrollView.contentInset.bottom, 8, accuracy: 0.001)
+        XCTAssertEqual(fixture.scrollView.contentOffset.y, 420, accuracy: 0.001)
+
+        let window = UIWindow(frame: fixture.container.bounds)
+        window.addSubview(fixture.container)
+        fixture.scrollView.setNeedsLayout()
+        fixture.scrollView.resetLayoutPassCount()
+        fixture.coordinator.apply(
+            to: fixture.scrollView,
+            in: fixture.container,
+            overlays: [fixture.overlay]
+        )
+
+        XCTAssertTrue(fixture.scrollView.window === window)
+        XCTAssertGreaterThan(fixture.scrollView.layoutPassCount, 0)
+        XCTAssertEqual(fixture.scrollView.contentInset.bottom, 60, accuracy: 0.001)
+        XCTAssertEqual(
+            fixture.scrollView.verticalScrollIndicatorInsets.bottom,
+            57,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(fixture.scrollView.contentOffset.y, 420, accuracy: 0.001)
+        XCTAssertEqual(
+            fixture.coordinator.appliedBottomContribution,
+            52,
+            accuracy: 0.001
+        )
+    }
+
     func testNoOverlayRestoresBaselineBottomInsets() {
         let fixture = makeCoordinatorFixture(contentBottom: 8, indicatorBottom: 5)
 
@@ -225,15 +318,17 @@ final class RootBottomBarInsetPolicyTests: XCTestCase {
 
     private func makeCoordinatorFixture(
         contentBottom: CGFloat = 0,
-        indicatorBottom: CGFloat = 0
+        indicatorBottom: CGFloat = 0,
+        attachedToWindow: Bool = true
     ) -> (
         coordinator: BottomOverlayInsetCoordinator,
         container: UIView,
-        scrollView: UIScrollView,
-        overlay: UIView
+        scrollView: LayoutProbeScrollView,
+        overlay: UIView,
+        window: UIWindow?
     ) {
         let container = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        let scrollView = UIScrollView(frame: container.bounds)
+        let scrollView = LayoutProbeScrollView(frame: container.bounds)
         scrollView.contentInsetAdjustmentBehavior = .never
         scrollView.contentInset.bottom = contentBottom
         scrollView.verticalScrollIndicatorInsets.bottom = indicatorBottom
@@ -242,6 +337,21 @@ final class RootBottomBarInsetPolicyTests: XCTestCase {
         let overlay = UIView(frame: CGRect(x: 0, y: 796, width: 390, height: 44))
         container.addSubview(overlay)
 
-        return (BottomOverlayInsetCoordinator(), container, scrollView, overlay)
+        let window: UIWindow?
+        if attachedToWindow {
+            let attachedWindow = UIWindow(frame: container.bounds)
+            attachedWindow.addSubview(container)
+            window = attachedWindow
+        } else {
+            window = nil
+        }
+
+        return (
+            BottomOverlayInsetCoordinator(),
+            container,
+            scrollView,
+            overlay,
+            window
+        )
     }
 }

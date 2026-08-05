@@ -46,6 +46,36 @@ enum ChatInitialBootstrapTransportPolicy {
     }
 }
 
+struct ChatGroupMemberUnreadMetadataRefreshGate {
+    private let authoritativeMemberId: String?
+    private var observedFallbackMemberId: String?
+
+    init(authoritativeMemberId: String?) {
+        self.authoritativeMemberId = Self.normalized(authoritativeMemberId)
+        self.observedFallbackMemberId = nil
+    }
+
+    mutating func shouldRefresh(observedMemberId: String?) -> Bool {
+        guard authoritativeMemberId == nil else {
+            return false
+        }
+        let normalizedObservedMemberId = Self.normalized(observedMemberId)
+        guard normalizedObservedMemberId != observedFallbackMemberId else {
+            return false
+        }
+        observedFallbackMemberId = normalizedObservedMemberId
+        return true
+    }
+
+    private static func normalized(_ memberId: String?) -> String? {
+        guard let memberId,
+              !memberId.isEmpty else {
+            return nil
+        }
+        return memberId
+    }
+}
+
 enum ChatInitialBootstrapPresentationWatchdogPolicy {
     static let maximumPresentationTimeout: TimeInterval = 5
 
@@ -106,6 +136,29 @@ enum ChatInitialBootstrapFollowUpTargetPolicy {
             ChatInitialBootstrapRequestCoordinator.PendingFollowUpTarget?
     ) -> Bool {
         coordinatorRequest?.purpose != .interactiveBootstrap
+    }
+
+    static func matchesActiveLease(
+        coordinatorRequest:
+            ChatInitialBootstrapRequestCoordinator.PendingFollowUpTarget?,
+        activeTargetFingerprint:
+            MessageArchiveManager.ChatBootstrapTargetFingerprint?,
+        activePerformanceSemanticTargetFingerprint:
+            ChatOpenPerformanceSemanticTargetFingerprint?
+    ) -> Bool {
+        guard let coordinatorRequest else {
+            return true
+        }
+        guard coordinatorRequest.fingerprint.target ==
+                activeTargetFingerprint?.target else {
+            return false
+        }
+        guard let pendingSemanticTargetFingerprint =
+                coordinatorRequest.performanceSemanticTargetFingerprint else {
+            return true
+        }
+        return pendingSemanticTargetFingerprint ==
+            activePerformanceSemanticTargetFingerprint
     }
 }
 
@@ -238,11 +291,22 @@ final class ChatInitialBootstrapRequestCoordinator {
         let deadline: Date
         let purpose: ConversationArchiveLoadPurpose
         let targetFingerprint: MessageArchiveManager.ChatBootstrapTargetFingerprint
+        let performanceTraceContext: ChatOpenPerformanceTraceContext?
+        let performanceSemanticTargetFingerprint:
+            ChatOpenPerformanceSemanticTargetFingerprint?
+        let performanceSkeletonReceiptWasCommitted: Bool
+    }
+
+    struct PerformanceTraceAdoption: Equatable {
+        let context: ChatOpenPerformanceTraceContext
+        let hasSkeletonReceipt: Bool
     }
 
     struct PendingFollowUpTarget: Equatable {
         let fingerprint: MessageArchiveManager.ChatBootstrapTargetFingerprint
         let purpose: ConversationArchiveLoadPurpose
+        let performanceSemanticTargetFingerprint:
+            ChatOpenPerformanceSemanticTargetFingerprint?
     }
 
     struct CommittedPage: Equatable {
@@ -279,6 +343,35 @@ final class ChatInitialBootstrapRequestCoordinator {
         case terminal(MessageArchiveRequestFailureEvent)
     }
 
+#if DEBUG || CHAT_PERFORMANCE_LAB
+    /// Conversation-scoped, privacy-safe production lifecycle counters. The
+    /// coordinator deliberately retains terminal counts after the lease is
+    /// removed so fast work cannot disappear between fixture samples.
+    struct ProductionDiagnosticsSnapshot: Equatable {
+        var leaseStartCount: Int
+        var leaseJoinCount: Int
+        var activeLeaseCount: Int
+        var completedLeaseCount: Int
+        var failedLeaseCount: Int
+        var cancelledLeaseCount: Int
+        var transportStartCount: Int
+
+        static let zero = ProductionDiagnosticsSnapshot(
+            leaseStartCount: 0,
+            leaseJoinCount: 0,
+            activeLeaseCount: 0,
+            completedLeaseCount: 0,
+            failedLeaseCount: 0,
+            cancelledLeaseCount: 0,
+            transportStartCount: 0
+        )
+
+        var leaseEventCount: Int {
+            leaseStartCount + leaseJoinCount
+        }
+    }
+#endif
+
     typealias StartObserver = (
         String,
         MessageArchiveManager.SyncChatStartResult,
@@ -289,7 +382,7 @@ final class ChatInitialBootstrapRequestCoordinator {
     static let shared = ChatInitialBootstrapRequestCoordinator()
 
     private struct Attempt {
-        let lease: Lease
+        var lease: Lease
         let enqueuedAt: Date
         let operationTraceID: UInt64
         let predecessorOperationTraceID: UInt64?
@@ -319,15 +412,23 @@ final class ChatInitialBootstrapRequestCoordinator {
         var isPersistenceCommitClaimed: Bool
         var followUpTargetFingerprint: MessageArchiveManager.ChatBootstrapTargetFingerprint?
         var followUpTargetPurpose: ConversationArchiveLoadPurpose?
+        var followUpPerformanceSemanticTargetFingerprint:
+            ChatOpenPerformanceSemanticTargetFingerprint?
         // A terminal consumer may finish before another joined consumer's
         // queued presentation callback runs. Keep the lightweight receipt
         // until every observer that joined this lease has detached.
         var isCommittedRemovalDeferredUntilObserversDetach: Bool
+        // `acquireOrJoin` and the controller's readiness observation are two
+        // consecutive main-owned calls, but snapshot terminal reconciliation
+        // may run between them. Reserve only an interactive committed join so
+        // that reconciliation cannot remove the receipt in that interval.
+        var hasInteractiveCommittedJoinAwaitingObservation: Bool
     }
 
     private struct Cleanup {
         let owner: String
         let queryId: String
+        let performanceTraceContext: ChatOpenPerformanceTraceContext?
         let timeoutWorkItem: DispatchWorkItem?
         let endDispatcherToken: MessageArchiveEndPageDispatcher.Token?
         let failureDispatcherToken: MessageArchiveRequestFailureDispatcher.Token?
@@ -349,6 +450,7 @@ final class ChatInitialBootstrapRequestCoordinator {
     private let lock = NSLock()
     private let now: () -> Date
     private let automaticallySchedulesTimeouts: Bool
+    private let performanceTraceRegistry: ChatArchivePerformanceTraceRegistry
     private var attemptsByKey: [ChatInitialBootstrapRequestKey: Attempt] = [:]
     private var terminalFailuresByKey: [ChatInitialBootstrapRequestKey: MessageArchiveRequestFailureEvent] = [:]
     private var terminalFailureOrder: [ChatInitialBootstrapRequestKey] = []
@@ -361,6 +463,11 @@ final class ChatInitialBootstrapRequestCoordinator {
     private var nextOperationTraceID: UInt64 = 0
     private var latestOperationTraceIDByKey: [ChatInitialBootstrapRequestKey: UInt64] = [:]
     private var operationTraceKeyOrder: [ChatInitialBootstrapRequestKey] = []
+#if DEBUG || CHAT_PERFORMANCE_LAB
+    private var productionDiagnosticsByKey: [
+        ChatInitialBootstrapRequestKey: ProductionDiagnosticsSnapshot
+    ] = [:]
+#endif
 
     /// Test seam for the timeout-vs-commit handoff. It runs only after the
     /// coordinator atomically owns the persistence terminal.
@@ -368,10 +475,12 @@ final class ChatInitialBootstrapRequestCoordinator {
 
     init(
         now: @escaping () -> Date = Date.init,
-        automaticallySchedulesTimeouts: Bool = true
+        automaticallySchedulesTimeouts: Bool = true,
+        performanceTraceRegistry: ChatArchivePerformanceTraceRegistry = .shared
     ) {
         self.now = now
         self.automaticallySchedulesTimeouts = automaticallySchedulesTimeouts
+        self.performanceTraceRegistry = performanceTraceRegistry
     }
 
     private func reserveOperationTraceLocked(
@@ -423,6 +532,10 @@ final class ChatInitialBootstrapRequestCoordinator {
             target: .latest,
             boundary: nil
         ),
+        performanceTraceContext: ChatOpenPerformanceTraceContext? = nil,
+        performanceSemanticTargetFingerprint:
+            ChatOpenPerformanceSemanticTargetFingerprint? = nil,
+        performanceSkeletonReceiptWasCommitted: Bool = false,
         observer: @escaping StartObserver
     ) -> Acquisition {
         expireAttemptIfDue(key: key)
@@ -443,6 +556,11 @@ final class ChatInitialBootstrapRequestCoordinator {
                 attempt.phase == .committed &&
                 attempt.committedPage != nil &&
                 attempt.followUpTargetFingerprint?.target == targetFingerprint.target &&
+                (
+                    attempt.followUpPerformanceSemanticTargetFingerprint == nil ||
+                    attempt.followUpPerformanceSemanticTargetFingerprint ==
+                        performanceSemanticTargetFingerprint
+                ) &&
                 proposedQueryId != attempt.lease.queryId
             if shouldRollCommittedFollowUp {
                 // The committed receipt describes the page the UI just
@@ -458,24 +576,81 @@ final class ChatInitialBootstrapRequestCoordinator {
                 attemptsByKey.removeValue(forKey: key)
                 finalReceivedOrder.removeAll { $0 == key }
             } else {
+                if attempt.lease.performanceTraceContext == nil,
+                   let performanceTraceContext,
+                   attempt.phase == .queued,
+                   performanceTraceRegistry.register(
+                    owner: key.owner,
+                    queryID: attempt.lease.queryId,
+                    context: performanceTraceContext,
+                    operation: .initialOpen
+                   ) != .rejected {
+                    attempt.lease = Lease(
+                        queryId: attempt.lease.queryId,
+                        deadline: attempt.lease.deadline,
+                        purpose: attempt.lease.purpose,
+                        targetFingerprint: attempt.lease.targetFingerprint,
+                        performanceTraceContext: performanceTraceContext,
+                        performanceSemanticTargetFingerprint:
+                            performanceSemanticTargetFingerprint,
+                        performanceSkeletonReceiptWasCommitted:
+                            performanceSkeletonReceiptWasCommitted
+                    )
+                } else if performanceTraceContext != nil,
+                          attempt.lease.performanceTraceContext ==
+                            performanceTraceContext,
+                          performanceSkeletonReceiptWasCommitted,
+                          !attempt.lease.performanceSkeletonReceiptWasCommitted {
+                    attempt.lease = Lease(
+                        queryId: attempt.lease.queryId,
+                        deadline: attempt.lease.deadline,
+                        purpose: attempt.lease.purpose,
+                        targetFingerprint: attempt.lease.targetFingerprint,
+                        performanceTraceContext:
+                            attempt.lease.performanceTraceContext,
+                        performanceSemanticTargetFingerprint:
+                            attempt.lease.performanceSemanticTargetFingerprint,
+                        performanceSkeletonReceiptWasCommitted: true
+                    )
+                }
                 if purpose.persistencePriority > attempt.persistencePriority {
                     attempt.persistencePriority = purpose.persistencePriority
                 }
                 let previousFollowUpTarget = attempt.followUpTargetFingerprint
                 let previousFollowUpPurpose = attempt.followUpTargetPurpose
-                if attempt.lease.targetFingerprint.target != targetFingerprint.target {
+                let previousFollowUpPerformanceSemanticTargetFingerprint =
+                    attempt.followUpPerformanceSemanticTargetFingerprint
+                let hasPerformanceSemanticTargetMismatch =
+                    attempt.lease.performanceTraceContext != nil &&
+                    (
+                        performanceSemanticTargetFingerprint.map {
+                            attempt.lease.performanceSemanticTargetFingerprint != $0
+                        } ?? false
+                    )
+                if attempt.lease.targetFingerprint.target != targetFingerprint.target ||
+                    hasPerformanceSemanticTargetMismatch {
                     if purpose == .interactiveBootstrap ||
                         attempt.followUpTargetPurpose != .interactiveBootstrap {
                         attempt.followUpTargetFingerprint = targetFingerprint
                         attempt.followUpTargetPurpose = purpose
+                        attempt.followUpPerformanceSemanticTargetFingerprint =
+                            performanceSemanticTargetFingerprint
                     }
                 } else if purpose == .interactiveBootstrap {
                     attempt.followUpTargetFingerprint = nil
                     attempt.followUpTargetPurpose = nil
+                    attempt.followUpPerformanceSemanticTargetFingerprint = nil
+                }
+                if purpose == .interactiveBootstrap,
+                   attempt.phase == .committed,
+                   attempt.committedPage != nil {
+                    attempt.hasInteractiveCommittedJoinAwaitingObservation = true
                 }
                 if attempt.phase == .committed,
                    previousFollowUpTarget != attempt.followUpTargetFingerprint ||
-                    previousFollowUpPurpose != attempt.followUpTargetPurpose {
+                    previousFollowUpPurpose != attempt.followUpTargetPurpose ||
+                    previousFollowUpPerformanceSemanticTargetFingerprint !=
+                        attempt.followUpPerformanceSemanticTargetFingerprint {
                     let hasPendingTarget = attempt.followUpTargetFingerprint != nil
                     attempt.hasDurableCoverage =
                         attempt.committedPageProvidesDurableCoverage && !hasPendingTarget
@@ -492,6 +667,11 @@ final class ChatInitialBootstrapRequestCoordinator {
                     attemptsByKey[key] = attempt
                 }
                 let lease = attempt.lease
+#if DEBUG || CHAT_PERFORMANCE_LAB
+                var diagnostics = productionDiagnosticsByKey[key] ?? .zero
+                diagnostics.leaseJoinCount &+= 1
+                productionDiagnosticsByKey[key] = diagnostics
+#endif
                 lock.unlock()
                 if didChangeReadiness {
                     notifyReadinessObservers(key: key)
@@ -503,11 +683,31 @@ final class ChatInitialBootstrapRequestCoordinator {
             }
         }
 
+        let acceptedPerformanceTraceContext: ChatOpenPerformanceTraceContext?
+        if let performanceTraceContext,
+           performanceTraceRegistry.register(
+            owner: key.owner,
+            queryID: proposedQueryId,
+            context: performanceTraceContext,
+            operation: .initialOpen
+           ) != .rejected {
+            acceptedPerformanceTraceContext = performanceTraceContext
+        } else {
+            acceptedPerformanceTraceContext = nil
+        }
         let lease = Lease(
             queryId: proposedQueryId,
             deadline: now().addingTimeInterval(max(0, timeout)),
             purpose: purpose,
-            targetFingerprint: targetFingerprint
+            targetFingerprint: targetFingerprint,
+            performanceTraceContext: acceptedPerformanceTraceContext,
+            performanceSemanticTargetFingerprint:
+                acceptedPerformanceTraceContext == nil
+                    ? nil
+                    : performanceSemanticTargetFingerprint,
+            performanceSkeletonReceiptWasCommitted:
+                acceptedPerformanceTraceContext != nil &&
+                performanceSkeletonReceiptWasCommitted
         )
         let operationTrace = reserveOperationTraceLocked(for: key)
         let attempt = Attempt(
@@ -538,9 +738,16 @@ final class ChatInitialBootstrapRequestCoordinator {
             isPersistenceCommitClaimed: false,
             followUpTargetFingerprint: nil,
             followUpTargetPurpose: nil,
-            isCommittedRemovalDeferredUntilObserversDetach: false
+            followUpPerformanceSemanticTargetFingerprint: nil,
+            isCommittedRemovalDeferredUntilObserversDetach: false,
+            hasInteractiveCommittedJoinAwaitingObservation: false
         )
         attemptsByKey[key] = attempt
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        var diagnostics = productionDiagnosticsByKey[key] ?? .zero
+        diagnostics.leaseStartCount &+= 1
+        productionDiagnosticsByKey[key] = diagnostics
+#endif
         lock.unlock()
 
         performCleanup(
@@ -573,6 +780,10 @@ final class ChatInitialBootstrapRequestCoordinator {
             target: .latest,
             boundary: nil
         ),
+        performanceTraceContext: ChatOpenPerformanceTraceContext? = nil,
+        performanceSemanticTargetFingerprint:
+            ChatOpenPerformanceSemanticTargetFingerprint? = nil,
+        performanceSkeletonReceiptWasCommitted: Bool = false,
         observer: @escaping StartObserver
     ) -> Acquisition {
         acquire(
@@ -582,6 +793,11 @@ final class ChatInitialBootstrapRequestCoordinator {
             purpose: purpose,
             persistenceTimeout: persistenceTimeout,
             targetFingerprint: targetFingerprint,
+            performanceTraceContext: performanceTraceContext,
+            performanceSemanticTargetFingerprint:
+                performanceSemanticTargetFingerprint,
+            performanceSkeletonReceiptWasCommitted:
+                performanceSkeletonReceiptWasCommitted,
             observer: observer
         )
     }
@@ -595,6 +811,49 @@ final class ChatInitialBootstrapRequestCoordinator {
         return target
     }
 
+    /// Lets a reopened controller adopt the already-emitted opaque trace for
+    /// the same conversation and semantic target. Terminal receipts are not
+    /// adoptable and a target mismatch must start a fresh UI generation.
+    func activePerformanceTraceContext(
+        for key: ChatInitialBootstrapRequestKey,
+        targetFingerprint: MessageArchiveManager.ChatBootstrapTargetFingerprint,
+        semanticTargetFingerprint:
+            ChatOpenPerformanceSemanticTargetFingerprint
+    ) -> ChatOpenPerformanceTraceContext? {
+        activePerformanceTraceAdoption(
+            for: key,
+            targetFingerprint: targetFingerprint,
+            semanticTargetFingerprint: semanticTargetFingerprint
+        )?.context
+    }
+
+    func activePerformanceTraceAdoption(
+        for key: ChatInitialBootstrapRequestKey,
+        targetFingerprint: MessageArchiveManager.ChatBootstrapTargetFingerprint,
+        semanticTargetFingerprint:
+            ChatOpenPerformanceSemanticTargetFingerprint
+    ) -> PerformanceTraceAdoption? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let attempt = attemptsByKey[key],
+              attempt.lease.targetFingerprint.target == targetFingerprint.target,
+              attempt.lease.performanceSemanticTargetFingerprint ==
+                semanticTargetFingerprint,
+              attempt.phase == .queued ||
+                attempt.phase == .transport ||
+                attempt.phase == .persistence else {
+            return nil
+        }
+        guard let context = attempt.lease.performanceTraceContext else {
+            return nil
+        }
+        return PerformanceTraceAdoption(
+            context: context,
+            hasSkeletonReceipt:
+                attempt.lease.performanceSkeletonReceiptWasCommitted
+        )
+    }
+
     func pendingFollowUpRequest(
         for key: ChatInitialBootstrapRequestKey
     ) -> PendingFollowUpTarget? {
@@ -605,7 +864,9 @@ final class ChatInitialBootstrapRequestCoordinator {
            let purpose = attempt.followUpTargetPurpose {
             request = PendingFollowUpTarget(
                 fingerprint: fingerprint,
-                purpose: purpose
+                purpose: purpose,
+                performanceSemanticTargetFingerprint:
+                    attempt.followUpPerformanceSemanticTargetFingerprint
             )
         } else {
             request = nil
@@ -613,6 +874,22 @@ final class ChatInitialBootstrapRequestCoordinator {
         lock.unlock()
         return request
     }
+
+#if DEBUG || CHAT_PERFORMANCE_LAB
+    func productionDiagnosticsSnapshot(
+        for key: ChatInitialBootstrapRequestKey
+    ) -> ProductionDiagnosticsSnapshot {
+        lock.lock()
+        var diagnostics = productionDiagnosticsByKey[key] ?? .zero
+        if let attempt = attemptsByKey[key], attempt.phase != .committed {
+            diagnostics.activeLeaseCount = 1
+        } else {
+            diagnostics.activeLeaseCount = 0
+        }
+        lock.unlock()
+        return diagnostics
+    }
+#endif
 
     func readiness(for key: ChatInitialBootstrapRequestKey) -> ConversationArchiveReadiness? {
         lock.lock()
@@ -624,15 +901,60 @@ final class ChatInitialBootstrapRequestCoordinator {
     @discardableResult
     func observe(
         key: ChatInitialBootstrapRequestKey,
+        consumesInteractiveCommittedJoin: Bool = false,
         observer: @escaping ReadinessObserver
     ) -> ObservationToken {
         let token = ObservationToken()
         lock.lock()
+        if consumesInteractiveCommittedJoin,
+           var attempt = attemptsByKey[key],
+           attempt.phase == .committed,
+           attempt.committedPage != nil {
+            attempt.hasInteractiveCommittedJoinAwaitingObservation = false
+            attemptsByKey[key] = attempt
+        }
         readinessObserversByKey[key, default: [:]][token.id] = observer
         let value = readinessLocked(for: key)
         lock.unlock()
         observer(value)
         return token
+    }
+
+    /// Observation consumes a committed-join reservation under the coordinator
+    /// lock. The production controller calls this synchronously from a `defer`
+    /// at request-scope exit so every early return also clears an abandoned
+    /// reservation. This is lifecycle cleanup, never a readiness or
+    /// presentation terminal.
+    @discardableResult
+    func releaseInteractiveCommittedJoinReservation(
+        key: ChatInitialBootstrapRequestKey,
+        queryId: String
+    ) -> Bool {
+        var cleanup: Cleanup?
+        var didRelease = false
+        lock.lock()
+        if var attempt = attemptsByKey[key],
+           attempt.lease.queryId == queryId,
+           attempt.phase == .committed,
+           attempt.hasInteractiveCommittedJoinAwaitingObservation {
+            didRelease = true
+            attempt.hasInteractiveCommittedJoinAwaitingObservation = false
+            if attempt.isCommittedRemovalDeferredUntilObserversDetach,
+               readinessObserversByKey[key]?.isEmpty ?? true {
+                attemptsByKey.removeValue(forKey: key)
+                finalReceivedOrder.removeAll { $0 == key }
+                cleanup = makeCleanup(
+                    key: key,
+                    attempt: attempt,
+                    includesTransportCancellation: false
+                )
+            } else {
+                attemptsByKey[key] = attempt
+            }
+        }
+        lock.unlock()
+        performCleanup(cleanup, unregisterPersistenceSource: true)
+        return didRelease
     }
 
     /// Joining an existing interactive request is itself the promotion: the
@@ -681,7 +1003,8 @@ final class ChatInitialBootstrapRequestCoordinator {
             readinessObserversByKey[key] = nil
             if let attempt = attemptsByKey[key],
                attempt.phase == .committed,
-               attempt.isCommittedRemovalDeferredUntilObserversDetach {
+               attempt.isCommittedRemovalDeferredUntilObserversDetach,
+               !attempt.hasInteractiveCommittedJoinAwaitingObservation {
                 attemptsByKey.removeValue(forKey: key)
                 finalReceivedOrder.removeAll { $0 == key }
                 shouldUnregisterPersistenceSource =
@@ -799,6 +1122,14 @@ final class ChatInitialBootstrapRequestCoordinator {
             // persistence lease back to transport.
             let acceptsStartResources = attempt.phase == .queued || attempt.phase == .transport
             if acceptsStartResources {
+#if DEBUG || CHAT_PERFORMANCE_LAB
+                if attempt.startResult == nil,
+                   case .bootstrapStarted = result {
+                    var diagnostics = productionDiagnosticsByKey[key] ?? .zero
+                    diagnostics.transportStartCount &+= 1
+                    productionDiagnosticsByKey[key] = diagnostics
+                }
+#endif
                 attempt.phase = .transport
                 attempt.messages = messages
                 attempt.archiveManager = archiveManager ?? attempt.archiveManager
@@ -832,6 +1163,14 @@ final class ChatInitialBootstrapRequestCoordinator {
         notifyReadinessObservers(key: key)
 
         if let traceAttempt {
+            if case .bootstrapStarted = result,
+               let traceContext = traceAttempt.lease.performanceTraceContext {
+                _ = performanceTraceRegistry.transportStarted(
+                    owner: key.owner,
+                    queryID: queryId,
+                    context: traceContext
+                )
+            }
             traceArchiveLoad(
                 "archiveLoadStart",
                 attempt: traceAttempt,
@@ -939,7 +1278,8 @@ final class ChatInitialBootstrapRequestCoordinator {
                 includesTransportCancellation: false
             )
             let hasJoinedReadinessConsumers =
-                readinessObserversByKey[key]?.isEmpty == false
+                readinessObserversByKey[key]?.isEmpty == false ||
+                attempt.hasInteractiveCommittedJoinAwaitingObservation
             if attempt.phase == .committed,
                attempt.committedPage != nil,
                hasJoinedReadinessConsumers {
@@ -948,6 +1288,13 @@ final class ChatInitialBootstrapRequestCoordinator {
             } else {
                 attemptsByKey.removeValue(forKey: key)
                 finalReceivedOrder.removeAll { $0 == key }
+#if DEBUG || CHAT_PERFORMANCE_LAB
+                if attempt.phase != .committed {
+                    var diagnostics = productionDiagnosticsByKey[key] ?? .zero
+                    diagnostics.completedLeaseCount &+= 1
+                    productionDiagnosticsByKey[key] = diagnostics
+                }
+#endif
                 recordCancelledTransportIdentityLocked(
                     AttemptIdentity(key: key, queryId: queryId)
                 )
@@ -1008,7 +1355,8 @@ final class ChatInitialBootstrapRequestCoordinator {
                 // consume its page/follow-up proof before the receipt goes
                 // away; otherwise a snapshot observer can strand the chat on
                 // skeleton between two main-queue hops.
-                if readinessObserversByKey[key]?.isEmpty == false {
+                if readinessObserversByKey[key]?.isEmpty == false ||
+                    attempt.hasInteractiveCommittedJoinAwaitingObservation {
                     attempt.isCommittedRemovalDeferredUntilObserversDetach = true
                     attemptsByKey[key] = attempt
                 } else {
@@ -1051,7 +1399,8 @@ final class ChatInitialBootstrapRequestCoordinator {
                 attempt: attempt,
                 includesTransportCancellation: false
             )
-            if readinessObserversByKey[key]?.isEmpty == false {
+            if readinessObserversByKey[key]?.isEmpty == false ||
+                attempt.hasInteractiveCommittedJoinAwaitingObservation {
                 attempt.isCommittedRemovalDeferredUntilObserversDetach = true
                 attemptsByKey[key] = attempt
             } else {
@@ -1108,6 +1457,11 @@ final class ChatInitialBootstrapRequestCoordinator {
             finalReceivedOrder.removeAll { $0 == key }
             terminalFailuresByKey[key] = event
             recordTerminalKeyLocked(key)
+#if DEBUG || CHAT_PERFORMANCE_LAB
+            var diagnostics = productionDiagnosticsByKey[key] ?? .zero
+            diagnostics.failedLeaseCount &+= 1
+            productionDiagnosticsByKey[key] = diagnostics
+#endif
             if attempt.cancelTransport != nil {
                 recordCancelledTransportIdentityLocked(
                     AttemptIdentity(key: key, queryId: event.queryId)
@@ -1124,6 +1478,14 @@ final class ChatInitialBootstrapRequestCoordinator {
             return false
         }
         if let traceAttempt {
+            if let traceContext = traceAttempt.lease.performanceTraceContext {
+                _ = performanceTraceRegistry.terminate(
+                    owner: key.owner,
+                    queryID: event.queryId,
+                    context: traceContext,
+                    terminal: .failed
+                )
+            }
             traceArchiveLoad(
                 "archiveLoadFail",
                 attempt: traceAttempt,
@@ -1169,6 +1531,13 @@ final class ChatInitialBootstrapRequestCoordinator {
         } else if let attempt = attemptsByKey.removeValue(forKey: key) {
             finalReceivedOrder.removeAll { $0 == key }
             let shouldCancelTransport = attempt.endPageEvent == nil
+#if DEBUG || CHAT_PERFORMANCE_LAB
+            if attempt.phase != .committed {
+                var diagnostics = productionDiagnosticsByKey[key] ?? .zero
+                diagnostics.cancelledLeaseCount &+= 1
+                productionDiagnosticsByKey[key] = diagnostics
+            }
+#endif
             if shouldCancelTransport,
                attempt.cancelTransport != nil {
                 recordCancelledTransportIdentityLocked(
@@ -1210,12 +1579,30 @@ final class ChatInitialBootstrapRequestCoordinator {
         hasDurableCoverage: Bool,
         boundaryFingerprint: MessageArchiveManager.ConversationArchiveBoundaryFingerprint? = nil,
         resultCount: Int = 0,
+        persistedRowsForQuery: Int = 0,
+        visibleRowsForConversation: Int = 0,
         confirmsEmptyConversation: Bool? = nil,
         hasPresentationMaterialization: Bool? = nil,
         recommendedFollowUpTarget:
             MessageArchiveManager.ChatBootstrapPageTarget? = nil
     ) {
         let normalizedResultCount = max(0, resultCount)
+        let normalizedPersistedRows = max(0, persistedRowsForQuery)
+        let normalizedVisibleRows = max(0, visibleRowsForConversation)
+        var persistenceSummary = MessageManager.ArchivePersistenceSummary()
+        persistenceSummary.received = normalizedResultCount
+        persistenceSummary.queued = normalizedPersistedRows
+        persistenceSummary.savedNew = normalizedPersistedRows
+        let conversationType = ClientSynchronizationManager.ConversationType(
+            rawValue: key.conversationTypeRawValue
+        ) ?? .regular
+        for _ in 0..<normalizedVisibleRows {
+            persistenceSummary.recordVisibleRow(
+                owner: key.owner,
+                jid: key.jid,
+                conversationType: conversationType
+            )
+        }
         let state = MessageArchivePageEndState(
             queryExhausted: true,
             archiveEnded: true,
@@ -1238,8 +1625,8 @@ final class ChatInitialBootstrapRequestCoordinator {
                 event: event,
                 completion: ChatRemoteHistoryCompletionResult(
                     state: state,
-                    flushedMessageCount: 0,
-                    persistenceSummary: MessageManager.ArchivePersistenceSummary()
+                    flushedMessageCount: normalizedPersistedRows,
+                    persistenceSummary: persistenceSummary
                 ),
                 boundaryFingerprint: boundaryFingerprint,
                 confirmsEmptyConversation:
@@ -1292,6 +1679,9 @@ final class ChatInitialBootstrapRequestCoordinator {
         operationTraceKeyOrder.removeAll()
         nextOperationTraceID = 0
         persistenceCommitClaimObserver = nil
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        productionDiagnosticsByKey.removeAll()
+#endif
         lock.unlock()
         cleanups.forEach {
             performCleanup($0, unregisterPersistenceSource: true)
@@ -1327,6 +1717,11 @@ final class ChatInitialBootstrapRequestCoordinator {
         let traceKeys = latestOperationTraceIDByKey.keys.filter { $0.owner == owner }
         traceKeys.forEach { latestOperationTraceIDByKey.removeValue(forKey: $0) }
         operationTraceKeyOrder.removeAll { $0.owner == owner }
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        productionDiagnosticsByKey = productionDiagnosticsByKey.filter {
+            $0.key.owner != owner
+        }
+#endif
         lock.unlock()
 
         readinessObservers.forEach { $0(nil) }
@@ -1498,6 +1893,61 @@ final class ChatInitialBootstrapRequestCoordinator {
                 flushedMessageCount: 0,
                 persistenceSummary: MessageManager.ArchivePersistenceSummary()
             )
+            let performanceTraceContext =
+                traceAttempt?.lease.performanceTraceContext
+            if let performanceTraceContext {
+                // The empty-page path has no MessageManager request to seal.
+                // Seal only the already observed real MAM final; the registry
+                // rejects synthetic/test completions that never crossed that
+                // transport boundary.
+                _ = performanceTraceRegistry.sealExpectedIngress(
+                    owner: key.owner,
+                    queryID: event.queryId,
+                    context: performanceTraceContext,
+                    expectedCount: event.count
+                )
+            }
+            let completePerformanceTrace: (
+                ChatPerformanceIntervalTerminal,
+                Int,
+                Int
+            ) -> Void = { terminal, persistedCount, failedCount in
+                guard let performanceTraceContext else {
+                    return
+                }
+                _ = self.performanceTraceRegistry.persistenceTerminal(
+                    owner: key.owner,
+                    queryID: event.queryId,
+                    context: performanceTraceContext,
+                    terminal: terminal,
+                    persistedCount: persistedCount,
+                    failedCount: failedCount
+                )
+            }
+            let completeCommittedPerformanceTrace: () -> Void = {
+                guard let performanceTraceContext else {
+                    return
+                }
+                let didCommit = self.performanceTraceRegistry.persistenceTerminal(
+                    owner: key.owner,
+                    queryID: event.queryId,
+                    context: performanceTraceContext,
+                    terminal: .committed,
+                    persistedCount: completion.persistenceSummary.persistedRows,
+                    failedCount: completion.persistenceSummary.failed
+                )
+                if !didCommit {
+                    // A non-empty wire result without a MessageManager ingress
+                    // proof must not be reported as a successful persistence
+                    // terminal, even if a legacy presentation fallback accepts
+                    // the page for UI continuity.
+                    completePerformanceTrace(
+                        .failed,
+                        completion.persistenceSummary.persistedRows,
+                        max(1, event.count)
+                    )
+                }
+            }
             let commitResult = archiveManager?.commitAfterPersistence(
                 queryId: event.queryId,
                 persistenceSummary: completion.persistenceSummary
@@ -1507,7 +1957,7 @@ final class ChatInitialBootstrapRequestCoordinator {
             )
             switch commitResult {
             case .committed:
-                let hasDurableCoverage = hasPersistenceConfirmedReadiness(for: key)
+                completeCommittedPerformanceTrace()
                 recordCommittedPage(
                     key: key,
                     queryId: event.queryId,
@@ -1523,9 +1973,11 @@ final class ChatInitialBootstrapRequestCoordinator {
                         recommendedFollowUpTarget:
                             consumerProof?.recommendedFollowUpTarget
                     ),
-                    hasDurableCoverage: hasDurableCoverage
+                    hasDurableCoverage:
+                        hasPersistenceConfirmedReadiness(for: key)
                 )
             case .committedNeedsFollowUpRepair:
+                completeCommittedPerformanceTrace()
                 recordCommittedPage(
                     key: key,
                     queryId: event.queryId,
@@ -1544,6 +1996,7 @@ final class ChatInitialBootstrapRequestCoordinator {
                     hasDurableCoverage: false
                 )
             case .missingDescriptor where archiveManager == nil:
+                completeCommittedPerformanceTrace()
                 let presentationProof = legacyPresentationProof(
                     key: key,
                     event: event,
@@ -1566,12 +2019,14 @@ final class ChatInitialBootstrapRequestCoordinator {
                         presentationProof.confirmsEmptyConversation
                 )
             case .missingDescriptor:
+                completePerformanceTrace(.failed, 0, max(1, event.count))
                 recordPersistenceFailure(
                     key: key,
                     queryId: event.queryId,
                     description: "Deferred archive commit descriptor is unavailable"
                 )
             case .rejected(let rejection):
+                completePerformanceTrace(.failed, 0, max(1, event.count))
                 recordPersistenceFailure(
                     key: key,
                     queryId: event.queryId,
@@ -1620,7 +2075,6 @@ final class ChatInitialBootstrapRequestCoordinator {
             )
             switch commitResult {
             case .committed:
-                let hasDurableCoverage = self.hasPersistenceConfirmedReadiness(for: key)
                 self.recordCommittedPage(
                     key: key,
                     queryId: event.queryId,
@@ -1636,7 +2090,8 @@ final class ChatInitialBootstrapRequestCoordinator {
                         recommendedFollowUpTarget:
                             consumerProof?.recommendedFollowUpTarget
                     ),
-                    hasDurableCoverage: hasDurableCoverage
+                    hasDurableCoverage:
+                        self.hasPersistenceConfirmedReadiness(for: key)
                 )
             case .committedNeedsFollowUpRepair:
                 self.recordCommittedPage(
@@ -1724,6 +2179,11 @@ final class ChatInitialBootstrapRequestCoordinator {
             finalReceivedOrder.removeAll { $0 == key }
             terminalFailuresByKey[key] = event
             recordTerminalKeyLocked(key)
+#if DEBUG || CHAT_PERFORMANCE_LAB
+            var diagnostics = productionDiagnosticsByKey[key] ?? .zero
+            diagnostics.failedLeaseCount &+= 1
+            productionDiagnosticsByKey[key] = diagnostics
+#endif
             cleanup = makeCleanup(
                 key: key,
                 attempt: attempt,
@@ -1737,6 +2197,14 @@ final class ChatInitialBootstrapRequestCoordinator {
         notifyReadinessObservers(key: key)
         guard let cleanup else { return }
         if let traceAttempt {
+            if let traceContext = traceAttempt.lease.performanceTraceContext {
+                _ = performanceTraceRegistry.terminate(
+                    owner: key.owner,
+                    queryID: queryId,
+                    context: traceContext,
+                    terminal: .failed
+                )
+            }
             traceArchiveLoad(
                 "archiveLoadFail",
                 attempt: traceAttempt,
@@ -1918,6 +2386,8 @@ final class ChatInitialBootstrapRequestCoordinator {
                             boundary: page.boundaryFingerprint
                         )
                     attempt.followUpTargetPurpose = recommendedPurpose
+                    attempt.followUpPerformanceSemanticTargetFingerprint =
+                        attempt.lease.performanceSemanticTargetFingerprint
                 }
             }
             let requiresTargetFollowUp = attempt.followUpTargetFingerprint != nil
@@ -1961,6 +2431,11 @@ final class ChatInitialBootstrapRequestCoordinator {
                 )
             }
             didRecord = true
+#if DEBUG || CHAT_PERFORMANCE_LAB
+            var diagnostics = productionDiagnosticsByKey[key] ?? .zero
+            diagnostics.completedLeaseCount &+= 1
+            productionDiagnosticsByKey[key] = diagnostics
+#endif
             traceAttempt = attempt
         }
         lock.unlock()
@@ -2110,6 +2585,7 @@ final class ChatInitialBootstrapRequestCoordinator {
         Cleanup(
             owner: key.owner,
             queryId: attempt.lease.queryId,
+            performanceTraceContext: attempt.lease.performanceTraceContext,
             timeoutWorkItem: attempt.timeoutWorkItem,
             endDispatcherToken: attempt.endDispatcherToken,
             failureDispatcherToken: attempt.failureDispatcherToken,
@@ -2127,6 +2603,14 @@ final class ChatInitialBootstrapRequestCoordinator {
         guard let cleanup else {
             completion?()
             return
+        }
+        if let traceContext = cleanup.performanceTraceContext {
+            _ = performanceTraceRegistry.terminate(
+                owner: cleanup.owner,
+                queryID: cleanup.queryId,
+                context: traceContext,
+                terminal: .cancelled
+            )
         }
         cleanup.timeoutWorkItem?.cancel()
         if let token = cleanup.endDispatcherToken {
@@ -2202,19 +2686,70 @@ extension ChatViewController {
                     sourceDate: request.anchor.sourceDate
                 )
             case .anchor:
-                target = .latest
+                // Keep the exact semantic target in the account-scoped
+                // fingerprint even though generic message opens are executed
+                // by the anchor transaction below. Collapsing this to latest
+                // allows an unrelated newest-page lease to be adopted.
+                target = .savedPosition(
+                    messagePrimary: request.anchor.messagePrimary,
+                    archivedId: request.anchor.archivedId,
+                    messageId: request.anchor.messageId,
+                    sourceDate: request.anchor.sourceDate
+                )
             }
         } else {
             target = .latest
         }
         return MessageArchiveManager.ChatBootstrapTargetFingerprint(
             target: target,
-            boundary: MessageArchiveManager.currentConversationArchiveBoundaryFingerprint(
-                owner: self.owner,
-                jid: self.jid,
-                conversationType: self.conversationType
-            )
+            boundary: self.currentInitialFrameReadinessProof()?
+                .archiveBoundaryFingerprint
         )
+    }
+
+    internal func initialBootstrapTransportTarget(
+        for semanticTarget: MessageArchiveManager.ChatBootstrapPageTarget
+    ) -> MessageArchiveManager.ChatBootstrapPageTarget {
+        guard case .savedPosition = semanticTarget,
+              let request = self.pendingOpenMessageRequest,
+              request.owner == self.owner,
+              request.chatJid == self.jid,
+              request.conversationType == self.conversationType else {
+            return semanticTarget
+        }
+        let requestTarget = MessageArchiveManager.ChatBootstrapPageTarget.savedPosition(
+            messagePrimary: request.anchor.messagePrimary,
+            archivedId: request.anchor.archivedId,
+            messageId: request.anchor.messageId,
+            sourceDate: request.anchor.sourceDate
+        )
+        guard semanticTarget == requestTarget,
+              case .blockingRepair(let repair) = self.savedPositionFirstFrameDecision(
+                for: request
+              ) else {
+            return semanticTarget
+        }
+
+        let direction: MessageArchiveManager.RegularArchiveGapRepairDirection
+        switch repair.direction {
+        case .older:
+            direction = .older
+        case .newer:
+            direction = .newer
+        }
+        return .savedPositionGapRepair(
+            olderRangeNewestArchiveId: repair.gap.olderRangeNewestArchiveId,
+            newerRangeOldestArchiveId: repair.gap.newerRangeOldestArchiveId,
+            direction: direction
+        )
+    }
+
+    internal func resumeInitialBootstrapArchiveRequestAfterSavedPositionProbeIfNeeded() {
+        guard self.isInitialBootstrapArchiveRequestDeferredForSavedPositionProbe else {
+            return
+        }
+        self.isInitialBootstrapArchiveRequestDeferredForSavedPositionProbe = false
+        self.requestInitialBootstrapArchive()
     }
 
     internal func acquireInteractiveChatOpenGateIfNeeded() {
@@ -2447,7 +2982,8 @@ extension ChatViewController {
         let initialBootstrapViewState = self.bootstrapViewState(chatInstance: initialChatInstance)
         self.applyBootstrapViewState(
             initialBootstrapViewState,
-            forceRender: self.datasource.isEmpty || !self.isShowingBootstrapPlaceholder
+            forceRender: self.datasource.isEmpty || !self.isShowingBootstrapPlaceholder,
+            synchronousSkeletonCommit: initialBootstrapViewState == .skeleton
         )
         if initialBootstrapViewState == .skeleton {
             self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
@@ -2457,14 +2993,25 @@ extension ChatViewController {
         if self.conversationType == .group {
             do {
                 let realm = try WRealm.safe()
+                var groupMemberUnreadMetadataRefreshGate =
+                    ChatGroupMemberUnreadMetadataRefreshGate(
+                        authoritativeMemberId: initialChatInstance?.groupchatMyId
+                    )
                 let myGroupUser = realm.objects(GroupchatUserStorageItem.self)
                     .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp())
                 Observable
                     .collection(from: myGroupUser, synchronousStart: true)
                     .debounce(.milliseconds(30), scheduler: MainScheduler.asyncInstance)
                     .observe(on: MainScheduler.asyncInstance)
-                    .subscribe(onNext: { _ in
-                        _ = self.timelineSession?.refreshUnreadMetadata()
+                    .subscribe(onNext: { results in
+                        let observedMemberId = results.first(where: {
+                            !$0.isHidden
+                        })?.userId
+                        if groupMemberUnreadMetadataRefreshGate.shouldRefresh(
+                            observedMemberId: observedMemberId
+                        ) {
+                            _ = self.timelineSession?.refreshUnreadMetadata()
+                        }
                         self.rebuildUnreadMentionItems()
                         self.refreshUnreadMentionsNavigatorState(animated: true)
                     })
@@ -2825,7 +3372,31 @@ extension ChatViewController {
 
     }
     
+    internal func resumeInitialBootstrapArchiveRequestAfterSkeletonReceiptIfNeeded() {
+        guard let showFailureIfUnavailable =
+                self.pendingInitialBootstrapArchiveRequestAfterSkeletonReceiptShowsFailure else {
+            return
+        }
+        self.pendingInitialBootstrapArchiveRequestAfterSkeletonReceiptShowsFailure = nil
+        self.requestInitialBootstrapArchive(
+            showFailureIfUnavailable: showFailureIfUnavailable
+        )
+    }
+
     internal func requestInitialBootstrapArchive(showFailureIfUnavailable: Bool = false) {
+        if let performanceTraceContext = self.chatOpenPerformanceTraceContext,
+           self.appliedBootstrapLoadingState?.showsSkeleton == true,
+           !self.chatOpenPerformanceTraceLifecycle
+            .hasRecordedPresentationReceipt(
+                .skeleton,
+                context: performanceTraceContext
+            ) {
+            self.pendingInitialBootstrapArchiveRequestAfterSkeletonReceiptShowsFailure =
+                (self.pendingInitialBootstrapArchiveRequestAfterSkeletonReceiptShowsFailure ?? false) ||
+                showFailureIfUnavailable
+            return
+        }
+        self.pendingInitialBootstrapArchiveRequestAfterSkeletonReceiptShowsFailure = nil
         let coordinator = ChatInitialBootstrapRequestCoordinator.shared
         let key = self.initialBootstrapLeaseKey ?? ChatInitialBootstrapRequestKey(
             owner: self.owner,
@@ -2839,6 +3410,25 @@ extension ChatViewController {
                     currentTargetFingerprint.target,
                 boundary: currentTargetFingerprint.boundary
             )
+        if self.shouldDeferInitialBootstrapArchiveForSavedPositionProbe(
+            requestedTargetFingerprint.target
+        ) {
+            self.isInitialBootstrapArchiveRequestDeferredForSavedPositionProbe = true
+            return
+        }
+        if self.shouldDeferInitialBootstrapArchiveForAnchorTransaction(
+            requestedTargetFingerprint.target
+        ) {
+            self.isInitialBootstrapArchiveRequestDeferredForSavedPositionProbe = false
+            self.performOnMain { [weak self] in
+                self?.performPendingOpenMessageRequestIfNeeded(trigger: .manual)
+            }
+            return
+        }
+        self.isInitialBootstrapArchiveRequestDeferredForSavedPositionProbe = false
+        let requestedTransportTarget = self.initialBootstrapTransportTarget(
+            for: requestedTargetFingerprint.target
+        )
         self.initialBootstrapLeaseKey = key
         let requiresArchiveConfirmation = self.currentBootstrapRequiresArchiveConfirmation()
         if let committedReadiness = coordinator.readiness(for: key),
@@ -2908,7 +3498,20 @@ extension ChatViewController {
             key: key,
             proposedQueryId: proposedQueryId,
             timeout: ChatInteractiveRemoteArchiveTimeoutPolicy.timeout,
-            targetFingerprint: requestedTargetFingerprint
+            targetFingerprint: requestedTargetFingerprint,
+            performanceTraceContext: self.chatOpenPerformanceTraceContext,
+            performanceSemanticTargetFingerprint:
+                self.chatOpenPerformanceSemanticTargetFingerprint(
+                    for: self.pendingOpenMessageRequest
+                ),
+            performanceSkeletonReceiptWasCommitted:
+                self.chatOpenPerformanceTraceContext.map {
+                    self.chatOpenPerformanceTraceLifecycle
+                        .hasRecordedPresentationReceipt(
+                            .skeleton,
+                            context: $0
+                        )
+                } ?? false
         ) { [weak self] expectedQueryId, result, _ in
             self?.handleSyncChatStartResult(
                 result,
@@ -2933,7 +3536,28 @@ extension ChatViewController {
             lease = acquiredLease
             _ = coordinator.promote(key: key)
         }
+        defer {
+            _ = coordinator.releaseInteractiveCommittedJoinReservation(
+                key: key,
+                queryId: lease.queryId
+            )
+        }
+        let requestedPerformanceSemanticTargetFingerprint =
+            self.chatOpenPerformanceSemanticTargetFingerprint(
+                for: self.pendingOpenMessageRequest
+            )
+        if lease.targetFingerprint.target == requestedTargetFingerprint.target,
+           lease.performanceSemanticTargetFingerprint ==
+            requestedPerformanceSemanticTargetFingerprint,
+           let controllerContext = self.chatOpenPerformanceTraceContext {
+            assert(
+                lease.performanceTraceContext == controllerContext,
+                "A same-target bootstrap lease must retain the accepted open context"
+            )
+        }
         self.initialBootstrapTargetFingerprint = lease.targetFingerprint
+        self.initialBootstrapPerformanceSemanticTargetFingerprint =
+            lease.performanceSemanticTargetFingerprint
         self.initialBootstrapFollowUpTargetOverride = nil
         self.acquireInteractiveChatOpenGateIfNeeded()
 
@@ -2975,7 +3599,12 @@ extension ChatViewController {
             return
         }
 
-        let cancelTransport = {
+        let cancelTransport = { [weak self] in
+#if DEBUG || CHAT_PERFORMANCE_LAB
+            self?.performanceFixtureArchiveTransportCancellationHandler?(
+                lease.queryId
+            )
+#endif
             if let account = AccountManager.shared.find(for: owner) {
                 account.action { user, _ in
                     _ = user.mam.cancelPendingArchiveRequest(queryId: lease.queryId)
@@ -3009,7 +3638,10 @@ extension ChatViewController {
                 conversationType: conversationType,
                 pageSize: pageSize,
                 queryId: lease.queryId,
-                target: lease.targetFingerprint.target,
+                // The lease remains keyed by the semantic saved target while
+                // transport repairs the concrete gap that makes its first
+                // frame unsafe. This preserves single-flight deduplication.
+                target: requestedTransportTarget,
                 callback: nil,
                 requestCallbacks: .none
             ) ?? .noop
@@ -3022,6 +3654,68 @@ extension ChatViewController {
                 cancelTransport: cancelTransport
             )
         }
+
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        let performanceRequestDescriptor:
+            ChatPerformanceFixtureArchiveRequestDescriptor? = {
+                guard conversationType == .regular else { return nil }
+                let requestPlan = MessageArchiveManager
+                    .regularBootstrapRequestPlan(
+                        jid: jid,
+                        pageSize: pageSize,
+                        target: requestedTransportTarget
+                    )
+                let requestSource = self.pendingOpenMessageRequest?.source
+                let semanticRouteClass:
+                    ChatPerformanceFixtureArchiveSemanticRouteClass
+                switch requestedTransportTarget {
+                case .latest:
+                    semanticRouteClass = .latest
+                case .firstUnread:
+                    semanticRouteClass = .unreadBoundary
+                case .savedPosition:
+                    semanticRouteClass = .savedPosition
+                case .older:
+                    semanticRouteClass = .anchorContext
+                case .savedPositionGapRepair:
+                    semanticRouteClass = .knownGapRepair
+                }
+                return ChatPerformanceFixtureArchiveRequestDescriptor.make(
+                    plan: requestPlan,
+                    leasePurpose: .initialBootstrap,
+                    requestSource: requestSource,
+                    semanticRouteClass: semanticRouteClass
+                )
+            }()
+        let performanceFixtureTransportRequest =
+            ChatPerformanceFixtureArchiveTransportRequest(
+                kind: .initialBootstrap,
+                queryIds: [lease.queryId],
+                descriptorsByQueryId: performanceRequestDescriptor.map {
+                    [lease.queryId: $0]
+                } ?? [:]
+            )
+        if let performanceFixtureExecutor =
+                self.performanceFixtureArchiveTransportExecutor,
+           let performanceFixtureTransport =
+                self.performanceFixtureArchiveTransportProvider?(
+                    performanceFixtureTransportRequest
+                ) {
+            performanceFixtureExecutor { [weak self] in
+                startRequest(
+                    performanceFixtureTransport.stream,
+                    performanceFixtureTransport.archiveManager,
+                    performanceFixtureTransport.messageManager
+                )
+                DispatchQueue.main.async {
+                    self?.performanceFixtureArchiveTransportDidStartHandler?(
+                        performanceFixtureTransportRequest
+                    )
+                }
+            }
+            return
+        }
+#endif
 
         let account = AccountManager.shared.find(for: owner)
         let enqueuePrimaryTransport: (Account) -> Void = { account in
@@ -3109,12 +3803,37 @@ extension ChatViewController {
     }
 
     internal func retryInitialBootstrapAfterFailure() {
+        if self.preservesBootstrapFailureOverlayUntilRetryCommit {
+            // A visible Retry overlay is already owned by an admitted retry.
+            // A second tap may promote its existing remote lease, but it must
+            // never start a second local mapper or archive transport.
+            self.allowsBootstrapFailureFallback = false
+            self.allowsStaleLocalHistoryDuringInitialBootstrap = false
+            self.acquireInteractiveChatOpenGateIfNeeded()
+            if self.isInitialBootstrapInFlight,
+               let queryId = self.initialBootstrapQueryId {
+                _ = ChatInitialBootstrapRequestCoordinator.shared.promote(
+                    key: self.initialBootstrapRequestKey
+                )
+                self.initialBootstrapPresentationDeadline = nil
+                self.scheduleInitialBootstrapTimeout(
+                    queryId: queryId,
+                    timeout:
+                        ChatInitialBootstrapPresentationWatchdogPolicy
+                            .maximumPresentationTimeout
+                )
+            }
+            return
+        }
         if case .failedPresentation =
                 self.initialLocalFirstFramePhase {
+            self.preservesBootstrapFailureOverlayUntilRetryCommit =
+                self.appliedBootstrapLoadingState?.showsRetry == true &&
+                !self.bootstrapFailureView.isHidden
             self.initialLocalFirstFramePhase = .idle
             self.initialLocalFirstFramePresentationRetryDescriptor = nil
             self.allowsBootstrapFailureFallback = false
-            self.setBootstrapFailureVisible(false)
+            self.allowsStaleLocalHistoryDuringInitialBootstrap = false
             self.applyBootstrapLoadingState(
                 .blockingArchive,
                 forceRender: true,
@@ -3129,7 +3848,9 @@ extension ChatViewController {
            let queryId = self.initialBootstrapQueryId {
             self.allowsBootstrapFailureFallback = false
             self.allowsStaleLocalHistoryDuringInitialBootstrap = false
-            self.setBootstrapFailureVisible(false)
+            if !self.preservesBootstrapFailureOverlayUntilRetryCommit {
+                self.setBootstrapFailureVisible(false)
+            }
             self.applyBootstrapLoadingState(.blockingArchive, forceRender: true)
             self.acquireInteractiveChatOpenGateIfNeeded()
             _ = ChatInitialBootstrapRequestCoordinator.shared.promote(
@@ -3146,8 +3867,10 @@ extension ChatViewController {
             key: self.initialBootstrapRequestKey
         )
         self.hasAttemptedInitialBootstrapBoundaryFollowUp = false
+        self.preservesBootstrapFailureOverlayUntilRetryCommit =
+            self.appliedBootstrapLoadingState?.showsRetry == true &&
+            !self.bootstrapFailureView.isHidden
         self.allowsBootstrapFailureFallback = false
-        self.setBootstrapFailureVisible(false)
         self.applyBootstrapLoadingState(self.currentBootstrapLoadingState())
         self.requestInitialBootstrapArchive(showFailureIfUnavailable: true)
     }
@@ -3223,7 +3946,10 @@ extension ChatViewController {
         let state = self.bootstrapViewState(chatInstance: item)
         let shouldShowSkeleton = state == .skeleton
         if self.showSkeletonObserver.value != shouldShowSkeleton {
-            self.applyBootstrapViewState(state)
+            self.applyBootstrapViewState(
+                state,
+                synchronousSkeletonCommit: shouldShowSkeleton
+            )
         } else if !shouldShowSkeleton {
             self.reloadInitialWindowAfterBootstrapIfNeeded()
         }

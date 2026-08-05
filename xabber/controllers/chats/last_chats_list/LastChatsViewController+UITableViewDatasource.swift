@@ -102,6 +102,10 @@ extension LastChatsViewController: UITableViewDataSource {
             verAction: item.isVerificationActionRequired
         )
         cell.setMask()
+        #if DEBUG || CHAT_PERFORMANCE_LAB
+        cell.accessibilityIdentifier =
+            performanceChatRowAccessibilityIdentifierProvider?(item)
+        #endif
         let isSelected = isSelectedChat(item)
         cell.applyPlainGroupedSystemBackground(
             selectedColor: isSelected

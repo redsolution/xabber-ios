@@ -1,4 +1,5 @@
 import XCTest
+import XMPPFramework
 @testable import xabber
 
 final class ChatRemoteMAMPersistenceCoordinatorTests: XCTestCase {
@@ -522,6 +523,73 @@ final class ChatRemoteMAMPersistenceCoordinatorTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testFixtureDetachedPersistenceWorkRemainsActiveThroughHeldFlushAndUnregister() {
+        let queryId = "MAM next history: held-fixture-terminal"
+        let controller = ChatViewController()
+        controller.registerPerformanceFixtureDetachedPersistenceQueries([
+            queryId
+        ])
+        var terminalCallbackCount = 0
+        controller.performanceFixtureDetachedPersistenceTerminalHandler = {
+            receivedQueryId in
+            XCTAssertEqual(receivedQueryId, queryId)
+            terminalCallbackCount += 1
+        }
+        var finishFlush: (() -> Void)?
+        var finishUnregister: (() -> Void)?
+        let transaction = ChatDetachedRemoteHistoryPersistenceTransaction(
+            owner: "owner@example.com",
+            jid: "chat@example.com",
+            conversationType: .regular,
+            queryIds: [queryId],
+            terminal: { [weak controller] terminalQueryId in
+                controller?.completePerformanceFixtureDetachedPersistenceQuery(
+                    terminalQueryId
+                )
+            },
+            flush: { _, _, completion in
+                finishFlush = completion
+            },
+            unregister: { _, completion in
+                finishUnregister = completion
+            }
+        )
+        let state = MessageArchivePageEndState(
+            queryExhausted: false,
+            archiveEnded: false,
+            persistedMessageCount: 0
+        )
+
+        transaction.requestCallbacks.onEndPage?(
+            queryId,
+            state,
+            "first",
+            "last",
+            81
+        )
+        XCTAssertEqual(
+            controller.performanceFixtureDetachedPersistenceQueryIds,
+            [queryId],
+            "Raw parser final must not make fixture production work idle"
+        )
+        XCTAssertEqual(terminalCallbackCount, 0)
+
+        finishFlush?()
+        XCTAssertEqual(
+            controller.performanceFixtureDetachedPersistenceQueryIds,
+            [queryId],
+            "Persistence unregister is still typed production work"
+        )
+        XCTAssertEqual(terminalCallbackCount, 0)
+
+        finishUnregister?()
+        XCTAssertTrue(
+            controller.performanceFixtureDetachedPersistenceQueryIds.isEmpty
+        )
+        XCTAssertEqual(terminalCallbackCount, 1)
+    }
+
     func testInteractiveOlderPageReleasesMamSchedulerOnRawFinalBeforePersistence() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -671,6 +739,122 @@ final class ChatRemoteMAMPersistenceCoordinatorTests: XCTestCase {
         lease.complete()
 
         XCTAssertEqual(releaseCount, 1)
+    }
+
+    func testInteractiveRemoteArchiveDispatchRequestInitializerRetainsEveryField() {
+        let owner = "dispatch-request-fields-\(UUID().uuidString)@example.com"
+        let lease = ChatInteractiveRemoteArchiveSchedulerLease()
+        let account = Account(
+            jid: owner,
+            queue: DispatchQueue(label: "ChatRemoteMAMPersistenceCoordinatorTests.fields")
+        )
+        let stream = XMPPStream()
+        let archiveManager = MessageArchiveManager(withOwner: owner)
+        let messageManager = MessageManager(withOwner: owner, activeStream: false)
+        defer {
+            messageManager.updateSendingMessagesTimer?.invalidate()
+            messageManager.updateSendingMessagesTimer = nil
+            messageManager.unsubscribeReceiver()
+            messageManager.unsubscribeSender()
+        }
+
+        var shouldDispatchCallCount = 0
+        var sentAccount: Account?
+        var sentStream: XMPPStream?
+        var startedQueryId: String?
+        var startedStreamKind: MessageArchiveEndPageEvent.StreamKind?
+        var startedResource: String?
+        var fixtureStream: XMPPStream?
+        var fixtureArchiveManager: MessageArchiveManager?
+        var fixtureMessageManager: MessageManager?
+        var unavailableReason: String?
+
+        let request = ChatInteractiveRemoteArchiveDispatchRequest(
+            owner: owner,
+            queryId: "dispatch-query",
+            direction: .newer,
+            cursorId: "dispatch-cursor",
+            pageSize: 73,
+            priority: .foreground,
+            resource: .mamArchive,
+            deduplicationKey: "dispatch-dedupe",
+            schedulerLease: lease,
+            shouldDispatch: {
+                shouldDispatchCallCount += 1
+                return true
+            },
+            send: { capturedAccount, capturedStream in
+                sentAccount = capturedAccount
+                sentStream = capturedStream
+                return "wire-query"
+            },
+            transportStarted: { queryId, streamKind, resource in
+                startedQueryId = queryId
+                startedStreamKind = streamKind
+                startedResource = resource
+            },
+            performanceFixtureSend: { capturedStream, capturedArchiveManager, capturedMessageManager in
+                fixtureStream = capturedStream
+                fixtureArchiveManager = capturedArchiveManager
+                fixtureMessageManager = capturedMessageManager
+                return "fixture-query"
+            },
+            dispatchUnavailable: { reason in
+                unavailableReason = reason
+            }
+        )
+
+        XCTAssertEqual(request.owner, owner)
+        XCTAssertEqual(request.queryId, "dispatch-query")
+        XCTAssertEqual(request.direction, .newer)
+        XCTAssertEqual(request.cursorId, "dispatch-cursor")
+        XCTAssertEqual(request.pageSize, 73)
+        XCTAssertEqual(request.priority, .foreground)
+        XCTAssertEqual(request.resource, .mamArchive)
+        XCTAssertEqual(request.deduplicationKey, "dispatch-dedupe")
+        XCTAssertTrue(request.schedulerLease === lease)
+
+        XCTAssertTrue(request.shouldDispatch())
+        XCTAssertEqual(shouldDispatchCallCount, 1)
+        XCTAssertEqual(request.send(account, stream), "wire-query")
+        XCTAssertTrue(sentAccount === account)
+        XCTAssertTrue(sentStream === stream)
+
+        request.transportStarted("started-query", .uiAction, "mobile")
+        XCTAssertEqual(startedQueryId, "started-query")
+        XCTAssertEqual(startedStreamKind?.rawValue, "uiAction")
+        XCTAssertEqual(startedResource, "mobile")
+
+        XCTAssertEqual(
+            request.performanceFixtureSend?(stream, archiveManager, messageManager),
+            "fixture-query"
+        )
+        XCTAssertTrue(fixtureStream === stream)
+        XCTAssertTrue(fixtureArchiveManager === archiveManager)
+        XCTAssertTrue(fixtureMessageManager === messageManager)
+
+        request.dispatchUnavailable("missing-account")
+        XCTAssertEqual(unavailableReason, "missing-account")
+    }
+
+    func testInteractiveRemoteArchiveDispatchRequestInitializerDefaultsFixtureSendToNil() {
+        let request = ChatInteractiveRemoteArchiveDispatchRequest(
+            owner: "legacy@example.com",
+            queryId: "legacy-query",
+            direction: .older,
+            cursorId: nil,
+            pageSize: 25,
+            priority: .interactive,
+            resource: .mamArchive,
+            deduplicationKey: "legacy-dedupe",
+            schedulerLease: ChatInteractiveRemoteArchiveSchedulerLease(),
+            shouldDispatch: { false },
+            send: { _, _ in nil },
+            transportStarted: { _, _, _ in },
+            dispatchUnavailable: { _ in }
+        )
+
+        XCTAssertNil(request.performanceFixtureSend)
     }
 
     func testNotReadyRequestQueuesUntilResetDispatchesFailureAndLeavesMamLaneReusable() {

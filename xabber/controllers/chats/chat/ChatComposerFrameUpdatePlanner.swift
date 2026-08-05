@@ -1,6 +1,45 @@
 import CoreGraphics
 import Foundation
 
+struct ChatComposerKeyboardLayoutMetrics: Equatable {
+    let visualHeight: CGFloat
+    let collectionObstructionHeight: CGFloat
+
+    static func make(
+        visualHeight: CGFloat,
+        visibleKeyboardHeight: CGFloat,
+        bottomSafeAreaHeight: CGFloat,
+        searchOwnsKeyboard: Bool
+    ) -> ChatComposerKeyboardLayoutMetrics {
+        let resolvedVisualHeight = max(0, visualHeight)
+        guard !searchOwnsKeyboard else {
+            return ChatComposerKeyboardLayoutMetrics(
+                visualHeight: resolvedVisualHeight,
+                collectionObstructionHeight: resolvedVisualHeight
+            )
+        }
+
+        let resolvedKeyboardHeight = max(0, visibleKeyboardHeight)
+        let lowerObstruction = resolvedKeyboardHeight > 0
+            ? resolvedKeyboardHeight
+            : max(0, bottomSafeAreaHeight)
+        return ChatComposerKeyboardLayoutMetrics(
+            visualHeight: resolvedVisualHeight,
+            collectionObstructionHeight: resolvedVisualHeight + lowerObstruction
+        )
+    }
+}
+
+enum ChatKeyboardMotionPolicy {
+    static func isInteractiveUpdate(
+        usesInteractiveDismissMode: Bool,
+        isTracking: Bool,
+        isDragging: Bool
+    ) -> Bool {
+        usesInteractiveDismissMode && (isTracking || isDragging)
+    }
+}
+
 struct ChatKeyboardLayoutUpdateSignature: Equatable {
     let visibleHeight: CGFloat
     let viewSize: CGSize

@@ -380,7 +380,7 @@ private final class AsyncLocalPagingStore: ChatTimelineSessionStore {
     func firstIncoming(afterArchiveBoundaryId boundaryArchivedId: String) -> MessageStorageItem? { nil }
 
     func observe(
-        residentPrimaryKeys: [String],
+        baseline: ChatTimelineStoreObservationBaseline,
         onChange: @escaping (ChatTimelineStoreChange) -> Void
     ) -> ChatTimelineStoreObservation {
         lock.withAsyncPagingLock {
@@ -431,7 +431,7 @@ private final class AsyncLocalPagingStore: ChatTimelineSessionStore {
 }
 
 private final class AsyncLocalPagingObservation: ChatTimelineStoreObservation {
-    func replaceResidentPrimaryKeys(_ primaryKeys: [String]) {}
+    func replaceResidentItems(_ items: [MessageStorageItem]) {}
     func invalidate() {}
 }
 

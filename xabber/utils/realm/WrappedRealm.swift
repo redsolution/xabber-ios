@@ -23,8 +23,8 @@ import RealmSwift
 import Realm
 
 class WRealm {
-    static func safe() throws -> Realm {
-        return try Realm()
+    static func safe(queue: DispatchQueue? = nil) throws -> Realm {
+        return try Realm(queue: queue)
     }
 }
 

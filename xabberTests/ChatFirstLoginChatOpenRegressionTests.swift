@@ -4,6 +4,35 @@ import RealmSwift
 import XMPPFramework
 @testable import xabber
 
+private final class ChatRetryTransportEvidence: @unchecked Sendable {
+    struct Snapshot {
+        let queryId: String?
+        let startCount: Int
+    }
+
+    private let lock = NSLock()
+    private var queryId: String?
+    private var startCount = 0
+
+    func recordQuery(_ queryId: String) {
+        lock.lock()
+        self.queryId = queryId
+        lock.unlock()
+    }
+
+    func recordStart() {
+        lock.lock()
+        startCount += 1
+        lock.unlock()
+    }
+
+    var snapshot: Snapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return Snapshot(queryId: queryId, startCount: startCount)
+    }
+}
+
 /// End-to-end contract seams for the first chat opening after account login.
 ///
 /// Lower-level persistence and MAM ordering remain covered by their dedicated
@@ -246,6 +275,11 @@ final class ChatFirstLoginChatOpenRegressionTests: XCTestCase {
         defer {
             controller.performTerminalChatResourceTeardownForTesting()
         }
+        controller.loadInitialDatasource()
+        XCTAssertTrue(waitUntil {
+            controller.currentInitialFrameReadinessProof()?
+                .hasDurableArchiveReadiness == true
+        }, "the off-main initial-frame proof must confirm durable empty history")
         XCTAssertFalse(controller.currentBootstrapRequiresArchiveConfirmation())
         XCTAssertEqual(controller.currentBootstrapLoadingState(), .empty)
 
@@ -592,6 +626,407 @@ final class ChatFirstLoginChatOpenRegressionTests: XCTestCase {
         return (chat, archiveState)
     }
 }
+
+extension ChatFirstLoginChatOpenRegressionTests {
+    func testLateContentSuccessAfterRetryCommitsOnceAndRemovesRetry() throws {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ChatCoordinatorFailureRetryRegression-\(name)"
+        )
+        defer {
+            ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
+            Realm.Configuration.defaultConfiguration = previousConfiguration
+        }
+
+        let owner = "terminal-failure-owner@example.com"
+        let jid = "terminal-failure-peer@example.com"
+        try insertUnsyncedChat(owner: owner, jid: jid)
+        let controller = makeController(
+            owner: owner,
+            jid: jid
+        )
+        controller.loadViewIfNeeded()
+        controller.configureDataset()
+        defer {
+            controller.performanceFixtureArchiveTransportProvider = nil
+            controller.performanceFixtureArchiveTransportExecutor = nil
+            controller.performanceFixtureArchiveTransportDidStartHandler = nil
+            controller.datasourceDidSetForTests = nil
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+        controller.applyBootstrapLoadingState(
+            .blockingArchive,
+            forceRender: true,
+            synchronousSkeletonCommit: true
+        )
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        guard case .start(let failedLease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "terminal-failure-query",
+            timeout: 45,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("test setup must reserve a lease that can fail")
+        }
+        controller.beginInitialBootstrapTracking(
+            queryId: failedLease.queryId,
+            timeout: nil
+        )
+        let skeletonPrimariesBeforeFailure = controller.datasource.map(\.primary)
+        XCTAssertEqual(skeletonPrimariesBeforeFailure.count, 30)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+
+        let failedMessages = MessageManager(withOwner: owner, activeStream: false)
+        failedMessages.updateSendingMessagesTimer?.invalidate()
+        failedMessages.updateSendingMessagesTimer = nil
+        failedMessages.unsubscribeSender()
+        defer {
+            failedMessages.updateSendingMessagesTimer?.invalidate()
+            failedMessages.updateSendingMessagesTimer = nil
+            failedMessages.unsubscribeReceiver()
+            failedMessages.unsubscribeSender()
+        }
+        failedMessages.archiveQueryIdPersistenceResolver = {
+            $0 == failedLease.queryId
+        }
+        let failedMAM = MessageArchiveManager(withOwner: owner)
+        let failedStream = XMPPStream()
+        XCTAssertEqual(
+            failedMAM.syncChat(
+                failedStream,
+                jid: jid,
+                conversationType: .regular,
+                pageSize: 80,
+                queryId: failedLease.queryId,
+                target: .latest,
+                callback: nil
+            ),
+            .bootstrapStarted(queryId: failedLease.queryId)
+        )
+        coordinator.resolveStart(
+            key: key,
+            queryId: failedLease.queryId,
+            result: .bootstrapStarted(queryId: failedLease.queryId),
+            messages: failedMessages,
+            archiveManager: failedMAM,
+            cancelTransport: {}
+        )
+        XCTAssertTrue(failedMAM.read(
+            failedStream,
+            withIQ: try archiveErrorIQ(queryId: failedLease.queryId)
+        ))
+        XCTAssertTrue(waitUntil {
+            controller.appliedBootstrapLoadingState?.showsRetry == true &&
+                !controller.bootstrapFailureView.isHidden
+        })
+        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .failed)
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        let skeletonPrimariesAtRetry = controller.datasource.map(\.primary)
+        XCTAssertEqual(skeletonPrimariesAtRetry, skeletonPrimariesBeforeFailure)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+
+        let retryButtons = descendants(of: controller.bootstrapFailureView)
+            .compactMap { $0 as? UIButton }
+            .filter { $0.accessibilityIdentifier == "chat.bootstrap.retry" }
+        XCTAssertEqual(retryButtons.count, 1)
+
+        let successfulMessages = MessageManager(withOwner: owner, activeStream: false)
+        successfulMessages.updateSendingMessagesTimer?.invalidate()
+        successfulMessages.updateSendingMessagesTimer = nil
+        successfulMessages.unsubscribeSender()
+        defer {
+            successfulMessages.updateSendingMessagesTimer?.invalidate()
+            successfulMessages.updateSendingMessagesTimer = nil
+            successfulMessages.unsubscribeReceiver()
+            successfulMessages.unsubscribeSender()
+        }
+        let successfulMAM = MessageArchiveManager(withOwner: owner)
+        let successfulStream = XMPPStream()
+        let retryTransportQueue = DispatchQueue(
+            label: "ChatLateSuccessRetryTransport"
+        )
+        defer {
+            retryTransportQueue.sync {}
+        }
+        let retryTransportEvidence = ChatRetryTransportEvidence()
+        controller.performanceFixtureArchiveTransportProvider = { request in
+            guard request.kind == .initialBootstrap,
+                  let queryId = request.queryIds.first else {
+                return nil
+            }
+            retryTransportEvidence.recordQuery(queryId)
+            successfulMessages.archiveQueryIdPersistenceResolver = {
+                $0 == queryId
+            }
+            return ChatPerformanceFixtureArchiveTransportSession(
+                stream: successfulStream,
+                archiveManager: successfulMAM,
+                messageManager: successfulMessages
+            )
+        }
+        controller.performanceFixtureArchiveTransportExecutor = { work in
+            retryTransportQueue.async(execute: work)
+        }
+        controller.performanceFixtureArchiveTransportDidStartHandler = { _ in
+            retryTransportEvidence.recordStart()
+        }
+
+        retryButtons[0].sendActions(for: .touchUpInside)
+        XCTAssertTrue(waitUntil {
+            let evidence = retryTransportEvidence.snapshot
+            guard let queryId = evidence.queryId else { return false }
+            return evidence.startCount == 1 &&
+                controller.initialBootstrapQueryId == queryId &&
+                coordinator.isActive(key: key, queryId: queryId)
+        })
+        let retryEvidence = retryTransportEvidence.snapshot
+        let retryQueryId = try XCTUnwrap(retryEvidence.queryId)
+        XCTAssertEqual(retryEvidence.startCount, 1)
+        XCTAssertNotEqual(retryQueryId, failedLease.queryId)
+        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .transport)
+        XCTAssertEqual(controller.datasource.map(\.primary), skeletonPrimariesAtRetry)
+        XCTAssertFalse(
+            controller.bootstrapFailureView.isHidden,
+            "Retry must remain the committed overlay until durable content replaces it"
+        )
+        retryButtons[0].sendActions(for: .touchUpInside)
+        XCTAssertFalse(
+            controller.bootstrapFailureView.isHidden,
+            "Repeated Retry while the same transport is active must not expose an intermediate frame"
+        )
+        XCTAssertEqual(retryTransportEvidence.snapshot.startCount, 1)
+
+        let envelope = try persistedArchiveResultMessage(
+            owner: owner,
+            peer: jid,
+            queryId: retryQueryId,
+            archiveId: "900",
+            messageId: "late-success-message"
+        )
+        XCTAssertTrue(successfulMAM.recordDeferredArchiveResultDelivery(envelope))
+        successfulMessages.receiveArchived(envelope)
+        XCTAssertEqual(controller.datasource.map(\.primary), skeletonPrimariesAtRetry)
+        XCTAssertFalse(controller.bootstrapFailureView.isHidden)
+
+        var realDatasourceCommitCount = 0
+        controller.datasourceDidSetForTests = { datasource in
+            if datasource.contains(where: { !$0.isFakeMessage }) {
+                realDatasourceCommitCount += 1
+            }
+        }
+        let finalIQ = try archiveFinalIQ(
+            queryId: retryQueryId,
+            complete: true,
+            count: 1,
+            first: "900",
+            last: "900"
+        )
+        XCTAssertTrue(successfulMAM.read(successfulStream, withIQ: finalIQ))
+
+        XCTAssertTrue(waitUntil {
+            controller.appliedBootstrapLoadingState == .content &&
+                controller.bootstrapFailureView.isHidden &&
+                !controller.isInitialBootstrapInFlight &&
+                !controller.showSkeletonObserver.value &&
+                controller.datasource.contains(where: { !$0.isFakeMessage })
+        }, "a durable, materialized archive page must atomically replace Retry")
+        XCTAssertEqual(realDatasourceCommitCount, 1)
+        XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.count, 1)
+        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .committed)
+
+        let committedPrimaries = controller.datasource.map(\.primary)
+        let committedGeneration = controller.timelineSession?.snapshot.generation
+        _ = successfulMAM.read(successfulStream, withIQ: finalIQ)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertEqual(controller.datasource.map(\.primary), committedPrimaries)
+        XCTAssertEqual(controller.timelineSession?.snapshot.generation, committedGeneration)
+        XCTAssertEqual(realDatasourceCommitCount, 1)
+        XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+    }
+
+    func testPresentationFailureRetryKeepsOverlayAndRepeatedTapDoesNotStartParallelBootstrap() {
+        let owner = "presentation-retry-owner@example.com"
+        let jid = "presentation-retry-peer@example.com"
+        let controller = makeController(owner: owner, jid: jid)
+        controller.loadViewIfNeeded()
+        let descriptor = ChatLocalFirstFrameDescriptor(
+            target: .latest,
+            request: nil
+        )
+        controller.initialLocalFirstFramePhase = .failedPresentation(descriptor)
+        controller.appliedBootstrapLoadingState = .failure(fallback: .empty)
+        controller.allowsBootstrapFailureFallback = true
+        controller.setBootstrapFailureVisible(true)
+
+        var localRetryScheduleCount = 0
+        controller.initialLocalFirstFrameRetryScheduledForTests = {
+            localRetryScheduleCount += 1
+        }
+        defer {
+            controller.initialLocalFirstFrameRetryScheduledForTests = nil
+            controller.cancelStackedNavigationPresentationPreparation()
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+
+        controller.retryInitialBootstrapAfterFailure()
+
+        XCTAssertEqual(localRetryScheduleCount, 1)
+        XCTAssertTrue(controller.preservesBootstrapFailureOverlayUntilRetryCommit)
+        XCTAssertFalse(controller.bootstrapFailureView.isHidden)
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertNil(
+            ChatInitialBootstrapRequestCoordinator.shared.readiness(
+                for: controller.initialBootstrapRequestKey
+            )
+        )
+
+        controller.retryInitialBootstrapAfterFailure()
+
+        XCTAssertEqual(
+            localRetryScheduleCount,
+            1,
+            "Repeated Retry must join the local presentation retry"
+        )
+        XCTAssertTrue(controller.preservesBootstrapFailureOverlayUntilRetryCommit)
+        XCTAssertFalse(controller.bootstrapFailureView.isHidden)
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertNil(
+            ChatInitialBootstrapRequestCoordinator.shared.readiness(
+                for: controller.initialBootstrapRequestKey
+            ),
+            "A repeated local presentation retry must not start a parallel MAM lease"
+        )
+    }
+
+    func testTerminalTeardownClearsRetryOverlayAndPreservationOwnership() {
+        let controller = makeController(
+            owner: "retry-teardown-owner@example.com",
+            jid: "retry-teardown-peer@example.com"
+        )
+        controller.loadViewIfNeeded()
+        controller.appliedBootstrapLoadingState = .failure(fallback: .empty)
+        controller.preservesBootstrapFailureOverlayUntilRetryCommit = true
+        controller.setBootstrapFailureVisible(true)
+        XCTAssertFalse(controller.bootstrapFailureView.isHidden)
+
+        controller.performTerminalChatResourceTeardownForTesting()
+
+        XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+        XCTAssertFalse(controller.preservesBootstrapFailureOverlayUntilRetryCommit)
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 1,
+        condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.005))
+        }
+        return condition()
+    }
+
+    private func descendants(of view: UIView) -> [UIView] {
+        view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+
+    private func insertUnsyncedChat(
+        owner: String,
+        jid: String,
+        snapshotArchiveId: String? = nil,
+        unreadAfterArchiveId: String? = nil
+    ) throws {
+        let realm = try WRealm.safe()
+        let chat = LastChatsStorageItem()
+        chat.primary = LastChatsStorageItem.genPrimary(
+            jid: jid,
+            owner: owner,
+            conversationType: .regular
+        )
+        chat.owner = owner
+        chat.jid = jid
+        chat.conversationType = .regular
+        chat.messageDate = Date()
+        chat.isSynced = false
+        chat.isInitialArchiveLoaded = false
+        chat.syncSnapshotLastArchiveId = snapshotArchiveId
+        if let unreadAfterArchiveId {
+            chat.syncUnreadCount = 1
+            chat.syncUnreadAfterId = unreadAfterArchiveId
+        }
+        try realm.write {
+            realm.add(chat, update: .modified)
+            let state = RegularChatArchiveSyncStateStorageItem.ensure(
+                owner: owner,
+                jid: jid,
+                conversationType: .regular,
+                in: realm
+            )
+            state.lastSnapshotArchiveId = snapshotArchiveId
+            state.newerLiveEdgeReached = false
+        }
+    }
+
+    private func archiveFinalIQ(
+        queryId: String,
+        complete: Bool,
+        count: Int,
+        first: String,
+        last: String
+    ) throws -> XMPPIQ {
+        let document = try DDXMLDocument(xmlString: """
+        <iq type='result' id='\(queryId)'>
+          <fin xmlns='urn:xmpp:mam:2' complete='\(complete ? "true" : "false")' queryid='\(queryId)'>
+            <set xmlns='http://jabber.org/protocol/rsm'>
+              <count>\(count)</count>
+              <first>\(first)</first>
+              <last>\(last)</last>
+            </set>
+          </fin>
+        </iq>
+        """, options: 0)
+        return XMPPIQ(from: try XCTUnwrap(document.rootElement()))
+    }
+
+    private func persistedArchiveResultMessage(
+        owner: String,
+        peer: String,
+        queryId: String,
+        archiveId: String,
+        messageId: String
+    ) throws -> XMPPMessage {
+        let document = try DDXMLDocument(xmlString: """
+        <message to='\(owner)' from='\(owner)'>
+          <result xmlns='urn:xmpp:mam:2' queryid='\(queryId)' id='\(archiveId)'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <message xmlns='jabber:client' from='\(peer)' to='\(owner)' type='chat' id='\(messageId)'>
+                <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='\(archiveId)'/>
+                <origin-id xmlns='urn:xmpp:sid:0' id='\(messageId)'/>
+                <body>late durable success</body>
+              </message>
+              <delay xmlns='urn:xmpp:delay' from='example.com' stamp='2026-08-01T10:00:00Z'/>
+            </forwarded>
+          </result>
+        </message>
+        """, options: 0)
+        return try XMPPMessage(from: XCTUnwrap(document.rootElement()))
+    }
+
+    private func archiveErrorIQ(queryId: String) throws -> XMPPIQ {
+        let document = try DDXMLDocument(xmlString: """
+        <iq type='error' id='\(queryId)'>
+          <fin xmlns='urn:xmpp:mam:2' queryid='\(queryId)'/>
+          <error type='wait'>
+            <service-unavailable xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>
+          </error>
+        </iq>
+        """, options: 0)
+        return try XMPPIQ(from: XCTUnwrap(document.rootElement()))
+    }
+}
+
 
 final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
     override func setUp() {
@@ -1123,6 +1558,180 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
         )
     }
 
+    func testSameLatestPendingFollowUpMaterializesPersistedFirstPageBeforeRepair() {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ChatSameLatestFollowUpPresentation-\(name)"
+        )
+        defer {
+            Realm.Configuration.defaultConfiguration = previousConfiguration
+        }
+
+        let controller = makeController(
+            owner: "same-latest-owner@example.com",
+            jid: "same-latest-peer@example.com"
+        )
+        controller.loadViewIfNeeded()
+        controller.configureDataset()
+        controller.applyBootstrapLoadingState(
+            .blockingArchive,
+            forceRender: true,
+            synchronousSkeletonCommit: true
+        )
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        let latestFingerprint = MessageArchiveManager.ChatBootstrapTargetFingerprint(
+            target: .latest,
+            boundary: nil
+        )
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "same-latest-first-page",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            targetFingerprint: latestFingerprint,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("the first latest page must own a fresh lease")
+        }
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: lease.queryId,
+            hasDurableCoverage: false,
+            resultCount: 80,
+            confirmsEmptyConversation: false,
+            hasPresentationMaterialization: true,
+            recommendedFollowUpTarget: .latest
+        )
+
+        controller.initialBootstrapQueryId = lease.queryId
+        controller.initialBootstrapLeaseKey = key
+        controller.initialBootstrapTargetFingerprint = latestFingerprint
+        controller.isInitialBootstrapInFlight = true
+
+        XCTAssertTrue(controller.handleInitialBootstrapEndPageIfNeeded(
+            queryId: lease.queryId,
+            state: MessageArchivePageEndState(
+                queryExhausted: false,
+                archiveEnded: false,
+                persistedMessageCount: 80
+            ),
+            count: 80,
+            persistedMessageCount: 80,
+            persistedRowsForQuery: 80,
+            visibleRowsForConversation: 80
+        ))
+
+        XCTAssertEqual(
+            controller.initialBootstrapScopedRefreshQueryId,
+            lease.queryId,
+            "a same-target coverage repair must wait behind materialization of the persisted first page"
+        )
+        XCTAssertTrue(
+            controller.isInitialBootstrapInFlight,
+            "the first lease remains presentation-active until its atomic frame receipt"
+        )
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 0)
+    }
+
+    func testDifferentPendingTargetStillSupersedesPersistedLatestPage() {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ChatDifferentPendingTargetPresentation-\(name)"
+        )
+        defer {
+            Realm.Configuration.defaultConfiguration = previousConfiguration
+        }
+
+        let controller = makeController(
+            owner: "different-target-owner@example.com",
+            jid: "different-target-peer@example.com"
+        )
+        controller.loadViewIfNeeded()
+        controller.configureDataset()
+        controller.applyBootstrapLoadingState(
+            .blockingArchive,
+            forceRender: true,
+            synchronousSkeletonCommit: true
+        )
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        let latestFingerprint = MessageArchiveManager.ChatBootstrapTargetFingerprint(
+            target: .latest,
+            boundary: nil
+        )
+        let unreadTarget = MessageArchiveManager.ChatBootstrapPageTarget
+            .firstUnread(afterArchiveId: "unread-boundary")
+        let unreadFingerprint = MessageArchiveManager.ChatBootstrapTargetFingerprint(
+            target: unreadTarget,
+            boundary: nil
+        )
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "latest-before-unread-target",
+            timeout: 45,
+            purpose: .snapshotRepair,
+            targetFingerprint: latestFingerprint,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("the latest page must own a fresh lease")
+        }
+        guard case .joined = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "pending-unread-target",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            targetFingerprint: unreadFingerprint,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("the requested unread target must join as a follow-up")
+        }
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: lease.queryId,
+            hasDurableCoverage: false,
+            resultCount: 80,
+            confirmsEmptyConversation: false,
+            hasPresentationMaterialization: true
+        )
+
+        controller.initialBootstrapQueryId = lease.queryId
+        controller.initialBootstrapLeaseKey = key
+        controller.initialBootstrapTargetFingerprint = latestFingerprint
+        controller.isInitialBootstrapInFlight = true
+
+        XCTAssertTrue(controller.handleInitialBootstrapEndPageIfNeeded(
+            queryId: lease.queryId,
+            state: MessageArchivePageEndState(
+                queryExhausted: false,
+                archiveEnded: false,
+                persistedMessageCount: 80
+            ),
+            count: 80,
+            persistedMessageCount: 80,
+            persistedRowsForQuery: 80,
+            visibleRowsForConversation: 80
+        ))
+
+        XCTAssertNil(
+            controller.initialBootstrapScopedRefreshQueryId,
+            "a page for a different target must not replace the requested unread frame"
+        )
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertEqual(controller.initialBootstrapFollowUpTargetOverride, unreadTarget)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+    }
+
     func testTargetJoiningRetainedCommittedReceiptNotifiesAndStartsFollowUp() {
         let coordinator = ChatInitialBootstrapRequestCoordinator(
             automaticallySchedulesTimeouts: false
@@ -1196,7 +1805,7 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
             isMessagePipelineIdle: true,
             isArchivePagePersisted: true,
             hasCommittedContent: false,
-            isSupersededByPendingTarget: true,
+            isSupersededByDifferentTarget: true,
             requiresObserverSettle: false,
             didObservePostIdleTick: false
         ))
@@ -2453,6 +3062,170 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
         XCTAssertNil(consumerProof.recommendedFollowUpTarget)
     }
 
+    func testNonDeferredRegularFinalPublishesPageLocalIngressBudgetAndCleansIt()
+        throws {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier:
+                "ChatNonDeferredIngressBudgetRegressionTests-\(name)"
+        )
+        defer {
+            Realm.Configuration.defaultConfiguration = previousConfiguration
+        }
+
+        let owner = "nondeferred-budget-owner@example.com"
+        let jid = "nondeferred-budget-peer@example.com"
+        let queryId = "nondeferred-budget-query"
+        try insertUnsyncedChat(owner: owner, jid: jid)
+
+        let manager = MessageArchiveManager(withOwner: owner)
+        XCTAssertEqual(
+            manager.startRegularArchiveRequest(
+                XMPPStream(),
+                plan: MessageArchiveManager.regularExactAnchorRequestPlan(
+                    jid: jid,
+                    archivedId: "visible-result"
+                ),
+                queryId: queryId,
+                flipPage: false,
+                joinDuplicateRequests: false
+            ),
+            queryId
+        )
+        for resultId in ["visible-result", "service-marker"] {
+            XCTAssertTrue(manager.recordDeferredArchiveResultDelivery(
+                try archiveResultMessage(
+                    queryId: queryId,
+                    resultId: resultId
+                )
+            ))
+        }
+        XCTAssertTrue(manager.recordDeferredArchiveControlConsumption(
+            try archiveResultMessage(
+                queryId: queryId,
+                resultId: "service-marker"
+            )
+        ))
+        XCTAssertTrue(manager.read(
+            XMPPStream(),
+            withIQ: try archiveFinalIQ(
+                queryId: queryId,
+                complete: true,
+                count: 2,
+                first: "visible-result",
+                last: "service-marker"
+            )
+        ))
+
+        XCTAssertFalse(
+            manager.hasDeferredCommit(queryId: queryId),
+            "the regression must exercise the generic non-deferred route"
+        )
+        XCTAssertEqual(
+            manager.expectedPersistenceResultCount(queryId: queryId),
+            1,
+            "wire ingress waits for the visible envelope and excludes the consumed control envelope"
+        )
+
+        manager.discardPersistenceIngressExpectation(queryId: queryId)
+        XCTAssertNil(manager.expectedPersistenceResultCount(queryId: queryId))
+    }
+
+    func testNewestPageCoveringAdvancedSnapshotDoesNotRepeatLatestQuery() throws {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ChatAdvancedSnapshotCoveredRegression-\(name)"
+        )
+        defer {
+            Realm.Configuration.defaultConfiguration = previousConfiguration
+        }
+
+        let owner = "advanced-snapshot-owner@example.com"
+        let jid = "advanced-snapshot-peer@example.com"
+        try insertUnsyncedChat(
+            owner: owner,
+            jid: jid,
+            snapshotArchiveId: "900"
+        )
+
+        let manager = MessageArchiveManager(withOwner: owner)
+        let queryId = "advanced-snapshot-covered-query"
+        XCTAssertEqual(
+            manager.syncChat(
+                XMPPStream(),
+                jid: jid,
+                conversationType: .regular,
+                pageSize: 80,
+                queryId: queryId,
+                callback: nil
+            ),
+            .bootstrapStarted(queryId: queryId)
+        )
+
+        let realm = try WRealm.safe()
+        let chat = try XCTUnwrap(realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(
+                jid: jid,
+                owner: owner,
+                conversationType: .regular
+            )
+        ))
+        let archiveState = try XCTUnwrap(realm.object(
+            ofType: RegularChatArchiveSyncStateStorageItem.self,
+            forPrimaryKey:
+                RegularChatArchiveSyncStateStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: .regular
+                )
+        ))
+        try realm.write {
+            chat.syncSnapshotLastArchiveId = "950"
+            archiveState.lastSnapshotArchiveId = "950"
+        }
+
+        for resultId in ["1000", "900"] {
+            XCTAssertTrue(manager.recordDeferredArchiveResultDelivery(
+                try archiveResultMessage(
+                    queryId: queryId,
+                    resultId: resultId
+                )
+            ))
+        }
+        XCTAssertTrue(manager.read(
+            XMPPStream(),
+            withIQ: try archiveFinalIQ(
+                queryId: queryId,
+                complete: false,
+                count: 81,
+                first: "1000",
+                last: "900"
+            )
+        ))
+
+        XCTAssertEqual(
+            manager.commitAfterPersistence(
+                queryId: queryId,
+                persistenceSummary: persistenceSummary(
+                    owner: owner,
+                    jid: jid,
+                    visibleRows: 2,
+                    persistedArchiveIds: ["1000", "900"]
+                )
+            ),
+            .committed
+        )
+        let proof = try XCTUnwrap(
+            manager.consumeCommittedArchiveConsumerProof(queryId: queryId)
+        )
+        XCTAssertNil(
+            proof.recommendedFollowUpTarget,
+            "the merged newest range already covers snapshot 950"
+        )
+        try assertNewestReadinessIsTrue(owner: owner, jid: jid)
+    }
+
     func testInvisibleBootstrapPageContinuesOlderWithoutClaimingReadiness() throws {
         let previousConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
@@ -2622,6 +3395,18 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
                 computedHasDurableNewestCoverage: false
             ),
             "a changed boundary invalidates the predecessor proof"
+        )
+        XCTAssertTrue(
+            MessageArchiveManager.durableNewestCoverageAfterBootstrapPage(
+                previousHasDurableNewestCoverage: false,
+                boundaryChanged: true,
+                pageReachesNewestLiveEdge: true,
+                computedHasDurableNewestCoverage: true
+            ),
+            """
+            a newest page that already covers the current post-merge boundary
+            must not schedule an identical second latest query
+            """
         )
 
         let owner = "latest-target-owner@example.com"
@@ -2926,145 +3711,6 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
         controller.performTerminalChatResourceTeardownForTesting()
     }
 
-    func testCoordinatorFailurePublishesOneRetryAndLaterSuccessClearsIt() throws {
-        let previousConfiguration = Realm.Configuration.defaultConfiguration
-        Realm.Configuration.defaultConfiguration = Realm.Configuration(
-            inMemoryIdentifier: "ChatCoordinatorFailureRetryRegression-\(name)"
-        )
-        defer {
-            ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
-            Realm.Configuration.defaultConfiguration = previousConfiguration
-        }
-
-        let controller = makeController(
-            owner: "terminal-failure-owner@example.com",
-            jid: "terminal-failure-peer@example.com"
-        )
-        controller.loadViewIfNeeded()
-        controller.configureDataset()
-        controller.applyBootstrapLoadingState(
-            .blockingArchive,
-            forceRender: true,
-            synchronousSkeletonCommit: true
-        )
-
-        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
-        let key = controller.initialBootstrapRequestKey
-        guard case .start(let failedLease) = coordinator.acquireOrJoin(
-            key: key,
-            proposedQueryId: "terminal-failure-query",
-            timeout: 45,
-            observer: { _, _, _ in }
-        ) else {
-            controller.performTerminalChatResourceTeardownForTesting()
-            return XCTFail("test setup must reserve a lease that can fail")
-        }
-        controller.beginInitialBootstrapTracking(
-            queryId: failedLease.queryId,
-            timeout: nil
-        )
-
-        var publishedFailureCount = 0
-        _ = MessageArchiveRequestFailureDispatcher.register(
-            owner: key.owner,
-            queryId: failedLease.queryId,
-            delivery: .synchronous
-        ) { _ in
-            publishedFailureCount += 1
-        }
-        let failure = MessageArchiveRequestFailureEvent(
-            owner: key.owner,
-            queryId: failedLease.queryId,
-            streamKind: .primary,
-            reason: .timeout,
-            errorDescription: "test terminal",
-            pendingQueryCount: 1
-        )
-        XCTAssertTrue(coordinator.recordFailure(
-            key: key,
-            event: failure,
-            publishEvent: true
-        ))
-        XCTAssertTrue(waitUntil {
-            controller.appliedBootstrapLoadingState?.showsRetry == true &&
-                !controller.bootstrapFailureView.isHidden
-        })
-        XCTAssertEqual(publishedFailureCount, 1)
-        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .failed)
-        XCTAssertFalse(controller.isInitialBootstrapInFlight)
-
-        let retryButtons = descendants(of: controller.bootstrapFailureView)
-            .compactMap { $0 as? UIButton }
-            .filter { $0.accessibilityIdentifier == "chat.bootstrap.retry" }
-        XCTAssertEqual(retryButtons.count, 1)
-
-        coordinator.clearTerminal(key: key)
-        guard case .start(let successfulLease) = coordinator.acquireOrJoin(
-            key: key,
-            proposedQueryId: "late-success-query",
-            timeout: 45,
-            observer: { _, _, _ in }
-        ) else {
-            controller.performTerminalChatResourceTeardownForTesting()
-            return XCTFail("retry must reserve a fresh archive lease")
-        }
-        controller.beginInitialBootstrapTracking(
-            queryId: successfulLease.queryId,
-            timeout: nil
-        )
-
-        let realm = try WRealm.safe()
-        let chat = LastChatsStorageItem()
-        chat.primary = LastChatsStorageItem.genPrimary(
-            jid: controller.jid,
-            owner: controller.owner,
-            conversationType: controller.conversationType
-        )
-        chat.owner = controller.owner
-        chat.jid = controller.jid
-        chat.conversationType = controller.conversationType
-        chat.isSynced = true
-        chat.isInitialArchiveLoaded = true
-        try realm.write {
-            realm.add(chat, update: .modified)
-            let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(
-                owner: controller.owner,
-                jid: controller.jid,
-                conversationType: controller.conversationType,
-                in: realm
-            )
-            archiveState.newerLiveEdgeReached = true
-        }
-        XCTAssertFalse(
-            controller.currentBootstrapRequiresArchiveConfirmation(),
-            "the synthetic terminal must observe the same durable empty proof as production"
-        )
-
-        ChatInitialBootstrapRequestCoordinator.shared.recordCommittedPageForTesting(
-            key: key,
-            queryId: successfulLease.queryId,
-            hasDurableCoverage: true,
-            resultCount: 0
-        )
-        XCTAssertEqual(
-            ChatInitialBootstrapRequestCoordinator.shared.readiness(for: key)?.phase,
-            .committed
-        )
-        XCTAssertTrue(
-            ChatInitialBootstrapRequestCoordinator.shared
-                .readiness(for: key)?
-                .confirmsEmptyConversation == true
-        )
-
-        XCTAssertTrue(waitUntil {
-            controller.appliedBootstrapLoadingState == .empty &&
-                controller.bootstrapFailureView.isHidden &&
-                !controller.isInitialBootstrapInFlight &&
-                !controller.showSkeletonObserver.value &&
-                controller.datasource.isEmpty
-        }, "a successful archive terminal must clear the previously rendered retry")
-        controller.performTerminalChatResourceTeardownForTesting()
-    }
 
     @MainActor
     func testRawFinDuringBlockedPersistenceDoesNotDisarmPresentationWatchdog() {

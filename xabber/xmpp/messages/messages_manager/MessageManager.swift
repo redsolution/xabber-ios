@@ -126,6 +126,9 @@ class MessageManager: AbstractXMPPManager {
         var priority: ArchivePersistencePriority
         var expectedReceivedCount: Int?
         var completions: [(ArchivePersistenceSummary) -> Void]
+        /// Opaque process-local instrumentation only. The private query key is
+        /// deliberately not part of this context or any emitted record.
+        var traceContext: ChatOpenPerformanceTraceContext?
         var didStartPersistence = false
         var isAwaitingIngress = false
 
@@ -134,12 +137,14 @@ class MessageManager: AbstractXMPPManager {
             sequence: UInt64,
             priority: ArchivePersistencePriority,
             expectedReceivedCount: Int?,
+            traceContext: ChatOpenPerformanceTraceContext?,
             completion: ((ArchivePersistenceSummary) -> Void)?
         ) {
             self.queryId = queryId
             self.sequence = sequence
             self.priority = priority
             self.expectedReceivedCount = expectedReceivedCount
+            self.traceContext = traceContext
             self.completions = completion.map { [$0] } ?? []
         }
     }
@@ -168,6 +173,19 @@ class MessageManager: AbstractXMPPManager {
         let lastMessagePrimary: String?
         let lastMessageId: String
     }
+
+    #if DEBUG || CHAT_PERFORMANCE_LAB
+    internal enum ReadMessageDurableMutationPhase: Equatable {
+        case attempted
+        case committed
+    }
+
+    internal struct ReadMessageDurableMutationEvent: Equatable {
+        let owner: String
+        let primary: String
+        let phase: ReadMessageDurableMutationPhase
+    }
+    #endif
     
     struct PrereadedMessagesItem: Hashable, Equatable {
         static func == (lhs: PrereadedMessagesItem, rhs: PrereadedMessagesItem) -> Bool {
@@ -403,6 +421,10 @@ class MessageManager: AbstractXMPPManager {
     internal var messagePersistenceChunkSizes: [Int] = []
     internal var messagePersistenceChunkObserver: ((Int, Int) -> Void)?
     internal var ordinaryDrainWillExecuteHook: (() -> Void)?
+    #if DEBUG || CHAT_PERFORMANCE_LAB
+    internal var readMessageDurableMutationObserverForTests:
+        ((ReadMessageDurableMutationEvent) -> Void)?
+    #endif
     
     internal var senderBag: DisposeBag = DisposeBag()
     
@@ -627,6 +649,18 @@ class MessageManager: AbstractXMPPManager {
                             MessageStorageItem.MessageSendingState.read.rawValue
                     )
                 if !realm.isInWriteTransaction {
+                    let requiresDurableReadTransition = !message.isRead
+                    #if DEBUG || CHAT_PERFORMANCE_LAB
+                    if requiresDurableReadTransition {
+                        self.readMessageDurableMutationObserverForTests?(
+                            ReadMessageDurableMutationEvent(
+                                owner: self.owner,
+                                primary: message.primary,
+                                phase: .attempted
+                            )
+                        )
+                    }
+                    #endif
                     try realm.write {
                         collection.forEach {
                             $0.isRead = true
@@ -649,6 +683,19 @@ class MessageManager: AbstractXMPPManager {
                             in: realm
                         )
                     }
+                    #if DEBUG || CHAT_PERFORMANCE_LAB
+                    if requiresDurableReadTransition,
+                       !message.isInvalidated,
+                       message.isRead {
+                        self.readMessageDurableMutationObserverForTests?(
+                            ReadMessageDurableMutationEvent(
+                                owner: self.owner,
+                                primary: message.primary,
+                                phase: .committed
+                            )
+                        )
+                    }
+                    #endif
                 }
                 
                 

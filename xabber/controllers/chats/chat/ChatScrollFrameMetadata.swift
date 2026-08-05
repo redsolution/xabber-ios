@@ -264,6 +264,7 @@ final class ChatScrollFramePlanner {
                 topVisibleRow = row
             }
             if work.contains(.advanceReadBoundary),
+               request.meaningfullyVisibleReadPrimaries.contains(row.primary),
                row.isUnreadIncomingMessage,
                currentReadPosition.map({ row.position > $0 }) ?? true,
                readTarget.map({ row.position > $0.position }) ?? true {
