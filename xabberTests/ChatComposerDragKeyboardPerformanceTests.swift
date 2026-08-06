@@ -8,7 +8,6 @@
 
 import UIKit
 import XMPPFramework
-import RxSwift
 import XCTest
 @testable import xabber
 
@@ -105,17 +104,24 @@ final class ChatComposerDragKeyboardPerformanceTests: XCTestCase {
         wait(for: [mainQueueDrained], timeout: 1)
     }
 
-    func testPresenceBatchProcessingSchedulerDoesNotRunOnMainThread() {
-        let scheduler = PresenceProcessingSchedulerFactory.make(owner: "composer-performance@example.com")
-        let scheduled = expectation(description: "Presence batch was scheduled")
-
-        _ = scheduler.schedule(()) { _ in
+    func testPresenceBatchAccumulatorDefaultDeliveryDoesNotRunOnMainThread() throws {
+        let delivered = expectation(description: "Presence batch was delivered")
+        let accumulator = PresenceBatchAccumulator(
+            flushInterval: 0,
+            batchSize: 1,
+            capacity: 8
+        ) { _, presences in
             XCTAssertFalse(Thread.isMainThread)
-            scheduled.fulfill()
-            return Disposables.create()
+            XCTAssertEqual(presences.count, 1)
+            delivered.fulfill()
         }
 
-        wait(for: [scheduled], timeout: 1)
+        let presence = try XCTUnwrap(
+            XMPPPresence(xmlString: "<presence from='contact@example.com/ios'><show>chat</show></presence>")
+        )
+        XCTAssertTrue(accumulator.enqueue(presence))
+
+        wait(for: [delivered], timeout: 1)
     }
 }
 

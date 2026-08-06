@@ -463,6 +463,7 @@ extension Account: XMPPStreamDelegate {
             error: error
         )
         self.cancelDelayedConnectTimer()
+        self.notifications.invalidateNotificationSyncSession()
         let scheduler = self.xmppTaskScheduler
         scheduler.reset()
         _ = self.mam.publishPendingArchiveRequestFailures(

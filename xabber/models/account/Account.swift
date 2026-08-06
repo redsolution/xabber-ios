@@ -3894,6 +3894,7 @@ final class Account: NSObject {
     
     func resetStream() {
         self.logConnectionDiagnostics(event: "reset_stream_requested")
+        self.notifications.invalidateNotificationSyncSession()
         self.disco.cancelCloudDiscoveryForDisconnect()
         self.cloudStorage.markAvailabilityRetryableFailure(stage: .disconnected)
         let mam = self.mam
@@ -4882,6 +4883,7 @@ final class Account: NSObject {
     func resetModules() {
 //        self.statusMessage.accept("Waiting for network")
         self.statusMessage.accept("Offline")
+        self.notifications.invalidateNotificationSyncSession()
         let mam = self.mam
         let scheduler = self.xmppTaskScheduler
         let archiveRequestGeneration = mam.archiveRequestGenerationSnapshot()

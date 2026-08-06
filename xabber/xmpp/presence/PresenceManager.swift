@@ -21,20 +21,186 @@
 import Foundation
 import RealmSwift
 import RxSwift
-import RxCocoa
 import XMPPFramework
 import Network
 
-enum PresenceProcessingSchedulerFactory {
-    static func make(owner: String) -> SerialDispatchQueueScheduler {
-        SerialDispatchQueueScheduler(
+/// Coalesces inbound contact presence before persistence. Ordinary status for
+/// a full JID is last-value-wins, while device-bearing and unavailable stanzas
+/// retain a separate lifecycle lane so reconciliation events are not dropped.
+final class PresenceBatchAccumulator {
+    static let defaultFlushInterval: TimeInterval = 0.05
+    static let defaultBatchSize = 128
+    static let defaultCapacity = 1_024
+
+    private enum Lane: Hashable {
+        case status
+        case deviceLifecycle(UInt64)
+    }
+
+    private struct Key: Hashable {
+        let jid: String
+        let resource: String
+        let lane: Lane
+    }
+
+    private struct PendingValue {
+        let sequence: UInt64
+        let presence: XMPPPresence
+    }
+
+    private struct PendingBatch {
+        let generation: UInt64
+        let presences: [XMPPPresence]
+    }
+
+    private let flushInterval: TimeInterval
+    private let batchSize: Int
+    private let capacity: Int
+    private let deliveryQueue: DispatchQueue
+    private let handler: (UInt64, [XMPPPresence]) -> Void
+    private let timerQueue = DispatchQueue(
+        label: "com.xabber.presence-batch.timer",
+        qos: .userInitiated,
+        autoreleaseFrequency: .workItem
+    )
+    private let lock = NSLock()
+    private var pending: [Key: PendingValue] = [:]
+    private var nextSequence: UInt64 = 0
+    private var generation: UInt64 = 0
+    private var scheduledDrain: DispatchWorkItem?
+
+    // Internal seam for the generation handoff regression test.
+    var deliveryGenerationValidationObserver: (() -> Void)?
+
+    init(
+        flushInterval: TimeInterval = PresenceBatchAccumulator.defaultFlushInterval,
+        batchSize: Int = PresenceBatchAccumulator.defaultBatchSize,
+        capacity: Int = PresenceBatchAccumulator.defaultCapacity,
+        deliveryQueue: DispatchQueue = DispatchQueue(
+            label: "com.xabber.presence-batch.delivery",
             qos: .utility,
-            internalSerialQueueName: "com.xabber.presence-processing.\(owner)"
+            autoreleaseFrequency: .workItem
+        ),
+        handler: @escaping (UInt64, [XMPPPresence]) -> Void
+    ) {
+        self.flushInterval = max(0, flushInterval)
+        self.batchSize = max(1, batchSize)
+        self.capacity = min(max(1, capacity), Self.defaultCapacity)
+        self.deliveryQueue = deliveryQueue
+        self.handler = handler
+    }
+
+    var pendingKeyCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return pending.count
+    }
+
+    @discardableResult
+    func enqueue(_ presence: XMPPPresence) -> Bool {
+        guard let from = presence.from,
+              let resource = from.resource,
+              !resource.isEmpty else {
+            return false
+        }
+
+        let isDeviceLifecycle = presence.presenceType == .unavailable
+            || presence.element(
+                forName: "device",
+                xmlns: "https://xabber.com/protocol/devices"
+            ) != nil
+        var batch: PendingBatch?
+        lock.lock()
+        nextSequence &+= 1
+        let key = Key(
+            jid: from.bare,
+            resource: resource,
+            lane: isDeviceLifecycle ? .deviceLifecycle(nextSequence) : .status
         )
+        if pending[key] == nil,
+           pending.count >= capacity,
+           let oldest = pending.min(by: { $0.value.sequence < $1.value.sequence })?.key {
+            pending.removeValue(forKey: oldest)
+        }
+        pending[key] = PendingValue(sequence: nextSequence, presence: presence)
+        if pending.count >= batchSize {
+            batch = takePendingLocked()
+        } else if scheduledDrain == nil {
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.drainNow()
+            }
+            scheduledDrain = workItem
+            timerQueue.asyncAfter(deadline: .now() + flushInterval, execute: workItem)
+        }
+        lock.unlock()
+
+        if let batch {
+            deliver(batch)
+        }
+        return true
+    }
+
+    func drainNow() {
+        lock.lock()
+        let batch = takePendingLocked()
+        lock.unlock()
+        if let batch {
+            deliver(batch)
+        }
+    }
+
+    func cancel() {
+        lock.lock()
+        generation &+= 1
+        scheduledDrain?.cancel()
+        scheduledDrain = nil
+        pending.removeAll(keepingCapacity: false)
+        lock.unlock()
+    }
+
+    private func takePendingLocked() -> PendingBatch? {
+        scheduledDrain?.cancel()
+        scheduledDrain = nil
+        guard !pending.isEmpty else { return nil }
+        let presences = pending.values
+            .sorted(by: { $0.sequence < $1.sequence })
+            .map(\.presence)
+        pending.removeAll(keepingCapacity: true)
+        return PendingBatch(generation: generation, presences: presences)
+    }
+
+    private func deliver(_ batch: PendingBatch) {
+        guard !batch.presences.isEmpty else { return }
+        deliveryQueue.async { [weak self] in
+            guard let self,
+                  self.isCurrentGeneration(batch.generation) else {
+                return
+            }
+            self.deliveryGenerationValidationObserver?()
+            self.handler(batch.generation, batch.presences)
+        }
+    }
+
+    private func isCurrentGeneration(_ expectedGeneration: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return generation == expectedGeneration
     }
 }
 
 class PresenceManager: AbstractXMPPManager {
+
+    private struct PresencePersistenceBatch {
+        let id: UInt64
+        let generation: UInt64
+        let presences: [XMPPPresence]
+    }
+
+    private enum PresencePersistenceResult {
+        case persisted
+        case retry
+        case discarded
+    }
     
     enum PresenceDirection {
         case incoming
@@ -42,16 +208,53 @@ class PresenceManager: AbstractXMPPManager {
     }
     
     internal var bag: DisposeBag = DisposeBag()
-    internal var enqueuedItems: BehaviorRelay<[XMPPPresence]> = BehaviorRelay<[XMPPPresence]>(value: [])
-    private lazy var processingScheduler = PresenceProcessingSchedulerFactory.make(owner: self.owner)
+    private var batchAccumulator: PresenceBatchAccumulator?
+    private let presencePersistenceQueue = DispatchQueue(
+        label: "com.xabber.presence-processing",
+        qos: .utility,
+        autoreleaseFrequency: .workItem
+    )
+    private let presencePersistenceStateLock = NSLock()
+    private var presencePersistenceGeneration: UInt64 = 0
+    private var isPresencePersistenceInvalidated = false
+    private var pendingPresencePersistenceBatches: [PresencePersistenceBatch] = []
+    private var nextPresencePersistenceBatchID: UInt64 = 0
+    private var activePresencePersistenceBatchID: UInt64?
+    private var scheduledPresencePersistenceRetryBatchID: UInt64?
+    private static let presencePersistenceRetryInterval: TimeInterval = 0.1
+
+    // Internal seams are intentionally limited to persistence regression coverage.
+    var presencePersistenceAttemptObserver: (() -> Void)?
+    var presencePersistenceFailureInjector: (() throws -> Void)?
+    var presenceBatchDeliveryGenerationValidationObserver: (() -> Void)? {
+        get { batchAccumulator?.deliveryGenerationValidationObserver }
+        set { batchAccumulator?.deliveryGenerationValidationObserver = newValue }
+    }
 
     init(withOwner owner: String, withoutSubscribtion: Bool) {
         super.init(withOwner: owner)
+        configureBatchAccumulator()
     }
     
     override init(withOwner owner: String) {
         super.init(withOwner: owner)
+        configureBatchAccumulator()
         subscribe()
+    }
+
+    private func configureBatchAccumulator() {
+        batchAccumulator = PresenceBatchAccumulator(
+            deliveryQueue: presencePersistenceQueue
+        ) { [weak self] generation, presences in
+            guard let self,
+                  self.isPresencePersistenceActive(generation: generation) else {
+                return
+            }
+            self.enqueuePresencePersistenceBatch(
+                presences,
+                generation: generation
+            )
+        }
     }
     
     override func namespaces() -> [String] {
@@ -71,32 +274,180 @@ class PresenceManager: AbstractXMPPManager {
         RunLoop.main.perform {
             self.resetResources(commitTransaction: true)
         }
-        
-        enqueuedItems
-            .asObservable()
-            .debounce(.milliseconds(200), scheduler: self.processingScheduler)
-            .observe(on: self.processingScheduler)
-            .subscribe(onNext: { [weak self] (results) in
-                guard let self else { return }
-                let presences = results.compactMap({ return $0 })
-                AccountManager.shared.find(for: self.owner)?.action { [weak self] account, _ in
-                    guard let self else { return }
-                    do {
-                        let realm = try WRealm.safe()
-                        try realm.write {
-                            presences.forEach { self.parse(contact: $0, realm: realm) }
-                        }
-                        account.devices.readBatch(presences, commitTransaction: true)
-                    } catch {
-                        DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
-                    }
+    }
+
+    private func enqueuePresencePersistenceBatch(
+        _ presences: [XMPPPresence],
+        generation: UInt64
+    ) {
+        guard presences.isNotEmpty,
+              isPresencePersistenceActive(generation: generation) else {
+            return
+        }
+        nextPresencePersistenceBatchID &+= 1
+        pendingPresencePersistenceBatches.append(
+            PresencePersistenceBatch(
+                id: nextPresencePersistenceBatchID,
+                generation: generation,
+                presences: presences
+            )
+        )
+        startNextPresencePersistenceBatchIfNeeded()
+    }
+
+    private func startNextPresencePersistenceBatchIfNeeded() {
+        guard activePresencePersistenceBatchID == nil,
+              scheduledPresencePersistenceRetryBatchID == nil,
+              let batch = pendingPresencePersistenceBatches.first else {
+            return
+        }
+        guard isPresencePersistenceActive(generation: batch.generation) else {
+            pendingPresencePersistenceBatches.removeFirst()
+            startNextPresencePersistenceBatchIfNeeded()
+            return
+        }
+
+        activePresencePersistenceBatchID = batch.id
+        commitPresenceBatch(batch) { [weak self] result in
+            guard let self else { return }
+            self.presencePersistenceQueue.async { [weak self] in
+                self?.finishPresencePersistenceBatch(batch, result: result)
+            }
+        }
+    }
+
+    private func finishPresencePersistenceBatch(
+        _ batch: PresencePersistenceBatch,
+        result: PresencePersistenceResult
+    ) {
+        guard activePresencePersistenceBatchID == batch.id else {
+            return
+        }
+        activePresencePersistenceBatchID = nil
+
+        switch result {
+        case .persisted, .discarded:
+            if pendingPresencePersistenceBatches.first?.id == batch.id {
+                pendingPresencePersistenceBatches.removeFirst()
+            } else {
+                pendingPresencePersistenceBatches.removeAll { $0.id == batch.id }
+            }
+            startNextPresencePersistenceBatchIfNeeded()
+        case .retry:
+            guard isPresencePersistenceActive(generation: batch.generation),
+                  pendingPresencePersistenceBatches.first?.id == batch.id else {
+                pendingPresencePersistenceBatches.removeAll { $0.id == batch.id }
+                startNextPresencePersistenceBatchIfNeeded()
+                return
+            }
+            scheduledPresencePersistenceRetryBatchID = batch.id
+            presencePersistenceQueue.asyncAfter(
+                deadline: .now() + Self.presencePersistenceRetryInterval
+            ) { [weak self] in
+                guard let self,
+                      self.scheduledPresencePersistenceRetryBatchID == batch.id else {
+                    return
                 }
-            })
-            .disposed(by: bag)
+                self.scheduledPresencePersistenceRetryBatchID = nil
+                self.startNextPresencePersistenceBatchIfNeeded()
+            }
+        }
+    }
+
+    private func commitPresenceBatch(
+        _ batch: PresencePersistenceBatch,
+        completion: @escaping (PresencePersistenceResult) -> Void
+    ) {
+        guard batch.presences.isNotEmpty,
+              isPresencePersistenceActive(generation: batch.generation),
+              let expectedAccount = AccountManager.shared.find(for: owner),
+              expectedAccount.presences === self else {
+            completion(.discarded)
+            return
+        }
+        expectedAccount.action { [weak self, weak expectedAccount] account, _ in
+            guard let self,
+                  let expectedAccount,
+                  account === expectedAccount,
+                  account.presences === self,
+                  AccountManager.shared.find(for: self.owner) === account,
+                  self.isPresencePersistenceActive(generation: batch.generation) else {
+                completion(.discarded)
+                return
+            }
+            do {
+                let realm = try WRealm.safe()
+                self.presencePersistenceAttemptObserver?()
+                try self.presencePersistenceFailureInjector?()
+                var didPersist = false
+                try realm.write {
+                    guard self.isPresencePersistenceActive(generation: batch.generation),
+                          AccountManager.shared.find(for: self.owner) === account,
+                          account.presences === self else {
+                        return
+                    }
+                    batch.presences.forEach { self.parse(contact: $0, realm: realm) }
+                    account.devices.readBatch(batch.presences, commitTransaction: false)
+                    didPersist = true
+                }
+                completion(didPersist ? .persisted : .discarded)
+            } catch {
+                DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
+                completion(.retry)
+            }
+        }
+    }
+
+    private func activePresencePersistenceGeneration() -> UInt64? {
+        presencePersistenceStateLock.lock()
+        defer { presencePersistenceStateLock.unlock() }
+        guard !isPresencePersistenceInvalidated else { return nil }
+        return presencePersistenceGeneration
+    }
+
+    private func isPresencePersistenceActive(generation: UInt64) -> Bool {
+        presencePersistenceStateLock.lock()
+        defer { presencePersistenceStateLock.unlock() }
+        return !isPresencePersistenceInvalidated && presencePersistenceGeneration == generation
+    }
+
+    private func cancelPendingPresencePersistence(permanently: Bool) {
+        presencePersistenceStateLock.lock()
+        presencePersistenceGeneration &+= 1
+        if permanently {
+            isPresencePersistenceInvalidated = true
+        }
+        presencePersistenceStateLock.unlock()
+        batchAccumulator?.cancel()
+        presencePersistenceQueue.async { [weak self] in
+            guard let self else { return }
+            let activeGeneration = self.activePresencePersistenceGeneration()
+            self.pendingPresencePersistenceBatches.removeAll { batch in
+                guard let activeGeneration else { return true }
+                return batch.generation != activeGeneration
+            }
+            if let activeID = self.activePresencePersistenceBatchID,
+               !self.pendingPresencePersistenceBatches.contains(where: { $0.id == activeID }) {
+                self.activePresencePersistenceBatchID = nil
+            }
+            if let retryID = self.scheduledPresencePersistenceRetryBatchID,
+               !self.pendingPresencePersistenceBatches.contains(where: { $0.id == retryID }) {
+                self.scheduledPresencePersistenceRetryBatchID = nil
+            }
+            self.startNextPresencePersistenceBatchIfNeeded()
+        }
+    }
+
+    /// Permanently closes detached presence persistence before account Realm cleanup.
+    /// The state check is repeated inside the acquired Realm transaction so an
+    /// already-running writer cannot recreate account-owned rows after deletion.
+    final func invalidatePendingPresencePersistence() {
+        cancelPendingPresencePersistence(permanently: true)
     }
     
     internal func unsubscribe() {
         bag = DisposeBag()
+        cancelPendingPresencePersistence(permanently: false)
     }
     
     internal func processQueue() {
@@ -376,7 +727,6 @@ class PresenceManager: AbstractXMPPManager {
                 realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [fromJid.bare, owner].prp())?.notes = " "
             }
         } else {
-            realm.autorefresh = true
             if let instance = realm.object(ofType: ResourceStorageItem.self,
                             forPrimaryKey: [fromJid.bare,
                                             fromJid.resource ?? "",
@@ -458,9 +808,7 @@ class PresenceManager: AbstractXMPPManager {
             fromJid.resource != nil else {
                 return false
         }
-        var value = enqueuedItems.value
-        value.append(presence)
-        enqueuedItems.accept(value)
+        _ = batchAccumulator?.enqueue(presence)
         
         return true
     }
@@ -578,7 +926,7 @@ class PresenceManager: AbstractXMPPManager {
     
     
     open func didResetState() {
-//        self.unsubscribe()
+        self.cancelPendingPresencePersistence(permanently: false)
 //        self.subscribe()
 //        RunLoop.main.perform {
 //            self.resetResources(commitTransaction: true)
@@ -630,7 +978,11 @@ class PresenceManager: AbstractXMPPManager {
     }
     
     deinit {
-        unsubscribe()
+        bag = DisposeBag()
+        presencePersistenceStateLock.lock()
+        presencePersistenceGeneration &+= 1
+        presencePersistenceStateLock.unlock()
+        batchAccumulator?.cancel()
     }
     
 }

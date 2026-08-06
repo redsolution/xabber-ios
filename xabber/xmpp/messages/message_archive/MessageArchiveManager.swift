@@ -2543,7 +2543,8 @@ class MessageArchiveManager: AbstractXMPPManager {
         let pendingItems = self.callbackQueueItems {
             $0.task.purpose.isArchiveHistoryProducing ||
                 $0.task.purpose == .search ||
-                $0.task.purpose == .timestampLookup
+                $0.task.purpose == .timestampLookup ||
+                ($0.task.conversationType == .notifications && $0.task.purpose == .latest)
         }
             .sorted { $0.elementId < $1.elementId }
         let pendingQueryCount = pendingItems.count
@@ -2585,6 +2586,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                     event: event
                 )
             } else if item.task.purpose == .timestampLookup {
+                self.notifyDidFailRequest(item.requestCallbacks, event: event)
+            } else if item.task.conversationType == .notifications,
+                      !item.task.purpose.isArchiveHistoryProducing {
                 self.notifyDidFailRequest(item.requestCallbacks, event: event)
             } else if item.task.purpose.isArchiveHistoryProducing {
                 self.beginPendingArchiveFailure(
@@ -2681,6 +2685,12 @@ class MessageArchiveManager: AbstractXMPPManager {
                taskQueryId != fallbackItem.elementId {
                 removeArchiveRequestStateAfterFailure(queryId: taskQueryId)
             }
+        }
+        if fallbackItem.task.conversationType == .notifications {
+            notifyDidFailRequest(
+                fallbackItem.requestCallbacks,
+                event: transaction.event
+            )
         }
         publishPendingArchiveFailureEvent(transaction.event)
 
@@ -3386,7 +3396,11 @@ class MessageArchiveManager: AbstractXMPPManager {
                     queryID: queryId,
                     terminal: .failed
                 )
-                if item.task.purpose.routesMamServerErrorAsRequestFailure {
+                let routesNotificationLatestFailure =
+                    item.task.conversationType == .notifications &&
+                    item.task.purpose == .latest
+                if item.task.purpose.routesMamServerErrorAsRequestFailure ||
+                    routesNotificationLatestFailure {
                     let event = MessageArchiveRequestFailureEvent(
                         owner: self.owner,
                         queryId: queryId,
@@ -3402,6 +3416,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                             event: event
                         )
                     } else if item.task.purpose == .timestampLookup {
+                        self.notifyDidFailRequest(item.requestCallbacks, event: event)
+                    } else if item.task.conversationType == .notifications,
+                              !item.task.purpose.isArchiveHistoryProducing {
                         self.notifyDidFailRequest(item.requestCallbacks, event: event)
                     }
                     if item.task.purpose.isArchiveHistoryProducing {

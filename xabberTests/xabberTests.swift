@@ -10041,6 +10041,7 @@ final class XMPPDeviceManagerRealmThreadingTests: XCTestCase {
         }
         return condition()
     }
+
 }
 
 final class PresenceManagerRealmWriteTests: XCTestCase {
@@ -10117,6 +10118,495 @@ final class PresenceManagerRealmWriteTests: XCTestCase {
         XCTAssertEqual(item.status, .away)
         XCTAssertEqual(item.statusMessage, "Away")
         XCTAssertEqual(item.priority, 7)
+    }
+
+    func testPresenceBatchAccumulatorKeepsOnlyLatestPresencePerFullJID() throws {
+        let drained = expectation(description: "batch drained")
+        var batch: [XMPPPresence] = []
+        let accumulator = PresenceBatchAccumulator(
+            flushInterval: 60,
+            batchSize: 128,
+            capacity: 1_024,
+            deliveryQueue: .main
+        ) { _, presences in
+            batch = presences
+            drained.fulfill()
+        }
+
+        XCTAssertTrue(accumulator.enqueue(try presence(from: "alice@example.com/ios", show: "away")))
+        XCTAssertTrue(accumulator.enqueue(try presence(from: "alice@example.com/ios", show: "chat")))
+        XCTAssertTrue(accumulator.enqueue(try presence(from: "alice@example.com/web", show: "online")))
+        accumulator.drainNow()
+
+        wait(for: [drained], timeout: 1)
+        XCTAssertEqual(batch.count, 2)
+        let ios = try XCTUnwrap(batch.first { $0.from?.resource == "ios" })
+        XCTAssertEqual(PresenceManager.parseStatusValue(from: ios), .chat)
+    }
+
+    func testPresenceBatchAccumulatorDrainsImmediatelyAtBatchBoundary() throws {
+        let drained = expectation(description: "threshold drain")
+        let accumulator = PresenceBatchAccumulator(
+            flushInterval: 60,
+            batchSize: 3,
+            capacity: 1_024,
+            deliveryQueue: .main
+        ) { _, presences in
+            XCTAssertEqual(presences.count, 3)
+            drained.fulfill()
+        }
+
+        for index in 0..<3 {
+            XCTAssertTrue(accumulator.enqueue(
+                try presence(from: "contact\(index)@example.com/ios", show: "online")
+            ))
+        }
+
+        wait(for: [drained], timeout: 1)
+        XCTAssertEqual(accumulator.pendingKeyCount, 0)
+    }
+
+    func testPresenceBatchAccumulatorBoundsPendingKeysAndEvictsOldest() throws {
+        let drained = expectation(description: "bounded batch")
+        var resources: Set<String> = []
+        let accumulator = PresenceBatchAccumulator(
+            flushInterval: 60,
+            batchSize: 2_048,
+            capacity: 3,
+            deliveryQueue: .main
+        ) { _, presences in
+            resources = Set(presences.compactMap { $0.from?.bare })
+            drained.fulfill()
+        }
+
+        for index in 0..<4 {
+            XCTAssertTrue(accumulator.enqueue(
+                try presence(from: "contact\(index)@example.com/ios", show: "online")
+            ))
+        }
+        XCTAssertEqual(accumulator.pendingKeyCount, 3)
+        accumulator.drainNow()
+
+        wait(for: [drained], timeout: 1)
+        XCTAssertEqual(resources, Set([
+            "contact1@example.com",
+            "contact2@example.com",
+            "contact3@example.com"
+        ]))
+    }
+
+    func testPresenceBatchAccumulatorConcurrentEnqueueProducesOneEventPerFullJID() throws {
+        let drained = expectation(description: "concurrent batch")
+        let accumulator = PresenceBatchAccumulator(
+            flushInterval: 60,
+            batchSize: 2_048,
+            capacity: 1_024,
+            deliveryQueue: .main
+        ) { _, presences in
+            XCTAssertEqual(presences.count, 32)
+            XCTAssertEqual(Set(presences.compactMap { $0.from?.full }).count, 32)
+            drained.fulfill()
+        }
+        let queue = DispatchQueue(label: "PresenceBatchAccumulatorTests", attributes: .concurrent)
+        let group = DispatchGroup()
+
+        for index in 0..<1_024 {
+            group.enter()
+            queue.async {
+                let xml = "<presence from=\"contact@example.com/resource\(index % 32)\"><show>chat</show></presence>"
+                if let presence = try? XMPPPresence(xmlString: xml) {
+                    _ = accumulator.enqueue(presence)
+                }
+                group.leave()
+            }
+        }
+        XCTAssertEqual(group.wait(timeout: .now() + 2), .success)
+        accumulator.drainNow()
+
+        wait(for: [drained], timeout: 1)
+    }
+
+    func testPresenceBatchAccumulatorDefaultsMatchProductionBudget() {
+        XCTAssertEqual(PresenceBatchAccumulator.defaultFlushInterval, 0.05, accuracy: 0.000_1)
+        XCTAssertEqual(PresenceBatchAccumulator.defaultBatchSize, 128)
+        XCTAssertEqual(PresenceBatchAccumulator.defaultCapacity, 1_024)
+    }
+
+    func testPresenceBatchAccumulatorDoesNotReplayPreviouslyDrainedPresence() throws {
+        let firstDrain = expectation(description: "first batch drained")
+        let secondDrain = expectation(description: "second batch drained")
+        var batches: [[String]] = []
+        let accumulator = PresenceBatchAccumulator(
+            flushInterval: 60,
+            batchSize: 128,
+            capacity: 1_024,
+            deliveryQueue: .main
+        ) { _, presences in
+            batches.append(presences.compactMap { $0.from?.full })
+            if batches.count == 1 {
+                firstDrain.fulfill()
+            } else if batches.count == 2 {
+                secondDrain.fulfill()
+            }
+        }
+
+        XCTAssertTrue(accumulator.enqueue(try presence(from: "alice@example.com/ios", show: "chat")))
+        accumulator.drainNow()
+        wait(for: [firstDrain], timeout: 1)
+
+        XCTAssertTrue(accumulator.enqueue(try presence(from: "bob@example.com/web", show: "away")))
+        accumulator.drainNow()
+        wait(for: [secondDrain], timeout: 1)
+
+        XCTAssertEqual(batches, [
+            ["alice@example.com/ios"],
+            ["bob@example.com/web"]
+        ])
+    }
+
+    func testPresenceBatchAccumulatorCancelSuppressesAlreadyQueuedDelivery() throws {
+        let deliveryQueue = DispatchQueue(
+            label: "PresenceBatchAccumulatorTests.cancelled-delivery"
+        )
+        deliveryQueue.suspend()
+        defer { deliveryQueue.resume() }
+
+        let delivered = expectation(description: "cancelled batch is not delivered")
+        delivered.isInverted = true
+        let accumulator = PresenceBatchAccumulator(
+            flushInterval: 60,
+            batchSize: 128,
+            capacity: 1_024,
+            deliveryQueue: deliveryQueue
+        ) { _, _ in
+            delivered.fulfill()
+        }
+
+        XCTAssertTrue(accumulator.enqueue(try presence(from: "alice@example.com/ios", show: "chat")))
+        accumulator.drainNow()
+        accumulator.cancel()
+        deliveryQueue.resume()
+        defer { deliveryQueue.suspend() }
+
+        wait(for: [delivered], timeout: 0.15)
+    }
+
+    func testPresenceBatchAccumulatorPreservesDeviceLifecycleBeforeNewerStatus() throws {
+        let drained = expectation(description: "device lifecycle and final status drained")
+        var batch: [XMPPPresence] = []
+        let accumulator = PresenceBatchAccumulator(
+            flushInterval: 60,
+            batchSize: 128,
+            capacity: 1_024,
+            deliveryQueue: .main
+        ) { _, presences in
+            batch = presences
+            drained.fulfill()
+        }
+        let devicePresence = try XCTUnwrap(XMPPPresence(xmlString: """
+        <presence from="alice@example.com/ios">
+          <show>away</show>
+          <device xmlns="https://xabber.com/protocol/devices" id="device-a"/>
+        </presence>
+        """))
+
+        XCTAssertTrue(accumulator.enqueue(devicePresence))
+        XCTAssertTrue(accumulator.enqueue(try presence(from: "alice@example.com/ios", show: "chat")))
+        XCTAssertTrue(
+            accumulator.enqueue(
+                try XCTUnwrap(
+                    XMPPPresence(xmlString: "<presence from='alice@example.com/ios' type='unavailable'/>")
+                )
+            )
+        )
+        accumulator.drainNow()
+
+        wait(for: [drained], timeout: 1)
+        XCTAssertEqual(batch.count, 3)
+        XCTAssertNotNil(
+            batch[0].element(
+                forName: "device",
+                xmlns: "https://xabber.com/protocol/devices"
+            )
+        )
+        XCTAssertEqual(PresenceManager.parseStatusValue(from: batch[1]), .chat)
+        XCTAssertEqual(batch[2].presenceType, .unavailable)
+    }
+
+    func testInvalidatedPresencePersistenceCannotRecreateResourcesAfterAccountCleanup() throws {
+        let owner = "presence-delete-\(UUID().uuidString.lowercased())@example.com"
+        let contact = "contact-\(UUID().uuidString.lowercased())@example.com"
+        let resource = "ios"
+        let account = Account(
+            jid: owner,
+            queue: DispatchQueue(label: "PresenceManagerRealmWriteTests.account-deletion")
+        )
+        AccountManager.shared.users.append(account)
+        defer {
+            AccountManager.shared.users.removeAll { $0 === account }
+        }
+
+        let realmAnchor = try WRealm.safe()
+        let writerReady = DispatchSemaphore(value: 0)
+        let performCleanup = DispatchSemaphore(value: 0)
+        let writerDone = DispatchSemaphore(value: 0)
+        let persistenceAttempted = expectation(description: "presence persistence reached Realm")
+        var writerResult: Result<Void, Error>?
+
+        account.presences.presencePersistenceAttemptObserver = {
+            persistenceAttempted.fulfill()
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { writerDone.signal() }
+            writerResult = Result {
+                let writerRealm = try WRealm.safe()
+                writerRealm.beginWrite()
+                writerReady.signal()
+                _ = performCleanup.wait(timeout: .now() + 5)
+                writerRealm.delete(
+                    writerRealm.objects(ResourceStorageItem.self)
+                        .filter("owner == %@", owner)
+                )
+                try writerRealm.commitWrite()
+            }
+        }
+
+        guard writerReady.wait(timeout: .now() + 5) == .success else {
+            performCleanup.signal()
+            XCTFail("Timed out waiting for the competing Realm writer")
+            return
+        }
+
+        let presence = try presence(from: "\(contact)/\(resource)", show: "chat")
+        XCTAssertTrue(account.presences.read(withPresence: presence))
+        wait(for: [persistenceAttempted], timeout: 2)
+
+        account.presences.invalidatePendingPresencePersistence()
+        performCleanup.signal()
+
+        XCTAssertEqual(writerDone.wait(timeout: .now() + 5), .success)
+        if case .failure(let error) = writerResult {
+            XCTFail("Competing Realm writer failed: \(error)")
+        }
+        XCTAssertTrue(waitUntil { account.isActionQueueQuiescentForTests })
+        realmAnchor.refresh()
+        XCTAssertEqual(
+            realmAnchor.objects(ResourceStorageItem.self)
+                .filter("owner == %@", owner)
+                .count,
+            0
+        )
+    }
+
+    func testResetAfterBatchValidationCannotPersistPreviousPresenceGeneration() throws {
+        let owner = "presence-generation-\(UUID().uuidString.lowercased())@example.com"
+        let contact = "contact-\(UUID().uuidString.lowercased())@example.com"
+        let resource = "ios"
+        let account = Account(
+            jid: owner,
+            queue: DispatchQueue(label: "PresenceManagerRealmWriteTests.generation-handoff")
+        )
+        AccountManager.shared.users.append(account)
+        defer {
+            AccountManager.shared.users.removeAll { $0 === account }
+        }
+
+        let deliveryValidated = expectation(
+            description: "old generation passed accumulator validation"
+        )
+        let stalePersistenceAttempted = expectation(
+            description: "old generation reached persistence"
+        )
+        stalePersistenceAttempted.isInverted = true
+        let releaseDelivery = DispatchSemaphore(value: 0)
+        defer { releaseDelivery.signal() }
+
+        account.presences.presenceBatchDeliveryGenerationValidationObserver = {
+            deliveryValidated.fulfill()
+            _ = releaseDelivery.wait(timeout: .now() + 2)
+        }
+        account.presences.presencePersistenceAttemptObserver = {
+            stalePersistenceAttempted.fulfill()
+        }
+
+        XCTAssertTrue(
+            account.presences.read(
+                withPresence: try presence(from: "\(contact)/\(resource)", show: "chat")
+            )
+        )
+        wait(for: [deliveryValidated], timeout: 2)
+
+        account.presences.didResetState()
+        releaseDelivery.signal()
+
+        wait(for: [stalePersistenceAttempted], timeout: 0.3)
+        XCTAssertNil(
+            try WRealm.safe().object(
+                ofType: ResourceStorageItem.self,
+                forPrimaryKey: ResourceStorageItem.genPrimary(
+                    jid: contact,
+                    owner: owner,
+                    resource: resource
+                )
+            ),
+            "A batch from the previous stream generation must be discarded after reset"
+        )
+    }
+
+    func testPresencePersistenceRetriesTransientRealmFailure() throws {
+        let owner = "presence-retry-\(UUID().uuidString.lowercased())@example.com"
+        let contact = "contact-\(UUID().uuidString.lowercased())@example.com"
+        let resource = "ios"
+        let account = Account(
+            jid: owner,
+            queue: DispatchQueue(label: "PresenceManagerRealmWriteTests.retry")
+        )
+        AccountManager.shared.users.append(account)
+        defer {
+            AccountManager.shared.users.removeAll { $0 === account }
+        }
+
+        let failureLock = NSLock()
+        var remainingFailures = 1
+        account.presences.presencePersistenceFailureInjector = {
+            failureLock.lock()
+            defer { failureLock.unlock() }
+            guard remainingFailures > 0 else { return }
+            remainingFailures -= 1
+            throw NSError(domain: "PresenceManagerRealmWriteTests", code: 1)
+        }
+
+        XCTAssertTrue(
+            account.presences.read(
+                withPresence: try presence(from: "\(contact)/\(resource)", show: "away")
+            )
+        )
+
+        let primary = ResourceStorageItem.genPrimary(
+            jid: contact,
+            owner: owner,
+            resource: resource
+        )
+        XCTAssertTrue(
+            waitUntil {
+                let realm = try? WRealm.safe()
+                return realm?.object(ofType: ResourceStorageItem.self, forPrimaryKey: primary)?.status == .away
+            },
+            "A transient Realm failure must requeue the detached presence batch"
+        )
+    }
+
+    func testRetriedOlderPresenceCannotOverwriteNewerPersistedStatus() throws {
+        let owner = "presence-retry-order-\(UUID().uuidString.lowercased())@example.com"
+        let contact = "contact-\(UUID().uuidString.lowercased())@example.com"
+        let resource = "ios"
+        let account = Account(
+            jid: owner,
+            queue: DispatchQueue(label: "PresenceManagerRealmWriteTests.retry-order")
+        )
+        AccountManager.shared.users.append(account)
+        defer {
+            AccountManager.shared.users.removeAll { $0 === account }
+        }
+
+        let observationLock = NSLock()
+        var persistenceAttemptCount = 0
+        var shouldFailFirstAttempt = true
+        let releaseFirstFailure = DispatchSemaphore(value: 0)
+        let firstAttemptReachedFailure = expectation(
+            description: "older presence reached its injected persistence failure"
+        )
+        let allPersistenceAttemptsStarted = expectation(
+            description: "failed presence retry and newer presence both reached persistence"
+        )
+        defer {
+            releaseFirstFailure.signal()
+        }
+
+        account.presences.presencePersistenceAttemptObserver = {
+            observationLock.lock()
+            persistenceAttemptCount += 1
+            let currentAttempt = persistenceAttemptCount
+            observationLock.unlock()
+            if currentAttempt == 3 {
+                allPersistenceAttemptsStarted.fulfill()
+            }
+        }
+        account.presences.presencePersistenceFailureInjector = {
+            observationLock.lock()
+            let shouldFail = shouldFailFirstAttempt
+            shouldFailFirstAttempt = false
+            observationLock.unlock()
+            guard shouldFail else { return }
+            firstAttemptReachedFailure.fulfill()
+            _ = releaseFirstFailure.wait(timeout: .now() + 2)
+            throw NSError(domain: "PresenceManagerRealmWriteTests", code: 2)
+        }
+
+        XCTAssertTrue(
+            account.presences.read(
+                withPresence: try presence(from: "\(contact)/\(resource)", show: "away")
+            )
+        )
+        wait(for: [firstAttemptReachedFailure], timeout: 2)
+
+        XCTAssertTrue(
+            account.presences.read(
+                withPresence: try presence(from: "\(contact)/\(resource)", show: "chat")
+            )
+        )
+        // The first write remains held while the newer value leaves the
+        // accumulator and reaches the persistence lane. Only then may the
+        // failure schedule the older retry.
+        RunLoop.current.run(
+            until: Date().addingTimeInterval(PresenceBatchAccumulator.defaultFlushInterval * 3)
+        )
+        releaseFirstFailure.signal()
+
+        wait(for: [allPersistenceAttemptsStarted], timeout: 2)
+        XCTAssertTrue(waitUntil {
+            observationLock.lock()
+            let didStartRetry = persistenceAttemptCount >= 3
+            observationLock.unlock()
+            return didStartRetry && account.isActionQueueQuiescentForTests
+        })
+
+        let primary = ResourceStorageItem.genPrimary(
+            jid: contact,
+            owner: owner,
+            resource: resource
+        )
+        XCTAssertEqual(
+            try WRealm.safe().object(
+                ofType: ResourceStorageItem.self,
+                forPrimaryKey: primary
+            )?.status,
+            .chat,
+            "Retrying an older failed batch must not roll back a newer accepted presence"
+        )
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 2,
+        pollInterval: TimeInterval = 0.02,
+        condition: @escaping () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        }
+        return condition()
+    }
+
+    private func presence(from: String, show: String) throws -> XMPPPresence {
+        let showElement = show == "online" ? "" : "<show>\(show)</show>"
+        return try XCTUnwrap(XMPPPresence(xmlString: """
+        <presence from="\(from)">\(showElement)</presence>
+        """))
     }
 }
 
@@ -10978,10 +11468,10 @@ final class NotificationsFeatureTests: XCTestCase {
 
     private func waitForQueuedNotificationRequest(
         on account: Account,
-        timeout: TimeInterval = 1.0,
+        timeout: TimeInterval = 3.0,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) -> MessageArchiveManager.CallbackQueueItem {
+    ) throws -> MessageArchiveManager.CallbackQueueItem {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let queued = queuedNotificationRequest(on: account) {
@@ -10990,8 +11480,12 @@ final class NotificationsFeatureTests: XCTestCase {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
         }
 
-        XCTFail("Expected queued notification archive request", file: file, line: line)
-        return account.mam.callbacksQueue.first!
+        return try XCTUnwrap(
+            queuedNotificationRequest(on: account),
+            "Expected queued notification archive request",
+            file: file,
+            line: line
+        )
     }
 
     private func sendArchiveFin(
@@ -10999,9 +11493,23 @@ final class NotificationsFeatureTests: XCTestCase {
         queryId: String,
         complete: Bool,
         count: Int,
+        deliveredCount: Int? = nil,
         first: String,
         last: String
     ) throws {
+        // RSM <count> describes the whole server result set. Record the
+        // independently supplied page delivery count so exhaustion is derived
+        // from transport evidence, just as it is in production.
+        for index in 0..<(deliveredCount ?? count) {
+            let result = try makeMessage(xml: """
+            <message>
+              <result xmlns='urn:xmpp:mam:2' queryid='\(queryId)' id='fixture-result-\(index)'/>
+            </message>
+            """)
+            XCTAssertTrue(account.mam.recordDeferredArchiveResultDelivery(result))
+            XCTAssertTrue(account.mam.recordDeferredArchiveControlConsumption(result))
+        }
+
         let iq = try makeIQ(xml: """
         <iq type='result' id='\(queryId)'>
           <fin xmlns='urn:xmpp:mam:2' complete='\(complete ? "true" : "false")' queryid='\(queryId)'>
@@ -11017,8 +11525,45 @@ final class NotificationsFeatureTests: XCTestCase {
         XCTAssertTrue(account.mam.read(account.xmppStream, withIQ: iq))
     }
 
+    private func sendArchiveError(on account: Account, queryId: String) throws {
+        let iq = try makeIQ(xml: """
+        <iq type='error' id='\(queryId)'>
+          <error type='cancel'>
+            <service-unavailable xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>
+          </error>
+        </iq>
+        """)
+
+        XCTAssertTrue(account.mam.read(account.xmppStream, withIQ: iq))
+    }
+
     private func managerStorage() throws -> XMPPNotificationsManagerStorageItem? {
         try WRealm.safe().object(ofType: XMPPNotificationsManagerStorageItem.self, forPrimaryKey: XMPPNotificationsManagerStorageItem.genPrimary(owner: owner))
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 2,
+        pollInterval: TimeInterval = 0.02,
+        condition: @escaping () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        }
+        return condition()
+    }
+
+    private func waitForNotificationPersistence(_ manager: XMPPNotificationsManager) {
+        let persisted = expectation(description: "Notification persistence drained")
+        manager.flushPendingNotificationPersistenceForTests { didPersist in
+            XCTAssertTrue(didPersist)
+            persisted.fulfill()
+        }
+        wait(for: [persisted], timeout: 2)
+        _ = try? WRealm.safe().refresh()
     }
 
     private func makeArchivedInfoNotificationMessage(
@@ -11410,6 +11955,7 @@ final class NotificationsFeatureTests: XCTestCase {
         """)
 
         XCTAssertTrue(manager.read(withMessage: message))
+        waitForNotificationPersistence(manager)
 
         let stored = try WRealm.safe()
             .objects(NotificationStorageItem.self)
@@ -11419,6 +11965,513 @@ final class NotificationsFeatureTests: XCTestCase {
         XCTAssertEqual(stored?.isRead, false)
         XCTAssertEqual(stored?.notificationType, "alert")
         XCTAssertEqual(stored?.originalSenderJid, "security@xmppdev01.xabber.com")
+    }
+
+    func testReadArchivedNotificationReturnsPromptlyWhileRealmWriterIsHeld() throws {
+        XCTAssertTrue(Thread.isMainThread)
+
+        let manager = XMPPNotificationsManager(withOwner: owner)
+        let message = try makeArchivedInfoNotificationMessage(
+            wrapperId: "notification-ui-isolation",
+            stanzaId: "notification-ui-isolation-stanza"
+        )
+        let realmAnchor = try WRealm.safe()
+        let writerReady = DispatchSemaphore(value: 0)
+        let releaseWriter = DispatchSemaphore(value: 0)
+        let writerDone = DispatchSemaphore(value: 0)
+        let writerQueue = DispatchQueue(
+            label: "NotificationsFeatureTests.realm-writer.ui-isolation.\(UUID().uuidString)"
+        )
+        var writerResult: Result<Void, Error>?
+
+        writerQueue.async {
+            defer { writerDone.signal() }
+            writerResult = Result {
+                let writerRealm = try WRealm.safe()
+                writerRealm.beginWrite()
+                writerReady.signal()
+                _ = releaseWriter.wait(timeout: .now() + 5)
+                writerRealm.cancelWrite()
+            }
+        }
+
+        guard writerReady.wait(timeout: .now() + 5) == .success else {
+            releaseWriter.signal()
+            XCTFail("Timed out waiting for the competing Realm writer")
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.35) {
+            releaseWriter.signal()
+        }
+
+        let startedAt = DispatchTime.now().uptimeNanoseconds
+        let wasHandled = manager.read(withMessage: message)
+        let elapsed = TimeInterval(DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000_000
+
+        XCTAssertEqual(writerDone.wait(timeout: .now() + 5), .success)
+        if case .failure(let error) = writerResult {
+            XCTFail("Competing Realm writer failed: \(error)")
+        }
+        XCTAssertTrue(wasHandled)
+        XCTAssertLessThan(
+            elapsed,
+            0.10,
+            "Notification ingress must enqueue persistence instead of waiting for a Realm writer on the UI caller"
+        )
+        XCTAssertTrue(
+            waitUntil {
+                realmAnchor.refresh()
+                return realmAnchor.objects(NotificationStorageItem.self)
+                    .filter("owner == %@ AND uniqueId == %@", self.owner, "notification-ui-isolation")
+                    .count == 1
+            },
+            "Accepted notification must still be persisted after the writer is released"
+        )
+    }
+
+    func testInvalidatingPersistenceWhileRealmWriterIsHeldDoesNotResurrectNotifications() throws {
+        let manager = XMPPNotificationsManager(withOwner: owner)
+        let message = try makeArchivedInfoNotificationMessage(
+            wrapperId: "notification-account-deletion",
+            stanzaId: "notification-account-deletion-stanza"
+        )
+        let realmAnchor = try WRealm.safe()
+        let writerReady = DispatchSemaphore(value: 0)
+        let releaseWriter = DispatchSemaphore(value: 0)
+        let writerDone = DispatchSemaphore(value: 0)
+        let persistenceAttempted = expectation(description: "Persistence reached the blocked Realm writer")
+        let persistenceStopped = expectation(description: "Invalidated persistence stopped")
+        var writerResult: Result<Void, Error>?
+
+        manager.notificationPersistenceChunkAttemptObserver = {
+            persistenceAttempted.fulfill()
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { writerDone.signal() }
+            writerResult = Result {
+                let writerRealm = try WRealm.safe()
+                writerRealm.beginWrite()
+                writerReady.signal()
+                _ = releaseWriter.wait(timeout: .now() + 5)
+                writerRealm.cancelWrite()
+            }
+        }
+
+        guard writerReady.wait(timeout: .now() + 5) == .success else {
+            releaseWriter.signal()
+            XCTFail("Timed out waiting for the competing Realm writer")
+            return
+        }
+
+        XCTAssertTrue(manager.read(withMessage: message))
+        wait(for: [persistenceAttempted], timeout: 2)
+
+        manager.invalidatePendingNotificationPersistence()
+        manager.flushPendingNotificationPersistenceForTests { didPersist in
+            XCTAssertFalse(didPersist)
+            persistenceStopped.fulfill()
+        }
+        releaseWriter.signal()
+
+        XCTAssertEqual(writerDone.wait(timeout: .now() + 5), .success)
+        if case .failure(let error) = writerResult {
+            XCTFail("Competing Realm writer failed: \(error)")
+        }
+        wait(for: [persistenceStopped], timeout: 2)
+        realmAnchor.refresh()
+        XCTAssertEqual(
+            realmAnchor.objects(NotificationStorageItem.self)
+                .filter("owner == %@", owner)
+                .count,
+            0
+        )
+    }
+
+    func testConfigureCannotRecreateManagerStorageAfterPersistenceInvalidation() throws {
+        let manager = XMPPNotificationsManager(withOwner: owner)
+        manager.invalidatePendingNotificationPersistence()
+
+        manager.configure(for: notificationsNode)
+
+        XCTAssertNil(try managerStorage())
+    }
+
+    func testReadAllCannotRecreateManagerStorageAfterPersistenceInvalidation() throws {
+        let manager = XMPPNotificationsManager(withOwner: owner)
+        manager.node = notificationsNode
+        let notification = try insertNotification(
+            uniqueId: "notification-read-all-after-invalidation",
+            stanzaId: "notification-read-all-after-invalidation-stanza",
+            date: "2026-03-24T10:15:30Z"
+        )
+        let setupRealm = try WRealm.safe()
+        try setupRealm.write {
+            notification.isRead = false
+        }
+        XCTAssertFalse(notification.isRead)
+        manager.invalidatePendingNotificationPersistence()
+
+        manager.readAll(XMPPStream())
+
+        let realm = try WRealm.safe()
+        XCTAssertNil(try managerStorage())
+        XCTAssertFalse(
+            try XCTUnwrap(
+                realm.object(
+                    ofType: NotificationStorageItem.self,
+                    forPrimaryKey: notification.primary
+                )
+            ).isRead
+        )
+    }
+
+    func testReadAllIncludesNotificationAcceptedBeforeCallButStillPendingPersistence() throws {
+        let manager = XMPPNotificationsManager(withOwner: owner)
+        manager.node = notificationsNode
+        let message = try makeArchivedInfoNotificationMessage(
+            wrapperId: "notification-pending-before-read-all",
+            stanzaId: "notification-pending-before-read-all-stanza"
+        )
+        let writerReady = DispatchSemaphore(value: 0)
+        let releaseWriter = DispatchSemaphore(value: 0)
+        let writerDone = DispatchSemaphore(value: 0)
+        var writerResult: Result<Void, Error>?
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { writerDone.signal() }
+            writerResult = Result {
+                let writerRealm = try WRealm.safe()
+                writerRealm.beginWrite()
+                writerReady.signal()
+                _ = releaseWriter.wait(timeout: .now() + 5)
+                writerRealm.cancelWrite()
+            }
+        }
+
+        guard writerReady.wait(timeout: .now() + 5) == .success else {
+            releaseWriter.signal()
+            XCTFail("Timed out waiting for the competing Realm writer")
+            return
+        }
+
+        XCTAssertTrue(manager.read(withMessage: message))
+        let startedAt = DispatchTime.now().uptimeNanoseconds
+        manager.readAll(XMPPStream())
+        let elapsed = TimeInterval(
+            DispatchTime.now().uptimeNanoseconds - startedAt
+        ) / 1_000_000_000
+        releaseWriter.signal()
+
+        XCTAssertLessThan(
+            elapsed,
+            0.5,
+            "Read-all must join the notification persistence lane without blocking its UI caller"
+        )
+        XCTAssertEqual(writerDone.wait(timeout: .now() + 5), .success)
+        if case .failure(let error) = writerResult {
+            XCTFail("Competing Realm writer failed: \(error)")
+        }
+
+        let primary = NotificationStorageItem.genPrimary(
+            owner: owner,
+            jid: "security@xmppdev01.xabber.com",
+            uniqueId: "notification-pending-before-read-all"
+        )
+        XCTAssertTrue(
+            waitUntil {
+                let realm = try? WRealm.safe()
+                return realm?.object(
+                    ofType: NotificationStorageItem.self,
+                    forPrimaryKey: primary
+                )?.isRead == true
+            },
+            "A notification accepted before read-all must not appear unread after delayed persistence"
+        )
+    }
+
+    func testReadAllDoesNotMarkNotificationAcceptedAfterItsCutoff() throws {
+        let manager = XMPPNotificationsManager(withOwner: owner)
+        manager.node = notificationsNode
+        manager.notificationPersistenceChunkSize = 1
+        let beforeId = "notification-before-read-all-cutoff"
+        let afterId = "notification-after-read-all-cutoff"
+        let writerReady = DispatchSemaphore(value: 0)
+        let releaseWriter = DispatchSemaphore(value: 0)
+        let writerDone = DispatchSemaphore(value: 0)
+        let normalDrainReachedWriter = expectation(
+            description: "normal notification drain reached the held Realm writer"
+        )
+        var writerResult: Result<Void, Error>?
+        var writerJoined = false
+
+        manager.notificationPersistenceChunkAttemptObserver = {
+            normalDrainReachedWriter.fulfill()
+            manager.notificationPersistenceChunkAttemptObserver = nil
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { writerDone.signal() }
+            writerResult = Result {
+                let writerRealm = try WRealm.safe()
+                writerRealm.beginWrite()
+                writerReady.signal()
+                _ = releaseWriter.wait(timeout: .now() + 5)
+                writerRealm.cancelWrite()
+            }
+        }
+        defer {
+            releaseWriter.signal()
+            if !writerJoined {
+                _ = writerDone.wait(timeout: .now() + 5)
+            }
+        }
+
+        guard writerReady.wait(timeout: .now() + 5) == .success else {
+            return XCTFail("Timed out waiting for the competing Realm writer")
+        }
+        XCTAssertTrue(
+            manager.read(
+                withMessage: try makeArchivedInfoNotificationMessage(
+                    wrapperId: beforeId,
+                    stanzaId: "\(beforeId)-stanza"
+                )
+            )
+        )
+        wait(for: [normalDrainReachedWriter], timeout: 2)
+
+        manager.readAll(XMPPStream())
+        XCTAssertTrue(
+            manager.read(
+                withMessage: try makeArchivedInfoNotificationMessage(
+                    wrapperId: afterId,
+                    stanzaId: "\(afterId)-stanza",
+                    date: "2026-03-24T10:16:30Z"
+                )
+            )
+        )
+        releaseWriter.signal()
+        XCTAssertEqual(writerDone.wait(timeout: .now() + 5), .success)
+        writerJoined = true
+        if case .failure(let error) = writerResult {
+            XCTFail("Competing Realm writer failed: \(error)")
+        }
+
+        let beforePrimary = NotificationStorageItem.genPrimary(
+            owner: owner,
+            jid: "security@xmppdev01.xabber.com",
+            uniqueId: beforeId
+        )
+        let afterPrimary = NotificationStorageItem.genPrimary(
+            owner: owner,
+            jid: "security@xmppdev01.xabber.com",
+            uniqueId: afterId
+        )
+        XCTAssertTrue(
+            waitUntil {
+                let realm = try? WRealm.safe()
+                return realm?.object(
+                    ofType: NotificationStorageItem.self,
+                    forPrimaryKey: beforePrimary
+                )?.isRead == true && realm?.object(
+                    ofType: NotificationStorageItem.self,
+                    forPrimaryKey: afterPrimary
+                ) != nil
+            }
+        )
+        XCTAssertFalse(
+            try XCTUnwrap(
+                try WRealm.safe().object(
+                    ofType: NotificationStorageItem.self,
+                    forPrimaryKey: afterPrimary
+                )
+            ).isRead,
+            "A notification accepted after read-all must remain unread"
+        )
+    }
+
+    func testArchivedNotificationBackfillPersistsOffMainInBoundedChunks() throws {
+        XCTAssertTrue(Thread.isMainThread)
+
+        let manager = XMPPNotificationsManager(withOwner: owner)
+        let realmAnchor = try WRealm.safe()
+        let writerReady = DispatchSemaphore(value: 0)
+        let releaseWriter = DispatchSemaphore(value: 0)
+        let writerDone = DispatchSemaphore(value: 0)
+        let writerQueue = DispatchQueue(
+            label: "NotificationsFeatureTests.realm-writer.batch.\(UUID().uuidString)"
+        )
+        let observationLock = NSLock()
+        let allRowsPersisted = expectation(description: "All notification archive rows persisted")
+        var observedChunkSizes: [Int] = []
+        var observedPersistedRowCount = 0
+        var didPersistOnMain = false
+        var writerResult: Result<Void, Error>?
+
+        manager.notificationPersistenceChunkSize = 25
+        manager.notificationPersistenceChunkObserver = { (chunkSize: Int, remainingCount: Int) in
+            observationLock.lock()
+            observedChunkSizes.append(chunkSize)
+            observedPersistedRowCount += chunkSize
+            didPersistOnMain = didPersistOnMain || Thread.isMainThread
+            let didFinish = observedPersistedRowCount == 100 && remainingCount == 0
+            observationLock.unlock()
+            if didFinish {
+                allRowsPersisted.fulfill()
+            }
+        }
+
+        writerQueue.async {
+            defer { writerDone.signal() }
+            writerResult = Result {
+                let writerRealm = try WRealm.safe()
+                writerRealm.beginWrite()
+                writerReady.signal()
+                _ = releaseWriter.wait(timeout: .now() + 5)
+                writerRealm.cancelWrite()
+            }
+        }
+
+        guard writerReady.wait(timeout: .now() + 5) == .success else {
+            releaseWriter.signal()
+            XCTFail("Timed out waiting for the competing Realm writer")
+            return
+        }
+
+        for index in 0..<100 {
+            XCTAssertTrue(
+                manager.read(
+                    withMessage: try makeArchivedInfoNotificationMessage(
+                        wrapperId: "notification-batch-\(index)",
+                        stanzaId: "notification-batch-stanza-\(index)"
+                    )
+                )
+            )
+        }
+        releaseWriter.signal()
+
+        XCTAssertEqual(writerDone.wait(timeout: .now() + 5), .success)
+        if case .failure(let error) = writerResult {
+            XCTFail("Competing Realm writer failed: \(error)")
+        }
+        wait(for: [allRowsPersisted], timeout: 5)
+
+        observationLock.lock()
+        let chunkSizes = observedChunkSizes
+        let persistedOnMain = didPersistOnMain
+        observationLock.unlock()
+
+        XCTAssertEqual(chunkSizes, [25, 25, 25, 25])
+        XCTAssertFalse(persistedOnMain)
+        XCTAssertTrue(
+            waitUntil {
+                realmAnchor.refresh()
+                return realmAnchor.objects(NotificationStorageItem.self)
+                    .filter("owner == %@", self.owner)
+                    .count == 100
+            }
+        )
+    }
+
+    func testPageBarrierStopsAtCapturedWatermarkWhileLiveNotificationsContinue() throws {
+        let manager = XMPPNotificationsManager(withOwner: owner)
+        manager.notificationPersistenceChunkSize = 1
+
+        let initialMessage = try makeArchivedInfoNotificationMessage(
+            wrapperId: "notification-page-watermark",
+            stanzaId: "notification-page-watermark-stanza"
+        )
+        let liveMessages = try (0..<20).map { index in
+            try makeArchivedInfoNotificationMessage(
+                wrapperId: "notification-live-after-fin-\(index)",
+                stanzaId: "notification-live-after-fin-stanza-\(index)"
+            )
+        }
+        let observationLock = NSLock()
+        var observedChunkCount = 0
+        var chunksAtBarrierCompletion = 0
+        var didInjectLiveMessages = false
+
+        manager.notificationPersistenceChunkObserver = { _, _ in
+            observationLock.lock()
+            observedChunkCount += 1
+            let shouldInject = !didInjectLiveMessages
+            didInjectLiveMessages = true
+            observationLock.unlock()
+
+            if shouldInject {
+                liveMessages.forEach { XCTAssertTrue(manager.read(withMessage: $0)) }
+            }
+        }
+
+        XCTAssertTrue(manager.read(withMessage: initialMessage))
+        let pageWatermark = manager.notificationPersistenceWatermarkForTests()
+        let barrierCompleted = expectation(description: "Page persistence barrier completed at its watermark")
+
+        manager.flushPendingNotificationPersistenceForTests(through: pageWatermark) { didPersist in
+            observationLock.lock()
+            chunksAtBarrierCompletion = observedChunkCount
+            observationLock.unlock()
+            XCTAssertTrue(didPersist)
+            barrierCompleted.fulfill()
+        }
+
+        wait(for: [barrierCompleted], timeout: 2)
+        XCTAssertEqual(
+            chunksAtBarrierCompletion,
+            1,
+            "Live notifications accepted after the page watermark must not delay page completion"
+        )
+        waitForNotificationPersistence(manager)
+        XCTAssertEqual(
+            try WRealm.safe().objects(NotificationStorageItem.self)
+                .filter("owner == %@", owner)
+                .count,
+            21
+        )
+    }
+
+    func testPersistenceSchedulesAgainAfterExactlyOneBoundedDrainPass() throws {
+        let manager = XMPPNotificationsManager(withOwner: owner)
+        manager.notificationPersistenceChunkSize = 1
+        let firstPassPersisted = expectation(description: "Exactly one bounded drain pass persisted")
+        let laterNotificationPersisted = expectation(description: "A later notification scheduled a new drain")
+        let observationLock = NSLock()
+        var persistedChunkCount = 0
+
+        manager.notificationPersistenceChunkObserver = { _, _ in
+            observationLock.lock()
+            persistedChunkCount += 1
+            let currentCount = persistedChunkCount
+            observationLock.unlock()
+            if currentCount == 4 {
+                firstPassPersisted.fulfill()
+            } else if currentCount == 5 {
+                laterNotificationPersisted.fulfill()
+            }
+        }
+
+        for index in 0..<4 {
+            XCTAssertTrue(
+                manager.read(
+                    withMessage: try makeArchivedInfoNotificationMessage(
+                        wrapperId: "notification-bounded-pass-\(index)",
+                        stanzaId: "notification-bounded-pass-stanza-\(index)"
+                    )
+                )
+            )
+        }
+        wait(for: [firstPassPersisted], timeout: 2)
+
+        XCTAssertTrue(
+            manager.read(
+                withMessage: try makeArchivedInfoNotificationMessage(
+                    wrapperId: "notification-after-bounded-pass",
+                    stanzaId: "notification-after-bounded-pass-stanza"
+                )
+            )
+        )
+        wait(for: [laterNotificationPersisted], timeout: 2)
     }
 
     func testCountersAndDatasourceIncludeMentions() throws {
@@ -11535,6 +12588,7 @@ final class NotificationsFeatureTests: XCTestCase {
 
         XCTAssertTrue(manager.read(withMessage: first))
         XCTAssertTrue(manager.read(withMessage: duplicate))
+        waitForNotificationPersistence(manager)
 
         let notifications = try WRealm.safe()
             .objects(NotificationStorageItem.self)
@@ -11552,6 +12606,7 @@ final class NotificationsFeatureTests: XCTestCase {
         let message = try makeArchivedCategoryMentionNotificationMessage()
 
         XCTAssertTrue(manager.read(withMessage: message))
+        waitForNotificationPersistence(manager)
 
         let stored = try XCTUnwrap(
             try WRealm.safe()
@@ -11575,6 +12630,7 @@ final class NotificationsFeatureTests: XCTestCase {
         let manager = XMPPNotificationsManager(withOwner: owner)
 
         XCTAssertTrue(manager.read(withMessage: try makeMentionNotificationMessage(wrapperId: "notif-mention-last-chat")))
+        waitForNotificationPersistence(manager)
 
         let chat = try XCTUnwrap(
             try WRealm.safe().object(
@@ -11592,6 +12648,7 @@ final class NotificationsFeatureTests: XCTestCase {
         let manager = XMPPNotificationsManager(withOwner: owner)
 
         XCTAssertTrue(manager.read(withMessage: try makeMentionNotificationMessage(wrapperId: "notif-mention-reconcile")))
+        waitForNotificationPersistence(manager)
 
         let stored = try XCTUnwrap(
             try WRealm.safe()
@@ -11612,6 +12669,7 @@ final class NotificationsFeatureTests: XCTestCase {
         let manager = XMPPNotificationsManager(withOwner: owner)
 
         XCTAssertTrue(manager.read(withMessage: try makeArchivedCategoryMentionNotificationMessage()))
+        waitForNotificationPersistence(manager)
 
         let controller = NotificationsListViewController()
         let snapshot = controller.buildDatasourceSnapshot(filter: .mentions, filterAccount: owner)
@@ -11941,6 +12999,7 @@ final class NotificationsFeatureTests: XCTestCase {
         )
 
         XCTAssertTrue(manager.read(withMessage: archivedMessage))
+        waitForNotificationPersistence(manager)
 
         let notifications = try WRealm.safe()
             .objects(NotificationStorageItem.self)
@@ -11949,7 +13008,10 @@ final class NotificationsFeatureTests: XCTestCase {
 
         XCTAssertEqual(notifications.count, 1)
         XCTAssertEqual(notifications.first?.stanzaId, "archive-stanza-1")
-        XCTAssertEqual(try managerStorage()?.lastSyncedNotificationId, "archive-stanza-1")
+        XCTAssertNil(
+            try managerStorage()?.lastSyncedNotificationId,
+            "Ingress persistence must not advance the MAM cursor before the page-end barrier succeeds"
+        )
     }
 
     func testReadNotificationUsesUnreadBoundaryFromStorageInsteadOfDateFallback() throws {
@@ -11985,6 +13047,7 @@ final class NotificationsFeatureTests: XCTestCase {
                 )
             )
         )
+        waitForNotificationPersistence(manager)
 
         let notification = try XCTUnwrap(
             try WRealm.safe().object(
@@ -12015,6 +13078,7 @@ final class NotificationsFeatureTests: XCTestCase {
                 )
             )
         )
+        waitForNotificationPersistence(manager)
 
         let notification = try XCTUnwrap(
             try WRealm.safe().object(
@@ -12085,6 +13149,58 @@ final class NotificationsFeatureTests: XCTestCase {
         )
     }
 
+    func testStaleLatestPageCannotAdvanceCursorAfterNotificationNodeChangesAwayAndBack() throws {
+        let account = makeAccount()
+        account.notifications.node = notificationsNode
+        try upsertNotificationManagerStorage(node: notificationsNode, archiveSyncCompleted: false)
+
+        account.notifications.update(account.xmppStream)
+        let staleRequest = try waitForQueuedNotificationRequest(on: account)
+
+        account.notifications.configure(for: "notifications-2.xmppdev01.xabber.com")
+        account.notifications.configure(for: notificationsNode)
+
+        try sendArchiveFin(
+            on: account,
+            queryId: staleRequest.elementId,
+            complete: true,
+            count: 1,
+            deliveredCount: 1,
+            first: "stale-node-page-first",
+            last: "stale-node-page-last"
+        )
+
+        let currentRequest = try waitForQueuedNotificationRequest(on: account)
+        XCTAssertNotEqual(currentRequest.elementId, staleRequest.elementId)
+        let storage = try XCTUnwrap(try managerStorage())
+        XCTAssertNil(storage.lastItemId)
+        XCTAssertFalse(storage.archiveSyncCompleted)
+    }
+
+    func testRediscoveringSameNotificationNodeKeepsInFlightLatestPageValid() throws {
+        let account = makeAccount()
+        account.notifications.node = notificationsNode
+        try upsertNotificationManagerStorage(node: notificationsNode, archiveSyncCompleted: false)
+
+        account.notifications.update(account.xmppStream)
+        let request = try waitForQueuedNotificationRequest(on: account)
+        account.notifications.configure(for: notificationsNode)
+
+        try sendArchiveFin(
+            on: account,
+            queryId: request.elementId,
+            complete: true,
+            count: 1,
+            deliveredCount: 1,
+            first: "same-node-page-first",
+            last: "same-node-page-last"
+        )
+
+        XCTAssertTrue(waitUntil {
+            (try? self.managerStorage()?.lastItemId) == "same-node-page-last"
+        })
+    }
+
     func testFirstLoginBootstrapLoadsNewestPageThenBackfillsOlderPagesUntilArchiveCompleted() throws {
         let account = makeAccount()
         account.notifications.node = notificationsNode
@@ -12092,7 +13208,7 @@ final class NotificationsFeatureTests: XCTestCase {
 
         account.notifications.update(account.xmppStream)
 
-        let latestRequest = waitForQueuedNotificationRequest(on: account)
+        let latestRequest = try waitForQueuedNotificationRequest(on: account)
         XCTAssertEqual(latestRequest.task.conversationType, .notifications)
         XCTAssertEqual(latestRequest.task.purpose, .latest)
         XCTAssertEqual(latestRequest.task.max, 100)
@@ -12107,7 +13223,7 @@ final class NotificationsFeatureTests: XCTestCase {
             last: "archived-100"
         )
 
-        let olderRequest = waitForQueuedNotificationRequest(on: account)
+        let olderRequest = try waitForQueuedNotificationRequest(on: account)
         XCTAssertEqual(olderRequest.task.purpose, .pageOlder)
         XCTAssertEqual(olderRequest.task.max, 100)
         XCTAssertEqual(olderRequest.task.messageId, "archived-001")
@@ -12121,7 +13237,9 @@ final class NotificationsFeatureTests: XCTestCase {
             last: "archived-older-025"
         )
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(waitUntil {
+            (try? self.managerStorage()?.archiveSyncCompleted) == true
+        })
 
         let storage = try XCTUnwrap(try managerStorage())
         XCTAssertTrue(storage.archiveSyncCompleted)
@@ -12142,7 +13260,7 @@ final class NotificationsFeatureTests: XCTestCase {
 
         account.notifications.update(account.xmppStream)
 
-        let latestRequest = waitForQueuedNotificationRequest(on: account)
+        let latestRequest = try waitForQueuedNotificationRequest(on: account)
         XCTAssertEqual(latestRequest.task.purpose, .latest)
         XCTAssertEqual(latestRequest.task.afterId, "archived-newest")
         XCTAssertEqual(latestRequest.task.max, 100)
@@ -12156,7 +13274,9 @@ final class NotificationsFeatureTests: XCTestCase {
             last: ""
         )
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(waitUntil {
+            (try? self.managerStorage()?.lastSyncAt) != nil
+        })
 
         XCTAssertNil(queuedNotificationRequest(on: account))
         XCTAssertTrue(try XCTUnwrap(managerStorage()).archiveSyncCompleted)
@@ -12175,7 +13295,7 @@ final class NotificationsFeatureTests: XCTestCase {
 
         account.notifications.update(account.xmppStream)
 
-        let latestRequest = waitForQueuedNotificationRequest(on: account)
+        let latestRequest = try waitForQueuedNotificationRequest(on: account)
         XCTAssertEqual(latestRequest.task.purpose, .latest)
         XCTAssertEqual(latestRequest.task.afterId, "latest-scanned-id")
 
@@ -12205,7 +13325,7 @@ final class NotificationsFeatureTests: XCTestCase {
 
         account.notifications.update(account.xmppStream)
 
-        let firstLatestRequest = waitForQueuedNotificationRequest(on: account)
+        let firstLatestRequest = try waitForQueuedNotificationRequest(on: account)
         XCTAssertEqual(firstLatestRequest.task.afterId, "1716893716816619")
         let notificationCountBeforePage = try WRealm.safe()
             .objects(NotificationStorageItem.self)
@@ -12217,11 +13337,12 @@ final class NotificationsFeatureTests: XCTestCase {
             queryId: firstLatestRequest.elementId,
             complete: false,
             count: 101,
+            deliveredCount: 100,
             first: "page-1-first",
             last: "1723199402526186"
         )
 
-        let secondLatestRequest = waitForQueuedNotificationRequest(on: account)
+        let secondLatestRequest = try waitForQueuedNotificationRequest(on: account)
         XCTAssertEqual(secondLatestRequest.task.purpose, .latest)
         XCTAssertEqual(secondLatestRequest.task.afterId, "1723199402526186")
         XCTAssertEqual(try managerStorage()?.lastItemId, "1723199402526186")
@@ -12242,12 +13363,14 @@ final class NotificationsFeatureTests: XCTestCase {
             last: ""
         )
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(waitUntil {
+            (try? self.managerStorage()?.lastSyncAt) != nil
+        })
 
         account = makeAccount()
         account.notifications.update(account.xmppStream)
 
-        let restartLatestRequest = waitForQueuedNotificationRequest(on: account)
+        let restartLatestRequest = try waitForQueuedNotificationRequest(on: account)
         XCTAssertEqual(restartLatestRequest.task.purpose, .latest)
         XCTAssertEqual(restartLatestRequest.task.afterId, "1723199402526186")
         XCTAssertNotEqual(restartLatestRequest.task.afterId, "1716893716816619")
@@ -12265,7 +13388,7 @@ final class NotificationsFeatureTests: XCTestCase {
 
         account.notifications.update(account.xmppStream)
 
-        let firstRequest = waitForQueuedNotificationRequest(on: account)
+        let firstRequest = try waitForQueuedNotificationRequest(on: account)
         XCTAssertEqual(firstRequest.task.afterId, "latest-before-sync")
 
         try sendArchiveFin(
@@ -12273,13 +13396,15 @@ final class NotificationsFeatureTests: XCTestCase {
             queryId: firstRequest.elementId,
             complete: false,
             count: 101,
+            deliveredCount: 100,
             first: "page-1-first",
             last: "page-1-last"
         )
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        XCTAssertEqual(try managerStorage()?.lastItemId, "page-1-last")
+        XCTAssertTrue(waitUntil {
+            (try? self.managerStorage()?.lastItemId) == "page-1-last"
+        })
 
-        let secondRequest = waitForQueuedNotificationRequest(on: account)
+        let secondRequest = try waitForQueuedNotificationRequest(on: account)
         XCTAssertEqual(secondRequest.task.afterId, "page-1-last")
 
         try sendArchiveFin(
@@ -12287,13 +13412,15 @@ final class NotificationsFeatureTests: XCTestCase {
             queryId: secondRequest.elementId,
             complete: false,
             count: 101,
+            deliveredCount: 100,
             first: "page-2-first",
             last: "page-2-last"
         )
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        XCTAssertEqual(try managerStorage()?.lastItemId, "page-2-last")
+        XCTAssertTrue(waitUntil {
+            (try? self.managerStorage()?.lastItemId) == "page-2-last"
+        })
 
-        let thirdRequest = waitForQueuedNotificationRequest(on: account)
+        let thirdRequest = try waitForQueuedNotificationRequest(on: account)
         XCTAssertEqual(thirdRequest.task.afterId, "page-2-last")
 
         try sendArchiveFin(
@@ -12305,7 +13432,9 @@ final class NotificationsFeatureTests: XCTestCase {
             last: ""
         )
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(waitUntil {
+            self.queuedNotificationRequest(on: account) == nil
+        })
 
         XCTAssertEqual(try managerStorage()?.lastItemId, "page-2-last")
         XCTAssertNil(queuedNotificationRequest(on: account))
@@ -12323,7 +13452,7 @@ final class NotificationsFeatureTests: XCTestCase {
 
         account.notifications.update(account.xmppStream)
 
-        let request = waitForQueuedNotificationRequest(on: account)
+        let request = try waitForQueuedNotificationRequest(on: account)
         XCTAssertEqual(request.task.afterId, "latest-before-final-page")
 
         try sendArchiveFin(
@@ -12335,7 +13464,9 @@ final class NotificationsFeatureTests: XCTestCase {
             last: "final-page-last"
         )
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(waitUntil {
+            (try? self.managerStorage()?.lastItemId) == "final-page-last"
+        })
 
         XCTAssertEqual(try managerStorage()?.lastItemId, "final-page-last")
         XCTAssertNil(queuedNotificationRequest(on: account))
@@ -12354,7 +13485,7 @@ final class NotificationsFeatureTests: XCTestCase {
 
         account.notifications.update(account.xmppStream)
 
-        let latestRequest = waitForQueuedNotificationRequest(on: account)
+        let latestRequest = try waitForQueuedNotificationRequest(on: account)
         XCTAssertEqual(latestRequest.task.purpose, .latest)
         XCTAssertEqual(latestRequest.task.afterId, "archived-newest")
 
@@ -12367,7 +13498,7 @@ final class NotificationsFeatureTests: XCTestCase {
             last: "archived-newer-001"
         )
 
-        let olderRequest = waitForQueuedNotificationRequest(on: account)
+        let olderRequest = try waitForQueuedNotificationRequest(on: account)
         XCTAssertEqual(olderRequest.task.purpose, .pageOlder)
         XCTAssertEqual(olderRequest.task.messageId, "archived-oldest")
 
@@ -12380,7 +13511,9 @@ final class NotificationsFeatureTests: XCTestCase {
             last: ""
         )
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertTrue(waitUntil {
+            (try? self.managerStorage()?.archiveSyncCompleted) == true
+        })
 
         let storage = try XCTUnwrap(try managerStorage())
         XCTAssertTrue(storage.archiveSyncCompleted)
@@ -12395,12 +13528,208 @@ final class NotificationsFeatureTests: XCTestCase {
         account.notifications.update(account.xmppStream)
         account.notifications.update(account.xmppStream)
 
-        _ = waitForQueuedNotificationRequest(on: account)
+        _ = try waitForQueuedNotificationRequest(on: account)
 
         XCTAssertEqual(
             account.mam.callbacksQueue.filter { $0.task.conversationType == .notifications }.count,
             1
         )
+    }
+
+    func testLatestNotificationMamServerErrorDoesNotCompleteArchiveAndReleasesSchedulerLane() throws {
+        let account = makeAccount()
+        account.notifications.node = notificationsNode
+        try upsertNotificationManagerStorage(node: notificationsNode, archiveSyncCompleted: false)
+
+        account.notifications.update(account.xmppStream)
+        let request = try waitForQueuedNotificationRequest(on: account)
+        XCTAssertEqual(request.task.purpose, .latest)
+
+        try sendArchiveError(on: account, queryId: request.elementId)
+
+        let nextMamTaskRan = expectation(description: "MAM scheduler lane released after server error")
+        account.xmppTaskScheduler.enqueue(
+            priority: .foreground,
+            resource: .mamArchive,
+            deduplicationKey: "notification-error-follow-up"
+        ) { finish in
+            nextMamTaskRan.fulfill()
+            finish()
+        }
+        wait(for: [nextMamTaskRan], timeout: 2)
+
+        XCTAssertFalse(try XCTUnwrap(managerStorage()).archiveSyncCompleted)
+        XCTAssertNil(queuedNotificationRequest(on: account))
+
+        account.notifications.update(account.xmppStream)
+        let retryRequest = try waitForQueuedNotificationRequest(on: account)
+        XCTAssertEqual(retryRequest.task.purpose, .latest)
+        XCTAssertNotEqual(retryRequest.elementId, request.elementId)
+    }
+
+    func testDisconnectFailureOfLatestNotificationMamReleasesSchedulerLane() throws {
+        let account = makeAccount()
+        account.notifications.node = notificationsNode
+        try upsertNotificationManagerStorage(node: notificationsNode, archiveSyncCompleted: false)
+
+        account.notifications.update(account.xmppStream)
+        let request = try waitForQueuedNotificationRequest(on: account)
+
+        let events = account.mam.publishPendingArchiveRequestFailures(
+            streamKind: .primary,
+            reason: .uiActionDisconnect,
+            errorDescription: "connection closed"
+        )
+        XCTAssertEqual(events.map(\.queryId), [request.elementId])
+
+        let nextMamTaskRan = expectation(description: "MAM scheduler lane released after disconnect")
+        account.xmppTaskScheduler.enqueue(
+            priority: .foreground,
+            resource: .mamArchive,
+            deduplicationKey: "notification-disconnect-follow-up"
+        ) { finish in
+            nextMamTaskRan.fulfill()
+            finish()
+        }
+        wait(for: [nextMamTaskRan], timeout: 2)
+
+        XCTAssertNil(queuedNotificationRequest(on: account))
+        XCTAssertFalse(try XCTUnwrap(managerStorage()).archiveSyncCompleted)
+
+        account.notifications.update(account.xmppStream)
+        let retryRequest = try waitForQueuedNotificationRequest(on: account)
+        XCTAssertEqual(retryRequest.task.purpose, .latest)
+        XCTAssertNotEqual(retryRequest.elementId, request.elementId)
+    }
+
+    func testDisconnectFailureOfNotificationBackfillReleasesSchedulerLane() throws {
+        let account = makeAccount()
+        account.notifications.node = notificationsNode
+        try upsertNotificationManagerStorage(node: notificationsNode, archiveSyncCompleted: false)
+
+        account.notifications.update(account.xmppStream)
+        let latestRequest = try waitForQueuedNotificationRequest(on: account)
+        try sendArchiveFin(
+            on: account,
+            queryId: latestRequest.elementId,
+            complete: false,
+            count: 1,
+            deliveredCount: 1,
+            first: "latest-first",
+            last: "latest-last"
+        )
+
+        let backfillRequest = try waitForQueuedNotificationRequest(on: account)
+        XCTAssertEqual(backfillRequest.task.purpose, .pageOlder)
+
+        let events = account.mam.publishPendingArchiveRequestFailures(
+            streamKind: .primary,
+            reason: .uiActionDisconnect,
+            errorDescription: "connection closed"
+        )
+        XCTAssertEqual(events.map(\.queryId), [backfillRequest.elementId])
+
+        let nextMamTaskRan = expectation(description: "MAM scheduler lane released after backfill failure")
+        account.xmppTaskScheduler.enqueue(
+            priority: .foreground,
+            resource: .mamArchive,
+            deduplicationKey: "notification-backfill-failure-follow-up"
+        ) { finish in
+            nextMamTaskRan.fulfill()
+            finish()
+        }
+        wait(for: [nextMamTaskRan], timeout: 2)
+
+        XCTAssertNil(queuedNotificationRequest(on: account))
+        XCTAssertFalse(try XCTUnwrap(managerStorage()).archiveSyncCompleted)
+
+        account.notifications.update(account.xmppStream)
+        let retryLatestRequest = try waitForQueuedNotificationRequest(on: account)
+        XCTAssertEqual(retryLatestRequest.task.purpose, .latest)
+        try sendArchiveFin(
+            on: account,
+            queryId: retryLatestRequest.elementId,
+            complete: true,
+            count: 0,
+            first: "",
+            last: ""
+        )
+
+        let retryBackfillRequest = try waitForQueuedNotificationRequest(on: account)
+        XCTAssertEqual(retryBackfillRequest.task.purpose, .pageOlder)
+        XCTAssertNotEqual(retryBackfillRequest.elementId, backfillRequest.elementId)
+    }
+
+    func testInvalidationDuringNotificationPageProgressWriteDoesNotRecreateStorage() throws {
+        let account = makeAccount()
+        account.notifications.node = notificationsNode
+        try upsertNotificationManagerStorage(node: notificationsNode, archiveSyncCompleted: false)
+
+        account.notifications.update(account.xmppStream)
+        let request = try waitForQueuedNotificationRequest(on: account)
+        let writerReady = DispatchSemaphore(value: 0)
+        let performCleanup = DispatchSemaphore(value: 0)
+        let writerDone = DispatchSemaphore(value: 0)
+        let progressAttempted = expectation(description: "page progress reached Realm write")
+        var writerResult: Result<Void, Error>?
+
+        account.notifications.notificationSyncProgressAttemptObserver = {
+            progressAttempted.fulfill()
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { writerDone.signal() }
+            writerResult = Result {
+                let writerRealm = try WRealm.safe()
+                writerRealm.beginWrite()
+                writerReady.signal()
+                _ = performCleanup.wait(timeout: .now() + 5)
+                if let storage = writerRealm.object(
+                    ofType: XMPPNotificationsManagerStorageItem.self,
+                    forPrimaryKey: XMPPNotificationsManagerStorageItem.genPrimary(owner: self.owner)
+                ) {
+                    writerRealm.delete(storage)
+                }
+                try writerRealm.commitWrite()
+            }
+        }
+
+        guard writerReady.wait(timeout: .now() + 5) == .success else {
+            performCleanup.signal()
+            XCTFail("Timed out waiting for the competing Realm writer")
+            return
+        }
+
+        try sendArchiveFin(
+            on: account,
+            queryId: request.elementId,
+            complete: true,
+            count: 0,
+            first: "",
+            last: ""
+        )
+        wait(for: [progressAttempted], timeout: 2)
+
+        account.notifications.invalidatePendingNotificationPersistence()
+        performCleanup.signal()
+
+        XCTAssertEqual(writerDone.wait(timeout: .now() + 5), .success)
+        if case .failure(let error) = writerResult {
+            XCTFail("Competing Realm writer failed: \(error)")
+        }
+
+        let nextMamTaskRan = expectation(description: "invalidated notification sync completed")
+        account.xmppTaskScheduler.enqueue(
+            priority: .foreground,
+            resource: .mamArchive,
+            deduplicationKey: "notification-invalidation-follow-up"
+        ) { finish in
+            nextMamTaskRan.fulfill()
+            finish()
+        }
+        wait(for: [nextMamTaskRan], timeout: 2)
+
+        XCTAssertNil(try managerStorage())
     }
 }
 
