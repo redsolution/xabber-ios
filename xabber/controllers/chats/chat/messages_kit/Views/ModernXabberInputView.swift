@@ -731,11 +731,17 @@ class ModernXabberInputView: UIView {
         }
 
         override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-            super.point(inside: point, with: event) ||
+            guard !isHidden, isUserInteractionEnabled, alpha > 0.01 else {
+                return false
+            }
+            return super.point(inside: point, with: event) ||
                 expandedCalendarHitView(for: point, with: event) != nil
         }
 
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            guard !isHidden, isUserInteractionEnabled, alpha > 0.01 else {
+                return nil
+            }
             if let calendarHit = expandedCalendarHitView(for: point, with: event) {
                 return calendarHit
             }

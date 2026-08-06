@@ -82,6 +82,33 @@ final class ChatAttachmentPickerEntryPointTests: XCTestCase {
         XCTAssertEqual(delegate.attachmentTouchCount, 1)
     }
 
+    func testHiddenSearchPanelDoesNotInterceptAttachmentButtonHitTest() throws {
+        let (controller, window) = makeLoadedChatController()
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        let inputView = try XCTUnwrap(controller.xabberInputView)
+        inputView.changeState(to: .normal)
+        controller.view.layoutIfNeeded()
+        window.layoutIfNeeded()
+
+        let attachmentCenter = inputView.attachButton.convert(
+            CGPoint(
+                x: inputView.attachButton.bounds.midX,
+                y: inputView.attachButton.bounds.midY
+            ),
+            to: window
+        )
+
+        XCTAssertTrue(inputView.searchPanel.isHidden)
+        XCTAssertIdentical(
+            window.hitTest(attachmentCenter, with: nil),
+            inputView.attachButton
+        )
+    }
+
     func testOrdinaryReappearanceRebindsInputInteractionsAfterTerminalTeardown() {
         let (controller, window) = makeLoadedChatController()
         defer {
