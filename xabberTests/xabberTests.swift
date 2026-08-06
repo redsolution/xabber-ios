@@ -29449,6 +29449,7 @@ final class ChatOpenMessageRequestHandlingPolicyTests: XCTestCase {
                 source == .savedVisiblePosition ||
                 source == .external ||
                 source == .directOpenAtMessage ||
+                source == .pinnedMessage ||
                 source == .mediaGallery {
                 XCTAssertTrue(
                     ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: source),
@@ -30285,6 +30286,49 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         XCTAssertFalse(controller.isExecutingOpenMessageRequest)
         XCTAssertFalse(controller.isMessageAnchorNavigationInFlight)
         XCTAssertTrue(controller.pendingForceLatestOpen)
+    }
+
+    @MainActor
+    func testLoadedPinnedMessageRequestPositionsWithoutStartingLoadingUI() {
+        let controller = makeLoadedSearchController()
+        controller.performanceFixtureRemoteHistoryActionHandler = { _ in
+            .consumedByFixtureTransport
+        }
+        defer {
+            controller.performanceFixtureRemoteHistoryActionHandler = nil
+        }
+        let request = makeRequest(
+            archivedId: "archived-loaded",
+            messageId: "message-loaded",
+            source: .pinnedMessage
+        )
+        var events: [String] = []
+
+        controller.queueOpenMessageRequest(
+            request,
+            hooks: ChatAnchorExecutionHooks(
+                direction: .up,
+                animatedScroll: false,
+                onPositioningStarted: {
+                    events.append("started")
+                },
+                onFailed: nil,
+                onPositioned: {
+                    events.append("positioned")
+                }
+            )
+        )
+
+        XCTAssertEqual(events, ["started", "positioned"])
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+        XCTAssertFalse(controller.isExecutingOpenMessageRequest)
+        XCTAssertFalse(controller.isMessageAnchorNavigationInFlight)
+        XCTAssertFalse(controller.pendingForceLatestOpen)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertFalse(controller.timelineInteractionState.isLoading)
+        XCTAssertEqual(controller.datasource.count, 1)
+        XCTAssertEqual(controller.remoteHistoryQueryCoordinator.activeQueryCount, 0)
     }
 
     @MainActor

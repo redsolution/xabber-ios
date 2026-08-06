@@ -693,6 +693,7 @@ enum ChatOpenMessageRequestHandlingPolicy {
             source == .savedVisiblePosition ||
             source == .external ||
             source == .directOpenAtMessage ||
+            source == .pinnedMessage ||
             source == .mediaGallery {
             return true
         }

@@ -3094,7 +3094,7 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         let forceLatestRequest = makeTraceAnchorRequest(
             controller: controller,
             archivedId: "archive-5",
-            source: .pinnedMessage
+            source: .voicePlayer
         )
         controller.pendingOpenMessageRequest = requestA
         let probe = ChatLifecyclePreparationProbe()
