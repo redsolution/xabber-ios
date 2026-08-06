@@ -215,6 +215,7 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
         XCTAssertTrue(Thread.isMainThread)
         let collectionView = ChatTailAppendBatchCompletionCollectionView()
         let controller = makeController(collectionView: collectionView)
+        installDetachedComposerGeometry(in: controller)
         let initialItems = (0..<24).map {
             makeDatasource(primary: "outgoing-tail-initial-\($0)")
         }
@@ -329,11 +330,10 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
             suppressDefaultBottomScroll: true
         )
 
-        var composerFrame = controller.xabberInputView.frame
-        composerFrame.origin.y -= 220
-        composerFrame.size.height += 220
-        controller.xabberInputView.frame = composerFrame
-        controller.updateChatCollectionInsets()
+        installDetachedComposerGeometry(
+            in: controller,
+            visualHeight: ModernXabberInputView.defaultBarHeight + 220
+        )
         XCTAssertGreaterThan(controller.messagesCollectionView.contentInset.bottom, 200)
         controller.scrollToBottom(animated: false)
         controller.messagesCollectionView.layoutIfNeeded()
@@ -431,6 +431,7 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
         XCTAssertTrue(Thread.isMainThread)
         let collectionView = ChatTailAppendBatchCompletionCollectionView()
         let controller = makeController(collectionView: collectionView)
+        installDetachedComposerGeometry(in: controller)
         let initialItems = (0..<24).map {
             makeDatasource(primary: "incoming-tail-initial-\($0)")
         }
@@ -1724,6 +1725,21 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
         controller.view.layoutIfNeeded()
         controller.showSkeletonObserver.accept(false)
         return controller
+    }
+
+    private func installDetachedComposerGeometry(
+        in controller: ChatViewController,
+        visualHeight: CGFloat = ModernXabberInputView.defaultBarHeight
+    ) {
+        let horizontalInset = ModernXabberInputView.edgeHorizontalInset
+        controller.xabberInputView.heightConstraint?.constant = visualHeight
+        controller.xabberInputView.frame = CGRect(
+            x: horizontalInset,
+            y: controller.view.bounds.height - visualHeight,
+            width: controller.view.bounds.width - 2 * horizontalInset,
+            height: visualHeight
+        )
+        controller.updateChatCollectionInsets(inputHeight: visualHeight)
     }
 
     private func remapControllerForSizeTransition(

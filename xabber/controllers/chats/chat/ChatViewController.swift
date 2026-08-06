@@ -6267,6 +6267,61 @@ class ChatViewController: MessagesViewController {
         }
     }
 
+    private func chatBottomAlignmentTargetMaxYForCurrentInsets() -> CGFloat? {
+        guard self.datasource.isNotEmpty,
+              self.messagesCollectionView.numberOfSections > 0 else {
+            return nil
+        }
+
+        var candidateMaxYs: [CGFloat] = []
+        if let newestIndexPath = ChatBottomAlignmentTargetPolicy.indexPath(
+            for: .newestRealMessage,
+            in: self.datasource
+        ), let newestFrame = self.messagesCollectionView.layoutAttributesForItem(
+            at: newestIndexPath
+        )?.frame ?? self.messagesCollectionView.cellForItem(at: newestIndexPath)?.frame {
+            candidateMaxYs.append(newestFrame.maxY)
+        }
+        candidateMaxYs.append(self.messagesCollectionView.contentSize.height)
+
+        return candidateMaxYs.first { targetMaxY in
+            let targetOffsetY = ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+                targetMaxY: targetMaxY,
+                contentHeight: self.messagesCollectionView.contentSize.height,
+                viewportHeight: self.messagesCollectionView.bounds.height,
+                contentInsets: self.messagesCollectionView.contentInset
+            )
+            return ChatBottomScrollAlignmentPolicy.isAligned(
+                currentOffsetY: self.messagesCollectionView.contentOffset.y,
+                targetOffsetY: targetOffsetY
+            )
+        }
+    }
+
+    internal func reconcileChatCollectionInsetsForCurrentSafeArea() {
+        guard self.isViewLoaded,
+              self.xabberInputView != nil else {
+            return
+        }
+
+        let bottomAlignmentTargetMaxY = self.chatBottomAlignmentTargetMaxYForCurrentInsets()
+        let updates = {
+            self.updateChatCollectionInsets(
+                inputHeight: self.currentChatComposerKeyboardLayoutMetrics()
+                    .collectionObstructionHeight
+            )
+            self.updateInitialMessageOverlayFrame()
+            if let bottomAlignmentTargetMaxY {
+                self.alignChatBottomToCurrentInsets(targetMaxY: bottomAlignmentTargetMaxY)
+            }
+            self.updateFloatingControlsFrames(animated: false)
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation(updates)
+        CATransaction.commit()
+    }
+
     internal var isChatSearchInputKeyboardOwned: Bool {
         inSearchMode.value
     }
@@ -6681,13 +6736,13 @@ class ChatViewController: MessagesViewController {
         }
     }
 
-    private func alignChatBottomToCurrentInsets() {
+    private func alignChatBottomToCurrentInsets(targetMaxY: CGFloat? = nil) {
         guard self.datasource.isNotEmpty else {
             return
         }
 
         let targetOffsetY = ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
-            targetMaxY: self.messagesCollectionView.contentSize.height,
+            targetMaxY: targetMaxY ?? self.messagesCollectionView.contentSize.height,
             contentHeight: self.messagesCollectionView.contentSize.height,
             viewportHeight: self.messagesCollectionView.bounds.height,
             contentInsets: self.messagesCollectionView.contentInset
@@ -7898,6 +7953,11 @@ class ChatViewController: MessagesViewController {
         prepareAndApplyCurrentDatasourceLayouts()
     }
     
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        self.reconcileChatCollectionInsetsForCurrentSafeArea()
+    }
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         self.beginNavigationTransitionDeferralIfNeeded()
@@ -7938,10 +7998,7 @@ class ChatViewController: MessagesViewController {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
         self.shouldChangeFrame()
-        self.updateChatCollectionInsets(
-            inputHeight: self.currentChatComposerKeyboardLayoutMetrics()
-                .collectionObstructionHeight
-        )
+        self.reconcileChatCollectionInsetsForCurrentSafeArea()
 
         self.lowPrioritySubscribtions()
         self.observeScheduledMessagesForComposerButton()

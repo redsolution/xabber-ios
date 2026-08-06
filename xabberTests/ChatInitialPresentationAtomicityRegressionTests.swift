@@ -602,17 +602,264 @@ final class ChatInitialPresentationAtomicityRegressionTests: XCTestCase {
         )
     }
 
-    private func makeController() -> (
+    func testDetachedLatestFrameReconcilesFinalBottomSafeAreaWithComposerClearance() throws {
+        let (controller, collectionView) = makeController(
+            controller: AtomicInitialPresentationChatViewController()
+        )
+        XCTAssertEqual(controller.view.safeAreaInsets.bottom, 0, accuracy: 0.001)
+        let realRows = (0..<24).map { makeDatasource(primary: "safe-area-latest-\($0)") }
+        let newestPrimary = try XCTUnwrap(realRows.last?.primary)
+        var trailingDate = makeDatasource(
+            primary: "safe-area-trailing-date",
+            isFakeMessage: true
+        )
+        trailingDate.kind = .date(NSAttributedString(string: "Today"))
+        trailingDate.state = .none
+        trailingDate.isRead = ChatDateSeparatorPresentationPolicy.isRead
+        let rows = realRows + [trailingDate]
+        controller.applyChatDatasource(
+            rows,
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true,
+            forceBottomAlignmentTarget: .newestRealMessage,
+            presentationCommitMode: .atomicInitialFrame
+        )
+        controller.view.layoutIfNeeded()
+        collectionView.layoutIfNeeded()
+
+        let detachedBottomInset = collectionView.contentInset.bottom
+        let detachedOffsetY = collectionView.contentOffset.y
+        collectionView.resetRecordedEvents()
+
+        let window = attachToWindowWithBottomSafeArea(controller)
+        defer {
+            controller.view.removeFromSuperview()
+            window.isHidden = true
+        }
+        let finalBottomSafeArea = controller.view.safeAreaInsets.bottom
+
+        XCTAssertGreaterThan(finalBottomSafeArea, 0)
+        XCTAssertEqual(
+            collectionView.contentInset.bottom,
+            detachedBottomInset + finalBottomSafeArea,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            collectionView.verticalScrollIndicatorInsets.bottom,
+            collectionView.contentInset.bottom,
+            accuracy: 0.001
+        )
+        let newestSection = try XCTUnwrap(
+            controller.datasourceSnapshot.primaryIndex[newestPrimary]
+        )
+        let newestFrame = try XCTUnwrap(
+            collectionView.layoutAttributesForItem(
+                at: IndexPath(item: 0, section: newestSection)
+            )?.frame
+        )
+        XCTAssertGreaterThan(collectionView.contentSize.height, newestFrame.maxY)
+        let expectedOffsetY = ChatBottomScrollAlignmentPolicy.targetContentOffsetY(
+            targetMaxY: newestFrame.maxY,
+            contentHeight: collectionView.contentSize.height,
+            viewportHeight: collectionView.bounds.height,
+            contentInsets: collectionView.contentInset
+        )
+        XCTAssertEqual(collectionView.contentOffset.y, expectedOffsetY, accuracy: 0.5)
+        XCTAssertEqual(
+            collectionView.contentOffset.y - detachedOffsetY,
+            finalBottomSafeArea,
+            accuracy: 0.5
+        )
+
+        let newestViewportMaxY = newestFrame.maxY - collectionView.contentOffset.y
+        let composerClearance = controller.xabberInputView.frame.minY - newestViewportMaxY
+        XCTAssertGreaterThanOrEqual(
+            composerClearance,
+            ChatFloatingHeaderLayoutPolicy.composerMessageSpacing - 0.5
+        )
+        let reconciliationOffsetEvents = collectionView.recordedEvents.filter {
+            $0.kind == .offset
+        }
+        XCTAssertEqual(
+            reconciliationOffsetEvents.count,
+            1,
+            "the final safe area must update the bottom offset once before presentation"
+        )
+        let reconciliationOffset = try XCTUnwrap(reconciliationOffsetEvents.first)
+        XCTAssertTrue(reconciliationOffset.actionsDisabled)
+        XCTAssertFalse(reconciliationOffset.viewAnimationsEnabled)
+        XCTAssertTrue(
+            collectionView.recordedEvents.filter { $0.kind == .reload }.isEmpty,
+            "safe-area reconciliation must not reload the chat datasource"
+        )
+
+        let reconciledOffsetY = collectionView.contentOffset.y
+        controller.viewSafeAreaInsetsDidChange()
+        controller.view.layoutIfNeeded()
+        collectionView.layoutIfNeeded()
+        XCTAssertEqual(collectionView.contentOffset.y, reconciledOffsetY, accuracy: 0.001)
+        XCTAssertEqual(
+            collectionView.recordedEvents.filter { $0.kind == .offset }.count,
+            1,
+            "repeated identical safe-area callbacks must be idempotent"
+        )
+    }
+
+    func testFinalBottomSafeAreaPreservesAwayFromBottomContentOffset() {
+        let (controller, collectionView) = makeController(
+            controller: AtomicInitialPresentationChatViewController()
+        )
+        let rows = (0..<48).map { makeDatasource(primary: "safe-area-away-\($0)") }
+        controller.applyChatDatasource(
+            rows,
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true,
+            forceBottomAlignmentTarget: .newestRealMessage,
+            presentationCommitMode: .atomicInitialFrame
+        )
+        controller.view.layoutIfNeeded()
+        collectionView.layoutIfNeeded()
+        collectionView.setContentOffset(
+            CGPoint(
+                x: collectionView.contentOffset.x,
+                y: collectionView.contentOffset.y - 180
+            ),
+            animated: false
+        )
+        let readingOffsetY = collectionView.contentOffset.y
+        let detachedBottomInset = collectionView.contentInset.bottom
+        collectionView.resetRecordedEvents()
+
+        let window = attachToWindowWithBottomSafeArea(controller)
+        defer {
+            controller.view.removeFromSuperview()
+            window.isHidden = true
+        }
+        let finalBottomSafeArea = controller.view.safeAreaInsets.bottom
+
+        XCTAssertGreaterThan(finalBottomSafeArea, 0)
+        XCTAssertEqual(
+            collectionView.contentInset.bottom,
+            detachedBottomInset + finalBottomSafeArea,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(collectionView.contentOffset.y, readingOffsetY, accuracy: 0.001)
+        XCTAssertTrue(
+            collectionView.recordedEvents.filter { $0.kind == .offset }.isEmpty,
+            "safe-area reconciliation must not pull an away-from-bottom reader to live tail"
+        )
+        XCTAssertTrue(
+            collectionView.recordedEvents.filter { $0.kind == .reload }.isEmpty,
+            "safe-area reconciliation must not reload the chat datasource"
+        )
+    }
+
+    func testNavigationAttachmentReconcilesLatestBeforeFirstPushedLayout() throws {
+        let windowScene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .first(where: { $0.activationState == .foregroundActive })
+        )
+        let previousKeyWindow = windowScene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: windowScene)
+        window.frame = windowScene.coordinateSpace.bounds
+        let (controller, collectionView) = makeController(
+            owner: "safe-area-navigation-\(UUID().uuidString)@invalid"
+        )
+        controller.view.frame = window.bounds
+        controller.view.layoutIfNeeded()
+        collectionView.layoutIfNeeded()
+        let rows = (0..<24).map { makeDatasource(primary: "safe-area-navigation-\($0)") }
+        controller.applyChatDatasource(
+            rows,
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true,
+            forceBottomAlignmentTarget: .newestRealMessage,
+            presentationCommitMode: .atomicInitialFrame
+        )
+        controller.view.layoutIfNeeded()
+        collectionView.layoutIfNeeded()
+        let detachedBottomInset = collectionView.contentInset.bottom
+        collectionView.resetRecordedEvents()
+
+        let source = UIViewController()
+        let navigationController = UINavigationController(rootViewController: source)
+        window.rootViewController = navigationController
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKey()
+        }
+
+        window.makeKeyAndVisible()
+        navigationController.view.layoutIfNeeded()
+        navigationController.pushViewController(controller, animated: false)
+        navigationController.view.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        collectionView.layoutIfNeeded()
+
+        let finalBottomSafeArea = controller.view.safeAreaInsets.bottom
+        XCTAssertGreaterThan(finalBottomSafeArea, 0)
+        XCTAssertEqual(
+            collectionView.contentInset.bottom,
+            detachedBottomInset + finalBottomSafeArea,
+            accuracy: 0.001
+        )
+        let newestSection = try XCTUnwrap(
+            controller.datasourceSnapshot.primaryIndex[rows.last?.primary ?? ""]
+        )
+        let newestFrame = try XCTUnwrap(
+            collectionView.layoutAttributesForItem(
+                at: IndexPath(item: 0, section: newestSection)
+            )?.frame
+        )
+        let newestViewportMaxY = newestFrame.maxY - collectionView.contentOffset.y
+        XCTAssertGreaterThanOrEqual(
+            controller.xabberInputView.frame.minY - newestViewportMaxY,
+            ChatFloatingHeaderLayoutPolicy.composerMessageSpacing - 0.5
+        )
+        XCTAssertEqual(
+            collectionView.recordedEvents.filter { $0.kind == .offset }.count,
+            1
+        )
+        XCTAssertTrue(collectionView.recordedEvents.filter { $0.kind == .reload }.isEmpty)
+    }
+
+    private func attachToWindowWithBottomSafeArea(
+        _ controller: ChatViewController
+    ) -> UIWindow {
+        let window = UIWindow(frame: controller.view.bounds)
+        window.addSubview(controller.view)
+        window.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+
+        if controller.view.safeAreaInsets.bottom <= 0.5 {
+            controller.additionalSafeAreaInsets.bottom = 34
+            window.layoutIfNeeded()
+            controller.view.layoutIfNeeded()
+        }
+        controller.messagesCollectionView.layoutIfNeeded()
+        return window
+    }
+
+    private func makeController(
+        controller: ChatViewController = ChatViewController(),
+        owner: String? = nil
+    ) -> (
         controller: ChatViewController,
         collectionView: RecordingMessagesCollectionView
     ) {
         let collectionView = RecordingMessagesCollectionView()
-        let controller = ChatViewController()
+        let resolvedOwner = owner ?? self.owner
         controller.messagesCollectionView = collectionView
-        controller.owner = owner
+        controller.owner = resolvedOwner
         controller.jid = jid
         controller.conversationType = .regular
-        controller.ownerSender = Sender(id: owner, displayName: "Owner")
+        controller.ownerSender = Sender(id: resolvedOwner, displayName: "Owner")
         controller.opponentSender = Sender(id: jid, displayName: "Peer")
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -715,6 +962,13 @@ final class ChatInitialPresentationAtomicityRegressionTests: XCTestCase {
             avatarUrl: nil,
             attributedAuthor: nil
         )
+    }
+}
+
+private final class AtomicInitialPresentationChatViewController: ChatViewController {
+    override func viewWillAppear(_ animated: Bool) {
+        // These controller tests exercise prepared and safe-area geometry.
+        // Suppress production subscriptions when the fixture view is hosted.
     }
 }
 
