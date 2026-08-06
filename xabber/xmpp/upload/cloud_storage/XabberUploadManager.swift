@@ -930,7 +930,7 @@ enum CloudStorageQuotaAPIResponse {
 protocol CloudStorageQuotaAPIClient {
     func getStats(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func requestSlot(baseURL: URL, token: String, request: CloudStorageUploadSlotRequest, traceID: String, timeoutInterval: TimeInterval, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
-    func uploadFile(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, metadata: [String: String]?, context: String, traceID: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
+    func uploadFile(baseURL: URL, token: String, data: Data, filename: String, fileMimeType: String, galleryMediaType: String, metadata: [String: String]?, context: String, traceID: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func deleteMedia(baseURL: URL, token: String, fileID: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func deleteAvatar(baseURL: URL, token: String, fileID: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func deleteGallery(baseURL: URL, token: String, jid: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
@@ -1016,9 +1016,9 @@ final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
         }
     }
 
-    func uploadFile(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, metadata: [String: String]?, context: String, traceID: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+    func uploadFile(baseURL: URL, token: String, data: Data, filename: String, fileMimeType: String, galleryMediaType: String, metadata: [String: String]?, context: String, traceID: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
         guard let url = Self.apiURL(baseURL: baseURL, path: "v1/files/upload/"),
-              let mimeData = mimeType.data(using: .utf8),
+              let mediaTypeData = galleryMediaType.data(using: .utf8),
               let contextData = context.data(using: .utf8) else {
             completion(.failure(statusCode: nil, error: nil))
             return
@@ -1027,8 +1027,8 @@ final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
         let metadataData = metadata.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
         AF.upload(
             multipartFormData: { formData in
-                formData.append(data, withName: "file", fileName: filename, mimeType: mimeType)
-                formData.append(mimeData, withName: "media_type")
+                formData.append(data, withName: "file", fileName: filename, mimeType: fileMimeType)
+                formData.append(mediaTypeData, withName: "media_type")
                 formData.append(contextData, withName: "context")
                 if let metadataData = metadataData {
                     formData.append(metadataData, withName: "metadata")
@@ -1581,7 +1581,7 @@ class XabberUploadManager: AbstractXMPPManager {
         return "file"
     }
 
-    private func uploadMimeType(_ mimeType: String, context: String) -> String {
+    private func galleryMediaType(_ mimeType: String, context: String) -> String {
         guard context == "voice",
               mimeType.hasPrefix("audio/"),
               !mimeType.contains("+voice") else {
@@ -2110,12 +2110,13 @@ class XabberUploadManager: AbstractXMPPManager {
                 return
             }
             let uploadContext = self.uploadContext(for: mimeType, metadata: metadata)
-            let uploadMimeType = self.uploadMimeType(mimeType, context: uploadContext)
+            let galleryMediaType = self.galleryMediaType(mimeType, context: uploadContext)
             self.performGalleryRequestWithRetry(
                 endpoint: .upload,
                 filename: filename,
                 traceDetails: traceDetails + [
-                    ("uploadMimeType", uploadMimeType),
+                    ("fileMimeType", mimeType),
+                    ("galleryMediaType", galleryMediaType),
                     ("uploadContext", uploadContext)
                 ],
                 operation: { attemptContext, responseCompletion in
@@ -2124,7 +2125,8 @@ class XabberUploadManager: AbstractXMPPManager {
                         token: context.token,
                         data: data,
                         filename: filename,
-                        mimeType: uploadMimeType,
+                        fileMimeType: mimeType,
+                        galleryMediaType: galleryMediaType,
                         metadata: metadata,
                         context: uploadContext,
                         traceID: attemptContext.traceID,
@@ -2184,14 +2186,16 @@ class XabberUploadManager: AbstractXMPPManager {
             }
 
             let uploadContext = self.uploadContext(for: mimeType, metadata: metadata)
-            let uploadMimeType = self.uploadMimeType(mimeType ?? "", context: uploadContext)
+            let fileMimeType = mimeType ?? ""
+            let galleryMediaType = self.galleryMediaType(fileMimeType, context: uploadContext)
 
             self.performGalleryRequestWithRetry(
                 endpoint: .upload,
                 filename: filename,
                 traceContext: traceContext,
                 traceDetails: traceDetails + [
-                    ("uploadMimeType", uploadMimeType),
+                    ("fileMimeType", fileMimeType),
+                    ("galleryMediaType", galleryMediaType),
                     ("uploadContext", uploadContext)
                 ],
                 operation: { attemptContext, responseCompletion in
@@ -2200,7 +2204,8 @@ class XabberUploadManager: AbstractXMPPManager {
                         token: context.token,
                         data: data,
                         filename: filename,
-                        mimeType: uploadMimeType,
+                        fileMimeType: fileMimeType,
+                        galleryMediaType: galleryMediaType,
                         metadata: metadata,
                         context: uploadContext,
                         traceID: attemptContext.traceID,

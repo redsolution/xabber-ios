@@ -49850,6 +49850,8 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     private(set) var deleteTokens: [String] = []
     private(set) var uploadContexts: [String] = []
     private(set) var uploadData: [Data] = []
+    private(set) var uploadFileMimeTypes: [String] = []
+    private(set) var uploadGalleryMediaTypes: [String] = []
     private(set) var slotTraceIDs: [String] = []
     private(set) var uploadTraceIDs: [String] = []
     private(set) var slotTimeoutIntervals: [TimeInterval] = []
@@ -49914,7 +49916,7 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
         }
     }
 
-    func uploadFile(baseURL: URL, token: String, data: Data, filename: String, mimeType: String, metadata: [String : String]?, context: String, traceID: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+    func uploadFile(baseURL: URL, token: String, data: Data, filename: String, fileMimeType: String, galleryMediaType: String, metadata: [String : String]?, context: String, traceID: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
         let callbackState: (Int, CloudStorageQuotaAPIResponse?)
         callbackState = withLock {
             uploadCallCount += 1
@@ -49922,6 +49924,8 @@ private final class FakeCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
             uploadTokens.append(token)
             uploadContexts.append(context)
             uploadData.append(data)
+            uploadFileMimeTypes.append(fileMimeType)
+            uploadGalleryMediaTypes.append(galleryMediaType)
             uploadTraceIDs.append(traceID)
             if shouldHoldUploadResponses {
                 pendingUploads.append(completion)
@@ -51509,6 +51513,34 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(fakeClient.uploadBaseURLs.first?.absoluteString, "https://premium.example/api/")
         XCTAssertEqual(fakeClient.slotTokens.first, "premium-token")
         XCTAssertEqual(fakeClient.uploadTokens.first, "premium-token")
+    }
+
+    func testVoiceUploadSeparatesFileContentTypeFromGalleryMediaType() {
+        fakeClient.slotResponses = [.response(statusCode: 200, value: [:])]
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "voice upload")
+
+        manager.uploadMedia(
+            data: Data("voice".utf8),
+            filename: "voice_message.ogg",
+            mimeType: "audio/ogg",
+            metadata: [
+                "duration": "2",
+                "meters": "0.1 0.5 1.0"
+            ]
+        ) { response in
+            if case .response(let code, _, _) = response {
+                XCTAssertEqual(code, 200)
+            } else {
+                XCTFail("Expected upload response")
+            }
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(fakeClient.uploadFileMimeTypes, ["audio/ogg"])
+        XCTAssertEqual(fakeClient.uploadGalleryMediaTypes, ["audio/ogg+voice"])
+        XCTAssertEqual(fakeClient.uploadContexts, ["voice"])
     }
 
     func testAvatarUploadUsesSelectedPremiumGalleryEndpoint() {

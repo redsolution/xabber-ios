@@ -424,7 +424,8 @@ class AvatarUploadManager: AbstractXMPPManager {
             token: context.token,
             data: upload.imageData,
             filename: "\(NanoID.new(5)).png",
-            mimeType: upload.mimeType,
+            fileMimeType: upload.mimeType,
+            galleryMediaType: upload.mimeType,
             metadata: nil,
             context: "avatar",
             traceID: UUID().uuidString
