@@ -21261,6 +21261,70 @@ final class MessageArchivePagingRequestTests: XCTestCase {
         XCTAssertFalse(plan.usesServerArchiveId)
     }
 
+    func testIdleBackfillTargetSkipsServiceJidsAndSelectsNextRegularPeer() {
+        let target = RegularIdleBackfillTargetPolicy.targetJid(
+            from: [
+                "notifications.example.com",
+                "favorites.example.com",
+                "support@example.com",
+                "owner@example.com",
+                "juliet@example.com"
+            ],
+            activeRegularJids: [],
+            ignoredServiceJids: [
+                "notifications.example.com",
+                "favorites.example.com",
+                "support@example.com",
+                "owner@example.com"
+            ]
+        )
+
+        XCTAssertEqual(target, "juliet@example.com")
+    }
+
+    func testIdleBackfillTargetSkipsUnconfiguredDomainServiceJid() {
+        let target = RegularIdleBackfillTargetPolicy.targetJid(
+            from: ["notifications.redsolution.com", "juliet@example.com"],
+            activeRegularJids: [],
+            ignoredServiceJids: []
+        )
+
+        XCTAssertEqual(target, "juliet@example.com")
+    }
+
+    func testIdleBackfillTargetSkipsRegularChatWithRequestAlreadyInFlight() {
+        let target = RegularIdleBackfillTargetPolicy.targetJid(
+            from: ["active@example.com", "available@example.com"],
+            activeRegularJids: ["active@example.com"],
+            ignoredServiceJids: []
+        )
+
+        XCTAssertEqual(target, "available@example.com")
+    }
+
+    func testIdleBackfillTargetIsNilWhenOnlyServiceJidsRemain() {
+        let target = RegularIdleBackfillTargetPolicy.targetJid(
+            from: ["notifications.example.com", "favorites.example.com"],
+            activeRegularJids: [],
+            ignoredServiceJids: [
+                "notifications.example.com",
+                "favorites.example.com"
+            ]
+        )
+
+        XCTAssertNil(target)
+    }
+
+    func testIdleBackfillTargetIsNilWhenOnlyUnconfiguredDomainServiceRemains() {
+        let target = RegularIdleBackfillTargetPolicy.targetJid(
+            from: ["notifications.redsolution.com"],
+            activeRegularJids: [],
+            ignoredServiceJids: []
+        )
+
+        XCTAssertNil(target)
+    }
+
     func testIdleBackfillCompletionDoesNotScheduleAnotherAttemptWithoutTrigger() throws {
         var state = RegularIdleBackfillTriggerState()
 

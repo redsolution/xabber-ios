@@ -969,6 +969,25 @@ struct RegularIdleBackfillTriggerState: Equatable {
     }
 }
 
+enum RegularIdleBackfillTargetPolicy {
+    /// Regular idle bootstrap is reserved for user-addressed one-to-one chats.
+    /// Domain-only and known service JIDs own separate archive pipelines.
+    static func targetJid<Candidates: Sequence>(
+        from orderedCandidateJids: Candidates,
+        activeRegularJids: Set<String>,
+        ignoredServiceJids: Set<String>
+    ) -> String? where Candidates.Element == String {
+        orderedCandidateJids.first { jid in
+            guard let parsedJid = XMPPJID(string: jid),
+                  !parsedJid.isServer else {
+                return false
+            }
+            return !activeRegularJids.contains(jid) &&
+                !ignoredServiceJids.contains(jid)
+        }
+    }
+}
+
 struct SnapshotRepairFollowUpBudgetDecision: Equatable {
     let shouldSchedule: Bool
     let didExhaust: Bool
@@ -6701,11 +6720,22 @@ class MessageArchiveManager: AbstractXMPPManager {
                     .filter { $0.conversationTypeRaw == ClientSynchronizationManager.ConversationType.regular.rawValue }
                     .map(\.jid)
             )
-            target = realm.objects(LastChatsStorageItem.self)
+            let ignoredServiceJids = Set(
+                XMPPServiceJidsSupport.ignoredServiceJids(
+                    in: realm,
+                    accountJids: [self.owner]
+                )
+            )
+            let orderedCandidateJids = realm.objects(LastChatsStorageItem.self)
                 .filter("owner == %@ AND conversationType_ == %@ AND isSynced == false", self.owner, ClientSynchronizationManager.ConversationType.regular.rawValue)
                 .sorted(byKeyPath: "messageDate", ascending: false)
-                .first(where: { !activeRegularJids.contains($0.jid) })?
-                .jid
+                .lazy
+                .map(\.jid)
+            target = RegularIdleBackfillTargetPolicy.targetJid(
+                from: orderedCandidateJids,
+                activeRegularJids: activeRegularJids,
+                ignoredServiceJids: ignoredServiceJids
+            )
         } catch {
             DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
             finishRegularIdleBackfillAttempt(attemptToken)
