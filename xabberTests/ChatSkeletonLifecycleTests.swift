@@ -1088,9 +1088,15 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         )
         retryButton.sendActions(for: .touchUpInside)
         XCTAssertEqual(retryCount, 1)
+        XCTAssertTrue(controller.bootstrapFailureView.isRetrying)
+        XCTAssertFalse(retryButton.isEnabled)
 
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertFalse(controller.bootstrapFailureView.isHidden)
+
+        controller.setBootstrapFailureVisible(true)
+        XCTAssertFalse(controller.bootstrapFailureView.isRetrying)
+        XCTAssertTrue(retryButton.isEnabled)
     }
 
     func testBootstrapTransportPrefersReadyPrimaryAccountAndFallsBackOnlyWhenNeeded() {

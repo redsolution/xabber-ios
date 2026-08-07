@@ -3479,6 +3479,11 @@ extension ChatViewController {
             coordinator.clearTerminal(key: key)
             self.performOnMain {
                 self.hasAttemptedInitialBootstrapBoundaryFollowUp = false
+                // Retry can race a durable foreground readiness update. When
+                // no lease is required anymore, the retained failure overlay
+                // has no future archive commit that could replace it.
+                self.preservesBootstrapFailureOverlayUntilRetryCommit = false
+                self.setBootstrapFailureVisible(false)
                 self.resetInitialBootstrapTracking()
                 self.releaseInteractiveChatOpenGate()
                 _ = self.revealStaleLocalHistoryIfNeeded()

@@ -225,6 +225,80 @@ final class ChatFirstLoginChatOpenRegressionTests: XCTestCase {
         XCTAssertTrue(manager.callbacksQueue.isEmpty)
     }
 
+    func testRetryClearsStaleFailureWhenForegroundArchiveReadinessIsAlreadySatisfied() throws {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ChatForegroundRetryAlreadyReady-\(name)"
+        )
+        defer {
+            ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
+            Realm.Configuration.defaultConfiguration = previousConfiguration
+        }
+
+        let owner = "foreground-retry-ready-owner@example.com"
+        let jid = "foreground-retry-ready-peer@example.com"
+        let realm = try WRealm.safe()
+        let chat = LastChatsStorageItem()
+        chat.primary = LastChatsStorageItem.genPrimary(
+            jid: jid,
+            owner: owner,
+            conversationType: .regular
+        )
+        chat.owner = owner
+        chat.jid = jid
+        chat.conversationType = .regular
+        chat.isSynced = true
+        chat.isInitialArchiveLoaded = true
+        try realm.write {
+            realm.add(chat, update: .modified)
+            let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(
+                owner: owner,
+                jid: jid,
+                conversationType: .regular,
+                in: realm
+            )
+            archiveState.newerLiveEdgeReached = true
+        }
+        let controller = makeController(owner: owner, jid: jid)
+        controller.loadViewIfNeeded()
+        controller.configureDataset()
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+        controller.loadInitialDatasource()
+        XCTAssertTrue(waitUntil {
+            controller.currentInitialFrameReadinessProof()?
+                .hasDurableArchiveReadiness == true
+        })
+        XCTAssertFalse(controller.currentBootstrapRequiresArchiveConfirmation())
+
+        controller.appliedBootstrapLoadingState = .failure(fallback: .empty)
+        controller.allowsBootstrapFailureFallback = true
+        controller.setBootstrapFailureVisible(true)
+        let retryButton = try XCTUnwrap(
+            descendants(of: controller.bootstrapFailureView)
+                .compactMap { $0 as? UIButton }
+                .first { $0.accessibilityIdentifier == "chat.bootstrap.retry" }
+        )
+
+        retryButton.sendActions(for: .touchUpInside)
+
+        XCTAssertFalse(
+            controller.isInitialBootstrapInFlight,
+            "durable foreground readiness must not manufacture another MAM lease"
+        )
+        XCTAssertNil(
+            ChatInitialBootstrapRequestCoordinator.shared.readiness(
+                for: controller.initialBootstrapRequestKey
+            )
+        )
+        XCTAssertEqual(controller.appliedBootstrapLoadingState, .empty)
+        XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+        XCTAssertFalse(controller.bootstrapFailureView.isRetrying)
+        XCTAssertTrue(retryButton.isEnabled)
+        XCTAssertFalse(controller.preservesBootstrapFailureOverlayUntilRetryCommit)
+    }
+
     func testConfirmedEmptyWithoutKnownRemoteBoundaryDoesNotEnterRepairLoop() throws {
         let previousConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
@@ -713,6 +787,10 @@ extension ChatFirstLoginChatOpenRegressionTests {
             archiveManager: failedMAM,
             cancelTransport: {}
         )
+        controller.initialFramePresentationApplicationStateProvider = {
+            .background
+        }
+        controller.handleApplicationDidEnterBackground()
         XCTAssertTrue(failedMAM.read(
             failedStream,
             withIQ: try archiveErrorIQ(queryId: failedLease.queryId)
@@ -731,6 +809,17 @@ extension ChatFirstLoginChatOpenRegressionTests {
             .compactMap { $0 as? UIButton }
             .filter { $0.accessibilityIdentifier == "chat.bootstrap.retry" }
         XCTAssertEqual(retryButtons.count, 1)
+        XCTAssertFalse(controller.bootstrapFailureView.isRetrying)
+        XCTAssertTrue(retryButtons[0].isEnabled)
+
+        controller.willEnterForeground()
+        XCTAssertFalse(
+            controller.isInitialFramePresentationLifecycleEligible,
+            "willEnterForeground can arrive while UIApplication still reports background"
+        )
+        controller.initialFramePresentationApplicationStateProvider = { .active }
+        controller.didBecomeActive()
+        XCTAssertTrue(controller.isInitialFramePresentationLifecycleEligible)
 
         let successfulMessages = MessageManager(withOwner: owner, activeStream: false)
         successfulMessages.updateSendingMessagesTimer?.invalidate()
@@ -774,6 +863,14 @@ extension ChatFirstLoginChatOpenRegressionTests {
         }
 
         retryButtons[0].sendActions(for: .touchUpInside)
+        XCTAssertTrue(
+            controller.bootstrapFailureView.isRetrying,
+            "an accepted foreground Retry must acknowledge the tap immediately"
+        )
+        XCTAssertFalse(
+            retryButtons[0].isEnabled,
+            "the admitted single-flight retry must not remain visually actionable"
+        )
         XCTAssertTrue(waitUntil {
             let evidence = retryTransportEvidence.snapshot
             guard let queryId = evidence.queryId else { return false }
@@ -835,6 +932,8 @@ extension ChatFirstLoginChatOpenRegressionTests {
         XCTAssertEqual(realDatasourceCommitCount, 1)
         XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.count, 1)
         XCTAssertEqual(coordinator.readiness(for: key)?.phase, .committed)
+        XCTAssertFalse(controller.bootstrapFailureView.isRetrying)
+        XCTAssertTrue(retryButtons[0].isEnabled)
 
         let committedPrimaries = controller.datasource.map(\.primary)
         let committedGeneration = controller.timelineSession?.snapshot.generation
@@ -910,10 +1009,13 @@ extension ChatFirstLoginChatOpenRegressionTests {
         controller.preservesBootstrapFailureOverlayUntilRetryCommit = true
         controller.setBootstrapFailureVisible(true)
         XCTAssertFalse(controller.bootstrapFailureView.isHidden)
+        controller.bootstrapFailureView.setRetrying(true)
+        XCTAssertTrue(controller.bootstrapFailureView.isRetrying)
 
         controller.performTerminalChatResourceTeardownForTesting()
 
         XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+        XCTAssertFalse(controller.bootstrapFailureView.isRetrying)
         XCTAssertFalse(controller.preservesBootstrapFailureOverlayUntilRetryCommit)
     }
 

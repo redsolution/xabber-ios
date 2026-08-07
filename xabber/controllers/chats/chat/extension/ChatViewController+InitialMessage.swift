@@ -13,6 +13,7 @@ import MaterialComponents
 extension ChatViewController {
     internal func setBootstrapFailureVisible(_ isVisible: Bool) {
         performOnMain {
+            self.bootstrapFailureView.setRetrying(false)
             self.bootstrapFailureView.isHidden = !isVisible
             if isVisible {
                 self.view.bringSubviewToFront(self.bootstrapFailureView)
@@ -22,6 +23,7 @@ extension ChatViewController {
 
     final class BootstrapFailureView: UIView {
         var onRetry: (() -> Void)?
+        private(set) var isRetrying = false
 
         private let titleLabel: UILabel = {
             let label = UILabel()
@@ -39,9 +41,16 @@ extension ChatViewController {
         private lazy var retryButton: UIButton = {
             let button = UIButton(type: .system)
             let title = "Retry".localizeString(id: "chat_attachment_action_retry", arguments: [])
-            button.setTitle(title, for: .normal)
+            var configuration = UIButton.Configuration.plain()
+            configuration.title = title
+            configuration.titleTextAttributesTransformer =
+                UIConfigurationTextAttributesTransformer { attributes in
+                    var attributes = attributes
+                    attributes.font = UIFont.preferredFont(forTextStyle: .body)
+                    return attributes
+                }
+            button.configuration = configuration
             button.accessibilityLabel = title
-            button.titleLabel?.font = UIFont.preferredFont(forTextStyle: .body)
             button.titleLabel?.adjustsFontForContentSizeCategory = true
             button.accessibilityIdentifier = "chat.bootstrap.retry"
             button.addTarget(self, action: #selector(retryTapped), for: .touchUpInside)
@@ -82,8 +91,38 @@ extension ChatViewController {
             ])
         }
 
+        func setRetrying(_ isRetrying: Bool) {
+            guard self.isRetrying != isRetrying else {
+                return
+            }
+            self.isRetrying = isRetrying
+            let title: String
+            if isRetrying {
+                title = "Loading history…".localizeString(
+                    id: "loading_history",
+                    arguments: []
+                )
+            } else {
+                title = "Retry".localizeString(
+                    id: "chat_attachment_action_retry",
+                    arguments: []
+                )
+            }
+            var configuration = retryButton.configuration ?? .plain()
+            configuration.title = title
+            configuration.showsActivityIndicator = isRetrying
+            retryButton.configuration = configuration
+            retryButton.isEnabled = !isRetrying
+            retryButton.accessibilityLabel = title
+            retryButton.accessibilityValue = isRetrying ? title : nil
+        }
+
         @objc private func retryTapped() {
-            onRetry?()
+            guard !isRetrying, let onRetry else {
+                return
+            }
+            setRetrying(true)
+            onRetry()
         }
     }
 
