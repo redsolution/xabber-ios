@@ -1919,6 +1919,7 @@ class ModernXabberInputView: UIView {
             configuration.baseForegroundColor = .secondaryLabel
             configuration.imagePadding = 8
             configuration.contentInsets = .zero
+            configuration.titleLineBreakMode = .byTruncatingTail
             configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
                 var outgoing = incoming
                 outgoing.font = UIFont.systemFont(ofSize: 15, weight: .regular)
@@ -1926,6 +1927,7 @@ class ModernXabberInputView: UIView {
             }
             view.configuration = configuration
             view.tintColor = .secondaryLabel
+            view.titleLabel?.numberOfLines = 1
 
             return view
         }()
@@ -2001,14 +2003,7 @@ class ModernXabberInputView: UIView {
                 size: CGSize(width: 74, height: 34)
             )
             let visualState = RecordingCancelHintVisualPolicy.visualState(translationX: 0)
-            self.slideToCancelButton.frame = CGRect(
-                origin: CGPoint(x: visualState.originX, y: 0),
-                size: CGSize(
-                    width: max(0, self.frame.width - visualState.originX - 50),
-                    height: 38
-                )
-            )
-            self.slideToCancelButton.alpha = visualState.alpha
+            self.applySlideToCancelVisualState(visualState)
             self.cancelButton.frame = CGRect(
                 origin: CGPoint(x: self.frame.width / 2 - 32, y: 0),
                 size: CGSize(width: 108, height: 38)
@@ -2071,10 +2066,14 @@ class ModernXabberInputView: UIView {
         
         func slideToCancel(diffX: CGFloat) {
             let visualState = RecordingCancelHintVisualPolicy.visualState(translationX: diffX)
+            self.applySlideToCancelVisualState(visualState)
+        }
+
+        private func applySlideToCancelVisualState(_ visualState: RecordingCancelHintVisualState) {
             self.slideToCancelButton.frame = CGRect(
                 origin: CGPoint(x: visualState.originX, y: 0),
                 size: CGSize(
-                    width: max(0, self.frame.width - visualState.originX - 50),
+                    width: max(0, self.bounds.width - visualState.originX),
                     height: 38
                 )
             )
@@ -2223,12 +2222,29 @@ class ModernXabberInputView: UIView {
         static let maxX: CGFloat = 0
         static let minY: CGFloat = -108
         static let maxY: CGFloat = 0
+        static let activationThreshold: CGFloat = 12
+        static let catchUpDistance: CGFloat = 24
 
         static func clamped(_ translation: CGPoint) -> CGPoint {
             CGPoint(
-                x: min(max(translation.x, minX), maxX),
-                y: min(max(translation.y, minY), maxY)
+                x: stabilizedAxis(translation.x, minimum: minX, maximum: maxX),
+                y: stabilizedAxis(translation.y, minimum: minY, maximum: maxY)
             )
+        }
+
+        private static func stabilizedAxis(
+            _ value: CGFloat,
+            minimum: CGFloat,
+            maximum: CGFloat
+        ) -> CGFloat {
+            let clampedValue = min(max(value, minimum), maximum)
+            let distance = -clampedValue
+            guard distance > activationThreshold else { return 0 }
+            guard distance < catchUpDistance else { return clampedValue }
+
+            let progress = (distance - activationThreshold)
+                / (catchUpDistance - activationThreshold)
+            return -(catchUpDistance * progress)
         }
     }
 

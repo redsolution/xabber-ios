@@ -219,6 +219,52 @@ final class ChatComposerRecordSendSeparationTests: XCTestCase {
         )
     }
 
+    func testRecordingCancelHintUsesOneLineAtProductionComposerWidth() throws {
+        let inputView = makeInputView()
+        inputView.changeState(to: .record)
+        inputView.layoutIfNeeded()
+        inputView.recordPanel.resetElements()
+        inputView.recordPanel.slideToCancelButton.layoutIfNeeded()
+
+        let button = inputView.recordPanel.slideToCancelButton
+        let titleLabel = try XCTUnwrap(button.titleLabel)
+        let titleFrame = titleLabel.convert(titleLabel.bounds, to: button)
+
+        XCTAssertEqual(titleLabel.numberOfLines, 1)
+        XCTAssertLessThanOrEqual(titleFrame.height, titleLabel.font.lineHeight + 0.5)
+        XCTAssertLessThanOrEqual(titleFrame.maxX, button.bounds.maxX + 0.001)
+    }
+
+    func testRecordingVisualsIgnoreIncidentalInitialFingerDrift() {
+        let inputView = makeInputView()
+        inputView.changeState(to: .record)
+        inputView.recordButton.showPulse()
+        inputView.showRecordingLockOverlay(isLocked: false, allowsStop: false, animated: false)
+
+        inputView.updateVoiceRecordingDragUI(CGPoint(x: -5, y: -4))
+
+        XCTAssertEqual(inputView.recordButton.recordingVisualTranslation, .zero)
+        XCTAssertEqual(inputView.recordLockButton.transform.tx, 0, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordLockButton.transform.ty, 0, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordPanel.slideToCancelButton.alpha, 1, accuracy: 0.001)
+    }
+
+    func testRecordingVisualDragStartsContinuouslyAfterActivationThreshold() {
+        let inputView = makeInputView()
+        inputView.changeState(to: .record)
+        inputView.recordButton.showPulse()
+        inputView.showRecordingLockOverlay(isLocked: false, allowsStop: false, animated: false)
+
+        inputView.updateVoiceRecordingDragUI(CGPoint(x: -20, y: -18))
+
+        XCTAssertEqual(
+            inputView.recordButton.recordingVisualTranslation,
+            CGPoint(x: -16, y: -12)
+        )
+        XCTAssertEqual(inputView.recordLockButton.transform.tx, -16, accuracy: 0.001)
+        XCTAssertEqual(inputView.recordLockButton.transform.ty, -12, accuracy: 0.001)
+    }
+
     func testRecordingIndicatorUsesSolidCoreAndMeteredHaloWithoutGlass() throws {
         let inputView = makeInputView()
         inputView.changeState(to: .record)
