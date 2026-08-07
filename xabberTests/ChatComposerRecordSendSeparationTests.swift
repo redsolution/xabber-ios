@@ -197,6 +197,28 @@ final class ChatComposerRecordSendSeparationTests: XCTestCase {
         XCTAssertEqual(inputView.sendButton.bounds.size, CGSize(square: NativeGlassBarStyle.buttonSize))
     }
 
+    func testRecordingCancelHintKeepsGapBetweenChevronAndTitle() throws {
+        let panel = ModernXabberInputView.RecordPanel(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 390,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+
+        panel.update()
+        panel.slideToCancelButton.layoutIfNeeded()
+
+        let imageView = try XCTUnwrap(panel.slideToCancelButton.imageView)
+        let titleLabel = try XCTUnwrap(panel.slideToCancelButton.titleLabel)
+        let imageFrame = imageView.convert(imageView.bounds, to: panel.slideToCancelButton)
+        let titleFrame = titleLabel.convert(titleLabel.bounds, to: panel.slideToCancelButton)
+
+        XCTAssertGreaterThanOrEqual(
+            titleFrame.minX - imageFrame.maxX,
+            8 - 0.001
+        )
+    }
+
     func testRecordingIndicatorUsesSolidCoreAndMeteredHaloWithoutGlass() throws {
         let inputView = makeInputView()
         inputView.changeState(to: .record)

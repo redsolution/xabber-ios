@@ -1909,14 +1909,24 @@ class ModernXabberInputView: UIView {
                 
         let slideToCancelButton: UIButton = {
             let view = UIButton()
-            
-            view.setImage(imageLiteral("chevron.left", dimension: 18, forceStrong: false), for: .normal)
-            view.setTitle("Slide to cancel".localizeString(id: "chat_slide_to_cancel_audio_record", arguments: []), for: .normal)
-            view.setTitleColor(.secondaryLabel, for: .normal)
+
+            var configuration = UIButton.Configuration.plain()
+            configuration.image = imageLiteral("chevron.left", dimension: 18, forceStrong: false)
+            configuration.title = "Slide to cancel".localizeString(
+                id: "chat_slide_to_cancel_audio_record",
+                arguments: []
+            )
+            configuration.baseForegroundColor = .secondaryLabel
+            configuration.imagePadding = 8
+            configuration.contentInsets = .zero
+            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                var outgoing = incoming
+                outgoing.font = UIFont.systemFont(ofSize: 15, weight: .regular)
+                return outgoing
+            }
+            view.configuration = configuration
             view.tintColor = .secondaryLabel
-            view.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .regular)
-            view.imageEdgeInsets = UIEdgeInsets(top: 5, bottom: 5, left: 8, right: 16)
-            
+
             return view
         }()
         
