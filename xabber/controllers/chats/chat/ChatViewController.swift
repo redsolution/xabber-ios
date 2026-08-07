@@ -2597,20 +2597,25 @@ class ChatViewController: MessagesViewController {
     var initialBootstrapTimeoutWorkItem: DispatchWorkItem? = nil
     var initialBootstrapPresentationDeadline: Date? = nil
     var initialBootstrapLocalHistoryFallbackWorkItem: DispatchWorkItem? = nil
+    var initialBootstrapAutomaticRetryWorkItem: DispatchWorkItem? = nil
+    var initialBootstrapAutomaticRetryGeneration: UInt64 = 0
+    var initialBootstrapAutomaticRetryFailureCount: Int = 0
+    var isInitialBootstrapAutomaticRetryPending: Bool = false
     var allowsStaleLocalHistoryDuringInitialBootstrap: Bool = false
     var allowsBootstrapFailureFallback: Bool = false
-    /// A user-triggered retry keeps the already committed terminal overlay
-    /// visible until a durable replacement frame commits. Transport and
-    /// persistence phases must not expose an intermediate bare skeleton.
+    /// Legacy presentation ownership flag retained for in-flight local frame
+    /// recovery. Archive transport failures never surface a retry overlay.
     var preservesBootstrapFailureOverlayUntilRetryCommit: Bool = false
     /// A persistence-confirmed page may still miss a synchronization boundary
     /// that advanced while its transport was in flight. Allow one interactive
-    /// repair in the current controller lifecycle, then surface retry instead
-    /// of keeping an unbounded skeleton loop alive.
+    /// repair in the current controller lifecycle. Later failures enter the
+    /// bounded silent automatic-retry loop.
     var hasAttemptedInitialBootstrapBoundaryFollowUp: Bool = false
     var appliedBootstrapLoadingState: ChatBootstrapLoadingState?
     var lastBootstrapAtomicRevealPlan: ChatBootstrapAtomicRevealPlan?
 #if DEBUG || CHAT_PERFORMANCE_LAB
+    var initialBootstrapAutomaticRetryDelayProvider:
+        ((Int) -> TimeInterval)?
     /// Counts admission into the local presentation retry without coupling a
     /// focused regression test to its asynchronous mapping implementation.
     var initialLocalFirstFrameRetryScheduledForTests: (() -> Void)?
@@ -5666,15 +5671,6 @@ class ChatViewController: MessagesViewController {
         self.previousFrame = self.view.bounds
         self.view.addSubview(self.chatViewLoadingOverlay)
         self.chatViewLoadingOverlay.fillSuperview()
-        self.view.addSubview(self.bootstrapFailureView)
-        self.bootstrapFailureView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            self.bootstrapFailureView.centerXAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.centerXAnchor),
-            self.bootstrapFailureView.centerYAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.centerYAnchor),
-            self.bootstrapFailureView.leadingAnchor.constraint(greaterThanOrEqualTo: self.view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
-            self.bootstrapFailureView.trailingAnchor.constraint(lessThanOrEqualTo: self.view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
-            self.bootstrapFailureView.widthAnchor.constraint(lessThanOrEqualToConstant: 360)
-        ])
         if self.inSearchMode.value {
             self.bringSearchInputOverlayToFront()
         }
@@ -5746,6 +5742,9 @@ class ChatViewController: MessagesViewController {
             // The old session and its real datasource form one presentation
             // identity. Revoke all work that could still publish or consume A
             // before installing B's deterministic first frame below.
+            self.cancelInitialBootstrapAutomaticRetry(
+                resetFailureCount: true
+            )
             self.resetInitialBootstrapTracking(
                 acknowledgeConsumedCommittedReceipt: false
             )
@@ -7663,6 +7662,7 @@ class ChatViewController: MessagesViewController {
         // resumes the same prepared initial-frame continuation if it remained
         // deferred through that transition.
         self.setInitialFramePresentationLifecycleEligible(true)
+        self.resumeInitialBootstrapAutomaticRetryIfNeeded()
         DispatchQueue.main.async { [weak self] in
             guard let self else {
                 return
@@ -7762,6 +7762,7 @@ class ChatViewController: MessagesViewController {
 
     internal func handleApplicationDidEnterBackground() {
         self.setInitialFramePresentationLifecycleEligible(false)
+        self.suspendInitialBootstrapAutomaticRetry()
         self.visibleUnreadMentionReconciliationWorkItem?.cancel()
         self.visibleUnreadMentionReconciliationWorkItem = nil
         self.readVisibleStableLayoutRetryWorkItem?.cancel()
@@ -8287,6 +8288,7 @@ class ChatViewController: MessagesViewController {
 
         self.cancelInitialBootstrapTimeout()
         self.cancelInitialBootstrapLocalHistoryFallback()
+        self.cancelInitialBootstrapAutomaticRetry(resetFailureCount: true)
         self.detachInitialBootstrapReadinessObservation()
         self.releaseInteractiveChatOpenGate()
         self.initialBootstrapQueryId = nil
@@ -8387,7 +8389,8 @@ class ChatViewController: MessagesViewController {
             searchWorkItems: self.searchSessionDebounceWorkItem == nil ? 0 : 1,
             bootstrapWorkItems: [
                 self.initialBootstrapTimeoutWorkItem,
-                self.initialBootstrapLocalHistoryFallbackWorkItem
+                self.initialBootstrapLocalHistoryFallbackWorkItem,
+                self.initialBootstrapAutomaticRetryWorkItem
             ].compactMap { $0 }.count,
             retryWorkItems: [
                 self.interactiveHistoryCompletionRetryWorkItem,
@@ -8487,6 +8490,7 @@ class ChatViewController: MessagesViewController {
         self.searchSessionDebounceWorkItem?.cancel()
         self.initialBootstrapTimeoutWorkItem?.cancel()
         self.initialBootstrapLocalHistoryFallbackWorkItem?.cancel()
+        self.initialBootstrapAutomaticRetryWorkItem?.cancel()
         self.interactiveHistoryCompletionRetryWorkItem?.cancel()
         self.archiveObserverRefreshWorkItem?.cancel()
         self.visibleUnreadMentionReconciliationWorkItem?.cancel()

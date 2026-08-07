@@ -1070,33 +1070,34 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         XCTAssertFalse(failure.showsSkeleton)
     }
 
-    func testFailurePresentationExposesRetryWithoutTimelineLock() throws {
+    func testFailurePresentationDoesNotExposeUserFacingAlert() {
         let controller = makeController()
         controller.loadViewIfNeeded()
         controller.applyBootstrapLoadingState(.failure(fallback: .empty))
 
-        XCTAssertFalse(controller.bootstrapFailureView.isHidden)
+        XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+        XCTAssertNil(controller.bootstrapFailureView.superview)
         XCTAssertTrue(controller.messagesCollectionView.isUserInteractionEnabled)
         XCTAssertTrue(controller.loadDatasourceObserver.value)
+    }
 
-        var retryCount = 0
-        controller.bootstrapFailureView.onRetry = { retryCount += 1 }
-        let retryButton = try XCTUnwrap(
-            allSubviews(of: controller.bootstrapFailureView)
-                .compactMap { $0 as? UIButton }
-                .first { $0.accessibilityIdentifier == "chat.bootstrap.retry" }
+    func testInitialBootstrapAutomaticRetryDelayIsBounded() {
+        XCTAssertEqual(
+            ChatInitialBootstrapAutomaticRetryPolicy.delay(afterFailureCount: 1),
+            0.5
         )
-        retryButton.sendActions(for: .touchUpInside)
-        XCTAssertEqual(retryCount, 1)
-        XCTAssertTrue(controller.bootstrapFailureView.isRetrying)
-        XCTAssertFalse(retryButton.isEnabled)
-
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertFalse(controller.bootstrapFailureView.isHidden)
-
-        controller.setBootstrapFailureVisible(true)
-        XCTAssertFalse(controller.bootstrapFailureView.isRetrying)
-        XCTAssertTrue(retryButton.isEnabled)
+        XCTAssertEqual(
+            ChatInitialBootstrapAutomaticRetryPolicy.delay(afterFailureCount: 2),
+            1
+        )
+        XCTAssertEqual(
+            ChatInitialBootstrapAutomaticRetryPolicy.delay(afterFailureCount: 7),
+            30
+        )
+        XCTAssertEqual(
+            ChatInitialBootstrapAutomaticRetryPolicy.delay(afterFailureCount: 100),
+            30
+        )
     }
 
     func testBootstrapTransportPrefersReadyPrimaryAccountAndFallsBackOnlyWhenNeeded() {

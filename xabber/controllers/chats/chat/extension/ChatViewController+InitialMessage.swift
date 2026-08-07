@@ -14,10 +14,8 @@ extension ChatViewController {
     internal func setBootstrapFailureVisible(_ isVisible: Bool) {
         performOnMain {
             self.bootstrapFailureView.setRetrying(false)
-            self.bootstrapFailureView.isHidden = !isVisible
-            if isVisible {
-                self.view.bringSubviewToFront(self.bootstrapFailureView)
-            }
+            self.bootstrapFailureView.isHidden = true
+            self.bootstrapFailureView.removeFromSuperview()
         }
     }
 

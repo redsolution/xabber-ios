@@ -3483,6 +3483,9 @@ extension ChatViewController {
                 // no lease is required anymore, the retained failure overlay
                 // has no future archive commit that could replace it.
                 self.preservesBootstrapFailureOverlayUntilRetryCommit = false
+                self.cancelInitialBootstrapAutomaticRetry(
+                    resetFailureCount: true
+                )
                 self.setBootstrapFailureVisible(false)
                 self.resetInitialBootstrapTracking()
                 self.releaseInteractiveChatOpenGate()
@@ -3809,9 +3812,9 @@ extension ChatViewController {
 
     internal func retryInitialBootstrapAfterFailure() {
         if self.preservesBootstrapFailureOverlayUntilRetryCommit {
-            // A visible Retry overlay is already owned by an admitted retry.
-            // A second tap may promote its existing remote lease, but it must
-            // never start a second local mapper or archive transport.
+            // A legacy local recovery is already admitted. A repeated signal
+            // may promote its existing remote lease, but it must never start
+            // a second local mapper or archive transport.
             self.allowsBootstrapFailureFallback = false
             self.allowsStaleLocalHistoryDuringInitialBootstrap = false
             self.acquireInteractiveChatOpenGateIfNeeded()
@@ -3832,9 +3835,10 @@ extension ChatViewController {
         }
         if case .failedPresentation =
                 self.initialLocalFirstFramePhase {
-            self.preservesBootstrapFailureOverlayUntilRetryCommit =
-                self.appliedBootstrapLoadingState?.showsRetry == true &&
-                !self.bootstrapFailureView.isHidden
+            // Keep internal ownership of the admitted local-frame retry even
+            // though archive failure UI is permanently detached. A repeated
+            // recovery signal must join this work instead of starting MAM.
+            self.preservesBootstrapFailureOverlayUntilRetryCommit = true
             self.initialLocalFirstFramePhase = .idle
             self.initialLocalFirstFramePresentationRetryDescriptor = nil
             self.allowsBootstrapFailureFallback = false
@@ -3877,7 +3881,7 @@ extension ChatViewController {
             !self.bootstrapFailureView.isHidden
         self.allowsBootstrapFailureFallback = false
         self.applyBootstrapLoadingState(self.currentBootstrapLoadingState())
-        self.requestInitialBootstrapArchive(showFailureIfUnavailable: true)
+        self.requestInitialBootstrapArchive(showFailureIfUnavailable: false)
     }
 
     internal func handleSyncChatStartResult(
@@ -3902,6 +3906,9 @@ extension ChatViewController {
                 self.applyBootstrapLoadingState(self.currentBootstrapLoadingState(), forceRender: true)
                 self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
             case .gapRepairOnly, .noop:
+                self.cancelInitialBootstrapAutomaticRetry(
+                    resetFailureCount: true
+                )
                 self.resetInitialBootstrapTracking()
                 _ = self.revealStaleLocalHistoryIfNeeded()
             }

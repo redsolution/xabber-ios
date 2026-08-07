@@ -7299,6 +7299,19 @@ enum ChatBootstrapLoadingState: Equatable {
     }
 }
 
+enum ChatInitialBootstrapAutomaticRetryPolicy {
+    private static let initialDelay: TimeInterval = 0.5
+    private static let maximumDelay: TimeInterval = 30
+
+    static func delay(afterFailureCount failureCount: Int) -> TimeInterval {
+        let exponent = min(max(0, failureCount - 1), 6)
+        return min(
+            maximumDelay,
+            initialDelay * Double(1 << exponent)
+        )
+    }
+}
+
 enum ChatInitialBootstrapCommittedPresentationPolicy {
     static func loadingState(
         liveLoadingState: ChatBootstrapLoadingState,
@@ -13814,26 +13827,12 @@ extension ChatViewController {
                 )
                 return
             }
-            let localMessageCount = self.localHistoryMessageCountForBootstrap()
-            let hasPendingTarget = self.hasPendingInitialAnchorRequest()
-            if !hasPendingTarget {
-                self.allowsBootstrapFailureFallback = true
-            }
-            if localMessageCount > 0, !hasPendingTarget {
-                self.allowsStaleLocalHistoryDuringInitialBootstrap = true
-            }
-            self.applyBootstrapLoadingState(
-                .failure(fallback: localMessageCount > 0 ? .content : .empty),
-                forceRender: true
+            self.handleInitialBootstrapRemoteArchiveFailure(
+                queryId: queryId,
+                reason: .timeout,
+                streamKind: .unknown,
+                errorDescription: "Archive request reached terminal failure"
             )
-            self.initialBootstrapPresentationDeadline = nil
-            self.releaseInteractiveChatOpenGate()
-            ChatArchiveDebugTrace.log("initialBootstrapPresentationWatchdogFired", [
-                ("queryId", queryId),
-                ("operationActive", true),
-                ("phaseCode", readiness?.phase.traceCode),
-                ("localCount", localMessageCount)
-            ])
         }
         self.initialBootstrapTimeoutWorkItem = workItem
         ChatArchiveDebugTrace.log("initialBootstrapTimeoutScheduled", [
@@ -13852,6 +13851,122 @@ extension ChatViewController {
     internal func cancelInitialBootstrapTimeout() {
         self.initialBootstrapTimeoutWorkItem?.cancel()
         self.initialBootstrapTimeoutWorkItem = nil
+    }
+
+    internal func scheduleInitialBootstrapAutomaticRetryAfterFailure() {
+        if !Thread.isMainThread {
+            self.performOnMain { [weak self] in
+                self?.scheduleInitialBootstrapAutomaticRetryAfterFailure()
+            }
+            return
+        }
+
+        self.initialBootstrapAutomaticRetryWorkItem?.cancel()
+        self.initialBootstrapAutomaticRetryWorkItem = nil
+        self.initialBootstrapAutomaticRetryGeneration &+= 1
+        self.isInitialBootstrapAutomaticRetryPending = true
+        self.preservesBootstrapFailureOverlayUntilRetryCommit = false
+        self.allowsBootstrapFailureFallback = false
+        self.setBootstrapFailureVisible(false)
+        self.applyBootstrapLoadingState(
+            self.silentInitialBootstrapRetryLoadingState(),
+            forceRender: true
+        )
+
+        guard self.isInitialFramePresentationLifecycleEligible,
+              self.initialFramePresentationApplicationStateProvider() == .active else {
+            return
+        }
+        guard self.currentBootstrapRequiresArchiveConfirmation() else {
+            self.cancelInitialBootstrapAutomaticRetry(resetFailureCount: true)
+            self.applyBootstrapLoadingState(
+                self.currentBootstrapLoadingState(),
+                forceRender: true
+            )
+            return
+        }
+
+        let failureCount = max(1, self.initialBootstrapAutomaticRetryFailureCount)
+        let delay: TimeInterval
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        delay = self.initialBootstrapAutomaticRetryDelayProvider?(failureCount) ??
+            ChatInitialBootstrapAutomaticRetryPolicy.delay(
+                afterFailureCount: failureCount
+            )
+#else
+        delay = ChatInitialBootstrapAutomaticRetryPolicy.delay(
+            afterFailureCount: failureCount
+        )
+#endif
+        let generation = self.initialBootstrapAutomaticRetryGeneration
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.initialBootstrapAutomaticRetryGeneration == generation,
+                  self.isInitialBootstrapAutomaticRetryPending else {
+                return
+            }
+            self.initialBootstrapAutomaticRetryWorkItem = nil
+            guard self.isInitialFramePresentationLifecycleEligible,
+                  self.initialFramePresentationApplicationStateProvider() == .active else {
+                return
+            }
+            guard self.currentBootstrapRequiresArchiveConfirmation() else {
+                self.cancelInitialBootstrapAutomaticRetry(resetFailureCount: true)
+                self.applyBootstrapLoadingState(
+                    self.currentBootstrapLoadingState(),
+                    forceRender: true
+                )
+                return
+            }
+            self.isInitialBootstrapAutomaticRetryPending = false
+            self.requestInitialBootstrapArchive(showFailureIfUnavailable: false)
+        }
+        self.initialBootstrapAutomaticRetryWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + max(0, delay),
+            execute: workItem
+        )
+    }
+
+    internal func resumeInitialBootstrapAutomaticRetryIfNeeded() {
+        guard self.isInitialBootstrapAutomaticRetryPending,
+              self.initialBootstrapAutomaticRetryWorkItem == nil else {
+            return
+        }
+        self.scheduleInitialBootstrapAutomaticRetryAfterFailure()
+    }
+
+    internal func suspendInitialBootstrapAutomaticRetry() {
+        guard self.isInitialBootstrapAutomaticRetryPending else {
+            return
+        }
+        self.initialBootstrapAutomaticRetryWorkItem?.cancel()
+        self.initialBootstrapAutomaticRetryWorkItem = nil
+        self.initialBootstrapAutomaticRetryGeneration &+= 1
+    }
+
+    internal func cancelInitialBootstrapAutomaticRetry(
+        resetFailureCount: Bool
+    ) {
+        self.initialBootstrapAutomaticRetryWorkItem?.cancel()
+        self.initialBootstrapAutomaticRetryWorkItem = nil
+        self.initialBootstrapAutomaticRetryGeneration &+= 1
+        self.isInitialBootstrapAutomaticRetryPending = false
+        if resetFailureCount {
+            self.initialBootstrapAutomaticRetryFailureCount = 0
+        }
+    }
+
+    private func silentInitialBootstrapRetryLoadingState()
+        -> ChatBootstrapLoadingState {
+        if self.hasPendingInitialAnchorRequest() {
+            return .blockingTarget
+        }
+        if self.allowsStaleLocalHistoryDuringInitialBootstrap,
+           self.localHistoryMessageCountForBootstrap() > 0 {
+            return .content
+        }
+        return .blockingArchive
     }
 
     internal func localHistoryMessageCountForBootstrap() -> Int {
@@ -13978,6 +14093,7 @@ extension ChatViewController {
         // Coverage, cursor and durable readiness are committed atomically by
         // MessageArchiveManager after the query-scoped persistence barrier.
         // Presentation must never infer a live edge from a target page.
+        self.cancelInitialBootstrapAutomaticRetry(resetFailureCount: true)
         self.rebuildUnreadMentionItems()
         let persistedMessageCount = self.initialBootstrapPersistedMessageCount ?? 0
         let completedQueryId = self.initialBootstrapQueryId ?? "-"
@@ -14236,11 +14352,13 @@ extension ChatViewController {
 
             self.resetInitialBootstrapTracking()
             self.preservesBootstrapFailureOverlayUntilRetryCommit = false
-            if isNonblockingCoverageFailure {
-                coordinator.clearTerminal(key: self.initialBootstrapRequestKey)
-                self.allowsBootstrapFailureFallback = false
+            coordinator.clearTerminal(key: self.initialBootstrapRequestKey)
+            self.allowsBootstrapFailureFallback = false
+            self.setBootstrapFailureVisible(false)
+            if isNonblockingCoverageFailure || shouldRevealLocalHistory {
                 self.allowsStaleLocalHistoryDuringInitialBootstrap = true
-                self.setBootstrapFailureVisible(false)
+            }
+            if isNonblockingCoverageFailure {
                 self.applyBootstrapLoadingState(.content, forceRender: true)
                 self.setDatasourceLoadingEnabled(true)
                 self.cancelPendingArchiveObserverRefresh(
@@ -14249,17 +14367,20 @@ extension ChatViewController {
                 self.performPendingOpenMessageRequestIfNeeded(
                     trigger: .observerRefresh
                 )
-                return
+            } else {
+                self.applyBootstrapLoadingState(
+                    self.silentInitialBootstrapRetryLoadingState(),
+                    forceRender: true
+                )
+                self.cancelPendingArchiveObserverRefresh(
+                    reason: "initialBootstrapFailure"
+                )
+                self.performPendingOpenMessageRequestIfNeeded(
+                    trigger: .observerRefresh
+                )
             }
-            if !hasPendingInitialAnchorRequest {
-                self.allowsBootstrapFailureFallback = true
-            }
-            if shouldRevealLocalHistory {
-                self.allowsStaleLocalHistoryDuringInitialBootstrap = true
-            }
-            self.applyBootstrapLoadingState(self.currentBootstrapLoadingState(), forceRender: true)
-            self.cancelPendingArchiveObserverRefresh(reason: "initialBootstrapFailure")
-            self.performPendingOpenMessageRequestIfNeeded(trigger: .observerRefresh)
+            self.initialBootstrapAutomaticRetryFailureCount &+= 1
+            self.scheduleInitialBootstrapAutomaticRetryAfterFailure()
         }
     }
 

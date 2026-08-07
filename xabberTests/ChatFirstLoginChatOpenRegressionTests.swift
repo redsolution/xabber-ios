@@ -225,7 +225,7 @@ final class ChatFirstLoginChatOpenRegressionTests: XCTestCase {
         XCTAssertTrue(manager.callbacksQueue.isEmpty)
     }
 
-    func testRetryClearsStaleFailureWhenForegroundArchiveReadinessIsAlreadySatisfied() throws {
+    func testAutomaticRetryClearsPendingStateWhenArchiveReadinessIsAlreadySatisfied() throws {
         let previousConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "ChatForegroundRetryAlreadyReady-\(name)"
@@ -275,13 +275,11 @@ final class ChatFirstLoginChatOpenRegressionTests: XCTestCase {
         controller.appliedBootstrapLoadingState = .failure(fallback: .empty)
         controller.allowsBootstrapFailureFallback = true
         controller.setBootstrapFailureVisible(true)
-        let retryButton = try XCTUnwrap(
-            descendants(of: controller.bootstrapFailureView)
-                .compactMap { $0 as? UIButton }
-                .first { $0.accessibilityIdentifier == "chat.bootstrap.retry" }
-        )
+        controller.initialBootstrapAutomaticRetryFailureCount = 1
+        controller.isInitialFramePresentationLifecycleEligible = true
+        controller.initialFramePresentationApplicationStateProvider = { .active }
 
-        retryButton.sendActions(for: .touchUpInside)
+        controller.scheduleInitialBootstrapAutomaticRetryAfterFailure()
 
         XCTAssertFalse(
             controller.isInitialBootstrapInFlight,
@@ -294,8 +292,11 @@ final class ChatFirstLoginChatOpenRegressionTests: XCTestCase {
         )
         XCTAssertEqual(controller.appliedBootstrapLoadingState, .empty)
         XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+        XCTAssertNil(controller.bootstrapFailureView.superview)
         XCTAssertFalse(controller.bootstrapFailureView.isRetrying)
-        XCTAssertTrue(retryButton.isEnabled)
+        XCTAssertFalse(controller.isInitialBootstrapAutomaticRetryPending)
+        XCTAssertNil(controller.initialBootstrapAutomaticRetryWorkItem)
+        XCTAssertEqual(controller.initialBootstrapAutomaticRetryFailureCount, 0)
         XCTAssertFalse(controller.preservesBootstrapFailureOverlayUntilRetryCommit)
     }
 
@@ -702,7 +703,7 @@ final class ChatFirstLoginChatOpenRegressionTests: XCTestCase {
 }
 
 extension ChatFirstLoginChatOpenRegressionTests {
-    func testLateContentSuccessAfterRetryCommitsOnceAndRemovesRetry() throws {
+    func testBackgroundFailureRetriesAutomaticallyAfterForegroundWithoutAlert() throws {
         let previousConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "ChatCoordinatorFailureRetryRegression-\(name)"
@@ -722,12 +723,14 @@ extension ChatFirstLoginChatOpenRegressionTests {
         controller.loadViewIfNeeded()
         controller.configureDataset()
         defer {
+            controller.initialBootstrapAutomaticRetryDelayProvider = nil
             controller.performanceFixtureArchiveTransportProvider = nil
             controller.performanceFixtureArchiveTransportExecutor = nil
             controller.performanceFixtureArchiveTransportDidStartHandler = nil
             controller.datasourceDidSetForTests = nil
             controller.performTerminalChatResourceTeardownForTesting()
         }
+        controller.initialBootstrapAutomaticRetryDelayProvider = { _ in 0 }
         controller.applyBootstrapLoadingState(
             .blockingArchive,
             forceRender: true,
@@ -796,30 +799,23 @@ extension ChatFirstLoginChatOpenRegressionTests {
             withIQ: try archiveErrorIQ(queryId: failedLease.queryId)
         ))
         XCTAssertTrue(waitUntil {
-            controller.appliedBootstrapLoadingState?.showsRetry == true &&
-                !controller.bootstrapFailureView.isHidden
+            controller.isInitialBootstrapAutomaticRetryPending &&
+                controller.bootstrapFailureView.isHidden
         })
-        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .failed)
+        XCTAssertNil(coordinator.readiness(for: key))
         XCTAssertFalse(controller.isInitialBootstrapInFlight)
-        let skeletonPrimariesAtRetry = controller.datasource.map(\.primary)
-        XCTAssertEqual(skeletonPrimariesAtRetry, skeletonPrimariesBeforeFailure)
-        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
-
-        let retryButtons = descendants(of: controller.bootstrapFailureView)
-            .compactMap { $0 as? UIButton }
-            .filter { $0.accessibilityIdentifier == "chat.bootstrap.retry" }
-        XCTAssertEqual(retryButtons.count, 1)
-        XCTAssertFalse(controller.bootstrapFailureView.isRetrying)
-        XCTAssertTrue(retryButtons[0].isEnabled)
-
-        controller.willEnterForeground()
-        XCTAssertFalse(
-            controller.isInitialFramePresentationLifecycleEligible,
-            "willEnterForeground can arrive while UIApplication still reports background"
+        XCTAssertEqual(controller.initialBootstrapAutomaticRetryFailureCount, 1)
+        XCTAssertNil(
+            controller.initialBootstrapAutomaticRetryWorkItem,
+            "background failure must wait for active lifecycle instead of spinning transport"
         )
-        controller.initialFramePresentationApplicationStateProvider = { .active }
-        controller.didBecomeActive()
-        XCTAssertTrue(controller.isInitialFramePresentationLifecycleEligible)
+        XCTAssertNil(
+            controller.bootstrapFailureView.superview,
+            "archive request failures are not user-facing UI"
+        )
+        let skeletonPrimariesWhileRetryIsPending = controller.datasource.map(\.primary)
+        XCTAssertEqual(skeletonPrimariesWhileRetryIsPending, skeletonPrimariesBeforeFailure)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
 
         let successfulMessages = MessageManager(withOwner: owner, activeStream: false)
         successfulMessages.updateSendingMessagesTimer?.invalidate()
@@ -862,15 +858,14 @@ extension ChatFirstLoginChatOpenRegressionTests {
             retryTransportEvidence.recordStart()
         }
 
-        retryButtons[0].sendActions(for: .touchUpInside)
-        XCTAssertTrue(
-            controller.bootstrapFailureView.isRetrying,
-            "an accepted foreground Retry must acknowledge the tap immediately"
-        )
+        controller.willEnterForeground()
         XCTAssertFalse(
-            retryButtons[0].isEnabled,
-            "the admitted single-flight retry must not remain visually actionable"
+            controller.isInitialFramePresentationLifecycleEligible,
+            "willEnterForeground can arrive while UIApplication still reports background"
         )
+        controller.initialFramePresentationApplicationStateProvider = { .active }
+        controller.didBecomeActive()
+        XCTAssertTrue(controller.isInitialFramePresentationLifecycleEligible)
         XCTAssertTrue(waitUntil {
             let evidence = retryTransportEvidence.snapshot
             guard let queryId = evidence.queryId else { return false }
@@ -883,16 +878,12 @@ extension ChatFirstLoginChatOpenRegressionTests {
         XCTAssertEqual(retryEvidence.startCount, 1)
         XCTAssertNotEqual(retryQueryId, failedLease.queryId)
         XCTAssertEqual(coordinator.readiness(for: key)?.phase, .transport)
-        XCTAssertEqual(controller.datasource.map(\.primary), skeletonPrimariesAtRetry)
-        XCTAssertFalse(
-            controller.bootstrapFailureView.isHidden,
-            "Retry must remain the committed overlay until durable content replaces it"
+        XCTAssertEqual(
+            controller.datasource.map(\.primary),
+            skeletonPrimariesWhileRetryIsPending
         )
-        retryButtons[0].sendActions(for: .touchUpInside)
-        XCTAssertFalse(
-            controller.bootstrapFailureView.isHidden,
-            "Repeated Retry while the same transport is active must not expose an intermediate frame"
-        )
+        XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+        controller.didBecomeActive()
         XCTAssertEqual(retryTransportEvidence.snapshot.startCount, 1)
 
         let envelope = try persistedArchiveResultMessage(
@@ -904,8 +895,11 @@ extension ChatFirstLoginChatOpenRegressionTests {
         )
         XCTAssertTrue(successfulMAM.recordDeferredArchiveResultDelivery(envelope))
         successfulMessages.receiveArchived(envelope)
-        XCTAssertEqual(controller.datasource.map(\.primary), skeletonPrimariesAtRetry)
-        XCTAssertFalse(controller.bootstrapFailureView.isHidden)
+        XCTAssertEqual(
+            controller.datasource.map(\.primary),
+            skeletonPrimariesWhileRetryIsPending
+        )
+        XCTAssertTrue(controller.bootstrapFailureView.isHidden)
 
         var realDatasourceCommitCount = 0
         controller.datasourceDidSetForTests = { datasource in
@@ -928,12 +922,12 @@ extension ChatFirstLoginChatOpenRegressionTests {
                 !controller.isInitialBootstrapInFlight &&
                 !controller.showSkeletonObserver.value &&
                 controller.datasource.contains(where: { !$0.isFakeMessage })
-        }, "a durable, materialized archive page must atomically replace Retry")
+        }, "a durable archive page must atomically replace the silent loading state")
         XCTAssertEqual(realDatasourceCommitCount, 1)
         XCTAssertEqual(controller.datasource.filter { !$0.isFakeMessage }.count, 1)
         XCTAssertEqual(coordinator.readiness(for: key)?.phase, .committed)
-        XCTAssertFalse(controller.bootstrapFailureView.isRetrying)
-        XCTAssertTrue(retryButtons[0].isEnabled)
+        XCTAssertFalse(controller.isInitialBootstrapAutomaticRetryPending)
+        XCTAssertEqual(controller.initialBootstrapAutomaticRetryFailureCount, 0)
 
         let committedPrimaries = controller.datasource.map(\.primary)
         let committedGeneration = controller.timelineSession?.snapshot.generation
@@ -945,7 +939,7 @@ extension ChatFirstLoginChatOpenRegressionTests {
         XCTAssertTrue(controller.bootstrapFailureView.isHidden)
     }
 
-    func testPresentationFailureRetryKeepsOverlayAndRepeatedTapDoesNotStartParallelBootstrap() {
+    func testPresentationFailureRetryStaysSilentAndDoesNotStartParallelBootstrap() {
         let owner = "presentation-retry-owner@example.com"
         let jid = "presentation-retry-peer@example.com"
         let controller = makeController(owner: owner, jid: jid)
@@ -973,7 +967,8 @@ extension ChatFirstLoginChatOpenRegressionTests {
 
         XCTAssertEqual(localRetryScheduleCount, 1)
         XCTAssertTrue(controller.preservesBootstrapFailureOverlayUntilRetryCommit)
-        XCTAssertFalse(controller.bootstrapFailureView.isHidden)
+        XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+        XCTAssertNil(controller.bootstrapFailureView.superview)
         XCTAssertFalse(controller.isInitialBootstrapInFlight)
         XCTAssertNil(
             ChatInitialBootstrapRequestCoordinator.shared.readiness(
@@ -986,10 +981,11 @@ extension ChatFirstLoginChatOpenRegressionTests {
         XCTAssertEqual(
             localRetryScheduleCount,
             1,
-            "Repeated Retry must join the local presentation retry"
+            "Repeated recovery must join the local presentation retry"
         )
         XCTAssertTrue(controller.preservesBootstrapFailureOverlayUntilRetryCommit)
-        XCTAssertFalse(controller.bootstrapFailureView.isHidden)
+        XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+        XCTAssertNil(controller.bootstrapFailureView.superview)
         XCTAssertFalse(controller.isInitialBootstrapInFlight)
         XCTAssertNil(
             ChatInitialBootstrapRequestCoordinator.shared.readiness(
@@ -999,24 +995,34 @@ extension ChatFirstLoginChatOpenRegressionTests {
         )
     }
 
-    func testTerminalTeardownClearsRetryOverlayAndPreservationOwnership() {
+    func testTerminalTeardownCancelsAutomaticRetryAndKeepsFailureUIDetached() {
         let controller = makeController(
             owner: "retry-teardown-owner@example.com",
             jid: "retry-teardown-peer@example.com"
         )
         controller.loadViewIfNeeded()
         controller.appliedBootstrapLoadingState = .failure(fallback: .empty)
-        controller.preservesBootstrapFailureOverlayUntilRetryCommit = true
         controller.setBootstrapFailureVisible(true)
-        XCTAssertFalse(controller.bootstrapFailureView.isHidden)
-        controller.bootstrapFailureView.setRetrying(true)
-        XCTAssertTrue(controller.bootstrapFailureView.isRetrying)
+        controller.initialBootstrapAutomaticRetryFailureCount = 1
+        controller.initialBootstrapAutomaticRetryDelayProvider = { _ in 60 }
+        controller.initialFramePresentationApplicationStateProvider = { .active }
+        controller.isInitialFramePresentationLifecycleEligible = true
+        controller.scheduleInitialBootstrapAutomaticRetryAfterFailure()
+
+        XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+        XCTAssertNil(controller.bootstrapFailureView.superview)
+        XCTAssertTrue(controller.isInitialBootstrapAutomaticRetryPending)
+        XCTAssertNotNil(controller.initialBootstrapAutomaticRetryWorkItem)
 
         controller.performTerminalChatResourceTeardownForTesting()
 
         XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+        XCTAssertNil(controller.bootstrapFailureView.superview)
         XCTAssertFalse(controller.bootstrapFailureView.isRetrying)
         XCTAssertFalse(controller.preservesBootstrapFailureOverlayUntilRetryCommit)
+        XCTAssertFalse(controller.isInitialBootstrapAutomaticRetryPending)
+        XCTAssertNil(controller.initialBootstrapAutomaticRetryWorkItem)
+        XCTAssertEqual(controller.initialBootstrapAutomaticRetryFailureCount, 0)
     }
 
     private func waitUntil(
@@ -1028,10 +1034,6 @@ extension ChatFirstLoginChatOpenRegressionTests {
             RunLoop.current.run(until: Date().addingTimeInterval(0.005))
         }
         return condition()
-    }
-
-    private func descendants(of view: UIView) -> [UIView] {
-        view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
 
     private func insertUnsyncedChat(
