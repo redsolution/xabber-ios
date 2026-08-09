@@ -179,16 +179,14 @@ extension ChatViewController {
         }
 
         let keyboardVisibleHeight = self.keyboardOverlapHeight(from: frameValue.cgRectValue)
-        if keyboardVisibleHeight > 0 {
-            self.isChatInputKeyboardGuideActive = true
-            self.updateChatInputKeyboardLayoutMode()
-        }
+        let wasKeyboardGuideActive = self.isChatInputKeyboardGuideActive
+        let shouldActivateKeyboardGuide = keyboardVisibleHeight > 0 && !wasKeyboardGuideActive
         let layoutSignature = ChatKeyboardLayoutUpdateSignature(
             visibleHeight: keyboardVisibleHeight,
             viewSize: self.view.bounds.size,
             searchOwnsKeyboard: self.isChatSearchInputKeyboardOwned
         )
-        guard ChatKeyboardLayoutUpdatePolicy.shouldApply(
+        guard shouldActivateKeyboardGuide || ChatKeyboardLayoutUpdatePolicy.shouldApply(
             previous: self.lastAppliedChatKeyboardLayoutSignature,
             next: layoutSignature
         ) else {
@@ -201,6 +199,11 @@ extension ChatViewController {
         let options = curveValue
             .map { UIView.AnimationOptions(rawValue: $0 << 16).union(.beginFromCurrentState) }
             ?? [.beginFromCurrentState, .curveEaseInOut]
+        let shouldAnimateKeyboardGuideActivation = ChatKeyboardConstraintActivationPolicy.shouldAnimate(
+            visibleKeyboardHeight: keyboardVisibleHeight,
+            wasKeyboardGuideActive: wasKeyboardGuideActive,
+            animationDuration: duration
+        )
         let wasNearBottom = self.isNearBottom()
         let visibleAnchor = ChatKeyboardFrameViewportPolicy.shouldCaptureVisibleAnchor(
             wasNearBottom: wasNearBottom
@@ -211,6 +214,10 @@ extension ChatViewController {
         )
 
         let updates = {
+            if shouldActivateKeyboardGuide {
+                self.isChatInputKeyboardGuideActive = true
+                self.updateChatInputKeyboardLayoutMode()
+            }
             let inputHeight = self.updateChatInputViewForCurrentKeyboardLayout(
                 visibleKeyboardHeight: keyboardVisibleHeight
             )
@@ -220,6 +227,9 @@ extension ChatViewController {
                 wasNearBottom: wasNearBottom,
                 visibleAnchor: visibleAnchor
             )
+            if shouldAnimateKeyboardGuideActivation {
+                self.view.layoutIfNeeded()
+            }
         }
 
         let shouldAnimateKeyboardMutation = ChatSearchMotionMutationPolicy.shouldAnimate(
@@ -227,6 +237,7 @@ extension ChatViewController {
             isNavigationTransitionActive: self.isNavigationTransitionActive,
             isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation,
             isInteractiveKeyboardUpdate: self.messagesCollectionView.keyboardDismissMode == .interactive
+                && !shouldAnimateKeyboardGuideActivation
         )
         if shouldAnimateKeyboardMutation {
             UIView.animate(

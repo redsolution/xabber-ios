@@ -16,6 +16,16 @@ struct ChatKeyboardLayoutUpdatePolicy {
     }
 }
 
+enum ChatKeyboardConstraintActivationPolicy {
+    static func shouldAnimate(
+        visibleKeyboardHeight: CGFloat,
+        wasKeyboardGuideActive: Bool,
+        animationDuration: TimeInterval
+    ) -> Bool {
+        visibleKeyboardHeight > 0 && !wasKeyboardGuideActive && animationDuration > 0
+    }
+}
+
 enum ChatKeyboardFrameViewportPolicy {
     static func shouldCaptureVisibleAnchor(wasNearBottom: Bool) -> Bool {
         false

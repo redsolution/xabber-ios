@@ -14,6 +14,24 @@ import XCTest
 
 @MainActor
 final class ChatComposerDragKeyboardPerformanceTests: XCTestCase {
+    func testKeyboardPresentationAnimatesOnlyTheInitialGuideActivation() {
+        XCTAssertTrue(ChatKeyboardConstraintActivationPolicy.shouldAnimate(
+            visibleKeyboardHeight: 300,
+            wasKeyboardGuideActive: false,
+            animationDuration: 0.25
+        ))
+        XCTAssertFalse(ChatKeyboardConstraintActivationPolicy.shouldAnimate(
+            visibleKeyboardHeight: 300,
+            wasKeyboardGuideActive: true,
+            animationDuration: 0.25
+        ))
+        XCTAssertFalse(ChatKeyboardConstraintActivationPolicy.shouldAnimate(
+            visibleKeyboardHeight: 0,
+            wasKeyboardGuideActive: false,
+            animationDuration: 0.25
+        ))
+    }
+
     func testCancelHintStaysOutOfTimerRegionAndFadesDuringLeftDrag() {
         let resting = RecordingCancelHintVisualPolicy.visualState(translationX: 0)
         let partial = RecordingCancelHintVisualPolicy.visualState(translationX: -60)
