@@ -507,7 +507,6 @@ extension Account: XMPPStreamDelegate {
         }
         switch true {
             case self.syncManager.read(withIQ: iq):
-                AccountManager.shared.markAsConnected(jid: jid)
                 _ = self.syncManager.checkNextPage(sender, in: iq)
                 break
             case self.avatarManager.read(withIQ: iq): break
@@ -537,7 +536,6 @@ extension Account: XMPPStreamDelegate {
                 }
                 break
             case self.disco.read(withIQ: iq):
-                AccountManager.shared.markAsConnected(jid: jid)
                 break
             case self.omemo.read(withIQ: iq): break
             case self.notifications.read(withIQ: iq): break

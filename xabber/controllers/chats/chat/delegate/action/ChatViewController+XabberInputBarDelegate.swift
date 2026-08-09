@@ -788,7 +788,52 @@ extension ChatViewController: XabberInputBarDelegate {
     }
     
     func attachmentButtonTouchUp() {
-        self.showImagePicker()
+        NSLog("ATTACHMENT_TAP event=delegate_entry")
+        guard let account = AccountManager.shared.find(for: self.owner) else {
+            NSLog("ATTACHMENT_TAP event=blocked reason=account_missing")
+            ToastPresenter().presentError(
+                message: "File transfer is unavailable for this account.".localizeString(
+                    id: "media_picker_error_upload_unavailable",
+                    arguments: []
+                )
+            )
+            return
+        }
+
+        NSLog(
+            "ATTACHMENT_TAP event=capability state=%@ available=%@",
+            String(describing: account.disco.cloudStorageDiscoveryState),
+            account.cloudStorage.isAvailable().description
+        )
+        switch account.disco.cloudStorageDiscoveryState {
+        case .available where account.cloudStorage.isAvailable():
+            NSLog("ATTACHMENT_TAP event=route destination=image_picker")
+            self.showImagePicker()
+        case .unknown:
+            NSLog("ATTACHMENT_TAP event=blocked reason=discovery_unknown")
+            ToastPresenter().present(
+                message: "We're still determining whether this server supports file transfer.".localizeString(
+                    id: "media_picker_status_upload_capability_pending",
+                    arguments: []
+                )
+            )
+        case .discovering, .available:
+            NSLog("ATTACHMENT_TAP event=blocked reason=discovery_pending_or_inconsistent")
+            ToastPresenter().present(
+                message: "We're still determining whether this server supports file transfer.".localizeString(
+                    id: "media_picker_status_upload_capability_pending",
+                    arguments: []
+                )
+            )
+        case .unavailable:
+            NSLog("ATTACHMENT_TAP event=blocked reason=cloud_unavailable")
+            ToastPresenter().presentError(
+                message: "File transfer is unavailable for this account.".localizeString(
+                    id: "media_picker_error_upload_unavailable",
+                    arguments: []
+                )
+            )
+        }
     }
     
     func onTextDidChange(to text: String?) {

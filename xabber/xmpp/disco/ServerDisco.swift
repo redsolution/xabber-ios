@@ -22,6 +22,14 @@ import Foundation
 import RealmSwift
 import CryptoSwift
 import XMPPFramework
+import CocoaLumberjack
+
+enum CloudStorageDiscoveryState: Equatable {
+    case unknown
+    case discovering
+    case available
+    case unavailable
+}
 
 class ServerDiscoManager: AbstractXMPPManager {
 
@@ -30,6 +38,22 @@ class ServerDiscoManager: AbstractXMPPManager {
     var hasCachedFeatures: Bool = false
     var features: SynchronizedArray<String> = SynchronizedArray<String>()
     var serverFeatureQueryIds: SynchronizedArray<String> = SynchronizedArray<String>()
+
+    private let cloudStorageDiscoveryLock = NSLock()
+    private var cloudStorageDiscoveryQueryIds: Set<String> = []
+    private var cloudStorageDiscoveryCompletions: [(CloudStorageDiscoveryState) -> Void] = []
+    private var cloudStorageDiscoveryGeneration: UInt = 0
+    private var storedCloudStorageDiscoveryState: CloudStorageDiscoveryState = .unknown
+    var cloudStorageDiscoveryTimeout: TimeInterval = 4
+
+    var cloudStorageDiscoveryState: CloudStorageDiscoveryState {
+        cloudStorageDiscoveryLock.lock()
+        defer { cloudStorageDiscoveryLock.unlock() }
+        if AccountGalleryConfiguration(owner: owner).basicGalleryURL != nil {
+            return .available
+        }
+        return storedCloudStorageDiscoveryState
+    }
 
     var clientFeatures: [String] = []
 
@@ -48,15 +72,113 @@ class ServerDiscoManager: AbstractXMPPManager {
         }
     }
 
-    open func configure(_ xmppStream: XMPPStream) {
-        self.requestServerFeatures(xmppStream)
-        if !self.loadFeatures() {
-            self.requestFeatures(xmppStream)
-            self.requestItems(xmppStream)
-        } else {
-            self.hasCachedFeatures = true
-//            AccountManager.shared.changeNewUserState(for: owner, to: .capsReceived([]))
+    open func configure(
+        _ xmppStream: XMPPStream,
+        cloudStorageDiscoveryCompletion: ((CloudStorageDiscoveryState) -> Void)? = nil
+    ) {
+        self.hasCachedFeatures = self.loadFeatures()
+        self.refreshCloudStorageDiscovery(
+            xmppStream,
+            completion: cloudStorageDiscoveryCompletion
+        )
+        self.requestItems(xmppStream)
+    }
+
+    func refreshCloudStorageDiscovery(
+        _ xmppStream: XMPPStream,
+        completion: ((CloudStorageDiscoveryState) -> Void)? = nil
+    ) {
+        cloudStorageDiscoveryLock.lock()
+        cloudStorageDiscoveryGeneration &+= 1
+        let generation = cloudStorageDiscoveryGeneration
+        cloudStorageDiscoveryQueryIds.removeAll()
+        cloudStorageDiscoveryCompletions = completion.map { [$0] } ?? []
+        if AccountGalleryConfiguration(owner: owner).basicGalleryURL != nil {
+            storedCloudStorageDiscoveryState = .available
+            let completions = cloudStorageDiscoveryCompletions
+            cloudStorageDiscoveryCompletions.removeAll()
+            cloudStorageDiscoveryLock.unlock()
+            DDLogInfo("CLOUD_STORAGE_DISCOVERY event=cached owner=\(owner) state=available")
+            completions.forEach { $0(.available) }
+            return
         }
+        storedCloudStorageDiscoveryState = .discovering
+        cloudStorageDiscoveryLock.unlock()
+        DDLogInfo("CLOUD_STORAGE_DISCOVERY event=start owner=\(owner) generation=\(generation)")
+
+        requestCloudStorageDiscoveryInfo(xmppStream, to: xmppStream.myJID?.domainJID, isServer: true)
+        requestCloudStorageDiscoveryInfo(xmppStream, to: xmppStream.myJID?.bareJID, isServer: false)
+
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + cloudStorageDiscoveryTimeout) { [weak self] in
+            self?.finishCloudStorageDiscoveryAfterTimeout(generation: generation)
+        }
+    }
+
+    private func requestCloudStorageDiscoveryInfo(
+        _ xmppStream: XMPPStream,
+        to jid: XMPPJID?,
+        isServer: Bool
+    ) {
+        guard let jid else { return }
+        let elementId = xmppStream.generateUUID
+        let query = DDXMLElement(name: "query", xmlns: "http://jabber.org/protocol/disco#info")
+        queryIds.insert(elementId)
+        if isServer {
+            serverFeatureQueryIds.insert(elementId)
+        }
+        cloudStorageDiscoveryLock.lock()
+        cloudStorageDiscoveryQueryIds.insert(elementId)
+        cloudStorageDiscoveryLock.unlock()
+        xmppStream.send(XMPPIQ(iqType: .get, to: jid, elementID: elementId, child: query))
+    }
+
+    private func finishCloudStorageDiscoveryQuery(_ elementId: String) {
+        cloudStorageDiscoveryLock.lock()
+        cloudStorageDiscoveryQueryIds.remove(elementId)
+        if AccountGalleryConfiguration(owner: owner).basicGalleryURL != nil {
+            storedCloudStorageDiscoveryState = .available
+        }
+        let state = storedCloudStorageDiscoveryState
+        let completions: [(CloudStorageDiscoveryState) -> Void]
+        if state == .available || state == .unavailable {
+            completions = cloudStorageDiscoveryCompletions
+            cloudStorageDiscoveryCompletions.removeAll()
+        } else {
+            completions = []
+        }
+        cloudStorageDiscoveryLock.unlock()
+        DDLogInfo("CLOUD_STORAGE_DISCOVERY event=response owner=\(owner) state=\(state)")
+        completions.forEach { $0(state) }
+    }
+
+    private func finishCloudStorageDiscoveryAfterTimeout(generation: UInt) {
+        cloudStorageDiscoveryLock.lock()
+        guard generation == cloudStorageDiscoveryGeneration,
+              storedCloudStorageDiscoveryState == .discovering else {
+            cloudStorageDiscoveryLock.unlock()
+            return
+        }
+        cloudStorageDiscoveryQueryIds.removeAll()
+        storedCloudStorageDiscoveryState = AccountGalleryConfiguration(owner: owner).basicGalleryURL == nil
+            ? .unavailable
+            : .available
+        let state = storedCloudStorageDiscoveryState
+        let completions = cloudStorageDiscoveryCompletions
+        cloudStorageDiscoveryCompletions.removeAll()
+        cloudStorageDiscoveryLock.unlock()
+        DDLogInfo("CLOUD_STORAGE_DISCOVERY event=timeout owner=\(owner) state=\(state)")
+        completions.forEach { $0(state) }
+    }
+
+    private func markCloudStorageAvailable() {
+        cloudStorageDiscoveryLock.lock()
+        storedCloudStorageDiscoveryState = .available
+        cloudStorageDiscoveryQueryIds.removeAll()
+        let completions = cloudStorageDiscoveryCompletions
+        cloudStorageDiscoveryCompletions.removeAll()
+        cloudStorageDiscoveryLock.unlock()
+        DDLogInfo("CLOUD_STORAGE_DISCOVERY event=endpoint owner=\(owner) state=available")
+        completions.forEach { $0(.available) }
     }
 
 
@@ -118,9 +240,25 @@ class ServerDiscoManager: AbstractXMPPManager {
     override func read(withIQ iq: XMPPIQ) -> Bool {
         switch true {
         case readIdentityRequest(withIQ: iq): return true
+        case readCloudStorageDiscoveryError(withIQ: iq): return true
         case readFeatures(withIQ: iq): return true
         default: return false
         }
+    }
+
+    private func readCloudStorageDiscoveryError(withIQ iq: XMPPIQ) -> Bool {
+        guard iq.iqType == .error,
+              let elementId = iq.elementID else {
+            return false
+        }
+        cloudStorageDiscoveryLock.lock()
+        let isDiscoveryQuery = cloudStorageDiscoveryQueryIds.contains(elementId)
+        cloudStorageDiscoveryLock.unlock()
+        guard isDiscoveryQuery else { return false }
+        queryIds.remove(elementId)
+        serverFeatureQueryIds.remove(elementId)
+        finishCloudStorageDiscoveryQuery(elementId)
+        return true
     }
 //    <iq xmlns="jabber:client" lang="ru" to="igor.boldin@redsolution.com/xabber-ios-BF9ED1E2" from="notify.redsolution.com" type="result" id="DA41EFEC-DB97-42F1-BAA1-31DB09E0A438">
 //      <query xmlns="http://jabber.org/protocol/disco#info">
@@ -143,6 +281,15 @@ class ServerDiscoManager: AbstractXMPPManager {
         let isServerFeatureResponse = serverFeatureQueryIds.contains(elementId)
         if isServerFeatureResponse {
             serverFeatureQueryIds.remove(elementId)
+        }
+        queryIds.remove(elementId)
+        cloudStorageDiscoveryLock.lock()
+        let isCloudStorageDiscoveryResponse = cloudStorageDiscoveryQueryIds.contains(elementId)
+        cloudStorageDiscoveryLock.unlock()
+        defer {
+            if isCloudStorageDiscoveryResponse {
+                finishCloudStorageDiscoveryQuery(elementId)
+            }
         }
 
         switch query.xmlns() ?? "none" {
@@ -309,6 +456,9 @@ class ServerDiscoManager: AbstractXMPPManager {
                 if let galleryURL = xDictionary["galleryURL"] {
                     let galleryConfiguration = AccountGalleryConfiguration(owner: self.owner)
                     let didStoreBasicGalleryURL = galleryConfiguration.storeBasicGalleryURL(galleryURL)
+                    if galleryConfiguration.basicGalleryURL != nil {
+                        markCloudStorageAvailable()
+                    }
                     AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, _ in
                         if didStoreBasicGalleryURL, let basicGalleryURL = galleryConfiguration.basicGalleryURL {
                             user.cloudStorage.requestAuthIfNeeded(galleryType: .basic, baseURL: basicGalleryURL)
@@ -531,6 +681,14 @@ class ServerDiscoManager: AbstractXMPPManager {
     override func clearSession() {
         queryIds.removeAll()
         serverFeatureQueryIds.removeAll()
+        cloudStorageDiscoveryLock.lock()
+        cloudStorageDiscoveryGeneration &+= 1
+        cloudStorageDiscoveryQueryIds.removeAll()
+        cloudStorageDiscoveryCompletions.removeAll()
+        storedCloudStorageDiscoveryState = AccountGalleryConfiguration(owner: owner).basicGalleryURL == nil
+            ? .unknown
+            : .available
+        cloudStorageDiscoveryLock.unlock()
     }
 
     func parseClientFeatures(_ query: DDXMLElement?) -> ClientDiscoStorageItem {

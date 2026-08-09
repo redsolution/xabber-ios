@@ -121,7 +121,9 @@ final class ChatAttachmentGallerySourceViewController: UIViewController,
     private let cameraPreviewProvider: ChatAttachmentCameraPreviewProviding
     private let galleryDraftBuilder: ChatAttachmentGalleryDraftBuilder
     private let maximumSelectedDraftCount: Int
+    private let loadsGalleryAsynchronously: Bool
     private var galleryDataSource: UICollectionViewDiffableDataSource<Int, ChatAttachmentGalleryItem>?
+    private var galleryLoadGeneration: UInt = 0
     private var didRegisterChangeObserver = false
     private var dateIndicatorHideWorkItem: DispatchWorkItem?
 
@@ -149,7 +151,8 @@ final class ChatAttachmentGallerySourceViewController: UIViewController,
         cameraDraftBuilder: ChatAttachmentCameraCaptureDraftBuilding = ChatAttachmentCameraCaptureDraftBuilder(),
         cameraPreviewProvider: ChatAttachmentCameraPreviewProviding = AVCaptureChatAttachmentCameraPreviewProvider(),
         galleryDraftBuilder: ChatAttachmentGalleryDraftBuilder = ChatAttachmentGalleryDraftBuilder(),
-        maximumSelectedDraftCount: Int = 10
+        maximumSelectedDraftCount: Int = 10,
+        loadsGalleryAsynchronously: Bool? = nil
     ) {
         self.photoLibraryAuthorizer = photoLibraryAuthorizer
         self.limitedLibraryPresenter = limitedLibraryPresenter
@@ -162,6 +165,8 @@ final class ChatAttachmentGallerySourceViewController: UIViewController,
         self.cameraPreviewProvider = cameraPreviewProvider
         self.galleryDraftBuilder = galleryDraftBuilder
         self.maximumSelectedDraftCount = maximumSelectedDraftCount
+        self.loadsGalleryAsynchronously = loadsGalleryAsynchronously
+            ?? (galleryDataProvider is PhotoKitChatAttachmentGalleryDataProvider)
         self.galleryCollectionView = UICollectionView(
             frame: .zero,
             collectionViewLayout: Self.makeGalleryLayout()
@@ -624,7 +629,28 @@ final class ChatAttachmentGallerySourceViewController: UIViewController,
     }
 
     private func reloadGalleryItems() {
-        applyGalleryItems(makeGalleryItems())
+        guard loadsGalleryAsynchronously else {
+            applyGalleryItems(makeGalleryItems())
+            return
+        }
+
+        galleryLoadGeneration &+= 1
+        let generation = galleryLoadGeneration
+        let dataProvider = galleryDataProvider
+        let capturedDrafts = selectedDrafts
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let items = ChatAttachmentGalleryItemPolicy.items(
+                from: dataProvider.fetchAssets(),
+                capturedDrafts: capturedDrafts
+            )
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      generation == self.galleryLoadGeneration else {
+                    return
+                }
+                self.applyGalleryItems(items)
+            }
+        }
     }
 
     private func refreshGalleryAfterSelectionChange() {

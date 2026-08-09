@@ -556,6 +556,7 @@ class ModernXabberInputView: UIView {
             for: .standard
         )
         var shouldShowSeekUpDownButtons: Bool = true
+        fileprivate var acceptsComposerHitTesting = true
         
         open var onChangeConversationTypeCallback: ((ClientSynchronizationManager.ConversationType) -> Void)? = nil
         open var onSeekUpCallback: (() -> Void)? = nil
@@ -744,11 +745,13 @@ class ModernXabberInputView: UIView {
         }
 
         override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-            super.point(inside: point, with: event) ||
+            guard acceptsComposerHitTesting else { return false }
+            return super.point(inside: point, with: event) ||
                 expandedCalendarHitView(for: point, with: event) != nil
         }
 
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            guard acceptsComposerHitTesting else { return nil }
             if let calendarHit = expandedCalendarHitView(for: point, with: event) {
                 return calendarHit
             }
@@ -2696,7 +2699,6 @@ class ModernXabberInputView: UIView {
         ))
         
         view.isHidden = true
-        
         return view
     }()
     
@@ -2725,6 +2727,8 @@ class ModernXabberInputView: UIView {
         ))
         
         view.isHidden = true
+        view.acceptsComposerHitTesting = false
+        view.isUserInteractionEnabled = false
         
         return view
     }()
@@ -2855,7 +2859,8 @@ class ModernXabberInputView: UIView {
         for point: CGPoint,
         with event: UIEvent?
     ) -> UIView? {
-        guard !searchPanel.isHidden,
+        guard self.state == .search,
+              !searchPanel.isHidden,
               searchPanel.isUserInteractionEnabled,
               searchPanel.alpha > 0.01 else {
             return nil
@@ -3085,6 +3090,7 @@ class ModernXabberInputView: UIView {
         self.textField.keyHandler = self
         self.textField.typingAttributes = self.baseComposerAttributes()
         self.addObservers()
+        self.attachButton.addTarget(self, action: #selector(self.onAttachButtonTouchDown), for: .touchDown)
         self.attachButton.addTarget(self, action: #selector(self.onAttachButtonTouchUp), for: .touchUpInside)
         self.timerButton.addTarget(self,  action: #selector(self.onTimerButtonTouchUp), for: .touchUpInside)
         self.recordButton.addTarget(self, action: #selector(self.onRecordButtonTouchUp), for: .touchUpInside)
@@ -3298,6 +3304,14 @@ class ModernXabberInputView: UIView {
         }
         self.resetRecordingButtonPositionAndVisibility(animated: false)
         self.updateScheduledMessagesButtonVisibility()
+        self.synchronizeSearchPanelInteractivity()
+    }
+
+    private func synchronizeSearchPanelInteractivity() {
+        let isSearchActive = self.state == .search
+        self.searchPanel.acceptsComposerHitTesting = isSearchActive
+        self.searchPanel.isUserInteractionEnabled = isSearchActive
+        self.searchPanel.isHidden = !isSearchActive
     }
     
     var isSelectionPanelShowed: Bool = false
@@ -3625,6 +3639,7 @@ class ModernXabberInputView: UIView {
             nextWidth: self.bounds.width
         )
         super.layoutSubviews()
+        self.synchronizeSearchPanelInteractivity()
         self.layoutLiquidGlassAppearance()
         if shouldResetRecordingButton {
             self.lastWidthForRecordingButtonReset = self.bounds.width
@@ -4403,10 +4418,24 @@ class ModernXabberInputView: UIView {
     }
     
     @objc
+    private func onAttachButtonTouchDown(_ sender: UIButton) {
+        NSLog(
+            "ATTACHMENT_TAP event=touch_down enabled=%@ hidden=%@ alpha=%.2f frame=%@",
+            sender.isEnabled.description,
+            sender.isHidden.description,
+            sender.alpha,
+            NSCoder.string(for: sender.frame)
+        )
+    }
+
+    @objc
     private func onAttachButtonTouchUp(_ sender: UIButton) {
+        NSLog(
+            "ATTACHMENT_TAP event=touch_up_inside delegate=%@ window=%@",
+            (self.delegate != nil).description,
+            (sender.window != nil).description
+        )
         self.delegate?.attachmentButtonTouchUp()
-        
-        
     }
     
     @objc

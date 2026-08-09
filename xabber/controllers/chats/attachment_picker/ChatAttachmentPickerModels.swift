@@ -28,12 +28,12 @@ enum ChatAttachmentPickerRoutingPolicy {
         isTelegramAttachmentPickerEnabled: Bool?,
         isCloudStorageAvailable: Bool
     ) -> ChatAttachmentPickerRoute {
-        if isTelegramAttachmentPickerEnabled ?? true {
-            return .telegramAttachmentFlow
-        }
-
         guard isCloudStorageAvailable else {
             return .blocked(.cloudStorageUnavailable)
+        }
+
+        if isTelegramAttachmentPickerEnabled ?? true {
+            return .telegramAttachmentFlow
         }
 
         return .legacyImagePicker

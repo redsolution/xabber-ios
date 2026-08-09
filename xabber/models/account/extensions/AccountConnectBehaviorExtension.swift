@@ -43,10 +43,26 @@ extension Account {
         registerVoIPPushForAccount()
         self.configureBase()
         let didResume = self.sm.didResume
+        let finishPostAuthenticationSetup: (CloudStorageDiscoveryState) -> Void = { [weak self] discoveryState in
+            guard let self else { return }
+            self.queue.async {
+                guard self.connectionGate.snapshot().phase == .postAuthSetup else {
+                    DDLogDebug("skip post-auth readiness jid=\(self.jid) cloud=\(discoveryState) reason=phase-changed")
+                    return
+                }
+                self.finishPostAuthenticationSetup(
+                    didResume: didResume,
+                    cloudStorageDiscoveryState: discoveryState
+                )
+            }
+        }
         if didResume {
             self.sendReadiness.markStreamManagementResumeSucceeded()
             self.sendCoordinator.streamManagementResumeSucceeded()
-            AccountManager.shared.markAsConnected(jid: self.jid)
+            self.disco.refreshCloudStorageDiscovery(
+                self.xmppStream,
+                completion: finishPostAuthenticationSetup
+            )
 //            self.presence()
             DispatchQueue.main.async {
                 ToastPresenter().presentSuccess(message: "SM did resume")
@@ -57,7 +73,10 @@ extension Account {
                 ToastPresenter().present(message: "Synchronization", image: imageLiteral("cloud"))
             }
             self.configureExtensions()
-            self.disco.configure(self.xmppStream)
+            self.disco.configure(
+                self.xmppStream,
+                cloudStorageDiscoveryCompletion: finishPostAuthenticationSetup
+            )
             if self.roster.version != nil {
                 if self.syncManager.isAvailable {
                     self.statusMessage.accept("Synchronization")
@@ -66,6 +85,15 @@ extension Account {
             self.roster.request(self.xmppStream)
             self.sendCoordinator.streamManagementResumeFailed()
         }
+    }
+
+    private func finishPostAuthenticationSetup(
+        didResume: Bool,
+        cloudStorageDiscoveryState: CloudStorageDiscoveryState
+    ) {
+        DDLogInfo(
+            "CLOUD_STORAGE_DISCOVERY event=post-auth-ready owner=\(self.jid) state=\(cloudStorageDiscoveryState)"
+        )
         self.connectionResilience.streamManagementResumeCompleted(
             didResume: didResume,
             responseName: didResume ? "resumed" : "full-auth"

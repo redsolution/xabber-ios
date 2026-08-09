@@ -1,6 +1,7 @@
 import UIKit
 
 protocol ChatAttachmentPickerViewControllerDelegate: AnyObject {
+    func chatAttachmentSheetViewControllerDidRequestDismiss(_ sheet: ChatAttachmentPickerViewController)
     func chatAttachmentSheetViewControllerDidDismiss(_ sheet: ChatAttachmentPickerViewController)
     func chatAttachmentSheetViewControllerDidSend(_ sheet: ChatAttachmentPickerViewController)
     func chatAttachmentSheetViewController(
@@ -25,6 +26,10 @@ protocol ChatAttachmentPickerViewControllerDelegate: AnyObject {
 typealias ChatAttachmentSheetViewControllerDelegate = ChatAttachmentPickerViewControllerDelegate
 
 extension ChatAttachmentPickerViewControllerDelegate {
+    func chatAttachmentSheetViewControllerDidRequestDismiss(_ sheet: ChatAttachmentPickerViewController) {
+        sheet.dismiss(animated: true)
+    }
+
     func chatAttachmentSheetViewController(
         _ sheet: ChatAttachmentPickerViewController,
         didRequestSend drafts: [AttachmentDraft],
@@ -1345,7 +1350,12 @@ extension ChatAttachmentPickerViewController: ChatAttachmentSourceBarViewDelegat
     }
 
     func chatAttachmentSourceBarViewDidRequestDismiss(_ view: ChatAttachmentSourceBarView) {
-        dismiss(animated: true)
+        guard let delegate else {
+            dismiss(animated: true)
+            return
+        }
+
+        delegate.chatAttachmentSheetViewControllerDidRequestDismiss(self)
     }
 }
 

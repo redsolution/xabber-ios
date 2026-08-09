@@ -156,6 +156,46 @@ final class ChatAttachmentFlowCoordinatorTests: XCTestCase {
         XCTAssertNil(gallery.onSelectionCountChanged)
     }
 
+    func testPickerCloseButtonDismissesThroughCoordinator() throws {
+        let delegate = FakeFlowDelegate()
+        var dismissedController: UIViewController?
+        let coordinator = makeCoordinator(
+            delegate: delegate,
+            dismissalHandler: { controller, _, completion in
+                dismissedController = controller
+                completion?()
+            }
+        )
+
+        coordinator.start()
+        let picker = try XCTUnwrap(coordinator.pickerViewController)
+        let navigationController = try XCTUnwrap(coordinator.pickerNavigationController)
+
+        picker.chatAttachmentSourceBarViewDidRequestDismiss(picker.sourceBarView)
+
+        XCTAssertIdentical(dismissedController, navigationController)
+        XCTAssertNil(coordinator.pickerViewController)
+        XCTAssertEqual(delegate.dismissCount, 1)
+    }
+
+    func testInteractiveSheetDismissalReleasesCoordinatorState() throws {
+        let delegate = FakeFlowDelegate()
+        let coordinator = makeCoordinator(delegate: delegate)
+
+        coordinator.start()
+        let navigationController = try XCTUnwrap(coordinator.pickerNavigationController)
+        let presentationController = UIPresentationController(
+            presentedViewController: navigationController,
+            presenting: UIViewController()
+        )
+
+        coordinator.presentationControllerDidDismiss(presentationController)
+
+        XCTAssertNil(coordinator.pickerViewController)
+        XCTAssertNil(coordinator.pickerNavigationController)
+        XCTAssertEqual(delegate.dismissCount, 1)
+    }
+
     func testSuccessfulSendDismissesPickerAfterDismissalCompletionWithoutDismissDelegate() throws {
         let factory = FakeSourceControllerFactory()
         let delegate = FakeFlowDelegate()

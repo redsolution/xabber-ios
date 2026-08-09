@@ -63,12 +63,19 @@ extension ChatViewController {
     
     @objc
     internal func showImagePicker() {
+        NSLog("ATTACHMENT_TAP event=show_image_picker_entry presented=%@", String(describing: self.presentedViewController))
         self.view.endEditing(false)
         DispatchQueue.main.async {
             let isCloudStorageAvailable = AccountManager.shared.find(for: self.owner)?.cloudStorage.isAvailable() ?? false
             let route = ChatAttachmentPickerRoutingPolicy.route(
                 isTelegramAttachmentPickerEnabled: CommonConfigManager.shared.config.use_telegram_attachment_picker,
                 isCloudStorageAvailable: isCloudStorageAvailable
+            )
+            NSLog(
+                "ATTACHMENT_TAP event=route_resolved route=%@ cloud_available=%@ presented=%@",
+                String(describing: route),
+                isCloudStorageAvailable.description,
+                String(describing: self.presentedViewController)
             )
 
             switch route {
@@ -110,6 +117,7 @@ extension ChatViewController {
     }
 
     private func presentTelegramAttachmentFlow() {
+        NSLog("ATTACHMENT_TAP event=coordinator_create")
         let coordinator = ChatAttachmentFlowCoordinator(
             presentingViewController: self,
             context: ChatAttachmentFlowContext(

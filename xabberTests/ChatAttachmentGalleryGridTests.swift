@@ -261,6 +261,26 @@ final class ChatAttachmentGalleryGridTests: XCTestCase {
         XCTAssertEqual(controller.galleryItems, [.camera, .asset(firstAsset), .asset(secondAsset)])
     }
 
+    func testInitialPhotoEnumerationDoesNotBlockPickerPresentation() {
+        let fetchFinished = expectation(description: "photo enumeration finished")
+        let dataProvider = SlowGalleryDataProvider(fetchFinished: fetchFinished)
+        let controller = ChatAttachmentGallerySourceViewController(
+            photoLibraryAuthorizer: FakeGalleryPhotoLibraryAuthorizer(status: .authorized),
+            limitedLibraryPresenter: FakeGalleryLimitedLibraryPresenter(),
+            settingsOpener: FakeGalleryApplicationSettingsOpener(),
+            galleryDataProvider: dataProvider,
+            thumbnailProvider: FakeGalleryThumbnailProvider(),
+            loadsGalleryAsynchronously: true
+        )
+
+        let startedAt = Date()
+        controller.loadViewIfNeeded()
+
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 0.1)
+        XCTAssertTrue(controller.galleryItems.isEmpty)
+        wait(for: [fetchFinished], timeout: 1)
+    }
+
     func testLimitedControllerLoadsGridWithoutFullTopBarAction() {
         let asset = makeAsset(localIdentifier: "limited-asset")
         let controller = makeGalleryController(
@@ -553,6 +573,20 @@ final class ChatAttachmentGalleryGridTests: XCTestCase {
             dimensions: CGSize(width: 8, height: 8),
             preparationState: .pending
         )
+    }
+}
+
+private final class SlowGalleryDataProvider: ChatAttachmentGalleryDataProviding {
+    private let fetchFinished: XCTestExpectation
+
+    init(fetchFinished: XCTestExpectation) {
+        self.fetchFinished = fetchFinished
+    }
+
+    func fetchAssets() -> [ChatAttachmentGalleryAsset] {
+        Thread.sleep(forTimeInterval: 0.25)
+        fetchFinished.fulfill()
+        return []
     }
 }
 
