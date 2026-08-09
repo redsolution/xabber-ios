@@ -4013,13 +4013,17 @@ class ChatViewController: MessagesViewController {
         
         xabberInputView.translatesAutoresizingMaskIntoConstraints = false
         let heightConstraint = xabberInputView.heightAnchor.constraint(equalToConstant: composerHeight)
-        let bottomConstraint = xabberInputView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        let bottomConstraint = xabberInputView.bottomAnchor.constraint(
+            lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor
+        )
         let keyboardTopConstraint = xabberInputView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
+        keyboardTopConstraint.priority = UILayoutPriority(999)
         self.xabberInputViewBottomConstraint = bottomConstraint
         self.xabberInputViewKeyboardTopConstraint = keyboardTopConstraint
         NSLayoutConstraint.activate([
             xabberInputView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: ModernXabberInputView.edgeHorizontalInset),
             xabberInputView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -ModernXabberInputView.edgeHorizontalInset),
+            bottomConstraint,
             keyboardTopConstraint,
             heightConstraint
         ])
@@ -4460,8 +4464,8 @@ class ChatViewController: MessagesViewController {
             return
         }
 
-        if xabberInputViewBottomConstraint?.isActive == true {
-            xabberInputViewBottomConstraint?.isActive = false
+        if xabberInputViewBottomConstraint?.isActive == false {
+            xabberInputViewBottomConstraint?.isActive = true
         }
         if xabberInputViewKeyboardTopConstraint?.isActive == false {
             xabberInputViewKeyboardTopConstraint?.isActive = true

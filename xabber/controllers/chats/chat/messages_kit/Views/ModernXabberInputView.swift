@@ -3449,7 +3449,8 @@ class ModernXabberInputView: UIView {
         )
         doAnimate {
             var geometryChanged = false
-            if self.frame != targetFrame {
+            let isConstraintManaged = !self.translatesAutoresizingMaskIntoConstraints && self.heightConstraint != nil
+            if !isConstraintManaged, self.frame != targetFrame {
                 self.frame = targetFrame
                 geometryChanged = true
             }
