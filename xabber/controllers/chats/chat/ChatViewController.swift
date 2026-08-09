@@ -3990,10 +3990,9 @@ class ChatViewController: MessagesViewController {
         messagesCollectionView.accountPalette = accountPallete
         self.updateScrollDownButtonAppearance()
         
-        var inputHeight: CGFloat = ModernXabberInputView.defaultBarHeight
-        if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
-        }
+        let composerHeight: CGFloat = ModernXabberInputView.defaultBarHeight
+        let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom ?? 0
+        let inputHeight = composerHeight + bottomInset
         let horizontalInset = ModernXabberInputView.edgeHorizontalInset
         let leadingInset = self.view.safeAreaInsets.left + horizontalInset
         let trailingInset = self.view.safeAreaInsets.right + horizontalInset
@@ -4013,16 +4012,15 @@ class ChatViewController: MessagesViewController {
         self.setupFloatingGlassBubbles()
         
         xabberInputView.translatesAutoresizingMaskIntoConstraints = false
-        let heightConstraint = xabberInputView.heightAnchor.constraint(equalToConstant: inputHeight)
+        let heightConstraint = xabberInputView.heightAnchor.constraint(equalToConstant: composerHeight)
         let bottomConstraint = xabberInputView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         let keyboardTopConstraint = xabberInputView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
-        keyboardTopConstraint.isActive = false
         self.xabberInputViewBottomConstraint = bottomConstraint
         self.xabberInputViewKeyboardTopConstraint = keyboardTopConstraint
         NSLayoutConstraint.activate([
             xabberInputView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: ModernXabberInputView.edgeHorizontalInset),
             xabberInputView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -ModernXabberInputView.edgeHorizontalInset),
-            bottomConstraint,
+            keyboardTopConstraint,
             heightConstraint
         ])
         xabberInputView.heightConstraint = heightConstraint
@@ -4462,19 +4460,18 @@ class ChatViewController: MessagesViewController {
             return
         }
 
-        let shouldUseKeyboardGuide = isChatSearchInputKeyboardOwned
-        if xabberInputViewBottomConstraint?.isActive == shouldUseKeyboardGuide {
-            xabberInputViewBottomConstraint?.isActive = !shouldUseKeyboardGuide
+        if xabberInputViewBottomConstraint?.isActive == true {
+            xabberInputViewBottomConstraint?.isActive = false
         }
-        if xabberInputViewKeyboardTopConstraint?.isActive != shouldUseKeyboardGuide {
-            xabberInputViewKeyboardTopConstraint?.isActive = shouldUseKeyboardGuide
+        if xabberInputViewKeyboardTopConstraint?.isActive == false {
+            xabberInputViewKeyboardTopConstraint?.isActive = true
         }
     }
 
     internal func inputKeyboardHeightForCurrentChatInputMode(
-        visibleKeyboardHeight: CGFloat
+        visibleKeyboardHeight _: CGFloat
     ) -> CGFloat {
-        isChatSearchInputKeyboardOwned ? 0 : visibleKeyboardHeight
+        0
     }
 
     @discardableResult
@@ -4494,9 +4491,17 @@ class ChatViewController: MessagesViewController {
         inputView.update(
             screenHeight: screenHeight,
             keyboardHeight: inputKeyboardHeight,
-            includeBottomSafeAreaWhenKeyboardHidden: !self.isChatSearchInputKeyboardOwned
+            includeBottomSafeAreaWhenKeyboardHidden: false
         )
-        return inputView.bounds.height
+        let bottomObstructionHeight: CGFloat
+        if self.isChatSearchInputKeyboardOwned {
+            bottomObstructionHeight = 0
+        } else if visibleKeyboardHeight > 0 {
+            bottomObstructionHeight = visibleKeyboardHeight
+        } else {
+            bottomObstructionHeight = self.view.safeAreaInsets.bottom
+        }
+        return inputView.bounds.height + bottomObstructionHeight
     }
 
     private func currentNavigationVisualHeight() -> CGFloat {
