@@ -41,13 +41,13 @@ final class ChatAttachmentPickerEntryPointTests: XCTestCase {
         XCTAssertEqual(route, .blocked(.cloudStorageUnavailable))
     }
 
-    func testCloudStorageUnavailableBlocksTelegramAttachmentRoute() {
+    func testCloudStorageUnavailableStillOpensTelegramAttachmentFlow() {
         let route = ChatAttachmentPickerRoutingPolicy.route(
             isTelegramAttachmentPickerEnabled: true,
             isCloudStorageAvailable: false
         )
 
-        XCTAssertEqual(route, .blocked(.cloudStorageUnavailable))
+        XCTAssertEqual(route, .telegramAttachmentFlow)
     }
 
     func testMissingConfigFlagResolvesToTelegramAttachmentFlow() {

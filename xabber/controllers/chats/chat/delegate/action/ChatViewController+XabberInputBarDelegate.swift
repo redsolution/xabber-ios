@@ -788,21 +788,7 @@ extension ChatViewController: XabberInputBarDelegate {
     }
     
     func attachmentButtonTouchUp() {
-//      if (AccountManager.shared.find(for: self.owner)?.xuploads.isAvailable() ?? false)
-        if AccountManager.shared.find(for: self.owner)?.cloudStorage.isAvailable() ?? false {
-            self.showImagePicker()
-        } else {
-            ToastPresenter().presentError(message: "File transfer is unavailable for this account.".localizeString(id: "media_picker_error_upload_unavailable", arguments: []))
-//            if let domain = self.owner.split(separator: "@").last {
-//                self.showToast(
-//                    error: "We're still determining whether or not \(domain) server supports file transfer."
-//                )
-//            } else {
-//                self.showToast(
-//                    error: "We're still determining whether or not your server supports file transfer."
-//                )
-//            }
-        }
+        self.showImagePicker()
     }
     
     func onTextDidChange(to text: String?) {
