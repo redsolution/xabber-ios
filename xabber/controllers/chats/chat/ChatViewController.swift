@@ -2962,6 +2962,7 @@ class ChatViewController: MessagesViewController {
     internal var xabberInputView: ModernXabberInputView!
     internal var xabberInputViewBottomConstraint: NSLayoutConstraint?
     internal var xabberInputViewKeyboardTopConstraint: NSLayoutConstraint?
+    internal var isChatInputKeyboardGuideActive = false
     internal var lastAppliedChatKeyboardLayoutSignature: ChatKeyboardLayoutUpdateSignature?
     
     internal var shouldRequestChatInfo: Bool = false
@@ -4014,17 +4015,16 @@ class ChatViewController: MessagesViewController {
         xabberInputView.translatesAutoresizingMaskIntoConstraints = false
         let heightConstraint = xabberInputView.heightAnchor.constraint(equalToConstant: composerHeight)
         let bottomConstraint = xabberInputView.bottomAnchor.constraint(
-            lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor
+            equalTo: view.safeAreaLayoutGuide.bottomAnchor
         )
         let keyboardTopConstraint = xabberInputView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
-        keyboardTopConstraint.priority = UILayoutPriority(999)
+        keyboardTopConstraint.isActive = false
         self.xabberInputViewBottomConstraint = bottomConstraint
         self.xabberInputViewKeyboardTopConstraint = keyboardTopConstraint
         NSLayoutConstraint.activate([
             xabberInputView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: ModernXabberInputView.edgeHorizontalInset),
             xabberInputView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -ModernXabberInputView.edgeHorizontalInset),
             bottomConstraint,
-            keyboardTopConstraint,
             heightConstraint
         ])
         xabberInputView.heightConstraint = heightConstraint
@@ -4417,7 +4417,7 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func updateChatCollectionInsets(inputHeight: CGFloat? = nil) {
-        let composerHeight = inputHeight ?? xabberInputView?.bounds.height ?? ModernXabberInputView.defaultBarHeight
+        let composerHeight = inputHeight ?? currentChatComposerObstructionHeight()
         let navigationHeight = currentNavigationVisualHeight()
         let indicatorInsets = ChatFloatingHeaderLayoutPolicy.scrollIndicatorInsets(
             composerHeight: composerHeight,
@@ -4437,6 +4437,23 @@ class ChatViewController: MessagesViewController {
         if !messagesCollectionView.scrollIndicatorInsets.isApproximatelyEqual(to: indicatorInsets) {
             messagesCollectionView.scrollIndicatorInsets = indicatorInsets
         }
+    }
+
+    internal func currentChatComposerObstructionHeight() -> CGFloat {
+        guard let inputView = xabberInputView else {
+            return ModernXabberInputView.defaultBarHeight + view.safeAreaInsets.bottom
+        }
+        if isChatSearchInputKeyboardOwned {
+            return inputView.bounds.height
+        }
+
+        let fallback = inputView.bounds.height + view.safeAreaInsets.bottom
+        guard inputView.superview === view,
+              inputView.bounds.height > 0,
+              inputView.frame.minY > 0 else {
+            return fallback
+        }
+        return max(fallback, view.bounds.maxY - inputView.frame.minY)
     }
 
     internal var isChatSearchInputKeyboardOwned: Bool {
@@ -4464,11 +4481,11 @@ class ChatViewController: MessagesViewController {
             return
         }
 
-        if xabberInputViewBottomConstraint?.isActive == false {
-            xabberInputViewBottomConstraint?.isActive = true
+        if xabberInputViewBottomConstraint?.isActive == self.isChatInputKeyboardGuideActive {
+            xabberInputViewBottomConstraint?.isActive = !self.isChatInputKeyboardGuideActive
         }
-        if xabberInputViewKeyboardTopConstraint?.isActive == false {
-            xabberInputViewKeyboardTopConstraint?.isActive = true
+        if xabberInputViewKeyboardTopConstraint?.isActive != self.isChatInputKeyboardGuideActive {
+            xabberInputViewKeyboardTopConstraint?.isActive = self.isChatInputKeyboardGuideActive
         }
     }
 
@@ -5030,6 +5047,12 @@ class ChatViewController: MessagesViewController {
         )
         chatNotificationCenter.addObserver(
             self,
+            selector: #selector(self.keyboardDidHideNotification(_:)),
+            name: UIWindow.keyboardDidHideNotification,
+            object: nil
+        )
+        chatNotificationCenter.addObserver(
+            self,
             selector: #selector(self.onMeteringLevelDidUpdate(_:)),
             name: .recorderDidUpdateMeteringLevelNotification,
             object: nil
@@ -5080,6 +5103,8 @@ class ChatViewController: MessagesViewController {
         }
         self.chatSearchObserverRemovalCount += 1
         self.lastAppliedChatKeyboardLayoutSignature = nil
+        self.isChatInputKeyboardGuideActive = false
+        self.updateChatInputKeyboardLayoutMode()
         self.chatObserversRegistered = false
         super.removeObservers()
 //        NotificationCenter.default.removeObserver(self)
@@ -5123,6 +5148,11 @@ class ChatViewController: MessagesViewController {
         chatNotificationCenter.removeObserver(
             self,
             name: UIWindow.keyboardWillChangeFrameNotification,
+            object: nil
+        )
+        chatNotificationCenter.removeObserver(
+            self,
+            name: UIWindow.keyboardDidHideNotification,
             object: nil
         )
         chatNotificationCenter.removeObserver(

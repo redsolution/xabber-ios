@@ -139,6 +139,15 @@ extension ChatViewController {
         self.handleKeyboardFrameChange(notification as Notification)
     }
 
+    @objc
+    func keyboardDidHideNotification(_ notification: Notification) {
+        self.isChatInputKeyboardGuideActive = false
+        self.lastAppliedChatKeyboardLayoutSignature = nil
+        let inputHeight = self.updateChatInputViewForCurrentKeyboardLayout(visibleKeyboardHeight: 0)
+        self.view.layoutIfNeeded()
+        self.updateChatCollectionInsets(inputHeight: inputHeight)
+    }
+
     internal static func keyboardOverlapHeight(viewBounds: CGRect, keyboardFrameInView: CGRect) -> CGFloat {
         guard viewBounds.width > 0,
               viewBounds.height > 0,
@@ -170,6 +179,10 @@ extension ChatViewController {
         }
 
         let keyboardVisibleHeight = self.keyboardOverlapHeight(from: frameValue.cgRectValue)
+        if keyboardVisibleHeight > 0 {
+            self.isChatInputKeyboardGuideActive = true
+            self.updateChatInputKeyboardLayoutMode()
+        }
         let layoutSignature = ChatKeyboardLayoutUpdateSignature(
             visibleHeight: keyboardVisibleHeight,
             viewSize: self.view.bounds.size,
