@@ -127,6 +127,19 @@ class ModernXabberInputView: UIView {
     static let minimumComposerHeight: CGFloat = NativeGlassBarStyle.minimumHeight
     static let defaultBarHeight: CGFloat = NativeGlassBarStyle.minimumHeight + NativeGlassBarStyle.bottomOffset
 
+    static func resolvedContainerHeight(
+        barHeight: CGFloat,
+        keyboardHeight: CGFloat,
+        topInset: CGFloat,
+        bottomSafeAreaInset: CGFloat,
+        includeBottomSafeAreaWhenKeyboardHidden: Bool
+    ) -> CGFloat {
+        let safeAreaHeight = keyboardHeight == 0 && includeBottomSafeAreaWhenKeyboardHidden
+            ? bottomSafeAreaInset
+            : 0
+        return barHeight + keyboardHeight + topInset + safeAreaHeight
+    }
+
     private enum LiquidGlassMetrics {
         static let composerHorizontalInset: CGFloat = 0
         static let composerVerticalInset: CGFloat = 0
@@ -3313,12 +3326,13 @@ class ModernXabberInputView: UIView {
 
     private func notifyHeightChangedForCurrentContext() {
         self.barHeight = self.currentComposerContentHeight() + LiquidGlassMetrics.verticalReserve
-        var inputHeight: CGFloat = self.barHeight + self.keyboardHeight + self.topInset
-        if self.keyboardHeight == 0 {
-            if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                inputHeight += bottomInset
-            }
-        }
+        let inputHeight = Self.resolvedContainerHeight(
+            barHeight: self.barHeight,
+            keyboardHeight: self.keyboardHeight,
+            topInset: self.topInset,
+            bottomSafeAreaInset: self.applicationBottomSafeAreaInset,
+            includeBottomSafeAreaWhenKeyboardHidden: self.shouldIncludeBottomSafeAreaInContainerHeight
+        )
 
         self.delegate?.onHeightChanged(to: inputHeight, bar: 0)
     }
@@ -3437,12 +3451,13 @@ class ModernXabberInputView: UIView {
         
         self.keyboardHeight = keyboardHeight
         self.screenHeight = screenHeight
-        var inputHeight: CGFloat = self.barHeight + keyboardHeight + topInset
-        if keyboardHeight == 0, includeBottomSafeAreaWhenKeyboardHidden {
-            if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                inputHeight += bottomInset
-            }
-        }
+        let inputHeight = Self.resolvedContainerHeight(
+            barHeight: self.barHeight,
+            keyboardHeight: keyboardHeight,
+            topInset: topInset,
+            bottomSafeAreaInset: self.applicationBottomSafeAreaInset,
+            includeBottomSafeAreaWhenKeyboardHidden: includeBottomSafeAreaWhenKeyboardHidden
+        )
         let targetFrame = CGRect(
             origin: CGPoint(x: self.frame.minX, y: screenHeight - inputHeight),
             size: CGSize(width: self.bounds.width, height: inputHeight)
@@ -3472,6 +3487,14 @@ class ModernXabberInputView: UIView {
     }
 
     open var heightConstraint: NSLayoutConstraint? = nil
+
+    private var applicationBottomSafeAreaInset: CGFloat {
+        (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom ?? 0
+    }
+
+    private var shouldIncludeBottomSafeAreaInContainerHeight: Bool {
+        self.translatesAutoresizingMaskIntoConstraints || self.heightConstraint == nil
+    }
     
     final func activateConstraints() {
         guard !self.didActivateComposerConstraints else { return }
@@ -4321,17 +4344,23 @@ class ModernXabberInputView: UIView {
         
         let contentHeight = self.currentComposerContentHeight()
         self.barHeight = contentHeight + LiquidGlassMetrics.verticalReserve
-        var inputHeight: CGFloat = self.barHeight + keyboardHeight + self.topInset
-        if keyboardHeight == 0 {
-            if let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom {
-                inputHeight += bottomInset
-            }
-        }
+        let includeBottomSafeArea = self.shouldIncludeBottomSafeAreaInContainerHeight
+        let inputHeight = Self.resolvedContainerHeight(
+            barHeight: self.barHeight,
+            keyboardHeight: keyboardHeight,
+            topInset: self.topInset,
+            bottomSafeAreaInset: self.applicationBottomSafeAreaInset,
+            includeBottomSafeAreaWhenKeyboardHidden: includeBottomSafeArea
+        )
         
         //UIView.animate(withDuration: 0.16, delay: 0.0, options: [.curveEaseIn]) {
         UIView.performWithoutAnimation {
             self.delegate?.onHeightChanged(to: inputHeight, bar: 0)
-            self.update(screenHeight: self.screenHeight, keyboardHeight: self.keyboardHeight)
+            self.update(
+                screenHeight: self.screenHeight,
+                keyboardHeight: self.keyboardHeight,
+                includeBottomSafeAreaWhenKeyboardHidden: includeBottomSafeArea
+            )
         }
         self.setNeedsLayout()
         

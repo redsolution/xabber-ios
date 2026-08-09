@@ -3999,7 +3999,10 @@ class ChatViewController: MessagesViewController {
         let trailingInset = self.view.safeAreaInsets.right + horizontalInset
         let frame = CGRect(
             origin: CGPoint(x: leadingInset, y: self.view.bounds.height - inputHeight),
-            size: CGSize(width: max(0, self.view.bounds.width - leadingInset - trailingInset), height: inputHeight)
+            size: CGSize(
+                width: max(0, self.view.bounds.width - leadingInset - trailingInset),
+                height: composerHeight
+            )
         )
         self.xabberInputView = ModernXabberInputView(frame: frame)
         self.xabberInputView.accountPalette = accountPallete

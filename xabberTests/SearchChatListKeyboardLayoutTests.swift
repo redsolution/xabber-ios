@@ -68,6 +68,31 @@ final class SearchChatListKeyboardLayoutTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(controller.xabberInputViewKeyboardTopConstraint).isActive)
     }
 
+    func testSafeAreaIsNotAddedToExternallyAnchoredComposerHeight() {
+        XCTAssertEqual(
+            ModernXabberInputView.resolvedContainerHeight(
+                barHeight: ModernXabberInputView.defaultBarHeight,
+                keyboardHeight: 0,
+                topInset: 0,
+                bottomSafeAreaInset: 34,
+                includeBottomSafeAreaWhenKeyboardHidden: false
+            ),
+            ModernXabberInputView.defaultBarHeight,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ModernXabberInputView.resolvedContainerHeight(
+                barHeight: ModernXabberInputView.defaultBarHeight,
+                keyboardHeight: 0,
+                topInset: 0,
+                bottomSafeAreaInset: 34,
+                includeBottomSafeAreaWhenKeyboardHidden: true
+            ),
+            ModernXabberInputView.defaultBarHeight + 34,
+            accuracy: 0.001
+        )
+    }
+
     func testChatSearchStatusBarIsKeyboardOwnedWithoutKeyboardHeightTail() throws {
         let controller = makeLoadedChatController()
 
