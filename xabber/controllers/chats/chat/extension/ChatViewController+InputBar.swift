@@ -25,6 +25,7 @@ extension ChatViewController {
 
     @objc
     internal func showImagePicker() {
+        NSLog("ATTACHMENT_TAP event=show_image_picker_entry presented=%@", String(describing: self.presentedViewController))
         self.view.endEditing(false)
 #if DEBUG
         if let entryHandler = self.chatAttachmentPickerEntryHandlerForTesting {
@@ -34,9 +35,11 @@ extension ChatViewController {
 #endif
         DispatchQueue.main.async {
             guard self.chatAttachmentFlowCoordinator == nil else {
+                NSLog("ATTACHMENT_TAP event=blocked reason=coordinator_active")
                 return
             }
             guard let account = AccountManager.shared.find(for: self.owner) else {
+                NSLog("ATTACHMENT_TAP event=blocked reason=account_missing")
                 self.presentChatAttachmentError(
                     "File transfer is unavailable for this account."
                         .localizeString(
@@ -46,9 +49,30 @@ extension ChatViewController {
                 )
                 return
             }
+            let availabilityState = account.cloudStorage.availabilityRelay.value
             let entryPlan = ChatAttachmentPickerEntryPlan.make(
                 isTelegramAttachmentPickerEnabled: CommonConfigManager.shared.config.use_telegram_attachment_picker,
-                availabilityState: account.cloudStorage.availabilityRelay.value
+                availabilityState: availabilityState
+            )
+            let availabilityDiagnostic: String
+            switch availabilityState {
+            case .discovering:
+                availabilityDiagnostic = "discovering"
+            case .authorizing:
+                availabilityDiagnostic = "authorizing"
+            case .ready:
+                availabilityDiagnostic = "ready"
+            case .unsupported:
+                availabilityDiagnostic = "unsupported"
+            case .retryableFailure(let stage, _):
+                availabilityDiagnostic = "retryable-\(stage.rawValue)"
+            }
+            NSLog(
+                "ATTACHMENT_TAP event=route_resolved presents_picker=%@ resumes_availability=%@ availability=%@ presented=%@",
+                entryPlan.presentsPicker.description,
+                entryPlan.resumesAvailability.description,
+                availabilityDiagnostic,
+                String(describing: self.presentedViewController)
             )
 
             if entryPlan.resumesAvailability {
@@ -66,6 +90,7 @@ extension ChatViewController {
         guard self.chatAttachmentFlowCoordinator == nil else {
             return
         }
+        NSLog("ATTACHMENT_TAP event=coordinator_create")
         let coordinator = ChatAttachmentFlowCoordinator(
             presentingViewController: self,
             context: ChatAttachmentFlowContext(

@@ -127,6 +127,19 @@ class ModernXabberInputView: UIView {
     static let minimumComposerHeight: CGFloat = NativeGlassBarStyle.minimumHeight
     static let defaultBarHeight: CGFloat = NativeGlassBarStyle.minimumHeight + NativeGlassBarStyle.bottomOffset
 
+    static func resolvedContainerHeight(
+        barHeight: CGFloat,
+        keyboardHeight: CGFloat,
+        topInset: CGFloat,
+        bottomSafeAreaInset: CGFloat,
+        includeBottomSafeAreaWhenKeyboardHidden: Bool
+    ) -> CGFloat {
+        let safeAreaHeight = keyboardHeight == 0 && includeBottomSafeAreaWhenKeyboardHidden
+            ? bottomSafeAreaInset
+            : 0
+        return barHeight + keyboardHeight + topInset + safeAreaHeight
+    }
+
     private enum LiquidGlassMetrics {
         static let composerHorizontalInset: CGFloat = 0
         static let composerVerticalInset: CGFloat = 0
@@ -543,6 +556,7 @@ class ModernXabberInputView: UIView {
             for: .standard
         )
         var shouldShowSeekUpDownButtons: Bool = true
+        fileprivate var acceptsComposerHitTesting = true
         
         open var onChangeConversationTypeCallback: ((ClientSynchronizationManager.ConversationType) -> Void)? = nil
         open var onSeekUpCallback: (() -> Void)? = nil
@@ -731,7 +745,10 @@ class ModernXabberInputView: UIView {
         }
 
         override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-            guard !isHidden, isUserInteractionEnabled, alpha > 0.01 else {
+            guard acceptsComposerHitTesting,
+                  !isHidden,
+                  isUserInteractionEnabled,
+                  alpha > 0.01 else {
                 return false
             }
             return super.point(inside: point, with: event) ||
@@ -739,7 +756,10 @@ class ModernXabberInputView: UIView {
         }
 
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-            guard !isHidden, isUserInteractionEnabled, alpha > 0.01 else {
+            guard acceptsComposerHitTesting,
+                  !isHidden,
+                  isUserInteractionEnabled,
+                  alpha > 0.01 else {
                 return nil
             }
             if let calendarHit = expandedCalendarHitView(for: point, with: event) {
@@ -2716,7 +2736,6 @@ class ModernXabberInputView: UIView {
         ))
         
         view.isHidden = true
-        
         return view
     }()
     
@@ -2745,6 +2764,8 @@ class ModernXabberInputView: UIView {
         ))
         
         view.isHidden = true
+        view.acceptsComposerHitTesting = false
+        view.isUserInteractionEnabled = false
         
         return view
     }()
@@ -2875,7 +2896,8 @@ class ModernXabberInputView: UIView {
         for point: CGPoint,
         with event: UIEvent?
     ) -> UIView? {
-        guard !searchPanel.isHidden,
+        guard self.state == .search,
+              !searchPanel.isHidden,
               searchPanel.isUserInteractionEnabled,
               searchPanel.alpha > 0.01 else {
             return nil
@@ -3109,6 +3131,7 @@ class ModernXabberInputView: UIView {
         self.textField.keyHandler = self
         self.textField.typingAttributes = self.baseComposerAttributes()
         self.addObservers()
+        self.attachButton.addTarget(self, action: #selector(self.onAttachButtonTouchDown), for: .touchDown)
         self.attachButton.addTarget(self, action: #selector(self.onAttachButtonTouchUp), for: .touchUpInside)
         self.timerButton.addTarget(self,  action: #selector(self.onTimerButtonTouchUp), for: .touchUpInside)
         self.recordButton.addTarget(self, action: #selector(self.onRecordButtonTouchUp), for: .touchUpInside)
@@ -3322,6 +3345,14 @@ class ModernXabberInputView: UIView {
         }
         self.resetRecordingButtonPositionAndVisibility(animated: false)
         self.updateScheduledMessagesButtonVisibility()
+        self.synchronizeSearchPanelInteractivity()
+    }
+
+    private func synchronizeSearchPanelInteractivity() {
+        let isSearchActive = self.state == .search
+        self.searchPanel.acceptsComposerHitTesting = isSearchActive
+        self.searchPanel.isUserInteractionEnabled = isSearchActive
+        self.searchPanel.isHidden = !isSearchActive
     }
     
     var isSelectionPanelShowed: Bool = false
@@ -3349,14 +3380,13 @@ class ModernXabberInputView: UIView {
     var activeContextPreviewMode: ComposerContextPreviewView.Mode? = nil
 
     private func resolvedInputHeight(keyboardHeight: CGFloat) -> CGFloat {
-        var inputHeight = self.barHeight + keyboardHeight + self.topInset
-        if keyboardHeight == 0,
-           self.includesBottomSafeAreaWhenKeyboardHidden,
-           let bottomInset = (UIApplication.shared.delegate as? AppDelegate)?
-            .window?.safeAreaInsets.bottom {
-            inputHeight += bottomInset
-        }
-        return inputHeight
+        Self.resolvedContainerHeight(
+            barHeight: self.barHeight,
+            keyboardHeight: keyboardHeight,
+            topInset: self.topInset,
+            bottomSafeAreaInset: self.applicationBottomSafeAreaInset,
+            includeBottomSafeAreaWhenKeyboardHidden: self.includesBottomSafeAreaWhenKeyboardHidden
+        )
     }
 
     private func notifyHeightChangedForCurrentContext() {
@@ -3525,6 +3555,10 @@ class ModernXabberInputView: UIView {
     }
 
     open var heightConstraint: NSLayoutConstraint? = nil
+
+    private var applicationBottomSafeAreaInset: CGFloat {
+        (UIApplication.shared.delegate as? AppDelegate)?.window?.safeAreaInsets.bottom ?? 0
+    }
     
     final func activateConstraints() {
         guard !self.didActivateComposerConstraints else { return }
@@ -3655,6 +3689,7 @@ class ModernXabberInputView: UIView {
             nextWidth: self.bounds.width
         )
         super.layoutSubviews()
+        self.synchronizeSearchPanelInteractivity()
         self.layoutLiquidGlassAppearance()
         if shouldResetRecordingButton {
             self.lastWidthForRecordingButtonReset = self.bounds.width
@@ -4424,10 +4459,24 @@ class ModernXabberInputView: UIView {
     }
     
     @objc
+    private func onAttachButtonTouchDown(_ sender: UIButton) {
+        NSLog(
+            "ATTACHMENT_TAP event=touch_down enabled=%@ hidden=%@ alpha=%.2f frame=%@",
+            sender.isEnabled.description,
+            sender.isHidden.description,
+            sender.alpha,
+            NSCoder.string(for: sender.frame)
+        )
+    }
+
+    @objc
     private func onAttachButtonTouchUp(_ sender: UIButton) {
+        NSLog(
+            "ATTACHMENT_TAP event=touch_up_inside delegate=%@ window=%@",
+            (self.delegate != nil).description,
+            (sender.window != nil).description
+        )
         self.delegate?.attachmentButtonTouchUp()
-        
-        
     }
     
     @objc

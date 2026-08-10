@@ -58,6 +58,31 @@ final class SearchChatListKeyboardLayoutTests: XCTestCase {
         XCTAssertEqual(heightConstraint.constant, ModernXabberInputView.defaultBarHeight, accuracy: 0.001)
     }
 
+    func testSafeAreaIsNotAddedToExternallyAnchoredComposerHeight() {
+        XCTAssertEqual(
+            ModernXabberInputView.resolvedContainerHeight(
+                barHeight: ModernXabberInputView.defaultBarHeight,
+                keyboardHeight: 0,
+                topInset: 0,
+                bottomSafeAreaInset: 34,
+                includeBottomSafeAreaWhenKeyboardHidden: false
+            ),
+            ModernXabberInputView.defaultBarHeight,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ModernXabberInputView.resolvedContainerHeight(
+                barHeight: ModernXabberInputView.defaultBarHeight,
+                keyboardHeight: 0,
+                topInset: 0,
+                bottomSafeAreaInset: 34,
+                includeBottomSafeAreaWhenKeyboardHidden: true
+            ),
+            ModernXabberInputView.defaultBarHeight + 34,
+            accuracy: 0.001
+        )
+    }
+
     func testChatSearchStatusBarIsKeyboardOwnedWithoutKeyboardHeightTail() throws {
         let controller = makeLoadedChatController()
 
@@ -262,7 +287,7 @@ final class SearchChatListKeyboardLayoutTests: XCTestCase {
         )
     }
 
-    func testChatComposerStaysKeyboardOwnedAfterSearchReset() throws {
+    func testChatComposerRemainsAnchoredToKeyboardGuideAfterSearchReset() throws {
         let controller = makeLoadedChatController()
 
         controller.inSearchMode.accept(true)
@@ -294,6 +319,19 @@ final class SearchChatListKeyboardLayoutTests: XCTestCase {
         XCTAssertEqual(
             try XCTUnwrap(controller.xabberInputView.heightConstraint).constant,
             ModernXabberInputView.defaultBarHeight,
+            accuracy: 0.001
+        )
+        let metrics = controller.updateChatInputViewForCurrentKeyboardLayout(
+            visibleKeyboardHeight: 300
+        )
+        XCTAssertEqual(
+            metrics.visualHeight,
+            ModernXabberInputView.defaultBarHeight,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            metrics.collectionObstructionHeight,
+            ModernXabberInputView.defaultBarHeight + 300,
             accuracy: 0.001
         )
     }
@@ -350,6 +388,34 @@ final class SearchChatListKeyboardLayoutTests: XCTestCase {
             0,
             accuracy: 0.001
         )
+    }
+
+    func testConstraintManagedComposerUpdateDoesNotOverrideItsResolvedFrame() {
+        let container = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let inputView = ModernXabberInputView(frame: .zero)
+        inputView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(inputView)
+
+        let heightConstraint = inputView.heightAnchor.constraint(
+            equalToConstant: ModernXabberInputView.defaultBarHeight
+        )
+        inputView.heightConstraint = heightConstraint
+        NSLayoutConstraint.activate([
+            inputView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            inputView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+            inputView.bottomAnchor.constraint(equalTo: container.topAnchor, constant: 500),
+            heightConstraint
+        ])
+        container.layoutIfNeeded()
+        let resolvedFrame = inputView.frame
+
+        inputView.update(
+            screenHeight: container.bounds.height,
+            keyboardHeight: 0,
+            includeBottomSafeAreaWhenKeyboardHidden: false
+        )
+
+        XCTAssertEqual(inputView.frame, resolvedFrame)
     }
 
     private func makeLoadedChatController() -> ChatViewController {

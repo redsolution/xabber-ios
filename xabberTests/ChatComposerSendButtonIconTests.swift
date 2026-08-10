@@ -70,6 +70,47 @@ final class ChatComposerSendButtonIconTests: XCTestCase {
         XCTAssertTrue(inputView.searchPanel.isHidden)
         XCTAssertGreaterThanOrEqual(inputView.searchPanel.bounds.width, NativeGlassBarStyle.buttonSize)
         XCTAssertGreaterThanOrEqual(inputView.searchPanel.bounds.height, 38)
+        XCTAssertFalse(inputView.searchPanel.isUserInteractionEnabled)
+    }
+
+    func testSearchPanelCannotInterceptAttachmentButtonOutsideSearchMode() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 343,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+        inputView.changeState(to: .normal)
+        inputView.layoutIfNeeded()
+
+        let attachmentCenter = inputView.attachButton.convert(
+            CGPoint(x: inputView.attachButton.bounds.midX, y: inputView.attachButton.bounds.midY),
+            to: inputView
+        )
+
+        XCTAssertFalse(inputView.searchPanel.isUserInteractionEnabled)
+        XCTAssertIdentical(inputView.hitTest(attachmentCenter, with: nil), inputView.attachButton)
+    }
+
+    func testSearchPanelBecomesInteractiveOnlyInSearchMode() {
+        let inputView = ModernXabberInputView(frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 343,
+            height: ModernXabberInputView.defaultBarHeight
+        ))
+
+        inputView.changeState(to: .search)
+        inputView.layoutIfNeeded()
+
+        XCTAssertFalse(inputView.searchPanel.isHidden)
+        XCTAssertTrue(inputView.searchPanel.isUserInteractionEnabled)
+
+        inputView.changeState(to: .normal)
+        inputView.layoutIfNeeded()
+
+        XCTAssertTrue(inputView.searchPanel.isHidden)
+        XCTAssertFalse(inputView.searchPanel.isUserInteractionEnabled)
     }
 
     func testHiddenMentionPanelIsDetachedUntilSuggestionsAreShown() {

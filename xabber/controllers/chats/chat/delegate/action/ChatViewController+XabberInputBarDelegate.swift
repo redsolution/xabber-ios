@@ -791,6 +791,7 @@ extension ChatViewController: XabberInputBarDelegate {
     }
     
     func attachmentButtonTouchUp() {
+        NSLog("ATTACHMENT_TAP event=delegate_entry")
         self.showImagePicker()
     }
     

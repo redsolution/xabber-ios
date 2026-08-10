@@ -97,7 +97,7 @@ final class UIKitChatAttachmentCloudStorageQuotaAlertPresenter: ChatAttachmentCl
     }
 }
 
-final class ChatAttachmentFlowCoordinator: ChatAttachmentFlowCoordinating {
+final class ChatAttachmentFlowCoordinator: NSObject, ChatAttachmentFlowCoordinating {
     typealias PresentationHandler = (
         UIViewController,
         UIViewController,
@@ -186,23 +186,36 @@ final class ChatAttachmentFlowCoordinator: ChatAttachmentFlowCoordinating {
         self.dismissalHandler = dismissalHandler
         self.endEditingHandler = endEditingHandler
         self.cloudStoragePresentationHandler = cloudStoragePresentationHandler
+        super.init()
     }
 
     func start() {
+        NSLog(
+            "ATTACHMENT_TAP event=coordinator_start presenter=%@ existing_picker=%@",
+            (presentingViewController != nil).description,
+            (pickerViewController != nil).description
+        )
         guard let presenter = presentingViewController else {
+            NSLog("ATTACHMENT_TAP event=presentation_rejected reason=missing_presenter")
             delegate?.chatAttachmentFlowCoordinator(self, didFailWith: .missingPresenter)
             return
         }
 
         guard pickerViewController == nil else {
+            NSLog("ATTACHMENT_TAP event=presentation_rejected reason=picker_already_exists")
             return
         }
 
         guard presenter.presentedViewController == nil else {
+            NSLog(
+                "ATTACHMENT_TAP event=presentation_rejected reason=presenter_busy controller=%@",
+                String(describing: presenter.presentedViewController)
+            )
             delegate?.chatAttachmentFlowCoordinator(self, didFailWith: .presentationFailed)
             return
         }
 
+        let loadStartedAt = CFAbsoluteTimeGetCurrent()
         let picker = ChatAttachmentPickerViewController(
             context: context,
             sourceControllerFactory: sourceControllerFactory,
@@ -211,16 +224,29 @@ final class ChatAttachmentFlowCoordinator: ChatAttachmentFlowCoordinating {
         picker.delegate = self
         picker.navigationItem.largeTitleDisplayMode = .never
         picker.loadViewIfNeeded()
+        NSLog(
+            "ATTACHMENT_TAP event=picker_view_loaded elapsed_ms=%.1f",
+            (CFAbsoluteTimeGetCurrent() - loadStartedAt) * 1000
+        )
         let navigationController = UINavigationController(rootViewController: picker)
         navigationController.setNavigationBarHidden(false, animated: false)
         navigationController.navigationBar.prefersLargeTitles = false
         ChatAttachmentPickerPageSheetStyle.apply(to: navigationController)
+        navigationController.presentationController?.delegate = self
         pickerViewController = picker
         pickerNavigationController = navigationController
         selectedItemCount = picker.selectedItemCount
 
         refreshCloudStorageStatsOnOpen()
-        presentationHandler(presenter, navigationController, true, nil)
+        NSLog("ATTACHMENT_TAP event=presentation_begin")
+        presentationHandler(presenter, navigationController, true) { [weak self, weak navigationController] in
+            NSLog("ATTACHMENT_TAP event=presentation_completion")
+            guard let self else {
+                return
+            }
+
+            navigationController?.presentationController?.delegate = self
+        }
     }
 
     func switchSource(to source: ChatAttachmentSource) {
@@ -309,6 +335,10 @@ final class ChatAttachmentFlowCoordinator: ChatAttachmentFlowCoordinating {
 }
 
 extension ChatAttachmentFlowCoordinator: ChatAttachmentPickerViewControllerDelegate {
+    func chatAttachmentSheetViewControllerDidRequestDismiss(_ sheet: ChatAttachmentPickerViewController) {
+        dismiss(animated: true)
+    }
+
     func chatAttachmentSheetViewControllerDidDismiss(_ sheet: ChatAttachmentPickerViewController) {
         finishDismissal(notifyDelegate: true)
     }
@@ -377,6 +407,12 @@ extension ChatAttachmentFlowCoordinator: ChatAttachmentPickerViewControllerDeleg
         didUpdateSelectionCount count: Int
     ) {
         selectedItemCount = count
+    }
+}
+
+extension ChatAttachmentFlowCoordinator: UIAdaptivePresentationControllerDelegate {
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        finishDismissal(notifyDelegate: true)
     }
 }
 

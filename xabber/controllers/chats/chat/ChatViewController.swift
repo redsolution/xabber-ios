@@ -6355,9 +6355,8 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func inputKeyboardHeightForCurrentChatInputMode(
-        visibleKeyboardHeight: CGFloat
+        visibleKeyboardHeight _: CGFloat
     ) -> CGFloat {
-        _ = visibleKeyboardHeight
         return 0
     }
 
