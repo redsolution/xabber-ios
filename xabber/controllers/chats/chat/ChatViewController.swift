@@ -5630,6 +5630,7 @@ class ChatViewController: MessagesViewController {
             keyboardTopConstraint,
             heightConstraint
         ])
+        ChatComposerFirstFocusDiagnostics.shared.noteComposerReady()
         xabberInputView.heightConstraint = heightConstraint
         self.installSearchNavigationButtons()
         
@@ -8078,6 +8079,7 @@ class ChatViewController: MessagesViewController {
     
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        ChatComposerFirstFocusDiagnostics.shared.noteChatViewDidAppear()
         if self.isHandlingCancelledInteractiveReappearance {
             self.isHandlingCancelledInteractiveReappearance = false
             if self.isNavigationTransitionActive,

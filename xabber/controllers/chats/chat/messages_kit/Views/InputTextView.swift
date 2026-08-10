@@ -61,6 +61,7 @@ final class InputTextView: UITextView {
     }
     
     final var isImagePasteEnabled: Bool = true
+    final var isFirstFocusDiagnosticsEnabled: Bool = false
     weak var keyHandler: InputTextViewKeyHandler?
     
     /// A UILabel that holds the InputTextView's placeholder text
@@ -241,12 +242,109 @@ final class InputTextView: UITextView {
         NotificationCenter.default.post(name: UITextView.textDidChangeNotification, object: self)
     }
     
+    // MARK: - First Focus Diagnostics
+
+    final override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let shouldStartDiagnostics = ChatComposerTouchHitTestPolicy.shouldStart(
+            isDiagnosticsEnabled: isFirstFocusDiagnosticsEnabled,
+            isTouchEvent: event?.type == .touches,
+            containsPoint: self.point(inside: point, with: event)
+        )
+        if shouldStartDiagnostics {
+            ChatComposerFirstFocusDiagnostics.shared.beginIfNeeded(
+                stage: .touchHitTest,
+                windowAttached: window != nil,
+                inputView: self
+            )
+        }
+        return super.hitTest(point, with: event)
+    }
+
+    final override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard isFirstFocusDiagnosticsEnabled else {
+            return super.touchesBegan(touches, with: event)
+        }
+
+        let diagnostics = ChatComposerFirstFocusDiagnostics.shared
+        let span = diagnostics.beginIfNeeded(
+            stage: .touchBegan,
+            windowAttached: window != nil,
+            inputView: self
+        )
+        super.touchesBegan(touches, with: event)
+        diagnostics.endSpan(
+            span,
+            stage: .touchReturned,
+            value: isFirstResponder ? 1 : 0
+        )
+    }
+
+    final override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard isFirstFocusDiagnosticsEnabled else {
+            return super.touchesEnded(touches, with: event)
+        }
+
+        let diagnostics = ChatComposerFirstFocusDiagnostics.shared
+        let span = diagnostics.beginSpan(stage: .touchEndedBegin)
+        super.touchesEnded(touches, with: event)
+        diagnostics.endSpan(
+            span,
+            stage: .touchEndedReturn,
+            value: isFirstResponder ? 1 : 0
+        )
+    }
+
+    final override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesCancelled(touches, with: event)
+        guard isFirstFocusDiagnosticsEnabled else {
+            return
+        }
+        ChatComposerFirstFocusDiagnostics.shared.record(
+            stage: .touchCancelled,
+            value: isFirstResponder ? 1 : 0
+        )
+    }
+
+    final override func becomeFirstResponder() -> Bool {
+        guard isFirstFocusDiagnosticsEnabled else {
+            return super.becomeFirstResponder()
+        }
+
+        let diagnostics = ChatComposerFirstFocusDiagnostics.shared
+        let span = diagnostics.beginIfNeeded(
+            stage: .becomeFirstResponderBegin,
+            windowAttached: window != nil,
+            inputView: self
+        )
+        let didBecomeFirstResponder = super.becomeFirstResponder()
+        diagnostics.endSpan(
+            span,
+            stage: .becomeFirstResponderEnd,
+            value: didBecomeFirstResponder ? 1 : 0
+        )
+        return didBecomeFirstResponder
+    }
+
     // MARK: - Image Paste Support
     
     final override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        
-        if action == NSSelectorFromString("paste:") && UIPasteboard.general.image != nil {
-            return isImagePasteEnabled
+
+        if action == NSSelectorFromString("paste:") {
+            let diagnostics = ChatComposerFirstFocusDiagnostics.shared
+            let span = isFirstFocusDiagnosticsEnabled
+                ? diagnostics.beginSpan(stage: .actionQueryBegin)
+                : nil
+            let hasImage = UIPasteboard.general.image != nil
+            let canPerform = hasImage
+                ? isImagePasteEnabled
+                : super.canPerformAction(action, withSender: sender)
+            diagnostics.endSpan(
+                span,
+                stage: .actionQueryEnd,
+                value: canPerform ? 1 : 0,
+                value2: hasImage ? 1 : 0
+            )
+            return canPerform
         }
         return super.canPerformAction(action, withSender: sender)
     }

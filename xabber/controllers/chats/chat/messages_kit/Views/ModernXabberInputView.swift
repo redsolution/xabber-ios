@@ -2353,6 +2353,7 @@ class ModernXabberInputView: UIView {
     let textField: InputTextView = {
         let field = InputTextView(frame: .zero)
         field.accessibilityIdentifier = "chat.composer.text_field"
+        field.isFirstFocusDiagnosticsEnabled = true
         
         field.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         field.setContentHuggingPriority(UILayoutPriority(249), for: .horizontal)
@@ -5011,7 +5012,27 @@ class ModernXabberInputView: UIView {
 }
 
 extension ModernXabberInputView: UITextViewDelegate, InputTextViewKeyHandler {
+    func textViewShouldBeginEditing(_ textView: UITextView) -> Bool {
+        ChatComposerFirstFocusDiagnostics.shared.record(
+            stage: .shouldBeginEditing
+        )
+        return true
+    }
+
+    func textViewDidBeginEditing(_ textView: UITextView) {
+        ChatComposerFirstFocusDiagnostics.shared.record(
+            stage: .didBeginEditing
+        )
+    }
+
     func textViewDidChangeSelection(_ textView: UITextView) {
+        let diagnostics = ChatComposerFirstFocusDiagnostics.shared
+        let span = diagnostics.isActive
+            ? diagnostics.beginSpan(stage: .selectionChangeBegin)
+            : nil
+        defer {
+            diagnostics.endSpan(span, stage: .selectionChangeEnd)
+        }
         if !self.isApplyingComposerMutation {
             self.normalizeTypingAttributesAtCursor()
         }

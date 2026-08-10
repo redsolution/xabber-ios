@@ -154,6 +154,16 @@ extension ChatViewController {
     }
 
     private func handleKeyboardFrameChange(_ notification: Notification) {
+        let diagnostics = ChatComposerFirstFocusDiagnostics.shared
+        let diagnosticSpan = diagnostics.beginSpan(
+            stage: .appFrameHandlerBegin
+        )
+        defer {
+            diagnostics.endSpan(
+                diagnosticSpan,
+                stage: .appFrameHandlerEnd
+            )
+        }
         guard let userInfo = notification.userInfo,
               let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue,
               self.xabberInputView != nil else {
