@@ -29,7 +29,6 @@ import Alamofire
 import RealmSwift
 import CocoaLumberjack
 import XMPPFramework.XMPPJID
-import AVFoundation
 
 struct PasscodeLockPolicy {
     enum Access: Equatable {
@@ -657,53 +656,6 @@ class ApplicationStateManager: NSObject {
         }
         if PasscodeLockPolicy.canUsePasscodeLock {
             self.runPincodeTask()
-        }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
-            let diagnostics = ChatComposerFirstFocusDiagnostics.shared
-            let categorySpan = diagnostics.beginPreFocusSpan(
-                stage: .audioBootstrapCategoryBegin
-            )
-            do {
-                try AVAudioSession.sharedInstance().setCategory(
-                    .playAndRecord,
-                    mode: .default,
-                    options: .defaultToSpeaker
-                )
-                diagnostics.endPreFocusSpan(
-                    categorySpan,
-                    stage: .audioBootstrapCategoryEnd,
-                    succeeded: true
-                )
-            } catch {
-                diagnostics.endPreFocusSpan(
-                    categorySpan,
-                    stage: .audioBootstrapCategoryEnd,
-                    succeeded: false,
-                    errorCode: (error as NSError).code
-                )
-            }
-            if #available(iOS 13.0, *) {
-                let hapticsSpan = diagnostics.beginPreFocusSpan(
-                    stage: .audioBootstrapHapticsBegin
-                )
-                do {
-                    try AVAudioSession
-                        .sharedInstance()
-                        .setAllowHapticsAndSystemSoundsDuringRecording(true)
-                    diagnostics.endPreFocusSpan(
-                        hapticsSpan,
-                        stage: .audioBootstrapHapticsEnd,
-                        succeeded: true
-                    )
-                } catch {
-                    diagnostics.endPreFocusSpan(
-                        hapticsSpan,
-                        stage: .audioBootstrapHapticsEnd,
-                        succeeded: false,
-                        errorCode: (error as NSError).code
-                    )
-                }
-            }
         }
         self.runAutoDeleteTask()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {

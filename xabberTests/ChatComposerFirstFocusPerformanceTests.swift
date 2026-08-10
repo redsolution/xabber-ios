@@ -6,6 +6,7 @@
 //  Copyright © 2026 Igor Boldin. All rights reserved.
 //
 
+import AVFoundation
 import XCTest
 @testable import xabber
 
@@ -454,5 +455,224 @@ final class ChatComposerFirstFocusPerformanceTests: XCTestCase {
         ].forEach { forbidden in
             XCTAssertFalse(normalized.contains(forbidden), "diagnostic leaked field: \(forbidden)")
         }
+    }
+
+    func testVoiceRecordingConfiguresAudioSessionOnlyForRecordingLifetime() throws {
+        let session = VoiceRecordingAudioSessionFake()
+        let controller = VoiceRecordingAudioSessionController(session: session)
+
+        XCTAssertTrue(session.operations.isEmpty)
+
+        try controller.prepareForRecording()
+        controller.deactivate()
+
+        XCTAssertEqual(
+            session.operations,
+            [
+                .setCategory(
+                    category: .playAndRecord,
+                    mode: .default,
+                    options: .defaultToSpeaker
+                ),
+                .setAllowHaptics(true),
+                .setActive(true),
+                .setActive(false),
+                .setAllowHaptics(false),
+                .setCategory(
+                    category: .ambient,
+                    mode: .default,
+                    options: []
+                )
+            ]
+        )
+    }
+
+    func testVoiceRecordingActivationContinuesWhenOptionalHapticsFails() throws {
+        let session = VoiceRecordingAudioSessionFake()
+        session.hapticsError = VoiceRecordingAudioSessionFake.TestError.hapticsUnavailable
+        let controller = VoiceRecordingAudioSessionController(session: session)
+
+        try controller.prepareForRecording()
+        controller.deactivate()
+
+        XCTAssertEqual(
+            session.operations,
+            [
+                .setCategory(
+                    category: .playAndRecord,
+                    mode: .default,
+                    options: .defaultToSpeaker
+                ),
+                .setAllowHaptics(true),
+                .setActive(true),
+                .setActive(false),
+                .setCategory(
+                    category: .ambient,
+                    mode: .default,
+                    options: []
+                )
+            ]
+        )
+    }
+
+    func testVoiceRecordingStartFailureRestoresPreviousConfiguration() throws {
+        let session = VoiceRecordingAudioSessionFake(
+            category: .playback,
+            mode: .spokenAudio,
+            categoryOptions: .duckOthers,
+            allowsRecordingHaptics: false
+        )
+        let controller = VoiceRecordingAudioSessionController(session: session)
+        let failedStart: () throws -> Void = {
+            throw VoiceRecordingAudioSessionFake.TestError.recorderStartFailed
+        }
+
+        XCTAssertThrowsError(
+            try controller.performRecordingStart(failedStart)
+        )
+
+        XCTAssertEqual(session.category, .playback)
+        XCTAssertEqual(session.mode, .spokenAudio)
+        XCTAssertEqual(session.categoryOptions, .duckOthers)
+        XCTAssertFalse(session.allowHapticsAndSystemSoundsDuringRecording)
+        XCTAssertEqual(
+            Array(session.operations.suffix(3)),
+            [
+                .setActive(false),
+                .setAllowHaptics(false),
+                .setCategory(
+                    category: .playback,
+                    mode: .spokenAudio,
+                    options: .duckOthers
+                )
+            ]
+        )
+    }
+
+    func testVoiceRecordingActivationFailureRollsBackConfiguration() {
+        let session = VoiceRecordingAudioSessionFake()
+        session.activationError = VoiceRecordingAudioSessionFake.TestError.activationUnavailable
+        let controller = VoiceRecordingAudioSessionController(session: session)
+
+        XCTAssertThrowsError(try controller.prepareForRecording())
+
+        XCTAssertEqual(session.category, .ambient)
+        XCTAssertEqual(session.mode, .default)
+        XCTAssertEqual(session.categoryOptions, [])
+        XCTAssertFalse(session.allowHapticsAndSystemSoundsDuringRecording)
+        XCTAssertEqual(
+            Array(session.operations.suffix(4)),
+            [
+                .setActive(true),
+                .setActive(false),
+                .setAllowHaptics(false),
+                .setCategory(
+                    category: .ambient,
+                    mode: .default,
+                    options: []
+                )
+            ]
+        )
+    }
+
+    func testVoiceRecordingCleanupDoesNotOverwriteAnotherAudioOwner() throws {
+        let session = VoiceRecordingAudioSessionFake()
+        let controller = VoiceRecordingAudioSessionController(session: session)
+        try controller.prepareForRecording()
+        session.replaceConfiguration(
+            category: .playAndRecord,
+            mode: .voiceChat,
+            categoryOptions: [.defaultToSpeaker, .allowBluetoothHFP],
+            allowsRecordingHaptics: true
+        )
+        let operationsBeforeCleanup = session.operations
+
+        controller.deactivate()
+
+        XCTAssertEqual(session.operations, operationsBeforeCleanup)
+        XCTAssertEqual(session.mode, .voiceChat)
+    }
+}
+
+private final class VoiceRecordingAudioSessionFake: VoiceRecordingAudioSession {
+    enum TestError: Error {
+        case activationUnavailable
+        case hapticsUnavailable
+        case recorderStartFailed
+    }
+
+    enum Operation: Equatable {
+        case setCategory(
+            category: AVAudioSession.Category,
+            mode: AVAudioSession.Mode,
+            options: AVAudioSession.CategoryOptions
+        )
+        case setAllowHaptics(Bool)
+        case setActive(Bool)
+    }
+
+    private(set) var operations: [Operation] = []
+    var activationError: Error?
+    var hapticsError: Error?
+    private(set) var category: AVAudioSession.Category
+    private(set) var mode: AVAudioSession.Mode
+    private(set) var categoryOptions: AVAudioSession.CategoryOptions
+    private(set) var allowHapticsAndSystemSoundsDuringRecording: Bool
+
+    init(
+        category: AVAudioSession.Category = .ambient,
+        mode: AVAudioSession.Mode = .default,
+        categoryOptions: AVAudioSession.CategoryOptions = [],
+        allowsRecordingHaptics: Bool = false
+    ) {
+        self.category = category
+        self.mode = mode
+        self.categoryOptions = categoryOptions
+        self.allowHapticsAndSystemSoundsDuringRecording = allowsRecordingHaptics
+    }
+
+    func setCategory(
+        _ category: AVAudioSession.Category,
+        mode: AVAudioSession.Mode,
+        options: AVAudioSession.CategoryOptions
+    ) throws {
+        operations.append(.setCategory(
+            category: category,
+            mode: mode,
+            options: options
+        ))
+        self.category = category
+        self.mode = mode
+        self.categoryOptions = options
+    }
+
+    func setAllowHapticsAndSystemSoundsDuringRecording(_ inValue: Bool) throws {
+        operations.append(.setAllowHaptics(inValue))
+        if let hapticsError {
+            throw hapticsError
+        }
+        allowHapticsAndSystemSoundsDuringRecording = inValue
+    }
+
+    func setActive(
+        _ active: Bool,
+        options: AVAudioSession.SetActiveOptions
+    ) throws {
+        operations.append(.setActive(active))
+        if active, let activationError {
+            throw activationError
+        }
+    }
+
+    func replaceConfiguration(
+        category: AVAudioSession.Category,
+        mode: AVAudioSession.Mode,
+        categoryOptions: AVAudioSession.CategoryOptions,
+        allowsRecordingHaptics: Bool
+    ) {
+        self.category = category
+        self.mode = mode
+        self.categoryOptions = categoryOptions
+        self.allowHapticsAndSystemSoundsDuringRecording = allowsRecordingHaptics
     }
 }

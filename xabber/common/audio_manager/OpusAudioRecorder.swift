@@ -56,6 +56,168 @@ extension AudioErrorType: LocalizedError {
     }
 }
 
+protocol VoiceRecordingAudioSession: AnyObject {
+    var category: AVAudioSession.Category { get }
+    var mode: AVAudioSession.Mode { get }
+    var categoryOptions: AVAudioSession.CategoryOptions { get }
+    var allowHapticsAndSystemSoundsDuringRecording: Bool { get }
+
+    func setCategory(
+        _ category: AVAudioSession.Category,
+        mode: AVAudioSession.Mode,
+        options: AVAudioSession.CategoryOptions
+    ) throws
+    func setAllowHapticsAndSystemSoundsDuringRecording(_ inValue: Bool) throws
+    func setActive(
+        _ active: Bool,
+        options: AVAudioSession.SetActiveOptions
+    ) throws
+}
+
+extension AVAudioSession: VoiceRecordingAudioSession {}
+
+final class VoiceRecordingAudioSessionController {
+    private struct Configuration {
+        let category: AVAudioSession.Category
+        let mode: AVAudioSession.Mode
+        let categoryOptions: AVAudioSession.CategoryOptions
+        let allowsRecordingHaptics: Bool
+    }
+
+    private struct RecordingLease {
+        let previousConfiguration: Configuration
+        let didApplyRecordingHaptics: Bool
+    }
+
+    private let session: VoiceRecordingAudioSession
+    private var recordingLease: RecordingLease?
+
+    init(session: VoiceRecordingAudioSession = AVAudioSession.sharedInstance()) {
+        self.session = session
+    }
+
+    func prepareForRecording() throws {
+        assertMainThread()
+
+        if recordingLease != nil {
+            deactivate()
+        }
+
+        let previousConfiguration = Configuration(
+            category: session.category,
+            mode: session.mode,
+            categoryOptions: session.categoryOptions,
+            allowsRecordingHaptics: session.allowHapticsAndSystemSoundsDuringRecording
+        )
+
+        try session.setCategory(
+            .playAndRecord,
+            mode: .default,
+            options: .defaultToSpeaker
+        )
+
+        var didApplyRecordingHaptics = false
+        if #available(iOS 13.0, *) {
+            do {
+                try session.setAllowHapticsAndSystemSoundsDuringRecording(true)
+                didApplyRecordingHaptics = true
+            } catch {
+                DDLogDebug(
+                    "VoiceRecordingAudioSessionController: optional haptics configuration failed. "
+                        + error.localizedDescription
+                )
+            }
+        }
+
+        recordingLease = RecordingLease(
+            previousConfiguration: previousConfiguration,
+            didApplyRecordingHaptics: didApplyRecordingHaptics
+        )
+
+        do {
+            try session.setActive(true, options: [])
+        } catch {
+            deactivate()
+            throw error
+        }
+    }
+
+    func performRecordingStart<Result>(_ start: () throws -> Result) throws -> Result {
+        try prepareForRecording()
+        do {
+            return try start()
+        } catch {
+            deactivate()
+            throw error
+        }
+    }
+
+    func deactivate() {
+        assertMainThread()
+
+        guard let recordingLease else { return }
+        guard sessionStillMatchesRecordingLease(recordingLease) else {
+            self.recordingLease = nil
+            return
+        }
+
+        self.recordingLease = nil
+
+        do {
+            try session.setActive(false, options: [])
+        } catch {
+            DDLogDebug(
+                "VoiceRecordingAudioSessionController: deactivation failed. "
+                    + error.localizedDescription
+            )
+        }
+
+        if recordingLease.didApplyRecordingHaptics {
+            do {
+                try session.setAllowHapticsAndSystemSoundsDuringRecording(
+                    recordingLease.previousConfiguration.allowsRecordingHaptics
+                )
+            } catch {
+                DDLogDebug(
+                    "VoiceRecordingAudioSessionController: optional haptics restoration failed. "
+                        + error.localizedDescription
+                )
+            }
+        }
+
+        do {
+            try session.setCategory(
+                recordingLease.previousConfiguration.category,
+                mode: recordingLease.previousConfiguration.mode,
+                options: recordingLease.previousConfiguration.categoryOptions
+            )
+        } catch {
+            DDLogDebug(
+                "VoiceRecordingAudioSessionController: category restoration failed. "
+                    + error.localizedDescription
+            )
+        }
+    }
+
+    private func sessionStillMatchesRecordingLease(_ recordingLease: RecordingLease) -> Bool {
+        guard session.category == .playAndRecord,
+              session.mode == .default,
+              session.categoryOptions == .defaultToSpeaker else {
+            return false
+        }
+
+        return !recordingLease.didApplyRecordingHaptics
+            || session.allowHapticsAndSystemSoundsDuringRecording
+    }
+
+    private func assertMainThread() {
+        assert(
+            Thread.isMainThread,
+            "Voice recording audio-session mutations must be serialized on the main thread"
+        )
+    }
+}
+
 class AudioRecorder: NSObject {
     static let audioPercentageUserInfoKey = "com.xabber.audio.percentage"
     
@@ -78,6 +240,7 @@ class AudioRecorder: NSObject {
     
     private var recorder: AVAudioRecorder?
     private var audioMeteringLevelTimer: Timer?
+    private let audioSessionController = VoiceRecordingAudioSessionController()
     
     func askPermission(completion: ((Bool, Bool) -> Void)? = nil) {// -> Bool {
         
@@ -152,20 +315,19 @@ class AudioRecorder: NSObject {
             throw AudioErrorType.audioFileWrongPath
         }
         
-        try AVAudioSession.sharedInstance().setActive(true)
-        
-        self.recorder = try AVAudioRecorder(url: path, settings: recordSettings)
-        self.recorder?.delegate = self
-        self.recorder?.isMeteringEnabled = true
-        
-        guard let prepared = self.recorder?.prepareToRecord(),
-            prepared != false,
-            let started = self.recorder?.record(),
-            started != false else {
-            self.isRunning = false
-            throw AudioErrorType.recordFailed
-        }
-        
+        return try audioSessionController.performRecordingStart {
+            self.recorder = try AVAudioRecorder(url: path, settings: recordSettings)
+            self.recorder?.delegate = self
+            self.recorder?.isMeteringEnabled = true
+
+            guard let prepared = self.recorder?.prepareToRecord(),
+                prepared != false,
+                let started = self.recorder?.record(),
+                started != false else {
+                self.isRunning = false
+                throw AudioErrorType.recordFailed
+            }
+
 //        self.audioMeteringLevelTimer = Timer.scheduledTimer(
 //            timeInterval: audioVisualizationTimeInterval,
 //            target: self,
@@ -173,7 +335,7 @@ class AudioRecorder: NSObject {
 //            userInfo: nil,
 //            repeats: true
 //        )
-        
+
 //        DispatchQueue.main.async {
             self.audioMeteringLevelTimer = Timer.scheduledTimer(
                 withTimeInterval: timeInterval,
@@ -192,11 +354,12 @@ class AudioRecorder: NSObject {
                 })
             RunLoop.main.add(self.audioMeteringLevelTimer!, forMode: .default)
 //        }
-        
-        DDLogDebug("Audio Recorder did start - creating file at path: \(path.absoluteString)")
-        
-        self.currentRecordPath = path
-        return path
+
+            DDLogDebug("Audio Recorder did start - creating file at path: \(path.absoluteString)")
+
+            self.currentRecordPath = path
+            return path
+        }
     }
     
     func stopRecording(cancel: Bool, shouldSend: Bool) throws {
@@ -208,7 +371,7 @@ class AudioRecorder: NSObject {
                 self.deleteCurrentRecordingFile()
                 self.onEndRecordCallback = nil
                 self.recorder = nil
-                try? AVAudioSession.sharedInstance().setActive(false)
+                audioSessionController.deactivate()
                 return
             }
             DDLogDebug("Audio Recorder did fail to stop")
@@ -217,7 +380,7 @@ class AudioRecorder: NSObject {
         self.isRunning = false
         let shouldDeleteRecording = cancel
         self.recorder?.stop()
-        try AVAudioSession.sharedInstance().setActive(false)
+        audioSessionController.deactivate()
         self.recorder = nil
         if !cancel {
             self.onEndRecordCallback?(self.currentRecordedFileUrl, nil, shouldSend)
