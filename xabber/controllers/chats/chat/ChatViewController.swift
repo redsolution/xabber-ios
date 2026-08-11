@@ -2382,6 +2382,7 @@ class ChatViewController: MessagesViewController {
         )
     }
     internal var navigationAvatarItem: UIBarButtonItem? = nil
+    internal var savedMessagesSearchNavigationItem: UIBarButtonItem? = nil
     private var navigationTitleWidthConstraint: NSLayoutConstraint? = nil
     private var navigationTitleHeightConstraint: NSLayoutConstraint? = nil
 
@@ -4588,6 +4589,8 @@ class ChatViewController: MessagesViewController {
     
     @objc
     internal func showInfo() {
+        guard self.conversationType != .saved else { return }
+
         let vc: BaseViewController
         if self.conversationType == .group {
             vc = GroupchatInfoViewController()
@@ -6022,7 +6025,7 @@ class ChatViewController: MessagesViewController {
         }
 
         setupNavigationTitleView()
-        setupNavigationAvatarItem()
+        setupNavigationTrailingItem()
 
         let title = updateTitle()
         if titleLabel.attributedText?.isEqual(to: title) != true {
@@ -6047,10 +6050,23 @@ class ChatViewController: MessagesViewController {
                 titleStack.bottomAnchor.constraint(lessThanOrEqualTo: titleButton.bottomAnchor),
                 titleStack.centerYAnchor.constraint(equalTo: titleButton.centerYAnchor)
             ])
-
-            titleButton.removeTarget(self, action: #selector(onTitleButtonTouchUp(_:)), for: .touchUpInside)
-            titleButton.addTarget(self, action: #selector(onTitleButtonTouchUp(_:)), for: .touchUpInside)
         }
+
+        titleButton.removeTarget(
+            self,
+            action: #selector(onTitleButtonTouchUp(_:)),
+            for: .touchUpInside
+        )
+        let titleOpensConversationInfo = conversationType != .saved
+        if titleOpensConversationInfo {
+            titleButton.addTarget(
+                self,
+                action: #selector(onTitleButtonTouchUp(_:)),
+                for: .touchUpInside
+            )
+        }
+        titleButton.isUserInteractionEnabled = titleOpensConversationInfo
+        titleButton.isAccessibilityElement = titleOpensConversationInfo
 
         if navigationTitleWidthConstraint == nil {
             titleButton.translatesAutoresizingMaskIntoConstraints = false
@@ -6072,6 +6088,43 @@ class ChatViewController: MessagesViewController {
         if navigationItem.titleView !== titleButton {
             navigationItem.titleView = titleButton
         }
+    }
+
+    private func setupNavigationTrailingItem() {
+        if conversationType == .saved {
+            setupSavedMessagesSearchNavigationItem()
+        } else {
+            setupNavigationAvatarItem()
+        }
+    }
+
+    private func setupSavedMessagesSearchNavigationItem() {
+        if savedMessagesSearchNavigationItem == nil {
+            let item = UIBarButtonItem(
+                image: UIImage(systemName: "magnifyingglass"),
+                style: .plain,
+                target: self,
+                action: #selector(activateSavedMessagesSearch(_:))
+            )
+            item.accessibilityIdentifier = ChatSearchAccessibilityIdentifier.entry
+            item.accessibilityLabel = "Search".localizeString(
+                id: "search",
+                arguments: []
+            )
+            savedMessagesSearchNavigationItem = item
+        }
+        guard let savedMessagesSearchNavigationItem else { return }
+        NavigationBarItemOwnership.setIfChanged(
+            .item(savedMessagesSearchNavigationItem),
+            on: navigationItem,
+            side: .right,
+            animated: false
+        )
+    }
+
+    @objc
+    internal func activateSavedMessagesSearch(_ sender: UIBarButtonItem) {
+        activateSearchModeFromExternalRoute()
     }
 
     private func setupNavigationAvatarItem() {

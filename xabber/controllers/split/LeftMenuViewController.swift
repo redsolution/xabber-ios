@@ -237,7 +237,6 @@ enum LeftMenuSavedMessagesSelectionPolicy {
     enum Decision: Equatable {
         case showSavedList
         case openChatDirectly(SavedChat)
-        case showSavedListAndOpenChat(SavedChat)
     }
 
     static func savedChats(
@@ -253,19 +252,12 @@ enum LeftMenuSavedMessagesSelectionPolicy {
         }
     }
 
-    static func decision(
-        isCompact: Bool,
-        availableChats: [SavedChat]
-    ) -> Decision {
-        guard let firstChat = availableChats.first else {
+    static func decision(availableChats: [SavedChat]) -> Decision {
+        guard availableChats.count == 1,
+              let chat = availableChats.first else {
             return .showSavedList
         }
-
-        if isCompact, availableChats.count == 1 {
-            return .openChatDirectly(firstChat)
-        }
-
-        return .showSavedListAndOpenChat(firstChat)
+        return .openChatDirectly(chat)
     }
 }
 
@@ -690,6 +682,11 @@ class LeftMenuViewController: UIViewController {
     var contactsVc: ContactsViewController? = nil
     var groupsVc: ContactsViewController? = nil
     var savedMessagesChatsVc: LastChatsViewController? = nil
+    private var savedMessagesDirectActivationGeneration: UInt = 0
+    private weak var savedMessagesCompactActivationController:
+        LastChatsViewController?
+    private weak var savedMessagesExpandedActivationController:
+        LastChatsViewController?
     
     internal let tableView: UITableView = {
         let style: UITableView.Style = ContinuousSplitBackgroundExperiment.usesSplitListChrome ? .insetGrouped : .grouped
@@ -1974,24 +1971,7 @@ extension LeftMenuViewController: UITableViewDelegate {
         return vc
     }
 
-    private func isCompactSavedMessagesSelection() -> Bool {
-        guard let splitVC = self.splitViewController else {
-            return false
-        }
-
-        return selectionPresentationAction(for: splitVC) == .compactRevealSupplementary
-    }
-
-    private func openSavedMessagesChat(_ chat: LeftMenuSavedMessagesSelectionPolicy.SavedChat) {
-        savedMessagesChatsVc?.stackNewChat(
-            owner: chat.owner,
-            jid: chat.jid,
-            conversationType: .saved,
-            configure: nil
-        )
-    }
-
-    private func openSavedMessagesChatFromChats(_ chat: LeftMenuSavedMessagesSelectionPolicy.SavedChat) -> Bool {
+    private func normalChatsController() -> LastChatsViewController {
         let vc: LastChatsViewController
         if let chatsVc {
             vc = chatsVc
@@ -2002,16 +1982,658 @@ extension LeftMenuViewController: UITableViewDelegate {
 
         vc.filter.accept(.chats)
         vc.leftMenuSelectRootCategoryDelegate = self
-        guard show(controller: vc, kind: .emptyChat) else {
+        return vc
+    }
+
+    private func cancelPendingSavedMessagesDirectActivation() {
+        savedMessagesDirectActivationGeneration &+= 1
+        savedMessagesCompactActivationController?
+            .resetChatNavigationTransaction(cancelled: true)
+        savedMessagesCompactActivationController = nil
+        if let controller = savedMessagesExpandedActivationController {
+            controller.resetExpandedSplitChatNavigationTransaction(
+                restorePreviousDetail: true
+            )
+        }
+        savedMessagesExpandedActivationController = nil
+    }
+
+    /// A replacement chat open must let Last Chats resolve its own expanded
+    /// transaction phase. In particular, resetting a `.presenting` Saved chat
+    /// here would leave the provisional secondary and `currentChatVC` owned by
+    /// different routes until UIKit reports the native terminal.
+    private func invalidateSavedMessagesDirectActivationForReplacementOpen(
+        target: LastChatsNavigationSingleFlightCoordinator.Target
+    ) {
+        let expandedTransaction = savedMessagesExpandedActivationController?
+            .expandedSplitChatNavigationTransaction
+        if savedMessagesCompactActivationController?
+                .chatNavigationSingleFlight.state?.target == target ||
+            expandedTransaction?.target == target ||
+            expandedTransaction?.phase == .presenting {
+            return
+        }
+        savedMessagesDirectActivationGeneration &+= 1
+        savedMessagesCompactActivationController?
+            .resetChatNavigationTransaction(cancelled: true)
+        savedMessagesCompactActivationController = nil
+        savedMessagesExpandedActivationController = nil
+    }
+
+    private func savedMessagesDirectActivationIsCurrent(
+        generation: UInt,
+        chat: LeftMenuSavedMessagesSelectionPolicy.SavedChat
+    ) -> Bool {
+        savedMessagesDirectActivationGeneration == generation &&
+            savedMessagesChats() == [chat]
+    }
+
+    @discardableResult
+    private func showSavedMessagesListAfterInvalidatedDirectActivation(
+        generation: UInt
+    ) -> Bool {
+        guard savedMessagesDirectActivationGeneration == generation else {
             return false
         }
+        let vc = savedMessagesController()
+        if showSavedMessages(controller: vc) {
+            previousSelectedKey = "saved"
+            return true
+        }
+        return false
+    }
 
-        vc.stackNewChat(
+    private func compactSavedMessagesNavigationController(
+        root chatsController: LastChatsViewController,
+        expectedSupplementary: UIViewController?
+    ) -> UINavigationController? {
+        if let installedNavigationController = expectedSupplementary
+                as? UINavigationController,
+           installedNavigationController.viewControllers.contains(where: {
+               $0 === chatsController
+           }) {
+            return installedNavigationController
+        }
+        if let owningNavigationController = chatsController.navigationController {
+            return owningNavigationController.viewIfLoaded?.window == nil
+                ? owningNavigationController
+                : nil
+        }
+        guard chatsController.parent == nil else {
+            return nil
+        }
+        return UINavigationController(rootViewController: chatsController)
+    }
+
+    private func compactSavedMessagesActivationIsEligible(
+        chat: LeftMenuSavedMessagesSelectionPolicy.SavedChat,
+        generation: UInt,
+        chatsController: LastChatsViewController,
+        navigationController: UINavigationController,
+        splitViewController: UISplitViewController,
+        expectedSupplementary: UIViewController?,
+        expectedSupplementaryTop: UIViewController?,
+        expectedSecondary: UIViewController?,
+        expectedSecondaryTop: UIViewController?
+    ) -> Bool {
+        let currentSupplementary = splitViewController.viewController(
+            for: .supplementary
+        )
+        let currentSupplementaryTop =
+            (currentSupplementary as? UINavigationController)?
+                .topViewController ?? currentSupplementary
+        let currentSecondary = splitViewController.viewController(
+            for: .secondary
+        )
+        let currentSecondaryTop = (currentSecondary as? UINavigationController)?
+            .topViewController ?? currentSecondary
+        let window = splitViewController.viewIfLoaded?.window
+
+        return savedMessagesDirectActivationIsCurrent(
+            generation: generation,
+            chat: chat
+        ) && chatNavigationRouteResolver(splitViewController) ==
+            .currentNavigationPush &&
+            currentSupplementary === expectedSupplementary &&
+            currentSupplementaryTop === expectedSupplementaryTop &&
+            currentSecondary === expectedSecondary &&
+            currentSecondaryTop === expectedSecondaryTop &&
+            chatsController.navigationController === navigationController &&
+            navigationController.viewControllers.contains(where: {
+                $0 === chatsController
+            }) &&
+            UIApplication.shared.applicationState == .active &&
+            window != nil &&
+            window?.isHidden == false &&
+            (window?.alpha ?? 0) > 0 &&
+            window?.isKeyWindow == true &&
+            window?.windowScene?.activationState == .foregroundActive &&
+            splitViewController.transitionCoordinator == nil &&
+            currentSupplementary?.transitionCoordinator == nil &&
+            currentSupplementaryTop?.transitionCoordinator == nil &&
+            currentSecondary?.transitionCoordinator == nil &&
+            currentSecondaryTop?.transitionCoordinator == nil &&
+            navigationController.transitionCoordinator == nil &&
+            chatsController.transitionCoordinator == nil &&
+            splitViewController.presentedViewController == nil &&
+            currentSupplementary?.presentedViewController == nil &&
+            currentSupplementaryTop?.presentedViewController == nil &&
+            currentSecondary?.presentedViewController == nil &&
+            currentSecondaryTop?.presentedViewController == nil &&
+            navigationController.presentedViewController == nil &&
+            chatsController.presentedViewController == nil
+    }
+
+    private func completeCompactSavedMessagesInstallation(
+        chat: LeftMenuSavedMessagesSelectionPolicy.SavedChat,
+        generation: UInt,
+        destination: ChatViewController,
+        chatsController: LastChatsViewController,
+        navigationController: UINavigationController,
+        splitViewController: UISplitViewController,
+        secondaryController: UIViewController,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let finish: (Bool) -> Void = { [weak self, weak destination,
+                                       weak chatsController,
+                                       weak navigationController,
+                                       weak splitViewController] didComplete in
+            guard let self, let destination, let chatsController,
+                  let navigationController, let splitViewController else {
+                completion(false)
+                return
+            }
+            let isInstalled = splitViewController.viewController(
+                for: .supplementary
+            ) === navigationController &&
+                splitViewController.viewController(for: .primary) === self &&
+                splitViewController.viewController(for: .secondary) ===
+                    secondaryController &&
+                navigationController.viewControllers.count == 2 &&
+                navigationController.viewControllers.first === chatsController &&
+                navigationController.topViewController === destination
+            let window = splitViewController.viewIfLoaded?.window
+            completion(
+                didComplete &&
+                    self.savedMessagesDirectActivationIsCurrent(
+                        generation: generation,
+                        chat: chat
+                    ) &&
+                    self.chatNavigationRouteResolver(splitViewController) ==
+                        .currentNavigationPush &&
+                    UIApplication.shared.applicationState == .active &&
+                    window != nil &&
+                    window?.isHidden == false &&
+                    window?.isKeyWindow == true &&
+                    window?.windowScene?.activationState == .foregroundActive &&
+                    isInstalled
+            )
+        }
+
+        if let transitionCoordinator = splitViewController.transitionCoordinator,
+           transitionCoordinator.animate(
+            alongsideTransition: nil,
+            completion: { context in
+                finish(!context.isCancelled)
+            }
+           ) {
+            return
+        }
+        DispatchQueue.main.async {
+            finish(true)
+        }
+    }
+
+    private func installPreparedCompactSavedMessagesNavigationController(
+        _ navigationController: UINavigationController,
+        destination: ChatViewController,
+        chat: LeftMenuSavedMessagesSelectionPolicy.SavedChat,
+        generation: UInt,
+        chatsController: LastChatsViewController,
+        splitViewController: UISplitViewController,
+        expectedSupplementary: UIViewController?,
+        expectedSecondary: UIViewController?,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let currentSupplementary = splitViewController.viewController(
+            for: .supplementary
+        )
+        let currentSecondary = splitViewController.viewController(
+            for: .secondary
+        )
+        let currentSupplementaryTop =
+            (currentSupplementary as? UINavigationController)?
+                .topViewController ?? currentSupplementary
+        let currentSecondaryTop = (currentSecondary as? UINavigationController)?
+            .topViewController ?? currentSecondary
+        let window = splitViewController.viewIfLoaded?.window
+        let reusesInstalledSupplementary =
+            currentSupplementary === navigationController
+        let hasInteractiveSupplementaryTransition = [
+            currentSupplementary,
+            currentSupplementaryTop,
+            navigationController,
+            destination
+        ].contains { controller in
+            controller?.transitionCoordinator?.isInteractive == true
+        }
+        guard savedMessagesDirectActivationIsCurrent(
+                generation: generation,
+                chat: chat
+              ),
+              chatNavigationRouteResolver(splitViewController) ==
+                .currentNavigationPush,
+              currentSupplementary === expectedSupplementary,
+              currentSecondary === expectedSecondary,
+              navigationController.viewControllers.count == 2,
+              navigationController.viewControllers.first === chatsController,
+              navigationController.topViewController === destination,
+              UIApplication.shared.applicationState == .active,
+              window != nil,
+              window?.isHidden == false,
+              (window?.alpha ?? 0) > 0,
+              window?.isKeyWindow == true,
+              window?.windowScene?.activationState == .foregroundActive,
+              splitViewController.transitionCoordinator == nil,
+              currentSecondary?.transitionCoordinator == nil,
+              currentSecondaryTop?.transitionCoordinator == nil,
+              (reusesInstalledSupplementary &&
+                !hasInteractiveSupplementaryTransition) || (
+                currentSupplementary?.transitionCoordinator == nil &&
+                    currentSupplementaryTop?.transitionCoordinator == nil &&
+                    navigationController.transitionCoordinator == nil &&
+                    destination.transitionCoordinator == nil
+              ),
+              splitViewController.presentedViewController == nil,
+              currentSupplementary?.presentedViewController == nil,
+              currentSupplementaryTop?.presentedViewController == nil,
+              currentSecondary?.presentedViewController == nil,
+              currentSecondaryTop?.presentedViewController == nil,
+              navigationController.presentedViewController == nil,
+              destination.presentedViewController == nil else {
+            completion(false)
+            return
+        }
+
+        if reusesInstalledSupplementary {
+            guard let currentSecondary else {
+                completion(false)
+                return
+            }
+            applySelectionPresentation(to: splitViewController)
+            completeCompactSavedMessagesInstallation(
+                chat: chat,
+                generation: generation,
+                destination: destination,
+                chatsController: chatsController,
+                navigationController: navigationController,
+                splitViewController: splitViewController,
+                secondaryController: currentSecondary,
+                completion: completion
+            )
+            return
+        }
+
+        SearchSectionNavigationContainerPolicy
+            .applyTransparentSplitAppearanceIfAllowed(
+                to: navigationController,
+                in: splitViewController
+            )
+        let emptyChatController = EmptyChatViewController()
+        emptyChatController.kind = .emptyChat
+        let supplementaryTargetBounds =
+            LeftMenuSplitDestinationPreparer.targetBounds(
+                for: .supplementary,
+                in: splitViewController,
+                presenter: self
+            )
+        let secondaryTargetBounds =
+            LeftMenuSplitDestinationPreparer.targetBounds(
+                for: .secondary,
+                in: splitViewController,
+                presenter: self
+            )
+
+        LeftMenuSplitDestinationPreparer.perform(.columnInstallation) {
+            LeftMenuSplitColumnInstaller.install(
+                primary: self,
+                supplementaryNavigationController: navigationController,
+                secondary: emptyChatController,
+                in: splitViewController
+            )
+        }
+        LeftMenuSplitDestinationPreparer.prepareAttached(
+            navigationController,
+            targetBounds: supplementaryTargetBounds
+        )
+        LeftMenuSplitDestinationPreparer.prepareAttached(
+            emptyChatController,
+            targetBounds: secondaryTargetBounds
+        )
+        applySelectionPresentation(to: splitViewController)
+        completeCompactSavedMessagesInstallation(
+            chat: chat,
+            generation: generation,
+            destination: destination,
+            chatsController: chatsController,
+            navigationController: navigationController,
+            splitViewController: splitViewController,
+            secondaryController: emptyChatController,
+            completion: completion
+        )
+    }
+
+    private func compactSavedMessagesActivationContext(
+        for chat: LeftMenuSavedMessagesSelectionPolicy.SavedChat,
+        chatsController: LastChatsViewController,
+        generation: UInt
+    ) -> LastChatsCompactActivationContext? {
+        guard let splitViewController else {
+            return nil
+        }
+        let expectedSupplementary = splitViewController.viewController(
+            for: .supplementary
+        )
+        let expectedSecondary = splitViewController.viewController(
+            for: .secondary
+        )
+        let expectedSupplementaryTop =
+            (expectedSupplementary as? UINavigationController)?
+                .topViewController ?? expectedSupplementary
+        let expectedSecondaryTop = (expectedSecondary as? UINavigationController)?
+            .topViewController ?? expectedSecondary
+        guard let navigationController =
+                compactSavedMessagesNavigationController(
+                    root: chatsController,
+                    expectedSupplementary: expectedSupplementary
+                ) else {
+            return nil
+        }
+        let expectedNavigationStackIdentifiers = navigationController
+            .viewControllers
+            .map(ObjectIdentifier.init)
+
+        let validateBeforePush: () -> Bool = {
+            [weak self, weak chatsController, weak navigationController,
+             weak splitViewController] in
+            guard let self, let chatsController, let navigationController,
+                  let splitViewController else {
+                return false
+            }
+            return navigationController.viewControllers
+                .map(ObjectIdentifier.init) ==
+                    expectedNavigationStackIdentifiers &&
+                self.compactSavedMessagesActivationIsEligible(
+                chat: chat,
+                generation: generation,
+                chatsController: chatsController,
+                navigationController: navigationController,
+                splitViewController: splitViewController,
+                expectedSupplementary: expectedSupplementary,
+                expectedSupplementaryTop: expectedSupplementaryTop,
+                expectedSecondary: expectedSecondary,
+                expectedSecondaryTop: expectedSecondaryTop
+            )
+        }
+        return LastChatsCompactActivationContext(
+            navigationController: navigationController,
+            validateBeforePush: validateBeforePush,
+            prepareNavigationControllerForPush: {
+                [weak chatsController, weak navigationController] in
+                guard validateBeforePush(), let chatsController,
+                      let navigationController else {
+                    return false
+                }
+                navigationController.setViewControllers(
+                    [chatsController],
+                    animated: false
+                )
+                return navigationController.topViewController === chatsController
+            },
+            installPreparedNavigationController: {
+                [weak self, weak chatsController, weak navigationController,
+                 weak splitViewController] destination, completion in
+                DispatchQueue.main.async {
+                    guard let self, let chatsController,
+                          let navigationController,
+                          let splitViewController else {
+                        completion(false)
+                        return
+                    }
+                    self.installPreparedCompactSavedMessagesNavigationController(
+                        navigationController,
+                        destination: destination,
+                        chat: chat,
+                        generation: generation,
+                        chatsController: chatsController,
+                        splitViewController: splitViewController,
+                        expectedSupplementary: expectedSupplementary,
+                        expectedSecondary: expectedSecondary,
+                        completion: completion
+                    )
+                }
+            },
+            fallback: { [weak self, weak chatsController] in
+                DispatchQueue.main.async {
+                    guard let self,
+                          self.savedMessagesDirectActivationGeneration ==
+                            generation else {
+                        return
+                    }
+                    chatsController?.resetChatNavigationTransaction(
+                        cancelled: true
+                    )
+                    self.savedMessagesCompactActivationController = nil
+                    self
+                        .showSavedMessagesListAfterInvalidatedDirectActivation(
+                            generation: generation
+                        )
+                }
+            }
+        )
+    }
+
+    private func openSavedMessagesChatInCompactActivation(
+        _ chat: LeftMenuSavedMessagesSelectionPolicy.SavedChat,
+        chatsController: LastChatsViewController,
+        generation: UInt
+    ) -> Bool {
+        guard let activationContext = compactSavedMessagesActivationContext(
+            for: chat,
+            chatsController: chatsController,
+            generation: generation
+        ) else {
+            return showSavedMessagesListAfterInvalidatedDirectActivation(
+                generation: generation
+            )
+        }
+        savedMessagesCompactActivationController = chatsController
+        return chatsController.stackNewChatForCompactActivation(
             owner: chat.owner,
             jid: chat.jid,
             conversationType: .saved,
+            activationContext: activationContext,
             configure: nil
         )
+    }
+
+    private func openSavedMessagesChatDirectly(
+        _ chat: LeftMenuSavedMessagesSelectionPolicy.SavedChat,
+        generation: UInt
+    ) -> Bool {
+        let chatsController = normalChatsController()
+        reconcileDetachedExpandedChatState(in: chatsController)
+        if let activationContext = expandedSplitChatActivationContext(
+            for: chatsController,
+            additionalValidation: { [weak self] in
+                self?.savedMessagesDirectActivationIsCurrent(
+                    generation: generation,
+                    chat: chat
+                ) ?? false
+            },
+            additionalValidationFailure: { [weak self, weak chatsController] in
+                DispatchQueue.main.async {
+                    guard let self,
+                          self.savedMessagesDirectActivationGeneration ==
+                            generation else {
+                        return
+                    }
+                    chatsController?
+                        .resetExpandedSplitChatNavigationTransaction(
+                            restorePreviousDetail: true
+                        )
+                    self.savedMessagesExpandedActivationController = nil
+                    self
+                        .showSavedMessagesListAfterInvalidatedDirectActivation(
+                            generation: generation
+                        )
+                }
+            }
+        ) {
+            savedMessagesExpandedActivationController = chatsController
+            return chatsController.stackNewChatForExpandedSplitActivation(
+                owner: chat.owner,
+                jid: chat.jid,
+                conversationType: .saved,
+                openMessageRequest: nil,
+                navigationSource: .standard,
+                activationContext: activationContext,
+                configure: nil
+            )
+        }
+
+        return openSavedMessagesChatInCompactActivation(
+            chat,
+            chatsController: chatsController,
+            generation: generation
+        )
+    }
+
+    /// Root replacement can remove the expanded detail without going through
+    /// Last Chats. Drop only transaction/current-chat state that no longer
+    /// describes the installed secondary before starting the Saved route.
+    private func reconcileDetachedExpandedChatState(
+        in chatsController: LastChatsViewController
+    ) {
+        guard let splitViewController,
+              chatNavigationRouteResolver(splitViewController) ==
+                .splitDetailReplacement else {
+            return
+        }
+        let secondary = splitViewController.viewController(for: .secondary)
+        let secondaryTop = (secondary as? UINavigationController)?
+            .topViewController ?? secondary
+        if let transaction = chatsController
+                .expandedSplitChatNavigationTransaction,
+           transaction.destination !== secondaryTop {
+            let shouldReset: Bool
+            switch transaction.phase {
+            case .preparing, .waitingForEligibility:
+                shouldReset = !isInstalledChatListController(chatsController)
+            case .presented:
+                shouldReset = true
+            case .presenting:
+                shouldReset = false
+            }
+            if shouldReset {
+                chatsController.resetExpandedSplitChatNavigationTransaction(
+                    restorePreviousDetail: false
+                )
+            }
+        }
+        if let currentChat = chatsController.currentChatVC,
+           currentChat !== secondaryTop {
+            chatsController.currentChatVC = nil
+            if chatsController.playerViewToolbar.delegate === currentChat {
+                chatsController.playerViewToolbar.delegate = nil
+            }
+        }
+    }
+
+    @discardableResult
+    private func revealPresentedSavedMessagesChat(
+        _ chatController: ChatViewController
+    ) -> Bool {
+        guard let splitViewController else {
+            return false
+        }
+        if chatNavigationRouteResolver(splitViewController) ==
+            .splitDetailReplacement {
+            let secondary = splitViewController.viewController(for: .secondary)
+            let secondaryTop = (secondary as? UINavigationController)?
+                .topViewController ?? secondary
+            guard secondaryTop === chatController else {
+                return false
+            }
+            splitViewController.show(.secondary)
+            splitViewController.hide(.primary)
+            return true
+        }
+        guard let navigationController = chatController.navigationController,
+              navigationController.topViewController === chatController,
+              splitViewController.viewController(for: .supplementary) ===
+                navigationController else {
+            return false
+        }
+        applySelectionPresentation(to: splitViewController)
+        return true
+    }
+
+    private func coalesceSavedMessagesDirectActivation(
+        _ chat: LeftMenuSavedMessagesSelectionPolicy.SavedChat
+    ) -> Bool {
+        let target = LastChatsNavigationSingleFlightCoordinator.Target(
+            owner: chat.owner,
+            jid: chat.jid,
+            conversationType: .saved
+        )
+        if let controller = savedMessagesCompactActivationController,
+           let state = controller.chatNavigationSingleFlight.state,
+           state.target == target {
+            if state.phase == .presented {
+                guard let destination = controller.currentChatVC else {
+                    return false
+                }
+                guard revealPresentedSavedMessagesChat(destination) else {
+                    controller.currentChatVC = nil
+                    if controller.playerViewToolbar.delegate === destination {
+                        controller.playerViewToolbar.delegate = nil
+                    }
+                    controller.resetChatNavigationTransaction(cancelled: true)
+                    savedMessagesCompactActivationController = nil
+                    return false
+                }
+                return true
+            }
+            return true
+        }
+        if let controller = savedMessagesExpandedActivationController,
+           let transaction = controller.expandedSplitChatNavigationTransaction,
+           transaction.target == target {
+            if transaction.phase == .waitingForEligibility {
+                return false
+            }
+            if transaction.phase == .presented {
+                return revealPresentedSavedMessagesChat(
+                    transaction.destination
+                )
+            }
+            return true
+        }
+        guard let destination = chatsVc?.currentChatVC,
+              destination.owner == chat.owner,
+              destination.jid == chat.jid,
+              destination.conversationType == .saved else {
+            return false
+        }
+        guard revealPresentedSavedMessagesChat(destination) else {
+            chatsVc?.currentChatVC = nil
+            if chatsVc?.playerViewToolbar.delegate === destination {
+                chatsVc?.playerViewToolbar.delegate = nil
+            }
+            chatsVc?.resetChatNavigationTransaction(cancelled: true)
+            return false
+        }
         return true
     }
     
@@ -2033,6 +2655,9 @@ extension LeftMenuViewController: UITableViewDelegate {
 extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
     
     func didSelectRootScreenBy(key: String, category: String? = nil) {
+        if key != "saved" {
+            cancelPendingSavedMessagesDirectActivation()
+        }
         if self.previousSelectedKey == key, key != "saved" {
             revealSelectedContentColumn()
             return
@@ -2206,21 +2831,23 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                     self.archivedVc?.filter.accept(.archived)
                 }
                 let decision = LeftMenuSavedMessagesSelectionPolicy.decision(
-                    isCompact: isCompactSavedMessagesSelection(),
                     availableChats: savedMessagesChats()
                 )
 
                 switch decision {
                 case .showSavedList:
+                    cancelPendingSavedMessagesDirectActivation()
                     let vc = savedMessagesController()
                     didPresent = self.showSavedMessages(controller: vc)
                 case .openChatDirectly(let chat):
-                    didPresent = openSavedMessagesChatFromChats(chat)
-                case .showSavedListAndOpenChat(let chat):
-                    let vc = savedMessagesController()
-                    didPresent = self.showSavedMessages(controller: vc)
-                    if didPresent {
-                        openSavedMessagesChat(chat)
+                    if coalesceSavedMessagesDirectActivation(chat) {
+                        didPresent = true
+                    } else {
+                        cancelPendingSavedMessagesDirectActivation()
+                        didPresent = openSavedMessagesChatDirectly(
+                            chat,
+                            generation: savedMessagesDirectActivationGeneration
+                        )
                     }
                 }
             default:
@@ -2254,7 +2881,9 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
     }
 
     private func expandedSplitChatActivationContext(
-        for controller: LastChatsViewController
+        for controller: LastChatsViewController,
+        additionalValidation: (() -> Bool)? = nil,
+        additionalValidationFailure: (() -> Void)? = nil
     ) -> LastChatsExpandedSplitActivationContext? {
         guard let splitVC = splitViewController,
               chatNavigationRouteResolver(splitVC) == .splitDetailReplacement else {
@@ -2273,6 +2902,7 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
         let reusesInstalledNavigationController = installedNavigationController?
             .viewControllers
             .contains(where: { $0 === controller }) == true
+        var didReportAdditionalValidationFailure = false
         ContinuousSplitBackgroundExperiment.configureTransparentColumn(controller)
         LeftMenuSplitDestinationPreparer.prepare(
             controller,
@@ -2283,9 +2913,24 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
             )
         )
 
+        let reportAdditionalValidationFailure: () -> Void = {
+            guard !didReportAdditionalValidationFailure else {
+                return
+            }
+            didReportAdditionalValidationFailure = true
+            additionalValidationFailure?()
+        }
         let validate: () -> Bool = { [weak self, weak splitVC, weak controller] in
-            guard let self, let splitVC, let controller,
-                  self.chatNavigationRouteResolver(splitVC) == .splitDetailReplacement else {
+            guard let self, let splitVC, let controller else {
+                return false
+            }
+            guard self.chatNavigationRouteResolver(splitVC) ==
+                    .splitDetailReplacement else {
+                reportAdditionalValidationFailure()
+                return false
+            }
+            guard additionalValidation?() ?? true else {
+                reportAdditionalValidationFailure()
                 return false
             }
             let currentSupplementary = splitVC.viewController(for: .supplementary)
@@ -2369,6 +3014,23 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
             )
             return self.isInstalledChatListController(controller)
         }
+        let validateAfterPresentation: ((ChatViewController) -> Bool)?
+        if additionalValidation != nil || additionalValidationFailure != nil {
+            validateAfterPresentation = { [weak self, weak splitVC] _ in
+                guard let self, let splitVC,
+                      self.chatNavigationRouteResolver(splitVC) ==
+                        .splitDetailReplacement else {
+                    return false
+                }
+                return additionalValidation?() ?? true
+            }
+        } else {
+            validateAfterPresentation = nil
+        }
+        let validationFailure: (() -> Void)? =
+            additionalValidationFailure == nil
+                ? nil
+                : reportAdditionalValidationFailure
 
         return LastChatsExpandedSplitActivationContext(
             splitViewController: splitVC,
@@ -2378,7 +3040,9 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
             expectedSupplementaryTopViewControllerIdentifier:
                 expectedSupplementaryTopIdentifier,
             validate: validate,
-            commit: commit
+            commit: commit,
+            validateAfterPresentation: validateAfterPresentation,
+            validationFailure: validationFailure
         )
     }
     
@@ -2391,6 +3055,27 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
         navigationSource: ChatOpenNavigationSource,
         configure: ((ChatViewController?) -> Void)?
     ) -> Bool {
+        let target = LastChatsNavigationSingleFlightCoordinator.Target(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType
+        )
+        invalidateSavedMessagesDirectActivationForReplacementOpen(
+            target: target
+        )
+        if let compactSavedController =
+                savedMessagesCompactActivationController,
+           compactSavedController.chatNavigationSingleFlight.state?.target ==
+                target {
+            return compactSavedController.stackNewChat(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType,
+                openMessageRequest: openMessageRequest,
+                navigationSource: navigationSource,
+                configure: configure
+            )
+        }
         self.previousSelectedKey = nil
         let vc: LastChatsViewController
         if let chatsVc {

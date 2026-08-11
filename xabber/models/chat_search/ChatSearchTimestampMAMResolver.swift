@@ -18,6 +18,15 @@
 
 import Foundation
 
+enum ChatSearchTimestampMAMSupportPolicy {
+    static func supports(
+        _ conversationType: ClientSynchronizationManager.ConversationType
+    ) -> Bool {
+        !conversationType.isEncrypted
+            && [.regular, .group, .channel, .saved].contains(conversationType)
+    }
+}
+
 enum ChatSearchTimestampMAMDirection: String, Equatable, Sendable {
     case atOrAfter
     case latestBefore
@@ -155,7 +164,7 @@ final class ChatSearchTimestampMAMResolver: ChatSearchTimestampMAMResolving {
             deliver(completion, outcome: .noMessage)
             return
         }
-        guard [.regular, .group, .channel].contains(conversationType) else {
+        guard ChatSearchTimestampMAMSupportPolicy.supports(conversationType) else {
             deliver(
                 completion,
                 outcome: .failed(.init(reason: .requestStartFailed, description: nil))

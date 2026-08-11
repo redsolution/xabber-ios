@@ -254,8 +254,7 @@ final class ChatSearchTimestampMAMTransport {
         guard plan.scope.owner.isNotEmpty,
               plan.scope.jid.isNotEmpty,
               let conversationType = plan.conversationType,
-              !conversationType.isEncrypted,
-              [.regular, .group, .channel].contains(conversationType) else {
+              ChatSearchTimestampMAMSupportPolicy.supports(conversationType) else {
             return false
         }
 

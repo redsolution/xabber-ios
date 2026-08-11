@@ -85,6 +85,42 @@ final class ChatSearchTimestampMAMResolverTests: XCTestCase {
         XCTAssertNil(query.element(forName: "flip-page"))
     }
 
+    func testSavedTimestampLookupUsesFavoritesServiceJidAndSavedConversationType() throws {
+        let manager = MessageArchiveManager(withOwner: "owner@example.com")
+        manager.isExtendedArchiveAvailable = true
+        let stream = ChatTimestampCapturingXMPPStream()
+        let favoritesJid = "favorites.example.com"
+        let plan = ChatSearchTimestampMAMRequestPlan.make(
+            fallback: fallback(jid: favoritesJid, conversationType: .saved),
+            requestID: requestID,
+            generation: generation,
+            direction: .atOrAfter
+        )
+
+        XCTAssertTrue(manager.requestTimestampLookup(stream, plan: plan))
+
+        let iq = try XCTUnwrap(stream.sentElements.last)
+        let query = try XCTUnwrap(iq.element(forName: "query"))
+        let fields = try dataFormFields(in: query)
+        let rsm = try XCTUnwrap(
+            query.element(forName: "set", xmlns: "http://jabber.org/protocol/rsm")
+        )
+        XCTAssertNil(iq.attributeStringValue(forName: "to"))
+        XCTAssertEqual(query.attributeStringValue(forName: "queryid"), plan.queryId)
+        XCTAssertEqual(fields["with"], [favoritesJid])
+        XCTAssertEqual(
+            fields["conversation-type"],
+            [ClientSynchronizationManager.ConversationType.saved.rawValue]
+        )
+        XCTAssertEqual(fields["start"], [selectedTimestamp.XMPPFormattedDate])
+        XCTAssertNil(fields["end"])
+        XCTAssertNil(fields["withtext"])
+        XCTAssertEqual(rsm.element(forName: "max")?.stringValue, "1")
+        XCTAssertNil(rsm.element(forName: "before"))
+        XCTAssertNil(rsm.element(forName: "after"))
+        XCTAssertNil(query.element(forName: "flip-page"))
+    }
+
     func testLatestBeforeRequestUsesExactEndReverseRSMAndGroupScope() throws {
         let manager = MessageArchiveManager(withOwner: "owner@example.com")
         let stream = ChatTimestampCapturingXMPPStream()
@@ -416,6 +452,25 @@ final class ChatSearchTimestampMAMResolverTests: XCTestCase {
         XCTAssertTrue(harness.attempts.isEmpty)
     }
 
+    func testSavedFallbackStartsTimestampRequestAndPreservesFavoritesScope() {
+        let harness = ChatTimestampRequestHarness()
+        let resolver = ChatSearchTimestampMAMResolver(dependencies: harness.dependencies())
+        let favoritesJid = "favorites.example.com"
+
+        resolver.resolve(
+            fallback(jid: favoritesJid, conversationType: .saved),
+            requestID: requestID,
+            generation: generation
+        ) { _ in }
+
+        XCTAssertEqual(harness.attempts.count, 1)
+        XCTAssertEqual(harness.attempts.first?.plan.direction, .atOrAfter)
+        XCTAssertEqual(harness.attempts.first?.plan.scope.owner, "owner@example.com")
+        XCTAssertEqual(harness.attempts.first?.plan.scope.jid, favoritesJid)
+        XCTAssertEqual(harness.attempts.first?.plan.conversationType, .saved)
+        XCTAssertTrue(resolver.cancel(requestID: requestID))
+    }
+
     func testManagerFinalWithoutResultEndsAttemptAndCleansTimestampRegistration() throws {
         let manager = MessageArchiveManager(withOwner: "owner@example.com")
         let stream = ChatTimestampCapturingXMPPStream()
@@ -542,12 +597,13 @@ final class ChatSearchTimestampMAMResolverTests: XCTestCase {
     }
 
     private func fallback(
+        jid: String = "romeo@example.com",
         conversationType: ClientSynchronizationManager.ConversationType = .regular
     ) -> ChatSearchTimestampRemoteFallback {
         ChatSearchTimestampRemoteFallback(
             scope: .init(
                 owner: "owner@example.com",
-                jid: "romeo@example.com",
+                jid: jid,
                 conversationTypeRawValue: conversationType.rawValue
             ),
             selectedTimestamp: selectedTimestamp,

@@ -360,6 +360,40 @@ struct LastChatsExpandedSplitEligibilityFingerprint: Equatable {
     let presentedControllerIdentifier: ObjectIdentifier?
 }
 
+/// Adapts the existing compact Last Chats push transaction to an off-screen
+/// navigation stack. Last Chats remains the owner of preparation, account
+/// epoch validation, single-flight state, and the destination push; the caller
+/// only validates and atomically installs the already-topped stack.
+final class LastChatsCompactActivationContext {
+    let navigationController: UINavigationController
+    let validateBeforePush: () -> Bool
+    let prepareNavigationControllerForPush: () -> Bool
+    let installPreparedNavigationController: (
+        _ destination: ChatViewController,
+        _ completion: @escaping (Bool) -> Void
+    ) -> Void
+    let fallback: () -> Void
+
+    init(
+        navigationController: UINavigationController,
+        validateBeforePush: @escaping () -> Bool,
+        prepareNavigationControllerForPush: @escaping () -> Bool,
+        installPreparedNavigationController: @escaping (
+            _ destination: ChatViewController,
+            _ completion: @escaping (Bool) -> Void
+        ) -> Void,
+        fallback: @escaping () -> Void
+    ) {
+        self.navigationController = navigationController
+        self.validateBeforePush = validateBeforePush
+        self.prepareNavigationControllerForPush =
+            prepareNavigationControllerForPush
+        self.installPreparedNavigationController =
+            installPreparedNavigationController
+        self.fallback = fallback
+    }
+}
+
 /// Describes an off-screen Last Chats column that may be installed only after
 /// the destination chat has finished preparing its first frame. The closures
 /// deliberately capture their owners weakly; the transaction must not retain a
@@ -371,6 +405,8 @@ final class LastChatsExpandedSplitActivationContext {
     let expectedSupplementaryTopViewControllerIdentifier: ObjectIdentifier?
     let validate: () -> Bool
     let commit: () -> Bool
+    let validateAfterPresentation: ((ChatViewController) -> Bool)?
+    let validationFailure: (() -> Void)?
 
     init(
         splitViewController: UISplitViewController,
@@ -378,7 +414,9 @@ final class LastChatsExpandedSplitActivationContext {
         expectedSupplementaryContainerIdentifier: ObjectIdentifier?,
         expectedSupplementaryTopViewControllerIdentifier: ObjectIdentifier?,
         validate: @escaping () -> Bool,
-        commit: @escaping () -> Bool
+        commit: @escaping () -> Bool,
+        validateAfterPresentation: ((ChatViewController) -> Bool)? = nil,
+        validationFailure: (() -> Void)? = nil
     ) {
         self.splitViewController = splitViewController
         self.presentationPresenter = presentationPresenter
@@ -388,6 +426,8 @@ final class LastChatsExpandedSplitActivationContext {
             expectedSupplementaryTopViewControllerIdentifier
         self.validate = validate
         self.commit = commit
+        self.validateAfterPresentation = validateAfterPresentation
+        self.validationFailure = validationFailure
     }
 }
 
@@ -1993,7 +2033,6 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             )
         }
         transaction.phase = .presenting
-        transaction.activationContext = nil
         transaction.preparationHandle = nil
         expandedSplitChatNavigationTransaction = transaction
         return true
@@ -2013,8 +2052,48 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
               transaction.phase == .presenting else {
             return false
         }
+        if let validateAfterPresentation = transaction.activationContext?
+            .validateAfterPresentation {
+            guard let splitViewController,
+                  chatNavigationRouteResolver(self) ==
+                    .splitDetailReplacement,
+                  transaction.accountEpoch.isExactValidMatch(
+                    for: chatNavigationAccountEpochResolver(target)
+                  ) else {
+                return false
+            }
+            let supplementary = splitViewController.viewController(
+                for: .supplementary
+            )
+            let supplementaryTop =
+                (supplementary as? UINavigationController)?
+                    .topViewController ?? supplementary
+            let secondary = splitViewController.viewController(for: .secondary)
+            let secondaryTop = (secondary as? UINavigationController)?
+                .topViewController ?? secondary
+            let window = splitViewController.viewIfLoaded?.window
+            guard supplementaryTop === self,
+                  secondaryTop === destination,
+                  destination.navigationController?.topViewController ===
+                    destination,
+                  UIApplication.shared.applicationState == .active,
+                  window != nil,
+                  window?.isHidden == false,
+                  (window?.alpha ?? 0) > 0,
+                  window?.isKeyWindow == true,
+                  window?.windowScene?.activationState == .foregroundActive,
+                  splitViewController.presentedViewController == nil,
+                  supplementary?.presentedViewController == nil,
+                  supplementaryTop?.presentedViewController == nil,
+                  secondary?.presentedViewController == nil,
+                  secondaryTop?.presentedViewController == nil,
+                  validateAfterPresentation(destination) else {
+                return false
+            }
+        }
         transaction.phase = .presented
         transaction.preparationHandle = nil
+        transaction.activationContext = nil
         expandedSplitChatNavigationTransaction = transaction
         stopExpandedSplitAccountRegistryMutationObservation()
         currentChatVC = destination

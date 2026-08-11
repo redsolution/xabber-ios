@@ -398,6 +398,148 @@ final class ChatNavigationBarStateTests: XCTestCase {
         XCTAssertTrue(navigationController.popViewController(animated: false) === viewController)
     }
 
+    func testSavedChatNavbarUsesStableSearchItemAndNoninteractiveTitle() throws {
+        let chat = ChatViewController()
+        chat.owner = "owner@example.com"
+        chat.jid = "favorites.example.com"
+        chat.conversationType = .saved
+        chat.loadViewIfNeeded()
+
+        chat.configureNavbar()
+        let searchItem = try XCTUnwrap(chat.savedMessagesSearchNavigationItem)
+
+        XCTAssertTrue(chat.navigationItem.rightBarButtonItem === searchItem)
+        XCTAssertEqual(
+            searchItem.accessibilityIdentifier,
+            ChatSearchAccessibilityIdentifier.entry
+        )
+        XCTAssertEqual(
+            searchItem.accessibilityLabel,
+            "Search".localizeString(id: "search", arguments: [])
+        )
+        XCTAssertNotNil(searchItem.image)
+        XCTAssertTrue(searchItem.target === chat)
+        XCTAssertEqual(
+            searchItem.action,
+            #selector(ChatViewController.activateSavedMessagesSearch(_:))
+        )
+        XCTAssertFalse(chat.titleButton.isUserInteractionEnabled)
+        XCTAssertFalse(chat.titleButton.isAccessibilityElement)
+        XCTAssertTrue(
+            chat.titleButton.actions(
+                forTarget: chat,
+                forControlEvent: .touchUpInside
+            )?.isEmpty ?? true
+        )
+
+        chat.configureNavbar()
+
+        XCTAssertTrue(chat.savedMessagesSearchNavigationItem === searchItem)
+        XCTAssertTrue(chat.navigationItem.rightBarButtonItem === searchItem)
+    }
+
+    func testSavedChatSearchItemActivatesStandardInChatSearch() throws {
+        let chat = ChatViewController()
+        chat.owner = "owner@example.com"
+        chat.jid = "favorites.example.com"
+        chat.conversationType = .saved
+        chat.loadViewIfNeeded()
+        chat.configureNavbar()
+        let searchItem = try XCTUnwrap(chat.savedMessagesSearchNavigationItem)
+        let action = try XCTUnwrap(searchItem.action)
+
+        XCTAssertTrue(
+            UIApplication.shared.sendAction(
+                action,
+                to: searchItem.target,
+                from: searchItem,
+                for: nil
+            )
+        )
+
+        XCTAssertTrue(chat.inSearchMode.value)
+        XCTAssertTrue(chat.searchPresentationState.isActive)
+    }
+
+    func testSavedChatSearchExitRestoresSameSearchItem() throws {
+        let rootViewController = UIViewController()
+        let chat = ChatViewController()
+        chat.owner = "owner@example.com"
+        chat.jid = "favorites.example.com"
+        chat.conversationType = .saved
+        let navigationController = UINavigationController(
+            rootViewController: rootViewController
+        )
+        navigationController.pushViewController(chat, animated: false)
+        chat.loadViewIfNeeded()
+        chat.configureNavbar()
+        let searchItem = try XCTUnwrap(chat.savedMessagesSearchNavigationItem)
+
+        chat.inSearchMode.accept(true)
+        chat.navigationItem.titleView = nil
+        chat.navigationItem.rightBarButtonItem = nil
+        chat.inSearchMode.accept(false)
+
+        XCTAssertFalse(chat.restoreNormalNavbarAfterSearchIfNeeded())
+        XCTAssertTrue(chat.navigationItem.titleView === chat.titleButton)
+        XCTAssertTrue(chat.navigationItem.rightBarButtonItem === searchItem)
+        XCTAssertFalse(chat.navigationItem.hidesBackButton)
+    }
+
+    func testSavedChatShowInfoDoesNotPresentContactCard() {
+        let chat = ChatViewController()
+        chat.owner = "owner@example.com"
+        chat.jid = "favorites.example.com"
+        chat.conversationType = .saved
+        let navigationController = UINavigationController(
+            rootViewController: chat
+        )
+        let window = TraitWindow(horizontalSizeClass: .compact)
+        window.rootViewController = navigationController
+        window.frame = UIScreen.main.bounds
+        window.makeKeyAndVisible()
+        retainedTraitWindows.append(window)
+        navigationController.loadViewIfNeeded()
+        chat.loadViewIfNeeded()
+
+        chat.showInfo()
+
+        XCTAssertNil(chat.presentedViewController)
+        XCTAssertNil(navigationController.presentedViewController)
+    }
+
+    func testRegularAndGroupChatNavbarsKeepInfoActions() throws {
+        for conversationType in [
+            ClientSynchronizationManager.ConversationType.regular,
+            .group
+        ] {
+            let chat = ChatViewController()
+            chat.owner = "owner@example.com"
+            chat.jid = "conversation@example.com"
+            chat.conversationType = conversationType
+            chat.loadViewIfNeeded()
+
+            chat.configureNavbar()
+
+            let avatarItem = try XCTUnwrap(chat.navigationAvatarItem)
+            XCTAssertTrue(chat.navigationItem.rightBarButtonItem === avatarItem)
+            XCTAssertTrue(avatarItem.target === chat)
+            XCTAssertEqual(
+                avatarItem.action,
+                #selector(ChatViewController.showInfo)
+            )
+            XCTAssertTrue(chat.titleButton.isUserInteractionEnabled)
+            XCTAssertTrue(chat.titleButton.isAccessibilityElement)
+            XCTAssertEqual(
+                chat.titleButton.actions(
+                    forTarget: chat,
+                    forControlEvent: .touchUpInside
+                ),
+                [NSStringFromSelector(#selector(ChatViewController.onTitleButtonTouchUp(_:)))]
+            )
+        }
+    }
+
     func testAnimatedPushFromRealLastChatsKeepsNativeBackAndAvatarStableDuringCallbacks() throws {
         try withInterfaceType(.tabs) {
             let lastChats = LastChatsViewController()

@@ -3908,8 +3908,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         guard plan.scope.owner == owner,
               plan.scope.jid.isNotEmpty,
               let conversationType = plan.conversationType,
-              !conversationType.isEncrypted,
-              [.regular, .group, .channel].contains(conversationType) else {
+              ChatSearchTimestampMAMSupportPolicy.supports(conversationType) else {
             return false
         }
 

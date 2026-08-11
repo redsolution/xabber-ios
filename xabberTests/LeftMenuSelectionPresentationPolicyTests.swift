@@ -203,6 +203,7 @@ final class SavedMessagesEntryPointTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
+        ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
         previousRealmConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "SavedMessagesEntryPointTests-\(name)-\(UUID().uuidString)"
@@ -218,6 +219,7 @@ final class SavedMessagesEntryPointTests: XCTestCase {
         retainedTraitWindows.forEach { $0.isHidden = true }
         retainedTraitWindows.removeAll()
         AccountManager.shared.users.removeAll()
+        ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
         Realm.Configuration.defaultConfiguration = previousRealmConfiguration
         previousRealmConfiguration = nil
         super.tearDown()
@@ -285,11 +287,928 @@ final class SavedMessagesEntryPointTests: XCTestCase {
         XCTAssertTrue(cell.accessibilityTraits.contains(.button))
     }
 
-    func testActualSavedMenuRowTapRoutesToSavedController() throws {
+    func testActualSingleSavedMenuRowTapUsesAtomicExpandedSplitDetailReplacement() throws {
         try seedAccount("owner@example.com")
         try seedFavoritesService(owner: "owner@example.com", node: "favorites.example.com")
         try seedLastChat(jid: "favorites.example.com", owner: "owner@example.com", conversationType: .saved)
 
+        let host = try makeForegroundExpandedSavedRouteHost()
+        defer { releaseForegroundExpandedSavedRouteHost(host) }
+
+        let savedRow = try XCTUnwrap(
+            host.leftMenu.datasource.first?.firstIndex { $0.key == "saved" }
+        )
+
+        host.leftMenu.tableView(
+            host.leftMenu.tableView,
+            didSelectRowAt: IndexPath(row: savedRow, section: 0)
+        )
+
+        XCTAssertIdentical(
+            host.splitViewController.viewController(for: .supplementary),
+            host.previousSupplementary,
+            "The list column must not be installed while Saved chat preparation is pending"
+        )
+        XCTAssertIdentical(
+            host.splitViewController.viewController(for: .secondary),
+            host.previousSecondary,
+            "The existing detail must remain installed while preparation is pending"
+        )
+        XCTAssertNil(host.leftMenu.savedMessagesChatsVc)
+
+        host.preparedChat.releasePreparation()
+
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            let supplementary = host.splitViewController.viewController(
+                for: .supplementary
+            ) as? UINavigationController
+            let secondary = host.splitViewController.viewController(
+                for: .secondary
+            ) as? UINavigationController
+            return supplementary?.topViewController === host.chatsController &&
+                secondary?.topViewController === host.preparedChat &&
+                host.chatsController.currentChatVC === host.preparedChat
+        })
+
+        XCTAssertEqual(host.leftMenu.previousSelectedKey, "saved")
+        let navigationController = try XCTUnwrap(
+            host.splitViewController.viewController(for: .supplementary)
+                as? UINavigationController
+        )
+        XCTAssertIdentical(navigationController.topViewController, host.chatsController)
+        XCTAssertEqual(host.chatsController.filter.value, .chats)
+        XCTAssertNil(host.leftMenu.savedMessagesChatsVc)
+        XCTAssertEqual(host.preparedChat.owner, "owner@example.com")
+        XCTAssertEqual(host.preparedChat.jid, "favorites.example.com")
+        XCTAssertEqual(host.preparedChat.conversationType, .saved)
+    }
+
+    func testStandardExpandedOpenAfterSavedKeepsCurrentDetailAlignedDuringReplacement() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundExpandedSavedRouteHost()
+        defer { releaseForegroundExpandedSavedRouteHost(host) }
+        let originalChat = ChatViewController()
+        originalChat.owner = "owner@example.com"
+        originalChat.jid = "original@example.com"
+        originalChat.conversationType = .regular
+        host.previousSecondary.setViewControllers(
+            [originalChat],
+            animated: false
+        )
+        host.chatsController.currentChatVC = originalChat
+        host.chatsController.playerViewToolbar.delegate = originalChat
+
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        host.preparedChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.currentChatVC === host.preparedChat
+        })
+        XCTAssertTrue(waitUntilExpandedNavigationIsStable(host))
+
+        let replacementChat = HeldSavedChatViewController()
+        host.chatsController.expandedSplitChatDestinationFactory = {
+            replacementChat
+        }
+        XCTAssertTrue(host.leftMenu.openChatlistWithChat(
+            owner: "owner@example.com",
+            jid: "replacement@example.com",
+            conversationType: .regular,
+            openMessageRequest: nil,
+            navigationSource: .standard,
+            configure: nil
+        ))
+
+        XCTAssertTrue(host.chatsController.currentChatVC === host.preparedChat)
+        XCTAssertTrue(
+            (host.splitViewController.viewController(for: .secondary)
+                as? UINavigationController)?.topViewController ===
+                    host.preparedChat
+        )
+        XCTAssertEqual(
+            host.chatsController.expandedSplitChatNavigationTransaction?.phase,
+            .preparing
+        )
+
+        replacementChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.currentChatVC === replacementChat &&
+                (host.splitViewController.viewController(for: .secondary)
+                    as? UINavigationController)?.topViewController ===
+                        replacementChat
+        })
+        XCTAssertNil(host.leftMenu.savedMessagesChatsVc)
+    }
+
+    func testSettingsModalKeepsPresentedExpandedSavedOwnershipAligned() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundExpandedSavedRouteHost()
+        defer { releaseForegroundExpandedSavedRouteHost(host) }
+        let originalChat = ChatViewController()
+        originalChat.owner = "owner@example.com"
+        originalChat.jid = "original@example.com"
+        originalChat.conversationType = .regular
+        host.previousSecondary.setViewControllers(
+            [originalChat],
+            animated: false
+        )
+        host.chatsController.currentChatVC = originalChat
+        host.chatsController.playerViewToolbar.delegate = originalChat
+
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        host.preparedChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.currentChatVC === host.preparedChat
+        })
+        let savedToken = try XCTUnwrap(
+            host.chatsController.expandedSplitChatNavigationTransaction?.token
+        )
+        let settingsIndexPath = try XCTUnwrap(
+            host.leftMenu.datasource.enumerated().compactMap { section, rows in
+                rows.firstIndex(where: { $0.key == "settings" }).map {
+                    IndexPath(row: $0, section: section)
+                }
+            }.first
+        )
+
+        host.leftMenu.tableView(
+            host.leftMenu.tableView,
+            didSelectRowAt: settingsIndexPath
+        )
+
+        XCTAssertEqual(
+            host.chatsController.expandedSplitChatNavigationTransaction?.token,
+            savedToken
+        )
+        XCTAssertEqual(
+            host.chatsController.expandedSplitChatNavigationTransaction?.phase,
+            .presented
+        )
+        XCTAssertIdentical(
+            host.chatsController.currentChatVC,
+            host.preparedChat
+        )
+        XCTAssertTrue(
+            (host.splitViewController.viewController(for: .secondary)
+                as? UINavigationController)?.topViewController ===
+                    host.preparedChat
+        )
+    }
+
+    func testStandardExpandedOpenWaitsForPendingSavedNativeTerminalBeforeRetryingReplacement() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundExpandedSavedRouteHost()
+        defer { releaseForegroundExpandedSavedRouteHost(host) }
+        let originalChat = ChatViewController()
+        originalChat.owner = "owner@example.com"
+        originalChat.jid = "original@example.com"
+        originalChat.conversationType = .regular
+        host.previousSecondary.setViewControllers(
+            [originalChat],
+            animated: false
+        )
+        host.chatsController.currentChatVC = originalChat
+        host.chatsController.playerViewToolbar.delegate = originalChat
+
+        let pendingSavedChat =
+            HeldSavedNativeTerminalChatViewController()
+        host.chatsController.expandedSplitChatDestinationFactory = {
+            pendingSavedChat
+        }
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        pendingSavedChat.releasePreparation()
+
+        XCTAssertEqual(
+            host.chatsController.expandedSplitChatNavigationTransaction?.phase,
+            .presenting
+        )
+        XCTAssertIdentical(host.chatsController.currentChatVC, originalChat)
+        XCTAssertTrue(
+            (host.splitViewController.viewController(for: .secondary)
+                as? UINavigationController)?.topViewController ===
+                    pendingSavedChat
+        )
+
+        let replacementChat = HeldSavedChatViewController()
+        host.chatsController.expandedSplitChatDestinationFactory = {
+            replacementChat
+        }
+        XCTAssertFalse(host.leftMenu.openChatlistWithChat(
+            owner: "owner@example.com",
+            jid: "replacement@example.com",
+            conversationType: .regular,
+            openMessageRequest: nil,
+            navigationSource: .standard,
+            configure: nil
+        ))
+        XCTAssertEqual(replacementChat.preparationRequestCount, 0)
+        XCTAssertIdentical(host.chatsController.currentChatVC, originalChat)
+        XCTAssertTrue(
+            (host.splitViewController.viewController(for: .secondary)
+                as? UINavigationController)?.topViewController ===
+                    pendingSavedChat
+        )
+        XCTAssertEqual(
+            host.chatsController.expandedSplitChatNavigationTransaction?.phase,
+            .presenting
+        )
+
+        pendingSavedChat.completeNativeTerminal(didComplete: true)
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.expandedSplitChatNavigationTransaction?
+                .phase == .presented &&
+                host.chatsController.currentChatVC === pendingSavedChat &&
+                (host.splitViewController.viewController(for: .secondary)
+                    as? UINavigationController)?.topViewController ===
+                        pendingSavedChat
+        })
+        XCTAssertTrue(waitUntilExpandedNavigationIsStable(host))
+        XCTAssertNil(host.leftMenu.savedMessagesChatsVc)
+
+        XCTAssertTrue(host.leftMenu.openChatlistWithChat(
+            owner: "owner@example.com",
+            jid: "replacement@example.com",
+            conversationType: .regular,
+            openMessageRequest: nil,
+            navigationSource: .standard,
+            configure: nil
+        ))
+        XCTAssertEqual(replacementChat.preparationRequestCount, 1)
+        replacementChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.currentChatVC === replacementChat &&
+                (host.splitViewController.viewController(for: .secondary)
+                    as? UINavigationController)?.topViewController ===
+                        replacementChat
+        })
+    }
+
+    func testExactSavedExternalOpenDuringPreparationKeepsDirectActivationValid() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundExpandedSavedRouteHost()
+        defer { releaseForegroundExpandedSavedRouteHost(host) }
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        let originalToken = try XCTUnwrap(
+            host.chatsController.expandedSplitChatNavigationTransaction?.token
+        )
+
+        XCTAssertTrue(host.leftMenu.openChatlistWithChat(
+            owner: "owner@example.com",
+            jid: "favorites.example.com",
+            conversationType: .saved,
+            openMessageRequest: nil,
+            navigationSource: .standard,
+            configure: nil
+        ))
+        XCTAssertEqual(
+            host.chatsController.expandedSplitChatNavigationTransaction?.token,
+            originalToken
+        )
+        XCTAssertEqual(host.preparedChat.preparationRequestCount, 1)
+        XCTAssertEqual(host.preparedChat.preparationCancellationCount, 0)
+
+        host.preparedChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.currentChatVC === host.preparedChat
+        })
+        XCTAssertNil(host.leftMenu.savedMessagesChatsVc)
+    }
+
+    func testExactSavedExternalOpenDuringNativeTerminalDoesNotPoisonValidation() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundExpandedSavedRouteHost()
+        defer { releaseForegroundExpandedSavedRouteHost(host) }
+        let pendingSavedChat =
+            HeldSavedNativeTerminalChatViewController()
+        host.chatsController.expandedSplitChatDestinationFactory = {
+            pendingSavedChat
+        }
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        pendingSavedChat.releasePreparation()
+        XCTAssertEqual(
+            host.chatsController.expandedSplitChatNavigationTransaction?.phase,
+            .presenting
+        )
+
+        XCTAssertTrue(host.leftMenu.openChatlistWithChat(
+            owner: "owner@example.com",
+            jid: "favorites.example.com",
+            conversationType: .saved,
+            openMessageRequest: nil,
+            navigationSource: .standard,
+            configure: nil
+        ))
+        XCTAssertEqual(pendingSavedChat.preparationRequestCount, 1)
+        XCTAssertEqual(pendingSavedChat.preparationCancellationCount, 0)
+
+        pendingSavedChat.completeNativeTerminal(didComplete: true)
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.currentChatVC === pendingSavedChat &&
+                (host.splitViewController.viewController(for: .secondary)
+                    as? UINavigationController)?.topViewController ===
+                        pendingSavedChat
+        })
+        XCTAssertNil(host.leftMenu.savedMessagesChatsVc)
+    }
+
+    func testRegularChatThenArchiveThenSavedReconcilesDetachedPresentedTransaction() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundExpandedSavedRouteHost()
+        defer { releaseForegroundExpandedSavedRouteHost(host) }
+        let regularChat = HeldSavedChatViewController()
+        host.chatsController.expandedSplitChatDestinationFactory = {
+            regularChat
+        }
+        XCTAssertTrue(host.leftMenu.openChatlistWithChat(
+            owner: "owner@example.com",
+            jid: "regular@example.com",
+            conversationType: .regular,
+            openMessageRequest: nil,
+            navigationSource: .standard,
+            configure: nil
+        ))
+        regularChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.currentChatVC === regularChat &&
+                host.chatsController.expandedSplitChatNavigationTransaction?
+                    .phase == .presented
+        })
+
+        host.leftMenu.didSelectRootScreenBy(key: "archive")
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.splitViewController.transitionCoordinator == nil &&
+                host.splitViewController.viewController(for: .supplementary)
+                    !== host.chatsController.navigationController
+        })
+        XCTAssertIdentical(host.chatsController.currentChatVC, regularChat)
+
+        host.chatsController.expandedSplitChatDestinationFactory = {
+            host.preparedChat
+        }
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+
+        XCTAssertEqual(host.preparedChat.preparationRequestCount, 1)
+        XCTAssertNil(host.chatsController.currentChatVC)
+        XCTAssertEqual(
+            host.chatsController.expandedSplitChatNavigationTransaction?.phase,
+            .preparing
+        )
+        host.preparedChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.currentChatVC === host.preparedChat
+        })
+        XCTAssertNil(host.leftMenu.savedMessagesChatsVc)
+    }
+
+    func testSavedAfterArchiveReconcilesRestoredButDetachedPreviousChat() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundExpandedSavedRouteHost()
+        defer { releaseForegroundExpandedSavedRouteHost(host) }
+        let originalChat = ChatViewController()
+        originalChat.owner = "owner@example.com"
+        originalChat.jid = "original@example.com"
+        originalChat.conversationType = .regular
+        host.previousSecondary.setViewControllers(
+            [originalChat],
+            animated: false
+        )
+        host.chatsController.currentChatVC = originalChat
+        host.chatsController.playerViewToolbar.delegate = originalChat
+
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        host.preparedChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.currentChatVC === host.preparedChat
+        })
+
+        host.leftMenu.didSelectRootScreenBy(key: "archive")
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.splitViewController.transitionCoordinator == nil &&
+                host.chatsController
+                    .expandedSplitChatNavigationTransaction == nil
+        })
+        XCTAssertIdentical(host.chatsController.currentChatVC, originalChat)
+
+        let reopenedSavedChat = HeldSavedChatViewController()
+        host.chatsController.expandedSplitChatDestinationFactory = {
+            reopenedSavedChat
+        }
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+
+        XCTAssertEqual(reopenedSavedChat.preparationRequestCount, 1)
+        XCTAssertNil(host.chatsController.currentChatVC)
+        reopenedSavedChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.currentChatVC === reopenedSavedChat &&
+                (host.splitViewController.viewController(for: .secondary)
+                    as? UINavigationController)?.topViewController ===
+                        reopenedSavedChat
+        })
+        XCTAssertNil(host.leftMenu.savedMessagesChatsVc)
+    }
+
+    func testSavedAfterArchiveCancelsDetachedGenericExpandedPreparationWithoutRestoringIt() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundExpandedSavedRouteHost()
+        defer { releaseForegroundExpandedSavedRouteHost(host) }
+        let pendingRegularChat = HeldSavedChatViewController()
+        host.chatsController.expandedSplitChatDestinationFactory = {
+            pendingRegularChat
+        }
+        XCTAssertTrue(host.leftMenu.openChatlistWithChat(
+            owner: "owner@example.com",
+            jid: "pending@example.com",
+            conversationType: .regular,
+            openMessageRequest: nil,
+            navigationSource: .standard,
+            configure: nil
+        ))
+        XCTAssertEqual(
+            host.chatsController.expandedSplitChatNavigationTransaction?.phase,
+            .preparing
+        )
+
+        host.leftMenu.didSelectRootScreenBy(key: "archive")
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.splitViewController.transitionCoordinator == nil
+        })
+        XCTAssertEqual(pendingRegularChat.preparationCancellationCount, 0)
+
+        host.chatsController.expandedSplitChatDestinationFactory = {
+            host.preparedChat
+        }
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+
+        XCTAssertEqual(pendingRegularChat.preparationCancellationCount, 1)
+        XCTAssertEqual(host.preparedChat.preparationRequestCount, 1)
+        XCTAssertEqual(
+            host.chatsController.expandedSplitChatNavigationTransaction?.target,
+            LastChatsNavigationSingleFlightCoordinator.Target(
+                owner: "owner@example.com",
+                jid: "favorites.example.com",
+                conversationType: .saved
+            )
+        )
+        XCTAssertNil(host.chatsController.currentChatVC)
+
+        host.preparedChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.currentChatVC === host.preparedChat
+        })
+        XCTAssertNil(host.leftMenu.savedMessagesChatsVc)
+    }
+
+    func testExpandedDirectSavedRouteFallsBackToCombinedListWhenAvailabilityChangesBeforeCommit() throws {
+        try seedAccount("first@example.com", order: 0)
+        try seedFavoritesService(
+            owner: "first@example.com",
+            node: "favorites.first.example.com"
+        )
+        try seedLastChat(
+            jid: "favorites.first.example.com",
+            owner: "first@example.com",
+            conversationType: .saved
+        )
+
+        let host = try makeForegroundExpandedSavedRouteHost()
+        defer { releaseForegroundExpandedSavedRouteHost(host) }
+
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+
+        XCTAssertIdentical(
+            host.splitViewController.viewController(for: .supplementary),
+            host.previousSupplementary
+        )
+        XCTAssertIdentical(
+            host.splitViewController.viewController(for: .secondary),
+            host.previousSecondary
+        )
+
+        try seedAccount("second@example.com", order: 1)
+        try seedFavoritesService(
+            owner: "second@example.com",
+            node: "favorites.second.example.com"
+        )
+        try seedLastChat(
+            jid: "favorites.second.example.com",
+            owner: "second@example.com",
+            conversationType: .saved
+        )
+        host.preparedChat.releasePreparation()
+
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            guard let savedController = host.leftMenu.savedMessagesChatsVc,
+                  let supplementary = host.splitViewController.viewController(
+                    for: .supplementary
+                  ) as? UINavigationController else {
+                return false
+            }
+            return supplementary.topViewController === savedController
+        })
+
+        let savedController = try XCTUnwrap(host.leftMenu.savedMessagesChatsVc)
+        XCTAssertEqual(savedController.filter.value, .saved)
+        XCTAssertNil(host.chatsController.expandedSplitChatNavigationTransaction)
+        XCTAssertFalse(
+            (host.splitViewController.viewController(for: .secondary)
+                as? UINavigationController)?.viewControllers.contains {
+                    $0 === host.preparedChat
+                } ?? false
+        )
+        XCTAssertFalse(host.chatsController.currentChatVC === host.preparedChat)
+    }
+
+    func testExpandedDirectSavedRouteFallsBackToListWhenRouteChangesBeforeCommit() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundExpandedSavedRouteHost()
+        defer { releaseForegroundExpandedSavedRouteHost(host) }
+        var route = StackedNavigationRoute.splitDetailReplacement
+        host.leftMenu.chatNavigationRouteResolver = { _ in route }
+
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        route = .currentNavigationPush
+        host.preparedChat.releasePreparation()
+
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.leftMenu.savedMessagesChatsVc?.filter.value == .saved
+        })
+        XCTAssertNil(host.chatsController.expandedSplitChatNavigationTransaction)
+        XCTAssertFalse(
+            (host.splitViewController.viewController(for: .secondary)
+                as? UINavigationController)?.viewControllers.contains {
+                    $0 === host.preparedChat
+                } ?? false
+        )
+    }
+
+    func testExpandedDirectSavedRouteFallsBackToListWhenAccountEpochChangesBeforeCommit() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundExpandedSavedRouteHost()
+        defer { releaseForegroundExpandedSavedRouteHost(host) }
+        let initialAccount = NSObject()
+        let replacementAccount = NSObject()
+        var accountIdentifier = ObjectIdentifier(initialAccount)
+        host.chatsController.chatNavigationAccountEpochResolver = { _ in
+            LastChatsChatNavigationAccountEpoch(
+                accountIdentifier: accountIdentifier,
+                isPresent: true,
+                isEnabled: true
+            )
+        }
+
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        accountIdentifier = ObjectIdentifier(replacementAccount)
+        host.preparedChat.releasePreparation()
+
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.leftMenu.savedMessagesChatsVc?.filter.value == .saved
+        })
+        XCTAssertNil(host.chatsController.expandedSplitChatNavigationTransaction)
+        XCTAssertFalse(
+            (host.splitViewController.viewController(for: .secondary)
+                as? UINavigationController)?.viewControllers.contains {
+                    $0 === host.preparedChat
+                } ?? false
+        )
+    }
+
+    func testExpandedDirectSavedRouteRevalidatesAvailabilityAfterCommitBeforeNativeTerminal() throws {
+        try seedAccount("first@example.com", order: 0)
+        try seedFavoritesService(
+            owner: "first@example.com",
+            node: "favorites.first.example.com"
+        )
+
+        let host = try makeForegroundExpandedSavedRouteHost()
+        defer { releaseForegroundExpandedSavedRouteHost(host) }
+
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        host.preparedChat.releasePreparation()
+        XCTAssertEqual(
+            host.chatsController.expandedSplitChatNavigationTransaction?.phase,
+            .presenting
+        )
+
+        try seedAccount("second@example.com", order: 1)
+        try seedFavoritesService(
+            owner: "second@example.com",
+            node: "favorites.second.example.com"
+        )
+
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.leftMenu.savedMessagesChatsVc?.filter.value == .saved
+        })
+        XCTAssertNil(host.chatsController.expandedSplitChatNavigationTransaction)
+        XCTAssertFalse(host.chatsController.currentChatVC === host.preparedChat)
+    }
+
+    func testExpandedSavedNativeTerminalCancellationRollsBackThenFallsBackAndIgnoresLateCallback() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundExpandedSavedRouteHost()
+        defer { releaseForegroundExpandedSavedRouteHost(host) }
+        let originalChat = ChatViewController()
+        originalChat.owner = "owner@example.com"
+        originalChat.jid = "original@example.com"
+        originalChat.conversationType = .regular
+        host.previousSecondary.setViewControllers(
+            [originalChat],
+            animated: false
+        )
+        host.chatsController.currentChatVC = originalChat
+        host.chatsController.playerViewToolbar.delegate = originalChat
+
+        let pendingSavedChat =
+            HeldSavedNativeTerminalChatViewController()
+        host.chatsController.expandedSplitChatDestinationFactory = {
+            pendingSavedChat
+        }
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        pendingSavedChat.releasePreparation()
+        XCTAssertEqual(
+            host.chatsController.expandedSplitChatNavigationTransaction?.phase,
+            .presenting
+        )
+        XCTAssertTrue(
+            (host.splitViewController.viewController(for: .secondary)
+                as? UINavigationController)?.topViewController ===
+                    pendingSavedChat
+        )
+
+        pendingSavedChat.completeNativeTerminal(didComplete: false)
+
+        XCTAssertNil(host.chatsController.expandedSplitChatNavigationTransaction)
+        XCTAssertIdentical(host.chatsController.currentChatVC, originalChat)
+        XCTAssertIdentical(
+            host.splitViewController.viewController(for: .secondary),
+            host.previousSecondary,
+            "The owned provisional Saved secondary must roll back synchronously"
+        )
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.leftMenu.savedMessagesChatsVc?.filter.value == .saved
+        })
+        let savedController = try XCTUnwrap(host.leftMenu.savedMessagesChatsVc)
+        let installedSupplementary = host.splitViewController.viewController(
+            for: .supplementary
+        )
+        XCTAssertTrue(
+            (installedSupplementary as? UINavigationController)?
+                .topViewController === savedController
+        )
+
+        pendingSavedChat.replayCompletedNativeTerminal(didComplete: true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertIdentical(
+            host.splitViewController.viewController(for: .supplementary),
+            installedSupplementary
+        )
+        XCTAssertNil(host.chatsController.expandedSplitChatNavigationTransaction)
+        XCTAssertFalse(
+            (host.splitViewController.viewController(for: .secondary)
+                as? UINavigationController)?.viewControllers.contains {
+                    $0 === pendingSavedChat
+                } ?? false
+        )
+    }
+
+    func testActualSingleSavedCompactMenuRowTapInstallsChatAsFirstVisibleDestinationWithChatsBackRoot() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(owner: "owner@example.com", node: "favorites.example.com")
+        try seedLastChat(jid: "favorites.example.com", owner: "owner@example.com", conversationType: .saved)
+
+        let host = try makeForegroundCompactSavedRouteHost()
+        defer { releaseForegroundCompactSavedRouteHost(host) }
+
+        let savedRow = try XCTUnwrap(
+            host.leftMenu.datasource.first?.firstIndex { $0.key == "saved" }
+        )
+
+        host.leftMenu.tableView(
+            host.leftMenu.tableView,
+            didSelectRowAt: IndexPath(row: savedRow, section: 0)
+        )
+
+        XCTAssertIdentical(
+            host.splitViewController.viewController(for: .supplementary),
+            host.previousSupplementary,
+            "Saved selection must not reveal the ordinary Chats list first"
+        )
+
+        host.preparedChat.releasePreparation()
+
+        XCTAssertEqual(
+            host.chatsController.chatNavigationSingleFlight.state?.phase,
+            .pushing,
+            "The transaction must wait for the split reveal terminal"
+        )
+        XCTAssertIdentical(
+            host.splitViewController.viewController(for: .supplementary),
+            host.previousSupplementary
+        )
+
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            guard let navigationController = host.splitViewController
+                .viewController(for: .supplementary)
+                as? UINavigationController else {
+                return false
+            }
+            return navigationController.topViewController ===
+                host.preparedChat &&
+                host.chatsController.chatNavigationSingleFlight.state?.phase
+                    == .presented
+        })
+
+        let navigationController = try XCTUnwrap(
+            host.splitViewController.viewController(for: .supplementary)
+                as? UINavigationController
+        )
+        XCTAssertEqual(host.chatsController.filter.value, .chats)
+        XCTAssertEqual(navigationController.viewControllers.count, 2)
+        XCTAssertIdentical(
+            navigationController.viewControllers.first,
+            host.chatsController
+        )
+        XCTAssertIdentical(navigationController.topViewController, host.preparedChat)
+        XCTAssertEqual(host.leftMenu.previousSelectedKey, "saved")
+        XCTAssertEqual(host.preparedChat.owner, "owner@example.com")
+        XCTAssertEqual(host.preparedChat.jid, "favorites.example.com")
+        XCTAssertEqual(host.preparedChat.conversationType, .saved)
+        let popped = navigationController.popViewController(animated: false)
+        XCTAssertIdentical(popped, host.preparedChat)
+        XCTAssertIdentical(
+            navigationController.topViewController,
+            host.chatsController,
+            "Back from Saved Messages must return to ordinary Chats"
+        )
+
+        host.splitViewController.show(.primary)
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.splitViewController.transitionCoordinator == nil &&
+                navigationController.transitionCoordinator == nil
+        })
+
+        let reopenedChat = HeldSavedChatViewController()
+        host.chatsController.compactChatDestinationFactory = { reopenedChat }
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+
+        XCTAssertEqual(reopenedChat.preparationRequestCount, 1)
+        XCTAssertEqual(
+            host.chatsController.chatNavigationSingleFlight.state?.phase,
+            .preparing
+        )
+        XCTAssertIdentical(
+            navigationController.topViewController,
+            host.chatsController
+        )
+
+        reopenedChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            navigationController.topViewController === reopenedChat &&
+                host.chatsController.chatNavigationSingleFlight.state?.phase
+                    == .presented
+        })
+    }
+
+    func testSavedAfterAnotherSectionDoesNotRevealStaleSavedNavigationColumn() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundCompactSavedRouteHost()
+        defer { releaseForegroundCompactSavedRouteHost(host) }
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        host.preparedChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.chatNavigationSingleFlight.state?.phase ==
+                .presented
+        })
+        let savedNavigationController = host.chatsController.navigationController
+
+        host.leftMenu.didSelectRootScreenBy(key: "archive")
+        let archiveNavigationController = try XCTUnwrap(
+            host.splitViewController.viewController(for: .supplementary)
+                as? UINavigationController
+        )
+        XCTAssertIdentical(
+            archiveNavigationController.topViewController,
+            host.leftMenu.archivedVc
+        )
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.splitViewController.transitionCoordinator == nil &&
+                savedNavigationController?.transitionCoordinator == nil &&
+                savedNavigationController?.viewIfLoaded?.window == nil
+        })
+
+        let reopenedChat = HeldSavedChatViewController()
+        host.chatsController.compactChatDestinationFactory = { reopenedChat }
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+
+        XCTAssertEqual(reopenedChat.preparationRequestCount, 1)
+        XCTAssertIdentical(
+            host.splitViewController.viewController(for: .supplementary),
+            archiveNavigationController,
+            "The stale Saved navigation stack must not be revealed before the new chat is prepared"
+        )
+
+        reopenedChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            guard let supplementary = host.splitViewController.viewController(
+                for: .supplementary
+            ) as? UINavigationController else {
+                return false
+            }
+            return supplementary !== archiveNavigationController &&
+                supplementary.topViewController === reopenedChat
+        })
+    }
+
+    func testSingleAvailableSavedSelectionOpensChatDirectly() {
+        let availableChats = [
+            LeftMenuSavedMessagesSelectionPolicy.SavedChat(owner: "owner@example.com", jid: "favorites.example.com")
+        ]
+
+        let decision = LeftMenuSavedMessagesSelectionPolicy.decision(
+            availableChats: availableChats
+        )
+
+        XCTAssertEqual(decision, .openChatDirectly(availableChats[0]))
+    }
+
+    func testMultipleAvailableSavedSelectionShowsListWithoutOpeningAChat() {
+        let first = LeftMenuSavedMessagesSelectionPolicy.SavedChat(owner: "first@example.com", jid: "favorites.first.example.com")
+        let second = LeftMenuSavedMessagesSelectionPolicy.SavedChat(owner: "second@example.com", jid: "favorites.second.example.com")
+
+        let decision = LeftMenuSavedMessagesSelectionPolicy.decision(
+            availableChats: [first, second]
+        )
+
+        XCTAssertEqual(decision, .showSavedList)
+    }
+
+    func testNoAvailableSavedSelectionShowsListFallback() {
+        XCTAssertEqual(
+            LeftMenuSavedMessagesSelectionPolicy.decision(availableChats: []),
+            .showSavedList
+        )
+    }
+
+    func testActualZeroAvailabilitySavedSelectionInstallsListWithoutAutoOpeningChat() throws {
         let controller = LeftMenuViewController()
         let splitViewController = UISplitViewController(style: .tripleColumn)
         splitViewController.viewControllers = [
@@ -297,31 +1216,128 @@ final class SavedMessagesEntryPointTests: XCTestCase {
             UINavigationController(rootViewController: LastChatsViewController()),
             UINavigationController(rootViewController: EmptyChatViewController())
         ]
-        attachToTraitWindow(splitViewController, horizontalSizeClass: .regular)
+        attachToTraitWindow(
+            splitViewController,
+            horizontalSizeClass: .compact
+        )
         controller.loadViewIfNeeded()
 
-        let savedRow = try XCTUnwrap(
-            controller.datasource.first?.firstIndex { $0.key == "saved" }
-        )
+        controller.didSelectRootScreenBy(key: "saved")
 
-        controller.tableView(
-            controller.tableView,
-            didSelectRowAt: IndexPath(row: savedRow, section: 0)
+        let savedController = try XCTUnwrap(controller.savedMessagesChatsVc)
+        let navigationController = try XCTUnwrap(
+            splitViewController.viewController(for: .supplementary)
+                as? UINavigationController
         )
-
-        XCTAssertEqual(controller.previousSelectedKey, "saved")
-        XCTAssertEqual(controller.savedMessagesChatsVc?.filter.value, .saved)
-        XCTAssertFalse(controller.savedMessagesChatsVc?.shouldShowBottomBar ?? true)
-        let openedChat = try XCTUnwrap(openedSavedChat(in: controller))
-        XCTAssertEqual(openedChat.owner, "owner@example.com")
-        XCTAssertEqual(openedChat.jid, "favorites.example.com")
-        XCTAssertEqual(openedChat.conversationType, .saved)
+        XCTAssertIdentical(navigationController.topViewController, savedController)
+        XCTAssertEqual(savedController.filter.value, .saved)
+        XCTAssertNil(savedController.currentChatVC)
+        XCTAssertFalse(navigationController.topViewController is ChatViewController)
     }
 
-    func testActualSingleAccountCompactSavedMenuRowTapPushesSavedChatFromNormalChatsList() throws {
+    func testUnavailableCompactDirectActivationContextFallsBackToSavedList() throws {
         try seedAccount("owner@example.com")
-        try seedFavoritesService(owner: "owner@example.com", node: "favorites.example.com")
-        try seedLastChat(jid: "favorites.example.com", owner: "owner@example.com", conversationType: .saved)
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundCompactSavedRouteHost()
+        defer { releaseForegroundCompactSavedRouteHost(host) }
+        let unexpectedVisibleNavigationController = UINavigationController(
+            rootViewController: host.chatsController
+        )
+        host.splitViewController.setViewController(
+            unexpectedVisibleNavigationController,
+            for: .secondary
+        )
+        host.splitViewController.show(.secondary)
+        unexpectedVisibleNavigationController.loadViewIfNeeded()
+        host.splitViewController.view.layoutIfNeeded()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            unexpectedVisibleNavigationController.viewIfLoaded?.window != nil
+        })
+
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+
+        let savedController = try XCTUnwrap(host.leftMenu.savedMessagesChatsVc)
+        let supplementary = try XCTUnwrap(
+            host.splitViewController.viewController(for: .supplementary)
+                as? UINavigationController
+        )
+        XCTAssertIdentical(supplementary.topViewController, savedController)
+        XCTAssertEqual(savedController.filter.value, .saved)
+        XCTAssertNil(savedController.currentChatVC)
+        XCTAssertEqual(host.leftMenu.previousSelectedKey, "saved")
+        XCTAssertEqual(host.preparedChat.preparationRequestCount, 0)
+    }
+
+    func testSeveralEnabledAccountsWithOnlyOneFavoritesServiceOpenThatChatDirectly() {
+        let chats = LeftMenuSavedMessagesSelectionPolicy.savedChats(
+            enabledAccountJids: ["first@example.com", "second@example.com"],
+            favoritesNodesByOwner: [
+                "second@example.com": "favorites.second.example.com"
+            ]
+        )
+
+        XCTAssertEqual(
+            LeftMenuSavedMessagesSelectionPolicy.decision(availableChats: chats),
+            .openChatDirectly(
+                .init(
+                    owner: "second@example.com",
+                    jid: "favorites.second.example.com"
+                )
+            )
+        )
+    }
+
+    func testActualSeveralEnabledAccountsWithOneDiscoveredServiceOpenThatSavedChatDirectly() throws {
+        try seedAccount("first@example.com", order: 0)
+        try seedAccount("second@example.com", order: 1)
+        try seedFavoritesService(
+            owner: "second@example.com",
+            node: "favorites.second.example.com"
+        )
+        try seedLastChat(
+            jid: "favorites.second.example.com",
+            owner: "second@example.com",
+            conversationType: .saved
+        )
+
+        let host = try makeForegroundCompactSavedRouteHost()
+        defer { releaseForegroundCompactSavedRouteHost(host) }
+
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+
+        XCTAssertEqual(host.preparedChat.owner, "second@example.com")
+        XCTAssertEqual(host.preparedChat.jid, "favorites.second.example.com")
+        XCTAssertEqual(host.preparedChat.conversationType, .saved)
+        XCTAssertNil(host.leftMenu.savedMessagesChatsVc)
+
+        host.preparedChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.chatNavigationSingleFlight.state?.phase ==
+                .presented
+        })
+    }
+
+    func testActualMultipleSavedMenuRowTapShowsCombinedListWithoutOpeningFirstChat() throws {
+        try seedAccount("first@example.com", order: 0)
+        try seedAccount("second@example.com", order: 1)
+        try seedFavoritesService(owner: "first@example.com", node: "favorites.first.example.com")
+        try seedFavoritesService(owner: "second@example.com", node: "favorites.second.example.com")
+        try seedLastChat(
+            jid: "favorites.first.example.com",
+            owner: "first@example.com",
+            conversationType: .saved,
+            messageDate: Date(timeIntervalSince1970: 10)
+        )
+        try seedLastChat(
+            jid: "favorites.second.example.com",
+            owner: "second@example.com",
+            conversationType: .saved,
+            messageDate: Date(timeIntervalSince1970: 20)
+        )
 
         let controller = LeftMenuViewController()
         let splitViewController = UISplitViewController(style: .tripleColumn)
@@ -336,60 +1352,287 @@ final class SavedMessagesEntryPointTests: XCTestCase {
         let savedRow = try XCTUnwrap(
             controller.datasource.first?.firstIndex { $0.key == "saved" }
         )
-
         controller.tableView(
             controller.tableView,
             didSelectRowAt: IndexPath(row: savedRow, section: 0)
         )
 
-        let chatsController = try XCTUnwrap(controller.chatsVc)
-        XCTAssertEqual(chatsController.filter.value, .chats)
-        XCTAssertIdentical(chatsController.navigationController?.viewControllers.first, chatsController)
-        let pushedChat = try XCTUnwrap(
-            chatsController.navigationController?.topViewController as? ChatViewController
+        let savedController = try XCTUnwrap(controller.savedMessagesChatsVc)
+        XCTAssertEqual(savedController.filter.value, .saved)
+        XCTAssertFalse(savedController.shouldShowBottomBar)
+        XCTAssertNil(savedController.currentChatVC)
+        XCTAssertFalse(
+            savedController.navigationController?.topViewController
+                is ChatViewController
         )
-        XCTAssertEqual(controller.previousSelectedKey, "saved")
-        XCTAssertEqual(pushedChat.owner, "owner@example.com")
-        XCTAssertEqual(pushedChat.jid, "favorites.example.com")
-        XCTAssertEqual(pushedChat.conversationType, .saved)
+        savedController.enabledAccounts.accept([
+            "first@example.com",
+            "second@example.com"
+        ])
+        savedController.updateDatasource(.saved)
+        let rows = try XCTUnwrap(savedController.chatsObserver?.toArray())
+        XCTAssertEqual(rows.map { "\($0.owner)|\($0.jid)" }, [
+            "second@example.com|favorites.second.example.com",
+            "first@example.com|favorites.first.example.com"
+        ])
+        XCTAssertTrue(rows.allSatisfy { $0.conversationType == .saved })
     }
 
-    func testSingleAccountCompactSavedSelectionOpensChatDirectly() {
-        let availableChats = [
-            LeftMenuSavedMessagesSelectionPolicy.SavedChat(owner: "owner@example.com", jid: "favorites.example.com")
-        ]
+    func testPendingDirectSavedRouteRevalidatesAvailabilityBeforeCommit() throws {
+        try seedAccount("first@example.com", order: 0)
+        try seedFavoritesService(owner: "first@example.com", node: "favorites.first.example.com")
+        try seedLastChat(jid: "favorites.first.example.com", owner: "first@example.com", conversationType: .saved)
 
-        let decision = LeftMenuSavedMessagesSelectionPolicy.decision(
-            isCompact: true,
-            availableChats: availableChats
+        let host = try makeForegroundCompactSavedRouteHost()
+        defer { releaseForegroundCompactSavedRouteHost(host) }
+
+        let savedRow = try XCTUnwrap(
+            host.leftMenu.datasource.first?.firstIndex { $0.key == "saved" }
+        )
+        host.leftMenu.tableView(
+            host.leftMenu.tableView,
+            didSelectRowAt: IndexPath(row: savedRow, section: 0)
         )
 
-        XCTAssertEqual(decision, .openChatDirectly(availableChats[0]))
+        try seedAccount("second@example.com", order: 1)
+        try seedFavoritesService(owner: "second@example.com", node: "favorites.second.example.com")
+        host.preparedChat.releasePreparation()
+
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.leftMenu.savedMessagesChatsVc?.filter.value == .saved
+        })
+        let savedController = try XCTUnwrap(host.leftMenu.savedMessagesChatsVc)
+        XCTAssertEqual(savedController.filter.value, .saved)
+        XCTAssertFalse(
+            (host.splitViewController.viewController(for: .supplementary)
+                as? UINavigationController)?.viewControllers.contains {
+                    $0 === host.preparedChat
+                } ?? false
+        )
     }
 
-    func testSingleAccountRegularSavedSelectionShowsListAndOpensChat() {
-        let availableChats = [
-            LeftMenuSavedMessagesSelectionPolicy.SavedChat(owner: "owner@example.com", jid: "favorites.example.com")
-        ]
-
-        let decision = LeftMenuSavedMessagesSelectionPolicy.decision(
-            isCompact: false,
-            availableChats: availableChats
+    func testRepeatedSavedTapCoalescesPendingCompactActivation() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
         )
 
-        XCTAssertEqual(decision, .showSavedListAndOpenChat(availableChats[0]))
+        let host = try makeForegroundCompactSavedRouteHost()
+        defer { releaseForegroundCompactSavedRouteHost(host) }
+
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        let firstState = try XCTUnwrap(
+            host.chatsController.chatNavigationSingleFlight.state
+        )
+
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+
+        let coalescedState = try XCTUnwrap(
+            host.chatsController.chatNavigationSingleFlight.state
+        )
+        XCTAssertEqual(coalescedState.token, firstState.token)
+        XCTAssertEqual(coalescedState.target, firstState.target)
+        XCTAssertEqual(coalescedState.phase, .preparing)
+        XCTAssertEqual(host.preparedChat.preparationRequestCount, 1)
+        XCTAssertEqual(host.preparedChat.preparationCancellationCount, 0)
+        XCTAssertIdentical(
+            host.splitViewController.viewController(for: .supplementary),
+            host.previousSupplementary
+        )
+
+        host.preparedChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.chatNavigationSingleFlight.state?.phase ==
+                .presented
+        })
     }
 
-    func testMultiAccountCompactSavedSelectionShowsListAndOpensFirstChat() {
-        let first = LeftMenuSavedMessagesSelectionPolicy.SavedChat(owner: "first@example.com", jid: "favorites.first.example.com")
-        let second = LeftMenuSavedMessagesSelectionPolicy.SavedChat(owner: "second@example.com", jid: "favorites.second.example.com")
-
-        let decision = LeftMenuSavedMessagesSelectionPolicy.decision(
-            isCompact: true,
-            availableChats: [first, second]
+    func testExactSavedExternalOpenDuringCompactPreparationDoesNotRevealChatsOrCancelRoute() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
         )
 
-        XCTAssertEqual(decision, .showSavedListAndOpenChat(first))
+        let host = try makeForegroundCompactSavedRouteHost()
+        defer { releaseForegroundCompactSavedRouteHost(host) }
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        let originalState = try XCTUnwrap(
+            host.chatsController.chatNavigationSingleFlight.state
+        )
+
+        XCTAssertTrue(host.leftMenu.openChatlistWithChat(
+            owner: "owner@example.com",
+            jid: "favorites.example.com",
+            conversationType: .saved,
+            openMessageRequest: nil,
+            navigationSource: .standard,
+            configure: nil
+        ))
+
+        let coalescedState = try XCTUnwrap(
+            host.chatsController.chatNavigationSingleFlight.state
+        )
+        XCTAssertEqual(coalescedState.token, originalState.token)
+        XCTAssertEqual(coalescedState.target, originalState.target)
+        XCTAssertEqual(coalescedState.phase, .preparing)
+        XCTAssertEqual(host.preparedChat.preparationRequestCount, 1)
+        XCTAssertEqual(host.preparedChat.preparationCancellationCount, 0)
+        XCTAssertIdentical(
+            host.splitViewController.viewController(for: .supplementary),
+            host.previousSupplementary,
+            "External coalescing must not reveal the ordinary Chats list"
+        )
+
+        host.preparedChat.releasePreparation()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.chatsController.chatNavigationSingleFlight.state?.phase ==
+                .presented &&
+                host.chatsController.currentChatVC === host.preparedChat
+        })
+        XCTAssertNil(host.leftMenu.savedMessagesChatsVc)
+    }
+
+    func testCompactDirectSavedRouteFallsBackWhenRouteChangesBeforeCommit() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundCompactSavedRouteHost()
+        defer { releaseForegroundCompactSavedRouteHost(host) }
+        var route = StackedNavigationRoute.currentNavigationPush
+        host.leftMenu.chatNavigationRouteResolver = { _ in route }
+
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        route = .splitDetailReplacement
+        host.preparedChat.releasePreparation()
+
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.leftMenu.savedMessagesChatsVc?.filter.value == .saved
+        })
+        XCTAssertNil(host.chatsController.chatNavigationSingleFlight.state)
+        XCTAssertFalse(
+            (host.splitViewController.viewController(for: .supplementary)
+                as? UINavigationController)?.viewControllers.contains {
+                    $0 === host.preparedChat
+                } ?? false
+        )
+    }
+
+    func testCompactDirectSavedRouteFallsBackWhenAccountEpochChangesBeforeCommit() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundCompactSavedRouteHost()
+        defer { releaseForegroundCompactSavedRouteHost(host) }
+        let initialAccount = NSObject()
+        let replacementAccount = NSObject()
+        var accountIdentifier = ObjectIdentifier(initialAccount)
+        host.chatsController.chatNavigationAccountEpochResolver = { _ in
+            LastChatsChatNavigationAccountEpoch(
+                accountIdentifier: accountIdentifier,
+                isPresent: true,
+                isEnabled: true
+            )
+        }
+
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        accountIdentifier = ObjectIdentifier(replacementAccount)
+        host.preparedChat.releasePreparation()
+
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.leftMenu.savedMessagesChatsVc?.filter.value == .saved
+        })
+        XCTAssertNil(host.chatsController.chatNavigationSingleFlight.state)
+        XCTAssertFalse(
+            (host.splitViewController.viewController(for: .supplementary)
+                as? UINavigationController)?.viewControllers.contains {
+                    $0 === host.preparedChat
+                } ?? false
+        )
+    }
+
+    func testCompactDirectSavedRouteFallsBackWhenHierarchyChangesAfterPushCommit() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundCompactSavedRouteHost()
+        defer { releaseForegroundCompactSavedRouteHost(host) }
+
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+        host.preparedChat.releasePreparation()
+        XCTAssertEqual(
+            host.chatsController.chatNavigationSingleFlight.state?.phase,
+            .pushing
+        )
+
+        let newerSecondary = UINavigationController(
+            rootViewController: UIViewController()
+        )
+        host.splitViewController.setViewController(
+            newerSecondary,
+            for: .secondary
+        )
+
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            host.leftMenu.savedMessagesChatsVc?.filter.value == .saved
+        })
+        XCTAssertNil(host.chatsController.chatNavigationSingleFlight.state)
+        XCTAssertFalse(
+            (host.splitViewController.viewController(for: .supplementary)
+                as? UINavigationController)?.viewControllers.contains {
+                    $0 === host.preparedChat
+                } ?? false
+        )
+    }
+
+    func testSelectingAnotherRootCancelsPendingDirectSavedRouteAndMakesLateCompletionInert() throws {
+        try seedAccount("owner@example.com")
+        try seedFavoritesService(
+            owner: "owner@example.com",
+            node: "favorites.example.com"
+        )
+
+        let host = try makeForegroundCompactSavedRouteHost()
+        defer { releaseForegroundCompactSavedRouteHost(host) }
+
+        host.leftMenu.didSelectRootScreenBy(key: "saved")
+
+        XCTAssertTrue(host.chatsController.hasActiveOutgoingChatOpenNavigationDeferral)
+        XCTAssertTrue(host.chatsController.hasActiveOutgoingChatOpenNavigationPreparation)
+        XCTAssertTrue(host.chatsController.hasPendingChatNavigationPreparationTimeout)
+        XCTAssertNotNil(host.chatsController.chatNavigationSingleFlight.state)
+
+        host.leftMenu.didSelectRootScreenBy(key: "archive")
+        let replacementSupplementary = host.splitViewController.viewController(
+            for: .supplementary
+        )
+
+        XCTAssertFalse(host.chatsController.hasActiveOutgoingChatOpenNavigationDeferral)
+        XCTAssertFalse(host.chatsController.hasActiveOutgoingChatOpenNavigationPreparation)
+        XCTAssertFalse(host.chatsController.hasPendingChatNavigationPreparationTimeout)
+        XCTAssertNil(host.chatsController.chatNavigationSingleFlight.state)
+        XCTAssertEqual(host.preparedChat.preparationCancellationCount, 1)
+
+        host.preparedChat.releasePreparation()
+
+        XCTAssertIdentical(
+            host.splitViewController.viewController(for: .supplementary),
+            replacementSupplementary
+        )
+        XCTAssertFalse(
+            (replacementSupplementary as? UINavigationController)?
+                .viewControllers.contains { $0 === host.preparedChat } ?? false
+        )
     }
 
     func testSavedFilterShowsOnlySavedConversationRows() throws {
@@ -404,6 +1647,45 @@ final class SavedMessagesEntryPointTests: XCTestCase {
 
         let rows = try XCTUnwrap(controller.chatsObserver?.toArray())
         XCTAssertEqual(rows.map(\.jid), ["favorites.example.com"])
+        XCTAssertTrue(rows.allSatisfy { $0.conversationType == .saved })
+    }
+
+    func testSavedFilterAggregatesDiscoveredFavoritesAcrossEnabledAccounts() throws {
+        try seedAccount("first@example.com", order: 0)
+        try seedAccount("second@example.com", order: 1)
+        try seedFavoritesService(
+            owner: "first@example.com",
+            node: "favorites.first.example.com"
+        )
+        try seedFavoritesService(
+            owner: "second@example.com",
+            node: "favorites.second.example.com"
+        )
+        try seedLastChat(
+            jid: "favorites.first.example.com",
+            owner: "first@example.com",
+            conversationType: .saved,
+            messageDate: Date(timeIntervalSince1970: 10)
+        )
+        try seedLastChat(
+            jid: "favorites.second.example.com",
+            owner: "second@example.com",
+            conversationType: .saved,
+            messageDate: Date(timeIntervalSince1970: 20)
+        )
+
+        let controller = LastChatsViewController()
+        controller.enabledAccounts.accept([
+            "first@example.com",
+            "second@example.com"
+        ])
+        controller.updateDatasource(.saved)
+
+        let rows = try XCTUnwrap(controller.chatsObserver?.toArray())
+        XCTAssertEqual(rows.map { "\($0.owner)|\($0.jid)" }, [
+            "second@example.com|favorites.second.example.com",
+            "first@example.com|favorites.first.example.com"
+        ])
         XCTAssertTrue(rows.allSatisfy { $0.conversationType == .saved })
     }
 
@@ -434,12 +1716,13 @@ final class SavedMessagesEntryPointTests: XCTestCase {
         XCTAssertEqual(SavedMessagesChatListPresentationPolicy.status, .offline)
     }
 
-    private func seedAccount(_ jid: String) throws {
+    private func seedAccount(_ jid: String, order: Int = 0) throws {
         let realm = try WRealm.safe()
         let account = AccountStorageItem()
         account.jid = jid
         account.username = jid
         account.enabled = true
+        account.order = order
 
         try realm.write {
             realm.add(account, update: .modified)
@@ -449,6 +1732,7 @@ final class SavedMessagesEntryPointTests: XCTestCase {
     private func seedFavoritesService(owner: String, node: String) throws {
         let realm = try WRealm.safe()
         let item = XMPPFavoritesManagerStorageItem()
+        item.primary = XMPPFavoritesManagerStorageItem.genPrimary(owner: owner)
         item.owner = owner
         item.node = node
 
@@ -460,7 +1744,8 @@ final class SavedMessagesEntryPointTests: XCTestCase {
     private func seedLastChat(
         jid: String,
         owner: String,
-        conversationType: ClientSynchronizationManager.ConversationType
+        conversationType: ClientSynchronizationManager.ConversationType,
+        messageDate: Date? = nil
     ) throws {
         let realm = try WRealm.safe()
         let chat = LastChatsStorageItem()
@@ -468,7 +1753,9 @@ final class SavedMessagesEntryPointTests: XCTestCase {
         chat.owner = owner
         chat.conversationType = conversationType
         chat.primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType)
-        chat.messageDate = Date(timeIntervalSince1970: conversationType == .saved ? 2 : 1)
+        chat.messageDate = messageDate ?? Date(
+            timeIntervalSince1970: conversationType == .saved ? 2 : 1
+        )
 
         try realm.write {
             realm.add(chat, update: .modified)
@@ -521,12 +1808,294 @@ final class SavedMessagesEntryPointTests: XCTestCase {
         window.layoutIfNeeded()
     }
 
-    private func openedSavedChat(in controller: LeftMenuViewController) -> ChatViewController? {
-        if let currentChat = controller.savedMessagesChatsVc?.currentChatVC {
-            return currentChat
+    private struct ForegroundCompactSavedRouteHost {
+        let window: UIWindow
+        let previousKeyWindow: UIWindow?
+        let splitViewController: UISplitViewController
+        let leftMenu: LeftMenuViewController
+        let chatsController: LastChatsViewController
+        let previousSupplementary: UINavigationController
+        let previousSecondary: UINavigationController
+        let preparedChat: HeldSavedChatViewController
+    }
+
+    private func makeForegroundCompactSavedRouteHost() throws
+        -> ForegroundCompactSavedRouteHost {
+        let windowScene = try requireHostedForegroundWindowScene()
+        let previousKeyWindow = windowScene.windows.first(where: \.isKeyWindow)
+        let leftMenu = LeftMenuViewController()
+        let chatsController = LastChatsViewController()
+        let accountIdentity = NSObject()
+        let preparedChat = HeldSavedChatViewController()
+        let previousSupplementary = UINavigationController(
+            rootViewController: LastChatsViewController()
+        )
+        let previousSecondary = UINavigationController(
+            rootViewController: EmptyChatViewController()
+        )
+        let splitViewController = UISplitViewController(style: .tripleColumn)
+
+        leftMenu.chatsVc = chatsController
+        leftMenu.chatNavigationRouteResolver = { _ in .currentNavigationPush }
+        chatsController.chatNavigationRouteResolver = {
+            _ in .currentNavigationPush
+        }
+        chatsController.chatNavigationAccountEpochResolver = { _ in
+            LastChatsChatNavigationAccountEpoch(
+                accountIdentifier: ObjectIdentifier(accountIdentity),
+                isPresent: true,
+                isEnabled: true
+            )
+        }
+        chatsController.compactChatDestinationFactory = { preparedChat }
+        splitViewController.setViewController(leftMenu, for: .primary)
+        splitViewController.setViewController(
+            previousSupplementary,
+            for: .supplementary
+        )
+        splitViewController.setViewController(
+            previousSecondary,
+            for: .secondary
+        )
+
+        let window = TraitWindow(
+            windowScene: windowScene,
+            horizontalSizeClass: .compact
+        )
+        retainedTraitWindows.append(window)
+        window.frame = windowScene.coordinateSpace.bounds
+        window.rootViewController = splitViewController
+        window.makeKeyAndVisible()
+        splitViewController.loadViewIfNeeded()
+        splitViewController.show(.primary)
+        leftMenu.loadViewIfNeeded()
+        splitViewController.view.layoutIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        _ = waitUntil(timeout: 1) {
+            splitViewController.transitionCoordinator == nil
         }
 
-        return controller.savedMessagesChatsVc?.navigationController?.topViewController as? ChatViewController
+        return ForegroundCompactSavedRouteHost(
+            window: window,
+            previousKeyWindow: previousKeyWindow,
+            splitViewController: splitViewController,
+            leftMenu: leftMenu,
+            chatsController: chatsController,
+            previousSupplementary: previousSupplementary,
+            previousSecondary: previousSecondary,
+            preparedChat: preparedChat
+        )
+    }
+
+    private func releaseForegroundCompactSavedRouteHost(
+        _ host: ForegroundCompactSavedRouteHost
+    ) {
+        host.chatsController.resetChatNavigationTransaction(cancelled: true)
+        host.window.isHidden = true
+        host.window.rootViewController = nil
+        host.previousKeyWindow?.makeKey()
+    }
+
+    private struct ForegroundExpandedSavedRouteHost {
+        let window: UIWindow
+        let previousKeyWindow: UIWindow?
+        let splitViewController: UISplitViewController
+        let leftMenu: LeftMenuViewController
+        let chatsController: LastChatsViewController
+        let previousSupplementary: UINavigationController
+        let previousSecondary: UINavigationController
+        let preparedChat: HeldSavedChatViewController
+    }
+
+    private func makeForegroundExpandedSavedRouteHost() throws
+        -> ForegroundExpandedSavedRouteHost {
+        let windowScene = try requireHostedForegroundWindowScene()
+        let previousKeyWindow = windowScene.windows.first(where: \.isKeyWindow)
+        let leftMenu = LeftMenuViewController()
+        let chatsController = LastChatsViewController()
+        let accountIdentity = NSObject()
+        let preparedChat = HeldSavedChatViewController()
+        let previousSupplementary = UINavigationController(
+            rootViewController: UIViewController()
+        )
+        let previousSecondary = UINavigationController(
+            rootViewController: EmptyChatViewController()
+        )
+        let splitViewController = UISplitViewController(style: .tripleColumn)
+
+        leftMenu.chatsVc = chatsController
+        leftMenu.chatNavigationRouteResolver = { _ in .splitDetailReplacement }
+        chatsController.chatNavigationRouteResolver = {
+            _ in .splitDetailReplacement
+        }
+        chatsController.chatNavigationAccountEpochResolver = { _ in
+            LastChatsChatNavigationAccountEpoch(
+                accountIdentifier: ObjectIdentifier(accountIdentity),
+                isPresent: true,
+                isEnabled: true
+            )
+        }
+        chatsController.expandedSplitChatDestinationFactory = { preparedChat }
+        chatsController.expandedSplitStableVisibilityOverride = { _ in true }
+        splitViewController.setViewController(leftMenu, for: .primary)
+        splitViewController.setViewController(
+            previousSupplementary,
+            for: .supplementary
+        )
+        splitViewController.setViewController(
+            previousSecondary,
+            for: .secondary
+        )
+
+        let window = TraitWindow(
+            windowScene: windowScene,
+            horizontalSizeClass: .regular
+        )
+        retainedTraitWindows.append(window)
+        window.frame = windowScene.coordinateSpace.bounds
+        window.rootViewController = splitViewController
+        window.makeKeyAndVisible()
+        splitViewController.loadViewIfNeeded()
+        splitViewController.show(.supplementary)
+        leftMenu.loadViewIfNeeded()
+        splitViewController.view.layoutIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        _ = waitUntil(timeout: 1) {
+            splitViewController.transitionCoordinator == nil
+        }
+
+        return ForegroundExpandedSavedRouteHost(
+            window: window,
+            previousKeyWindow: previousKeyWindow,
+            splitViewController: splitViewController,
+            leftMenu: leftMenu,
+            chatsController: chatsController,
+            previousSupplementary: previousSupplementary,
+            previousSecondary: previousSecondary,
+            preparedChat: preparedChat
+        )
+    }
+
+    private func releaseForegroundExpandedSavedRouteHost(
+        _ host: ForegroundExpandedSavedRouteHost
+    ) {
+        host.chatsController.resetExpandedSplitChatNavigationTransaction(
+            restorePreviousDetail: false
+        )
+        host.window.isHidden = true
+        host.window.rootViewController = nil
+        host.previousKeyWindow?.makeKey()
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval,
+        condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(
+                mode: .default,
+                before: Date().addingTimeInterval(0.01)
+            )
+        } while Date() < deadline
+        return condition()
+    }
+
+    private func waitUntilExpandedNavigationIsStable(
+        _ host: ForegroundExpandedSavedRouteHost
+    ) -> Bool {
+        RunLoop.current.run(
+            mode: .default,
+            before: Date().addingTimeInterval(0.02)
+        )
+        return waitUntil(timeout: 1) {
+            let supplementary = host.splitViewController.viewController(
+                for: .supplementary
+            )
+            let supplementaryTop =
+                (supplementary as? UINavigationController)?
+                    .topViewController ?? supplementary
+            let secondary = host.splitViewController.viewController(
+                for: .secondary
+            )
+            let secondaryTop = (secondary as? UINavigationController)?
+                .topViewController ?? secondary
+            return host.splitViewController.transitionCoordinator == nil &&
+                supplementary?.transitionCoordinator == nil &&
+                supplementaryTop?.transitionCoordinator == nil &&
+                secondary?.transitionCoordinator == nil &&
+                secondaryTop?.transitionCoordinator == nil
+        }
+    }
+
+
+    private class HeldSavedChatViewController:
+        ChatViewController,
+        StackedNavigationPresentationPreparationControlling {
+        private var preparationHandle:
+            StackedNavigationPresentationPreparationHandle?
+        private(set) var preparationCancellationCount = 0
+        private(set) var preparationRequestCount = 0
+
+        func makeStackedNavigationPresentationPreparation(
+            targetBounds: CGRect?,
+            completion: @escaping () -> Void
+        ) -> StackedNavigationPresentationPreparationHandle {
+            preparationRequestCount += 1
+            let handle = StackedNavigationPresentationPreparationHandle(
+                cancellation: { [weak self] in
+                    self?.preparationCancellationCount += 1
+                },
+                completion: completion
+            )
+            preparationHandle = handle
+            return handle
+        }
+
+        func releasePreparation() {
+            guard let preparationHandle else {
+                XCTFail("Expected a pending Saved chat preparation")
+                return
+            }
+            self.preparationHandle = nil
+            preparationHandle.finish()
+        }
+    }
+
+    private final class HeldSavedNativeTerminalChatViewController:
+        HeldSavedChatViewController,
+        StackedNavigationNativeTransitionCompletionRegistering {
+        private var nativeTerminalCompletion: ((Bool) -> Void)?
+        private var completedNativeTerminalCompletion: ((Bool) -> Void)?
+
+        func registerStackedNavigationNativeTransitionCompletion(
+            transitionOwner: UIViewController?,
+            completion: @escaping (Bool) -> Void
+        ) -> Bool {
+            nativeTerminalCompletion = completion
+            return true
+        }
+
+        func completeNativeTerminal(didComplete: Bool) {
+            guard let nativeTerminalCompletion else {
+                XCTFail("Expected a pending native terminal")
+                return
+            }
+            self.nativeTerminalCompletion = nil
+            completedNativeTerminalCompletion = nativeTerminalCompletion
+            nativeTerminalCompletion(didComplete)
+        }
+
+        func replayCompletedNativeTerminal(didComplete: Bool) {
+            guard let completedNativeTerminalCompletion else {
+                XCTFail("Expected a completed native terminal callback")
+                return
+            }
+            completedNativeTerminalCompletion(didComplete)
+        }
     }
 
     private final class TraitWindow: UIWindow {
@@ -535,6 +2104,14 @@ final class SavedMessagesEntryPointTests: XCTestCase {
         init(horizontalSizeClass: UIUserInterfaceSizeClass) {
             self.horizontalSizeClass = horizontalSizeClass
             super.init(frame: UIScreen.main.bounds)
+        }
+
+        init(
+            windowScene: UIWindowScene,
+            horizontalSizeClass: UIUserInterfaceSizeClass
+        ) {
+            self.horizontalSizeClass = horizontalSizeClass
+            super.init(windowScene: windowScene)
         }
 
         required init?(coder: NSCoder) {

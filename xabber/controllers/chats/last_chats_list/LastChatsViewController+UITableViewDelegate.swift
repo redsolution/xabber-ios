@@ -838,6 +838,14 @@ extension LastChatsViewController: UITableViewDelegate {
 
                 guard !didPresent else {
                     let navigationSource = transaction.navigationSource
+                    let validationFailure = transaction.activationContext?
+                        .validationFailure
+                    if validationFailure != nil {
+                        _ = self.rollbackCancelledExpandedSplitSecondaryIfOwned(
+                            transaction: transaction,
+                            splitViewController: splitViewController
+                        )
+                    }
                     self.resetExpandedSplitChatNavigationTransaction(
                         restorePreviousDetail: true,
                         preserveIntentOwnership:
@@ -853,6 +861,22 @@ extension LastChatsViewController: UITableViewDelegate {
                             after: transitionOwner
                         )
                     }
+                    validationFailure?()
+                    return
+                }
+
+                if let validationFailure = transaction.activationContext?
+                    .validationFailure {
+                    if transaction.phase == .presenting {
+                        _ = self.rollbackCancelledExpandedSplitSecondaryIfOwned(
+                            transaction: transaction,
+                            splitViewController: splitViewController
+                        )
+                    }
+                    self.resetExpandedSplitChatNavigationTransaction(
+                        restorePreviousDetail: true
+                    )
+                    validationFailure()
                     return
                 }
 
@@ -1173,10 +1197,10 @@ extension LastChatsViewController: UITableViewDelegate {
             case .presenting:
                 return false
             case .presented:
-                guard stableExpandedSplitDetailChat(
+                guard expandedSplitDetailChat(
                     matching: transaction.target,
                     in: splitViewController
-                ) != nil else {
+                ) === transaction.destination else {
                     return false
                 }
                 resetExpandedSplitChatNavigationTransaction(
@@ -1247,6 +1271,25 @@ extension LastChatsViewController: UITableViewDelegate {
     }
 
     @discardableResult
+    internal func stackNewChatForCompactActivation(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        activationContext: LastChatsCompactActivationContext,
+        configure configureCallback: ((ChatViewController?) -> Void)?
+    ) -> Bool {
+        stackNewChat(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType,
+            openMessageRequest: nil,
+            navigationSource: .standard,
+            compactActivationContext: activationContext,
+            configure: configureCallback
+        )
+    }
+
+    @discardableResult
     public func stackNewChat(
         owner: String,
         jid: String,
@@ -1255,22 +1298,54 @@ extension LastChatsViewController: UITableViewDelegate {
         navigationSource: ChatOpenNavigationSource? = nil,
         configure configureCallback: ((ChatViewController?) -> Void)? = nil
     ) -> Bool {
+        stackNewChat(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType,
+            openMessageRequest: openMessageRequest,
+            navigationSource: navigationSource,
+            compactActivationContext: nil,
+            configure: configureCallback
+        )
+    }
+
+    @discardableResult
+    private func stackNewChat(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        openMessageRequest: ChatOpenMessageRequest?,
+        navigationSource: ChatOpenNavigationSource?,
+        compactActivationContext: LastChatsCompactActivationContext?,
+        configure configureCallback: ((ChatViewController?) -> Void)?
+    ) -> Bool {
         let navigationSource = resolvedNavigationSource(
             navigationSource,
             request: openMessageRequest
         )
-        let route = chatNavigationRouteResolver(self)
+        let route: StackedNavigationRoute = compactActivationContext == nil
+            ? chatNavigationRouteResolver(self)
+            : .currentNavigationPush
         let usesSplitDetailColumn = route == .splitDetailReplacement
         let navigationTarget = LastChatsNavigationSingleFlightCoordinator.Target(
             owner: owner,
             jid: jid,
             conversationType: conversationType
         )
-        let expectedNavigationController = self.navigationController
+        let expectedNavigationController = compactActivationContext?
+            .navigationController ?? self.navigationController
         var navigationToken: UUID?
         var presentationSource: UIViewController = self
         var retainedPreparedDestination: ChatViewController?
         var retainedPreparedAccountEpoch: LastChatsChatNavigationAccountEpoch?
+
+        if let compactActivationContext {
+            guard self.navigationController === expectedNavigationController,
+                  compactActivationContext.validateBeforePush() else {
+                compactActivationContext.fallback()
+                return false
+            }
+        }
 
         if usesSplitDetailColumn {
             return stackNewChatInExpandedSplit(
@@ -1305,6 +1380,17 @@ extension LastChatsViewController: UITableViewDelegate {
             if currentAccountEpoch.isValidForChatNavigation {
                 retainedPreparedAccountEpoch = currentAccountEpoch
             }
+        }
+        if let compactActivationContext,
+           retainedPreparedAccountEpoch == nil {
+            let currentAccountEpoch = chatNavigationAccountEpochResolver(
+                navigationTarget
+            )
+            guard currentAccountEpoch.isValidForChatNavigation else {
+                compactActivationContext.fallback()
+                return false
+            }
+            retainedPreparedAccountEpoch = currentAccountEpoch
         }
 
         if !usesSplitDetailColumn {
@@ -1518,33 +1604,13 @@ extension LastChatsViewController: UITableViewDelegate {
         let preparationHandle = showStacked(
             vc,
             in: presentationSource,
+            using: route,
             destinationIsPrepared: retainedPreparedDestination != nil,
             commitPresentation: { [weak self, weak presentationSource] in
                 guard let self, let presentationSource else {
                     return false
                 }
                 let currentNavigationController = presentationSource.navigationController
-                let presenterWindow = presentationSource.viewIfLoaded?.window
-                let presenterIsVisible = presenterWindow != nil &&
-                    (presentationSource !== self || self.isAppeared)
-                guard LastChatsNavigationPresenterIdentityPolicy.shouldCommit(
-                    expectedNavigationController: expectedNavigationController,
-                    currentNavigationController: currentNavigationController,
-                    isPresenterTopViewController:
-                        currentNavigationController?.topViewController === presentationSource,
-                    isPresenterVisibleInWindow: presenterIsVisible,
-                    isPresenterInSelectedTabHierarchy:
-                        LastChatsNavigationPresenterHierarchyPolicy
-                            .isInSelectedTabHierarchy(presentationSource),
-                    isForegroundActiveScene:
-                        presenterWindow?.windowScene?.activationState == .foregroundActive,
-                    isCurrentNavigationPushRoute:
-                        stackedNavigationRoute(for: presentationSource) == .currentNavigationPush,
-                    presenterHasPresentedViewController:
-                        presentationSource.presentedViewController != nil,
-                    navigationControllerHasPresentedViewController:
-                        currentNavigationController?.presentedViewController != nil
-                ) else { return false }
                 if let retainedPreparedAccountEpoch {
                     guard retainedPreparedAccountEpoch.isExactValidMatch(
                         for: self.chatNavigationAccountEpochResolver(
@@ -1554,6 +1620,37 @@ extension LastChatsViewController: UITableViewDelegate {
                         return false
                     }
                 }
+                if let compactActivationContext {
+                    guard currentNavigationController ===
+                            expectedNavigationController,
+                          compactActivationContext.validateBeforePush(),
+                          compactActivationContext
+                            .prepareNavigationControllerForPush() else {
+                        return false
+                    }
+                } else {
+                    let presenterWindow = presentationSource.viewIfLoaded?.window
+                    let presenterIsVisible = presenterWindow != nil &&
+                        (presentationSource !== self || self.isAppeared)
+                    guard LastChatsNavigationPresenterIdentityPolicy.shouldCommit(
+                        expectedNavigationController: expectedNavigationController,
+                        currentNavigationController: currentNavigationController,
+                        isPresenterTopViewController:
+                            currentNavigationController?.topViewController === presentationSource,
+                        isPresenterVisibleInWindow: presenterIsVisible,
+                        isPresenterInSelectedTabHierarchy:
+                            LastChatsNavigationPresenterHierarchyPolicy
+                                .isInSelectedTabHierarchy(presentationSource),
+                        isForegroundActiveScene:
+                            presenterWindow?.windowScene?.activationState == .foregroundActive,
+                        isCurrentNavigationPushRoute:
+                            stackedNavigationRoute(for: presentationSource) == .currentNavigationPush,
+                        presenterHasPresentedViewController:
+                            presentationSource.presentedViewController != nil,
+                        navigationControllerHasPresentedViewController:
+                            currentNavigationController?.presentedViewController != nil
+                    ) else { return false }
+                }
                 return self.commitChatNavigationPush(
                     token: navigationToken,
                     target: navigationTarget
@@ -1561,6 +1658,86 @@ extension LastChatsViewController: UITableViewDelegate {
             },
             completion: { [weak self] didPresent in
                 guard let self else {
+                    return
+                }
+                if let compactActivationContext {
+                    guard didPresent else {
+                        _ = self.cancelChatNavigationPreparation(
+                            token: navigationToken,
+                            reason: .presentationGuardRejected
+                        )
+                        compactActivationContext.fallback()
+                        return
+                    }
+                    if let retainedPreparedAccountEpoch,
+                       !retainedPreparedAccountEpoch.isExactValidMatch(
+                        for: self.chatNavigationAccountEpochResolver(
+                            navigationTarget
+                        )
+                       ) {
+                        self.resetChatNavigationTransaction(cancelled: true)
+                        compactActivationContext.fallback()
+                        return
+                    }
+                    compactActivationContext
+                        .installPreparedNavigationController(vc) {
+                            [weak self, weak vc] didInstall in
+                            guard let self, let vc else {
+                                return
+                            }
+                            guard didInstall else {
+                                if self.chatNavigationSingleFlight.state?.token
+                                    == navigationToken {
+                                    self.resetChatNavigationTransaction(
+                                        cancelled: true
+                                    )
+                                }
+                                compactActivationContext.fallback()
+                                return
+                            }
+                            if let retainedPreparedAccountEpoch,
+                               !retainedPreparedAccountEpoch.isExactValidMatch(
+                                for: self.chatNavigationAccountEpochResolver(
+                                    navigationTarget
+                                )
+                               ) {
+                                self.resetChatNavigationTransaction(
+                                    cancelled: true
+                                )
+                                compactActivationContext.fallback()
+                                return
+                            }
+                            guard let state = self
+                                .chatNavigationSingleFlight.state,
+                                  state.token == navigationToken,
+                                  state.target == navigationTarget,
+                                  state.phase == .pushing else {
+                                return
+                            }
+                            self.currentChatVC = vc
+                            self.playerViewToolbar.delegate = vc
+                            if self.completeChatNavigationPresentation(
+                                token: navigationToken,
+                                target: navigationTarget,
+                                destination: vc
+                            ) {
+                                DDLogDebug(
+                                    "LAST_CHATS_NAVIGATION " +
+                                        "event=presented phase=presented"
+                                )
+                            } else {
+                                if self.currentChatVC === vc {
+                                    self.currentChatVC = nil
+                                }
+                                if self.playerViewToolbar.delegate === vc {
+                                    self.playerViewToolbar.delegate = nil
+                                }
+                                self.resetChatNavigationTransaction(
+                                    cancelled: true
+                                )
+                                compactActivationContext.fallback()
+                            }
+                        }
                     return
                 }
                 if didPresent {
