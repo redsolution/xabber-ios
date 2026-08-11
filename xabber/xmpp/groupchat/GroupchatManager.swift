@@ -1985,12 +1985,19 @@ class GroupchatManager: AbstractXMPPManager {
         return GroupchatInviteV3Parser.isInvite(message)
     }
 
-    public final func readInvite(in message: XMPPMessage, date: Date, isRead: Bool?, commit: Bool = true) -> Bool {
+    public final func readInvite(
+        in message: XMPPMessage,
+        date: Date,
+        isRead: Bool?,
+        commit: Bool = true,
+        notifyLocally: Bool = false
+    ) -> Bool {
         let result = makeInvitePersistenceService().receive(
             message: message,
             date: date,
             isRead: isRead,
-            commit: commit
+            commit: commit,
+            notifyLocally: notifyLocally
         )
         return result.shouldConsume
     }

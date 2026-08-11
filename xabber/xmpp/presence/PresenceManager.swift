@@ -839,6 +839,16 @@ class PresenceManager: AbstractXMPPManager {
             presence.presenceType == .subscribe else {
                 return false
         }
+        let wireNickname = presence
+            .element(forName: "nick", xmlns: "http://jabber.org/protocol/nick")?
+            .stringValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let notificationText = presence.status ?? ""
+        let notificationReceivedAt = presence.delayedDeliveryDate ?? Date()
+        let isFreshForLocalNotification = LocalNotificationAdmissionPolicy
+            .allowsSubscribePresence(receivedAt: notificationReceivedAt)
+        var shouldNotifyLocally = false
+        var resolvedDisplayName = wireNickname?.isEmpty == false ? wireNickname! : jid
         
         AccountManager.shared.find(for: self.owner)?.action({ user, stream in
             user.omemo.getContactDevices(stream, jid: jid)
@@ -858,6 +868,7 @@ class PresenceManager: AbstractXMPPManager {
                 try realm.write {
                     realm.add(uiNotifyObject)
                 }
+                shouldNotifyLocally = true
             }
 //            let notificationId = ["subscribtion_request", jid, owner].prp()
 //            if let instance = realm.object(ofType: NotificationStorageItem.self, forPrimaryKey: NotificationStorageItem.genPrimary(owner: owner, jid: jid, uniqueId: notificationId)) {
@@ -893,14 +904,15 @@ class PresenceManager: AbstractXMPPManager {
                 try realm.write {
                     instance.ask = .in
                     if instance.username.isEmpty {
-                        instance.username = presence.element(forName: "nick", xmlns: "http://jabber.org/protocol/nick")?.stringValue ?? ""
+                        instance.username = wireNickname ?? ""
                     }
                 }
+                resolvedDisplayName = instance.displayName.isEmpty ? resolvedDisplayName : instance.displayName
             } else {
                 let instance = RosterStorageItem()
                 instance.owner = self.owner
                 instance.jid = jid
-                instance.username = presence.element(forName: "nick", xmlns: "http://jabber.org/protocol/nick")?.stringValue ?? ""
+                instance.username = wireNickname ?? ""
                 instance.primary = RosterStorageItem.genPrimary(jid: jid, owner: owner)
                 instance.subscribtion = .undefined
                 instance.ask = .in
@@ -908,6 +920,7 @@ class PresenceManager: AbstractXMPPManager {
                     if realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [jid, owner].prp()) != nil { return }
                     realm.add(instance)
                 }
+                resolvedDisplayName = instance.displayName.isEmpty ? resolvedDisplayName : instance.displayName
             }
             
             if realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: [jid, owner].prp()) != nil {
@@ -917,6 +930,18 @@ class PresenceManager: AbstractXMPPManager {
             AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, _ in
                 user.avatarManager.enqueuePubSubItemRequest(node: .metadata, jid: jid, by: "")
             })
+            if shouldNotifyLocally && isFreshForLocalNotification {
+                let notificationOwner = owner
+                let displayName = resolvedDisplayName
+                DispatchQueue.main.async {
+                    NotifyManager.shared.update(
+                        withSubscription: notificationText,
+                        opponent: jid,
+                        owner: notificationOwner,
+                        displayName: displayName
+                    )
+                }
+            }
         } catch {
             DDLogDebug("PresenceManager: \(#function). \(error.localizedDescription)")
         }

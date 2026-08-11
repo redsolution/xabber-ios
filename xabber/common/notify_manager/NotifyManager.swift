@@ -135,16 +135,21 @@ enum LocalMessageNotificationRouteFactory {
         senderJid: String?,
         senderNickname: String?
     ) -> PushNotificationRoutePayload {
-        PushNotificationRoutePayload.message(
+        let resolvedType = PushNotificationConversationTypeResolver.resolve(
+            conversationType,
+            fallback: .regular
+        )
+        let canonicalType = resolvedType == .group ? "group" : conversationType
+        return PushNotificationRoutePayload.message(
             owner: owner,
             routeJid: routeJid,
-            conversationType: conversationType,
+            conversationType: canonicalType,
             stanzaId: stanzaId,
             messageId: nil,
             stanza: nil,
             senderJid: senderJid,
             senderNickname: senderNickname,
-            groupchat: conversationType == "group" ? routeJid : nil
+            groupchat: resolvedType == .group ? routeJid : nil
         )
     }
 }
@@ -285,6 +290,7 @@ class NotifyItem {
     var username: String? = nil
     var imageUrl: String? = nil
     var conversationType: String
+    var richPreview: PushNotificationPreview? = nil
     
     init(from: String, to: String, message: String, date: Date, conversationType: String) {
         self.from = from
@@ -644,34 +650,53 @@ class NotifyManager {
     }
     
     func showInviteNotification(title: String, subtitle: String, text: String, jid: String, owner: String) {
-        if self.lastChatsDisplayedState { return }
-        
         let notifyId = [jid, owner, NotifyManager.notificationInviteCategory].prp()
-
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.subtitle = subtitle
-        content.body = text
-        content.sound = MusicBox.shared.getNotificationSound()
-        content.categoryIdentifier = NotifyManager.notificationInviteCategory
-        content.userInfo = PushNotificationRoutePayload.groupInvite(
+        let route = PushNotificationRoutePayload.groupInvite(
             owner: owner,
             groupchat: jid,
             inviteKind: "group",
             inviterJid: nil,
             inviterNickname: subtitle.isEmpty ? nil : subtitle
-        ).userInfo()
-        
-        
-        
-        let trigger = UNTimeIntervalNotificationTrigger.init(timeInterval: 0.1, repeats: false)
-        let request = UNNotificationRequest(identifier: notifyId, content: content, trigger: trigger)
-        
-        UNUserNotificationCenter.current().delegate = (UIApplication.shared.delegate as! UNUserNotificationCenterDelegate)
-        UNUserNotificationCenter.current().add(request) {
-            error in
-            DDLogDebug("cant show notify \(NotifyManager.notificationInviteCategory): \(error?.localizedDescription ?? "")")
+        )
+        let preview = PushNotificationPreview(
+            route: route,
+            body: text,
+            groupName: title.isEmpty ? nil : title,
+            mediaItems: []
+        )
+        scheduleLocalNotification(
+            preview: preview,
+            identifier: notifyId,
+            names: RichNotificationNameOverrides(
+                conversationName: title,
+                senderName: subtitle.isEmpty ? nil : subtitle,
+                editMark: ""
+            ),
+            categoryIdentifier: NotifyManager.notificationInviteCategory,
+            sound: MusicBox.shared.getNotificationSound()
+        )
+    }
+
+    func showInviteNotification(
+        preview: PushNotificationPreview,
+        conversationName: String? = nil,
+        senderName: String? = nil
+    ) {
+        guard preview.route.kind == .groupInvite,
+              let groupchat = preview.route.groupchat ?? preview.route.routeJid else {
+            return
         }
+        scheduleLocalNotification(
+            preview: preview,
+            identifier: [groupchat, preview.route.owner, NotifyManager.notificationInviteCategory].prp(),
+            names: RichNotificationNameOverrides(
+                conversationName: conversationName,
+                senderName: senderName,
+                editMark: ""
+            ),
+            categoryIdentifier: NotifyManager.notificationInviteCategory,
+            sound: MusicBox.shared.getNotificationSound()
+        )
     }
     
     func update(withMessage message: String,
@@ -682,7 +707,11 @@ class NotifyManager {
                 date: Date = Date(),
                 displayName: String = "",
                 imageUrl: String? = nil,
-                conversationType: ClientSynchronizationManager.ConversationType) {
+                conversationType: ClientSynchronizationManager.ConversationType,
+                preview: PushNotificationPreview? = nil) {
+        guard showMessageNotify else {
+            return
+        }
         if self.isMuted(forOwner: owner, contact: opponent, conversationType: conversationType) {
             return
         }
@@ -696,10 +725,7 @@ class NotifyManager {
         } catch {
             DDLogDebug("NotifyManager: \(#function). \(error.localizedDescription)")
         }
-        if date.timeIntervalSinceReferenceDate > self.message.timestamp && Id != self.message.Id {
-            if !self.message.showed {
-                self.showNotify(forType: .newMessage)
-            }
+        if Id != self.message.Id || owner != self.message.from {
             self.message.to = opponent
             self.message.from = owner
             self.message.message = message
@@ -711,21 +737,66 @@ class NotifyManager {
             self.message.username = username
             self.message.imageUrl = imageUrl
             self.message.conversationType = conversationType.rawValue
-            self.canShowNotify = true
+            self.message.richPreview = preview
+            self.message.showed = true
+            self.canShowNotify = false
+
+            let resolvedPreview = preview ?? LocalMessageNotificationPreviewFactory.make(
+                originalStanzaXML: nil,
+                owner: owner,
+                routeJid: opponent,
+                conversationType: conversationType.rawValue,
+                archivedId: Id,
+                messageId: nil,
+                sentAt: date,
+                fallbackBody: message,
+                senderJid: conversationType == .group ? nil : opponent,
+                senderNickname: username,
+                senderUserId: nil
+            )
+            scheduleLocalMessageNotification(
+                preview: resolvedPreview,
+                displayName: displayName,
+                senderName: username
+            )
         }
     }
 
     func update(withSubscription subscription: String, opponent: String, owner: String, displayName: String, date: Date = Date()) {
+        guard showSubscriptionNotify else {
+            return
+        }
         if self.isMuted(forOwner: owner, contact: opponent, conversationType: .omemo) {
             return
         }
-        if date.timeIntervalSinceReferenceDate > self.message.timestamp {
+        if opponent != self.subscription.to || owner != self.subscription.from || !self.subscription.showed {
             self.subscription.to = opponent
             self.subscription.from = owner
             self.subscription.message = subscription
             self.subscription.displayName = displayName
             self.subscription.timestamp = date.timeIntervalSinceReferenceDate
-            self.showNotify(forType: .subscription)
+            self.subscription.showed = true
+            let route = PushNotificationRoutePayload.subscriptionRequest(
+                owner: owner,
+                contactJid: opponent,
+                nickname: displayName.isEmpty ? nil : displayName
+            )
+            scheduleLocalNotification(
+                preview: PushNotificationPreview(
+                    route: route,
+                    body: subscription,
+                    groupName: nil,
+                    mediaItems: []
+                ),
+                identifier: [opponent, owner, NotifyManager.notificationSubscribtionCategory].prp(),
+                names: RichNotificationNameOverrides(
+                    conversationName: nil,
+                    senderName: displayName.isEmpty ? nil : displayName,
+                    editMark: ""
+                ),
+                categoryIdentifier: NotifyManager.notificationSubscribtionCategory,
+                sound: MusicBox.shared.getNotificationSound(for: .subscription)
+            )
         }
     }
 
@@ -774,13 +845,41 @@ class NotifyManager {
         }
     }
     
-    func update(withVerificationMessage message: String, owner: String, displayName: String, sid: String, timestamp: TimeInterval) {
+    func update(
+        withVerificationMessage message: String,
+        owner: String,
+        displayName: String,
+        senderJid: String? = nil,
+        sid: String,
+        timestamp: TimeInterval
+    ) {
         self.verification.message = message
         self.verification.displayName = displayName
         self.verification.timestamp = timestamp
         self.verification.Id = sid
         self.verification.owner = owner
-        self.showNotify(forType: .verification)
+        self.verification.showed = true
+        let route = PushNotificationRoutePayload.verificationRequest(
+            owner: owner,
+            senderJid: senderJid,
+            sid: sid
+        )
+        scheduleLocalNotification(
+            preview: PushNotificationPreview(
+                route: route,
+                body: message,
+                groupName: nil,
+                mediaItems: []
+            ),
+            identifier: sid,
+            names: RichNotificationNameOverrides(
+                conversationName: nil,
+                senderName: displayName == senderJid ? nil : displayName,
+                editMark: ""
+            ),
+            categoryIdentifier: NotifyManager.notificationVerificationCategory,
+            sound: MusicBox.shared.getNotificationSound(for: .newMessage)
+        )
     }
 
     func showNotify(forType type: NotifyType) {
@@ -800,35 +899,26 @@ class NotifyManager {
                 [message.to, message.from].prp() == currentDialog {
                 return
             }
-            content.threadIdentifier = [message.from, message.to].prp()
-            content.categoryIdentifier = NotifyManager.notificationMessageCategory
-            if let uri = message.imageUrl,
-                let url = URL(string: uri),
-                let data = try? Data(contentsOf: url),
-                let image = UIImage(data: data),
-                let attachment = UNNotificationAttachment
-                    .create(identifier: url.lastPathComponent,
-                            image: image,
-                            options: nil) {
-                    content.attachments = [attachment]
-                }
-            
-            content.userInfo = LocalMessageNotificationRouteFactory.make(
+            let sentAt = Date(timeIntervalSinceReferenceDate: self.message.timestamp)
+            let preview = self.message.richPreview ?? LocalMessageNotificationPreviewFactory.make(
+                originalStanzaXML: nil,
                 owner: self.message.from,
                 routeJid: self.message.to,
                 conversationType: self.message.conversationType,
-                stanzaId: self.message.Id,
+                archivedId: self.message.Id,
+                messageId: nil,
+                sentAt: sentAt,
+                fallbackBody: self.message.message,
                 senderJid: self.message.to,
-                senderNickname: self.message.username
-            ).userInfo(timestamp: Date().timeIntervalSinceReferenceDate)
-            content.title = ["📱", self.message.displayName].joined(separator: " ")
-            if let username = self.message.username {
-                content.subtitle = username
-            }
-            content.body = self.message.message
-            content.sound = MusicBox.shared.getNotificationSound(for: .newMessage)
-            notificationRequest = self.message.Id
-            break
+                senderNickname: self.message.username,
+                senderUserId: nil
+            )
+            scheduleLocalMessageNotification(
+                preview: preview,
+                displayName: self.message.displayName,
+                senderName: self.message.username
+            )
+            return
         case .subscription:
             DDLogDebug("notify of new subscription")
             if self.subscription.showed {
@@ -858,6 +948,9 @@ class NotifyManager {
             break
         case .verification:
             DDLogDebug("notify of verification message")
+            if self.verification.showed {
+                return
+            }
             content.categoryIdentifier = NotifyManager.notificationVerificationCategory
             content.userInfo = PushNotificationRoutePayload.verificationRequest(
                 owner: self.verification.owner ?? "",
@@ -893,6 +986,53 @@ class NotifyManager {
 //                DDLogDebug("cant show notify \(notificationRequest): \(error?.localizedDescription ?? "")")
 //            }
         }
+    }
+
+    private func scheduleLocalMessageNotification(
+        preview: PushNotificationPreview,
+        displayName: String,
+        senderName: String?
+    ) {
+        guard let routeJid = preview.route.routeJid else {
+            return
+        }
+        if let currentDialog,
+           [routeJid, preview.route.owner].prp() == currentDialog {
+            return
+        }
+        let identifier = preview.route.stanzaId
+            ?? preview.route.messageId
+            ?? UUID().uuidString
+        let isGroup = preview.route.groupchat != nil || preview.route.conversationType == "group"
+        scheduleLocalNotification(
+            preview: preview,
+            identifier: identifier,
+            names: RichNotificationNameOverrides(
+                conversationName: displayName.isEmpty ? nil : displayName,
+                senderName: isGroup ? senderName : nil,
+                editMark: ""
+            ),
+            categoryIdentifier: NotifyManager.notificationMessageCategory,
+            sound: MusicBox.shared.getNotificationSound(for: .newMessage)
+        )
+    }
+
+    private func scheduleLocalNotification(
+        preview: PushNotificationPreview,
+        identifier: String,
+        names: RichNotificationNameOverrides,
+        categoryIdentifier: String,
+        sound: UNNotificationSound?
+    ) {
+        LocalRichNotificationScheduler.shared.schedule(
+            LocalRichNotificationRequest(
+                identifier: identifier,
+                preview: preview,
+                names: names,
+                categoryIdentifier: categoryIdentifier,
+                sound: sound
+            )
+        )
     }
     
     func showSimpleNotify(withTitle title: String, subtitle: String, body: String) {

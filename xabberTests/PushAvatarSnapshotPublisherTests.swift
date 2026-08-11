@@ -792,6 +792,9 @@ final class PushAvatarSnapshotPublisherTests: XCTestCase {
         let relativePaths = [
             "xabber/common/contacts/CommonContactsMetadataManager.swift",
             "xabber/common/avatar_manager/DefaultAvatarManager.swift",
+            "xabber/common/notify_manager/LocalRichNotificationScheduler.swift",
+            "xabber/common/notify_manager/RichNotificationAttachmentLoader.swift",
+            "xabber/common/notify_manager/RichNotificationPresentation.swift",
             "xabber/xmpp/avatar/AvatarReceiverManager.swift",
             "xabber/xmpp/avatar/AvatarUploadManager.swift",
             "xabber-push-extension/NotificationService.swift"
@@ -805,6 +808,10 @@ final class PushAvatarSnapshotPublisherTests: XCTestCase {
             XCTAssertFalse(source.contains("CNMutableContact"), relativePath)
             XCTAssertFalse(source.contains("CNSaveRequest"), relativePath)
             XCTAssertFalse(source.contains("import Contacts"), relativePath)
+            for line in source.components(separatedBy: .newlines)
+                where line.contains("contactIdentifier:") {
+                XCTAssertTrue(line.contains("contactIdentifier: nil"), relativePath)
+            }
             if relativePath.contains("CommonContactsMetadataManager") {
                 XCTAssertFalse(source.contains("contactID"), relativePath)
                 XCTAssertFalse(source.contains("\"contactId\""), relativePath)

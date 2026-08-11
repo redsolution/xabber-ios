@@ -37,13 +37,18 @@ final class GroupchatInviteV3Tests: XCTestCase {
         return try XCTUnwrap(document.rootElement())
     }
 
-    private func service() -> GroupchatInvitePersistenceService {
+    private func service(
+        now: @escaping () -> Date = Date.init,
+        showLocalNotification: @escaping (PushNotificationPreview) -> Void = { _ in }
+    ) -> GroupchatInvitePersistenceService {
         GroupchatInvitePersistenceService(
             owner: owner,
             followUp: GroupchatInviteFollowUp(
                 requestGroupInfo: { [weak self] groupchat in self?.infoRequests.append(groupchat) },
                 requestMembers: { [weak self] groupchat in self?.membersRequests.append(groupchat) }
-            )
+            ),
+            now: now,
+            showLocalNotification: showLocalNotification
         )
     }
 
@@ -77,6 +82,50 @@ final class GroupchatInviteV3Tests: XCTestCase {
         XCTAssertFalse(invite.outgoing)
         XCTAssertFalse(invite.isRead)
         XCTAssertFalse(invite.isAnonymous)
+    }
+
+    func testOnlyFreshCommittedUnreadLiveInviteSchedulesTypedLocalNotification() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var previews: [PushNotificationPreview] = []
+        let inviteService = service(
+            now: { now },
+            showLocalNotification: { previews.append($0) }
+        )
+        let fresh = try makeMessage("""
+        <message from='juliet@example.com/balcony' to='\(owner)' id='local-invite'>
+          <invite xmlns='https://xabber.com/protocol/groups' jid='stage@example.com'>
+            <user id='member-7' jid='juliet@example.com'><nickname>Juliet</nickname></user>
+          </invite>
+          <group xmlns='https://xabber.com/protocol/groups' privacy='public'>
+            <info><name>Stage</name></info>
+          </group>
+        </message>
+        """)
+
+        XCTAssertEqual(
+            inviteService.receive(
+                message: fresh,
+                date: now.addingTimeInterval(-1),
+                isRead: false,
+                notifyLocally: true
+            ),
+            .inserted
+        )
+        XCTAssertEqual(previews.count, 1)
+        XCTAssertEqual(previews.first?.route.kind, .groupInvite)
+        XCTAssertEqual(previews.first?.route.groupchat, "stage@example.com")
+        XCTAssertEqual(previews.first?.route.inviterJid, "juliet@example.com")
+
+        XCTAssertEqual(
+            inviteService.receive(
+                message: fresh,
+                date: now.addingTimeInterval(-1),
+                isRead: false,
+                notifyLocally: true
+            ),
+            .duplicate
+        )
+        XCTAssertEqual(previews.count, 1)
     }
 
     func testLiveV3ServerMediatedInviteStoresGroupSender() throws {

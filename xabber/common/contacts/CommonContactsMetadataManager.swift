@@ -54,6 +54,21 @@ struct PushNotificationAvatarIdentity: Equatable, Hashable {
         let bare = value.split(separator: "/", maxSplits: 1).first.map(String.init) ?? value
         return bare.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
+
+    /// A stable sender handle for communication notifications. Group
+    /// participants deliberately use an opaque value so they can never be
+    /// interpreted as entries that should be added to the system address book.
+    var notificationSenderHandle: String {
+        switch scope {
+        case .contact:
+            return entityJid
+        case .groupParticipant:
+            let digest = SHA256.hash(data: Data(canonicalValue.utf8))
+                .map { String(format: "%02x", $0) }
+                .joined()
+            return "xabber-group-participant:\(digest)"
+        }
+    }
 }
 
 enum PushAvatarSnapshotSourceScope: Hashable {
@@ -578,6 +593,47 @@ extension PushNotificationRoutePayload {
             return nil
         }
         return PushNotificationAvatarIdentity(owner: owner, contactJid: contactJid)
+    }
+
+    /// Ordered cache identities used to resolve the avatar. A group-specific
+    /// snapshot wins, with the regular roster snapshot as a safe fallback.
+    var senderAvatarLookupIdentities: [PushNotificationAvatarIdentity] {
+        var identities: [PushNotificationAvatarIdentity] = []
+        if let senderAvatarIdentity {
+            identities.append(senderAvatarIdentity)
+        }
+        if let senderJid = senderJid ?? inviterJid {
+            let contactIdentity = PushNotificationAvatarIdentity(
+                owner: owner,
+                contactJid: senderJid
+            )
+            if !identities.contains(contactIdentity) {
+                identities.append(contactIdentity)
+            }
+        }
+        return identities
+    }
+
+    func stableSenderHandle(fallback: String) -> String {
+        if let groupchat = groupchat ?? (conversationType == "group" ? routeJid : nil) {
+            let participant = senderUserId
+                ?? senderJid
+                ?? senderNickname
+                ?? fallback
+            let trimmedParticipant = participant.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            if !trimmedParticipant.isEmpty {
+                return PushNotificationAvatarIdentity(
+                    owner: owner,
+                    groupchat: groupchat,
+                    participantId: trimmedParticipant
+                ).notificationSenderHandle
+            }
+        }
+        let candidate = senderJid ?? inviterJid ?? routeJid ?? fallback
+        let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? fallback : trimmed
     }
 }
 

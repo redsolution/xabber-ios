@@ -1341,6 +1341,7 @@ class MessageStorageItem: Object {
         let displayName: String
         let imageUrl: String?
         let conversationType: ClientSynchronizationManager.ConversationType
+        let preview: PushNotificationPreview
     }
 
     struct SaveSideEffects {
@@ -1361,7 +1362,8 @@ class MessageStorageItem: Object {
             date: notification.date,
             displayName: notification.displayName,
             imageUrl: notification.imageUrl,
-            conversationType: notification.conversationType
+            conversationType: notification.conversationType,
+            preview: notification.preview
         )
     }
 
@@ -1572,22 +1574,46 @@ class MessageStorageItem: Object {
 
         let notification: SaveNotificationPayload?
         if !silentNotifications &&
-            self.date.timeIntervalSince1970 > (Date().timeIntervalSince1970 - 10) &&
+            LocalNotificationAdmissionPolicy.allowsMessage(
+                countsAsRuntimeUnread: self.countsAsRuntimeUnread,
+                sentAt: self.date
+            ) &&
             shouldNotify &&
             !self.isRead &&
             !self.outgoing &&
             self.archivedId.isNotEmpty &&
             self.displayAs != .system {
+            let fallbackBody = self.displayedBody()
+            let preview = LocalMessageNotificationPreviewFactory.make(
+                originalStanzaXML: self.originalStanza?.xmlString,
+                owner: self.owner,
+                routeJid: self.opponent,
+                conversationType: self.conversationType.rawValue,
+                archivedId: self.archivedId,
+                messageId: self.messageId,
+                sentAt: self.date,
+                fallbackBody: fallbackBody,
+                senderJid: self.conversationType == .group
+                    ? MessageStorageItem.groupchatMessageAuthorJid(self.references.toArray())
+                    : self.opponent,
+                senderNickname: self.conversationType == .group
+                    ? self.groupchatAuthorNickname
+                    : nil,
+                senderUserId: self.conversationType == .group
+                    ? self.groupchatAuthorId
+                    : nil
+            )
             notification = SaveNotificationPayload(
-                message: self.displayedBody(),
+                message: preview.body,
                 messageId: self.archivedId,
-                username: self.groupchatMetadata?["nickname"] as? String,
+                username: self.groupchatAuthorNickname,
                 opponent: self.opponent,
                 owner: self.owner,
                 date: self.date,
                 displayName: displayNameForNotification ?? self.opponent,
                 imageUrl: nil,
-                conversationType: self.conversationType
+                conversationType: self.conversationType,
+                preview: preview
             )
         } else {
             notification = nil

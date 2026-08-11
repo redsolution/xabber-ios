@@ -328,7 +328,7 @@ struct PushNotificationPreview: Equatable {
                     return item.thumbnailURL ?? item.url
                 case .video:
                     return item.thumbnailURL
-                case .file, .voice:
+                case .file, .voice, .forward:
                     return nil
                 }
             }
@@ -342,6 +342,7 @@ struct PushNotificationMediaItem: Equatable {
         case sticker
         case file
         case voice
+        case forward
     }
 
     let kind: Kind
@@ -361,6 +362,7 @@ enum PushNotificationMediaFormatter {
 
         let images = items.filter { $0.kind == .image }
         let videos = items.filter { $0.kind == .video }
+        let forwards = items.filter { $0.kind == .forward }
         if items.count > 1 {
             if images.count == items.count {
                 return PushNotificationLocalization.string(
@@ -374,6 +376,13 @@ enum PushNotificationMediaFormatter {
                     "chat_messages_attached_videos",
                     fallback: "%@ attached videos",
                     String(videos.count)
+                )
+            }
+            if forwards.count == items.count {
+                return PushNotificationLocalization.string(
+                    "chat_message_some_forwarded_messages",
+                    fallback: "%@ forwarded messages",
+                    String(forwards.count)
                 )
             }
             return PushNotificationLocalization.string(
@@ -416,6 +425,11 @@ enum PushNotificationMediaFormatter {
             return "file: \(safeFilename)"
         case .image:
             return PushNotificationLocalization.string("chat_message_image", fallback: "Image")
+        case .forward:
+            return PushNotificationLocalization.string(
+                "chat_message_forwarded_message",
+                fallback: "Forwarded message"
+            )
         }
     }
 
@@ -435,6 +449,94 @@ enum PushNotificationMediaFormatter {
     static func formatDuration(_ duration: Int) -> String {
         let seconds = max(0, duration)
         return String(format: "%d:%02ds", seconds / 60, seconds % 60)
+    }
+}
+
+/// Builds the immutable notification snapshot while the original stanza is
+/// still available. Persistence identifiers win over values inferred from XML;
+/// the parser remains the source of the user-visible body and media semantics.
+enum LocalMessageNotificationPreviewFactory {
+    static func make(
+        originalStanzaXML: String?,
+        owner: String,
+        routeJid: String,
+        conversationType: String,
+        archivedId: String?,
+        messageId: String?,
+        sentAt: Date,
+        fallbackBody: String,
+        senderJid: String?,
+        senderNickname: String?,
+        senderUserId: String?
+    ) -> PushNotificationPreview {
+        let parsed = originalStanzaXML.flatMap {
+            PushNotificationArchiveParser.parseArchivedMessage(
+                xmlString: $0,
+                owner: owner
+            )
+        }
+        let canonicalType = canonicalConversationType(
+            conversationType,
+            parsedType: parsed?.route.conversationType
+        )
+        let isGroup = canonicalType == "group"
+        let route = PushNotificationRoutePayload.message(
+            owner: owner,
+            routeJid: trimmed(routeJid) ?? parsed?.route.routeJid ?? routeJid,
+            conversationType: canonicalType,
+            stanzaId: trimmed(archivedId) ?? parsed?.route.stanzaId,
+            messageId: trimmed(messageId) ?? parsed?.route.messageId,
+            stanza: originalStanzaXML ?? parsed?.route.stanza,
+            senderJid: trimmed(senderJid) ?? parsed?.route.senderJid,
+            senderNickname: trimmed(senderNickname) ?? parsed?.route.senderNickname,
+            senderUserId: trimmed(senderUserId) ?? parsed?.route.senderUserId,
+            senderAvatarURL: parsed?.route.senderAvatarURL,
+            groupchat: isGroup
+                ? (trimmed(routeJid) ?? parsed?.route.groupchat ?? parsed?.route.routeJid)
+                : nil,
+            timestamp: sentAt.timeIntervalSinceReferenceDate
+        )
+        let fallback = trimmed(fallbackBody) ?? PushNotificationLocalization.newMessage()
+        return PushNotificationPreview(
+            route: route,
+            body: parsed?.body ?? fallback,
+            groupName: parsed?.groupName,
+            mediaItems: parsed?.mediaItems ?? []
+        )
+    }
+
+    private static func canonicalConversationType(
+        _ rawValue: String,
+        parsedType: String?
+    ) -> String {
+        let normalized = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        switch normalized {
+        case "group", "groupchat", "https://xabber.com/protocol/groups":
+            return "group"
+        case "channel", "https://xabber.com/protocol/channels":
+            return "channel"
+        case "saved", "urn:xabber:favorites:0":
+            return "saved"
+        case "notifications", "urn:xabber:xen:0":
+            return "notifications"
+        case "regular", "urn:xabber:chat":
+            return "regular"
+        case "omemo", "urn:xmpp:omemo:2":
+            return "omemo"
+        case "omemo1", "urn:xmpp:omemo:1":
+            return "omemo1"
+        case "axolotl", "eu.siacs.conversations.axolotl":
+            return "axolotl"
+        default:
+            return parsedType == "group" ? "group" : "regular"
+        }
+    }
+
+    private static func trimmed(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 }
 
@@ -862,6 +964,16 @@ enum PushNotificationArchiveParser {
                     return nil
                 }
                 return mediaItem(from: fileSharing, forcedKind: nil)
+            case "forward":
+                return PushNotificationMediaItem(
+                    kind: .forward,
+                    filename: nil,
+                    mediaType: nil,
+                    size: nil,
+                    duration: nil,
+                    url: nil,
+                    thumbnailURL: nil
+                )
             default:
                 return nil
             }

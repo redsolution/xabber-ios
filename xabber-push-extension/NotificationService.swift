@@ -21,26 +21,7 @@ import UserNotifications
 import SwiftKeychainWrapper
 import KissXML
 import CryptoSwift
-import ImageIO
 import Intents
-import UIKit
-
-private final class PushNotificationMediaSessionDelegate: NSObject, URLSessionTaskDelegate {
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        willPerformHTTPRedirection response: HTTPURLResponse,
-        newRequest request: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void
-    ) {
-        guard let url = request.url,
-              PushNotificationMediaURLPolicy.remoteURLString(url.absoluteString) != nil else {
-            completionHandler(nil)
-            return
-        }
-        completionHandler(request)
-    }
-}
 
 class NotificationService: UNNotificationServiceExtension {
     static let suitName: String = "group.xabber.ios"
@@ -291,10 +272,7 @@ class NotificationService: UNNotificationServiceExtension {
     private var credentialRetryWorkItem: DispatchWorkItem?
     private var renderingTask: Task<Void, Never>?
     private var archiveManager: NetworkManager?
-    private let mediaSessionDelegate = PushNotificationMediaSessionDelegate()
-    private lazy var attachmentDirectory: URL = FileManager.default.temporaryDirectory
-        .appendingPathComponent("xabber-notification-media", isDirectory: true)
-        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    private let richAttachmentLoader = RichNotificationAttachmentLoader()
     
     var creditionals: [String: Any] = [:]
     var owner: String = ""
@@ -561,7 +539,6 @@ class NotificationService: UNNotificationServiceExtension {
             self.bestAttemptContent.body = localizedNewMessage
             return requestGeneration
         }
-        sweepStaleAttachmentDirectories()
         guard mutableContent != nil else {
             completeContent(request.content)
             return
@@ -691,12 +668,18 @@ class NotificationService: UNNotificationServiceExtension {
             contactJid: from,
             nickname: metadata.username
         )
+        let preview = PushNotificationPreview(
+            route: route,
+            body: PushNotificationLocalization.string(
+                "action_subscription_received",
+                fallback: "Incoming contact request"
+            ),
+            groupName: nil,
+            mediaItems: []
+        )
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.renderSubscriptionRequest(
-                route: route,
-                displayName: metadata.username ?? from
-            )
+            await self.renderSubscriptionRequest(preview)
         }
         installRenderingTask(task)
         return
@@ -844,10 +827,7 @@ extension NotificationService: PushPayloadDelegate {
         case .verificationRequest:
             renderVerificationRequest(preview)
         case .subscriptionRequest:
-            await renderSubscriptionRequest(
-                route: preview.route,
-                displayName: preview.route.senderNickname ?? preview.route.routeJid ?? "Someone"
-            )
+            await renderSubscriptionRequest(preview)
         }
     }
 
@@ -882,7 +862,7 @@ extension NotificationService: PushPayloadDelegate {
 
     private final func renderMessage(_ preview: PushNotificationPreview) async {
         guard !Task.isCancelled, !hasCompletedContent else { return }
-        guard let routeJid = preview.route.routeJid else {
+        guard preview.route.routeJid != nil else {
             mutateBestAttemptContent { content in
                 content.title = CommonConfigManager.shared.config.app_name
                 content.body = preview.body
@@ -890,79 +870,30 @@ extension NotificationService: PushPayloadDelegate {
             completeBestAttemptContent()
             return
         }
-
-        let isGroup = preview.route.groupchat != nil || preview.route.conversationType == "group"
-        let routeMetadata = CommonContactsMetadataManager.shared.getItem(owner: owner, jid: routeJid)
-        let senderMetadata = preview.route.senderJid.map {
-            CommonContactsMetadataManager.shared.getItem(owner: owner, jid: $0)
-        }
-        let routeDisplayName = routeMetadata.username ?? preview.groupName ?? routeJid
-        let senderDisplayName = isGroup
-            ? (preview.route.senderNickname
-                ?? senderMetadata?.username
-                ?? preview.route.senderJid
-                ?? "Group member")
-            : (routeMetadata.username ?? routeJid)
-        let conversationId = "xabber:\(owner.lowercased()):\(routeJid.lowercased())"
-        let subtitle = [editMark, isGroup ? senderDisplayName : ""]
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        guard applyRoute(preview.route, mutation: { content in
-            content.categoryIdentifier = PushNotificationCategory.pushMessage
-            content.sound = .default
-            content.body = preview.body
-            content.threadIdentifier = conversationId
-            content.title = isGroup ? routeDisplayName : senderDisplayName
-            content.subtitle = subtitle
-        }) else {
+        let plan = RichNotificationPresentationPolicy.plan(
+            for: preview,
+            overrides: RichNotificationNameOverrides(editMark: editMark)
+        )
+        guard apply(plan: plan) else {
             return
         }
-
-        let attachments = await imageAttachments(for: preview.imageURLs)
+        let candidates = RichNotificationAttachmentPolicy.candidates(
+            for: plan.mediaItems,
+            includePlayableMedia: false
+        )
+        let attachmentLease = await richAttachmentLoader.attachmentLease(for: candidates)
+        defer { attachmentLease.release() }
+        let attachments = attachmentLease.attachments
         guard !Task.isCancelled,
               mutateBestAttemptContent({ $0.attachments = attachments }) else {
             return
         }
-
-        let handleValue = isGroup
-            ? stableSenderHandle(
-                route: preview.route,
-                fallback: preview.route.senderJid
-                    ?? preview.route.senderNickname
-                    ?? routeJid
-            )
-            : routeJid
-        let sender = INPerson(
-            personHandle: INPersonHandle(value: handleValue, type: .unknown),
-            nameComponents: nil,
-            displayName: senderDisplayName,
-            image: intentImage(
-                route: preview.route,
-                displayName: senderDisplayName,
-                fallbackJid: preview.route.senderJid ?? routeJid
-            ),
-            contactIdentifier: nil,
-            customIdentifier: nil
-        )
-        let groupName = isGroup ? INSpeakableString(spokenPhrase: routeDisplayName) : nil
-        let intent = INSendMessageIntent(
-            recipients: nil,
-            outgoingMessageType: .outgoingMessageText,
-            content: preview.body,
-            speakableGroupName: groupName,
-            conversationIdentifier: conversationId,
-            serviceName: nil,
-            sender: sender,
-            attachments: nil
-        )
-        let interaction = INInteraction(intent: intent, response: nil)
-        interaction.direction = .incoming
-        await completeContent(updatingFrom: intent, interaction: interaction)
+        await completeCommunicationNotification(plan: plan)
     }
 
     private final func renderGroupInvite(_ preview: PushNotificationPreview) async {
         guard !Task.isCancelled, !hasCompletedContent else { return }
-        guard let groupchat = preview.route.groupchat ?? preview.route.routeJid else {
+        guard (preview.route.groupchat ?? preview.route.routeJid) != nil else {
             mutateBestAttemptContent { content in
                 content.title = CommonConfigManager.shared.config.app_name
                 content.body = preview.body
@@ -970,162 +901,86 @@ extension NotificationService: PushPayloadDelegate {
             completeBestAttemptContent()
             return
         }
-        let groupMetadata = CommonContactsMetadataManager.shared.getItem(owner: owner, jid: groupchat)
-        let inviterMetadataName = preview.route.inviterJid.flatMap {
-            CommonContactsMetadataManager.shared.getItem(owner: owner, jid: $0).username
-        }
-        let inviterName = preview.route.inviterNickname
-            ?? preview.route.senderNickname
-            ?? inviterMetadataName
-            ?? preview.route.inviterJid
-            ?? preview.route.senderJid
-        let groupName = groupMetadata.username ?? preview.groupName ?? groupchat
-        let conversationId = "xabber:\(owner.lowercased()):group-invitations"
-        let subtitle: String
-        let body: String
-        if let inviterName {
-            subtitle = inviterName
-            let localizationKey: String
-            let fallback: String
-            switch preview.route.inviteKind {
-            case "incognito":
-                localizationKey = "chat_incognito_chat_invitation"
-                fallback = "%@ invited you to join this incognito group"
-            case "peer-to-peer":
-                localizationKey = "chat_private_chat_invitation"
-                fallback = "%@ invited you to join private chat"
-            default:
-                localizationKey = "chat_group_invitation"
-                fallback = "%@ invited you to join this group"
-            }
-            body = PushNotificationLocalization.string(
-                localizationKey,
-                fallback: fallback,
-                inviterName
-            )
-        } else {
-            subtitle = ""
-            let localizationKey: String
-            let fallback: String
-            switch preview.route.inviteKind {
-            case "incognito":
-                localizationKey = "incognito_group_invitation"
-                fallback = "You are invited to join this incognito group"
-            case "peer-to-peer":
-                localizationKey = "private_chat_invitation"
-                fallback = "You are invited to join private chat"
-            default:
-                localizationKey = "public_group_invitation"
-                fallback = "You are invited to join this public group"
-            }
-            body = PushNotificationLocalization.string(
-                localizationKey,
-                fallback: fallback
-            )
-        }
-        guard applyRoute(preview.route, mutation: { content in
-            content.title = groupName
-            content.subtitle = subtitle
-            content.body = body
-            content.categoryIdentifier = PushNotificationCategory.invite
-            content.threadIdentifier = conversationId
-            content.sound = .default
-        }) else {
+        let plan = RichNotificationPresentationPolicy.plan(
+            for: preview,
+            overrides: RichNotificationNameOverrides()
+        )
+        guard apply(plan: plan) else {
             return
         }
-        let senderName = inviterName ?? "Someone"
-        let senderJid = preview.route.inviterJid ?? preview.route.senderJid ?? groupchat
-        let sender = makeIntentPerson(
-            route: preview.route,
-            displayName: senderName,
-            fallbackJid: senderJid
-        )
-        let intent = INSendMessageIntent(
-            recipients: nil,
-            outgoingMessageType: .outgoingMessageText,
-            content: body,
-            speakableGroupName: INSpeakableString(spokenPhrase: groupName),
-            conversationIdentifier: conversationId,
-            serviceName: nil,
-            sender: sender,
-            attachments: nil
-        )
-        let interaction = INInteraction(intent: intent, response: nil)
-        interaction.direction = .incoming
-        await completeContent(updatingFrom: intent, interaction: interaction)
+        await completeCommunicationNotification(plan: plan)
     }
 
-    private final func renderSubscriptionRequest(
-        route: PushNotificationRoutePayload,
-        displayName: String
-    ) async {
+    private final func renderSubscriptionRequest(_ preview: PushNotificationPreview) async {
         guard !Task.isCancelled, !hasCompletedContent else { return }
-        let jid = route.routeJid ?? displayName
-        let conversationId = "xabber:\(owner.lowercased()):contact-requests"
-        let body = PushNotificationLocalization.string(
-            "desktop_notifications_add_you_to_contact",
-            fallback: "Contact %@ wants to add you to contact list",
-            displayName
+        let plan = RichNotificationPresentationPolicy.plan(
+            for: preview,
+            overrides: RichNotificationNameOverrides()
         )
-        guard applyRoute(route, mutation: { content in
-            content.title = displayName
-            content.subtitle = jid == displayName ? "" : jid
-            content.body = body
-            content.categoryIdentifier = PushNotificationCategory.subscription
-            content.threadIdentifier = conversationId
-            content.sound = .default
-        }) else {
+        guard apply(plan: plan) else {
             return
         }
-        let sender = makeIntentPerson(
-            route: route,
-            displayName: displayName,
-            fallbackJid: jid
-        )
-        let intent = INSendMessageIntent(
-            recipients: nil,
-            outgoingMessageType: .outgoingMessageText,
-            content: body,
-            speakableGroupName: nil,
-            conversationIdentifier: conversationId,
-            serviceName: nil,
-            sender: sender,
-            attachments: nil
-        )
-        let interaction = INInteraction(intent: intent, response: nil)
-        interaction.direction = .incoming
-        await completeContent(updatingFrom: intent, interaction: interaction)
+        await completeCommunicationNotification(plan: plan)
     }
 
     private final func renderVerificationRequest(_ preview: PushNotificationPreview) {
-        let sender = preview.route.senderNickname ?? preview.route.senderJid ?? "Somebody"
-        guard applyRoute(preview.route, mutation: { content in
-            content.title = "New verification request"
-            content.body = "\(sender) asks you to verify yourself"
-            content.categoryIdentifier = PushNotificationCategory.verification
-            content.sound = .default
-        }) else {
+        let plan = RichNotificationPresentationPolicy.plan(
+            for: preview,
+            overrides: RichNotificationNameOverrides()
+        )
+        guard apply(plan: plan) else {
             return
         }
         completeBestAttemptContent()
     }
 
+    @discardableResult
+    private final func apply(plan: RichNotificationPresentationPlan) -> Bool {
+        applyRoute(plan.route) { content in
+            content.title = plan.title
+            content.subtitle = plan.subtitle
+            content.body = plan.body
+            content.categoryIdentifier = plan.categoryIdentifier
+            content.threadIdentifier = plan.threadIdentifier
+            content.sound = .default
+        }
+    }
+
+    private final func completeCommunicationNotification(
+        plan: RichNotificationPresentationPlan
+    ) async {
+        let sender = makeIntentPerson(plan: plan)
+        let intent = INSendMessageIntent(
+            recipients: nil,
+            outgoingMessageType: .outgoingMessageText,
+            content: plan.body,
+            speakableGroupName: plan.speakableGroupName.map {
+                INSpeakableString(spokenPhrase: $0)
+            },
+            conversationIdentifier: plan.threadIdentifier,
+            serviceName: nil,
+            sender: sender,
+            attachments: nil
+        )
+        let interaction = INInteraction(intent: intent, response: nil)
+        interaction.direction = .incoming
+        await completeContent(updatingFrom: intent, interaction: interaction)
+    }
+
     private final func makeIntentPerson(
-        route: PushNotificationRoutePayload,
-        displayName: String,
-        fallbackJid: String
+        plan: RichNotificationPresentationPlan
     ) -> INPerson {
         return INPerson(
             personHandle: INPersonHandle(
-                value: stableSenderHandle(route: route, fallback: fallbackJid),
+                value: plan.senderHandle,
                 type: .unknown
             ),
             nameComponents: nil,
-            displayName: displayName,
+            displayName: plan.senderDisplayName,
             image: intentImage(
-                route: route,
-                displayName: displayName,
-                fallbackJid: fallbackJid
+                route: plan.route,
+                displayName: plan.senderDisplayName,
+                fallbackJid: plan.senderHandle
             ),
             contactIdentifier: nil,
             customIdentifier: nil
@@ -1137,60 +992,16 @@ extension NotificationService: PushPayloadDelegate {
         displayName: String,
         fallbackJid: String
     ) -> INImage {
-        var identities: [PushNotificationAvatarIdentity] = []
-        if let routeIdentity = route.senderAvatarIdentity {
-            identities.append(routeIdentity)
-        }
-        if let senderJid = route.senderJid ?? route.inviterJid {
-            let regularIdentity = PushNotificationAvatarIdentity(
-                owner: route.owner,
-                contactJid: senderJid
-            )
-            if !identities.contains(regularIdentity) {
-                identities.append(regularIdentity)
-            }
-        }
-        for identity in identities {
+        for identity in route.senderAvatarLookupIdentities {
             if let imageData = PushNotificationAvatarStore.shared.imageData(for: identity) {
                 return INImage(imageData: imageData)
             }
         }
-        let fallbackIdentity = stableSenderHandle(route: route, fallback: fallbackJid)
         let fallbackData = PushNotificationInitialsRenderer.imageData(
             displayName: displayName,
-            jid: fallbackIdentity
+            jid: fallbackJid
         )
         return INImage(imageData: fallbackData)
-    }
-
-    private final func stableSenderHandle(
-        route: PushNotificationRoutePayload,
-        fallback: String
-    ) -> String {
-        guard route.senderJid == nil,
-              route.inviterJid == nil,
-              let groupchat = route.groupchat
-                ?? (route.conversationType == "group" ? route.routeJid : nil),
-              let senderUserId = route.senderUserId?.trimmingCharacters(
-                in: .whitespacesAndNewlines
-              ),
-              !senderUserId.isEmpty else {
-            return fallback
-        }
-        let owner = normalizedBareJid(route.owner)
-        let group = normalizedBareJid(groupchat)
-        let participant = senderUserId.contains("@")
-            ? normalizedBareJid(senderUserId)
-            : senderUserId
-        let canonical = ["v1", "groupParticipant", owner, group, participant]
-            .joined(separator: "\u{0}")
-        let digest = Array(canonical.utf8).sha256().toHexString()
-        return "xabber-group-participant:\(digest)"
-    }
-
-    private final func normalizedBareJid(_ value: String) -> String {
-        let bare = value.split(separator: "/", maxSplits: 1).first.map(String.init) ?? value
-        return bare.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private final func completeContent(
@@ -1220,224 +1031,6 @@ extension NotificationService: PushPayloadDelegate {
             completeContent(merged)
         } catch {
             completeContent(intendedContent)
-        }
-    }
-
-    private final func imageAttachments(for urlStrings: [String]) async -> [UNNotificationAttachment] {
-        var attachments: [UNNotificationAttachment] = []
-        for source in urlStrings.prefix(3) {
-            guard !Task.isCancelled,
-                  let attachment = await imageAttachment(for: source) else {
-                continue
-            }
-            attachments.append(attachment)
-        }
-        return attachments
-    }
-
-    private final func imageAttachment(for source: String) async -> UNNotificationAttachment? {
-        if source.hasPrefix("data:image/") {
-            guard let data = inlineImageData(from: source) else {
-                return nil
-            }
-            return makeImageAttachment(from: data)
-        }
-        guard let remote = PushNotificationMediaURLPolicy.remoteURLString(source),
-              let url = URL(string: remote) else {
-            return nil
-        }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 2.5
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 2.5
-        configuration.timeoutIntervalForResource = 3.0
-        let session = URLSession(
-            configuration: configuration,
-            delegate: mediaSessionDelegate,
-            delegateQueue: nil
-        )
-        defer { session.invalidateAndCancel() }
-        do {
-            let (downloadedURL, response) = try await session.download(for: request)
-            try Task.checkCancellation()
-            guard let response = response as? HTTPURLResponse,
-                  (200..<300).contains(response.statusCode),
-                  response.url.flatMap({ PushNotificationMediaURLPolicy.remoteURLString($0.absoluteString) }) != nil,
-                  response.mimeType?.lowercased().hasPrefix("image/") == true else {
-                return nil
-            }
-            let maximumBytes: Int64 = 8 * 1024 * 1024
-            if response.expectedContentLength > maximumBytes {
-                return nil
-            }
-            let attributes = try FileManager.default.attributesOfItem(atPath: downloadedURL.path)
-            guard let fileSize = attributes[.size] as? NSNumber,
-                  fileSize.int64Value > 0,
-                  fileSize.int64Value <= maximumBytes else {
-                return nil
-            }
-            let data = try Data(contentsOf: downloadedURL, options: .mappedIfSafe)
-            return makeImageAttachment(from: data)
-        } catch {
-            return nil
-        }
-    }
-
-    private final func inlineImageData(from source: String) -> Data? {
-        guard source.utf8.count <= 1_500_000,
-              let markerRange = source.range(of: ";base64,"),
-              source[..<markerRange.lowerBound].hasPrefix("data:image/") else {
-            return nil
-        }
-        let encoded = String(source[markerRange.upperBound...])
-        return Data(base64Encoded: encoded, options: [])
-    }
-
-    private final func makeImageAttachment(from data: Data) -> UNNotificationAttachment? {
-        let maximumBytes = 8 * 1024 * 1024
-        guard !data.isEmpty,
-              data.count <= maximumBytes,
-              let source = CGImageSourceCreateWithData(data as CFData, nil),
-              CGImageSourceGetType(source) != nil,
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
-                as? [CFString: Any],
-              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
-              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
-              width > 0,
-              height > 0,
-              width <= 24_000_000 / height else {
-            return nil
-        }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: 1_600
-        ]
-        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(
-            source,
-            0,
-            options as CFDictionary
-        ) else {
-            return nil
-        }
-        let image = UIImage(cgImage: thumbnail)
-        let normalizedImage: (data: Data, fileExtension: String)?
-        if let pngData = image.pngData(), pngData.count <= maximumBytes {
-            normalizedImage = (pngData, "png")
-        } else if let jpegData = image.jpegData(compressionQuality: 0.82),
-                  jpegData.count <= maximumBytes {
-            normalizedImage = (jpegData, "jpg")
-        } else {
-            normalizedImage = nil
-        }
-        guard let normalizedImage else {
-            return nil
-        }
-
-        do {
-            try FileManager.default.createDirectory(
-                at: attachmentDirectory,
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-            let filename = "preview-\(UUID().uuidString).\(normalizedImage.fileExtension)"
-            let destination = attachmentDirectory.appendingPathComponent(filename)
-            try normalizedImage.data.write(to: destination, options: .atomic)
-            return try UNNotificationAttachment(
-                identifier: filename,
-                url: destination,
-                options: nil
-            )
-        } catch {
-            return nil
-        }
-    }
-
-    private final func sweepStaleAttachmentDirectories() {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("xabber-notification-media", isDirectory: true)
-        let resourceKeys: Set<URLResourceKey> = [
-            .contentModificationDateKey,
-            .isDirectoryKey
-        ]
-        guard let directories = try? fileManager.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: Array(resourceKeys),
-            options: [.skipsHiddenFiles]
-        ) else {
-            return
-        }
-
-        func allocatedSize(of directory: URL) -> Int64 {
-            let sizeKeys: Set<URLResourceKey> = [
-                .isRegularFileKey,
-                .fileAllocatedSizeKey,
-                .totalFileAllocatedSizeKey
-            ]
-            guard let enumerator = fileManager.enumerator(
-                at: directory,
-                includingPropertiesForKeys: Array(sizeKeys),
-                options: [.skipsHiddenFiles],
-                errorHandler: { _, _ in true }
-            ) else {
-                return 0
-            }
-            var total: Int64 = 0
-            for case let fileURL as URL in enumerator {
-                guard let values = try? fileURL.resourceValues(forKeys: sizeKeys),
-                      values.isRegularFile == true else {
-                    continue
-                }
-                let size = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
-                let addition = total.addingReportingOverflow(size)
-                total = addition.overflow ? Int64.max : addition.partialValue
-            }
-            return total
-        }
-
-        struct AttachmentDirectoryInfo {
-            let url: URL
-            let modified: Date
-            let allocatedSize: Int64
-        }
-
-        let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
-        var retained: [AttachmentDirectoryInfo] = []
-        for directory in directories {
-            guard let values = try? directory.resourceValues(forKeys: resourceKeys),
-                  values.isDirectory == true else {
-                continue
-            }
-            let modified = values.contentModificationDate ?? .distantPast
-            if modified < cutoff,
-               (try? fileManager.removeItem(at: directory)) != nil {
-                continue
-            }
-            retained.append(
-                AttachmentDirectoryInfo(
-                    url: directory,
-                    modified: modified,
-                    allocatedSize: allocatedSize(of: directory)
-                )
-            )
-        }
-
-        let maximumDirectoryCount = 32
-        let maximumAllocatedBytes: Int64 = 96 * 1024 * 1024
-        retained.sort { $0.modified < $1.modified }
-        var totalAllocatedBytes = retained.reduce(Int64(0)) { partial, item in
-            let addition = partial.addingReportingOverflow(item.allocatedSize)
-            return addition.overflow ? Int64.max : addition.partialValue
-        }
-        while !retained.isEmpty,
-              retained.count > maximumDirectoryCount
-                || totalAllocatedBytes > maximumAllocatedBytes {
-            let oldest = retained.removeFirst()
-            guard (try? fileManager.removeItem(at: oldest.url)) != nil else {
-                continue
-            }
-            totalAllocatedBytes = max(0, totalAllocatedBytes - oldest.allocatedSize)
         }
     }
 
