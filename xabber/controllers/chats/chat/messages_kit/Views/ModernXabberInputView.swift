@@ -36,6 +36,13 @@ protocol XabberInputBarDelegate: AnyObject {
     func recordAndPlayPanelPlayButtonTouchUp(sessionID: UUID)
     func didStopPlayingAudio()
     func didSetAudioPositionBar(percentage: Float) -> TimeInterval
+    func composerTextViewDidBeginEditing(_ textView: InputTextView)
+    func composerTextViewDidEndEditing(_ textView: InputTextView)
+}
+
+extension XabberInputBarDelegate {
+    func composerTextViewDidBeginEditing(_ textView: InputTextView) {}
+    func composerTextViewDidEndEditing(_ textView: InputTextView) {}
 }
 
 struct ComposerTypingVisualState: Equatable {
@@ -5023,6 +5030,9 @@ extension ModernXabberInputView: UITextViewDelegate, InputTextViewKeyHandler {
         ChatComposerFirstFocusDiagnostics.shared.record(
             stage: .didBeginEditing
         )
+        if let textView = textView as? InputTextView {
+            self.delegate?.composerTextViewDidBeginEditing(textView)
+        }
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
@@ -5041,6 +5051,9 @@ extension ModernXabberInputView: UITextViewDelegate, InputTextViewKeyHandler {
 
     func textViewDidEndEditing(_ textView: UITextView) {
         self.hideMentionSuggestions()
+        if let textView = textView as? InputTextView {
+            self.delegate?.composerTextViewDidEndEditing(textView)
+        }
     }
 
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {

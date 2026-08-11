@@ -592,6 +592,91 @@ final class ChatComposerFirstFocusPerformanceTests: XCTestCase {
         XCTAssertEqual(session.operations, operationsBeforeCleanup)
         XCTAssertEqual(session.mode, .voiceChat)
     }
+
+    func testFirstFocusRecoveryRetriesExactInterruptedPresentationOnlyOnce() {
+        var state = ChatComposerFirstFocusRecoveryState()
+        let eligibility = ChatComposerFirstFocusRecoveryEligibility(
+            isComposerFirstResponder: true,
+            isComposerAttached: true,
+            isSceneForegroundActive: true,
+            isChatVisible: true,
+            isNavigationStable: true,
+            isInteractiveDismissalActive: false
+        )
+
+        state.noteEditingBegan()
+        state.noteKeyboardWillShow(isComposerFirstResponder: true)
+
+        XCTAssertTrue(state.consumeRetryOnKeyboardWillHide(eligibility: eligibility))
+        XCTAssertTrue(state.allowsScheduledRecovery)
+        XCTAssertFalse(state.consumeRetryOnKeyboardWillHide(eligibility: eligibility))
+
+        state.noteKeyboardWillShow(isComposerFirstResponder: true)
+        XCTAssertFalse(state.consumeRetryOnKeyboardWillHide(eligibility: eligibility))
+    }
+
+    func testFirstFocusRecoveryStopsAfterKeyboardDidShow() {
+        var state = ChatComposerFirstFocusRecoveryState()
+        state.noteEditingBegan()
+        state.noteKeyboardWillShow(isComposerFirstResponder: true)
+        state.noteKeyboardDidShow(isComposerFirstResponder: true)
+
+        XCTAssertFalse(state.consumeRetryOnKeyboardWillHide(
+            eligibility: .fullyEligible
+        ))
+        XCTAssertFalse(state.allowsScheduledRecovery)
+    }
+
+    func testFirstFocusRecoveryInvalidatesScheduledRetryWhenKeyboardDidShowArrives() {
+        var state = ChatComposerFirstFocusRecoveryState()
+        state.noteEditingBegan()
+        state.noteKeyboardWillShow(isComposerFirstResponder: true)
+        XCTAssertTrue(state.consumeRetryOnKeyboardWillHide(
+            eligibility: .fullyEligible
+        ))
+        XCTAssertTrue(state.allowsScheduledRecovery)
+
+        state.noteKeyboardDidShow(isComposerFirstResponder: true)
+
+        XCTAssertFalse(state.allowsScheduledRecovery)
+    }
+
+    func testFirstFocusRecoveryInvalidatesScheduledRetryWhenEditingEnds() {
+        var state = ChatComposerFirstFocusRecoveryState()
+        state.noteEditingBegan()
+        state.noteKeyboardWillShow(isComposerFirstResponder: true)
+        XCTAssertTrue(state.consumeRetryOnKeyboardWillHide(
+            eligibility: .fullyEligible
+        ))
+
+        state.noteEditingEnded()
+
+        XCTAssertFalse(state.allowsScheduledRecovery)
+    }
+
+    func testFirstFocusRecoveryRejectsIncompleteOrIneligibleSequences() {
+        var state = ChatComposerFirstFocusRecoveryState()
+
+        XCTAssertFalse(state.consumeRetryOnKeyboardWillHide(
+            eligibility: .fullyEligible
+        ))
+
+        state.noteEditingBegan()
+        state.noteKeyboardWillShow(isComposerFirstResponder: true)
+        XCTAssertFalse(state.consumeRetryOnKeyboardWillHide(
+            eligibility: ChatComposerFirstFocusRecoveryEligibility(
+                isComposerFirstResponder: true,
+                isComposerAttached: true,
+                isSceneForegroundActive: true,
+                isChatVisible: true,
+                isNavigationStable: true,
+                isInteractiveDismissalActive: true
+            )
+        ))
+        XCTAssertFalse(state.consumeRetryOnKeyboardWillHide(
+            eligibility: .fullyEligible
+        ))
+    }
 }
 
 private final class VoiceRecordingAudioSessionFake: VoiceRecordingAudioSession {

@@ -21,6 +21,86 @@
 import Foundation
 import UIKit
 
+struct ChatComposerFirstFocusRecoveryEligibility: Equatable {
+    let isComposerFirstResponder: Bool
+    let isComposerAttached: Bool
+    let isSceneForegroundActive: Bool
+    let isChatVisible: Bool
+    let isNavigationStable: Bool
+    let isInteractiveDismissalActive: Bool
+
+    static let fullyEligible = ChatComposerFirstFocusRecoveryEligibility(
+        isComposerFirstResponder: true,
+        isComposerAttached: true,
+        isSceneForegroundActive: true,
+        isChatVisible: true,
+        isNavigationStable: true,
+        isInteractiveDismissalActive: false
+    )
+
+    var allowsRecovery: Bool {
+        isComposerFirstResponder &&
+            isComposerAttached &&
+            isSceneForegroundActive &&
+            isChatVisible &&
+            isNavigationStable &&
+            !isInteractiveDismissalActive
+    }
+}
+
+struct ChatComposerFirstFocusRecoveryState: Equatable {
+    private enum Phase: Equatable {
+        case idle
+        case editing
+        case presenting
+        case retryConsumed
+        case completed
+    }
+
+    private var phase: Phase = .idle
+
+    mutating func noteEditingBegan() {
+        guard phase == .idle else { return }
+        phase = .editing
+    }
+
+    mutating func noteEditingEnded() {
+        switch phase {
+        case .completed:
+            break
+        case .retryConsumed:
+            phase = .completed
+        case .idle, .editing, .presenting:
+            phase = .idle
+        }
+    }
+
+    mutating func noteKeyboardWillShow(isComposerFirstResponder: Bool) {
+        guard isComposerFirstResponder, phase == .editing else { return }
+        phase = .presenting
+    }
+
+    mutating func noteKeyboardDidShow(isComposerFirstResponder: Bool) {
+        guard isComposerFirstResponder else { return }
+        phase = .completed
+    }
+
+    mutating func consumeRetryOnKeyboardWillHide(
+        eligibility: ChatComposerFirstFocusRecoveryEligibility
+    ) -> Bool {
+        guard phase == .presenting else {
+            return false
+        }
+        let shouldRetry = eligibility.allowsRecovery
+        phase = shouldRetry ? .retryConsumed : .completed
+        return shouldRetry
+    }
+
+    var allowsScheduledRecovery: Bool {
+        phase == .retryConsumed
+    }
+}
+
 extension ChatViewController {
 
     @objc
@@ -122,11 +202,94 @@ extension ChatViewController {
     
     @objc
     func keyboardWillShowNotification(_ notification: Notification) {
+        self.composerFirstFocusRecoveryState.noteKeyboardWillShow(
+            isComposerFirstResponder:
+                self.xabberInputView?.textField.isFirstResponder == true
+        )
         self.handleKeyboardFrameChange(notification)
     }
-    
+
+    @objc
+    func keyboardDidShowNotification(_ notification: Notification) {
+        self.composerFirstFocusRecoveryState.noteKeyboardDidShow(
+            isComposerFirstResponder:
+                self.xabberInputView?.textField.isFirstResponder == true
+        )
+        guard !self.composerFirstFocusRecoveryState.allowsScheduledRecovery else {
+            return
+        }
+        self.composerFirstFocusRecoveryWorkItem?.cancel()
+        self.composerFirstFocusRecoveryWorkItem = nil
+    }
+
     @objc func keyboardWillHideNotification(_ notification: NSNotification) {
         self.handleKeyboardFrameChange(notification as Notification)
+        let eligibility = self.composerFirstFocusRecoveryEligibility()
+        guard self.composerFirstFocusRecoveryState
+                .consumeRetryOnKeyboardWillHide(eligibility: eligibility) else {
+            return
+        }
+        self.scheduleComposerFirstFocusRecovery(notification: notification)
+    }
+
+    private func composerFirstFocusRecoveryEligibility()
+        -> ChatComposerFirstFocusRecoveryEligibility {
+        let textField = self.xabberInputView?.textField
+        let window = textField?.window
+        let navigationController = self.navigationController
+        let isTopChat = navigationController?.topViewController === self ||
+            navigationController == nil
+        let isVisible = self.viewIfLoaded?.window != nil && isTopChat
+        let isNavigationStable =
+            !self.isNavigationTransitionActive &&
+            self.transitionCoordinator == nil &&
+            navigationController?.transitionCoordinator == nil &&
+            self.presentedViewController == nil &&
+            navigationController?.presentedViewController == nil &&
+            !self.inSearchMode.value &&
+            self.xabberInputView?.state == .normal
+        let isInteractiveDismissalActive =
+            self.messagesCollectionView.isTracking ||
+            self.messagesCollectionView.isDragging ||
+            self.messagesCollectionView.isDecelerating
+        return ChatComposerFirstFocusRecoveryEligibility(
+            isComposerFirstResponder: textField?.isFirstResponder == true,
+            isComposerAttached: window != nil,
+            isSceneForegroundActive:
+                window?.windowScene?.activationState == .foregroundActive,
+            isChatVisible: isVisible,
+            isNavigationStable: isNavigationStable,
+            isInteractiveDismissalActive: isInteractiveDismissalActive
+        )
+    }
+
+    private func scheduleComposerFirstFocusRecovery(
+        notification: NSNotification
+    ) {
+        self.composerFirstFocusRecoveryWorkItem?.cancel()
+        let animationDuration =
+            (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey]
+                as? NSNumber)?.doubleValue ?? 0
+        let delay = min(max(animationDuration, 0.05), 0.5)
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.composerFirstFocusRecoveryWorkItem = nil
+            guard self.composerFirstFocusRecoveryState.allowsScheduledRecovery,
+                  self.composerFirstFocusRecoveryEligibility().allowsRecovery,
+                  let textField = self.xabberInputView?.textField else {
+                return
+            }
+            // The captured failure kept this view as first responder. Reload
+            // the invalid system session, then repeat the activation that
+            // succeeded on the user's second tap.
+            textField.reloadInputViews()
+            _ = textField.becomeFirstResponder()
+        }
+        self.composerFirstFocusRecoveryWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + delay,
+            execute: workItem
+        )
     }
 
     internal static func keyboardOverlapHeight(viewBounds: CGRect, keyboardFrameInView: CGRect) -> CGFloat {

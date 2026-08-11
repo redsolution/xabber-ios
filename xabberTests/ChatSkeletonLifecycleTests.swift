@@ -5546,6 +5546,53 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         XCTAssertEqual(identities, (0..<80).map { "message-\($0)" })
     }
 
+    func testSkeletonFirstStackedPreparationReleasesNavigationBeforeRealFrameMapping() throws {
+        let controller = try makeColdReadyController(
+            suffix: "skeleton-first-navigation",
+            applicationState: .active
+        )
+        defer { controller.performTerminalChatResourceTeardownForTesting() }
+        controller.stackedNavigationInitialFrameStrategy = .skeletonFirst
+        let probe = ChatLifecyclePreparationProbe()
+        controller.initialFirstFrameMappingBarrierForTests = {
+            probe.incrementMappingCount()
+        }
+        var completionCount = 0
+
+        controller.prepareForStackedNavigationPresentation(
+            targetBounds: CGRect(x: 0, y: 0, width: 390, height: 844)
+        ) {
+            completionCount += 1
+        }
+
+        XCTAssertEqual(completionCount, 1)
+        XCTAssertTrue(controller.hasCommittedExactBootstrapSkeletonRows)
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 0)
+        XCTAssertFalse(controller.isPreparingStackedNavigationPresentation)
+        XCTAssertEqual(probe.mappingCount, 0)
+
+        XCTAssertTrue(waitUntil { probe.mappingCount == 1 })
+        XCTAssertEqual(controller.initialFirstContentApplyCount, 0)
+        XCTAssertTrue(controller.hasCommittedExactBootstrapSkeletonRows)
+        XCTAssertEqual(completionCount, 1)
+        XCTAssertEqual(probe.mappingCount, 1)
+    }
+
+    func testCurrentNavigationPushAloneUsesSkeletonFirstPreparation() {
+        XCTAssertEqual(
+            ChatStackedNavigationInitialFrameStrategyPolicy.strategy(
+                for: .currentNavigationPush
+            ),
+            .skeletonFirst
+        )
+        XCTAssertEqual(
+            ChatStackedNavigationInitialFrameStrategyPolicy.strategy(
+                for: .splitDetailReplacement
+            ),
+            .contentFirst
+        )
+    }
+
     private func makeColdReadyController(
         suffix: String,
         applicationState: UIApplication.State

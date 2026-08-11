@@ -53,6 +53,18 @@ extension ChatViewController: UIPickerViewDataSource {
 }
 
 extension ChatViewController: XabberInputBarDelegate {
+
+    func composerTextViewDidBeginEditing(_ textView: InputTextView) {
+        guard textView === self.xabberInputView?.textField else { return }
+        self.composerFirstFocusRecoveryState.noteEditingBegan()
+    }
+
+    func composerTextViewDidEndEditing(_ textView: InputTextView) {
+        guard textView === self.xabberInputView?.textField else { return }
+        self.composerFirstFocusRecoveryState.noteEditingEnded()
+        self.composerFirstFocusRecoveryWorkItem?.cancel()
+        self.composerFirstFocusRecoveryWorkItem = nil
+    }
     
     func onSendButtonTouchUpInsideWhenAudioWasRecorded() {
         guard let sessionID = self.recordedReferenceSessionID else {

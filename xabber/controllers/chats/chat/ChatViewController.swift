@@ -39,6 +39,11 @@ enum ChatInitialFirstFrameHistoryConfiguration {
     static let pageSize: Int = 80
 }
 
+enum ChatStackedNavigationInitialFrameStrategy: Equatable {
+    case contentFirst
+    case skeletonFirst
+}
+
 /// In-memory UI-intent identity. Exact anchors that share the same MAM
 /// transport target (`latest`) must still own different open generations.
 /// This value is never emitted, exported, or persisted.
@@ -2464,6 +2469,8 @@ class ChatViewController: MessagesViewController {
     internal private(set) var chatDestinationBackdropInstallationReceipt:
         ChatDestinationBackdropInstallationReceipt = .unavailable
     internal var isNavigationTransitionActive: Bool = false
+    internal var stackedNavigationInitialFrameStrategy:
+        ChatStackedNavigationInitialFrameStrategy = .contentFirst
     internal var isPreparingStackedNavigationPresentation: Bool = false
     internal var isStackedNavigationPresentationPreparationCancelled: Bool = false
     internal var shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion: Bool = false
@@ -4554,6 +4561,9 @@ class ChatViewController: MessagesViewController {
     internal var xabberInputViewKeyboardTopConstraint: NSLayoutConstraint?
     internal var lastAppliedChatKeyboardLayoutSignature: ChatKeyboardLayoutUpdateSignature?
     internal var currentChatKeyboardVisibleHeight: CGFloat = 0
+    internal var composerFirstFocusRecoveryState =
+        ChatComposerFirstFocusRecoveryState()
+    internal var composerFirstFocusRecoveryWorkItem: DispatchWorkItem?
     
     internal var shouldRequestChatInfo: Bool = false
     
@@ -7683,6 +7693,12 @@ class ChatViewController: MessagesViewController {
         )
         chatNotificationCenter.addObserver(
             self,
+            selector: #selector(self.keyboardDidShowNotification(_:)),
+            name: UIWindow.keyboardDidShowNotification,
+            object: nil
+        )
+        chatNotificationCenter.addObserver(
+            self,
             selector: #selector(self.keyboardWillChangeFrameNotification(_:)),
             name: UIWindow.keyboardWillChangeFrameNotification,
             object: nil
@@ -7816,6 +7832,9 @@ class ChatViewController: MessagesViewController {
     internal func handleApplicationDidEnterBackground() {
         self.setInitialFramePresentationLifecycleEligible(false)
         self.suspendInitialBootstrapAutomaticRetry()
+        self.composerFirstFocusRecoveryState.noteEditingEnded()
+        self.composerFirstFocusRecoveryWorkItem?.cancel()
+        self.composerFirstFocusRecoveryWorkItem = nil
         self.visibleUnreadMentionReconciliationWorkItem?.cancel()
         self.visibleUnreadMentionReconciliationWorkItem = nil
         self.readVisibleStableLayoutRetryWorkItem?.cancel()
@@ -7854,6 +7873,10 @@ class ChatViewController: MessagesViewController {
         }
         self.chatSearchObserverRemovalCount += 1
         self.lastAppliedChatKeyboardLayoutSignature = nil
+        self.composerFirstFocusRecoveryWorkItem?.cancel()
+        self.composerFirstFocusRecoveryWorkItem = nil
+        self.composerFirstFocusRecoveryState =
+            ChatComposerFirstFocusRecoveryState()
         self.chatObserversRegistered = false
         super.removeObservers()
 //        NotificationCenter.default.removeObserver(self)
@@ -7897,6 +7920,11 @@ class ChatViewController: MessagesViewController {
         chatNotificationCenter.removeObserver(
             self,
             name: UIWindow.keyboardWillHideNotification,
+            object: nil
+        )
+        chatNotificationCenter.removeObserver(
+            self,
+            name: UIWindow.keyboardDidShowNotification,
             object: nil
         )
         chatNotificationCenter.removeObserver(
@@ -8837,6 +8865,36 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
 
         guard shouldLoadInitialDatasource else {
             finishAfterCommittedFirstFrame()
+            return
+        }
+        if self.stackedNavigationInitialFrameStrategy == .skeletonFirst,
+           self.datasource.isEmpty {
+            // A committed deterministic skeleton is a valid first-frame
+            // receipt. Compact navigation can start immediately while the
+            // owned real frame is prepared in parallel with the push. The
+            // normal viewWillAppear request coalesces with this preparation.
+            self.applyBootstrapViewState(
+                .skeleton,
+                forceRender: true,
+                synchronousSkeletonCommit: true
+            )
+            self.whenBootstrapFirstFramePresentationIsReady { [weak self] in
+                guard let self,
+                      !self.isStackedNavigationPresentationPreparationCancelled else {
+                    return
+                }
+                self.isPreparingStackedNavigationPresentation = false
+                completion()
+                DispatchQueue.main.async { [weak self] in
+                    guard let self,
+                          !self.isStackedNavigationPresentationPreparationCancelled else {
+                        return
+                    }
+                    self.loadInitialDatasource(
+                        performPendingOpenMessageRequest: false
+                    )
+                }
+            }
             return
         }
         self.loadInitialDatasource(performPendingOpenMessageRequest: false) {
