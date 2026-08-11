@@ -25,6 +25,9 @@
 		4E4100022F6B000000ABC001 /* PushNotificationRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4100012F6B000000ABC001 /* PushNotificationRouting.swift */; };
 		4E4100032F6B000000ABC001 /* PushNotificationRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4100012F6B000000ABC001 /* PushNotificationRouting.swift */; };
 		4E4100052F6B000000ABC001 /* PushNotificationRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4100042F6B000000ABC001 /* PushNotificationRoutingTests.swift */; };
+		4E8110023B2A000000ABC001 /* PushExtensionRichContentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8110013B2A000000ABC001 /* PushExtensionRichContentTests.swift */; };
+		4E8110033B2A000000ABC001 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 1A9347D52806FD4F001A6ABF /* Localizable.strings */; };
+		4E8120023B2B000000ABC001 /* PushAvatarSnapshotPublisherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E8120013B2B000000ABC001 /* PushAvatarSnapshotPublisherTests.swift */; };
 		4E5200022F70000000ABC001 /* AccountPrimaryStreamStanzaTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5200012F70000000ABC001 /* AccountPrimaryStreamStanzaTracker.swift */; };
 		4E5200042F70000000ABC001 /* AccountPrimaryStreamStanzaQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5200032F70000000ABC001 /* AccountPrimaryStreamStanzaQueueTests.swift */; };
 		4E6100022FA000000ABC001 /* MessageBareJIDSendTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6100012FA000000ABC001 /* MessageBareJIDSendTests.swift */; };
@@ -1053,6 +1056,8 @@
 		163457817B9EDAF9D7FB6FF8 /* NotifyManager.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = NotifyManager.swift; sourceTree = "<group>"; };
 		4E4100012F6B000000ABC001 /* PushNotificationRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationRouting.swift; sourceTree = "<group>"; };
 		4E4100042F6B000000ABC001 /* PushNotificationRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationRoutingTests.swift; sourceTree = "<group>"; };
+		4E8110013B2A000000ABC001 /* PushExtensionRichContentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushExtensionRichContentTests.swift; sourceTree = "<group>"; };
+		4E8120013B2B000000ABC001 /* PushAvatarSnapshotPublisherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushAvatarSnapshotPublisherTests.swift; sourceTree = "<group>"; };
 		4E5200012F70000000ABC001 /* AccountPrimaryStreamStanzaTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountPrimaryStreamStanzaTracker.swift; sourceTree = "<group>"; };
 		4E5200032F70000000ABC001 /* AccountPrimaryStreamStanzaQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountPrimaryStreamStanzaQueueTests.swift; sourceTree = "<group>"; };
 		4E6100012FA000000ABC001 /* MessageBareJIDSendTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBareJIDSendTests.swift; sourceTree = "<group>"; };
@@ -4194,6 +4199,8 @@
 					4E3200012F6A000000ABC001 /* ContactsListAppearanceTests.swift */,
 					4E3300012F6A100000ABC001 /* NotificationsListAppearanceTests.swift */,
 					4E4100042F6B000000ABC001 /* PushNotificationRoutingTests.swift */,
+					4E8110013B2A000000ABC001 /* PushExtensionRichContentTests.swift */,
+					4E8120013B2B000000ABC001 /* PushAvatarSnapshotPublisherTests.swift */,
 					4E5200032F70000000ABC001 /* AccountPrimaryStreamStanzaQueueTests.swift */,
 					4E6100012FA000000ABC001 /* MessageBareJIDSendTests.swift */,
 					4E6200012FA100000ABC001 /* ChatDisappearanceReadStateTests.swift */,
@@ -5463,6 +5470,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4E8110033B2A000000ABC001 /* Localizable.strings in Resources */,
 				663F04382F23A6570078F2ED /* emojis.json in Resources */,
 				663F04372F23A64F0078F2ED /* bubblecorners.json in Resources */,
 				663F04352F2395E90078F2ED /* push_service.plist in Resources */,
@@ -6420,6 +6428,8 @@
 					66B48FDA26F858EC0088D6A4 /* Base64Extras.swift in Sources */,
 					66AE4E7824E12F7C00FF11DC /* xabberTests.swift in Sources */,
 					4E4100052F6B000000ABC001 /* PushNotificationRoutingTests.swift in Sources */,
+					4E8110023B2A000000ABC001 /* PushExtensionRichContentTests.swift in Sources */,
+					4E8120023B2B000000ABC001 /* PushAvatarSnapshotPublisherTests.swift in Sources */,
 						4E2000042F67000000ABC001 /* VoiceRecordingInteractionStateMachineTests.swift in Sources */,
 						4E6000042F90000000ABC001 /* XabberGlassStyleTests.swift in Sources */,
 						4E1000042F66000000ABC001 /* FloatingBottomBarViewTests.swift in Sources */,

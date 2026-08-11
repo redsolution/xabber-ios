@@ -1,5 +1,6 @@
 import Foundation
 import KissXML
+import Darwin
 
 enum PushNotificationUserInfoKey {
     static let routeKind = "route_kind"
@@ -14,6 +15,8 @@ enum PushNotificationUserInfoKey {
     static let stanza = "stanza"
     static let senderJid = "sender_jid"
     static let senderNickname = "sender_nickname"
+    static let senderUserId = "sender_user_id"
+    static let senderAvatarURL = "sender_avatar_url"
     static let groupchat = "groupchat"
     static let inviteKind = "invite_kind"
     static let inviterJid = "inviter_jid"
@@ -47,6 +50,8 @@ struct PushNotificationRoutePayload: Equatable {
     let stanza: String?
     let senderJid: String?
     let senderNickname: String?
+    let senderUserId: String?
+    let senderAvatarURL: String?
     let groupchat: String?
     let inviteKind: String?
     let inviterJid: String?
@@ -64,6 +69,8 @@ struct PushNotificationRoutePayload: Equatable {
         stanza: String? = nil,
         senderJid: String? = nil,
         senderNickname: String? = nil,
+        senderUserId: String? = nil,
+        senderAvatarURL: String? = nil,
         groupchat: String? = nil,
         inviteKind: String? = nil,
         inviterJid: String? = nil,
@@ -80,6 +87,8 @@ struct PushNotificationRoutePayload: Equatable {
         self.stanza = stanza
         self.senderJid = senderJid
         self.senderNickname = senderNickname
+        self.senderUserId = senderUserId
+        self.senderAvatarURL = senderAvatarURL
         self.groupchat = groupchat
         self.inviteKind = inviteKind
         self.inviterJid = inviterJid
@@ -131,6 +140,8 @@ struct PushNotificationRoutePayload: Equatable {
             stanza: PushNotificationRoutePayload.stringValue(userInfo[PushNotificationUserInfoKey.stanza]),
             senderJid: PushNotificationRoutePayload.stringValue(userInfo[PushNotificationUserInfoKey.senderJid]),
             senderNickname: PushNotificationRoutePayload.stringValue(userInfo[PushNotificationUserInfoKey.senderNickname]),
+            senderUserId: PushNotificationRoutePayload.stringValue(userInfo[PushNotificationUserInfoKey.senderUserId]),
+            senderAvatarURL: PushNotificationRoutePayload.stringValue(userInfo[PushNotificationUserInfoKey.senderAvatarURL]),
             groupchat: PushNotificationRoutePayload.stringValue(userInfo[PushNotificationUserInfoKey.groupchat]),
             inviteKind: PushNotificationRoutePayload.stringValue(userInfo[PushNotificationUserInfoKey.inviteKind]),
             inviterJid: PushNotificationRoutePayload.stringValue(userInfo[PushNotificationUserInfoKey.inviterJid]),
@@ -148,6 +159,8 @@ struct PushNotificationRoutePayload: Equatable {
         stanza: String?,
         senderJid: String?,
         senderNickname: String?,
+        senderUserId: String? = nil,
+        senderAvatarURL: String? = nil,
         groupchat: String?,
         timestamp: TimeInterval? = nil
     ) -> PushNotificationRoutePayload {
@@ -162,6 +175,8 @@ struct PushNotificationRoutePayload: Equatable {
             stanza: stanza,
             senderJid: senderJid,
             senderNickname: senderNickname,
+            senderUserId: senderUserId,
+            senderAvatarURL: senderAvatarURL,
             groupchat: groupchat
         )
     }
@@ -200,7 +215,9 @@ struct PushNotificationRoutePayload: Equatable {
         groupchat: String,
         inviteKind: String?,
         inviterJid: String?,
-        inviterNickname: String?
+        inviterNickname: String?,
+        inviterUserId: String? = nil,
+        inviterAvatarURL: String? = nil
     ) -> PushNotificationRoutePayload {
         PushNotificationRoutePayload(
             kind: .groupInvite,
@@ -209,6 +226,8 @@ struct PushNotificationRoutePayload: Equatable {
             conversationType: "group",
             senderJid: inviterJid,
             senderNickname: inviterNickname,
+            senderUserId: inviterUserId,
+            senderAvatarURL: inviterAvatarURL,
             groupchat: groupchat,
             inviteKind: inviteKind,
             inviterJid: inviterJid,
@@ -245,6 +264,12 @@ struct PushNotificationRoutePayload: Equatable {
         }
         if let senderNickname {
             userInfo[PushNotificationUserInfoKey.senderNickname] = senderNickname
+        }
+        if let senderUserId {
+            userInfo[PushNotificationUserInfoKey.senderUserId] = senderUserId
+        }
+        if let senderAvatarURL {
+            userInfo[PushNotificationUserInfoKey.senderAvatarURL] = senderAvatarURL
         }
         if let groupchat {
             userInfo[PushNotificationUserInfoKey.groupchat] = groupchat
@@ -297,14 +322,24 @@ struct PushNotificationPreview: Equatable {
 
     var imageURLs: [String] {
         mediaItems
-            .filter { $0.kind == .image }
-            .compactMap { $0.url }
+            .compactMap { item in
+                switch item.kind {
+                case .image, .sticker:
+                    return item.thumbnailURL ?? item.url
+                case .video:
+                    return item.thumbnailURL
+                case .file, .voice:
+                    return nil
+                }
+            }
     }
 }
 
 struct PushNotificationMediaItem: Equatable {
     enum Kind {
         case image
+        case video
+        case sticker
         case file
         case voice
     }
@@ -315,30 +350,73 @@ struct PushNotificationMediaItem: Equatable {
     let size: Int64?
     let duration: Int?
     let url: String?
+    let thumbnailURL: String?
 }
 
 enum PushNotificationMediaFormatter {
     static func fallbackText(for items: [PushNotificationMediaItem]) -> String? {
-        if let voice = items.first(where: { $0.kind == .voice }) {
-            return "Voice message, \(formatDuration(voice.duration ?? 0))"
+        guard !items.isEmpty else {
+            return nil
         }
-        let files = items.filter { $0.kind == .file }
-        if files.count == 1, let file = files.first {
-            let filename = file.filename?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let images = items.filter { $0.kind == .image }
+        let videos = items.filter { $0.kind == .video }
+        if items.count > 1 {
+            if images.count == items.count {
+                return PushNotificationLocalization.string(
+                    "chat_message_attached_images",
+                    fallback: "%@ attached images",
+                    String(images.count)
+                )
+            }
+            if videos.count == items.count {
+                return PushNotificationLocalization.string(
+                    "chat_messages_attached_videos",
+                    fallback: "%@ attached videos",
+                    String(videos.count)
+                )
+            }
+            return PushNotificationLocalization.string(
+                "chat_message_attached_files",
+                fallback: "%@ attached files",
+                String(items.count)
+            )
+        }
+
+        guard let item = items.first else {
+            return nil
+        }
+        switch item.kind {
+        case .voice:
+            return PushNotificationLocalization.string(
+                "chat_message_voice_duration",
+                fallback: "Voice message, %@",
+                formatDuration(item.duration ?? 0)
+            )
+        case .sticker:
+            return PushNotificationLocalization.string(
+                "chat_message_sticker",
+                fallback: "Sticker"
+            )
+        case .video:
+            if let duration = item.duration, duration > 0 {
+                return PushNotificationLocalization.string(
+                    "chat_message_video_count",
+                    fallback: "Video, %@",
+                    formatDuration(duration)
+                )
+            }
+            return PushNotificationLocalization.string("chat_message_video", fallback: "Video")
+        case .file:
+            let filename = item.filename?.trimmingCharacters(in: .whitespacesAndNewlines)
             let safeFilename = (filename?.isEmpty == false) ? filename! : "file"
-            if let size = file.size, size > 0 {
+            if let size = item.size, size > 0 {
                 return "file: \(safeFilename), \(formatSize(size))"
             }
             return "file: \(safeFilename)"
+        case .image:
+            return PushNotificationLocalization.string("chat_message_image", fallback: "Image")
         }
-        let imagesCount = items.filter { $0.kind == .image }.count
-        if imagesCount > 0, files.isEmpty {
-            return imagesCount == 1 ? "Image" : "\(imagesCount) images"
-        }
-        if files.count + imagesCount > 1 {
-            return "\(files.count + imagesCount) files"
-        }
-        return nil
     }
 
     static func formatSize(_ bytes: Int64) -> String {
@@ -360,10 +438,65 @@ enum PushNotificationMediaFormatter {
     }
 }
 
+enum PushNotificationLocalization {
+    static func string(
+        _ key: String,
+        fallback: String,
+        _ arguments: CVarArg...
+    ) -> String {
+        string(
+            key,
+            fallback: fallback,
+            bundle: .main,
+            locale: .current,
+            arguments: arguments
+        )
+    }
+
+    static func newMessage(
+        bundle: Bundle = .main,
+        locale: Locale = .current
+    ) -> String {
+        string(
+            "plurals.new_chat_messages.item_0",
+            fallback: "New message",
+            bundle: bundle,
+            locale: locale,
+            arguments: [1]
+        )
+    }
+
+    private static func string(
+        _ key: String,
+        fallback: String,
+        bundle: Bundle,
+        locale: Locale,
+        arguments: [CVarArg]
+    ) -> String {
+        var format = bundle.localizedString(
+            forKey: key,
+            value: fallback,
+            table: nil
+        )
+        guard !arguments.isEmpty else {
+            return format
+        }
+        if arguments.allSatisfy({ $0 is String }) {
+            format = format.replacingOccurrences(of: "%d", with: "%@")
+        }
+        return String(
+            format: format,
+            locale: locale,
+            arguments: arguments
+        )
+    }
+}
+
 enum PushNotificationArchiveParser {
     private enum XMLNS {
         static let references = "https://xabber.com/protocol/references"
         static let files = "https://xabber.com/protocol/files"
+        static let encryptedFileSharing = "urn:xmpp:esfs:0"
         static let voiceMessages = "https://xabber.com/protocol/voice-messages"
         static let groups = "https://xabber.com/protocol/groups"
         static let forward = "urn:xmpp:forward:0"
@@ -502,7 +635,8 @@ enum PushNotificationArchiveParser {
         let rawBody = message.firstChild(named: "body")?.stringValue ?? ""
         let displayBody = displayBody(from: rawBody, references: references, groupchatReference: groupReference)
         let body = displayBody.isEmpty
-            ? (PushNotificationMediaFormatter.fallbackText(for: mediaItems) ?? "New message")
+            ? (PushNotificationMediaFormatter.fallbackText(for: mediaItems)
+                ?? PushNotificationLocalization.newMessage())
             : displayBody
 
         let senderJid: String?
@@ -516,6 +650,20 @@ enum PushNotificationArchiveParser {
         }
 
         let stanzaId = preferredStanzaId(in: message, owner: owner, routeJid: routeJid)
+            ?? trimmed(archiveMessage.firstChild(named: "result")?.attributeString("id"))
+        let senderUserId: String?
+        let senderAvatarURL: String?
+        if isGroupMessage {
+            senderUserId = trimmed(groupUser?.attributeString("id"))
+            let avatarInfo = groupUser?.firstChild(named: "avatar")?.firstChild(named: "info")
+                ?? groupUser?.firstChild(named: "metadata", xmlns: "urn:xmpp:avatar:metadata")?
+                    .firstChild(named: "info")
+            senderAvatarURL = trimmed(avatarInfo?.attributeString("url"))
+                .flatMap { PushNotificationMediaURLPolicy.remoteURLString($0) }
+        } else {
+            senderUserId = nil
+            senderAvatarURL = nil
+        }
         let route = PushNotificationRoutePayload.message(
             owner: owner,
             routeJid: routeJid,
@@ -525,6 +673,8 @@ enum PushNotificationArchiveParser {
             stanza: archiveMessage.xmlString,
             senderJid: senderJid,
             senderNickname: senderNickname,
+            senderUserId: senderUserId,
+            senderAvatarURL: senderAvatarURL,
             groupchat: isGroupMessage ? routeJid : nil,
             timestamp: timestamp
         )
@@ -542,6 +692,8 @@ enum PushNotificationArchiveParser {
         }
 
         let groupElement = message.firstChild(named: "group", xmlns: XMLNS.groups)
+        let inviteElement = message.firstChild(named: "invite", xmlns: XMLNS.groups)
+        let inviterUser = inviteElement?.firstChild(named: "user")
         let inviteKind: String
         if groupElement?.firstChild(named: "parent-chat") != nil {
             inviteKind = "peer-to-peer"
@@ -553,21 +705,51 @@ enum PushNotificationArchiveParser {
 
         let groupName = trimmed(groupElement?.firstChild(named: "info")?.firstChild(named: "name")?.stringValue)
             ?? trimmed(groupElement?.firstChild(named: "name")?.stringValue)
+        let inviterNickname = trimmed(inviterUser?.firstChild(named: "nickname")?.stringValue)
+        let inviterUserId = trimmed(inviterUser?.attributeString("id"))
+        let explicitInviterJid = trimmed(inviterUser?.attributeString("jid"))
+            ?? trimmed(inviterUser?.firstChild(named: "jid")?.stringValue)
+        let inviterJid: String?
+        if inviteKind == "incognito" {
+            inviterJid = nil
+        } else if let explicitInviterJid {
+            inviterJid = bareJid(explicitInviterJid)
+        } else if payload.sender != payload.groupchat {
+            inviterJid = payload.sender
+        } else {
+            inviterJid = nil
+        }
+        let inviterAvatarInfo = inviterUser?.firstChild(named: "avatar")?.firstChild(named: "info")
+            ?? inviterUser?.firstChild(named: "metadata", xmlns: "urn:xmpp:avatar:metadata")?
+                .firstChild(named: "info")
+        let inviterAvatarURL = trimmed(inviterAvatarInfo?.attributeString("url"))
+            .flatMap { PushNotificationMediaURLPolicy.remoteURLString($0) }
         let route = PushNotificationRoutePayload.groupInvite(
             owner: owner,
             groupchat: payload.groupchat,
             inviteKind: inviteKind,
-            inviterJid: payload.sender.isEmpty ? nil : payload.sender,
-            inviterNickname: nil
+            inviterJid: inviterJid,
+            inviterNickname: inviterNickname,
+            inviterUserId: inviterUserId,
+            inviterAvatarURL: inviterAvatarURL
         )
         let body: String
         switch inviteKind {
         case "incognito":
-            body = "Invitation to incognito group"
+            body = PushNotificationLocalization.string(
+                "chat_message_incognito_invitation",
+                fallback: "Invitation to incognito group"
+            )
         case "peer-to-peer":
-            body = "Invitation to private chat"
+            body = PushNotificationLocalization.string(
+                "chat_message_private_invitation",
+                fallback: "Invitation to private chat"
+            )
         default:
-            body = "Invitation to public group"
+            body = PushNotificationLocalization.string(
+                "chat_message_public_invitation",
+                fallback: "Invitation to public group"
+            )
         }
         return PushNotificationPreview(route: route, body: body, groupName: groupName, mediaItems: [])
     }
@@ -690,21 +872,34 @@ enum PushNotificationArchiveParser {
         from fileSharing: DDXMLElement,
         forcedKind: PushNotificationMediaItem.Kind?
     ) -> PushNotificationMediaItem? {
-        guard let file = fileSharing.firstChild(named: "file"),
-              let uri = fileSharing.firstChild(named: "sources")?
-                .children(named: "uri")
-                .compactMap({ trimmed($0.stringValue) })
-                .first(where: { URL(string: $0) != nil }) else {
+        guard let file = fileSharing.firstChild(named: "file") else {
             return nil
         }
+        let isEncrypted = file.firstChild(
+            named: "encrypted",
+            xmlns: XMLNS.encryptedFileSharing
+        ) != nil
+        let uri = isEncrypted
+            ? nil
+            : fileSharing.firstChild(named: "sources")?
+                .children(named: "uri")
+                .compactMap({ trimmed($0.stringValue) })
+                .compactMap({ PushNotificationMediaURLPolicy.remoteURLString($0) })
+                .first
         let mediaType = trimmed(file.firstChild(named: "media-type")?.stringValue)
         let filename = trimmed(file.firstChild(named: "name")?.stringValue)
-            ?? URL(string: uri)?.lastPathComponent
+            ?? uri.flatMap { URL(string: $0)?.lastPathComponent }
         let size = trimmed(file.firstChild(named: "size")?.stringValue).flatMap(Int64.init)
         let duration = trimmed(file.firstChild(named: "duration")?.stringValue).flatMap(Int.init)
+        let thumbnailURL = trimmed(file.firstChild(named: "thumbnail")?.attributeString("uri"))
+            .flatMap { PushNotificationMediaURLPolicy.previewURLString($0) }
         let kind: PushNotificationMediaItem.Kind
         if let forcedKind {
             kind = forcedKind
+        } else if isSticker(filename: filename, mediaType: mediaType) {
+            kind = .sticker
+        } else if isVideo(mediaType) {
+            kind = .video
         } else if isImage(mediaType) {
             kind = .image
         } else {
@@ -716,12 +911,27 @@ enum PushNotificationArchiveParser {
             mediaType: mediaType,
             size: size,
             duration: duration,
-            url: uri
+            url: uri,
+            thumbnailURL: thumbnailURL
         )
     }
 
+    private static func isSticker(filename: String?, mediaType: String?) -> Bool {
+        if filename?.caseInsensitiveCompare("Memoji") == .orderedSame {
+            return true
+        }
+        return mediaType?.caseInsensitiveCompare("image/sticker") == .orderedSame
+    }
+
+    private static func isVideo(_ mediaType: String?) -> Bool {
+        guard let mediaType = mediaType?.lowercased() else {
+            return false
+        }
+        return mediaType == "video" || mediaType.hasPrefix("video/")
+    }
+
     private static func isImage(_ mediaType: String?) -> Bool {
-        guard let mediaType else {
+        guard let mediaType = mediaType?.lowercased() else {
             return false
         }
         return mediaType == "image" || mediaType.hasPrefix("image/")
@@ -829,6 +1039,122 @@ enum PushNotificationArchiveParser {
     private static func trimmed(_ string: String?) -> String? {
         let value = string?.trimmingCharacters(in: .whitespacesAndNewlines)
         return value?.isEmpty == false ? value : nil
+    }
+}
+
+enum PushNotificationMediaURLPolicy {
+    static func remoteURLString(_ value: String) -> String? {
+        guard let components = URLComponents(string: value),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "https",
+              let host = components.host,
+              !host.isEmpty,
+              isPublicHost(host),
+              components.user == nil,
+              components.password == nil,
+              let url = components.url else {
+            return nil
+        }
+        return url.absoluteString
+    }
+
+    static func previewURLString(_ value: String) -> String? {
+        if let remote = remoteURLString(value) {
+            return remote
+        }
+        guard value.hasPrefix("data:image/"),
+              value.utf8.count <= 1_500_000,
+              value.range(of: ";base64,") != nil else {
+            return nil
+        }
+        return value
+    }
+
+    private static func isPublicHost(_ rawHost: String) -> Bool {
+        let host = rawHost
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .lowercased()
+        guard !host.isEmpty,
+              host != "localhost",
+              !host.hasSuffix(".localhost"),
+              !host.hasSuffix(".local") else {
+            return false
+        }
+
+        if host.contains(":") {
+            return isPublicIPv6Literal(host)
+        }
+        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
+        let looksNumeric = host.allSatisfy { $0.isNumber || $0 == "." }
+            || host.hasPrefix("0x")
+        if looksNumeric {
+            guard octets.count == 4,
+                  let values = ipv4Octets(octets) else {
+                return false
+            }
+            return isPublicIPv4(values)
+        }
+        return true
+    }
+
+    private static func ipv4Octets(_ components: [Substring]) -> [UInt8]? {
+        var result: [UInt8] = []
+        for component in components {
+            guard !component.isEmpty,
+                  component.allSatisfy({ $0.isNumber }),
+                  let value = UInt8(component) else {
+                return nil
+            }
+            result.append(value)
+        }
+        return result
+    }
+
+    private static func isPublicIPv4(_ octets: [UInt8]) -> Bool {
+        guard octets.count == 4 else { return false }
+        let first = octets[0]
+        let second = octets[1]
+        if first == 0 || first == 10 || first == 127 || first >= 224 {
+            return false
+        }
+        if first == 100, (64...127).contains(second) { return false }
+        if first == 169, second == 254 { return false }
+        if first == 172, (16...31).contains(second) { return false }
+        if first == 192, second == 168 { return false }
+        if first == 198, (18...19).contains(second) { return false }
+        return true
+    }
+
+    private static func isPublicIPv6Literal(_ host: String) -> Bool {
+        var address = in6_addr()
+        let parsed = host.withCString {
+            inet_pton(AF_INET6, $0, &address)
+        }
+        guard parsed == 1 else {
+            return false
+        }
+
+        let bytes = withUnsafeBytes(of: &address) { Array($0) }
+        guard bytes.count == 16,
+              bytes.contains(where: { $0 != 0 }) else {
+            return false
+        }
+        if bytes.dropLast().allSatisfy({ $0 == 0 }), bytes.last == 1 {
+            return false
+        }
+        if bytes[0] & 0xfe == 0xfc { return false }
+        if bytes[0] == 0xfe, bytes[1] & 0xc0 == 0x80 { return false }
+        if bytes[0] == 0xff { return false }
+
+        let isIPv4Mapped = bytes.prefix(10).allSatisfy({ $0 == 0 })
+            && bytes[10] == 0xff
+            && bytes[11] == 0xff
+        let isIPv4Compatible = bytes.prefix(12).allSatisfy({ $0 == 0 })
+        if isIPv4Mapped || isIPv4Compatible {
+            return isPublicIPv4(Array(bytes.suffix(4)))
+        }
+        return true
     }
 }
 

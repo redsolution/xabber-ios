@@ -2032,10 +2032,11 @@ extension LeftMenuViewController: UITableViewDelegate {
 
 extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
     
-    func didSelectRootScreenBy(key: String, category: String? = nil) {
-        if self.previousSelectedKey == key, key != "saved" {
+    @discardableResult
+    func didSelectRootScreenBy(key: String, category: String? = nil) -> Bool {
+        if self.previousSelectedKey == key, key != "saved", category == nil {
             revealSelectedContentColumn()
-            return
+            return true
         }
         var didPresent = false
         switch key {
@@ -2146,10 +2147,16 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                 } else {
                     if let vc = self.contactsVc {
                         vc.leftMenuDelegate = self
+                        if let category {
+                            vc.selectSpecialCategory(category)
+                        }
                         didPresent = self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
                     } else {
                         let vc = ContactsViewController()
                         vc.leftMenuDelegate = self
+                        if let category {
+                            vc.didSelectSpecialCategory(category)
+                        }
                         self.contactsVc = vc
                         didPresent = self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
                     }
@@ -2175,11 +2182,17 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
                 } else {
                     if let vc = self.groupsVc {
                         vc.leftMenuDelegate = self
+                        if let category {
+                            vc.selectSpecialCategory(category)
+                        }
                         didPresent = self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
                     } else {
                         let vc = ContactsViewController()
                         vc.isGroup = true
                         vc.leftMenuDelegate = self
+                        if let category {
+                            vc.didSelectSpecialCategory(category)
+                        }
                         self.groupsVc = vc
                         didPresent = self.show(controller: vc, kind: .emptyChat, category: category, leftMenuDelegate: self)
                     }
@@ -2230,9 +2243,11 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
         if didPresent {
             self.previousSelectedKey = key
         }
+        return didPresent
     }
     
-    func selectRootScreenAndCategory(screen key: String, category: String?) {
+    @discardableResult
+    func selectRootScreenAndCategory(screen key: String, category: String?) -> Bool {
         self.didSelectRootScreenBy(key: key, category: category)
     }
 
@@ -2435,7 +2450,8 @@ extension LeftMenuViewController: LeftMenuSelectRootScreenDelegate {
 }
 
 protocol LeftMenuSelectRootScreenDelegate: AnyObject {
-    func selectRootScreenAndCategory(screen key: String, category: String?)
+    @discardableResult
+    func selectRootScreenAndCategory(screen key: String, category: String?) -> Bool
     @discardableResult
     func openChatlistWithChat(
         owner: String,

@@ -1148,9 +1148,10 @@ final class InfoCardChatSearchRoutingTests: XCTestCase {
         var selectedCategory: String?
         var capturedRoutes: [CapturedRoute] = []
 
-        func selectRootScreenAndCategory(screen key: String, category: String?) {
+        func selectRootScreenAndCategory(screen key: String, category: String?) -> Bool {
             selectedScreen = key
             selectedCategory = category
+            return true
         }
 
         func openChatlistWithChat(
@@ -13744,7 +13745,9 @@ final class MentionOpenRoutingTests: XCTestCase {
         private(set) var openCount = 0
         var routeResult = true
 
-        func selectRootScreenAndCategory(screen key: String, category: String?) {}
+        func selectRootScreenAndCategory(screen key: String, category: String?) -> Bool {
+            true
+        }
 
         func openChatlistWithChat(
             owner: String,

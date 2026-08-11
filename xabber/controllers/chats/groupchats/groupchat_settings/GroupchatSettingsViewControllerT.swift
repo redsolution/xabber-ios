@@ -1025,7 +1025,10 @@ extension GroupchatSettingsViewControllerT {
 //                }
 //            }, fail: {
                 AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                    user.avatarUploader.sendClearMetadata(stream, to: XMPPJID()) {
+                    user.avatarUploader.sendClearMetadata(
+                        stream,
+                        to: XMPPJID(string: self.jid)
+                    ) {
                         self.afterSettingAvatar(image: nil)
                     }
                 })

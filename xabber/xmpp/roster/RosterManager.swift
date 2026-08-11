@@ -446,6 +446,35 @@ class RosterManager: AbstractXMPPManager {
                 }
             }
             
+            let removedJids = query.elements(forName: "item").compactMap { item -> String? in
+                guard item.attributeStringValue(
+                    forName: "subscription",
+                    withDefaultValue: "none"
+                ) == "remove" else {
+                    return nil
+                }
+                return item.attributeStringValue(forName: "jid")
+            }
+            var removedGroupParticipantIds: [String: [String]] = [:]
+            removedJids.forEach { jid in
+                let groupPrimary = GroupChatStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner
+                )
+                if realm.object(
+                    ofType: GroupChatStorageItem.self,
+                    forPrimaryKey: groupPrimary
+                ) != nil {
+                    let participantIds = Array(
+                        realm.objects(GroupchatUserStorageItem.self)
+                            .filter("groupchatId == %@", groupPrimary)
+                            .map { $0.userId.isEmpty ? $0.jid : $0.userId }
+                            .filter { !$0.isEmpty }
+                    )
+                    removedGroupParticipantIds[jid] = participantIds
+                }
+            }
+
             try realm.write {
                 query.elements(forName: "item").forEach { item in
                     guard let jid = item.attributeStringValue(forName: "jid") else { return }
@@ -612,6 +641,16 @@ class RosterManager: AbstractXMPPManager {
                         let avatarUrl = instance.avatarUrl
                         CommonContactsMetadataManager.shared.update(owner: self.owner, jid: jid, username: username, avatarUrl: avatarUrl)
                     }
+                }
+            }
+            removedJids.forEach { jid in
+                CommonContactsMetadataManager.shared.remove(owner: owner, jid: jid)
+                if let participantIds = removedGroupParticipantIds[jid] {
+                    DefaultAvatarManager.shared.invalidatePushAvatarSnapshots(
+                        owner: owner,
+                        groupchat: jid,
+                        participantIds: participantIds
+                    )
                 }
             }
             

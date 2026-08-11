@@ -21,18 +21,43 @@
 import Foundation
 import KissXML
 
-class NetworkManager: NSObject {
-    private var url: URL
-    private var jwt: String
-    private var jid: String
-    private let maxRetryCount = 5
+class NetworkManager: NSObject, URLSessionTaskDelegate {
+    private let url: URL
+    private let jwt: String
+    private let jid: String
+    private let maxRetryCount = 1
+    private let maximumResponseSize = 1 * 1024 * 1024
+    private let stateQueue = DispatchQueue(label: "com.xabber.push-archive-client.state")
+    private var currentTask: URLSessionDataTask?
+    private var callbackTask: Task<Void, Never>?
+    private var retryWorkItem: DispatchWorkItem?
+    private var cancelled = false
+    private var sessionInvalidated = false
+    private var session: URLSession?
+
+    private func makeSession() -> URLSession {
+        if let session {
+            return session
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 3
+        configuration.timeoutIntervalForResource = 5
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        self.session = session
+        return session
+    }
     
-    public var delegate: PushPayloadDelegate? = nil
+    public weak var delegate: PushPayloadDelegate?
     
     init?(service url: String, jid: String, jwt: String) {
         guard !url.isEmpty,
               !jwt.isEmpty,
-              let url = URL(string: url) else {
+              let url = URL(string: url),
+              url.scheme?.lowercased() == "https",
+              url.host?.isEmpty == false,
+              url.user == nil,
+              url.password == nil else {
             return nil
         }
         self.jid = jid
@@ -41,53 +66,231 @@ class NetworkManager: NSObject {
     }
     
     public final func getMessage(host: String, messageId: String, by: String?, retry: Int? = nil) {
-        
-        guard let componentsBase = URLComponents(string: "\(url.absoluteString)/archive") else {
-            delegate?.didDisconnectWithError("invalid archive url")
+        guard isNetworkRequestActive() else {
             return
         }
-        var components = componentsBase
-        components.queryItems = []
-        components.queryItems?.append(URLQueryItem(name: "id", value: messageId))
+        guard var components = URLComponents(
+                url: url.appendingPathComponent("archive", isDirectory: false),
+                resolvingAgainstBaseURL: false
+              ) else {
+            notifyFailureAndFinish()
+            return
+        }
+        components.queryItems = [URLQueryItem(name: "id", value: messageId)]
         if let by = by {
             components.queryItems?.append(URLQueryItem(name: "by", value: by))
         }
-        
-        let formedUrl = components.url!
+        guard let formedUrl = components.url else {
+            notifyFailureAndFinish()
+            return
+        }
         var request = URLRequest(url: formedUrl)
         request.httpMethod = "GET"
-        request.addValue(host, forHTTPHeaderField: "Xmpp-Domain")
-        request.addValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 3
+        request.setValue(host, forHTTPHeaderField: "Xmpp-Domain")
+        request.setValue("Bearer \(jwt)", forHTTPHeaderField: "Authorization")
         
-        let task = URLSession.shared.dataTask(with: request) { (data, response, error) in
-            if let data = data,
-               let message = String(data: data, encoding: .utf8),
-               let document = try? DDXMLDocument(xmlString: "<root>\(message)</root>", options: 0),
-               let element = document.rootElement()?.elements(forName: "message").first {
-                self.read(message: element)
-            } else {
-                if (retry ?? 0) >= self.maxRetryCount {
-                    if let data = data,
-                       let message = String(data: data, encoding: .utf8) {
-                        self.delegate?.didDisconnectWithError(message)
-                    } else {
-                        self.delegate?.didDisconnectWithError("\((response as? HTTPURLResponse)?.description ?? "")")
-                    }
+        let task: URLSessionDataTask? = stateQueue.sync {
+            guard !cancelled,
+                  !sessionInvalidated,
+                  currentTask == nil else {
+                return nil
+            }
+            retryWorkItem = nil
+            let task = makeSession().dataTask(with: request) { [weak self] data, response, error in
+                guard let self else { return }
+                self.clearCurrentTask()
+                guard !self.isRequestCancelled() else { return }
+                let response = response as? HTTPURLResponse
+                if let data,
+                   data.count <= self.maximumResponseSize,
+                   let response,
+                   (200..<300).contains(response.statusCode),
+                   let message = String(data: data, encoding: .utf8),
+                   !message.localizedCaseInsensitiveContains("<!DOCTYPE"),
+                   !message.localizedCaseInsensitiveContains("<!ENTITY"),
+                   let document = try? DDXMLDocument(
+                        xmlString: "<root>\(message)</root>",
+                        options: 0
+                   ),
+                   let element = document.rootElement()?.elements(forName: "message").first {
+                    self.finishSession()
+                    self.read(message: element)
+                    return
+                }
+
+                let statusCode = response?.statusCode
+                let isTransientStatus = statusCode == 408
+                    || statusCode == 429
+                    || statusCode.map { (500...599).contains($0) } == true
+                let isTransientNetworkError = error != nil && statusCode == nil
+                let attempt = retry ?? 0
+                if attempt < self.maxRetryCount,
+                   isTransientStatus || isTransientNetworkError {
+                    self.scheduleRetry(
+                        host: host,
+                        messageId: messageId,
+                        by: by,
+                        attempt: attempt + 1
+                    )
                 } else {
-                    self.getMessage(host: host, messageId: messageId, by: by, retry: (retry ?? 0) + 1)
+                    self.notifyFailureAndFinish()
                 }
             }
+            currentTask = task
+            return task
         }
-        task.resume()
+        task?.resume()
+    }
+
+    public final func cancel() {
+        let work: (
+            URLSessionDataTask?,
+            Task<Void, Never>?,
+            DispatchWorkItem?,
+            URLSession?
+        ) = stateQueue.sync {
+            let shouldInvalidateSession = !sessionInvalidated
+            cancelled = true
+            sessionInvalidated = true
+            let work = (
+                currentTask,
+                callbackTask,
+                retryWorkItem,
+                shouldInvalidateSession ? session : nil
+            )
+            currentTask = nil
+            callbackTask = nil
+            retryWorkItem = nil
+            session = nil
+            return work
+        }
+        work.0?.cancel()
+        work.1?.cancel()
+        work.2?.cancel()
+        work.3?.invalidateAndCancel()
+    }
+
+    private func clearCurrentTask() {
+        stateQueue.sync {
+            currentTask = nil
+        }
+    }
+
+    private func clearCallbackTask() {
+        stateQueue.sync {
+            callbackTask = nil
+        }
+    }
+
+    private func isRequestCancelled() -> Bool {
+        stateQueue.sync { cancelled }
+    }
+
+    private func isNetworkRequestActive() -> Bool {
+        stateQueue.sync { !cancelled && !sessionInvalidated }
+    }
+
+    private func scheduleRetry(
+        host: String,
+        messageId: String,
+        by: String?,
+        attempt: Int
+    ) {
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.isNetworkRequestActive() else {
+                return
+            }
+            self.getMessage(
+                host: host,
+                messageId: messageId,
+                by: by,
+                retry: attempt
+            )
+        }
+        var previous: DispatchWorkItem?
+        let scheduled = stateQueue.sync {
+            guard !cancelled, !sessionInvalidated else {
+                return false
+            }
+            previous = retryWorkItem
+            retryWorkItem = workItem
+            return true
+        }
+        previous?.cancel()
+        if scheduled {
+            DispatchQueue.global(qos: .utility).asyncAfter(
+                deadline: .now() + 0.2,
+                execute: workItem
+            )
+        }
+    }
+
+    private func notifyFailureAndFinish() {
+        guard !isRequestCancelled() else {
+            return
+        }
+        finishSession()
+        guard !isRequestCancelled() else {
+            return
+        }
+        delegate?.networkManager(self, didDisconnectWithError: "archive unavailable")
+    }
+
+    private func finishSession() {
+        var retry: DispatchWorkItem?
+        let sessionToFinish: URLSession? = stateQueue.sync {
+            guard !sessionInvalidated else {
+                return nil
+            }
+            sessionInvalidated = true
+            currentTask = nil
+            retry = retryWorkItem
+            retryWorkItem = nil
+            let session = self.session
+            self.session = nil
+            return session
+        }
+        retry?.cancel()
+        sessionToFinish?.finishTasksAndInvalidate()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard !isRequestCancelled(),
+              let redirectedURL = request.url,
+              redirectedURL.scheme?.lowercased() == "https",
+              redirectedURL.host?.caseInsensitiveCompare(url.host ?? "") == .orderedSame else {
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
     }
     
     private final func read(message stanza: DDXMLElement) {
         guard let preview = PushNotificationArchiveParser.parseArchivedMessage(stanza, owner: jid) else {
-            delegate?.didDisconnectWithError("failed to parse archived message")
+            notifyFailureAndFinish()
             return
         }
-        Task {
-            await delegate?.didUpdateContent(preview: preview)
+        stateQueue.sync {
+            guard !cancelled else {
+                return
+            }
+            callbackTask?.cancel()
+            callbackTask = Task { [weak self] in
+                guard let self,
+                      !Task.isCancelled,
+                      !self.isRequestCancelled() else {
+                    return
+                }
+                defer { self.clearCallbackTask() }
+                await self.delegate?.networkManager(self, didUpdateContent: preview)
+            }
         }
     }
     
@@ -220,8 +423,11 @@ extension String {
     }
 }
 
-protocol PushPayloadDelegate {
-    func didDisconnectWithError(_ error: String)
-    func didUpdateContent(preview: PushNotificationPreview) async
+protocol PushPayloadDelegate: AnyObject {
+    func networkManager(_ manager: NetworkManager, didDisconnectWithError error: String)
+    func networkManager(
+        _ manager: NetworkManager,
+        didUpdateContent preview: PushNotificationPreview
+    ) async
     func didReceiveSync(stanza: String)
 }

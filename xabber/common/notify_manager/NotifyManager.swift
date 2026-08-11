@@ -27,6 +27,29 @@ import CocoaLumberjack
 
 import XMPPFramework
 
+enum PushNotificationRequestListDestination: Equatable {
+    case contactRequests(owner: String)
+    case groupInvitations(owner: String)
+
+    var screenKey: String {
+        switch self {
+        case .contactRequests:
+            return "contacts"
+        case .groupInvitations:
+            return "groups"
+        }
+    }
+
+    var categoryKey: String {
+        switch self {
+        case .contactRequests:
+            return "show_all_contacts"
+        case .groupInvitations:
+            return "show_all_invites"
+        }
+    }
+}
+
 enum PushNotificationConversationTypeResolver {
     static func resolve(
         _ encodedValue: String?,
@@ -81,6 +104,9 @@ enum PushNotificationMessageOpenRequestFactory {
         )
         let sourceDate = route.timestamp
             .map(Date.init(timeIntervalSinceReferenceDate:))
+        let authorId = conversationType == .group
+            ? (route.senderUserId ?? route.senderJid)
+            : nil
         return ChatOpenMessageRequest(
             chatJid: jid,
             owner: route.owner,
@@ -89,7 +115,7 @@ enum PushNotificationMessageOpenRequestFactory {
                 messagePrimary: nil,
                 archivedId: route.stanzaId,
                 messageId: route.messageId,
-                authorId: route.senderJid,
+                authorId: authorId,
                 bodyFingerprint: nil,
                 sourceDate: sourceDate
             ),
@@ -1272,22 +1298,15 @@ class NotifyManager {
             onTouchMessageNotification(userInfo: route.userInfo(timestamp: route.timestamp), atStart: atStart, handler: completionHandler)
             return true
         case .subscriptionRequest:
-            guard let jid = route.routeJid else {
-                completionHandler?()
-                return false
-            }
-            let conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
-            let opened = openChatForNotification(owner: route.owner, jid: jid, conversationType: conversationType, openMessageRequest: nil, configure: nil)
+            let opened = openRequestListForNotification(
+                .contactRequests(owner: route.owner)
+            )
             completionHandler?()
             return opened
         case .groupInvite:
-            guard let jid = route.groupchat ?? route.routeJid else {
-                completionHandler?()
-                return false
-            }
-            let opened = openChatForNotification(owner: route.owner, jid: jid, conversationType: .group, openMessageRequest: nil) { vc in
-                vc?.showInviteActionsMenuFromNotification()
-            }
+            let opened = openRequestListForNotification(
+                .groupInvitations(owner: route.owner)
+            )
             completionHandler?()
             return opened
         case .verificationRequest:
@@ -1454,6 +1473,22 @@ class NotifyManager {
             )
         }
         return false
+    }
+
+    @discardableResult
+    private final func openRequestListForNotification(
+        _ destination: PushNotificationRequestListDestination
+    ) -> Bool {
+        if let rootCoordinator = AppRootCoordinator.active {
+            return rootCoordinator.routeNotificationRequestList(destination)
+        }
+        guard let leftMenuDelegate else {
+            return false
+        }
+        return leftMenuDelegate.selectRootScreenAndCategory(
+            screen: destination.screenKey,
+            category: destination.categoryKey
+        )
     }
     
     public final func onTouchVerificationNotification(userInfo: [AnyHashable: Any], handler completionHandler: (() -> Void)? = nil) {

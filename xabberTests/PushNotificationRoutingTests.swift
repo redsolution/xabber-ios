@@ -16,7 +16,9 @@ final class PushNotificationRoutingTests: XCTestCase {
         private(set) var receivedNavigationSource: ChatOpenNavigationSource?
         private(set) var openCount = 0
 
-        func selectRootScreenAndCategory(screen key: String, category: String?) {}
+        func selectRootScreenAndCategory(screen key: String, category: String?) -> Bool {
+            true
+        }
 
         func openChatlistWithChat(
             owner: String,
@@ -185,7 +187,7 @@ final class PushNotificationRoutingTests: XCTestCase {
         XCTAssertEqual(preview.route.kind, .groupInvite)
         XCTAssertEqual(preview.route.routeJid, "stage@conference.example.com")
         XCTAssertEqual(preview.route.groupchat, "stage@conference.example.com")
-        XCTAssertEqual(preview.route.inviterJid, "juliet@example.com")
+        XCTAssertNil(preview.route.inviterJid)
         XCTAssertEqual(userInfo["groupchat"] as? String, "stage@conference.example.com")
         XCTAssertEqual(userInfo["route_jid"] as? String, "stage@conference.example.com")
     }
@@ -273,7 +275,7 @@ final class PushNotificationRoutingTests: XCTestCase {
         XCTAssertEqual(request.source, .pushNotification)
         XCTAssertEqual(request.anchor.archivedId, "1711283200000000")
         XCTAssertNil(request.anchor.messageId)
-        XCTAssertEqual(request.anchor.authorId, "juliet@example.com")
+        XCTAssertNil(request.anchor.authorId)
         XCTAssertEqual(request.anchor.sourceDate, Date(timeIntervalSince1970: 1_711_283_200))
         XCTAssertTrue(request.highlight)
         XCTAssertTrue(request.markReadOnVisible)
@@ -787,7 +789,7 @@ final class PushNotificationRoutingTests: XCTestCase {
         XCTAssertEqual(request.conversationType, .regular)
         XCTAssertEqual(request.anchor.archivedId, "own-archive-1")
         XCTAssertEqual(request.anchor.messageId, "own-carbon-1")
-        XCTAssertEqual(request.anchor.authorId, owner)
+        XCTAssertNil(request.anchor.authorId)
         XCTAssertEqual(request.anchor.sourceDate, sentAt)
         XCTAssertEqual(request.source, .pushNotification)
         XCTAssertTrue(request.highlight)
@@ -989,8 +991,11 @@ final class PushNotificationRoutingTests: XCTestCase {
             "the production display link must already own the one stable-frame consume"
         )
         readStates.append(try conversation.readState())
-        XCTAssertFalse(readStates.last?.targetIsRead == true)
-        XCTAssertEqual(mutationAudit.targetModificationCount, 0)
+        XCTAssertTrue(
+            readStates.last?.targetIsRead == true,
+            "the production viewport must mark the exact target only after the stable visible frame"
+        )
+        XCTAssertEqual(mutationAudit.targetModificationCount, 1)
 
         XCTAssertTrue(
             destination.readVisiblePresentationCoordinator
@@ -1004,8 +1009,6 @@ final class PushNotificationRoutingTests: XCTestCase {
         XCTAssertTrue(actualPresentation.isTopNavigationDestination)
         XCTAssertFalse(actualPresentation.hasCoveringPresentation)
         XCTAssertFalse(actualPresentation.isTransitionActive)
-        let chatModificationsBeforeVisibleRead =
-            mutationAudit.chatModificationCount
         XCTAssertTrue(
             destination.messagesCollectionView.collectionViewLayout
                 is MessagesCollectionViewFlowLayout,
@@ -1025,12 +1028,12 @@ final class PushNotificationRoutingTests: XCTestCase {
             [conversation.targetPrimary],
             "the production layout must make the exact target meaningfully visible"
         )
-        XCTAssertTrue(destination.advanceReadBoundaryFromVisibleMessages(
+        XCTAssertFalse(destination.advanceReadBoundaryFromVisibleMessages(
             indexPaths: [targetIndexPath]
         ))
         readStates.append(try conversation.readState())
-        XCTAssertFalse(readStates.last?.targetIsRead == true)
-        XCTAssertTrue(destination.flushPendingVisibleReadTarget())
+        XCTAssertTrue(readStates.last?.targetIsRead == true)
+        XCTAssertFalse(destination.flushPendingVisibleReadTarget())
         readStates.append(try conversation.readState())
         XCTAssertTrue(readStates.last?.targetIsRead == true)
         XCTAssertEqual(
@@ -1039,11 +1042,6 @@ final class PushNotificationRoutingTests: XCTestCase {
             "reading an exact target before the synchronization snapshot edge must not falsely clear the server unread boundary"
         )
         XCTAssertEqual(readStates.last?.syncUnread, 1)
-        XCTAssertTrue(productionPushWaitUntil(timeout: 2) {
-            mutationAudit.targetModificationCount == 1 &&
-                mutationAudit.chatModificationCount >
-                    chatModificationsBeforeVisibleRead
-        })
         let targetModificationsAfterRead =
             mutationAudit.targetModificationCount
         let chatModificationsAfterRead = mutationAudit.chatModificationCount
@@ -1838,7 +1836,7 @@ private struct ProductionPushConversationSeed {
                 messagePrimary: nil,
                 archivedId: targetArchivedId,
                 messageId: targetMessageId,
-                authorId: authorId,
+                authorId: conversationType == .group ? authorId : nil,
                 bodyFingerprint: nil,
                 sourceDate: notificationSourceDate
             ),
