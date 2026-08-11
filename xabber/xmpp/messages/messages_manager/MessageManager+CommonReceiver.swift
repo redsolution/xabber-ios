@@ -1212,7 +1212,12 @@ extension MessageManager {
     }
     
     public func receiveRuntime(_ message: XMPPMessage) {
-        if AccountManager.shared.find(for: owner)?.groupchats.readInvite(in: message, date: getDeliveryTime(message, owner: owner) ?? Date(), isRead: false) ?? GroupchatInviteV3Parser.isInvite(message) {
+        if AccountManager.shared.find(for: owner)?.groupchats.readInvite(
+            in: message,
+            date: getDeliveryTime(message, owner: owner) ?? Date(),
+            isRead: false,
+            notifyLocally: true
+        ) ?? GroupchatInviteV3Parser.isInvite(message) {
             return
         }
         enqueue(MessageQueueItem(message,
@@ -1906,7 +1911,8 @@ extension MessageManager {
                         date: notification.date,
                         displayName: notification.displayName,
                         imageUrl: notification.imageUrl,
-                        conversationType: notification.conversationType
+                        conversationType: notification.conversationType,
+                        preview: notification.preview
                     )
                 }
                 message.references.forEach { reference in
@@ -2056,7 +2062,8 @@ extension MessageManager {
                     date: $0.date,
                     displayName: $0.displayName,
                     imageUrl: $0.imageUrl,
-                    conversationType: $0.conversationType
+                    conversationType: $0.conversationType,
+                    preview: $0.preview
                 )
             }
 

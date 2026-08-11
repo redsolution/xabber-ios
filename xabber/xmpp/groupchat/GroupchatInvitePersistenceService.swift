@@ -32,10 +32,23 @@ enum GroupchatInviteStoreResult: Equatable {
 final class GroupchatInvitePersistenceService {
     private let owner: String
     private let followUp: GroupchatInviteFollowUp
+    private let now: () -> Date
+    private let showLocalNotification: (PushNotificationPreview) -> Void
 
-    init(owner: String, followUp: GroupchatInviteFollowUp = .none) {
+    init(
+        owner: String,
+        followUp: GroupchatInviteFollowUp = .none,
+        now: @escaping () -> Date = Date.init,
+        showLocalNotification: @escaping (PushNotificationPreview) -> Void = { preview in
+            DispatchQueue.main.async {
+                NotifyManager.shared.showInviteNotification(preview: preview)
+            }
+        }
+    ) {
         self.owner = owner
         self.followUp = followUp
+        self.now = now
+        self.showLocalNotification = showLocalNotification
     }
 
     @discardableResult
@@ -43,11 +56,19 @@ final class GroupchatInvitePersistenceService {
         message: XMPPMessage,
         date: Date,
         isRead: Bool?,
-        commit: Bool = true
+        commit: Bool = true,
+        notifyLocally: Bool = false
     ) -> GroupchatInviteStoreResult {
         do {
             let realm = try WRealm.safe()
-            return receive(message: message, date: date, isRead: isRead, realm: realm, commit: commit)
+            return receive(
+                message: message,
+                date: date,
+                isRead: isRead,
+                realm: realm,
+                commit: commit,
+                notifyLocally: notifyLocally
+            )
         } catch {
             DDLogDebug("GroupchatInvitePersistenceService: \(#function). \(error.localizedDescription)")
             return .invalid
@@ -60,12 +81,24 @@ final class GroupchatInvitePersistenceService {
         date: Date,
         isRead: Bool?,
         realm: Realm,
-        commit: Bool
+        commit: Bool,
+        notifyLocally: Bool = false
     ) -> GroupchatInviteStoreResult {
         guard let payload = GroupchatInviteV3Parser.parse(message, owner: owner, date: date, archiveId: nil) else {
             return .invalid
         }
-        return store(payload: payload, isRead: isRead, realm: realm, commit: commit)
+        let notificationPreview = PushNotificationArchiveParser.parseArchivedMessage(
+            xmlString: message.xmlString,
+            owner: owner
+        )
+        return store(
+            payload: payload,
+            isRead: isRead,
+            realm: realm,
+            commit: commit,
+            notifyLocally: notifyLocally,
+            notificationPreview: notificationPreview
+        )
     }
 
     @discardableResult
@@ -100,7 +133,14 @@ final class GroupchatInvitePersistenceService {
         guard let payload = GroupchatInviteV3Parser.parse(bareMessage, owner: owner, date: date, archiveId: archiveId) else {
             return .invalid
         }
-        return store(payload: payload, isRead: isRead, realm: realm, commit: commit)
+        return store(
+            payload: payload,
+            isRead: isRead,
+            realm: realm,
+            commit: commit,
+            notifyLocally: false,
+            notificationPreview: nil
+        )
     }
 
     @discardableResult
@@ -108,7 +148,9 @@ final class GroupchatInvitePersistenceService {
         payload: GroupchatInviteV3Payload,
         isRead: Bool?,
         realm: Realm,
-        commit: Bool
+        commit: Bool,
+        notifyLocally: Bool = false,
+        notificationPreview: PushNotificationPreview? = nil
     ) -> GroupchatInviteStoreResult {
         guard payload.owner == owner,
               payload.groupchat.isNotEmpty,
@@ -173,8 +215,9 @@ final class GroupchatInvitePersistenceService {
             realm.add(notification, update: .modified)
         }
 
+        let ownsCommit = commit && !realm.isInWriteTransaction
         do {
-            if commit && !realm.isInWriteTransaction {
+            if ownsCommit {
                 try realm.write(mutation)
             } else {
                 mutation()
@@ -186,6 +229,16 @@ final class GroupchatInvitePersistenceService {
 
         followUp.requestGroupInfo(payload.groupchat)
         followUp.requestMembers(payload.groupchat)
+        let age = abs(now().timeIntervalSince(payload.date))
+        if ownsCommit,
+           notifyLocally,
+           isRead == false,
+           result.didCreateOrUpdate,
+           age <= 10,
+           let notificationPreview,
+           notificationPreview.route.kind == .groupInvite {
+            showLocalNotification(notificationPreview)
+        }
         return result
     }
 }

@@ -226,7 +226,14 @@ class GroupchatManager: AbstractXMPPManager {
         delete.stringValue = groupchat
         xmppStream.send(XMPPIQ(iqType: .set, to: XMPPJID(string: groupchat)?.domainJID, elementID: elementId, child: delete))
         queryIds.insert(elementId)
-        queueItems.insert(QueueItem(.delete, elementId: elementId, callback: callback))
+        queueItems.insert(
+            QueueItem(
+                .delete,
+                elementId: elementId,
+                callback: callback,
+                value: groupchat
+            )
+        )
     }
     
     private final func addRequestTimeoutHandler(for elementId: String) {
@@ -281,6 +288,16 @@ class GroupchatManager: AbstractXMPPManager {
     public final func afterLeave(groupchat: String) {
         do {
             let realm = try  WRealm.safe()
+            let groupPrimary = GroupChatStorageItem.genPrimary(
+                jid: groupchat,
+                owner: owner
+            )
+            let participantIds = Array(
+                realm.objects(GroupchatUserStorageItem.self)
+                    .filter("groupchatId == %@", groupPrimary)
+                    .map { $0.userId.isEmpty ? $0.jid : $0.userId }
+                    .filter { !$0.isEmpty }
+            )
             try realm.write {
                 if let instance = realm.object(
                     ofType: LastChatsStorageItem.self,
@@ -301,6 +318,15 @@ class GroupchatManager: AbstractXMPPManager {
                 realm.delete(realm.objects(GroupchatUserStorageItem.self)
                     .filter("groupchatId == %@", [groupchat, owner].prp()))
             }
+            CommonContactsMetadataManager.shared.remove(
+                owner: owner,
+                jid: groupchat
+            )
+            DefaultAvatarManager.shared.invalidatePushAvatarSnapshots(
+                owner: owner,
+                groupchat: groupchat,
+                participantIds: participantIds
+            )
         } catch {
             DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
         }
@@ -1444,6 +1470,13 @@ class GroupchatManager: AbstractXMPPManager {
     
     public final func updateUserCard(_ card: DDXMLElement, myCard: Bool? = nil, groupchat: String, trustedSource: Bool, messageAction: String?, commitTransaction: Bool, cardDate: Date = Date()) -> GroupchatUserStorageItem? {
         guard let id = card.attributeStringValue(forName: "id") else { return  nil }
+        if card.element(forName: "subscription")?.stringValue == "none" {
+            DefaultAvatarManager.shared.invalidatePushAvatarSnapshot(
+                owner: owner,
+                groupchat: groupchat,
+                participantId: id
+            )
+        }
         func transaction(_ commit: Bool, transaction: (() -> Void)) {
             do {
                 let realm = try  WRealm.safe()
@@ -1603,39 +1636,16 @@ class GroupchatManager: AbstractXMPPManager {
         guard let elementId = iq.elementID,
             queryIds.contains(elementId),
             iq.elements(forName: "error").isEmpty,
-            let from = iq.from?.bare,
             let item = queueItems.first(where: { $0.elementId == elementId }),
-            item.action == .delete else {
-                return false
+            item.action == .delete,
+            !item.value.isEmpty else {
+            return false
         }
+        let groupchat = item.value
         queryIds.remove(elementId)
+        afterLeave(groupchat: groupchat)
         item.callback?(nil)
         queueItems.remove(item)
-        do {
-            let realm = try  WRealm.safe()
-            try realm.write {
-                if let instance = realm.object(
-                    ofType: LastChatsStorageItem.self,
-                    forPrimaryKey: LastChatsStorageItem.genPrimary(
-                        jid: from,
-                        owner: owner,
-                        conversationType: .group
-                    )
-                ) {
-                    realm.delete(instance)
-                }
-                realm.delete(realm.objects(MessageStorageItem.self)
-                    .filter("owner == %@ AND opponent == %@", owner, from))
-                realm.delete(realm.objects(MessageReferenceStorageItem.self)
-                    .filter("owner == %@ AND jid == %@", owner, from))
-                realm.delete(realm.objects(CallMetadataStorageItem.self)
-                    .filter("owner == %@ AND opponent == %@", owner, from))
-                realm.delete(realm.objects(GroupchatUserStorageItem.self)
-                    .filter("groupchatId == %@", [from, owner].prp()))
-            }
-        } catch {
-            DDLogDebug("GroupchatManager: \(#function). \(error.localizedDescription)")
-        }
         return true
     }
     
@@ -1975,12 +1985,19 @@ class GroupchatManager: AbstractXMPPManager {
         return GroupchatInviteV3Parser.isInvite(message)
     }
 
-    public final func readInvite(in message: XMPPMessage, date: Date, isRead: Bool?, commit: Bool = true) -> Bool {
+    public final func readInvite(
+        in message: XMPPMessage,
+        date: Date,
+        isRead: Bool?,
+        commit: Bool = true,
+        notifyLocally: Bool = false
+    ) -> Bool {
         let result = makeInvitePersistenceService().receive(
             message: message,
             date: date,
             isRead: isRead,
-            commit: commit
+            commit: commit,
+            notifyLocally: notifyLocally
         )
         return result.shouldConsume
     }
@@ -2147,6 +2164,10 @@ class GroupchatManager: AbstractXMPPManager {
                             }
                             collection.forEach { $0.isRead = true }
                         }
+                        CommonContactsMetadataManager.shared.remove(
+                            owner: owner,
+                            jid: jid
+                        )
 //                        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
 //                            _ = session.sync?.update(stream, jid: jid, conversationType: .group, status: .deleted)
 //                        } fail: {
@@ -2487,6 +2508,7 @@ class GroupchatManager: AbstractXMPPManager {
             case onBlockList(iq): return true
             case onBlock(iq): return true
             case onUnblock(iq): return true
+            case onDelete(iq): return true
             case onSuccess(iq): return true
             case onDecline(iq): return true
             default: return false

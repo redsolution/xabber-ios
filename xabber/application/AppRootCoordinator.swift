@@ -594,6 +594,7 @@ final class AppRootCoordinator: NSObject {
             if currentPresentedVc == nil {
                 DispatchQueue.main.async { [weak self] in
                     self?.retryPendingMessageNotificationChatRouteIfPossible()
+                    self?.retryPendingNotificationRequestListIfPossible()
                 }
             }
         }
@@ -601,6 +602,7 @@ final class AppRootCoordinator: NSObject {
 
     private var blurEffectView: UIVisualEffectView?
     private var pendingRoute: AppRoute?
+    private var pendingNotificationRequestList: PushNotificationRequestListDestination?
     #if DEBUG || CHAT_PERFORMANCE_LAB
     private var performanceFixtureDescriptor: ChatPerformanceUITestLaunchDescriptor?
     #endif
@@ -692,6 +694,7 @@ final class AppRootCoordinator: NSObject {
         applyCompatibilityReferences()
         ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
         retryPendingMessageNotificationChatRouteIfPossible()
+        retryPendingNotificationRequestListIfPossible()
     }
 
     func sceneWillResignActive() {
@@ -772,6 +775,7 @@ final class AppRootCoordinator: NSObject {
         )
         removeBlurredScreen()
         retryPendingMessageNotificationChatRouteIfPossible()
+        retryPendingNotificationRequestListIfPossible()
     }
 
     func sceneDidDisconnect() {
@@ -870,6 +874,44 @@ final class AppRootCoordinator: NSObject {
             navigationSource: .notification,
             configure: configure
         )
+    }
+
+    @discardableResult
+    internal func routeNotificationRequestList(
+        _ destination: PushNotificationRequestListDestination
+    ) -> Bool {
+        guard Self.canRoute(hasPresentedModal: currentPresentedVc != nil) else {
+            pendingNotificationRequestList = destination
+            return false
+        }
+
+        let routed: Bool
+        switch CommonConfigManager.shared.interfaceType {
+        case .split:
+            guard let leftMenuDelegate = NotifyManager.shared.leftMenuDelegate else {
+                pendingNotificationRequestList = destination
+                return false
+            }
+            routed = leftMenuDelegate.selectRootScreenAndCategory(
+                screen: destination.screenKey,
+                category: destination.categoryKey
+            )
+        case .tabs:
+            routed = routeTabRequestList(destination)
+        }
+
+        pendingNotificationRequestList = routed ? nil : destination
+        return routed
+    }
+
+    @discardableResult
+    private func retryPendingNotificationRequestListIfPossible() -> Bool {
+        guard Self.active === self,
+              currentPresentedVc == nil,
+              let destination = pendingNotificationRequestList else {
+            return false
+        }
+        return routeNotificationRequestList(destination)
     }
 
     @discardableResult
@@ -1304,6 +1346,47 @@ final class AppRootCoordinator: NSObject {
         }
     }
 
+    private func routeTabRequestList(
+        _ destination: PushNotificationRequestListDestination
+    ) -> Bool {
+        guard let tabController,
+              let controllers = tabController.viewControllers,
+              controllers.indices.contains(1),
+              let navigationController = controllers[1] as? UINavigationController,
+              let contactsRoot = navigationController.viewControllers.first
+                as? ContactsViewController else {
+            return false
+        }
+
+        tabController.selectedIndex = 1
+        navigationController.popToRootViewController(animated: false)
+
+        switch destination {
+        case .contactRequests:
+            contactsRoot.isGroup = false
+            contactsRoot.leftMenuDelegate = self
+            applyRequestListCategory(destination.categoryKey, to: contactsRoot)
+        case .groupInvitations:
+            let groupsController = ContactsViewController()
+            groupsController.isGroup = true
+            groupsController.leftMenuDelegate = self
+            applyRequestListCategory(destination.categoryKey, to: groupsController)
+            navigationController.pushViewController(groupsController, animated: false)
+        }
+        return true
+    }
+
+    private func applyRequestListCategory(
+        _ category: String,
+        to controller: ContactsViewController
+    ) {
+        if controller.isViewLoaded {
+            controller.selectSpecialCategory(category)
+        } else {
+            controller.didSelectSpecialCategory(category)
+        }
+    }
+
     private func applyCompatibilityReferences() {
         appDelegate?.window = window
         appDelegate?.splitController = splitController
@@ -1323,9 +1406,24 @@ extension AppRootCoordinator: UISplitViewControllerDelegate {
 }
 
 extension AppRootCoordinator: LeftMenuSelectRootScreenDelegate {
-    func selectRootScreenAndCategory(screen key: String, category: String?) {
-        guard key == "chat" else { return }
-        tabController?.selectedIndex = 0
+    @discardableResult
+    func selectRootScreenAndCategory(screen key: String, category: String?) -> Bool {
+        switch key {
+        case "chat":
+            guard let tabController else { return false }
+            tabController.selectedIndex = 0
+            return true
+        case "contacts" where category == "show_all_contacts":
+            return routeTabRequestList(
+                .contactRequests(owner: "")
+            )
+        case "groups" where category == "show_all_invites":
+            return routeTabRequestList(
+                .groupInvitations(owner: "")
+            )
+        default:
+            return false
+        }
     }
 
     @discardableResult

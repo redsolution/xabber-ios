@@ -372,7 +372,12 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 
             } else {
                 if GroupchatInvitePersistenceService(owner: sender.myJID!.bare)
-                    .receive(message: message, date: getDeliveryTime(message, owner: sender.myJID!.bare) ?? Date(), isRead: false)
+                    .receive(
+                        message: message,
+                        date: getDeliveryTime(message, owner: sender.myJID!.bare) ?? Date(),
+                        isRead: false,
+                        notifyLocally: true
+                    )
                     .shouldConsume {
                     return
                 }

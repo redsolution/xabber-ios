@@ -24,7 +24,7 @@ import CryptoSwift
 import Intents
 
 class NotificationService: UNNotificationServiceExtension {
-    static let suitName: String = "group.com.xabber"
+    static let suitName: String = "group.xabber.ios"
     private static let maxCredentialRetryCount = 5
     private static let credentialRetryDelay: TimeInterval = 0.1
     
@@ -44,6 +44,11 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     class PayloadData {
+        private static let pushNamespace = "https://xabber.com/protocol/push"
+        private static let dataFormNamespace = "jabber:x:data"
+        private static let formType = "https://xabber.com/protocol/push#info"
+        private static let stanzaIdNamespace = "urn:xmpp:sid:0"
+        private static let maximumXMLSize = 512 * 1024
         
         struct StanzaId {
             let id: String
@@ -57,15 +62,39 @@ class NotificationService: UNNotificationServiceExtension {
          <encrypted iv-length='16' xmlns='https://xabber.com/protocol/push'>FLseKbZ+lBteKbuakiw2e2YPtXGdbSNLkV1hXre2JrGswI7MX+4c79LjKr6gsXhKpYPgyiubH6mA/HFAvqIDaBvTgN1ewwsqdCzqV3rwGaPM1QkhkM76ZWycaURmVGdAhAc03stxtW6FdcAREZwAVQ==</encrypted><x type='result' xmlns='jabber:x:data'><field var='FORM_TYPE' type='hidden'><value>https://xabber.com/protocol/push#info</value></field><field var='type'><value>message</value></field></x>
          */
         init?(_ body: String) {
+            guard body.utf8.count <= Self.maximumXMLSize,
+                  !Self.containsForbiddenXML(body) else {
+                return nil
+            }
             let documentBody = "<root>\(body)</root>"
             guard let document = try? DDXMLDocument(xmlString: documentBody, options: 0),
                   let root = document.rootElement(),
-                  let encrypted = root.elements(forName: "encrypted").first?.xmlString,
+                  root.elements(forName: "encrypted").count == 1,
+                  let encryptedElement = root.elements(forName: "encrypted").first,
+                  encryptedElement.xmlns() == Self.pushNamespace,
+                  root.elements(forName: "x").count == 1,
                   let xForm = root.elements(forName: "x").first,
-                  let action = xForm.elements(forName: "field").first(where: { $0.attribute(forName: "var")?.stringValue == "type"})?.elements(forName: "value").first?.stringValue else {
+                  xForm.xmlns() == Self.dataFormNamespace,
+                  xForm.attribute(forName: "type")?.stringValue == "result" else {
                 return nil
             }
-            self.encrypted = encrypted
+
+            let fields = xForm.elements(forName: "field")
+            let formTypeValues = fields
+                .filter { $0.attribute(forName: "var")?.stringValue == "FORM_TYPE" }
+                .compactMap { $0.elements(forName: "value").first?.stringValue }
+            let actionValues = fields
+                .filter { $0.attribute(forName: "var")?.stringValue == "type" }
+                .compactMap { $0.elements(forName: "value").first?.stringValue }
+            guard formTypeValues == [Self.formType],
+                  actionValues.count == 1,
+                  let action = actionValues.first,
+                  let parsedAction = Actions(rawValue: action),
+                  parsedAction != .none else {
+                return nil
+            }
+
+            self.encrypted = encryptedElement.xmlString
             self.actionElement = action
         }
         
@@ -88,52 +117,44 @@ class NotificationService: UNNotificationServiceExtension {
         
         var iv: ArraySlice<UInt8>? {
             get {
-                guard let encrypted = encrypted,
-                    let document = try? DDXMLDocument(xmlString: encrypted, options: 0),
-                    let root = document.rootElement(),
-                    let encryptedStr = root.stringValue,
-                    let data = Data(base64Encoded: encryptedStr, options: .ignoreUnknownCharacters),
-                    let ivCountRaw = root.attribute(forName: "iv-length")?.stringValue,
-                    let ivCount = Int(ivCountRaw),
-                    ivCount < data.count else {
-                    return nil
-                }
-                return data.bytes.prefix(upTo: ivCount)
+                encryptedParts?.iv[...]
             }
         }
         
         var encryptedData: Array<UInt8>? {
             get {
-                guard let root = rootElement,
-                    let encryptedStr = root.stringValue,
-                    let data = Data(base64Encoded: encryptedStr),
-                    let ivCountRaw = root.attribute(forName: "iv-length")?.stringValue,
-                    let ivCount = Int(ivCountRaw),
-                    ivCount < data.count else {
-                    return nil
-                }
-                return Padding.zeroPadding.add(to: Array(data.bytes.suffix(from: ivCount)), blockSize: 16)
+                encryptedParts?.ciphertext
             }
         }
         
         var encryptedLen: Int {
             get {
-                guard let root = rootElement,
-                    let encryptedStr = root.stringValue,
-                    let data = Data(base64Encoded: encryptedStr),
-                    let ivCountRaw = root.attribute(forName: "iv-length")?.stringValue,
-                    let ivCount = Int(ivCountRaw),
-                    ivCount < data.count else {
-                    return 0
-                }
-                return data.bytes.suffix(from: ivCount).count
+                encryptedParts?.ciphertext.count ?? 0
             }
+        }
+
+        private var encryptedParts: (iv: [UInt8], ciphertext: [UInt8])? {
+            guard let root = rootElement,
+                  root.xmlns() == Self.pushNamespace,
+                  root.attribute(forName: "iv-length")?.stringValue == "16",
+                  let encryptedString = root.stringValue?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                  let data = Data(base64Encoded: encryptedString, options: []),
+                  data.count > 16 else {
+                return nil
+            }
+            let ciphertext = Array(data.dropFirst(16))
+            guard !ciphertext.isEmpty, ciphertext.count.isMultiple(of: 16) else {
+                return nil
+            }
+            return (Array(data.prefix(16)), ciphertext)
         }
         
         public func subscribtionRequestStanza(key: String) -> String? {
             if let decrypted = decrypt(by: key),
                 let document = try? DDXMLDocument(xmlString: decrypted, options: 0),
                 let presenceElement = document.rootElement(),
+                presenceElement.name == "presence",
                 let presenceType = presenceElement.attribute(forName: "type")?.stringValue,
                 presenceType == "subscribe" {
                 return presenceElement.compactXMLString()
@@ -144,7 +165,8 @@ class NotificationService: UNNotificationServiceExtension {
         public func subscribtionRequestFrom(key: String) -> String? {
             if let decrypted = decrypt(by: key),
                 let document = try? DDXMLDocument(xmlString: decrypted, options: 0),
-                let presenceElement = document.rootElement(),//?.elements(forName: "stanza-id").first,
+                let presenceElement = document.rootElement(),
+                presenceElement.name == "presence",
                 let from = presenceElement.attribute(forName: "from")?.stringValue,
                 let presenceType = presenceElement.attribute(forName: "type")?.stringValue,
                 presenceType == "subscribe" {
@@ -165,7 +187,9 @@ class NotificationService: UNNotificationServiceExtension {
         public func messageStanzaID(key: String) -> StanzaId? {
             if let decrypted = decrypt(by: key),
                 let document = try? DDXMLDocument(xmlString: decrypted, options: 0),
-                let stanzaIdElement = document.rootElement(),//?.elements(forName: "stanza-id").first,
+                let stanzaIdElement = document.rootElement(),
+                stanzaIdElement.name == "stanza-id",
+                stanzaIdElement.xmlns() == Self.stanzaIdNamespace,
                 let settedBy = stanzaIdElement.attribute(forName: "by")?.stringValue,
                 let id = stanzaIdElement.attribute(forName: "id")?.stringValue {
                 return StanzaId(id: id, by: settedBy)
@@ -176,7 +200,9 @@ class NotificationService: UNNotificationServiceExtension {
         public func updateStanzaID(key: String) -> StanzaId? {
             if let decrypted = decrypt(by: key),
                 let document = try? DDXMLDocument(xmlString: decrypted, options: 0),
-                let stanzaIdElement = document.rootElement(),//?.elements(forName: "stanza-id").first,
+                let stanzaIdElement = document.rootElement(),
+                stanzaIdElement.name == "stanza-id",
+                stanzaIdElement.xmlns() == Self.stanzaIdNamespace,
                 let settedBy = stanzaIdElement.attribute(forName: "by")?.stringValue,
                 let id = stanzaIdElement.attribute(forName: "id")?.stringValue {
                 return StanzaId(id: id, by: settedBy)
@@ -192,7 +218,8 @@ class NotificationService: UNNotificationServiceExtension {
                     .elements(forName: "stanza-id")
                     .compactMap {
                         stanzaIdElement in
-                        if let settedBy = stanzaIdElement.attribute(forName: "by")?.stringValue,
+                        if stanzaIdElement.xmlns() == Self.stanzaIdNamespace,
+                            let settedBy = stanzaIdElement.attribute(forName: "by")?.stringValue,
                             let id = stanzaIdElement.attribute(forName: "id")?.stringValue {
                             return StanzaId(id: id, by: settedBy)
                         }
@@ -205,22 +232,35 @@ class NotificationService: UNNotificationServiceExtension {
         public func decrypt(by key: String) -> String? {
             do {
                 guard let encrypted = encryptedData,
-                    let iv = iv else {
+                    let iv = iv,
+                    key.utf8.count == 32 else {
                     return nil
                 }
                 let decrypted = try AES(key: Array(key.utf8),
                                         blockMode: CBC(iv: Array(iv)),
-                                        padding: .zeroPadding).decrypt(encrypted)
-//                print(decrypted)
-//                print("decrypted:", String(bytes: decrypted.prefix(upTo: encryptedLen), encoding: .utf8))
-                
-//                print(decrypted)
-//                print(String(bytes: decrypted.prefix(upTo: encryptedLen), encoding: .utf8))
-                return String(bytes: decrypted.prefix(upTo: encryptedLen), encoding: .utf8)
+                                        padding: .noPadding).decrypt(encrypted)
+                var plaintextLength = decrypted.count
+                while plaintextLength > 0, decrypted[plaintextLength - 1] == 0 {
+                    plaintextLength -= 1
+                }
+                guard plaintextLength > 0,
+                      plaintextLength <= Self.maximumXMLSize,
+                      let plaintext = String(
+                        bytes: decrypted.prefix(plaintextLength),
+                        encoding: .utf8
+                      ),
+                      !Self.containsForbiddenXML(plaintext) else {
+                    return nil
+                }
+                return plaintext
             } catch {
-//                print(error.localizedDescription)
+                return nil
             }
-            return nil
+        }
+
+        private static func containsForbiddenXML(_ value: String) -> Bool {
+            value.localizedCaseInsensitiveContains("<!DOCTYPE")
+                || value.localizedCaseInsensitiveContains("<!ENTITY")
         }
     }
     
@@ -228,6 +268,11 @@ class NotificationService: UNNotificationServiceExtension {
     var bestAttemptContent: UNMutableNotificationContent = UNMutableNotificationContent()
     private let completionQueue = DispatchQueue(label: "com.xabber.notification-service.completion")
     private var didCompleteContent = false
+    private var requestGeneration: UInt = 0
+    private var credentialRetryWorkItem: DispatchWorkItem?
+    private var renderingTask: Task<Void, Never>?
+    private var archiveManager: NetworkManager?
+    private let richAttachmentLoader = RichNotificationAttachmentLoader()
     
     var creditionals: [String: Any] = [:]
     var owner: String = ""
@@ -246,16 +291,128 @@ class NotificationService: UNNotificationServiceExtension {
     
 
     private func completeContent(_ content: UNNotificationContent) {
+        finishContent {
+            (content.copy() as? UNNotificationContent) ?? content
+        }
+    }
+
+    private func completeBestAttemptContent() {
+        finishContent {
+            (self.bestAttemptContent.copy() as? UNNotificationContent)
+                ?? self.bestAttemptContent
+        }
+    }
+
+    private func finishContent(_ makeSnapshot: () -> UNNotificationContent) {
         var handler: ((UNNotificationContent) -> Void)?
+        var snapshot: UNNotificationContent?
+        var retryWorkItem: DispatchWorkItem?
+        var task: Task<Void, Never>?
+        var manager: NetworkManager?
         completionQueue.sync {
             guard !didCompleteContent else {
                 return
             }
+            snapshot = makeSnapshot()
             didCompleteContent = true
             handler = contentHandler
             contentHandler = nil
+            retryWorkItem = credentialRetryWorkItem
+            credentialRetryWorkItem = nil
+            task = renderingTask
+            renderingTask = nil
+            manager = archiveManager
+            archiveManager = nil
         }
-        handler?(content)
+        retryWorkItem?.cancel()
+        task?.cancel()
+        manager?.cancel()
+        if let snapshot {
+            handler?(snapshot)
+        }
+    }
+
+    private var hasCompletedContent: Bool {
+        completionQueue.sync { didCompleteContent }
+    }
+
+    @discardableResult
+    private func mutateBestAttemptContent(
+        _ mutation: (UNMutableNotificationContent) -> Void
+    ) -> Bool {
+        completionQueue.sync {
+            guard !didCompleteContent else {
+                return false
+            }
+            mutation(bestAttemptContent)
+            return true
+        }
+    }
+
+    private func bestAttemptContentSnapshot() -> UNMutableNotificationContent {
+        completionQueue.sync {
+            (bestAttemptContent.mutableCopy() as? UNMutableNotificationContent)
+                ?? bestAttemptContent
+        }
+    }
+
+    private func cancelOutstandingWork() {
+        let work: (DispatchWorkItem?, Task<Void, Never>?, NetworkManager?) = completionQueue.sync {
+            let work = (credentialRetryWorkItem, renderingTask, archiveManager)
+            credentialRetryWorkItem = nil
+            renderingTask = nil
+            archiveManager = nil
+            return work
+        }
+        work.0?.cancel()
+        work.1?.cancel()
+        work.2?.cancel()
+    }
+
+    private func isActiveRequest(generation: UInt) -> Bool {
+        completionQueue.sync {
+            requestGeneration == generation && !didCompleteContent
+        }
+    }
+
+    private func isCurrentArchiveManager(_ manager: NetworkManager) -> Bool {
+        completionQueue.sync {
+            archiveManager === manager && !didCompleteContent
+        }
+    }
+
+    @discardableResult
+    private func installArchiveManager(_ manager: NetworkManager) -> Bool {
+        var previous: NetworkManager?
+        let installed = completionQueue.sync {
+            guard !didCompleteContent else {
+                return false
+            }
+            previous = archiveManager
+            archiveManager = manager
+            return true
+        }
+        previous?.cancel()
+        if !installed {
+            manager.cancel()
+        }
+        return installed
+    }
+
+    private func installRenderingTask(_ task: Task<Void, Never>) {
+        var previous: Task<Void, Never>?
+        let installed = completionQueue.sync {
+            guard !didCompleteContent else {
+                return false
+            }
+            previous = renderingTask
+            renderingTask = task
+            return true
+        }
+        previous?.cancel()
+        if !installed {
+            task.cancel()
+        }
     }
 
     internal func getAccounts(_ payload: [AnyHashable: Any]) -> [String: Any] {
@@ -309,61 +466,110 @@ class NotificationService: UNNotificationServiceExtension {
     
     var pushData: CredentialsManager.PushSecretData? = nil
     
-    func loadCredentials(for node: String, payload: PayloadData, retry: Int = 0) {
+    func loadCredentials(
+        for node: String,
+        payload: PayloadData,
+        retry: Int = 0,
+        generation requestedGeneration: UInt? = nil
+    ) {
+        let generation = requestedGeneration ?? completionQueue.sync { requestGeneration }
+        guard isActiveRequest(generation: generation) else {
+            return
+        }
         do {
             let pushSecrets = try CredentialsManager.staticGetPushCredentials(for: node)
+            guard isActiveRequest(generation: generation) else {
+                return
+            }
             self.owner = pushSecrets.jid
             self.pushData = pushSecrets
             self.deviceId = CredentialsManager.getXabberDeviceId(for: self.owner)
             self.notificationType = payload.action
             self.action(for: payload)
         } catch {
+            guard isActiveRequest(generation: generation) else {
+                return
+            }
             if retry >= Self.maxCredentialRetryCount {
                 fallbackVisibleNotification(for: payload.action, reason: "credentials unavailable")
             } else {
-                DispatchQueue.global().asyncAfter(deadline: .now() + Self.credentialRetryDelay) {
-                    self.loadCredentials(for: node, payload: payload, retry: retry + 1)
+                let workItem = DispatchWorkItem { [weak self] in
+                    guard let self,
+                          self.isActiveRequest(generation: generation) else {
+                        return
+                    }
+                    self.loadCredentials(
+                        for: node,
+                        payload: payload,
+                        retry: retry + 1,
+                        generation: generation
+                    )
+                }
+                var previous: DispatchWorkItem?
+                let scheduled = completionQueue.sync {
+                    guard requestGeneration == generation, !didCompleteContent else {
+                        return false
+                    }
+                    previous = credentialRetryWorkItem
+                    credentialRetryWorkItem = workItem
+                    return true
+                }
+                previous?.cancel()
+                if scheduled {
+                    DispatchQueue.global(qos: .utility).asyncAfter(
+                        deadline: .now() + Self.credentialRetryDelay,
+                        execute: workItem
+                    )
                 }
             }
         }
     }
     
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
-        print("NOTIFICATIONREC", request)
-        self.contentHandler = contentHandler
-        guard let bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent) else {
+        let mutableContent = request.content.mutableCopy() as? UNMutableNotificationContent
+        cancelOutstandingWork()
+        let generation: UInt = completionQueue.sync {
+            requestGeneration &+= 1
+            self.contentHandler = contentHandler
+            didCompleteContent = false
+            let content = mutableContent ?? UNMutableNotificationContent()
+            self.bestAttemptContent = content
+            self.bestAttemptContent.sound = .default
+            self.bestAttemptContent.title = CommonConfigManager.shared.config.app_name
+            self.bestAttemptContent.body = localizedNewMessage
+            return requestGeneration
+        }
+        guard mutableContent != nil else {
             completeContent(request.content)
             return
         }
         identifier = request.identifier
-        self.bestAttemptContent = bestAttemptContent
-        self.bestAttemptContent.sound = .default
-        self.bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-        self.bestAttemptContent.body = "New message"
-        guard let body = bestAttemptContent.userInfo["body"] as? String,
+        guard let body = request.content.userInfo["body"] as? String,
             let payload_decoded = parse(payload: body) else {
-            self.bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-            self.bestAttemptContent.body = "fail to parse"
-            completeContent(bestAttemptContent)
+            completeBestAttemptContent()
             return
         }
         
-        guard let node = bestAttemptContent.userInfo["node"] as? String else {
-            bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-            bestAttemptContent.body = "bad node: \(request.content.userInfo["node"] as? String ?? "")"
-            completeContent(bestAttemptContent)
+        guard let node = request.content.userInfo["node"] as? String else {
+            completeBestAttemptContent()
             return
         }
-        self.loadCredentials(for: node, payload: payload_decoded)
+        self.loadCredentials(
+            for: node,
+            payload: payload_decoded,
+            generation: generation
+        )
 //        self.action(for: payload_decoded)
     }
     
     override func serviceExtensionTimeWillExpire() {
-        completeContent(bestAttemptContent)
+        completeBestAttemptContent()
     }
     
     internal func action(for payload: PayloadData) {
-        print("PUSH EXTENSION", "payload", payload)
+        guard !hasCompletedContent else {
+            return
+        }
         switch payload.action {
         case .message:      onMessage(payload)
         case .marker:       onMarker(payload)
@@ -375,35 +581,48 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     internal func onHide(_ payload: PayloadData) {
-        bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-        bestAttemptContent.body = "New \(payload.action.rawValue)"
-        completeContent(bestAttemptContent)
+        mutateBestAttemptContent { content in
+            content.title = CommonConfigManager.shared.config.app_name
+            content.body = localizedNewMessage
+        }
+        completeBestAttemptContent()
     }
 
     private func fallbackVisibleNotification(for action: Actions, reason: String? = nil) {
-        bestAttemptContent.title = CommonConfigManager.shared.config.app_name
+        let body: String
         switch action {
         case .update, .message, .invite:
-            bestAttemptContent.body = "New message"
+            body = localizedNewMessage
         case .subscribe:
-            bestAttemptContent.body = "Incoming chat request"
+            body = PushNotificationLocalization.string(
+                "action_subscription_received",
+                fallback: "Incoming contact request"
+            )
         case .marker, .none:
-            bestAttemptContent.body = reason ?? ""
+            body = reason ?? ""
         }
         if action == .marker {
             suppressCurrentNotification()
         } else {
-            completeContent(bestAttemptContent)
+            mutateBestAttemptContent { content in
+                content.title = CommonConfigManager.shared.config.app_name
+                content.body = body
+            }
+            completeBestAttemptContent()
         }
     }
 
     private func suppressCurrentNotification() {
-        bestAttemptContent.title = " "
-        bestAttemptContent.body = ""
-        bestAttemptContent.subtitle = ""
+        guard mutateBestAttemptContent({ content in
+            content.title = " "
+            content.body = ""
+            content.subtitle = ""
+        }) else {
+            return
+        }
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier])
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
-        completeContent(bestAttemptContent)
+        completeBestAttemptContent()
     }
     
     internal func onMessage(_ payload: PayloadData) {
@@ -425,14 +644,22 @@ class NotificationService: UNNotificationServiceExtension {
             return
         }
         manager.delegate = self
+        guard installArchiveManager(manager) else {
+            return
+        }
         manager.getMessage(host: pushData.host, messageId: stanzaId.id, by: remoteArchiveJid)
     }
     
     internal func onSubscribe(_ payload: PayloadData) {
         guard let from = payload.subscribtionRequestFrom(key: pushData?.secret ?? "")?.split(separator: "/").first.map(String.init) else {
-            bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-            bestAttemptContent.body = "Incoming chat request"
-            completeContent(bestAttemptContent)
+            mutateBestAttemptContent { content in
+                content.title = CommonConfigManager.shared.config.app_name
+                content.body = PushNotificationLocalization.string(
+                    "action_subscription_received",
+                    fallback: "Incoming contact request"
+                )
+            }
+            completeBestAttemptContent()
             return
         }
         let metadata = CommonContactsMetadataManager.shared.getItem(owner: owner, jid: from)
@@ -441,7 +668,20 @@ class NotificationService: UNNotificationServiceExtension {
             contactJid: from,
             nickname: metadata.username
         )
-        renderSubscriptionRequest(route: route, displayName: metadata.username ?? from)
+        let preview = PushNotificationPreview(
+            route: route,
+            body: PushNotificationLocalization.string(
+                "action_subscription_received",
+                fallback: "Incoming contact request"
+            ),
+            groupName: nil,
+            mediaItems: []
+        )
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.renderSubscriptionRequest(preview)
+        }
+        installRenderingTask(task)
         return
 //        guard password.isNotEmpty || token.isNotEmpty,
 //            let content = self.bestAttemptContent,
@@ -484,16 +724,15 @@ class NotificationService: UNNotificationServiceExtension {
     
     internal func onMarkerSmart(_ payload: PayloadData) {
         guard let secret = creditionals["secret"] as? String else {
-            bestAttemptContent.title = "Xabber"
-            bestAttemptContent.body = "New \(payload.action.rawValue)"
-            completeContent(bestAttemptContent)
+            mutateBestAttemptContent { content in
+                content.title = "Xabber"
+                content.body = "New \(payload.action.rawValue)"
+            }
+            completeBestAttemptContent()
             return
         }
         
-        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier])
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
-        
-        self.contentHandler = nil
+        suppressCurrentNotification()
         
         let stanzaIds = payload.markerStanzaIDs(key: secret, owner: owner)
         
@@ -549,6 +788,9 @@ class NotificationService: UNNotificationServiceExtension {
             return
         }
         manager.delegate = self
+        guard installArchiveManager(manager) else {
+            return
+        }
         manager.getMessage(host: pushData.host, messageId: stanzaId.id, by: remoteArchiveJid)
     }
 }
@@ -559,202 +801,243 @@ extension NotificationService: PushPayloadDelegate {
         defaults?.set(stanza, forKey: "com.xabber.sync.temporary.\(owner)")
     }
     
-    func didDisconnectWithError(_ error: String) {
-        bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-        bestAttemptContent.body = "New message"
-        completeContent(bestAttemptContent)
+    func networkManager(_ manager: NetworkManager, didDisconnectWithError error: String) {
+        guard isCurrentArchiveManager(manager) else {
+            return
+        }
+        mutateBestAttemptContent { content in
+            content.title = CommonConfigManager.shared.config.app_name
+            content.body = localizedNewMessage
+        }
+        completeBestAttemptContent()
     }
 
-    func didUpdateContent(preview: PushNotificationPreview) async {
+    func networkManager(
+        _ manager: NetworkManager,
+        didUpdateContent preview: PushNotificationPreview
+    ) async {
+        guard !Task.isCancelled, isCurrentArchiveManager(manager) else {
+            return
+        }
         switch preview.route.kind {
         case .message:
             await renderMessage(preview)
         case .groupInvite:
-            renderGroupInvite(preview)
+            await renderGroupInvite(preview)
         case .verificationRequest:
             renderVerificationRequest(preview)
         case .subscriptionRequest:
-            renderSubscriptionRequest(
-                route: preview.route,
-                displayName: preview.route.senderNickname ?? preview.route.routeJid ?? "Someone"
-            )
+            await renderSubscriptionRequest(preview)
         }
     }
 
-    private final func applyRoute(_ route: PushNotificationRoutePayload) {
-        let timestamp = Date().timeIntervalSinceReferenceDate
-        route.userInfo(timestamp: timestamp).forEach {
-            bestAttemptContent.userInfo[$0.key] = $0.value
+    @discardableResult
+    private final func applyRoute(
+        _ route: PushNotificationRoutePayload,
+        mutation: (UNMutableNotificationContent) -> Void = { _ in }
+    ) -> Bool {
+        guard !Task.isCancelled else {
+            return false
         }
+        let timestamp = Date().timeIntervalSinceReferenceDate
+        let updated = mutateBestAttemptContent { content in
+            route.userInfo(timestamp: timestamp).forEach {
+                content.userInfo[$0.key] = $0.value
+            }
+            mutation(content)
+        }
+        guard updated else { return false }
         if let stanzaId = route.stanzaId {
+            let notificationIdentifier = identifier
             UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
                 if notifications.first(where: { $0.request.content.userInfo["stanzaId"] as? String == stanzaId }) != nil {
-                    UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [self.identifier])
+                    UNUserNotificationCenter.current().removePendingNotificationRequests(
+                        withIdentifiers: [notificationIdentifier]
+                    )
                 }
             }
         }
+        return true
     }
 
     private final func renderMessage(_ preview: PushNotificationPreview) async {
-        guard let routeJid = preview.route.routeJid else {
-            bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-            bestAttemptContent.body = preview.body
-            completeContent(bestAttemptContent)
+        guard !Task.isCancelled, !hasCompletedContent else { return }
+        guard preview.route.routeJid != nil else {
+            mutateBestAttemptContent { content in
+                content.title = CommonConfigManager.shared.config.app_name
+                content.body = preview.body
+            }
+            completeBestAttemptContent()
             return
         }
-
-        applyRoute(preview.route)
-        bestAttemptContent.categoryIdentifier = PushNotificationCategory.pushMessage
-        bestAttemptContent.sound = .default
-        bestAttemptContent.body = preview.body
-        bestAttemptContent.attachments = await imageAttachments(for: preview.imageURLs)
-
-        let isGroup = preview.route.groupchat != nil || preview.route.conversationType == "group"
-        let routeMetadata = CommonContactsMetadataManager.shared.getItem(owner: owner, jid: routeJid)
-        let routeDisplayName = routeMetadata.username ?? preview.groupName ?? routeJid
-        let senderDisplayName = isGroup
-            ? (preview.route.senderNickname ?? preview.route.senderJid ?? routeDisplayName)
-            : (routeMetadata.username ?? routeJid)
-        let conversationId = "xabber:\(owner.lowercased()):\(routeJid.lowercased())"
-
-        bestAttemptContent.threadIdentifier = conversationId
-        bestAttemptContent.title = isGroup ? routeDisplayName : senderDisplayName
-        bestAttemptContent.subtitle = isGroup ? senderDisplayName : editMark
-        if !editMark.isEmpty {
-            bestAttemptContent.subtitle = [editMark, bestAttemptContent.subtitle].filter { !$0.isEmpty }.joined(separator: " ")
-        }
-
-        let handleValue = isGroup
-            ? (preview.route.senderJid ?? preview.route.senderNickname ?? routeJid)
-            : routeJid
-        let sender = INPerson(
-            personHandle: INPersonHandle(value: handleValue, type: .unknown),
-            nameComponents: nil,
-            displayName: senderDisplayName,
-            image: intentImage(avatarURL: routeMetadata.avatarUrl),
-            contactIdentifier: routeMetadata.contactID,
-            customIdentifier: nil
+        let plan = RichNotificationPresentationPolicy.plan(
+            for: preview,
+            overrides: RichNotificationNameOverrides(editMark: editMark)
         )
-        let groupName = isGroup ? INSpeakableString(spokenPhrase: routeDisplayName) : nil
+        guard apply(plan: plan) else {
+            return
+        }
+        let candidates = RichNotificationAttachmentPolicy.candidates(
+            for: plan.mediaItems,
+            includePlayableMedia: false
+        )
+        let attachmentLease = await richAttachmentLoader.attachmentLease(for: candidates)
+        defer { attachmentLease.release() }
+        let attachments = attachmentLease.attachments
+        guard !Task.isCancelled,
+              mutateBestAttemptContent({ $0.attachments = attachments }) else {
+            return
+        }
+        await completeCommunicationNotification(plan: plan)
+    }
+
+    private final func renderGroupInvite(_ preview: PushNotificationPreview) async {
+        guard !Task.isCancelled, !hasCompletedContent else { return }
+        guard (preview.route.groupchat ?? preview.route.routeJid) != nil else {
+            mutateBestAttemptContent { content in
+                content.title = CommonConfigManager.shared.config.app_name
+                content.body = preview.body
+            }
+            completeBestAttemptContent()
+            return
+        }
+        let plan = RichNotificationPresentationPolicy.plan(
+            for: preview,
+            overrides: RichNotificationNameOverrides()
+        )
+        guard apply(plan: plan) else {
+            return
+        }
+        await completeCommunicationNotification(plan: plan)
+    }
+
+    private final func renderSubscriptionRequest(_ preview: PushNotificationPreview) async {
+        guard !Task.isCancelled, !hasCompletedContent else { return }
+        let plan = RichNotificationPresentationPolicy.plan(
+            for: preview,
+            overrides: RichNotificationNameOverrides()
+        )
+        guard apply(plan: plan) else {
+            return
+        }
+        await completeCommunicationNotification(plan: plan)
+    }
+
+    private final func renderVerificationRequest(_ preview: PushNotificationPreview) {
+        let plan = RichNotificationPresentationPolicy.plan(
+            for: preview,
+            overrides: RichNotificationNameOverrides()
+        )
+        guard apply(plan: plan) else {
+            return
+        }
+        completeBestAttemptContent()
+    }
+
+    @discardableResult
+    private final func apply(plan: RichNotificationPresentationPlan) -> Bool {
+        applyRoute(plan.route) { content in
+            content.title = plan.title
+            content.subtitle = plan.subtitle
+            content.body = plan.body
+            content.categoryIdentifier = plan.categoryIdentifier
+            content.threadIdentifier = plan.threadIdentifier
+            content.sound = .default
+        }
+    }
+
+    private final func completeCommunicationNotification(
+        plan: RichNotificationPresentationPlan
+    ) async {
+        let sender = makeIntentPerson(plan: plan)
         let intent = INSendMessageIntent(
             recipients: nil,
             outgoingMessageType: .outgoingMessageText,
-            content: preview.body,
-            speakableGroupName: groupName,
-            conversationIdentifier: conversationId,
+            content: plan.body,
+            speakableGroupName: plan.speakableGroupName.map {
+                INSpeakableString(spokenPhrase: $0)
+            },
+            conversationIdentifier: plan.threadIdentifier,
             serviceName: nil,
             sender: sender,
             attachments: nil
         )
         let interaction = INInteraction(intent: intent, response: nil)
         interaction.direction = .incoming
+        await completeContent(updatingFrom: intent, interaction: interaction)
+    }
+
+    private final func makeIntentPerson(
+        plan: RichNotificationPresentationPlan
+    ) -> INPerson {
+        return INPerson(
+            personHandle: INPersonHandle(
+                value: plan.senderHandle,
+                type: .unknown
+            ),
+            nameComponents: nil,
+            displayName: plan.senderDisplayName,
+            image: intentImage(
+                route: plan.route,
+                displayName: plan.senderDisplayName,
+                fallbackJid: plan.senderHandle
+            ),
+            contactIdentifier: nil,
+            customIdentifier: nil
+        )
+    }
+
+    private final func intentImage(
+        route: PushNotificationRoutePayload,
+        displayName: String,
+        fallbackJid: String
+    ) -> INImage {
+        for identity in route.senderAvatarLookupIdentities {
+            if let imageData = PushNotificationAvatarStore.shared.imageData(for: identity) {
+                return INImage(imageData: imageData)
+            }
+        }
+        let fallbackData = PushNotificationInitialsRenderer.imageData(
+            displayName: displayName,
+            jid: fallbackJid
+        )
+        return INImage(imageData: fallbackData)
+    }
+
+    private final func completeContent(
+        updatingFrom intent: INSendMessageIntent,
+        interaction: INInteraction
+    ) async {
+        guard !Task.isCancelled, !hasCompletedContent else { return }
+        let intendedContent = bestAttemptContentSnapshot()
         do {
             try await interaction.donate()
-            let updatedContent = try bestAttemptContent.updating(from: intent)
-            completeContent(updatedContent)
-        } catch {
-            completeContent(bestAttemptContent)
-        }
-    }
-
-    private final func renderGroupInvite(_ preview: PushNotificationPreview) {
-        applyRoute(preview.route)
-        guard let groupchat = preview.route.groupchat ?? preview.route.routeJid else {
-            bestAttemptContent.title = CommonConfigManager.shared.config.app_name
-            bestAttemptContent.body = preview.body
-            completeContent(bestAttemptContent)
-            return
-        }
-        let groupMetadata = CommonContactsMetadataManager.shared.getItem(owner: owner, jid: groupchat)
-        let inviterName = preview.route.inviterNickname
-            ?? preview.route.senderNickname
-            ?? preview.route.inviterJid
-            ?? preview.route.senderJid
-        let groupName = groupMetadata.username ?? preview.groupName ?? groupchat
-        bestAttemptContent.title = groupName
-        if let inviterName {
-            bestAttemptContent.subtitle = inviterName
-            bestAttemptContent.body = "\(preview.body) from \(inviterName)"
-        } else {
-            bestAttemptContent.body = preview.body
-        }
-        bestAttemptContent.categoryIdentifier = PushNotificationCategory.invite
-        bestAttemptContent.sound = .default
-        completeContent(bestAttemptContent)
-    }
-
-    private final func renderSubscriptionRequest(route: PushNotificationRoutePayload, displayName: String) {
-        applyRoute(route)
-        let jid = route.routeJid ?? displayName
-        bestAttemptContent.title = displayName
-        bestAttemptContent.subtitle = jid == displayName ? "" : jid
-        bestAttemptContent.body = "\(displayName) asks to see your presence information"
-        bestAttemptContent.categoryIdentifier = PushNotificationCategory.subscription
-        bestAttemptContent.sound = .default
-        completeContent(bestAttemptContent)
-    }
-
-    private final func renderVerificationRequest(_ preview: PushNotificationPreview) {
-        applyRoute(preview.route)
-        let sender = preview.route.senderNickname ?? preview.route.senderJid ?? "Somebody"
-        bestAttemptContent.title = "New verification request"
-        bestAttemptContent.body = "\(sender) asks you to verify yourself"
-        bestAttemptContent.categoryIdentifier = PushNotificationCategory.verification
-        bestAttemptContent.sound = .default
-        completeContent(bestAttemptContent)
-    }
-
-    private final func intentImage(avatarURL: String?) -> INImage {
-        if let avatarURL,
-           let url = URL(string: avatarURL),
-           let image = INImage(url: url) {
-            return image
-        }
-        return INImage(named: "person.2.circle.fill")
-    }
-
-    private final func imageAttachments(for urlStrings: [String]) async -> [UNNotificationAttachment] {
-        var attachments: [UNNotificationAttachment] = []
-        for urlString in urlStrings.prefix(2) {
-            guard let url = URL(string: urlString),
-                  let attachment = await imageAttachment(for: url) else {
-                continue
+            guard !Task.isCancelled, !hasCompletedContent else { return }
+            let updatedContent = try intendedContent.updating(from: intent)
+            guard let merged = updatedContent.mutableCopy() as? UNMutableNotificationContent else {
+                completeContent(intendedContent)
+                return
             }
-            attachments.append(attachment)
-        }
-        return attachments
-    }
-
-    private final func imageAttachment(for url: URL) async -> UNNotificationAttachment? {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 2.5
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 2.5
-        configuration.timeoutIntervalForResource = 3.0
-        let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel() }
-        do {
-            let (downloadedURL, response) = try await session.download(for: request)
-            if let expectedLength = (response as? HTTPURLResponse)?.expectedContentLength,
-               expectedLength > 10 * 1024 * 1024 {
-                return nil
-            }
-            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("xabber-notification-media", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-            let filename = localAttachmentFilename(for: url)
-            let destination = directory.appendingPathComponent(filename)
-            try? FileManager.default.removeItem(at: destination)
-            try FileManager.default.copyItem(at: downloadedURL, to: destination)
-            return try UNNotificationAttachment(identifier: filename, url: destination, options: nil)
+            merged.title = intendedContent.title
+            merged.subtitle = intendedContent.subtitle
+            merged.body = intendedContent.body
+            merged.categoryIdentifier = intendedContent.categoryIdentifier
+            merged.threadIdentifier = intendedContent.threadIdentifier
+            merged.sound = intendedContent.sound
+            merged.attachments = intendedContent.attachments
+            var userInfo = merged.userInfo
+            intendedContent.userInfo.forEach { userInfo[$0.key] = $0.value }
+            merged.userInfo = userInfo
+            completeContent(merged)
         } catch {
-            return nil
+            completeContent(intendedContent)
         }
     }
 
-    private final func localAttachmentFilename(for url: URL) -> String {
-        let base = url.deletingPathExtension().lastPathComponent
-        let safeBase = base.isEmpty ? UUID().uuidString : base
-        let ext = url.pathExtension.isEmpty ? "jpg" : url.pathExtension
-        return "\(safeBase)-\(UUID().uuidString).\(ext)"
+    private var localizedNewMessage: String {
+        PushNotificationLocalization.string(
+            "plurals.new_chat_messages.item_0",
+            fallback: "New message"
+        )
     }
 }

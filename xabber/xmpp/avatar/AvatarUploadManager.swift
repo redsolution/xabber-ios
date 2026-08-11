@@ -214,7 +214,8 @@ class AvatarUploadManager: AbstractXMPPManager {
                         return
                     }
                 }
-                if let image = UIImage(data: imageData) {
+                let uploadedImage = UIImage(data: imageData)
+                if let image = uploadedImage {
                     ImageCache.default.store(image, forKey: maxUrl, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
                     let thumbImage = image.resize(targetSize: CGSize(square: 256))
                     if thumbImage.pngData() != nil,
@@ -232,6 +233,15 @@ class AvatarUploadManager: AbstractXMPPManager {
                         group.avatarMaxUrl = maxUrl
                         group.avatarMinUrl = minUrl
                     }
+                }
+                if let uploadedImage {
+                    DefaultAvatarManager.shared.publishPushAvatarSnapshot(
+                        uploadedImage,
+                        sourceKey: maxUrl,
+                        metadataRevision: avatar.hash,
+                        owner: self.owner,
+                        jid: groupchat
+                    )
                 }
 
                 AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
@@ -287,7 +297,8 @@ class AvatarUploadManager: AbstractXMPPManager {
                         return
                     }
                 }
-                if let image = UIImage(data: imageData) {
+                let uploadedImage = UIImage(data: imageData)
+                if let image = uploadedImage {
                     ImageCache.default.store(image, forKey: maxUrl, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
                     let thumbImage = image.resize(targetSize: CGSize(square: 256))
                     if thumbImage.pngData() != nil,
@@ -305,6 +316,15 @@ class AvatarUploadManager: AbstractXMPPManager {
                         account.avatarMaxUrl = maxUrl
                         account.avatarMinUrl = minUrl
                     }
+                }
+                if let uploadedImage {
+                    DefaultAvatarManager.shared.publishPushAvatarSnapshot(
+                        uploadedImage,
+                        sourceKey: maxUrl,
+                        metadataRevision: avatar.hash,
+                        owner: self.owner,
+                        jid: self.owner
+                    )
                 }
 
                 AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
@@ -522,37 +542,87 @@ class AvatarUploadManager: AbstractXMPPManager {
         queryIds.insert(elementId)
     }
 
+    static func avatarClearTargetJid(owner: String, recipient: String?) -> String {
+        let normalizedOwner = XMPPJID(string: owner)?.bare ?? owner
+        guard let recipient = recipient?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !recipient.isEmpty else {
+            return normalizedOwner
+        }
+        return XMPPJID(string: recipient)?.bare ?? recipient
+    }
+
     public func sendClearMetadata(_ xmppStream: XMPPStream, to: XMPPJID? = nil, finishCallback: (() -> Void)) {
+        let elementId = xmppStream.generateUUID
+        let metadata = DDXMLElement(name: "metadata", xmlns: "urn:xmpp:avatar:metadata")
+
+        let item = DDXMLElement(name: "item")
+        item.addChild(metadata)
+        item.addAttribute(DDXMLNode.attribute(withName: "id", stringValue: NanoID.new(8)) as! DDXMLNode)
+
+        let publish = DDXMLElement(name: "publish")
+        publish.addChild(item)
+        publish.addAttribute(DDXMLNode.attribute(withName: "node", stringValue: "urn:xmpp:avatar:metadata") as! DDXMLNode)
+
+        let pubsub = DDXMLElement(name: "pubsub")
+        pubsub.addChild(publish)
+        pubsub.setXmlns("http://jabber.org/protocol/pubsub")
+
+        let iq = XMPPIQ(iqType: .set, to: to, elementID: elementId, child: pubsub)
+        xmppStream.send(iq)
+        queryIds.insert(elementId)
+
+        let targetJid = Self.avatarClearTargetJid(
+            owner: owner,
+            recipient: to?.bare
+        )
+        DefaultAvatarManager.shared.invalidatePushAvatarSnapshot(
+            owner: owner,
+            jid: targetJid
+        )
         do {
             let realm = try WRealm.safe()
-            if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
-                let elementId = xmppStream.generateUUID
-                let metadata = DDXMLElement(name: "metadata", xmlns: "urn:xmpp:avatar:metadata")
-
-                let item = DDXMLElement(name: "item")
-                item.addChild(metadata)
-                item.addAttribute(DDXMLNode.attribute(withName: "id", stringValue: NanoID.new(8)) as! DDXMLNode)
-
-                let publish = DDXMLElement(name: "publish")
-                publish.addChild(item)
-                publish.addAttribute(DDXMLNode.attribute(withName: "node", stringValue: "urn:xmpp:avatar:metadata") as! DDXMLNode)
-
-                let pubsub = DDXMLElement(name: "pubsub")
-                pubsub.addChild(publish)
-                pubsub.setXmlns("http://jabber.org/protocol/pubsub")
-
-                let iq = XMPPIQ(iqType: .set, to: to, elementID: elementId, child: pubsub)
-                xmppStream.send(iq)
-                queryIds.insert(elementId)
+            if targetJid.caseInsensitiveCompare(owner) == .orderedSame,
+               let instance = realm.object(
+                ofType: AccountStorageItem.self,
+                forPrimaryKey: owner
+               ) {
                 try realm.write {
                     instance.avatarMaxUrl = nil
                     instance.avatarMinUrl = nil
                     instance.avatarUpdatedTS = Date().timeIntervalSince1970
                     instance.oldschoolAvatarKey = nil
                 }
+            } else if let instance = realm.object(
+                ofType: RosterStorageItem.self,
+                forPrimaryKey: RosterStorageItem.genPrimary(
+                    jid: targetJid,
+                    owner: owner
+                )
+            ) {
+                let username = instance.displayName
+                try realm.write {
+                    instance.avatarMaxUrl = nil
+                    instance.avatarMinUrl = nil
+                    instance.avatarUpdatedTS = Date().timeIntervalSince1970
+                    instance.oldschoolAvatarKey = nil
+                }
+                CommonContactsMetadataManager.shared.update(
+                    owner: owner,
+                    jid: targetJid,
+                    username: username,
+                    avatarUrl: nil
+                )
+            } else if targetJid.caseInsensitiveCompare(owner) != .orderedSame {
+                CommonContactsMetadataManager.shared.update(
+                    owner: owner,
+                    jid: targetJid,
+                    username: nil,
+                    avatarUrl: nil
+                )
             }
         } catch {
-
+            DDLogDebug("AvatarUploadManager: \(#function). \(error.localizedDescription)")
         }
         finishCallback()
     }

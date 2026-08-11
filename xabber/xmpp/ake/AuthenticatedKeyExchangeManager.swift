@@ -692,10 +692,23 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
         }
     }
 
-    func showNotification(title: String, owner: String, body: String, sid: String, timestamp: TimeInterval) {
+    func showNotification(
+        title: String,
+        owner: String,
+        body: String,
+        senderJid: String,
+        sid: String,
+        timestamp: TimeInterval
+    ) {
         DispatchQueue.main.async {
-            NotifyManager.shared.update(withVerificationMessage: body, owner: owner, displayName: title, sid: sid, timestamp: timestamp)
-            NotifyManager.shared.showNotify(forType: .verification)
+            NotifyManager.shared.update(
+                withVerificationMessage: body,
+                owner: owner,
+                displayName: title,
+                senderJid: senderJid,
+                sid: sid,
+                timestamp: timestamp
+            )
         }
     }
 
@@ -753,7 +766,14 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
             postOnMain(AuthenticatedKeyExchangeManager.showConfirmationViewNotification, userInfo: ["owner": owner, "sid": envelope.sid])
         } else {
             makeSystemMessage(jid: peerBare, body: "Incoming verification request")
-            showNotification(title: peerBare, owner: owner, body: "Incoming verification request", sid: envelope.sid, timestamp: TimeInterval(envelope.timestamp))
+            showNotification(
+                title: peerBare,
+                owner: owner,
+                body: "Incoming verification request",
+                senderJid: peerBare,
+                sid: envelope.sid,
+                timestamp: TimeInterval(envelope.timestamp)
+            )
         }
     }
 

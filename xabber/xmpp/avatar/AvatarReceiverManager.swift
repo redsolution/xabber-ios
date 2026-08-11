@@ -88,9 +88,12 @@ class XmppAvatarManager: AbstractXMPPManager {
         DefaultAvatarManager.shared.storeImage(for: avatarKey, image: image)
         do {
             let realm = try WRealm.safe()
+            var hasManagedRecord = false
             if jid == owner {
                 if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
-                    if instance.avatarMaxUrl != nil {
+                    hasManagedRecord = true
+                    if instance.avatarMaxUrl?.isEmpty == false
+                        || instance.avatarMinUrl?.isEmpty == false {
                         return true
                     }
                     try realm.write {
@@ -101,7 +104,9 @@ class XmppAvatarManager: AbstractXMPPManager {
                 }
             } else {
                 if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
-                    if instance.avatarMaxUrl != nil {
+                    hasManagedRecord = true
+                    if instance.avatarMaxUrl?.isEmpty == false
+                        || instance.avatarMinUrl?.isEmpty == false {
                         return true
                     }
                     try realm.write {
@@ -114,7 +119,23 @@ class XmppAvatarManager: AbstractXMPPManager {
                     }
                 }
             }
-            
+            if hasManagedRecord {
+                DefaultAvatarManager.shared.publishPushAvatarSnapshot(
+                    image,
+                    sourceKey: avatarKey,
+                    metadataRevision: avatarKey,
+                    owner: owner,
+                    jid: jid
+                )
+            } else if jid != owner {
+                DefaultAvatarManager.shared.publishTransientPushAvatarSnapshot(
+                    image,
+                    sourceKey: avatarKey,
+                    metadataRevision: avatarKey,
+                    owner: owner,
+                    jid: jid
+                )
+            }
         } catch {
             DDLogDebug("XMPPAvatarManager: \(#function). \(error.localizedDescription)")
         }
@@ -176,8 +197,18 @@ class XmppAvatarManager: AbstractXMPPManager {
                 }
                 if jid == self.owner {
                     if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
-                        if instance.oldschoolAvatarKey == id {
+                        if instance.oldschoolAvatarKey == id,
+                           instance.avatarMaxUrl == maxUrl,
+                           instance.avatarMinUrl == minUrl {
                             return true
+                        }
+                        if instance.oldschoolAvatarKey != id
+                            || instance.avatarMaxUrl != maxUrl
+                            || instance.avatarMinUrl != minUrl {
+                            DefaultAvatarManager.shared.invalidatePushAvatarSnapshot(
+                                owner: self.owner,
+                                jid: jid
+                            )
                         }
                         try realm.write {
                             instance.avatarMaxUrl = maxUrl
@@ -189,8 +220,16 @@ class XmppAvatarManager: AbstractXMPPManager {
                     }
                 } else {
                     if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: self.owner)) {
-                        if instance.oldschoolAvatarKey == id {
+                        if instance.oldschoolAvatarKey == id,
+                           instance.avatarMaxUrl == maxUrl,
+                           instance.avatarMinUrl == minUrl {
                             return true
+                        }
+                        if instance.oldschoolAvatarKey != id {
+                            DefaultAvatarManager.shared.invalidatePushAvatarSnapshot(
+                                owner: self.owner,
+                                jid: jid
+                            )
                         }
                         try realm.write {
                             instance.avatarMaxUrl = maxUrl
@@ -238,22 +277,53 @@ class XmppAvatarManager: AbstractXMPPManager {
     
     public final func readFromUserCard(groupchat: String, user card: DDXMLElement) -> Bool {
         guard let userId = card.attributeStringValue(forName: "id"),
-              let info = card
-                .element(forName: "metadata", xmlns: "urn:xmpp:avatar:metadata")?
-                .element(forName: "info"),
+              let info = card.element(forName: "avatar")?.element(forName: "info")
+                ?? card
+                    .element(forName: "metadata", xmlns: "urn:xmpp:avatar:metadata")?
+                    .element(forName: "info"),
               let imageHash = info.attributeStringValue(forName: "id"),
               let urlRaw = info.attributeStringValue(forName: "url") else {
             return false
         }
-//        DefaultAvatarManager.shared.storeGroupAvatar(
-//            user: userId,
-//            jid: groupchat,
-//            owner: owner,
-//            hash: imageHash,
-//            images: [DefaultAvatarManager.SizedImage(url: urlRaw, size: .original)],
-//            kind: .xabber
-//        )
-        return true
+        do {
+            let realm = try WRealm.safe()
+            guard let instance = realm.object(
+                ofType: GroupchatUserStorageItem.self,
+                forPrimaryKey: GroupchatUserStorageItem.genPrimary(
+                    id: userId,
+                    groupchat: groupchat,
+                    owner: owner
+                )
+            ) else {
+                return false
+            }
+            if instance.avatarURI != urlRaw || instance.avatarHash != imageHash {
+                DefaultAvatarManager.shared.invalidatePushAvatarSnapshot(
+                    owner: owner,
+                    groupchat: groupchat,
+                    participantId: userId
+                )
+            }
+            guard instance.avatarURI != urlRaw || instance.avatarHash != imageHash else {
+                return true
+            }
+            let updateMetadata = {
+                instance.avatarURI = urlRaw
+                instance.avatarHash = imageHash
+                instance.updatedTS = Date().timeIntervalSince1970
+            }
+            if realm.isInWriteTransaction {
+                updateMetadata()
+            } else {
+                try realm.write {
+                    updateMetadata()
+                }
+            }
+            return true
+        } catch {
+            DDLogDebug("XMPPAvatarManager: \(#function). \(error.localizedDescription)")
+            return false
+        }
     }
     
     public final func readMessage(_ message: XMPPMessage) -> Bool {
