@@ -157,6 +157,49 @@ final class ChatSearchCalendarPresentationTests: XCTestCase {
         factory.finishPending()
     }
 
+    func testLayoutDuringDismissalPreservesSheetAnchorAndDownwardTravel() {
+        let controller = makeController(animatorFactory: ManualCalendarAnimatorFactory())
+        let host = CalendarPresentationHost()
+        controller.install(in: host.parent, containerView: host.parent.view)
+        controller.present(
+            generation: 30,
+            animated: false,
+            focusReturnView: nil,
+            isGenerationCurrent: { $0 == 30 }
+        )
+
+        let settledCenter = controller.calendarView.center
+        let settledMinY = controller.calendarView.frame.minY
+        let downwardOffset = controller.calendarView.bounds.height * 0.4
+        controller.calendarView.transform = CGAffineTransform(
+            translationX: 0,
+            y: downwardOffset
+        )
+        let visibleMinYBeforeLayout = controller.calendarView.frame.minY
+
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        XCTAssertEqual(controller.calendarView.center.x, settledCenter.x, accuracy: 0.001)
+        XCTAssertEqual(
+            controller.calendarView.center.y,
+            settledCenter.y,
+            accuracy: 0.001,
+            "Layout must not move the bottom sheet's base center while dismissal transform is active"
+        )
+        XCTAssertEqual(
+            visibleMinYBeforeLayout,
+            settledMinY + downwardOffset,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            controller.calendarView.frame.minY,
+            visibleMinYBeforeLayout,
+            accuracy: 0.001,
+            "Layout must preserve the sheet's current downward displacement"
+        )
+    }
+
     func testReducedMotionDismissalPreservesInterruptedAlphaWithoutFlashOrSlide() {
         let factory = ManualCalendarAnimatorFactory(runsAnimationsOnStart: false)
         let reducedSpec = ChatSearchAnimationSpec.production.resolved(

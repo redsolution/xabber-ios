@@ -220,11 +220,13 @@ final class ChatSearchCalendarViewController: UIViewController {
             contentSizeCategory: calendarView.adaptiveEnvironment.contentSizeCategory
         )
         let sheetHeight = min(view.bounds.height, frames.sheetHeight)
-        calendarView.frame = CGRect(
-            x: view.bounds.minX,
-            y: view.bounds.maxY - sheetHeight,
-            width: view.bounds.width,
-            height: sheetHeight
+        calendarView.bounds = CGRect(
+            origin: .zero,
+            size: CGSize(width: view.bounds.width, height: sheetHeight)
+        )
+        calendarView.center = CGPoint(
+            x: view.bounds.midX,
+            y: view.bounds.maxY - (sheetHeight / 2)
         )
     }
 
