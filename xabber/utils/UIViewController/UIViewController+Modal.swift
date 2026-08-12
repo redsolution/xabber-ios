@@ -518,6 +518,7 @@ func presentContainedNavigationModal(
     rootViewController: UIViewController,
     presentedContentViewController: UIViewController,
     from presenter: UIViewController,
+    modalPresentationStyle: UIModalPresentationStyle = .formSheet,
     replaceCurrentPresented: Bool = true,
     forwardedDelegate: UIAdaptivePresentationControllerDelegate? = nil,
     currentControllerAccess: ModalPresentationCurrentControllerAccess = .application,
@@ -528,7 +529,7 @@ func presentContainedNavigationModal(
         currentControllerAccess.set(presentedContentViewController)
     }
 
-    navigationController.modalPresentationStyle = .formSheet
+    navigationController.modalPresentationStyle = modalPresentationStyle
     navigationController.modalTransitionStyle = .coverVertical
     if UIDevice.current.userInterfaceIdiom == .pad {
         if let popoverController = navigationController.popoverPresentationController {
@@ -567,6 +568,7 @@ func presentContainedNavigationModal(
 func showModal(
     _ vc: UIViewController,
     parent parentVc: UIViewController? = nil,
+    modalPresentationStyle: UIModalPresentationStyle = .formSheet,
     replaceParent: Bool = true,
     dismissalHandler: (() -> Void)? = nil
 ) -> Bool {
@@ -592,6 +594,7 @@ func showModal(
         rootViewController: vc,
         presentedContentViewController: vc,
         from: parent,
+        modalPresentationStyle: modalPresentationStyle,
         replaceCurrentPresented: replaceParent,
         forwardedDelegate: parentVc as? UIAdaptivePresentationControllerDelegate,
         dismissalHandler: dismissalHandler

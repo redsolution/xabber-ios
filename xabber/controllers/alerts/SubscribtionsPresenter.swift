@@ -23,7 +23,12 @@ import UIKit
 
 struct SubscribtionsPresenter {
     @discardableResult
-    func present(animated: Bool, owner: String? = nil, parent: UIViewController? = nil) -> Bool {
+    func present(
+        animated: Bool,
+        owner: String? = nil,
+        parent: UIViewController? = nil,
+        modalPresentationStyle: UIModalPresentationStyle = .formSheet
+    ) -> Bool {
         if ApplicationStateManager.shared.isSubscribtionsShowed {
             return false
         }
@@ -41,7 +46,11 @@ struct SubscribtionsPresenter {
         vc.onDismiss = {
             ApplicationStateManager.shared.isSubscribtionsShowed = false
         }
-        let didPresent = showModal(vc, parent: parent)
+        let didPresent = showModal(
+            vc,
+            parent: parent,
+            modalPresentationStyle: modalPresentationStyle
+        )
         if !didPresent {
             ApplicationStateManager.shared.isSubscribtionsShowed = false
         }

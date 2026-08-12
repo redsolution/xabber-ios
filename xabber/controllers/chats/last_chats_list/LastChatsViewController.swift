@@ -1001,7 +1001,7 @@ enum LastChatsRowUpdatePolicy {
         switch item.specialMessageKind {
         case .none:
             return 84
-        case .contact, .invite:
+        case .contact, .invite, .premiumPromotion:
             return 48
         }
     }
@@ -1196,6 +1196,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         case none
         case contact
         case invite
+        case premiumPromotion
 
         var diffKey: String {
             switch self {
@@ -1205,6 +1206,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 return "special-contact"
             case .invite:
                 return "special-invite"
+            case .premiumPromotion:
+                return "special-premium-promotion"
             }
         }
     }
@@ -1671,6 +1674,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     internal var selectedChatIdentity: SelectedChatIdentity? = nil
     internal var voiceMessageStateObserverToken: UUID? = nil
     internal var pinnedVoicePlayerHeightConstraint: NSLayoutConstraint? = nil
+    internal let premiumPromotionSuppressionStore = LastChatsPremiumPromotionSuppressionStore()
+    internal var premiumPromotionEligibilityTimer: Timer?
     
     
     let playerViewToolbar: AudioPlayerBarView = {
@@ -3259,7 +3264,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             case .none:
                 guard let chatCell = cell as? ChatListTableViewCell else { return }
                 self.configureChatCell(chatCell, with: item)
-            case .contact, .invite:
+            case .contact, .invite, .premiumPromotion:
                 guard let specialCell = cell as? SpecialMessageTableViewCell else { return }
                 self.configureSpecialMessageCell(specialCell, with: item)
             }
@@ -3576,6 +3581,57 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                         avatars: avatars
                     ))
                 }
+            }
+            let premiumPurchaseOwner = jids.sorted().first
+            let premiumSuppressedUntil = premiumPromotionSuppressionStore.suppressedUntil
+            let premiumEligibilityNow = Date()
+            let premiumEligibilityCanReachEntitlementCheck =
+                CommonConfigManager.shared.config.support_subscribtions
+                && premiumPurchaseOwner != nil
+                && self.filter.value == .chats
+                && (premiumSuppressedUntil.map { $0 <= premiumEligibilityNow } ?? true)
+            let hasActivePremiumInClient = premiumEligibilityCanReachEntitlementCheck
+                ? SubscribtionsManager.shared.hasActiveSubsription()
+                : false
+            if LastChatsPremiumPromotionVisibilityPolicy.shouldShow(
+                subscriptionsEnabled: CommonConfigManager.shared.config.support_subscribtions,
+                hasActivePremiumInClient: hasActivePremiumInClient,
+                hasPurchaseAccount: premiumPurchaseOwner != nil,
+                isRecentChatsFilter: self.filter.value == .chats,
+                suppressedUntil: premiumSuppressedUntil,
+                now: premiumEligibilityNow
+            ), let premiumPurchaseOwner {
+                out.append(Datasource(
+                    jid: LastChatsPremiumPromotionContent.key,
+                    owner: premiumPurchaseOwner,
+                    username: LastChatsPremiumPromotionContent.title,
+                    attributedUsername: nil,
+                    message: LastChatsPremiumPromotionContent.subtitle,
+                    date: nil,
+                    state: nil,
+                    isMute: false,
+                    isSynced: true,
+                    status: .offline,
+                    entity: .bot,
+                    conversationType: .regular,
+                    unread: 0,
+                    unreadString: nil,
+                    hasUnreadMention: false,
+                    color: .systemPurple,
+                    isDraft: false,
+                    hasAttachment: false,
+                    userNickname: nil,
+                    isSystemMessage: false,
+                    isPinned: false,
+                    subRequest: false,
+                    isEncrypted: false,
+                    avatarUrl: nil,
+                    hasErrorInChat: false,
+                    updateTS: 0,
+                    isVerificationActionRequired: false,
+                    specialMessageKind: .premiumPromotion,
+                    avatars: []
+                ))
             }
             let encryptedChatItems = collectionItems.filter { $0.conversationType.isEncrypted }
             let encryptedOwners = Array(Set(encryptedChatItems.map { $0.owner }))
@@ -3954,6 +4010,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         self.needsDatasetRefresh = false
         self.isDatasetUpdateInFlight = true
         let oldSections = self.datasourceSections
+        let oldShowsPremiumPromotion = oldSections.contains { section in
+            section.rows.contains { $0.specialMessageKind == .premiumPromotion }
+        }
         let oldShowsSkeleton = self.datasourceShowsSkeleton
         let newShowsSkeleton = self.showSkeleton.value
         let pressureActive = self.hasVisibleDatasetUpdatePressureInProgress
@@ -3974,6 +4033,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 from: newDataset,
                 showsSkeleton: newShowsSkeleton
             )
+            let newShowsPremiumPromotion = newDataset.contains {
+                $0.specialMessageKind == .premiumPromotion
+            }
             let indexPaths = Self.sectionedChanges(
                 oldSections: oldSections,
                 newSections: newSections
@@ -3992,7 +4054,15 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     )
                     return
                 }
-                if !shouldAnimate {
+                let animatesPremiumPromotionInsertion =
+                    LastChatsPremiumPromotionAnimationPolicy.shouldAnimateInsertion(
+                        wasVisible: oldShowsPremiumPromotion,
+                        isVisible: newShowsPremiumPromotion,
+                        hasCompletedCurrentAppearance: self.hasCompletedCurrentAppearance,
+                        isQuietModeActive: self.isLeftMenuFirstPresentationQuietModeActive
+                    )
+                let shouldAnimateMutation = shouldAnimate || animatesPremiumPromotionInsertion
+                if !shouldAnimateMutation {
                     UIView.performWithoutAnimation {
                         self.apply(
                             changes: indexPaths,
@@ -4010,7 +4080,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                         + indexPaths.deletes.count
                         + indexPaths.inserts.count
                         + indexPaths.moves.count
-                    if updatesCount < 4 {
+                    if updatesCount < 4 || animatesPremiumPromotionInsertion {
                         self.apply(
                             changes: indexPaths,
                             oldSections: oldSections,
@@ -4038,7 +4108,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 let visibleRowCount = self.tableView.window == nil
                     ? 0
                     : self.tableView.indexPathsForVisibleRows?.count ?? 0
-                DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateFinish pressureActive=\(pressureActive) rows=\(newDataset.count) visibleRows=\(visibleRowCount) durationMs=\(durationMs) animated=\(shouldAnimate)")
+                DDLogDebug("LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateFinish pressureActive=\(pressureActive) rows=\(newDataset.count) visibleRows=\(visibleRowCount) durationMs=\(durationMs) animated=\(shouldAnimateMutation)")
             }
         }
     }
@@ -4208,7 +4278,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         )
 
         let tableAnimation = LeftMenuFirstPresentationPolicy.rowAnimation(
-            requested: .automatic,
+            requested: LastChatsPremiumPromotionAnimationPolicy.rowAnimation,
             isQuietModeActive: isLeftMenuFirstPresentationQuietModeActive
         )
         LeftMenuFirstPresentationPolicy.performWithoutAnimationsIfNeeded(
@@ -4332,6 +4402,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 self.updateBottomTitle()
                 self.configureBarsAfterFilterChange()
                 self.updateUnreadChatsCounter()
+                self.schedulePremiumPromotionEligibilityRefresh()
             })
             .disposed(by: bag)
         
@@ -4398,6 +4469,12 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                          selector: #selector(willEnterForeground),
                          name: UIApplication.willEnterForegroundNotification,
                          object: UIApplication.shared)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(premiumPromotionEligibilityDidChange(_:)),
+            name: .premiumEntitlementDidChange,
+            object: nil
+        )
     }
     
     
@@ -4405,6 +4482,10 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     private func willEnterForeground() {
 //        print(#function)
         NotifyManager.shared.clearAllNotifications()
+        guard isAppeared else { return }
+        canUpdateDataset = true
+        runDatasetUpdateTask()
+        schedulePremiumPromotionEligibilityRefresh()
     }
 
     private final func setupFloatingToolbar() {
@@ -4918,6 +4999,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }) {
             self.showPlayerViewIfNeeded()
         }
+        schedulePremiumPromotionEligibilityRefresh()
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -4961,6 +5043,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
         isFirstLayout = true
         completeLeftMenuFirstPresentationQuietModeAfterFirstStableFrame()
+        schedulePremiumPromotionEligibilityRefresh()
     }
 
     private var shouldRequestNotificationAuthorizationPrompt: Bool {
@@ -4996,6 +5079,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         super.viewDidDisappear(animated)
         completePendingBottomSearchDismissalAfterRoute()
         endLeftMenuFirstPresentationQuietMode()
+        invalidatePremiumPromotionEligibilityRefresh()
         unsubscribe()
     }
     
@@ -5005,6 +5089,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     deinit {
         stopExpandedSplitAccountRegistryMutationObservation()
+        invalidatePremiumPromotionEligibilityRefresh()
         unsubscribe()
     }
 }
