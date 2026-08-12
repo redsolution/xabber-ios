@@ -2161,8 +2161,7 @@ final class ChatLayoutLifecycleTests: XCTestCase {
             let collectionView = hosted.collectionView
             defer { controller.performTerminalChatResourceTeardownForTesting() }
 
-            var mappingContext = controller.captureDatasourceMappingContext()
-            mappingContext.showSkeleton = false
+            let mappingContext = controller.captureDatasourceMappingContext()
             let mappingResult = controller.mapDataset(
                 dataset: makeStorageRows(
                     prefix: "committed-\(mode.rawValue)",

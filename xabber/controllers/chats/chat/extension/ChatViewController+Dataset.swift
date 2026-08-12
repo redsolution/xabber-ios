@@ -1159,13 +1159,22 @@ struct ChatDisplayModelCacheContext: Hashable {
     }
 }
 
+enum ChatDatasourceMappingPurpose {
+    case timeline
+    case bootstrapSkeleton
+
+    var rendersBootstrapSkeleton: Bool {
+        self == .bootstrapSkeleton
+    }
+}
+
 struct ChatDatasourceMappingContext {
     let owner: String
     let jid: String
     let conversationType: ClientSynchronizationManager.ConversationType
     let ownerSender: Sender
     let opponentSender: Sender
-    var showSkeleton: Bool
+    let purpose: ChatDatasourceMappingPurpose
     let skeletonDescriptors: [ChatSkeletonDescriptor]
     var searchText: String?
     var inSearchMode: Bool
@@ -7445,6 +7454,47 @@ enum ChatBootstrapStateApplicationPolicy {
     }
 }
 
+enum ChatBootstrapTerminalPresentationInvariant {
+    static func resolvedState(
+        requested: ChatBootstrapLoadingState,
+        hasCommittedTerminalPresentation: Bool,
+        hasMaterializedContent: Bool,
+        isReplacingConversation: Bool
+    ) -> ChatBootstrapLoadingState {
+        guard requested.showsSkeleton,
+              hasCommittedTerminalPresentation,
+              !isReplacingConversation else {
+            return requested
+        }
+        return hasMaterializedContent ? .content : .empty
+    }
+}
+
+enum ChatBootstrapSkeletonDatasourceIdentity {
+    static func matches(
+        _ items: [ChatViewController.Datasource],
+        owner: String,
+        jid: String
+    ) -> Bool {
+        guard items.count == ChatSkeletonTemplate.descriptors.count else {
+            return false
+        }
+        return zip(items, ChatSkeletonTemplate.descriptors).allSatisfy { pair in
+            let (item, descriptor) = pair
+            guard item.isFakeMessage,
+                  item.owner == owner,
+                  item.jid == jid,
+                  item.primary == descriptor.primary,
+                  item.messageId == descriptor.messageId,
+                  item.sentDate == descriptor.sentDate,
+                  case .skeleton = item.kind else {
+                return false
+            }
+            return true
+        }
+    }
+}
+
 enum ChatBootstrapMappedSkeletonApplyPolicy {
     static func shouldApply(
         generationMatches: Bool,
@@ -10248,7 +10298,8 @@ extension ChatViewController {
     }
 
     internal func captureDatasourceMappingContext(
-        layoutWidthOverride: CGFloat? = nil
+        layoutWidthOverride: CGFloat? = nil,
+        purpose: ChatDatasourceMappingPurpose = .timeline
     ) -> ChatDatasourceMappingContext {
         let traitCollection = self.traitCollection
         let flowLayout = self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout
@@ -10275,7 +10326,7 @@ extension ChatViewController {
             conversationType: self.conversationType,
             ownerSender: self.ownerSender,
             opponentSender: self.opponentSender,
-            showSkeleton: self.showSkeletonObserver.value,
+            purpose: purpose,
             skeletonDescriptors: ChatSkeletonTemplate.descriptors,
             searchText: searchText,
             inSearchMode: self.inSearchMode.value,
@@ -11569,6 +11620,12 @@ extension ChatViewController {
         self.scrollFrameOperationCounter.record(.structuralMoves, by: targetedDiff?.moves.count ?? 0)
         let containsOnlyFakeMessages = !items.isEmpty && items.allSatisfy(\.isFakeMessage)
         let containsRealMessages = items.contains { !$0.isFakeMessage }
+        let containsBootstrapSkeletonRows =
+            ChatBootstrapSkeletonDatasourceIdentity.matches(
+                items,
+                owner: self.owner,
+                jid: self.jid
+            )
         if containsRealMessages,
            presentationCommitMode == .standard {
             // A real frame owns presentation as soon as its transaction starts.
@@ -12132,7 +12189,7 @@ extension ChatViewController {
             if transactionCommitted, !containsOnlyFakeMessages {
                 self.hasCommittedTimelinePresentationInCurrentLifecycle = true
             }
-            if transactionCommitted, containsOnlyFakeMessages {
+            if transactionCommitted, containsBootstrapSkeletonRows {
                 self.hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle = true
                 ChatArchiveDebugTrace.log("bootstrapSkeletonCommitted", [
                     ("rowCount", items.count),
@@ -12147,6 +12204,14 @@ extension ChatViewController {
                 self.datasourceSnapshot.items.map(\.primary) == newSnapshot.items.map(\.primary)
             if didCommitCurrentConversationContent {
                 self.hasCommittedRealContentInCurrentLifecycle = true
+                self.appliedBootstrapLoadingState = .content
+                self.preservesBootstrapFailureOverlayUntilRetryCommit = false
+                self.setBootstrapFailureVisible(false)
+                self.setSkeletonVisible(false)
+                self.setDatasourceLoadingEnabled(true)
+                self.setShouldShowInitialMessage(false)
+                self.messagesCollectionView.isUserInteractionEnabled = true
+                self.timelineInteractionState.unlock()
             }
             if transactionCommitted,
                presentationCommitMode == .standard {
@@ -13970,15 +14035,17 @@ extension ChatViewController {
     }
 
     internal func localHistoryMessageCountForBootstrap() -> Int {
-        if let proof = self.currentInitialFrameReadinessProof() {
-            return proof.materializedLocalMessageCount
+        let proofCount = self.currentInitialFrameReadinessProof()?
+            .materializedLocalMessageCount ?? 0
+        let residentCount = self.timelineSession?.snapshot.items.reduce(into: 0) {
+            if !$1.isDeleted { $0 += 1 }
+        } ?? 0
+        let presentedCount = self.datasource.reduce(into: 0) {
+            if !$1.isFakeMessage { $0 += 1 }
         }
-        if let snapshot = self.timelineSession?.snapshot,
-           snapshot.items.contains(where: { !$0.isDeleted }) {
-            return snapshot.items.count
-        }
-        if self.datasource.contains(where: { !$0.isFakeMessage }) {
-            return 1
+        let materializedCount = max(proofCount, residentCount, presentedCount)
+        if materializedCount > 0 {
+            return materializedCount
         }
         // Before the typed off-main preparation, absence is deliberately
         // unknown. Synchronous admission must stay conservative instead of
@@ -15651,8 +15718,11 @@ extension ChatViewController {
 
     internal var hasCommittedBootstrapSkeletonRows: Bool {
         self.hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle &&
-        !self.datasource.isEmpty &&
-        self.datasource.allSatisfy(\.isFakeMessage)
+        ChatBootstrapSkeletonDatasourceIdentity.matches(
+            self.datasource,
+            owner: self.owner,
+            jid: self.jid
+        )
     }
 
     internal var hasCommittedExactBootstrapSkeletonRows: Bool {
@@ -16161,8 +16231,7 @@ extension ChatViewController {
         self.initialLocalFirstFramePhase = .preparing(descriptor)
         self.initialLocalFirstFrameReadinessProof = nil
         if resumesPersistedMissingTarget {
-            var mappingContext = self.captureDatasourceMappingContext()
-            mappingContext.showSkeleton = false
+            let mappingContext = self.captureDatasourceMappingContext()
             let admission = ChatPostBootstrapInitialFrameAdmission(
                 identity: ChatPostBootstrapInitialFrameAdmissionIdentity(
                     conversationKey: self.chatTimelineConversationKey,
@@ -16594,8 +16663,7 @@ extension ChatViewController {
         let mappingToken = mappingJob.token
         self.initialLocalFirstFrameMappingToken = mappingToken
         self.initialLocalFirstFramePhase = .preparing(descriptor)
-        var mappingContext = self.captureDatasourceMappingContext()
-        mappingContext.showSkeleton = false
+        let mappingContext = self.captureDatasourceMappingContext()
         let admission = ChatAnchorPersistenceMaterializationAdmission(
             transactionToken: transactionToken,
             request: request,
@@ -16804,8 +16872,7 @@ extension ChatViewController {
             self.releaseInteractiveChatOpenGate()
             self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
         case .prepared(let preparedFrame):
-            var mappingContext = self.captureDatasourceMappingContext()
-            mappingContext.showSkeleton = false
+            let mappingContext = self.captureDatasourceMappingContext()
             ChatFirstFrameDisplayMappingExecutor.map(
                 preparedFrame.snapshot.items,
                 on: self.datasetMappingQueue,
@@ -18407,12 +18474,49 @@ extension ChatViewController {
     }
 
     internal func applyBootstrapLoadingState(
-        _ state: ChatBootstrapLoadingState,
+        _ requestedState: ChatBootstrapLoadingState,
         forceRender: Bool = false,
         synchronousSkeletonCommit: Bool = false,
         hasTrustedPersistedBootstrapPage: Bool = false,
         replacingConversationDatasource: Bool = false
     ) {
+        let state = ChatBootstrapTerminalPresentationInvariant.resolvedState(
+            requested: requestedState,
+            hasCommittedTerminalPresentation:
+                self.hasCommittedTimelinePresentationInCurrentLifecycle,
+            hasMaterializedContent:
+                self.localHistoryMessageCountForBootstrap() > 0,
+            isReplacingConversation: replacingConversationDatasource
+        )
+        if requestedState.showsSkeleton, !state.showsSkeleton {
+            // A terminal frame for this conversation is monotonic. Archive
+            // boundary repair may continue, but it is nonblocking and cannot
+            // acquire a second skeleton presentation. Reconcile every output
+            // here even when the high-level state is already equal, because a
+            // stale relay was the independent entrance behind the regression.
+            ChatArchiveDebugTrace.log("bootstrapSkeletonSuppressedAfterTerminal", [
+                ("hasMaterializedContent", state == .content),
+                ("requestedTarget", requestedState == .blockingTarget)
+            ])
+            self.cancelBootstrapSkeletonMappingJobs()
+            self.appliedBootstrapLoadingState = state
+            self.preservesBootstrapFailureOverlayUntilRetryCommit = false
+            self.setBootstrapFailureVisible(false)
+            self.setSkeletonVisible(false)
+            self.setDatasourceLoadingEnabled(true)
+            self.setShouldShowInitialMessage(false)
+            self.messagesCollectionView.isUserInteractionEnabled = true
+            self.timelineInteractionState.unlock()
+            if state == .content,
+               !self.datasource.contains(where: { !$0.isFakeMessage }) {
+                self.reloadInitialWindowAfterBootstrapIfNeeded(
+                    force: true,
+                    hasTrustedPersistedBootstrapPage:
+                        hasTrustedPersistedBootstrapPage
+                )
+            }
+            return
+        }
         if ChatCommittedSkeletonBlockingTransitionPolicy.shouldApplyStateOnly(
             previous: appliedBootstrapLoadingState,
             next: state,
@@ -18486,7 +18590,9 @@ extension ChatViewController {
                 let mappingJob = self.beginBootstrapSkeletonMappingJob()
                 let generation = mappingJob.generation
                 let cancellationToken = mappingJob.token
-                let mappingContext = self.captureDatasourceMappingContext()
+                let mappingContext = self.captureDatasourceMappingContext(
+                    purpose: .bootstrapSkeleton
+                )
                 let animated = self.shouldAnimateInitialHistoryAppearance
                 let conversationKey = self.chatTimelineConversationKey
                 self.datasetMappingQueue.async { [weak self] in
@@ -18573,8 +18679,9 @@ extension ChatViewController {
             self.messagesCollectionView.layoutIfNeeded()
         }
 
-        var mappingContext = self.captureDatasourceMappingContext()
-        mappingContext.showSkeleton = true
+        let mappingContext = self.captureDatasourceMappingContext(
+            purpose: .bootstrapSkeleton
+        )
         let mappingResult = self.mapDataset(dataset: [], context: mappingContext)
         guard ChatBootstrapMappedSkeletonApplyPolicy.shouldApply(
             generationMatches: true,
@@ -18726,7 +18833,7 @@ extension ChatViewController {
         }
         let formatters = ChatDatasourceMappingDateFormatters()
 
-        if context.showSkeleton {
+        if context.purpose.rendersBootstrapSkeleton {
             var datasource: [Datasource] = []
             for descriptor in context.skeletonDescriptors {
                 guard cancellationToken?.shouldProcessNextRow() ?? true else { break }

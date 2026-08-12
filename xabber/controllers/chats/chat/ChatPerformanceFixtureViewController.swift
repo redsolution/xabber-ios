@@ -6753,7 +6753,12 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         scenarioState = ChatPerformanceScenarioContract.reduce(scenarioState, event: .showSkeleton)
         renderStatus(isReady: true)
         showSkeletonObserver.accept(true)
-        let skeleton = mapDataset(dataset: [])
+        let skeleton = mapDataset(
+            dataset: [],
+            context: captureDatasourceMappingContext(
+                purpose: .bootstrapSkeleton
+            )
+        ).datasource
         applyChatDatasource(
             skeleton,
             mode: .fullReload(keepOffset: true),

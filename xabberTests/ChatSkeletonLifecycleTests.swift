@@ -906,8 +906,9 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
 
     func testSkeletonMappingKeepsDeterministicIDsDatesTextAndHeights() {
         let controller = makeController()
-        var context = controller.captureDatasourceMappingContext()
-        context.showSkeleton = true
+        let context = controller.captureDatasourceMappingContext(
+            purpose: .bootstrapSkeleton
+        )
 
         let first = controller.mapDataset(dataset: [], context: context)
         let second = controller.mapDataset(dataset: [], context: context)
@@ -924,10 +925,159 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         XCTAssertEqual(first.datasource.count, ChatSkeletonTemplate.descriptors.count)
     }
 
+    func testOrdinaryMappingNeverSynthesizesSkeletonWhenVisibilityRelayIsStale() {
+        let controller = makeController()
+        controller.showSkeletonObserver.accept(true)
+        let outgoing = makeStorageMessage(
+            primary: "first-outgoing-after-confirmed-empty",
+            owner: controller.owner,
+            jid: controller.jid,
+            outgoing: true
+        )
+
+        let mapped = controller.mapDataset(dataset: [outgoing])
+
+        XCTAssertTrue(
+            mapped.contains { $0.primary == outgoing.primary },
+            "ordinary observer mapping must preserve its real timeline input"
+        )
+        XCTAssertFalse(
+            mapped.contains {
+                if case .skeleton = $0.kind { return true }
+                return false
+            },
+            "the visibility relay is presentation output, not authority to synthesize skeleton rows"
+        )
+    }
+
+    func testRealTimelineCommitAfterConfirmedEmptyRevokesStaleSkeletonPresentation() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.applyChatDatasource(
+            [],
+            mode: .fullReload(),
+            animated: false
+        )
+        controller.appliedBootstrapLoadingState = .empty
+        controller.showSkeletonObserver.accept(false)
+        controller.setDatasourceLoadingEnabled(true)
+        XCTAssertTrue(controller.hasCommittedTimelinePresentationInCurrentLifecycle)
+
+        controller.showSkeletonObserver.accept(true)
+        controller.applyChatDatasource(
+            [makeDatasource(primary: "first-outgoing-after-confirmed-empty")],
+            mode: .fullReload(),
+            animated: false
+        )
+
+        XCTAssertEqual(controller.appliedBootstrapLoadingState, .content)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.loadDatasourceObserver.value)
+        XCTAssertTrue(controller.messagesCollectionView.isUserInteractionEnabled)
+        XCTAssertEqual(
+            controller.datasource.map(\.primary),
+            ["first-outgoing-after-confirmed-empty"]
+        )
+    }
+
+    func testRealTimelineCommitAlwaysTerminatesCurrentConversationSkeleton() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.applyBootstrapLoadingState(
+            .blockingArchive,
+            forceRender: true,
+            synchronousSkeletonCommit: true
+        )
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.hasCommittedBootstrapSkeletonRows)
+
+        controller.applyChatDatasource(
+            [makeDatasource(primary: "durable-real-row")],
+            mode: .fullReload(),
+            animated: false
+        )
+
+        XCTAssertEqual(controller.appliedBootstrapLoadingState, .content)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.loadDatasourceObserver.value)
+        XCTAssertTrue(controller.messagesCollectionView.isUserInteractionEnabled)
+        XCTAssertEqual(controller.datasource.map(\.primary), ["durable-real-row"])
+    }
+
+    func testLateBlockingMetadataKeepsCommittedEmptyPresentationInteractive() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+        controller.applyChatDatasource(
+            [],
+            mode: .fullReload(),
+            animated: false
+        )
+        controller.appliedBootstrapLoadingState = .empty
+        controller.showSkeletonObserver.accept(false)
+        controller.setDatasourceLoadingEnabled(true)
+
+        controller.applyBootstrapLoadingState(.blockingArchive, forceRender: true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(controller.appliedBootstrapLoadingState, .empty)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.isEmpty)
+        XCTAssertTrue(controller.loadDatasourceObserver.value)
+        XCTAssertTrue(controller.messagesCollectionView.isUserInteractionEnabled)
+    }
+
+    func testTerminalPresentationInvariantKeepsRepairNonblocking() {
+        XCTAssertEqual(
+            ChatBootstrapTerminalPresentationInvariant.resolvedState(
+                requested: .blockingArchive,
+                hasCommittedTerminalPresentation: true,
+                hasMaterializedContent: false,
+                isReplacingConversation: false
+            ),
+            .empty
+        )
+        XCTAssertEqual(
+            ChatBootstrapTerminalPresentationInvariant.resolvedState(
+                requested: .blockingTarget,
+                hasCommittedTerminalPresentation: true,
+                hasMaterializedContent: true,
+                isReplacingConversation: false
+            ),
+            .content
+        )
+        XCTAssertEqual(
+            ChatBootstrapTerminalPresentationInvariant.resolvedState(
+                requested: .blockingArchive,
+                hasCommittedTerminalPresentation: true,
+                hasMaterializedContent: false,
+                isReplacingConversation: true
+            ),
+            .blockingArchive,
+            "a genuine conversation replacement owns a fresh first frame"
+        )
+    }
+
+    func testNonSkeletonFakeRowsNeverBecomeBootstrapSkeletonReceipt() {
+        let controller = makeController()
+        controller.loadViewIfNeeded()
+
+        controller.applyChatDatasource(
+            [makeDatasource(primary: "non-skeleton-placeholder", isFakeMessage: true)],
+            mode: .fullReload(),
+            animated: false
+        )
+
+        XCTAssertFalse(controller.hasCommittedBootstrapSkeletonRows)
+        XCTAssertFalse(
+            controller.hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle
+        )
+    }
+
     func testMappedSkeletonMinimumHeightMatchesEquivalentTextMessage() throws {
         let controller = makeController()
-        var context = controller.captureDatasourceMappingContext()
-        context.showSkeleton = true
+        let context = controller.captureDatasourceMappingContext(
+            purpose: .bootstrapSkeleton
+        )
 
         let result = controller.mapDataset(dataset: [], context: context)
         let skeleton = try XCTUnwrap(result.datasource.first)
@@ -1321,10 +1471,13 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         controller.configureDataset()
 
         XCTAssertFalse(controller.timelineSession === firstSession)
-        XCTAssertFalse(
+        XCTAssertTrue(
             controller.hasCommittedExactBootstrapSkeletonRows,
-            "conversation replacement must revoke the prior skeleton receipt"
+            "configureDataset atomically replaces the prior receipt with B's exact skeleton"
         )
+        XCTAssertTrue(controller.datasource.allSatisfy { $0.jid == controller.jid })
+        let replacementGeneration = controller.bootstrapSkeletonMappingGeneration
+        XCTAssertGreaterThan(replacementGeneration, firstConversationGeneration)
 
         controller.applyBootstrapLoadingState(
             .blockingTarget,
@@ -1338,10 +1491,10 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         XCTAssertTrue(controller.datasource.allSatisfy { $0.jid == controller.jid })
         XCTAssertTrue(controller.hasCommittedBootstrapSkeletonRows)
         XCTAssertTrue(controller.hasCommittedExactBootstrapSkeletonRows)
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             controller.bootstrapSkeletonMappingGeneration,
-            firstConversationGeneration,
-            "the replacement conversation owns a fresh skeleton mapping generation"
+            replacementGeneration,
+            "later blocker changes reuse the one skeleton generation committed for B"
         )
     }
 
@@ -1476,11 +1629,10 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         XCTAssertFalse(controller.hasCommittedBootstrapSkeletonRows)
         XCTAssertFalse(controller.isShowingBootstrapPlaceholder)
 
-        controller.applyChatDatasource(
-            [makeDatasource(primary: "skeleton", isFakeMessage: true)],
-            mode: .fullReload(),
-            animated: false,
-            suppressDefaultBottomScroll: true
+        controller.applyBootstrapLoadingState(
+            .blockingArchive,
+            forceRender: true,
+            synchronousSkeletonCommit: true
         )
 
         XCTAssertTrue(controller.hasCommittedBootstrapSkeletonRows)
@@ -6040,6 +6192,29 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
             avatarUrl: nil,
             attributedAuthor: nil
         )
+    }
+
+    private func makeStorageMessage(
+        primary: String,
+        owner: String,
+        jid: String,
+        outgoing: Bool
+    ) -> MessageStorageItem {
+        let message = MessageStorageItem()
+        message.primary = primary
+        message.owner = owner
+        message.opponent = jid
+        message.conversationType = .regular
+        message.messageId = "\(primary)-message-id"
+        message.archivedId = "archive-\(primary)"
+        message.body = primary
+        message.legacyBody = primary
+        message.date = Date(timeIntervalSince1970: 1_700_000_000)
+        message.sentDate = message.date
+        message.displayAs = .text
+        message.state = .sending
+        message.outgoing = outgoing
+        return message
     }
 
     private func allSubviews(of view: UIView) -> [UIView] {
