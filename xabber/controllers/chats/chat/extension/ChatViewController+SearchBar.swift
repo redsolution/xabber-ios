@@ -7352,11 +7352,18 @@ extension ChatViewController: TemporaryMessageReceiverProtocol {
                   self.initialBootstrapQueryId == page.event.queryId else {
                 return
             }
-            guard self.markRemoteHistoryEndPageCompletionIfNeeded(
+            let didOwnRawFinal = self.markRemoteHistoryEndPageCompletionIfNeeded(
                 queryId: page.event.queryId
-            ) else {
+            )
+            guard didOwnRawFinal ||
+                    !self.didReceiveInitialBootstrapEndPage else {
                 return
             }
+            // A raw-final callback can win before a joined/off-screen
+            // controller has installed initialBootstrapQueryId. The durable
+            // coordinator page is the presentation authority in that race;
+            // an earlier transport dedupe marker must not suppress its first
+            // bootstrap consumption.
             self.handleCommittedRemoteHistoryFinal(
                 queryId: page.event.queryId,
                 originalState: page.event.state,

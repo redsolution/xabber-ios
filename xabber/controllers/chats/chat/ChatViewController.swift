@@ -2580,6 +2580,16 @@ class ChatViewController: MessagesViewController {
     var interactiveChatOpenGateToken: AccountInteractiveChatOpenGate.Token? = nil
     var initialBootstrapReadinessObservationToken: ChatInitialBootstrapRequestCoordinator.ObservationToken? = nil
     var initialBootstrapReadinessObservationKey: ChatInitialBootstrapRequestKey? = nil
+    var conversationArchiveTerminalObservationToken:
+        ChatInitialBootstrapRequestCoordinator.ObservationToken? = nil
+    var conversationArchiveTerminalObservationKey:
+        ChatInitialBootstrapRequestKey? = nil
+    /// A persistence-confirmed bootstrap with authoritative server count=0 is
+    /// monotonic for this conversation. Keep the receipt locally after the
+    /// shared coordinator releases its bounded transaction so late UIKit or
+    /// mapping callbacks cannot turn the empty chat into loading/failure.
+    var consumedEmptyArchiveTerminalKey:
+        ChatInitialBootstrapRequestKey? = nil
     /// UIKit publication eligibility is independent from archive transport and
     /// persistence. Background work may finish preparing the current frame,
     /// but only foreground may replace the committed skeleton with it.
@@ -5739,6 +5749,10 @@ class ChatViewController: MessagesViewController {
             jid: self.jid,
             conversationType: self.conversationType
         )
+        if self.consumedEmptyArchiveTerminalKey !=
+                self.initialBootstrapRequestKey {
+            self.consumedEmptyArchiveTerminalKey = nil
+        }
         if let timelineSession = self.timelineSession,
            timelineSession.isConfigured(for: conversationKey) {
             return
@@ -8374,6 +8388,8 @@ class ChatViewController: MessagesViewController {
         self.cancelInitialBootstrapLocalHistoryFallback()
         self.cancelInitialBootstrapAutomaticRetry(resetFailureCount: true)
         self.detachInitialBootstrapReadinessObservation()
+        self.detachConversationArchiveTerminalObservation()
+        self.consumedEmptyArchiveTerminalKey = nil
         self.releaseInteractiveChatOpenGate()
         self.initialBootstrapQueryId = nil
         self.initialBootstrapLeaseKey = nil

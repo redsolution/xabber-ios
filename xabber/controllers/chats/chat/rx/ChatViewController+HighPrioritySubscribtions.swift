@@ -174,6 +174,18 @@ enum ChatInitialBootstrapRequestAdmissionPolicy {
     }
 }
 
+enum ChatInitialBootstrapSatisfiedPresentationPolicy {
+    static func loadingState(
+        localMessageCount: Int,
+        hasPendingInitialAnchorRequest: Bool
+    ) -> ChatBootstrapLoadingState {
+        if hasPendingInitialAnchorRequest {
+            return .blockingTarget
+        }
+        return localMessageCount > 0 ? .content : .empty
+    }
+}
+
 /// Persistence-aware lifecycle for one conversation archive transaction.
 ///
 /// The phase is account-scoped through `ChatInitialBootstrapRequestKey`; it is
@@ -2942,6 +2954,15 @@ extension ChatViewController {
         self.bag = DisposeBag()
         let realm = try WRealm.safe()
         self.configureDataset()
+        self.observeConversationArchiveTerminal()
+        let retainedTerminalBootstrapState: ChatBootstrapLoadingState? = {
+            guard let state = self.appliedBootstrapLoadingState,
+                  !state.showsSkeleton,
+                  !state.showsRetry else {
+                return nil
+            }
+            return state
+        }()
         if self.hasCommittedRealContentInCurrentLifecycle {
             self.appliedBootstrapLoadingState = .content
         } else if self.hasCommittedBootstrapSkeletonRows {
@@ -2962,13 +2983,14 @@ extension ChatViewController {
                 conversationType: self.conversationType
             )
         )
-        let initialBootstrapViewState = self.bootstrapViewState(chatInstance: initialChatInstance)
-        self.applyBootstrapViewState(
-            initialBootstrapViewState,
+        let initialBootstrapLoadingState = retainedTerminalBootstrapState ??
+            self.bootstrapLoadingState(chatInstance: initialChatInstance)
+        self.applyBootstrapLoadingState(
+            initialBootstrapLoadingState,
             forceRender: self.datasource.isEmpty || !self.isShowingBootstrapPlaceholder,
-            synchronousSkeletonCommit: initialBootstrapViewState == .skeleton
+            synchronousSkeletonCommit: initialBootstrapLoadingState.showsSkeleton
         )
-        if initialBootstrapViewState == .skeleton {
+        if initialBootstrapLoadingState.showsSkeleton {
             self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
         }
         self.requestInitialBootstrapArchive()
@@ -3473,9 +3495,23 @@ extension ChatViewController {
                 self.resetInitialBootstrapTracking()
                 self.releaseInteractiveChatOpenGate()
                 _ = self.revealStaleLocalHistoryIfNeeded()
+                // The admission decision was made from durable Realm/archive
+                // state. `currentBootstrapLoadingState()` intentionally has
+                // no synchronous Realm object and can therefore still reduce
+                // to blockingArchive during the short cross-thread refresh
+                // window after a zero-result commit. Do not turn that stale
+                // snapshot into a new loading presentation or another MAM.
+                let satisfiedLoadingState =
+                    ChatInitialBootstrapSatisfiedPresentationPolicy.loadingState(
+                        localMessageCount:
+                            self.localHistoryMessageCountForBootstrap(),
+                        hasPendingInitialAnchorRequest:
+                            self.hasPendingInitialAnchorRequest()
+                    )
                 self.applyBootstrapLoadingState(
-                    self.currentBootstrapLoadingState(),
-                    forceRender: true
+                    satisfiedLoadingState,
+                    forceRender: true,
+                    hasTrustedPersistedBootstrapPage: true
                 )
             }
             return
@@ -3552,7 +3588,6 @@ extension ChatViewController {
         self.initialBootstrapFollowUpTargetOverride = nil
         self.acquireInteractiveChatOpenGateIfNeeded()
 
-        self.registerRemoteHistoryEndPageDispatcher(queryId: lease.queryId)
         let cachedEndPage = coordinator.cachedEndPageEvent(
             key: key,
             queryId: lease.queryId
@@ -3574,6 +3609,17 @@ extension ChatViewController {
                 )
             )
         )
+        guard self.isInitialBootstrapInFlight,
+              self.initialBootstrapQueryId == lease.queryId else {
+            // `beginInitialBootstrapTracking` may synchronously consume a
+            // retained committed page. Do not reinstall raw-final dispatch,
+            // loading presentation or fallback work after that terminal.
+            return
+        }
+        // Initial ownership is installed before the raw-final dispatcher.
+        // A final that arrives in this interval remains durable in the
+        // account-scoped coordinator and is replayed by the observer above.
+        self.registerRemoteHistoryEndPageDispatcher(queryId: lease.queryId)
         self.applyBootstrapLoadingState(self.currentBootstrapLoadingState(), forceRender: true)
         self.scheduleInitialBootstrapLocalHistoryFallbackIfNeeded()
         if let cachedCommittedPage {

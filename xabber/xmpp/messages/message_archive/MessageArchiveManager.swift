@@ -3140,7 +3140,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             start == nil &&
             end == nil &&
             tags.isEmpty &&
-            !withCounter
+            (!withCounter || purpose == .bootstrap)
     }
 
     override func namespaces() -> [String] {
@@ -4450,12 +4450,11 @@ class MessageArchiveManager: AbstractXMPPManager {
                 return .rejected(rejection)
             }
             if descriptor.task.coverageUpdateKind == .bootstrapNewest,
-               let serverResultCount = descriptor.serverResultCount,
-               serverResultCount > 0 {
-                // A whole-archive newest query cannot legitimately deliver no
-                // envelopes while advertising a non-empty result set. Cursor
-                // queries may: their optional total still describes the
-                // complete server-side set rather than this page.
+               descriptor.serverResultCount != 0 {
+                // Initial bootstrap always requests `rsm-counter=1`. An empty
+                // timeline is authoritative only when that server counter is
+                // present and exactly zero. Cursor queries may legitimately
+                // deliver no envelopes while the whole result set is nonempty.
                 let rejection = DeferredArchiveCommitRejection.missingPersistenceProof
                 traceDeferredArchiveCommitRejection(
                     descriptor: descriptor,
@@ -5182,6 +5181,12 @@ class MessageArchiveManager: AbstractXMPPManager {
     
     internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, ids: [String]? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, coverageUpdateKind: RegularArchiveCoverageUpdateKind = .none, consumerManagesArchiveEnd: Bool = false, consumerManagesHistoryCursor: Bool = false, deferCoverageCommitUntilConsumerProof: Bool = false, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) {
         let isGroupchat = [.group, .channel].contains(conversationType)
+        // Xabber Server returns the real result-set cardinality only when the
+        // data form requests `rsm-counter=1`; otherwise `<count>` is merely
+        // the number of rows selected for the current page. Every initial
+        // chat bootstrap needs the authoritative value so count=0 can be a
+        // durable terminal for every conversation type.
+        let requestsAuthoritativeCounter = withCounter || purpose == .bootstrap
         let elementId = queryId ?? "MAM: \(NanoID.new(8))"
         let dateConstraint = self.archiveDateConstraint(
             conversationType: conversationType,
@@ -5242,7 +5247,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             endElement.addChild(DDXMLElement(name: "value", stringValue: end.XMPPFormattedDate))
             x.addChild(endElement)
         }
-        if withCounter {
+        if requestsAuthoritativeCounter {
             let counterElement = DDXMLElement(name: "field")
             counterElement.addAttribute(withName: "var", stringValue: "rsm-counter")
             counterElement.addChild(DDXMLElement(name: "value", numberValue: 1))
@@ -5321,7 +5326,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             start: effectiveStart,
             end: end,
             tags: tags,
-            withCounter: withCounter
+            withCounter: requestsAuthoritativeCounter
         ) || (consumerManagesArchiveEnd && purpose == .latest)
         let requestCursorId = (before ?? nextPage).flatMap { cursor in
             cursor.isNotEmpty ? cursor : nil

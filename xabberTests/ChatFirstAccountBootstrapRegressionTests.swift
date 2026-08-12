@@ -3,6 +3,14 @@ import RealmSwift
 import XMPPFramework
 @testable import xabber
 
+private final class ChatBootstrapCapturingXMPPStream: XMPPStream {
+    private(set) var sentElements: [DDXMLElement] = []
+
+    override func send(_ element: DDXMLElement) {
+        sentElements.append(element)
+    }
+}
+
 /// Focused regression manifest for the first-account chat bootstrap incident.
 ///
 /// This standalone source is included in the xabberTests target; executable
@@ -45,6 +53,182 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
                 hasCommittedSkeletonRows: false
             ),
             .apply
+        )
+    }
+
+    func testForcedEqualEmptyStateReconcilesACommittedSkeletonFrame() {
+        XCTAssertEqual(
+            ChatBootstrapStateApplicationPolicy.decision(
+                previous: .empty,
+                next: .empty,
+                hasCommittedContent: false,
+                forceRender: true,
+                hasCommittedSkeletonRows: true
+            ),
+            .apply,
+            "a durable empty terminal must remove an older skeleton even when the reducer state is already empty"
+        )
+    }
+
+    func testSatisfiedArchivePresentationNeverReturnsToArchiveSkeleton() {
+        XCTAssertEqual(
+            ChatInitialBootstrapSatisfiedPresentationPolicy.loadingState(
+                localMessageCount: 0,
+                hasPendingInitialAnchorRequest: false
+            ),
+            .empty
+        )
+        XCTAssertEqual(
+            ChatInitialBootstrapSatisfiedPresentationPolicy.loadingState(
+                localMessageCount: 1,
+                hasPendingInitialAnchorRequest: false
+            ),
+            .content
+        )
+        XCTAssertEqual(
+            ChatInitialBootstrapSatisfiedPresentationPolicy.loadingState(
+                localMessageCount: 0,
+                hasPendingInitialAnchorRequest: true
+            ),
+            .blockingTarget
+        )
+    }
+
+    func testDurableZeroTerminalSuppressesSkeletonForEveryConversationType() {
+        let terminal = ConversationArchiveReadiness(
+            phase: .committed,
+            hasDurableCoverage: true,
+            confirmsEmptyConversation: true,
+            persistedVisibleRowCount: 0
+        )
+        for conversationType in [
+            ClientSynchronizationManager.ConversationType.regular,
+            .group,
+            .channel,
+            .saved
+        ] {
+            XCTAssertEqual(
+                ChatCommittedArchiveTerminalPresentationPolicy.resolvedState(
+                    requested: .blockingArchive,
+                    readiness: terminal,
+                    committedBoundaryMatchesCurrent: true,
+                    hasMaterializedContent: false
+                ),
+                .empty,
+                "count=0 must be terminal for \(conversationType.rawValue)"
+            )
+        }
+    }
+
+    func testEveryInitialChatBootstrapRequestsTheAuthoritativeServerCounter() throws {
+        let conversationTypes: [ClientSynchronizationManager.ConversationType] = [
+            .regular,
+            .group,
+            .channel,
+            .saved,
+            .omemo
+        ]
+
+        for conversationType in conversationTypes {
+            let owner = "counter-owner-\(conversationType.rawValue)@example.com"
+            let jid = "counter-target-\(conversationType.rawValue)@example.com"
+            let manager = MessageArchiveManager(withOwner: owner)
+            let stream = ChatBootstrapCapturingXMPPStream()
+
+            manager.requestArchive(
+                stream,
+                jid: jid,
+                isContinues: false,
+                conversationType: conversationType,
+                purpose: .bootstrap,
+                queryId: "bootstrap-counter-\(conversationType.rawValue)",
+                nextPage: "",
+                max: 30
+            )
+
+            let iq = try XCTUnwrap(stream.sentElements.last)
+            let counterValues = iq
+                .element(forName: "query")?
+                .element(forName: "x")?
+                .elements(forName: "field")
+                .first(where: {
+                    $0.attributeStringValue(forName: "var") == "rsm-counter"
+                })?
+                .elements(forName: "value")
+                .compactMap(\.stringValue)
+            XCTAssertEqual(
+                counterValues,
+                ["1"],
+                "bootstrap must request an authoritative count for \(conversationType.rawValue)"
+            )
+        }
+    }
+
+    @MainActor
+    func testRegularConversationObserverTreatsDurableZeroAsFinalWithoutSecondTransport() {
+        let controller = ChatViewController()
+        controller.owner = "regular-zero-owner@dxs.xabber.com"
+        controller.jid = "contact@dxs.xabber.com"
+        controller.conversationType = .regular
+        controller.ownerSender = Sender(
+            id: controller.owner,
+            displayName: "Owner"
+        )
+        controller.opponentSender = Sender(
+            id: controller.jid,
+            displayName: "Contact"
+        )
+        controller.loadViewIfNeeded()
+        controller.configureDataset()
+        controller.applyBootstrapLoadingState(
+            .blockingArchive,
+            forceRender: true,
+            synchronousSkeletonCommit: true
+        )
+        controller.observeConversationArchiveTerminal()
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "regular-zero-terminal",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("test setup must own the regular bootstrap lease")
+        }
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: lease.queryId,
+            hasDurableCoverage: true,
+            resultCount: 0,
+            confirmsEmptyConversation: true,
+            hasPresentationMaterialization: false
+        )
+
+        XCTAssertTrue(waitUntil {
+            controller.appliedBootstrapLoadingState == .empty &&
+                controller.datasource.isEmpty &&
+                !controller.showSkeletonObserver.value
+        })
+        coordinator.resetForTests()
+        controller.applyBootstrapLoadingState(
+            .failure(fallback: .empty),
+            forceRender: true
+        )
+        XCTAssertEqual(
+            controller.appliedBootstrapLoadingState,
+            .empty,
+            "a consumed count=0 terminal must remain monotonic after its coordinator receipt is released"
+        )
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertEqual(
+            coordinator.productionDiagnosticsSnapshot(for: key).transportStartCount,
+            0
         )
     }
 
@@ -275,6 +459,214 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
     }
 
     @MainActor
+    func testLateSavedTrackingConsumesCommittedEmptyReceiptWithoutRestartingLoading() throws {
+        let controller = try makeFreshSavedController(
+            owner: "late-saved-owner@dxs.xabber.com"
+        )
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+        XCTAssertTrue(waitUntil {
+            controller.datasource.count == 30 &&
+                controller.showSkeletonObserver.value
+        })
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "late-saved-empty-terminal",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("test setup must own the Saved bootstrap lease")
+        }
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: lease.queryId,
+            hasDurableCoverage: true,
+            resultCount: 0,
+            confirmsEmptyConversation: true,
+            hasPresentationMaterialization: false
+        )
+        try markFreshSavedConversationDurablyEmpty(controller)
+
+        controller.beginInitialBootstrapTracking(
+            queryId: lease.queryId,
+            timeout: 45
+        )
+
+        XCTAssertEqual(controller.appliedBootstrapLoadingState, .empty)
+        XCTAssertTrue(waitUntil {
+            controller.datasource.isEmpty &&
+                !controller.showSkeletonObserver.value
+        })
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        XCTAssertNil(controller.initialBootstrapTimeoutWorkItem)
+        XCTAssertTrue(
+            controller.activeChatHistoryLoadActivityKeys.isEmpty,
+            "a synchronously consumed terminal must not restart history loading"
+        )
+    }
+
+    @MainActor
+    func testLateSavedTrackingOwnsCommittedEmptyReceiptAfterRawFinalWasDeduplicated() throws {
+        let controller = try makeFreshSavedController(
+            owner: "deduplicated-saved-owner@dxs.xabber.com"
+        )
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+        XCTAssertTrue(waitUntil {
+            controller.datasource.count == 30 &&
+                controller.showSkeletonObserver.value
+        })
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "deduplicated-saved-empty-terminal",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("test setup must own the Saved bootstrap lease")
+        }
+
+        XCTAssertTrue(controller.markRemoteHistoryEndPageCompletionIfNeeded(
+            queryId: lease.queryId
+        ))
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: lease.queryId,
+            hasDurableCoverage: true,
+            resultCount: 0,
+            confirmsEmptyConversation: true,
+            hasPresentationMaterialization: false
+        )
+        try markFreshSavedConversationDurablyEmpty(controller)
+
+        controller.beginInitialBootstrapTracking(
+            queryId: lease.queryId,
+            timeout: 45
+        )
+
+        XCTAssertEqual(
+            controller.appliedBootstrapLoadingState,
+            .empty,
+            "the durable empty receipt must supersede an earlier raw-final marker"
+        )
+        XCTAssertTrue(waitUntil {
+            controller.datasource.isEmpty &&
+                !controller.showSkeletonObserver.value
+        })
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        XCTAssertNil(controller.initialBootstrapTimeoutWorkItem)
+        XCTAssertTrue(controller.activeChatHistoryLoadActivityKeys.isEmpty)
+    }
+
+    @MainActor
+    func testJoinedCommittedSavedReceiptDoesNotReinstallLoadingOrTransport() throws {
+        let controller = try makeFreshSavedController(
+            owner: "joined-saved-owner@dxs.xabber.com"
+        )
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+        XCTAssertTrue(waitUntil {
+            controller.datasource.count == 30 &&
+                controller.showSkeletonObserver.value
+        })
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "joined-saved-empty-terminal",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("test setup must own the Saved bootstrap lease")
+        }
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: lease.queryId,
+            hasDurableCoverage: true,
+            resultCount: 0,
+            confirmsEmptyConversation: true,
+            hasPresentationMaterialization: false
+        )
+
+        controller.requestInitialBootstrapArchive()
+
+        XCTAssertEqual(controller.appliedBootstrapLoadingState, .empty)
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        XCTAssertNil(controller.initialBootstrapTimeoutWorkItem)
+        XCTAssertTrue(controller.activeChatHistoryLoadActivityKeys.isEmpty)
+        XCTAssertTrue(controller.remoteHistoryEndPageDispatcherTokens.isEmpty)
+        XCTAssertEqual(
+            coordinator.productionDiagnosticsSnapshot(for: key).transportStartCount,
+            0,
+            "a committed count=0 receipt must not start another MAM transport"
+        )
+    }
+
+    @MainActor
+    func testNavigationReconciliationAdoptsCommittedSavedReceiptAfterControllerReset() throws {
+        let controller = try makeFreshSavedController(
+            owner: "navigation-reconcile-saved-owner@dxs.xabber.com"
+        )
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "navigation-reconcile-empty-terminal",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("test setup must own the Saved bootstrap lease")
+        }
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: lease.queryId,
+            hasDurableCoverage: true,
+            resultCount: 0,
+            confirmsEmptyConversation: true,
+            hasPresentationMaterialization: false
+        )
+        try markFreshSavedConversationDurablyEmpty(controller)
+
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        XCTAssertTrue(controller.reconcileInitialBootstrapReadinessAfterNavigationIfNeeded())
+
+        XCTAssertTrue(waitUntil {
+            controller.appliedBootstrapLoadingState == .empty &&
+                controller.datasource.isEmpty &&
+                !controller.showSkeletonObserver.value
+        })
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        XCTAssertTrue(controller.activeChatHistoryLoadActivityKeys.isEmpty)
+        XCTAssertEqual(
+            coordinator.productionDiagnosticsSnapshot(for: key).transportStartCount,
+            0,
+            "navigation reconciliation must consume the retained zero receipt without another MAM"
+        )
+    }
+
+    @MainActor
     func testDirectSavedMessagesNavigationCompletionReplaysFastEmptyTerminal() throws {
         let controller = ChatViewController()
         controller.owner = "direct-saved-owner@dxs.xabber.com"
@@ -371,6 +763,66 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
         })
         XCTAssertFalse(controller.isInitialBootstrapInFlight)
         XCTAssertNil(controller.initialBootstrapQueryId)
+    }
+
+    @MainActor
+    private func makeFreshSavedController(owner: String) throws -> ChatViewController {
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = "favorites.dxs.xabber.com"
+        controller.conversationType = .saved
+        controller.ownerSender = Sender(id: owner, displayName: "Owner")
+        controller.opponentSender = Sender(
+            id: controller.jid,
+            displayName: "Saved Messages"
+        )
+        let realm = try WRealm.safe()
+        let chat = LastChatsStorageItem()
+        chat.owner = controller.owner
+        chat.jid = controller.jid
+        chat.conversationType = controller.conversationType
+        chat.messageDate = Date(timeIntervalSince1970: 1_754_000_000)
+        chat.isSynced = false
+        chat.isInitialArchiveLoaded = false
+        chat.setPrimary(withOwner: controller.owner)
+        try realm.write {
+            realm.add(chat, update: .modified)
+        }
+        controller.loadViewIfNeeded()
+        controller.configureDataset()
+        controller.applyBootstrapLoadingState(
+            .blockingArchive,
+            forceRender: true,
+            synchronousSkeletonCommit: true
+        )
+        return controller
+    }
+
+    private func markFreshSavedConversationDurablyEmpty(
+        _ controller: ChatViewController
+    ) throws {
+        let realm = try WRealm.safe()
+        try realm.write {
+            let chat = try XCTUnwrap(realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: controller.jid,
+                    owner: controller.owner,
+                    conversationType: controller.conversationType
+                )
+            ))
+            chat.isSynced = true
+            chat.isInitialArchiveLoaded = true
+            chat.syncUnreadCount = 0
+            chat.syncUnreadAfterId = nil
+            let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(
+                owner: controller.owner,
+                jid: controller.jid,
+                conversationType: controller.conversationType,
+                in: realm
+            )
+            archiveState.newerLiveEdgeReached = true
+        }
     }
 
     func testNonDurableCommittedEmptyProofSchedulesLatestFollowUp() {

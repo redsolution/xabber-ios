@@ -2578,7 +2578,7 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
         try assertNewestReadinessIsTrue(owner: owner, jid: jid)
     }
 
-    func testBootstrapFinalWithoutOptionalRSMCountStillCommitsConfirmedEmpty() throws {
+    func testBootstrapFinalWithoutRequestedRSMCountCannotCommitConfirmedEmpty() throws {
         let previousConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "ChatOptionalRSMCountRegressionTests-\(name)"
@@ -2615,14 +2615,13 @@ final class ChatInteractiveOpenGateRegressionTests: XCTestCase {
                 queryId: queryId,
                 persistenceSummary: MessageManager.ArchivePersistenceSummary()
             ),
-            .committed
+            .rejected(.missingPersistenceProof)
         )
-        let proof = try XCTUnwrap(
-            manager.consumeCommittedArchiveConsumerProof(queryId: queryId)
+        XCTAssertFalse(manager.hasDeferredCommit(queryId: queryId))
+        XCTAssertNil(
+            manager.consumeCommittedArchiveConsumerProof(queryId: queryId),
+            "a missing authoritative counter cannot prove an empty archive"
         )
-        XCTAssertNil(proof.serverResultCount)
-        XCTAssertEqual(proof.deliveredResultCount, 0)
-        XCTAssertTrue(proof.confirmsEmptyConversation)
     }
 
     func testCoordinatorCarriesInvisiblePageOlderTargetIntoNextLease() {

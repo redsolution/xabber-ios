@@ -1126,7 +1126,10 @@ final class SavedMessagesEntryPointTests: XCTestCase {
 
     @MainActor
     func testFreshEmptySavedDirectRouteConsumesFastTerminalAfterOffscreenPushInstallation() throws {
-        let owner = "fresh-saved-route@example.com"
+        // XCTest repetition can let a prior UIKit transition finish after its
+        // test teardown. Use a unique account-scoped lease so that such a late
+        // callback cannot join the next iteration's bootstrap transaction.
+        let owner = "fresh-saved-route-\(UUID().uuidString)@example.com"
         let favoritesJid = "favorites.example.com"
         try seedAccount(owner)
         try seedFavoritesService(owner: owner, node: favoritesJid)
@@ -1288,13 +1291,46 @@ final class SavedMessagesEntryPointTests: XCTestCase {
                 chatsController.chatNavigationSingleFlight.state?.phase ==
                     .presented
         })
-        XCTAssertTrue(waitUntil(timeout: 2) {
+        let didReachEmptyPresentation = waitUntil(timeout: 2) {
             destination.appliedBootstrapLoadingState == .empty &&
                 destination.datasource.isEmpty &&
                 !destination.showSkeletonObserver.value
-        }, "a durable zero-result Saved terminal must replace the off-screen push skeleton")
+        }
+        let persistedChat = try WRealm.safe().object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: LastChatsStorageItem.genPrimary(
+                jid: favoritesJid,
+                owner: owner,
+                conversationType: .saved
+            )
+        )
+        XCTAssertTrue(
+            didReachEmptyPresentation,
+            """
+            a durable zero-result Saved terminal must replace the off-screen push skeleton; \
+            loadingState=\(String(describing: destination.appliedBootstrapLoadingState)) \
+            datasourceCount=\(destination.datasource.count) \
+            skeleton=\(destination.showSkeletonObserver.value) \
+            inFlight=\(destination.isInitialBootstrapInFlight) \
+            query=\(destination.initialBootstrapQueryId ?? "nil") \
+            activityCount=\(destination.activeChatHistoryLoadActivityKeys.count) \
+            persistedSynced=\(persistedChat?.isSynced ?? false) \
+            persistedInitial=\(persistedChat?.isInitialArchiveLoaded ?? false)
+            """
+        )
         XCTAssertFalse(destination.isInitialBootstrapInFlight)
         XCTAssertNil(destination.initialBootstrapQueryId)
+        XCTAssertNil(destination.initialBootstrapTimeoutWorkItem)
+        XCTAssertTrue(destination.activeChatHistoryLoadActivityKeys.isEmpty)
+        XCTAssertTrue(destination.remoteHistoryEndPageDispatcherTokens.isEmpty)
+        XCTAssertEqual(
+            ChatInitialBootstrapRequestCoordinator.shared
+                .productionDiagnosticsSnapshot(
+                    for: destination.initialBootstrapRequestKey
+                ).transportStartCount,
+            1,
+            "the authoritative count=0 terminal must not start a second MAM request"
+        )
         XCTAssertGreaterThanOrEqual(destination.viewWillAppearCount, 1)
     }
 

@@ -7434,6 +7434,15 @@ enum ChatBootstrapStateApplicationPolicy {
         hasCommittedSkeletonRows: Bool = false
     ) -> ChatBootstrapStateApplicationDecision {
         if previous == next {
+            if !next.showsSkeleton,
+               forceRender,
+               hasCommittedSkeletonRows {
+                // The reducer can observe durable empty coverage before the
+                // UI has replaced an already committed skeleton datasource.
+                // Equal terminal state is therefore not a visual no-op until
+                // that older placeholder frame has been reconciled.
+                return .apply
+            }
             if next.showsSkeleton,
                forceRender,
                !hasCommittedContent,
@@ -7467,6 +7476,33 @@ enum ChatBootstrapTerminalPresentationInvariant {
             return requested
         }
         return hasMaterializedContent ? .content : .empty
+    }
+}
+
+enum ChatCommittedArchiveTerminalPresentationPolicy {
+    static func resolvedState(
+        requested: ChatBootstrapLoadingState,
+        readiness: ConversationArchiveReadiness?,
+        committedBoundaryMatchesCurrent: Bool,
+        hasMaterializedContent: Bool,
+        hasConsumedDurableEmptyTerminal: Bool = false
+    ) -> ChatBootstrapLoadingState {
+        if hasConsumedDurableEmptyTerminal {
+            return hasMaterializedContent ? .content : .empty
+        }
+        guard let readiness,
+              readiness.phase == .committed,
+              readiness.hasDurableCoverage,
+              committedBoundaryMatchesCurrent else {
+            return requested
+        }
+        if hasMaterializedContent || readiness.persistedVisibleRowCount > 0 {
+            return .content
+        }
+        if readiness.confirmsEmptyConversation {
+            return .empty
+        }
+        return requested
     }
 }
 
@@ -13690,11 +13726,15 @@ extension ChatViewController {
         self.didEnterInitialBootstrapObserverSettlePhase = false
         self.didObserveInitialBootstrapPostIdleTick = false
         self.registerRemoteHistoryFailureDispatcher(queryId: queryId)
-        self.observeInitialBootstrapReadiness(queryId: queryId)
         if let timeout {
             self.scheduleInitialBootstrapTimeout(queryId: queryId, timeout: timeout)
         }
         self.beginChatHistoryLoadActivity(reason: "initial:\(queryId)")
+        // Observation is deliberately last. A joined lease may synchronously
+        // replay a page that committed before this controller existed. Its
+        // completion must be able to cancel the timeout and end the activity;
+        // no tracking work may be installed after that terminal reset.
+        self.observeInitialBootstrapReadiness(queryId: queryId)
     }
 
     /// Query/target replacement must revoke the compound op2 before it can
@@ -13799,6 +13839,68 @@ extension ChatViewController {
         )
     }
 
+    /// Conversation-scoped terminal ownership is independent from a
+    /// controller-owned query. It stays attached across ordinary appearance
+    /// cleanup so a fast durable count=0 cannot be lost while the chat is
+    /// prepared off screen or moved between navigation columns.
+    internal func observeConversationArchiveTerminal() {
+        let key = self.initialBootstrapRequestKey
+        if self.conversationArchiveTerminalObservationKey == key,
+           self.conversationArchiveTerminalObservationToken != nil {
+            return
+        }
+        self.detachConversationArchiveTerminalObservation()
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let observation = coordinator.observe(key: key) { [weak self] readiness in
+            guard let readiness,
+                  readiness.phase == .committed,
+                  readiness.hasDurableCoverage,
+                  readiness.confirmsEmptyConversation else {
+                return
+            }
+            self?.performOnMain { [weak self] in
+                guard let self,
+                      self.initialBootstrapRequestKey == key,
+                      self.committedArchiveReceiptMatchesCurrentBoundary(
+                        readiness
+                      ) else {
+                    return
+                }
+                self.consumedEmptyArchiveTerminalKey = key
+                self.cancelInitialBootstrapAutomaticRetry(
+                    resetFailureCount: true
+                )
+                self.preservesBootstrapFailureOverlayUntilRetryCommit = false
+                self.setBootstrapFailureVisible(false)
+                self.resetInitialBootstrapTracking()
+                self.releaseInteractiveChatOpenGate()
+                self.applyBootstrapLoadingState(
+                    .empty,
+                    forceRender: true,
+                    hasTrustedPersistedBootstrapPage: true
+                )
+            }
+        }
+        self.conversationArchiveTerminalObservationKey = key
+        self.conversationArchiveTerminalObservationToken = observation
+    }
+
+    internal func detachConversationArchiveTerminalObservation() {
+        guard let key = self.conversationArchiveTerminalObservationKey,
+              let observation =
+                self.conversationArchiveTerminalObservationToken else {
+            self.conversationArchiveTerminalObservationKey = nil
+            self.conversationArchiveTerminalObservationToken = nil
+            return
+        }
+        self.conversationArchiveTerminalObservationKey = nil
+        self.conversationArchiveTerminalObservationToken = nil
+        ChatInitialBootstrapRequestCoordinator.shared.detach(
+            key: key,
+            observation: observation
+        )
+    }
+
     /// Reconciles the exact bootstrap still owned by this controller. Direct
     /// off-screen navigation can move between lifecycle observers while a
     /// fast empty MAM page commits. A durable receipt is replayed immediately;
@@ -13807,13 +13909,40 @@ extension ChatViewController {
     @discardableResult
     internal func reconcileInitialBootstrapReadinessAfterNavigationIfNeeded()
         -> Bool {
-        guard self.isInitialBootstrapInFlight,
-              let queryId = self.initialBootstrapQueryId else {
-            return false
-        }
         let coordinator = ChatInitialBootstrapRequestCoordinator.shared
         let key = self.initialBootstrapLeaseKey ??
             self.initialBootstrapRequestKey
+        guard self.isInitialBootstrapInFlight,
+              let queryId = self.initialBootstrapQueryId else {
+            // Off-screen direct navigation may reset the controller-owned
+            // query while the account-scoped transaction finishes. The
+            // committed receipt remains the authority; adopt it on the first
+            // visible navigation boundary instead of leaving the old skeleton
+            // or starting a second MAM.
+            guard self.appliedBootstrapLoadingState?.showsSkeleton == true ||
+                    self.isShowingBootstrapPlaceholder,
+                  let lease = coordinator.committedLease(for: key),
+                  let page = coordinator.cachedCommittedPage(
+                    key: key,
+                    queryId: lease.queryId
+                  ) else {
+                return false
+            }
+            self.initialBootstrapLeaseKey = key
+            self.initialBootstrapTargetFingerprint = lease.targetFingerprint
+            self.initialBootstrapPerformanceSemanticTargetFingerprint =
+                lease.performanceSemanticTargetFingerprint
+            self.initialBootstrapFollowUpTargetOverride = nil
+            self.beginInitialBootstrapTracking(
+                queryId: lease.queryId,
+                timeout: nil
+            )
+            if self.isInitialBootstrapInFlight,
+               self.initialBootstrapQueryId == lease.queryId {
+                self.consumeInitialBootstrapCommittedPage(page)
+            }
+            return true
+        }
         if let page = coordinator.cachedCommittedPage(
             key: key,
             queryId: queryId
@@ -14198,6 +14327,13 @@ extension ChatViewController {
         // Coverage, cursor and durable readiness are committed atomically by
         // MessageArchiveManager after the query-scoped persistence barrier.
         // Presentation must never infer a live edge from a target page.
+        if didConfirmEmpty {
+            // This controller consumed the exact committed bootstrap page.
+            // Keep that authoritative count=0 locally before any boundary
+            // follow-up/reset releases the shared coordinator receipt.
+            self.consumedEmptyArchiveTerminalKey =
+                self.initialBootstrapRequestKey
+        }
         self.cancelInitialBootstrapAutomaticRetry(resetFailureCount: true)
         self.rebuildUnreadMentionItems()
         let persistedMessageCount = self.initialBootstrapPersistedMessageCount ?? 0
@@ -15979,6 +16115,14 @@ extension ChatViewController {
                 // while orthogonal target work is active.
                 return hasDurableReadiness ? nil : readiness
             case .committed:
+                // A durable committed transaction is itself the archive
+                // proof for the exact current boundary. An empty conversation
+                // cannot produce a local timeline frame, so requiring a frame
+                // proof here would turn authoritative count=0 back into a
+                // skeleton and schedule another bootstrap pass.
+                if readiness.hasDurableCoverage {
+                    return readiness
+                }
                 return hasDurableReadiness ? readiness : blockingReadiness
             case .failed:
                 return readiness
@@ -18511,6 +18655,67 @@ extension ChatViewController {
         )
     }
 
+    /// Publishes the authoritative empty timeline without re-entering local
+    /// frame preparation. Once bootstrap committed `rsm-counter=0`, mapping
+    /// an older skeleton snapshot is both unnecessary and capable of racing a
+    /// late UIKit transaction back onto the screen.
+    private func commitConsumedEmptyArchiveTerminalPresentation() {
+        guard self.consumedEmptyArchiveTerminalKey ==
+                self.initialBootstrapRequestKey,
+              !self.datasource.contains(where: { !$0.isFakeMessage }) else {
+            return
+        }
+
+        self.cancelBootstrapSkeletonMappingJobs()
+        self.discardPendingInitialFrameLifecyclePresentation()
+        self.revokeActivePostBootstrapInitialFrameAdmission()
+        self.timelineSession?.cancelInitialFramePreparations()
+        self.initialLocalFirstFrameMappingToken?.cancel()
+        self.initialLocalFirstFrameMappingToken = nil
+        if let attempt = self.initialLocalFirstFramePresentationOwnership?.attempt {
+            self.revokeInitialFramePresentationAttempt(attempt)
+        }
+        self.initialLocalFirstFramePresentationRetryDescriptor = nil
+        let terminalDescriptor = ChatLocalFirstFrameDescriptorPolicy.descriptor(
+            request: self.pendingOpenMessageRequest,
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: self.conversationType
+        )
+        self.initialLocalFirstFramePhase = .idle
+        self.appliedBootstrapLoadingState = .empty
+        self.allowsBootstrapFailureFallback = false
+        self.preservesBootstrapFailureOverlayUntilRetryCommit = false
+        self.setBootstrapFailureVisible(false)
+        self.setSkeletonVisible(false)
+        self.setDatasourceLoadingEnabled(true)
+        self.setShouldShowInitialMessage(true)
+        self.messagesCollectionView.isUserInteractionEnabled = true
+        self.timelineInteractionState.unlock()
+
+        if !self.datasource.isEmpty {
+            self.performChatOpenPerformancePresentationTransaction(
+                receipt: .empty,
+                schedulesStableFrame: true
+            ) {
+                self.applyChatDatasource(
+                    [],
+                    mode: .fullReload(),
+                    animated: false,
+                    invalidateLayout: false,
+                    suppressDefaultBottomScroll: true,
+                    presentationCommitMode: .atomicInitialFrame
+                )
+            }
+        }
+        self.initialLocalFirstFramePhase = .committed(terminalDescriptor)
+        self.cancelPendingArchiveObserverRefresh(
+            reason: "authoritativeEmptyBootstrapTerminal"
+        )
+        self.resolvePendingBootstrapFirstFrameReadinessCompletionsIfPossible()
+        self.finishInitialLocalFirstFramePreparationWhenPresentationIsReady()
+    }
+
     internal func applyBootstrapLoadingState(
         _ requestedState: ChatBootstrapLoadingState,
         forceRender: Bool = false,
@@ -18518,15 +18723,43 @@ extension ChatViewController {
         hasTrustedPersistedBootstrapPage: Bool = false,
         replacingConversationDatasource: Bool = false
     ) {
+        let archiveReadiness = ChatInitialBootstrapRequestCoordinator.shared
+            .readiness(for: self.initialBootstrapRequestKey)
+        let hasMaterializedContent =
+            self.localHistoryMessageCountForBootstrap() > 0
+        let hasConsumedDurableEmptyTerminal =
+            self.consumedEmptyArchiveTerminalKey ==
+                self.initialBootstrapRequestKey
+        let terminalResolvedState =
+            ChatCommittedArchiveTerminalPresentationPolicy.resolvedState(
+                requested: requestedState,
+                readiness: archiveReadiness,
+                committedBoundaryMatchesCurrent: archiveReadiness.map(
+                    self.committedArchiveReceiptMatchesCurrentBoundary
+                ) ?? false,
+                hasMaterializedContent: hasMaterializedContent,
+                hasConsumedDurableEmptyTerminal:
+                    hasConsumedDurableEmptyTerminal
+            )
         let state = ChatBootstrapTerminalPresentationInvariant.resolvedState(
-            requested: requestedState,
+            requested: terminalResolvedState,
             hasCommittedTerminalPresentation:
                 self.hasCommittedTimelinePresentationInCurrentLifecycle,
-            hasMaterializedContent:
-                self.localHistoryMessageCountForBootstrap() > 0,
+            hasMaterializedContent: hasMaterializedContent,
             isReplacingConversation: replacingConversationDatasource
         )
-        if requestedState.showsSkeleton, !state.showsSkeleton {
+        if hasConsumedDurableEmptyTerminal {
+            self.allowsBootstrapFailureFallback = false
+            self.preservesBootstrapFailureOverlayUntilRetryCommit = false
+        }
+        if hasConsumedDurableEmptyTerminal,
+           state == .empty {
+            self.commitConsumedEmptyArchiveTerminalPresentation()
+            return
+        }
+        if (requestedState.showsSkeleton || requestedState.showsRetry),
+           !state.showsSkeleton,
+           !state.showsRetry {
             // A terminal frame for this conversation is monotonic. Archive
             // boundary repair may continue, but it is nonblocking and cannot
             // acquire a second skeleton presentation. Reconcile every output
