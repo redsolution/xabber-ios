@@ -1973,8 +1973,11 @@ final class ChatInitialBootstrapRequestCoordinator {
                         recommendedFollowUpTarget:
                             consumerProof?.recommendedFollowUpTarget
                     ),
-                    hasDurableCoverage:
-                        hasPersistenceConfirmedReadiness(for: key)
+                    // `.committed` is produced only after the query-scoped
+                    // Realm transaction applies coverage/readiness and stores
+                    // its immutable boundary proof. Reading legacy flags again
+                    // can race a newer snapshot and must not weaken this receipt.
+                    hasDurableCoverage: true
                 )
             case .committedNeedsFollowUpRepair:
                 completeCommittedPerformanceTrace()
@@ -2090,8 +2093,10 @@ final class ChatInitialBootstrapRequestCoordinator {
                         recommendedFollowUpTarget:
                             consumerProof?.recommendedFollowUpTarget
                     ),
-                    hasDurableCoverage:
-                        self.hasPersistenceConfirmedReadiness(for: key)
+                    // The deferred commit and consumer proof are one durable
+                    // transaction result. Presentation validates the carried
+                    // boundary fingerprint instead of polling Realm again.
+                    hasDurableCoverage: true
                 )
             case .committedNeedsFollowUpRepair:
                 self.recordCommittedPage(
@@ -2361,7 +2366,10 @@ final class ChatInitialBootstrapRequestCoordinator {
                 page.recommendedFollowUpTarget ??
                 (
                     !page.hasPresentationMaterialization &&
-                    !page.confirmsEmptyConversation
+                    (
+                        !hasDurableCoverage ||
+                        !page.confirmsEmptyConversation
+                    )
                         ? .latest
                         : nil
                 )
@@ -2542,31 +2550,6 @@ final class ChatInitialBootstrapRequestCoordinator {
             persistedVisibleRowCount: visibleRows,
             boundaryFingerprint: attempt.committedPage?.boundaryFingerprint
         )
-    }
-
-    private func hasPersistenceConfirmedReadiness(
-        for key: ChatInitialBootstrapRequestKey
-    ) -> Bool {
-        guard let conversationType = ClientSynchronizationManager.ConversationType(
-            rawValue: key.conversationTypeRawValue
-        ) else {
-            return false
-        }
-        do {
-            let realm = try WRealm.safe()
-            let chat = realm.object(
-                ofType: LastChatsStorageItem.self,
-                forPrimaryKey: LastChatsStorageItem.genPrimary(
-                    jid: key.jid,
-                    owner: key.owner,
-                    conversationType: conversationType
-                )
-            )
-            return chat?.isInitialArchiveLoaded == true && chat?.isSynced == true
-        } catch {
-            DDLogDebug("ChatInitialBootstrapRequestCoordinator: \(#function). \(error.localizedDescription)")
-            return false
-        }
     }
 
     private func notifyReadinessObservers(key: ChatInitialBootstrapRequestKey) {

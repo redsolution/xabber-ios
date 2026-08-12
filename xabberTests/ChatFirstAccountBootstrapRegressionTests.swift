@@ -59,6 +59,223 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testFreshEmptyBootstrapCommitTransitionsCommittedSkeletonToEmptyOnce() throws {
+        let previousConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ChatFreshEmptyBootstrap-\(name)"
+        )
+        defer {
+            Realm.Configuration.defaultConfiguration = previousConfiguration
+        }
+
+        let controller = ChatViewController()
+        controller.owner = "fresh-empty-owner@example.com"
+        controller.jid = "call.me.bot@example.com"
+        controller.conversationType = .regular
+        controller.ownerSender = Sender(
+            id: controller.owner,
+            displayName: "Owner"
+        )
+        controller.opponentSender = Sender(
+            id: controller.jid,
+            displayName: "Call Me Bot"
+        )
+        controller.loadViewIfNeeded()
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+        controller.configureDataset()
+        controller.applyBootstrapLoadingState(
+            .blockingArchive,
+            forceRender: true,
+            synchronousSkeletonCommit: true
+        )
+
+        XCTAssertEqual(controller.datasource.count, 30)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "fresh-empty-bootstrap",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("fresh empty chat must own its bootstrap lease")
+        }
+
+        let archiveManager = MessageArchiveManager(withOwner: key.owner)
+        let startResult = archiveManager.syncChat(
+            XMPPStream(),
+            jid: key.jid,
+            conversationType: .regular,
+            pageSize: 80,
+            queryId: lease.queryId,
+            callback: nil
+        )
+        XCTAssertEqual(
+            startResult,
+            .bootstrapStarted(queryId: lease.queryId)
+        )
+        coordinator.resolveStart(
+            key: key,
+            queryId: lease.queryId,
+            result: startResult,
+            messages: nil,
+            archiveManager: archiveManager,
+            cancelTransport: {}
+        )
+        controller.beginInitialBootstrapTracking(
+            queryId: lease.queryId,
+            timeout: nil
+        )
+
+        XCTAssertTrue(archiveManager.read(
+            XMPPStream(),
+            withIQ: try makeArchiveFinalIQ(
+                queryId: lease.queryId,
+                complete: true,
+                count: 0
+            )
+        ))
+        XCTAssertTrue(waitUntil {
+            controller.appliedBootstrapLoadingState == .empty &&
+                controller.datasource.isEmpty &&
+                !controller.showSkeletonObserver.value
+        })
+
+        XCTAssertEqual(controller.appliedBootstrapLoadingState, .empty)
+        XCTAssertTrue(controller.datasource.isEmpty)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .committed)
+        guard case .joined(let reopenedLease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "fresh-empty-reopen",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("reopen must reuse the durable empty receipt")
+        }
+        XCTAssertEqual(reopenedLease.queryId, lease.queryId)
+        XCTAssertTrue(coordinator.releaseInteractiveCommittedJoinReservation(
+            key: key,
+            queryId: reopenedLease.queryId
+        ))
+        XCTAssertTrue(coordinator.invalidateCommittedReceipt(
+            key: key,
+            queryId: reopenedLease.queryId
+        ))
+    }
+
+    func testNonDurableCommittedEmptyProofSchedulesLatestFollowUp() {
+        let coordinator = ChatInitialBootstrapRequestCoordinator(
+            automaticallySchedulesTimeouts: false
+        )
+        let key = ChatInitialBootstrapRequestKey(
+            owner: "non-durable-empty-owner@example.com",
+            jid: "non-durable-empty-peer@example.com",
+            conversationType: .regular
+        )
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "non-durable-empty",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("test setup must own the bootstrap lease")
+        }
+
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: lease.queryId,
+            hasDurableCoverage: false,
+            resultCount: 0,
+            confirmsEmptyConversation: true,
+            hasPresentationMaterialization: false
+        )
+
+        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .committed)
+        XCTAssertFalse(
+            coordinator.readiness(for: key)?.hasDurableCoverage ?? true
+        )
+        XCTAssertFalse(
+            coordinator.readiness(for: key)?.confirmsEmptyConversation ?? true
+        )
+        XCTAssertEqual(
+            coordinator.pendingFollowUpRequest(for: key)?.fingerprint.target,
+            .latest,
+            "a non-durable page-level empty proof must not strand the skeleton"
+        )
+        XCTAssertEqual(
+            coordinator.pendingFollowUpRequest(for: key)?.purpose,
+            .snapshotRepair
+        )
+    }
+
+    func testDurableMaterializedCommitDoesNotScheduleFollowUp() {
+        let coordinator = ChatInitialBootstrapRequestCoordinator(
+            automaticallySchedulesTimeouts: false
+        )
+        let key = ChatInitialBootstrapRequestKey(
+            owner: "materialized-owner@example.com",
+            jid: "materialized-peer@example.com",
+            conversationType: .regular
+        )
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "materialized-bootstrap",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("test setup must own the bootstrap lease")
+        }
+
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: lease.queryId,
+            hasDurableCoverage: true,
+            resultCount: 1,
+            persistedRowsForQuery: 1,
+            visibleRowsForConversation: 1,
+            confirmsEmptyConversation: false,
+            hasPresentationMaterialization: true
+        )
+
+        XCTAssertTrue(
+            coordinator.readiness(for: key)?.hasDurableCoverage ?? false
+        )
+        XCTAssertEqual(
+            coordinator.readiness(for: key)?.persistedVisibleRowCount,
+            1
+        )
+        XCTAssertNil(coordinator.pendingFollowUpRequest(for: key))
+    }
+
+    func testDeferredCommittedResultDoesNotUseASecondLegacyReadinessRead() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "xabber/controllers/chats/chat/rx/ChatViewController+HighPrioritySubscribtions.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(
+            source.contains("hasPersistenceConfirmedReadiness("),
+            "deferred .committed is the same-transaction durable authority"
+        )
+    }
+
     func testJoinedCommittedReceiptSurvivesSnapshotInvalidationUntilUIObservationAttaches() {
         let coordinator = ChatInitialBootstrapRequestCoordinator(
             automaticallySchedulesTimeouts: false
@@ -178,7 +395,7 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
         XCTAssertNil(coordinator.readiness(for: key))
     }
 
-    func testSnapshotRepairJoinDoesNotReserveCommittedReceiptFromInvalidation() {
+    func testNonDurableSnapshotRepairCommitStartsOneBoundedLatestFollowUp() {
         let coordinator = ChatInitialBootstrapRequestCoordinator(
             automaticallySchedulesTimeouts: false
         )
@@ -201,25 +418,33 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
             queryId: lease.queryId,
             hasDurableCoverage: false
         )
-        guard case .joined = coordinator.acquireOrJoin(
+        guard case .start(let followUpLease) = coordinator.acquireOrJoin(
             key: key,
             proposedQueryId: "snapshot-only-join",
             timeout: 45,
             purpose: .snapshotRepair,
             observer: { _, _, _ in }
         ) else {
-            return XCTFail("snapshot repair must join the existing receipt")
+            return XCTFail("non-durable receipt must roll into its pending repair")
         }
+        XCTAssertEqual(followUpLease.queryId, "snapshot-only-join")
+        XCTAssertEqual(followUpLease.targetFingerprint.target, .latest)
 
-        XCTAssertFalse(coordinator.releaseInteractiveCommittedJoinReservation(
+        guard case .joined(let duplicateLease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "snapshot-only-duplicate",
+            timeout: 45,
+            purpose: .snapshotRepair,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("the bounded repair must remain single-flight")
+        }
+        XCTAssertEqual(duplicateLease.queryId, followUpLease.queryId)
+        XCTAssertFalse(coordinator.invalidateCommittedReceipt(
             key: key,
             queryId: lease.queryId
         ))
-        XCTAssertTrue(coordinator.invalidateCommittedReceipt(
-            key: key,
-            queryId: lease.queryId
-        ))
-        XCTAssertNil(coordinator.readiness(for: key))
+        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .queued)
     }
 
     func testRawFinalReleasesMamLaneAndLeaseSurvivesUntilQueryPersistenceTerminates() throws {
@@ -1398,6 +1623,25 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
             streamKind: .primary,
             source: .localCallback
         )
+    }
+
+    private func makeArchiveFinalIQ(
+        queryId: String,
+        complete: Bool,
+        count: Int
+    ) throws -> XMPPIQ {
+        let document = try DDXMLDocument(xmlString: """
+        <iq type='result' id='\(queryId)'>
+          <fin xmlns='urn:xmpp:mam:2' complete='\(complete ? "true" : "false")' queryid='\(queryId)'>
+            <set xmlns='http://jabber.org/protocol/rsm'>
+              <count>\(count)</count>
+              <first></first>
+              <last></last>
+            </set>
+          </fin>
+        </iq>
+        """, options: 0)
+        return XMPPIQ(from: try XCTUnwrap(document.rootElement()))
     }
 
     private func waitUntil(

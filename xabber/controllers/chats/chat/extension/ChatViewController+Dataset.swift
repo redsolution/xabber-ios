@@ -15907,8 +15907,20 @@ extension ChatViewController {
             // carry a fingerprint; their durable readiness remains reusable.
             return true
         }
-        return self.currentInitialFrameReadinessProof()?
-            .archiveBoundaryFingerprint == committedFingerprint
+        if let sessionFingerprint = self.currentInitialFrameReadinessProof()?
+            .archiveBoundaryFingerprint {
+            return sessionFingerprint == committedFingerprint
+        }
+        // A fresh zero-row timeline has no local frame from which to publish a
+        // readiness proof. Compare the transaction fingerprint with the
+        // current boundary rows directly so absence of a frame is not treated
+        // as a newer snapshot. This fallback reads boundary identity only; it
+        // never reinterprets legacy readiness flags.
+        return MessageArchiveManager.currentConversationArchiveBoundaryFingerprint(
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: self.conversationType
+        ) == committedFingerprint
     }
 
     internal func shouldInvalidateCommittedArchiveReceipt(
