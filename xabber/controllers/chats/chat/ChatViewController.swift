@@ -2751,6 +2751,7 @@ class ChatViewController: MessagesViewController {
             return
         }
         self.needsNavigationChromeReconciliationAfterCancelledTransition = false
+        _ = self.reconcileInitialBootstrapReadinessAfterNavigationIfNeeded()
         self.flushPendingNavigationTransitionWork()
     }
 
@@ -8183,6 +8184,7 @@ class ChatViewController: MessagesViewController {
         // a cancelled interactive pop reports its outcome.
         if !self.isNavigationTransitionActive {
             self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = false
+            _ = self.reconcileInitialBootstrapReadinessAfterNavigationIfNeeded()
             self.flushPendingNavigationTransitionWork()
         }
         self.reconcileNavigationChromeAfterCancelledTransition()

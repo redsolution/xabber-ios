@@ -9,6 +9,7 @@
 import XCTest
 import UIKit
 import RealmSwift
+import XMPPFramework
 @testable import xabber
 
 final class LeftMenuSelectionPresentationPolicyTests: XCTestCase {
@@ -1123,6 +1124,180 @@ final class SavedMessagesEntryPointTests: XCTestCase {
         })
     }
 
+    @MainActor
+    func testFreshEmptySavedDirectRouteConsumesFastTerminalAfterOffscreenPushInstallation() throws {
+        let owner = "fresh-saved-route@example.com"
+        let favoritesJid = "favorites.example.com"
+        try seedAccount(owner)
+        try seedFavoritesService(owner: owner, node: favoritesJid)
+        try seedLastChat(
+            jid: favoritesJid,
+            owner: owner,
+            conversationType: .saved
+        )
+
+        let windowScene = try requireHostedForegroundWindowScene()
+        let previousKeyWindow = windowScene.windows.first(where: \.isKeyWindow)
+        let leftMenu = LeftMenuViewController()
+        let chatsController = LastChatsViewController()
+        let destination = SavedLifecycleChatViewController()
+        let previousSupplementary = UINavigationController(
+            rootViewController: LastChatsViewController()
+        )
+        let previousSecondary = UINavigationController(
+            rootViewController: EmptyChatViewController()
+        )
+        let splitViewController = UISplitViewController(style: .tripleColumn)
+        let accountIdentity = NSObject()
+        let stream = XMPPStream()
+        let archiveManager = MessageArchiveManager(withOwner: owner)
+        let messageManager = MessageManager(withOwner: owner, activeStream: false)
+        var hostedWindow: UIWindow?
+        messageManager.updateSendingMessagesTimer?.invalidate()
+        messageManager.updateSendingMessagesTimer = nil
+        messageManager.unsubscribeSender()
+        defer {
+            destination.performTerminalChatResourceTeardownForTesting()
+            messageManager.updateSendingMessagesTimer?.invalidate()
+            messageManager.updateSendingMessagesTimer = nil
+            messageManager.unsubscribeReceiver()
+            messageManager.unsubscribeSender()
+            chatsController.resetChatNavigationTransaction(cancelled: true)
+            hostedWindow?.isHidden = true
+            hostedWindow?.rootViewController = nil
+            previousKeyWindow?.makeKey()
+        }
+
+        destination.initialFramePresentationApplicationStateProvider = { .active }
+        var transportQueryId: String?
+        destination.performanceFixtureArchiveTransportProvider = { request in
+            guard request.kind == .initialBootstrap,
+                  let queryId = request.queryIds.first else {
+                return nil
+            }
+            transportQueryId = queryId
+            messageManager.archiveQueryIdPersistenceResolver = {
+                $0 == queryId
+            }
+            return ChatPerformanceFixtureArchiveTransportSession(
+                stream: stream,
+                archiveManager: archiveManager,
+                messageManager: messageManager
+            )
+        }
+        let transportLaunched = DispatchSemaphore(value: 0)
+        let backgroundTerminalCommitted = DispatchSemaphore(value: 0)
+        destination.performanceFixtureArchiveTransportExecutor = { work in
+            guard let queryId = transportQueryId else {
+                return XCTFail("expected a Saved bootstrap query")
+            }
+            DispatchQueue.global(qos: .userInitiated).async {
+                work()
+                transportLaunched.signal()
+                let document = try! DDXMLDocument(xmlString: """
+                <iq type='result' id='\(queryId)'>
+                  <fin xmlns='urn:xmpp:mam:2' complete='true' queryid='\(queryId)'>
+                    <set xmlns='http://jabber.org/protocol/rsm'>
+                      <count>0</count><first></first><last></last>
+                    </set>
+                  </fin>
+                </iq>
+                """, options: 0)
+                let deadline = Date().addingTimeInterval(2)
+                var accepted = false
+                repeat {
+                    accepted = archiveManager.read(
+                        stream,
+                        withIQ: XMPPIQ(from: document.rootElement()!)
+                    )
+                    if !accepted {
+                        Thread.sleep(forTimeInterval: 0.005)
+                    }
+                } while !accepted && Date() < deadline
+                while ChatInitialBootstrapRequestCoordinator.shared.readiness(
+                    for: destination.initialBootstrapRequestKey
+                )?.phase != .committed,
+                      Date() < deadline {
+                    Thread.sleep(forTimeInterval: 0.005)
+                }
+                backgroundTerminalCommitted.signal()
+            }
+        }
+
+        leftMenu.chatsVc = chatsController
+        leftMenu.chatNavigationRouteResolver = { _ in .currentNavigationPush }
+        chatsController.chatNavigationRouteResolver = {
+            _ in .currentNavigationPush
+        }
+        chatsController.chatNavigationAccountEpochResolver = { _ in
+            LastChatsChatNavigationAccountEpoch(
+                accountIdentifier: ObjectIdentifier(accountIdentity),
+                isPresent: true,
+                isEnabled: true
+            )
+        }
+        chatsController.compactChatDestinationFactory = { destination }
+        splitViewController.setViewController(leftMenu, for: .primary)
+        splitViewController.setViewController(
+            previousSupplementary,
+            for: .supplementary
+        )
+        splitViewController.setViewController(
+            previousSecondary,
+            for: .secondary
+        )
+
+        let window = TraitWindow(
+            windowScene: windowScene,
+            horizontalSizeClass: .compact
+        )
+        hostedWindow = window
+        retainedTraitWindows.append(window)
+        window.frame = windowScene.coordinateSpace.bounds
+        window.rootViewController = splitViewController
+        window.makeKeyAndVisible()
+        splitViewController.loadViewIfNeeded()
+        splitViewController.show(.primary)
+        leftMenu.loadViewIfNeeded()
+        splitViewController.view.layoutIfNeeded()
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            splitViewController.transitionCoordinator == nil
+        })
+
+        leftMenu.didSelectRootScreenBy(key: "saved")
+
+        XCTAssertTrue(waitUntil(timeout: 3) {
+            transportLaunched.wait(timeout: .now()) == .success
+        })
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            backgroundTerminalCommitted.wait(timeout: .now()) == .success
+        })
+        XCTAssertEqual(
+            ChatInitialBootstrapRequestCoordinator.shared.readiness(
+                for: destination.initialBootstrapRequestKey
+            )?.phase,
+            .committed
+        )
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            guard let navigationController = splitViewController.viewController(
+                for: .supplementary
+            ) as? UINavigationController else {
+                return false
+            }
+            return navigationController.topViewController === destination &&
+                chatsController.chatNavigationSingleFlight.state?.phase ==
+                    .presented
+        })
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            destination.appliedBootstrapLoadingState == .empty &&
+                destination.datasource.isEmpty &&
+                !destination.showSkeletonObserver.value
+        }, "a durable zero-result Saved terminal must replace the off-screen push skeleton")
+        XCTAssertFalse(destination.isInitialBootstrapInFlight)
+        XCTAssertNil(destination.initialBootstrapQueryId)
+        XCTAssertGreaterThanOrEqual(destination.viewWillAppearCount, 1)
+    }
+
     func testSavedAfterAnotherSectionDoesNotRevealStaleSavedNavigationColumn() throws {
         try seedAccount("owner@example.com")
         try seedFavoritesService(
@@ -2062,6 +2237,15 @@ final class SavedMessagesEntryPointTests: XCTestCase {
             }
             self.preparationHandle = nil
             preparationHandle.finish()
+        }
+    }
+
+    private final class SavedLifecycleChatViewController: ChatViewController {
+        private(set) var viewWillAppearCount = 0
+
+        override func viewWillAppear(_ animated: Bool) {
+            viewWillAppearCount += 1
+            super.viewWillAppear(animated)
         }
     }
 

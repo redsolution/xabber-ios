@@ -13750,7 +13750,8 @@ extension ChatViewController {
         }
 
         let coordinator = ChatInitialBootstrapRequestCoordinator.shared
-        let key = self.initialBootstrapRequestKey
+        let key = self.initialBootstrapLeaseKey ??
+            self.initialBootstrapRequestKey
         let observation = coordinator.observe(
             key: key,
             consumesInteractiveCommittedJoin: true
@@ -13771,8 +13772,16 @@ extension ChatViewController {
                 self.consumeInitialBootstrapCommittedPage(page)
             }
         }
-        self.initialBootstrapReadinessObservationKey = key
-        self.initialBootstrapReadinessObservationToken = observation
+        if self.isInitialBootstrapInFlight,
+           self.initialBootstrapQueryId == queryId {
+            self.initialBootstrapReadinessObservationKey = key
+            self.initialBootstrapReadinessObservationToken = observation
+        } else {
+            // `observe` may synchronously replay an already committed page.
+            // Do not reinstall that consumed observation after reset cleared
+            // the controller-owned bootstrap state.
+            coordinator.detach(key: key, observation: observation)
+        }
     }
 
     internal func detachInitialBootstrapReadinessObservation() {
@@ -13788,6 +13797,35 @@ extension ChatViewController {
             key: key,
             observation: observation
         )
+    }
+
+    /// Reconciles the exact bootstrap still owned by this controller. Direct
+    /// off-screen navigation can move between lifecycle observers while a
+    /// fast empty MAM page commits. A durable receipt is replayed immediately;
+    /// otherwise the stable presentation boundary reattaches observation to
+    /// the existing account-scoped lease without starting another request.
+    @discardableResult
+    internal func reconcileInitialBootstrapReadinessAfterNavigationIfNeeded()
+        -> Bool {
+        guard self.isInitialBootstrapInFlight,
+              let queryId = self.initialBootstrapQueryId else {
+            return false
+        }
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = self.initialBootstrapLeaseKey ??
+            self.initialBootstrapRequestKey
+        if let page = coordinator.cachedCommittedPage(
+            key: key,
+            queryId: queryId
+        ) {
+            self.consumeInitialBootstrapCommittedPage(page)
+            return true
+        }
+        if self.initialBootstrapReadinessObservationKey == nil ||
+            self.initialBootstrapReadinessObservationToken == nil {
+            self.observeInitialBootstrapReadiness(queryId: queryId)
+        }
+        return false
     }
 
     internal func resetInitialBootstrapTracking(

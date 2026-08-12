@@ -173,6 +173,206 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
         ))
     }
 
+    @MainActor
+    func testFreshSavedMessagesEmptyBootstrapCommitTransitionsSkeletonToEmpty() throws {
+        let controller = ChatViewController()
+        controller.owner = "fresh-saved-owner@dxs.xabber.com"
+        controller.jid = "favorites.dxs.xabber.com"
+        controller.conversationType = .saved
+        controller.ownerSender = Sender(
+            id: controller.owner,
+            displayName: "Owner"
+        )
+        controller.opponentSender = Sender(
+            id: controller.jid,
+            displayName: "Saved Messages"
+        )
+        controller.loadViewIfNeeded()
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+        controller.configureDataset()
+        controller.applyBootstrapLoadingState(
+            .blockingArchive,
+            forceRender: true,
+            synchronousSkeletonCommit: true
+        )
+
+        XCTAssertEqual(controller.datasource.count, 30)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "fresh-saved-empty-bootstrap",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("fresh Saved Messages must own its bootstrap lease")
+        }
+
+        let archiveManager = MessageArchiveManager(withOwner: key.owner)
+        let messageManager = makeMessageManager(owner: key.owner)
+        messageManager.archiveQueryIdPersistenceResolver = {
+            $0 == lease.queryId
+        }
+        defer {
+            messageManager.updateSendingMessagesTimer?.invalidate()
+            messageManager.updateSendingMessagesTimer = nil
+            messageManager.unsubscribeReceiver()
+            messageManager.unsubscribeSender()
+        }
+        let startResult = archiveManager.syncChat(
+            XMPPStream(),
+            jid: key.jid,
+            conversationType: .saved,
+            pageSize: 80,
+            queryId: lease.queryId,
+            callback: nil
+        )
+        XCTAssertEqual(
+            startResult,
+            .bootstrapStarted(queryId: lease.queryId)
+        )
+        coordinator.resolveStart(
+            key: key,
+            queryId: lease.queryId,
+            result: startResult,
+            messages: messageManager,
+            archiveManager: archiveManager,
+            cancelTransport: {}
+        )
+        controller.beginInitialBootstrapTracking(
+            queryId: lease.queryId,
+            timeout: nil
+        )
+
+        XCTAssertTrue(archiveManager.read(
+            XMPPStream(),
+            withIQ: try makeArchiveFinalIQ(
+                queryId: lease.queryId,
+                complete: true,
+                count: 0
+            )
+        ))
+        XCTAssertTrue(waitUntil {
+            controller.appliedBootstrapLoadingState == .empty &&
+                controller.datasource.isEmpty &&
+                !controller.showSkeletonObserver.value
+        })
+
+        XCTAssertEqual(controller.appliedBootstrapLoadingState, .empty)
+        XCTAssertTrue(controller.datasource.isEmpty)
+        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        XCTAssertEqual(coordinator.readiness(for: key)?.phase, .committed)
+        XCTAssertTrue(
+            coordinator.readiness(for: key)?.confirmsEmptyConversation ?? false
+        )
+    }
+
+    @MainActor
+    func testDirectSavedMessagesNavigationCompletionReplaysFastEmptyTerminal() throws {
+        let controller = ChatViewController()
+        controller.owner = "direct-saved-owner@dxs.xabber.com"
+        controller.jid = "favorites.dxs.xabber.com"
+        controller.conversationType = .saved
+        controller.ownerSender = Sender(
+            id: controller.owner,
+            displayName: "Owner"
+        )
+        controller.opponentSender = Sender(
+            id: controller.jid,
+            displayName: "Saved Messages"
+        )
+        controller.loadViewIfNeeded()
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+        controller.configureDataset()
+        controller.applyBootstrapLoadingState(
+            .blockingArchive,
+            forceRender: true,
+            synchronousSkeletonCommit: true
+        )
+
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "direct-saved-fast-empty-terminal",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("direct Saved Messages must own its bootstrap lease")
+        }
+
+        let stream = XMPPStream()
+        let archiveManager = MessageArchiveManager(withOwner: key.owner)
+        let messageManager = makeMessageManager(owner: key.owner)
+        messageManager.archiveQueryIdPersistenceResolver = {
+            $0 == lease.queryId
+        }
+        defer {
+            messageManager.updateSendingMessagesTimer?.invalidate()
+            messageManager.updateSendingMessagesTimer = nil
+            messageManager.unsubscribeReceiver()
+            messageManager.unsubscribeSender()
+        }
+        let startResult = archiveManager.syncChat(
+            stream,
+            jid: key.jid,
+            conversationType: .saved,
+            pageSize: 80,
+            queryId: lease.queryId,
+            callback: nil
+        )
+        coordinator.resolveStart(
+            key: key,
+            queryId: lease.queryId,
+            result: startResult,
+            messages: messageManager,
+            archiveManager: archiveManager,
+            cancelTransport: {}
+        )
+        controller.beginInitialBootstrapTracking(
+            queryId: lease.queryId,
+            timeout: nil
+        )
+        controller.isNavigationTransitionActive = true
+        // Reproduce the lifecycle handoff of a direct off-screen Saved push:
+        // the observer is replaced while its account-scoped receipt commits.
+        controller.detachInitialBootstrapReadinessObservation()
+
+        XCTAssertTrue(archiveManager.read(
+            stream,
+            withIQ: try makeArchiveFinalIQ(
+                queryId: lease.queryId,
+                complete: true,
+                count: 0
+            )
+        ))
+        XCTAssertTrue(waitUntil {
+            coordinator.readiness(for: key)?.phase == .committed
+        })
+        XCTAssertTrue(controller.isInitialBootstrapInFlight)
+        XCTAssertEqual(controller.initialBootstrapQueryId, lease.queryId)
+
+        controller.completeNavigationTransitionDeferral(cancelled: false)
+
+        XCTAssertTrue(waitUntil {
+            controller.appliedBootstrapLoadingState == .empty &&
+                controller.datasource.isEmpty &&
+                !controller.showSkeletonObserver.value
+        })
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
+        XCTAssertNil(controller.initialBootstrapQueryId)
+    }
+
     func testNonDurableCommittedEmptyProofSchedulesLatestFollowUp() {
         let coordinator = ChatInitialBootstrapRequestCoordinator(
             automaticallySchedulesTimeouts: false
