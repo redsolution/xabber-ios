@@ -93,6 +93,7 @@ extension LastChatsViewController {
         refreshEmptyStateVisibility(isSearchActive: bottomSearchHostView.isExpanded)
         updateFloatingToolbarFilterButtonState()
         updateTableInsetsForFloatingToolbar()
+        runDatasetUpdateTask()
         if isViewLoaded {
             view.bringSubviewToFront(bottomSearchHostView)
         }

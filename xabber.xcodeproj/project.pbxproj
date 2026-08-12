@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A1B2C3D4321200000ABC0002 /* LastChatsPremiumPromotionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4321200000ABC0001 /* LastChatsPremiumPromotionTests.swift */; };
+		A1B2C3D4321200000ABC0012 /* LastChatsSpecialMessageVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4321200000ABC0011 /* LastChatsSpecialMessageVisibilityTests.swift */; };
 		4E5039120000000000000001 /* RedmineIssue50391Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5039110000000000000001 /* RedmineIssue50391Tests.swift */; };
 		4E5039220000000000000001 /* RedmineIssue50392Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5039210000000000000001 /* RedmineIssue50392Tests.swift */; };
 		4EC100023A1B00000ABC001 /* APNSManagerDiagnosticPrivacyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EC100013A1B00000ABC001 /* APNSManagerDiagnosticPrivacyTests.swift */; };
@@ -1048,6 +1049,7 @@
 
 /* Begin PBXFileReference section */
 		A1B2C3D4321200000ABC0001 /* LastChatsPremiumPromotionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsPremiumPromotionTests.swift; sourceTree = "<group>"; };
+		A1B2C3D4321200000ABC0011 /* LastChatsSpecialMessageVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsSpecialMessageVisibilityTests.swift; sourceTree = "<group>"; };
 		4E5039110000000000000001 /* RedmineIssue50391Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedmineRegression/RedmineIssue50391Tests.swift; sourceTree = "<group>"; };
 		4E5039210000000000000001 /* RedmineIssue50392Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedmineRegression/RedmineIssue50392Tests.swift; sourceTree = "<group>"; };
 		4EC100013A1B00000ABC001 /* APNSManagerDiagnosticPrivacyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APNSManagerDiagnosticPrivacyTests.swift; sourceTree = "<group>"; };
@@ -4195,6 +4197,7 @@
 			isa = PBXGroup;
 			children = (
 				A1B2C3D4321200000ABC0001 /* LastChatsPremiumPromotionTests.swift */,
+				A1B2C3D4321200000ABC0011 /* LastChatsSpecialMessageVisibilityTests.swift */,
 				4E5039110000000000000001 /* RedmineIssue50391Tests.swift */,
 				4E5039210000000000000001 /* RedmineIssue50392Tests.swift */,
 				4EC100013A1B00000ABC001 /* APNSManagerDiagnosticPrivacyTests.swift */,
@@ -6439,6 +6442,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1B2C3D4321200000ABC0002 /* LastChatsPremiumPromotionTests.swift in Sources */,
+				A1B2C3D4321200000ABC0012 /* LastChatsSpecialMessageVisibilityTests.swift in Sources */,
 				4E5039120000000000000001 /* RedmineIssue50391Tests.swift in Sources */,
 				4E5039220000000000000001 /* RedmineIssue50392Tests.swift in Sources */,
 				4EC100023A1B00000ABC001 /* APNSManagerDiagnosticPrivacyTests.swift in Sources */,

@@ -35,6 +35,15 @@ import Foundation
 import UIKit
 import MaterialComponents.MDCPalettes
 
+enum LastChatsSpecialMessageVisibilityPolicy {
+    static func shouldShowSpecialMessageBanners(
+        filter: LastChatsViewController.Filter,
+        isSearchActive: Bool
+    ) -> Bool {
+        filter == .chats && !isSearchActive
+    }
+}
+
 class SpecialMessageTableViewCell: UITableViewCell {
     static let cellName: String = "SpecialMessageTableViewCell"
     

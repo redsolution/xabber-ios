@@ -3318,7 +3318,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         accounts.compactMap { XMPPJID(string: $0)?.domain }
     }
     
-    private final func mapDataset() -> [Datasource] {
+    private final func mapDataset(
+        showsSpecialMessageBanners: Bool
+    ) -> [Datasource] {
         if self.showSkeleton.value {
             let skeletonItemsCount = self.skeletonItemsCount
             return (0..<skeletonItemsCount).compactMap {
@@ -3489,15 +3491,19 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             
             let jids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
             
-            let invites = realm
-                .objects(GroupchatInvitesStorageItem.self)
-                .filter("owner IN %@ AND isRead == %@", jids, false)
-                .toArray()
-            
-            let requests = realm
-                .objects(UINotificationStorageItem.self)
-                .filter("owner IN %@ AND isRead == %@ AND kind_ == %@", jids, false, UINotificationStorageItem.Kind.contactRequest.rawValue)
-                .toArray()
+            let invites = showsSpecialMessageBanners
+                ? realm
+                    .objects(GroupchatInvitesStorageItem.self)
+                    .filter("owner IN %@ AND isRead == %@", jids, false)
+                    .toArray()
+                : []
+
+            let requests = showsSpecialMessageBanners
+                ? realm
+                    .objects(UINotificationStorageItem.self)
+                    .filter("owner IN %@ AND isRead == %@ AND kind_ == %@", jids, false, UINotificationStorageItem.Kind.contactRequest.rawValue)
+                    .toArray()
+                : []
             
             if requests.isNotEmpty {
                 let rosterItems = requests.compactMap({ return realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: $0.jid, owner: $0.owner)) })
@@ -3588,7 +3594,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             let premiumEligibilityCanReachEntitlementCheck =
                 CommonConfigManager.shared.config.support_subscribtions
                 && premiumPurchaseOwner != nil
-                && self.filter.value == .chats
+                && showsSpecialMessageBanners
                 && (premiumSuppressedUntil.map { $0 <= premiumEligibilityNow } ?? true)
             let hasActivePremiumInClient = premiumEligibilityCanReachEntitlementCheck
                 ? SubscribtionsManager.shared.hasActiveSubsription()
@@ -3597,7 +3603,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 subscriptionsEnabled: CommonConfigManager.shared.config.support_subscribtions,
                 hasActivePremiumInClient: hasActivePremiumInClient,
                 hasPurchaseAccount: premiumPurchaseOwner != nil,
-                isRecentChatsFilter: self.filter.value == .chats,
+                isRecentChatsFilter: showsSpecialMessageBanners,
                 suppressedUntil: premiumSuppressedUntil,
                 now: premiumEligibilityNow
             ), let premiumPurchaseOwner {
@@ -4015,6 +4021,11 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         }
         let oldShowsSkeleton = self.datasourceShowsSkeleton
         let newShowsSkeleton = self.showSkeleton.value
+        let showsSpecialMessageBanners =
+            LastChatsSpecialMessageVisibilityPolicy.shouldShowSpecialMessageBanners(
+                filter: filter.value,
+                isSearchActive: bottomSearchHostView.isExpanded
+            )
         let pressureActive = self.hasVisibleDatasetUpdatePressureInProgress
         let requestedAnimate = LeftMenuFirstPresentationPolicy.shouldAnimate(
             requested: self.isFirstLayout && !self.shouldSuppressNextDatasetAnimation,
@@ -4028,7 +4039,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         self.shouldSuppressNextDatasetAnimation = false
         let renderStartedAt = Date()
         self.updateQueue.async {
-            let newDataset = self.mapDataset()
+            let newDataset = self.mapDataset(
+                showsSpecialMessageBanners: showsSpecialMessageBanners
+            )
             let newSections = Self.makeDatasourceSections(
                 from: newDataset,
                 showsSkeleton: newShowsSkeleton
