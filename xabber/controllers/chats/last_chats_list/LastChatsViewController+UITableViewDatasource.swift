@@ -138,6 +138,8 @@ extension LastChatsViewController: UITableViewDataSource {
                 owner: item.owner,
                 key: "invite"
             )
+        case .premiumPromotion:
+            cell.configurePremiumPromotion()
         case .none:
             return
         }
@@ -146,6 +148,10 @@ extension LastChatsViewController: UITableViewDataSource {
     }
     
     public func onCloseNotificationCallback(_ key: String) {
+        if key == LastChatsPremiumPromotionContent.key {
+            suppressPremiumPromotion()
+            return
+        }
         do {
             let realm = try WRealm.safe()
             let jids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }

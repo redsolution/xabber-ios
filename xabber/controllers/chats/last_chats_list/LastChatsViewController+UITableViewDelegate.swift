@@ -309,6 +309,13 @@ extension LastChatsViewController: UITableViewDelegate {
                 self.leftMenuSelectRootCategoryDelegate?.selectRootScreenAndCategory(screen: "contacts", category: "show_all_contacts")
             case .invite:
                 self.leftMenuSelectRootCategoryDelegate?.selectRootScreenAndCategory(screen: "groups", category: "show_all_invites")
+            case .premiumPromotion:
+                SubscribtionsPresenter().present(
+                    animated: true,
+                    owner: item.owner,
+                    parent: self,
+                    modalPresentationStyle: .pageSheet
+                )
             case .none:
                 let openMessageRequest = item.conversationType == .group
                     ? self.unreadMentionOpenRequest(

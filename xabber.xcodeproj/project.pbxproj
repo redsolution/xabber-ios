@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1B2C3D4321200000ABC0002 /* LastChatsPremiumPromotionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4321200000ABC0001 /* LastChatsPremiumPromotionTests.swift */; };
+		A1B2C3D4321200000ABC0012 /* LastChatsSpecialMessageVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4321200000ABC0011 /* LastChatsSpecialMessageVisibilityTests.swift */; };
 		4E5039120000000000000001 /* RedmineIssue50391Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5039110000000000000001 /* RedmineIssue50391Tests.swift */; };
 		4E5039220000000000000001 /* RedmineIssue50392Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5039210000000000000001 /* RedmineIssue50392Tests.swift */; };
 		4EC100023A1B00000ABC001 /* APNSManagerDiagnosticPrivacyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EC100013A1B00000ABC001 /* APNSManagerDiagnosticPrivacyTests.swift */; };
@@ -819,6 +821,7 @@
 		66BDBB252C37CB0600A86F6E /* ChatViewController+OpenChatDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BDBB242C37CB0600A86F6E /* ChatViewController+OpenChatDelegate.swift */; };
 		66BEDA8B247FD3900059F65F /* PreaprovedSubscribtionStorageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BEDA8A247FD3900059F65F /* PreaprovedSubscribtionStorageItem.swift */; };
 		66BEDA8F247FE0ED0059F65F /* LastChatsViewController+SpecialMessageCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BEDA8E247FE0ED0059F65F /* LastChatsViewController+SpecialMessageCell.swift */; };
+		A1B2C3D4321200000ABC0004 /* LastChatsPremiumPromotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4321200000ABC0003 /* LastChatsPremiumPromotion.swift */; };
 		66BF400F273AAA9700CC43CE /* XMPPDeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BF400E273AAA9700CC43CE /* XMPPDeviceManager.swift */; };
 		66C01C7F2348B6B1001C167C /* ShareDialogSearchController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C01C7E2348B6B1001C167C /* ShareDialogSearchController.swift */; };
 		66C0966628927D5B002D117E /* PrivacyBlurredViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C0966528927D5B002D117E /* PrivacyBlurredViewController.swift */; };
@@ -1045,6 +1048,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A1B2C3D4321200000ABC0001 /* LastChatsPremiumPromotionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsPremiumPromotionTests.swift; sourceTree = "<group>"; };
+		A1B2C3D4321200000ABC0011 /* LastChatsSpecialMessageVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsSpecialMessageVisibilityTests.swift; sourceTree = "<group>"; };
 		4E5039110000000000000001 /* RedmineIssue50391Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedmineRegression/RedmineIssue50391Tests.swift; sourceTree = "<group>"; };
 		4E5039210000000000000001 /* RedmineIssue50392Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedmineRegression/RedmineIssue50392Tests.swift; sourceTree = "<group>"; };
 		4EC100013A1B00000ABC001 /* APNSManagerDiagnosticPrivacyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APNSManagerDiagnosticPrivacyTests.swift; sourceTree = "<group>"; };
@@ -2062,6 +2067,7 @@
 		66BDBB242C37CB0600A86F6E /* ChatViewController+OpenChatDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+OpenChatDelegate.swift"; sourceTree = "<group>"; };
 		66BEDA8A247FD3900059F65F /* PreaprovedSubscribtionStorageItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreaprovedSubscribtionStorageItem.swift; sourceTree = "<group>"; };
 		66BEDA8E247FE0ED0059F65F /* LastChatsViewController+SpecialMessageCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LastChatsViewController+SpecialMessageCell.swift"; sourceTree = "<group>"; };
+		A1B2C3D4321200000ABC0003 /* LastChatsPremiumPromotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsPremiumPromotion.swift; sourceTree = "<group>"; };
 		66BF400E273AAA9700CC43CE /* XMPPDeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPDeviceManager.swift; sourceTree = "<group>"; };
 		66C01C7E2348B6B1001C167C /* ShareDialogSearchController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareDialogSearchController.swift; sourceTree = "<group>"; };
 		66C0966528927D5B002D117E /* PrivacyBlurredViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyBlurredViewController.swift; sourceTree = "<group>"; };
@@ -2907,6 +2913,7 @@
 				66AD011622D7172800823398 /* LastChatsViewController+XabberTabBarDelegate.swift */,
 				66B7991A22E04B27001589A5 /* LastChatsViewController+Search.swift */,
 				66BEDA8E247FE0ED0059F65F /* LastChatsViewController+SpecialMessageCell.swift */,
+				A1B2C3D4321200000ABC0003 /* LastChatsPremiumPromotion.swift */,
 				667AEDB624A9E6F6000F339E /* LastChatsViewController+ArchivedCell.swift */,
 				669C182726F2054100352973 /* LastChatsViewController+Flow.swift */,
 				668B705D283F819000BE4879 /* LastChatsViewController+SignatureManagerDelegate.swift */,
@@ -4189,6 +4196,8 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				A1B2C3D4321200000ABC0001 /* LastChatsPremiumPromotionTests.swift */,
+				A1B2C3D4321200000ABC0011 /* LastChatsSpecialMessageVisibilityTests.swift */,
 				4E5039110000000000000001 /* RedmineIssue50391Tests.swift */,
 				4E5039210000000000000001 /* RedmineIssue50392Tests.swift */,
 				4EC100013A1B00000ABC001 /* APNSManagerDiagnosticPrivacyTests.swift */,
@@ -5891,6 +5900,7 @@
 				849EF50B2C0DF3A4005B0C57 /* VerificationViewController.swift in Sources */,
 				66C8442D29B75590006055B2 /* XabberAxolotlStorage.swift in Sources */,
 				66BEDA8F247FE0ED0059F65F /* LastChatsViewController+SpecialMessageCell.swift in Sources */,
+				A1B2C3D4321200000ABC0004 /* LastChatsPremiumPromotion.swift in Sources */,
 				6696B6CE2215770600D6D437 /* OpusAudio.swift in Sources */,
 				66EBBE8A2278270600E9D620 /* IceCandidate+Decoder.swift in Sources */,
 				66E46FF12C46475300394F0D /* UnfairLock.swift in Sources */,
@@ -6431,6 +6441,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1B2C3D4321200000ABC0002 /* LastChatsPremiumPromotionTests.swift in Sources */,
+				A1B2C3D4321200000ABC0012 /* LastChatsSpecialMessageVisibilityTests.swift in Sources */,
 				4E5039120000000000000001 /* RedmineIssue50391Tests.swift in Sources */,
 				4E5039220000000000000001 /* RedmineIssue50392Tests.swift in Sources */,
 				4EC100023A1B00000ABC001 /* APNSManagerDiagnosticPrivacyTests.swift in Sources */,
