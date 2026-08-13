@@ -619,6 +619,48 @@ final class CloudStorageAvailabilityTests: XCTestCase {
         )
     }
 
+    func testUnifiedHostedPremiumAuthorizationStoresTokenForDiscoveredEndpoint() throws {
+        owner = "cloud-availability-\(UUID().uuidString)@\(CommonConfigManager.shared.config.domain)"
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.clearPersistedState()
+        configuration.storeBasicGalleryURL(endpoint.absoluteString)
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: premiumEndpoint.absoluteString
+        )
+        let account = makeAccount()
+        account.xmppStream.myJID = XMPPJID(string: "\(owner!)/ios")
+
+        account.cloudStorage.requestAuthIfNeeded(
+            galleryType: .premium,
+            baseURL: endpoint
+        )
+        tokenClient.completeCodeRequest(
+            at: 0,
+            with: .response(statusCode: 200, value: nil)
+        )
+        XCTAssertTrue(
+            account.cloudStorage.read(
+                withIQ: try makeGalleryAuthorizationIQ(
+                    code: "unified-premium",
+                    endpoint: endpoint
+                )
+            )
+        )
+        tokenClient.completeExchangeRequest(
+            at: 0,
+            with: .response(statusCode: 200, value: ["token": "unified-premium-token"])
+        )
+
+        XCTAssertEqual(configuration.currentGalleryType, .premium)
+        XCTAssertEqual(configuration.currentGalleryURL, endpoint)
+        XCTAssertEqual(
+            configuration.token(for: .premium, baseURL: endpoint),
+            "unified-premium-token"
+        )
+        XCTAssertEqual(account.cloudStorage.availabilityRelay.value, .ready(endpoint: endpoint))
+    }
+
     func testPremiumSelectedBeforeAuthoritativeDiscoStartsPremiumAuthorizationAndRejectsStaleBasicSuccess() throws {
         let configuration = AccountGalleryConfiguration(owner: owner)
         configuration.reconcilePremiumGalleryAvailability(

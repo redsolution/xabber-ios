@@ -152,17 +152,22 @@ enum AccountGalleryType: String, Equatable {
 
     var segmentTitle: String {
         switch self {
-        case .basic: return "Basic"
+        case .basic: return "Hosted"
         case .premium: return "Premium"
         }
     }
 
     var displayTitle: String {
         switch self {
-        case .basic: return "Basic Gallery"
-        case .premium: return "Premium Gallery"
+        case .basic: return "Basic Cloud Storage"
+        case .premium: return "Premium Cloud Storage"
         }
     }
+}
+
+enum AccountGallerySelectionPolicy: Equatable {
+    case unifiedHostedStorage
+    case accountScopedSelection
 }
 
 struct AccountGalleryPremiumMetadata: Equatable {
@@ -185,8 +190,6 @@ struct AccountGalleryPremiumMetadata: Equatable {
 }
 
 struct AccountGalleryConfiguration: Equatable {
-    static let hardcodedPremiumGalleryURL = "https://gallery.dev.xabber.com/api/v1"
-
     private enum Keys {
         static let basicGalleryURL = "node"
         static let premiumGalleryURL = "premium_gallery_url"
@@ -207,6 +210,17 @@ struct AccountGalleryConfiguration: Equatable {
 
     let owner: String
 
+    var selectionPolicy: AccountGallerySelectionPolicy {
+        return Self.selectionPolicy(
+            owner: owner,
+            configuredDomain: CommonConfigManager.shared.config.domain
+        )
+    }
+
+    var allowsManualGallerySelection: Bool {
+        return selectionPolicy == .accountScopedSelection
+    }
+
     var basicGalleryURL: URL? {
         return Self.normalizedBaseURL(from: storedString(for: Keys.basicGalleryURL))
     }
@@ -216,7 +230,6 @@ struct AccountGalleryConfiguration: Equatable {
             return nil
         }
         return Self.normalizedBaseURL(from: storedString(for: Keys.premiumGalleryURL))
-            ?? Self.normalizedBaseURL(from: Self.hardcodedPremiumGalleryURL)
     }
 
     var selectedGalleryType: AccountGalleryType {
@@ -240,6 +253,9 @@ struct AccountGalleryConfiguration: Equatable {
         case .basic:
             return basicGalleryURL
         case .premium:
+            if selectionPolicy == .unifiedHostedStorage {
+                return basicGalleryURL
+            }
             return premiumGalleryURL
         }
     }
@@ -259,8 +275,7 @@ struct AccountGalleryConfiguration: Equatable {
         guard SettingManager.shared.getKeyBool(for: owner, scope: .xabberUploadManager, key: Keys.premiumAvailable) == true else {
             return false
         }
-        return (Self.normalizedBaseURL(from: storedString(for: Keys.premiumGalleryURL))
-            ?? Self.normalizedBaseURL(from: Self.hardcodedPremiumGalleryURL)) != nil
+        return Self.normalizedBaseURL(from: storedString(for: Keys.premiumGalleryURL)) != nil
     }
 
     var premiumGalleryMetadata: AccountGalleryPremiumMetadata? {
@@ -338,17 +353,18 @@ struct AccountGalleryConfiguration: Equatable {
 
         if isAvailable {
             let normalized = Self.normalizedBaseURLString(from: storageURL)
-                ?? Self.normalizedBaseURLString(from: Self.hardcodedPremiumGalleryURL)
             if let normalized = normalized {
                 SettingManager.shared.saveItem(for: owner, scope: .xabberUploadManager, key: Keys.premiumGalleryURL, value: normalized)
                 SettingManager.shared.saveItem(for: owner, scope: .xabberUploadManager, key: Keys.premiumAvailable, value: true)
                 savePremiumMetadata(metadata)
-                if !hasManualGallerySelection {
+                if !allowsManualGallerySelection || !hasManualGallerySelection {
                     saveSelectedGalleryType(.premium, manual: false)
                 }
             } else {
+                SettingManager.shared.removeItem(for: owner, scope: .xabberUploadManager, key: Keys.premiumGalleryURL)
                 SettingManager.shared.saveItem(for: owner, scope: .xabberUploadManager, key: Keys.premiumAvailable, value: false)
                 clearPremiumMetadata()
+                saveSelectedGalleryType(.basic, manual: false)
             }
         } else {
             SettingManager.shared.removeItem(for: owner, scope: .xabberUploadManager, key: Keys.premiumGalleryURL)
@@ -369,6 +385,9 @@ struct AccountGalleryConfiguration: Equatable {
 
     @discardableResult
     func switchGallery(to type: AccountGalleryType, manual: Bool = true) -> Bool {
+        guard !manual || allowsManualGallerySelection else {
+            return false
+        }
         switch type {
         case .basic:
             guard basicGalleryURL != nil else { return false }
@@ -397,16 +416,26 @@ struct AccountGalleryConfiguration: Equatable {
     }
 
     func cachedQuotaMatchesCurrentGallery() -> Bool {
+        return cachedQuotaMatches(
+            galleryType: currentGalleryType,
+            galleryURL: currentGalleryURL
+        )
+    }
+
+    func cachedQuotaMatches(
+        galleryType: AccountGalleryType,
+        galleryURL: URL?
+    ) -> Bool {
         guard let storedType = storedString(for: Keys.quotaGalleryType) else {
-            return currentGalleryType == .basic
+            return galleryType == .basic
         }
-        guard storedType == currentGalleryType.rawValue else {
+        guard storedType == galleryType.rawValue else {
             return false
         }
         guard let storedURL = storedString(for: Keys.quotaGalleryURL) else {
             return true
         }
-        return storedURL == currentGalleryURL?.absoluteString
+        return storedURL == galleryURL?.absoluteString
     }
 
     func token(for galleryType: AccountGalleryType, baseURL: URL) -> String {
@@ -427,7 +456,6 @@ struct AccountGalleryConfiguration: Equatable {
 
     func clearKnownTokens() {
         let storedPremiumURL = Self.normalizedBaseURL(from: storedString(for: Keys.premiumGalleryURL))
-            ?? Self.normalizedBaseURL(from: Self.hardcodedPremiumGalleryURL)
         [
             basicGalleryURL.map { Self.tokenStorageKey(galleryType: .basic, baseURL: $0) },
             storedPremiumURL.map { Self.tokenStorageKey(galleryType: .premium, baseURL: $0) }
@@ -439,14 +467,14 @@ struct AccountGalleryConfiguration: Equatable {
 
     func galleryType(for baseURL: URL) -> AccountGalleryType? {
         let normalizedURL = Self.normalizedBaseURLString(from: baseURL.absoluteString)
+        if normalizedURL == currentGalleryURL?.absoluteString {
+            return currentGalleryType
+        }
         if normalizedURL == basicGalleryURL?.absoluteString {
             return .basic
         }
         if normalizedURL == premiumGalleryURL?.absoluteString {
             return .premium
-        }
-        if normalizedURL == currentGalleryURL?.absoluteString {
-            return currentGalleryType
         }
         return nil
     }
@@ -480,6 +508,14 @@ struct AccountGalleryConfiguration: Equatable {
         }
         let normalizedPath = path.hasPrefix("/") ? String(path.dropFirst()) : path
         return URL(string: base + normalizedPath)
+    }
+
+    static func selectionPolicy(owner: String, configuredDomain: String) -> AccountGallerySelectionPolicy {
+        guard let ownerDomain = normalizedDomain(fromOwner: owner),
+              let configuredDomain = normalizedDomain(configuredDomain) else {
+            return .accountScopedSelection
+        }
+        return ownerDomain == configuredDomain ? .unifiedHostedStorage : .accountScopedSelection
     }
 
     static func galleryIdentity(owner: String, type: AccountGalleryType, url: URL?) -> String {
@@ -540,6 +576,27 @@ struct AccountGalleryConfiguration: Equatable {
             return nil
         }
         return value + "/"
+    }
+
+    private static func normalizedDomain(fromOwner owner: String) -> String? {
+        let trimmedOwner = owner.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let domain = XMPPJID(string: trimmedOwner)?.domain {
+            return normalizedDomain(domain)
+        }
+
+        let bareOwner = trimmedOwner.split(separator: "/", maxSplits: 1).first.map(String.init) ?? trimmedOwner
+        guard let separator = bareOwner.lastIndex(of: "@") else {
+            return normalizedDomain(bareOwner)
+        }
+        return normalizedDomain(String(bareOwner[bareOwner.index(after: separator)...]))
+    }
+
+    private static func normalizedDomain(_ rawDomain: String) -> String? {
+        var domain = rawDomain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        while domain.hasSuffix(".") {
+            domain.removeLast()
+        }
+        return domain.isNotEmpty ? domain : nil
     }
 
     private func storedString(for key: String) -> String? {
@@ -1071,7 +1128,8 @@ final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
             parameters: nil,
             encoding: JSONEncoding.default,
             headers: Self.authHeaders(token)
-        ).responseJSON { Self.complete($0, completion: completion) }
+        ).validate(statusCode: 200..<300)
+            .responseJSON { Self.complete($0, completion: completion) }
     }
 
     func getAvatars(baseURL: URL, token: String, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
@@ -1088,28 +1146,86 @@ final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
             parameters: nil,
             encoding: JSONEncoding.default,
             headers: Self.authHeaders(token)
-        ).responseJSON { Self.complete($0, completion: completion) }
+        ).validate(statusCode: 200..<300)
+            .responseJSON { Self.complete($0, completion: completion) }
     }
 
     func getFilesToDelete(baseURL: URL, token: String, percent: Int, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        guard let url = Self.apiURL(baseURL: baseURL, path: "v1/files/percent/\(percent)/"),
-              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+        guard let request = Self.cleanupPreviewRequest(
+            baseURL: baseURL,
+            token: token,
+            percent: percent,
+            page: page
+        ) else {
             completion(.failure(statusCode: nil, error: nil))
             return
         }
 
-        components.queryItems = [URLQueryItem(name: "page", value: String(page))]
-        AF.request(
-            components,
-            method: .get,
-            parameters: nil,
-            encoding: JSONEncoding.default,
-            headers: Self.authHeaders(token)
-        ).responseJSON { Self.complete($0, completion: completion) }
+        AF.request(request)
+            .validate(statusCode: 200..<300)
+            .responseJSON(emptyResponseCodes: Set(200..<300)) {
+                Self.complete($0, completion: completion)
+            }
     }
 
     func deleteMediaFor(baseURL: URL, token: String, percent: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        requestDelete(baseURL: baseURL, token: token, path: "v1/files/percent/\(percent)/", parameters: [:], completion: completion)
+        guard let request = Self.cleanupDeleteRequest(
+            baseURL: baseURL,
+            token: token,
+            percent: percent
+        ) else {
+            completion(.failure(statusCode: nil, error: nil))
+            return
+        }
+
+        AF.request(request)
+            .validate(statusCode: 200..<300)
+            .responseJSON(emptyResponseCodes: Set(200..<300)) {
+                Self.complete($0, completion: completion)
+            }
+    }
+
+    static func cleanupPreviewRequest(
+        baseURL: URL,
+        token: String,
+        percent: Int,
+        page: Int
+    ) -> URLRequest? {
+        guard XabberUploadManager.supportedCleanupPercents.contains(percent),
+              page > 0,
+              let url = Self.apiURL(baseURL: baseURL, path: "v1/files/percent/\(percent)/"),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        components.queryItems = [
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "exclude_avatars", value: "true")
+        ]
+        guard let requestURL = components.url else { return nil }
+
+        var request = URLRequest(url: requestURL)
+        request.httpMethod = HTTPMethod.get.rawValue
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return request
+    }
+
+    static func cleanupDeleteRequest(
+        baseURL: URL,
+        token: String,
+        percent: Int
+    ) -> URLRequest? {
+        guard XabberUploadManager.supportedCleanupPercents.contains(percent),
+              let url = Self.apiURL(baseURL: baseURL, path: "v1/files/percent/\(percent)/"),
+              let body = try? JSONSerialization.data(withJSONObject: ["exclude_avatars": true]) else {
+            return nil
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = HTTPMethod.delete.rawValue
+        request.httpBody = body
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return request
     }
 
     func deleteMediaForAll(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
@@ -1174,7 +1290,10 @@ final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
             parameters: parameters,
             encoding: JSONEncoding.default,
             headers: Self.authHeaders(token)
-        ).responseJSON { Self.complete($0, completion: completion) }
+        ).validate(statusCode: 200..<300)
+            .responseJSON(emptyResponseCodes: Set(200..<300)) {
+                Self.complete($0, completion: completion)
+            }
     }
 
     static func complete(_ response: AFDataResponse<Any>, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
@@ -2770,6 +2889,11 @@ class XabberUploadManager: AbstractXMPPManager {
             let primary = AccountQuotaStorageItem.genPrimary(jid: owner)
             let item = realm.object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: primary) ?? AccountQuotaStorageItem()
             let isNew = item.primary.isEmpty
+            let shouldResetMissingCategories = isNew
+                || !AccountGalleryConfiguration(owner: owner).cachedQuotaMatches(
+                    galleryType: context.galleryType,
+                    galleryURL: context.baseURL
+                )
             if isNew {
                 item.primary = primary
                 item.jid = owner
@@ -2779,12 +2903,12 @@ class XabberUploadManager: AbstractXMPPManager {
                 item.quotaBytes = payload.quota
                 item.totalBytes = payload.total.used
                 item.totalCount = payload.total.count
-                self.apply(payload.images, bytes: \.imagesBytes, count: \.imagesCount, to: item)
-                self.apply(payload.videos, bytes: \.videosBytes, count: \.videosCount, to: item)
-                self.apply(payload.files, bytes: \.filesBytes, count: \.filesCount, to: item)
-                self.apply(payload.audio, bytes: \.audioBytes, count: \.audioCount, to: item)
-                self.apply(payload.voices, bytes: \.voicesBytes, count: \.voicesCount, to: item)
-                self.apply(payload.avatars, bytes: \.avatarsBytes, count: \.avatarsCount, to: item)
+                self.apply(payload.images, bytes: \.imagesBytes, count: \.imagesCount, to: item, resetIfMissing: shouldResetMissingCategories)
+                self.apply(payload.videos, bytes: \.videosBytes, count: \.videosCount, to: item, resetIfMissing: shouldResetMissingCategories)
+                self.apply(payload.files, bytes: \.filesBytes, count: \.filesCount, to: item, resetIfMissing: shouldResetMissingCategories)
+                self.apply(payload.audio, bytes: \.audioBytes, count: \.audioCount, to: item, resetIfMissing: shouldResetMissingCategories)
+                self.apply(payload.voices, bytes: \.voicesBytes, count: \.voicesCount, to: item, resetIfMissing: shouldResetMissingCategories)
+                self.apply(payload.avatars, bytes: \.avatarsBytes, count: \.avatarsCount, to: item, resetIfMissing: shouldResetMissingCategories)
                 if isNew {
                     realm.add(item, update: .modified)
                 }
@@ -2801,9 +2925,16 @@ class XabberUploadManager: AbstractXMPPManager {
         _ category: CloudStorageQuotaCategory?,
         bytes: ReferenceWritableKeyPath<AccountQuotaStorageItem, Int>,
         count: ReferenceWritableKeyPath<AccountQuotaStorageItem, Int>,
-        to item: AccountQuotaStorageItem
+        to item: AccountQuotaStorageItem,
+        resetIfMissing: Bool
     ) {
-        guard let category = category else { return }
+        guard let category else {
+            if resetIfMissing {
+                item[keyPath: bytes] = 0
+                item[keyPath: count] = 0
+            }
+            return
+        }
         item[keyPath: bytes] = category.used
         item[keyPath: count] = category.count
     }
@@ -3031,23 +3162,9 @@ class XabberUploadManager: AbstractXMPPManager {
 
     //MARK: - Deletes one media file with selected id
     public func deleteMediaFromServer(fileID: Int) {
-        guard let context = currentGalleryRequestContext() else {
-            DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
-            return
-        }
-
-        Self.quotaAPIClient.deleteMedia(baseURL: context.baseURL, token: context.token, fileID: fileID) { [weak self] response in
-            guard let self = self, self.isCurrent(context) else { return }
-            switch response {
-            case .response(let code, _, _):
-                if let code = code, code >= 200 && code < 300 {
-                    self.refreshQuotaIfCurrent(context, reason: .manual, force: true)
-                } else if code == 401 {
-                    self.tokenWasExpired(context)
-                }
-            case .failure(let code, let error, _):
-                DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
-                if code == 401 { self.tokenWasExpired(context) }
+        deleteFile(fileID: fileID, isAvatar: false) { result in
+            if case .failure(let error) = result {
+                DDLogDebug("XabberUploadManager: \(#function). \(error)")
             }
         }
     }
@@ -3089,6 +3206,31 @@ class XabberUploadManager: AbstractXMPPManager {
         requestAuthIfNeeded(galleryType: context.galleryType, baseURL: context.baseURL)
     }
 
+    static let supportedCleanupPercents: Set<Int> = [25, 50, 75]
+
+    struct CloudStorageCleanupPlan: Equatable {
+        let percent: Int
+        let context: CloudStorageGalleryRequestContext
+
+        fileprivate init(percent: Int, context: CloudStorageGalleryRequestContext) {
+            self.percent = percent
+            self.context = context
+        }
+    }
+
+    private final class CompletionOnce {
+        private let lock = NSLock()
+        private var isCompleted = false
+
+        func claim() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !isCompleted else { return false }
+            isCompleted = true
+            return true
+        }
+    }
+
     private struct PagePayload {
         let items: [NSDictionary]
         let totalObjects: Int
@@ -3097,37 +3239,131 @@ class XabberUploadManager: AbstractXMPPManager {
     }
 
     private func pagePayload(from json: NSDictionary) -> PagePayload? {
-        let items = json["items"] as? [NSDictionary] ?? []
-        let totalObjects = int(from: json["total_objects"]) ?? items.count
+        let rawItems = json["items"] ?? json["results"]
+        let items: [NSDictionary]
+        if let dictionaries = rawItems as? [NSDictionary] {
+            items = dictionaries
+        } else if let dictionaries = rawItems as? [[String: Any]] {
+            items = dictionaries.map { $0 as NSDictionary }
+        } else {
+            return nil
+        }
+
+        let totalObjects = int(from: json["total_objects"] ?? json["count"]) ?? items.count
         let objPerPage = int(from: json["obj_per_page"]) ?? max(items.count, 1)
-        let totalPages = int(from: json["total_pages"]) ?? 1
+        guard totalObjects >= 0, objPerPage > 0 else { return nil }
+
+        let declaredTotalPages = int(from: json["total_pages"])
+        if let declaredTotalPages, declaredTotalPages < 0 { return nil }
+        let calculatedTotalPages = totalObjects == 0
+            ? 1
+            : ((totalObjects - 1) / objPerPage) + 1
+        let totalPages = max(1, declaredTotalPages ?? calculatedTotalPages)
         return PagePayload(
             items: items,
             totalObjects: totalObjects,
             objPerPage: objPerPage,
-            totalPages: max(totalPages, 1)
+            totalPages: totalPages
         )
+    }
+
+    private func fullContextIsCurrent(_ context: CloudStorageGalleryRequestContext) -> Bool {
+        return currentGalleryRequestContext() == context
+    }
+
+    private func listPageResult(
+        from response: CloudStorageQuotaAPIResponse,
+        context: CloudStorageGalleryRequestContext,
+        requestedPage: Int
+    ) -> Result<CloudStorageListPage, CloudStorageListLoadError> {
+        guard fullContextIsCurrent(context) else {
+            return .failure(.staleSelection)
+        }
+
+        switch response {
+        case .response(let statusCode, let value, _):
+            if statusCode == 401 {
+                tokenWasExpired(context)
+                return .failure(.unauthorized)
+            }
+            guard let statusCode else {
+                return .failure(.invalidResponse)
+            }
+            guard (200..<300).contains(statusCode) else {
+                return .failure(.server(statusCode: statusCode))
+            }
+            guard requestedPage > 0,
+                  let json = value as? NSDictionary,
+                  let payload = pagePayload(from: json) else {
+                return .failure(.invalidResponse)
+            }
+            return .success(CloudStorageListPage(
+                items: payload.items,
+                totalObjects: payload.totalObjects,
+                objectsPerPage: payload.objPerPage,
+                totalPages: payload.totalPages,
+                page: requestedPage
+            ))
+
+        case .failure(let statusCode, let error, _):
+            if statusCode == 401 {
+                tokenWasExpired(context)
+                return .failure(.unauthorized)
+            }
+            if let statusCode {
+                if (200..<300).contains(statusCode) {
+                    return .failure(.invalidResponse)
+                }
+                return .failure(.server(statusCode: statusCode))
+            }
+            DDLogDebug("XabberUploadManager: cloud storage list failed. \(error?.localizedDescription ?? "Unknown error")")
+            return .failure(.transport)
+        }
+    }
+
+    private func mutationResult(
+        from response: CloudStorageQuotaAPIResponse,
+        context: CloudStorageGalleryRequestContext
+    ) -> Result<Void, CloudStorageListLoadError> {
+        guard fullContextIsCurrent(context) else {
+            return .failure(.staleSelection)
+        }
+
+        switch response {
+        case .response(let statusCode, _, _):
+            if statusCode == 401 {
+                tokenWasExpired(context)
+                return .failure(.unauthorized)
+            }
+            guard let statusCode else {
+                return .failure(.invalidResponse)
+            }
+            guard (200..<300).contains(statusCode) else {
+                return .failure(.server(statusCode: statusCode))
+            }
+            return .success(())
+
+        case .failure(let statusCode, let error, _):
+            if statusCode == 401 {
+                tokenWasExpired(context)
+                return .failure(.unauthorized)
+            }
+            if let statusCode {
+                if (200..<300).contains(statusCode) {
+                    return .failure(.invalidResponse)
+                }
+                return .failure(.server(statusCode: statusCode))
+            }
+            DDLogDebug("XabberUploadManager: cloud storage delete failed. \(error?.localizedDescription ?? "Unknown error")")
+            return .failure(.transport)
+        }
     }
 
     //MARK: - Deletes avatar with selected id
     public func deleteAvatarFromServer(fileID: Int) {
-        guard let context = currentGalleryRequestContext() else {
-            DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
-            return
-        }
-
-        Self.quotaAPIClient.deleteAvatar(baseURL: context.baseURL, token: context.token, fileID: fileID) { [weak self] response in
-            guard let self = self, self.isCurrent(context) else { return }
-            switch response {
-            case .response(let code, _, _):
-                if let code = code, code >= 200 && code < 300 {
-                    self.refreshQuotaIfCurrent(context, reason: .manual, force: true)
-                } else if code == 401 {
-                    self.tokenWasExpired(context)
-                }
-            case .failure(let code, let error, _):
-                DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
-                if code == 401 { self.tokenWasExpired(context) }
+        deleteFile(fileID: fileID, isAvatar: true) { result in
+            if case .failure(let error) = result {
+                DDLogDebug("XabberUploadManager: \(#function). \(error)")
             }
         }
     }
@@ -3152,91 +3388,205 @@ class XabberUploadManager: AbstractXMPPManager {
         }
     }
 
-    func getFilesOfType(type: MimeIconTypes, page: Int, callback: @escaping ([NSDictionary], Int, Int, Int) -> Void) {
+    func getFilesPage(
+        type: MimeIconTypes,
+        page: Int,
+        completion: @escaping (Result<CloudStorageListPage, CloudStorageListLoadError>) -> Void
+    ) {
         guard let context = currentGalleryRequestContext() else {
             DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
+            completion(.failure(.unavailable))
             return
         }
+        let once = CompletionOnce()
 
         Self.quotaAPIClient.getFiles(baseURL: context.baseURL, token: context.token, type: type, page: page) { [weak self] response in
-            guard let self = self, self.isCurrent(context) else { return }
-            switch response {
-            case .response(let code, let value, _):
-                if code == 401 { self.tokenWasExpired(context); return }
-                guard let json = value as? NSDictionary,
-                      let page = self.pagePayload(from: json) else { return }
-                callback(page.items, page.totalObjects, page.objPerPage, page.totalPages)
-            case .failure(let code, let error, _):
-                DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
-                if code == 401 { self.tokenWasExpired(context) }
+            guard once.claim() else { return }
+            guard let self else {
+                completion(.failure(.unavailable))
+                return
             }
+            completion(self.listPageResult(from: response, context: context, requestedPage: page))
+        }
+    }
+
+    func getAvatarsPage(
+        page: Int,
+        completion: @escaping (Result<CloudStorageListPage, CloudStorageListLoadError>) -> Void
+    ) {
+        guard let context = currentGalleryRequestContext() else {
+            DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
+            completion(.failure(.unavailable))
+            return
+        }
+        let once = CompletionOnce()
+
+        Self.quotaAPIClient.getAvatars(baseURL: context.baseURL, token: context.token, page: page) { [weak self] response in
+            guard once.claim() else { return }
+            guard let self else {
+                completion(.failure(.unavailable))
+                return
+            }
+            completion(self.listPageResult(from: response, context: context, requestedPage: page))
+        }
+    }
+
+    func makeCleanupPlan(
+        percent: Int
+    ) -> Result<CloudStorageCleanupPlan, CloudStorageListLoadError> {
+        guard Self.supportedCleanupPercents.contains(percent) else {
+            return .failure(.invalidResponse)
+        }
+        guard let context = currentGalleryRequestContext() else {
+            return .failure(.unavailable)
+        }
+        return .success(CloudStorageCleanupPlan(percent: percent, context: context))
+    }
+
+    func getFilesToDelete(
+        plan: CloudStorageCleanupPlan,
+        page: Int,
+        completion: @escaping (Result<CloudStorageListPage, CloudStorageListLoadError>) -> Void
+    ) {
+        guard Self.supportedCleanupPercents.contains(plan.percent) else {
+            completion(.failure(.invalidResponse))
+            return
+        }
+        guard plan.context.owner == owner else {
+            completion(.failure(.staleSelection))
+            return
+        }
+        guard fullContextIsCurrent(plan.context) else {
+            completion(.failure(.staleSelection))
+            return
+        }
+        let once = CompletionOnce()
+
+        Self.quotaAPIClient.getFilesToDelete(
+            baseURL: plan.context.baseURL,
+            token: plan.context.token,
+            percent: plan.percent,
+            page: page
+        ) { [weak self] response in
+            guard once.claim() else { return }
+            guard let self else {
+                completion(.failure(.unavailable))
+                return
+            }
+            completion(self.listPageResult(from: response, context: plan.context, requestedPage: page))
+        }
+    }
+
+    func deleteMedia(
+        using plan: CloudStorageCleanupPlan,
+        completion: @escaping (Result<Void, CloudStorageListLoadError>) -> Void
+    ) {
+        guard Self.supportedCleanupPercents.contains(plan.percent) else {
+            completion(.failure(.invalidResponse))
+            return
+        }
+        guard plan.context.owner == owner, fullContextIsCurrent(plan.context) else {
+            completion(.failure(.staleSelection))
+            return
+        }
+        let once = CompletionOnce()
+
+        Self.quotaAPIClient.deleteMediaFor(
+            baseURL: plan.context.baseURL,
+            token: plan.context.token,
+            percent: plan.percent
+        ) { [weak self] response in
+            guard once.claim() else { return }
+            guard let self else {
+                completion(.failure(.unavailable))
+                return
+            }
+            let result = self.mutationResult(from: response, context: plan.context)
+            if case .success = result {
+                self.refreshQuotaIfCurrent(plan.context, reason: .manual, force: true)
+            }
+            completion(result)
+        }
+    }
+
+    func deleteFile(
+        fileID: Int,
+        isAvatar: Bool,
+        completion: @escaping (Result<Void, CloudStorageListLoadError>) -> Void
+    ) {
+        guard let context = currentGalleryRequestContext() else {
+            completion(.failure(.unavailable))
+            return
+        }
+        let once = CompletionOnce()
+        let responseHandler: (CloudStorageQuotaAPIResponse) -> Void = { [weak self] response in
+            guard once.claim() else { return }
+            guard let self else {
+                completion(.failure(.unavailable))
+                return
+            }
+            let result = self.mutationResult(from: response, context: context)
+            if case .success = result {
+                self.refreshQuotaIfCurrent(context, reason: .manual, force: true)
+            }
+            completion(result)
+        }
+
+        if isAvatar {
+            Self.quotaAPIClient.deleteAvatar(
+                baseURL: context.baseURL,
+                token: context.token,
+                fileID: fileID,
+                completion: responseHandler
+            )
+        } else {
+            Self.quotaAPIClient.deleteMedia(
+                baseURL: context.baseURL,
+                token: context.token,
+                fileID: fileID,
+                completion: responseHandler
+            )
+        }
+    }
+
+    func getFilesOfType(type: MimeIconTypes, page: Int, callback: @escaping ([NSDictionary], Int, Int, Int) -> Void) {
+        getFilesPage(type: type, page: page) { result in
+            guard case .success(let page) = result else { return }
+            callback(page.items, page.totalObjects, page.objectsPerPage, page.totalPages)
         }
     }
 
     func getAvatars(page: Int, callback: @escaping ([NSDictionary], Int, Int, Int) -> Void) {
-        guard let context = currentGalleryRequestContext() else {
-            DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
-            return
-        }
-
-        Self.quotaAPIClient.getAvatars(baseURL: context.baseURL, token: context.token, page: page) { [weak self] response in
-            guard let self = self, self.isCurrent(context) else { return }
-            switch response {
-            case .response(let code, let value, _):
-                if code == 401 { self.tokenWasExpired(context); return }
-                guard let json = value as? NSDictionary,
-                      let page = self.pagePayload(from: json) else { return }
-                callback(page.items, page.totalObjects, page.objPerPage, page.totalPages)
-            case .failure(let code, let error, _):
-                DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
-                if code == 401 { self.tokenWasExpired(context) }
-            }
+        getAvatarsPage(page: page) { result in
+            guard case .success(let page) = result else { return }
+            callback(page.items, page.totalObjects, page.objectsPerPage, page.totalPages)
         }
     }
 
     func getFilesToDeleteByPercent(percent: Int, page: Int, callback: @escaping ([NSDictionary], Int, Int, Int) -> Void) {
-        guard let context = currentGalleryRequestContext() else {
+        guard case .success(let plan) = makeCleanupPlan(percent: percent) else {
             DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
             return
         }
-
-        Self.quotaAPIClient.getFilesToDelete(baseURL: context.baseURL, token: context.token, percent: percent, page: page) { [weak self] response in
-            guard let self = self, self.isCurrent(context) else { return }
-            switch response {
-            case .response(let code, let value, _):
-                if code == 401 { self.tokenWasExpired(context); return }
-                guard let json = value as? NSDictionary,
-                      let page = self.pagePayload(from: json),
-                      page.totalObjects > 0 else { return }
-                callback(page.items, page.totalObjects, page.objPerPage, page.totalPages)
-            case .failure(let code, let error, _):
-                DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
-                if code == 401 { self.tokenWasExpired(context) }
-            }
+        getFilesToDelete(plan: plan, page: page) { result in
+            guard case .success(let page) = result else { return }
+            callback(page.items, page.totalObjects, page.objectsPerPage, page.totalPages)
         }
     }
 
     //MARK: - Deletes all media files for selected period
     public func deleteMediaFor(percent: Int, callback: (() -> Void)?) {
-        guard let context = currentGalleryRequestContext() else {
+        guard case .success(let plan) = makeCleanupPlan(percent: percent) else {
             DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
             return
         }
-
-        Self.quotaAPIClient.deleteMediaFor(baseURL: context.baseURL, token: context.token, percent: percent) { [weak self] response in
-            guard let self = self, self.isCurrent(context) else { return }
-            switch response {
-            case .response(let code, _, _):
-                if code == 401 {
-                    self.tokenWasExpired(context)
-                } else {
-                    self.refreshQuotaIfCurrent(context, reason: .manual, force: true)
-                }
-            case .failure(let code, let error, _):
-                DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
-                if code == 401 { self.tokenWasExpired(context) }
+        deleteMedia(using: plan) { result in
+            switch result {
+            case .success:
+                callback?()
+            case .failure(let error):
+                DDLogDebug("XabberUploadManager: \(#function). \(error)")
             }
-            callback?()
         }
     }
 
@@ -3444,18 +3794,12 @@ class XabberUploadManager: AbstractXMPPManager {
             return false
         }
         let configuration = AccountGalleryConfiguration(owner: owner)
-        let knownEndpoint: URL?
-        switch target.galleryType {
-        case .basic:
-            knownEndpoint = configuration.basicGalleryURL
-        case .premium:
-            knownEndpoint = configuration.premiumGalleryURL
-        }
-        guard AccountGalleryConfiguration.galleryIdentity(
-            owner: owner,
-            type: target.galleryType,
-            url: knownEndpoint
-        ) == target.identity else {
+        let knownEndpoint = configuration.currentGalleryType == target.galleryType
+            ? configuration.currentGalleryURL
+            : (target.galleryType == .basic
+                ? configuration.basicGalleryURL
+                : configuration.premiumGalleryURL)
+        guard knownEndpoint == target.baseURL else {
             return false
         }
 

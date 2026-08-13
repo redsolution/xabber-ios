@@ -8,246 +8,154 @@
 
 import Foundation
 import UIKit
-import CocoaLumberjack
 
-class CloudStorageDeleteViewController: CloudStorageShowFilesViewController {
-    var dateOfLastFile: String? = nil
+final class CloudStorageDeleteViewController: CloudStorageShowFilesViewController {
     var datasource: [[Datasource]] = []
-    let percent: Int
-    private var capturedGalleryIdentity: String?
-    
+    let plan: XabberUploadManager.CloudStorageCleanupPlan
+    var isDeleting = false
+
     let collectionView: UICollectionView = {
-        let collection = UICollectionView(frame: .zero, collectionViewLayout: UICollectionViewLayout.init())
-        
-        var collectionViewFlowLayout = UICollectionViewFlowLayout()
-        collectionViewFlowLayout.sectionInset = UIEdgeInsets(top: 12, left: InfoScreenFooterView.cellSpacing, bottom: 15, right: InfoScreenFooterView.cellSpacing)
-        
-        collection.collectionViewLayout = collectionViewFlowLayout
+        let layout = UICollectionViewFlowLayout()
+        layout.sectionInset = CloudStorageCategoryLayoutPolicy.sectionInsets
+        let collection = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collection.translatesAutoresizingMaskIntoConstraints = false
         collection.register(PhotosMediaCollectionCell.self, forCellWithReuseIdentifier: PhotosMediaCollectionCell.cellName)
         collection.register(VideosMediaCollectionCell.self, forCellWithReuseIdentifier: VideosMediaCollectionCell.cellName)
         collection.register(FilesMediaCollectionCell.self, forCellWithReuseIdentifier: FilesMediaCollectionCell.cellName)
         collection.register(VoiceMediaCollectionCell.self, forCellWithReuseIdentifier: VoiceMediaCollectionCell.cellName)
-        collection.register(UICollectionReusableView.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader, withReuseIdentifier: "headerView")
+        collection.register(
+            UICollectionReusableView.self,
+            forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
+            withReuseIdentifier: "headerView"
+        )
         collection.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "deleteButton")
         collection.backgroundColor = .systemGroupedBackground
-        
+        collection.accessibilityIdentifier = "cloudStorage.cleanup.preview"
         return collection
     }()
-    
-    init(percent: Int, owner: String, items: [NSDictionary], totalPages: Int) {
-        self.percent = percent
-        super.init(owner: owner, items: items, totalPages: totalPages)
-        capturedGalleryIdentity = AccountGalleryConfiguration(owner: owner).currentGalleryIdentity
+
+    init(
+        owner: String,
+        items: [NSDictionary],
+        plan: XabberUploadManager.CloudStorageCleanupPlan
+    ) {
+        self.plan = plan
+        super.init(owner: owner, items: items, totalPages: 1)
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(cloudStorageGalleryDidChange(_:)),
+            selector: #selector(cloudStorageContextDidChange(_:)),
             name: .cloudStorageGalleryDidChange,
             object: nil
         )
-        
-        spinner.startAnimating()
-        view.addSubview(spinner)
-        spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor).isActive = true
-        spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor).isActive = true
-        
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            if totalPages == 1 {
-                DispatchQueue.main.async {
-                    guard self.gallerySelectionIsCurrent() else { return }
-                    self.spinner.removeFromSuperview()
-                    self.spinner.stopAnimating()
-                    self.configureCollections()
-                }
-            } else {
-                for page in 2..<totalPages + 1 {
-                    user.cloudStorage.getFilesToDeleteByPercent(percent: percent, page: page) { items, totalObjects, objPerPage, pages in
-                        guard self.gallerySelectionIsCurrent() else { return }
-                        if items.isEmpty {
-                            return
-                        }
-                        DispatchQueue.main.async {
-                            guard self.gallerySelectionIsCurrent() else { return }
-                            self.items += items
-                            if page == pages {
-                                self.spinner.removeFromSuperview()
-                                self.spinner.stopAnimating()
-                                self.configureCollections()
-                                self.collectionView.reloadData()
-                            }
-                        }
-                    }
-                }
-            }
-        })        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(cloudStorageContextDidChange(_:)),
+            name: .cloudStorageGalleryTokenDidChange,
+            object: nil
+        )
     }
-    
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
     deinit {
-        NotificationCenter.default.removeObserver(self, name: .cloudStorageGalleryDidChange, object: nil)
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemGroupedBackground
+        view.addSubview(collectionView)
+        collectionView.fillSuperview()
+        collectionView.dataSource = self
+        collectionView.delegate = self
+        configureCollections()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationItem.title = "Delete files"
+        navigationItem.largeTitleDisplayMode = CommonConfigManager.shared.config.use_large_title ? .automatic : .never
+        navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
     }
 
     func gallerySelectionIsCurrent() -> Bool {
-        return capturedGalleryIdentity == AccountGalleryConfiguration(owner: owner).currentGalleryIdentity
+        return CloudStorageGalleryRequestContext.resolve(owner: owner) == plan.context
     }
 
-    @objc private func cloudStorageGalleryDidChange(_ notification: Notification) {
+    @objc private func cloudStorageContextDidChange(_ notification: Notification) {
         guard notification.userInfo?["jid"] as? String == owner else { return }
+        if notification.name == .cloudStorageGalleryTokenDidChange,
+           let galleryIdentity = notification.userInfo?["galleryIdentity"] as? String,
+           galleryIdentity != plan.context.identity {
+            return
+        }
         items.removeAll()
         datasource.removeAll()
         collectionView.reloadData()
         navigationController?.popViewController(animated: true)
     }
-    
-    internal func configureCollections() {
-        if items.isEmpty {
-            return
-        }
-        
-        let date = DateFormatter()
-        date.dateFormat = "dd.MM.YYYY H:mm:ss"
-        dateOfLastFile = items[0]["created_at"] as? String
-        
-        var images: [Datasource] = []
-        var videos: [Datasource] = []
-        var files: [Datasource] = []
-        var voices: [Datasource] = []
 
-        items.forEach { item in
-            let url = item["file"] as? String
-            
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-            guard let createdAt = item["created_at"] as? String,
-                  let dateToSort = dateFormatter.date(from: createdAt) else {
-                return
-            }
-            
-            var mediaType: String?
-            let fileMimeIconType: MimeIconTypes
-            if let type = item["media_type"] as? String
-            {
-                if type.contains(";") {
-                    mediaType = String(type.prefix(upTo: type.firstIndex(of: ";")!))
-                } else {
-                    mediaType = type
+    func configureCollections() {
+        let grouped = CloudStorageItemPresentation.grouped(items)
+            .filter { $0.first?.kind != .avatar }
+        datasource = [[]] + grouped
+        collectionView.reloadData()
+    }
+
+    func performDeletion() {
+        guard !isDeleting,
+              gallerySelectionIsCurrent(),
+              let account = AccountManager.shared.find(for: owner) else { return }
+        isDeleting = true
+        collectionView.isUserInteractionEnabled = false
+        spinner.startAnimating()
+        if spinner.superview == nil {
+            view.addSubview(spinner)
+            NSLayoutConstraint.activate([
+                spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+            ])
+        }
+        collectionView.reloadData()
+
+        account.action { [weak self] user, _ in
+            guard let self else { return }
+            user.cloudStorage.deleteMedia(using: plan) { result in
+                DispatchQueue.main.async {
+                    self.spinner.stopAnimating()
+                    self.spinner.removeFromSuperview()
+                    self.collectionView.isUserInteractionEnabled = true
+                    switch result {
+                    case .success:
+                        self.finishSuccessfulDeletion()
+                    case .failure:
+                        self.isDeleting = false
+                        self.collectionView.reloadData()
+                        self.presentDeletionError()
+                    }
                 }
-                fileMimeIconType = mimeIcon[mediaType!] ?? .file
-            } else {
-                fileMimeIconType = .file
-            }
-            
-            switch fileMimeIconType {
-            case .image:
-                images.append(Datasource(uri: url?.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
-                                         kind: .image,
-                                         mimeType: "image",
-                                         dateFormatted: dateToSort,
-                                         fileId: item["id"] as? Int))
-            case .video:
-                let metadata = item["metadata"] as? NSDictionary
-                let videoDuration = metadata?["duration"] as? String
-                let videoPreviewKey = metadata?["video_preview_key"] as? String
-                
-                videos.append(Datasource(uri: url?.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
-                                         kind: .video,
-                                         videoPreviewKey: videoPreviewKey,
-                                         videoDuration: videoDuration,
-                                         mimeType: "video",
-                                         dateFormatted: dateToSort,
-                                         fileId: item["id"] as? Int))
-            case .audio:
-                let metadata = item["metadata"] as? NSDictionary
-                let audioDuration = metadata?["duration"] as? String
-                let meters = metadata?["meters"] as? String
-                
-                let dateAndTime = PhotoGallery.prepareDate(date: dateToSort)
-                let date = dateAndTime.date
-                let time = dateAndTime.send_time
-                
-                guard let fileSizeBytes = item["size"] else { return }
-                let fileSize = AccountQuotaStorageItem.beautify(size: fileSizeBytes as! Int)
-                
-                voices.append(Datasource(uri: url?.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
-                                         kind: .voice,
-                                         audioDuration: audioDuration,
-                                         meters: meters,
-                                         mimeType: "voice",
-                                         fileName: item["name"] as? String,
-                                         dateFormatted: dateToSort,
-                                         date: date,
-                                         time: time,
-                                         size: fileSize,
-                                         fileId: item["id"] as? Int))
-                break
-                
-            default:
-                let dateAndTime = PhotoGallery.prepareDate(date: dateToSort)
-                let date = dateAndTime.date
-                let time = dateAndTime.send_time
-                
-                guard let fileSizeBytes = item["size"] else { return }
-                let fileSize = AccountQuotaStorageItem.beautify(size: fileSizeBytes as! Int)
-                
-                files.append(Datasource(uri: url?.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
-                                        kind: .file,
-                                        mimeType: "file",
-                                        fileName: item["name"] as? String,
-                                        dateFormatted: dateToSort,
-                                        date: date,
-                                        time: time,
-                                        size: fileSize,
-                                        fileId: item["id"] as? Int))
-                break
             }
         }
-        
-        datasource = []
-        datasource.append([])
-        
-        [images, videos, files, voices].forEach { collection in
-            if collection.isNotEmpty {
-                datasource.append(collection)
-            }
-        }
-        
-        view.addSubview(collectionView)
-        collectionView.fillSuperview()
-        collectionView.dataSource = self
-        collectionView.delegate = self
-        spinner.removeFromSuperview()
-        spinner.stopAnimating()
     }
-    
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        
-        view.backgroundColor = .systemGroupedBackground
-        
-        self.navigationItem.title = "Delete files"
-        if CommonConfigManager.shared.config.use_large_title {
-            self.navigationItem.largeTitleDisplayMode = .automatic
+
+    private func finishSuccessfulDeletion() {
+        guard let navigationController else { return }
+        if let destination = navigationController.viewControllers.last(where: { $0 is CloudStorageViewController }) {
+            navigationController.popToViewController(destination, animated: true)
         } else {
-            self.navigationItem.largeTitleDisplayMode = .never
-        }
-        self.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
-    }
-    
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        
-        if datasource.isNotEmpty && spinner.isAnimating {
-            spinner.removeFromSuperview()
-            spinner.stopAnimating()
+            navigationController.popViewController(animated: true)
         }
     }
-    
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        self.navigationItem.title = ""
-//        self.navigationController?.navigationBar.prefersLargeTitles = false
+
+    private func presentDeletionError() {
+        let alert = UIAlertController(
+            title: "Couldn't delete files",
+            message: "Cloud Storage was not changed. Check your connection and try again.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
 }

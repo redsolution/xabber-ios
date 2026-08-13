@@ -1064,7 +1064,7 @@ extension GroupchatSettingsViewControllerT {
                             switch value {
                                 case "quota":
                                     let vc = CloudStorageViewController()
-                                    vc.configure(jid: self.jid)
+                                    vc.configure(jid: self.owner)
                                     self.navigationController?.pushViewController(vc, animated: true)
                                 default:
                                     break
@@ -1099,7 +1099,7 @@ extension GroupchatSettingsViewControllerT {
                                 switch value {
                                     case "quota":
                                         let vc = CloudStorageViewController()
-                                        vc.configure(jid: self.jid)
+                                        vc.configure(jid: self.owner)
                                         self.navigationController?.pushViewController(vc, animated: true)
                                     default:
                                         break

@@ -17,7 +17,8 @@ public class CloudPhotoGallery: PhotoGallery {
     
     override func didTapSenderInfoButton() {
         self.dismissGallery()
-        guard let primary = messageIds[currentPage].split(separator: "_").first else { return }
+        guard messageIds.indices.contains(currentPage),
+              let primary = messageIds[currentPage].split(separator: "_").first else { return }
         tappedCloudPhotoDelegate?.tappedPhotoInGallery(primary: String(primary))
     }
 }

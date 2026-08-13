@@ -573,19 +573,22 @@ final class AccountChatAttachmentCloudStorageFileListingProvider: ChatAttachment
         }
 
         account.action { user, _ in
-            user.cloudStorage.getFilesOfType(type: .file, page: page) { items, totalObjects, objPerPage, totalPages in
+            user.cloudStorage.getFilesPage(type: .file, page: page) { result in
                 DispatchQueue.main.async {
-                    completion(
-                        .success(
+                    switch result {
+                    case .success(let pageResult):
+                        completion(.success(
                             ChatAttachmentCloudStorageFileListing.make(
-                                items: items,
-                                totalObjects: totalObjects,
-                                objPerPage: objPerPage,
-                                totalPages: totalPages,
+                                items: pageResult.items,
+                                totalObjects: pageResult.totalObjects,
+                                objPerPage: pageResult.objectsPerPage,
+                                totalPages: pageResult.totalPages,
                                 page: page
                             )
-                        )
-                    )
+                        ))
+                    case .failure(let error):
+                        completion(.failure(error))
+                    }
                 }
             }
         }
