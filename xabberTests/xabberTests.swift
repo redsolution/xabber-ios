@@ -45597,6 +45597,80 @@ final class ChatInitialMessageOverlayLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(overlayView.containerView.frame.maxY, overlayView.bounds.maxY + 0.001)
     }
 
+    func testSavedOverlayContainsLocalizedContentAndInvokesURLHandler() {
+        let overlayView = ChatViewController.InitialMessageOverlayView(frame: .zero)
+        var openedURL: URL?
+        overlayView.onOpenURL = { openedURL = $0 }
+
+        overlayView.update(
+            frame: CGRect(x: 0, y: 0, width: 340, height: 340),
+            conversationType: .saved
+        )
+
+        XCTAssertEqual(
+            overlayView.titleLabel.text,
+            "Saved messages".localizeString(id: "saved_messages__header", arguments: [])
+        )
+        XCTAssertEqual(
+            overlayView.descriptionLabel.text,
+            "Save notes, links, files, and forwarded messages here. Your saved messages are synchronized across your devices.".localizeString(
+                id: "intro_saved_messages_text",
+                arguments: []
+            )
+        )
+        XCTAssertEqual(
+            overlayView.learnmoreButton.attributedTitle(for: .normal)?.string,
+            "Learn more about Saved Messages".localizeString(
+                id: "intro_saved_messages_learn",
+                arguments: []
+            )
+        )
+        XCTAssertNotNil(overlayView.iconButton.image(for: .normal))
+        XCTAssertEqual(
+            overlayView.learnmoreButton.accessibilityIdentifier,
+            "chat.initial_message.saved.learn_more"
+        )
+
+        overlayView.learnmoreButton.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(openedURL?.absoluteString, "https://www.xabber.com/learn/saved/")
+    }
+
+    @MainActor
+    func testRealDatasourceCommitRemovesOverlayBeforeCompletion() {
+        let controller = ChatViewController()
+        controller.owner = "overlay-owner@example.com"
+        controller.jid = "overlay-peer@example.com"
+        controller.conversationType = .regular
+        controller.ownerSender = Sender(id: controller.owner, displayName: "Owner")
+        controller.opponentSender = Sender(id: controller.jid, displayName: "Peer")
+        controller.view.frame = viewBounds
+        controller.loadViewIfNeeded()
+        controller.bindInitialMessageOverlayVisibility()
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+        controller.setShouldShowInitialMessage(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(controller.initialMessageOverlayView.superview === controller.view)
+
+        let row = makeDatasource(primary: "first-real-row")
+        var didComplete = false
+        controller.applyChatDatasource(
+            [row],
+            mode: .fullReload(),
+            animated: false,
+            completion: {
+                didComplete = true
+                XCTAssertEqual(controller.datasource.map(\.primary), [row.primary])
+                XCTAssertFalse(controller.shouldShowInitialMessage.value)
+                XCTAssertNil(controller.initialMessageOverlayView.superview)
+            }
+        )
+
+        XCTAssertTrue(didComplete)
+    }
+
     func testKeyboardOverlapHeightHandlesHiddenVisibleAndPartialFrames() {
         XCTAssertEqual(
             ChatViewController.keyboardOverlapHeight(
@@ -45621,6 +45695,56 @@ final class ChatInitialMessageOverlayLayoutTests: XCTestCase {
             ),
             84,
             accuracy: 0.001
+        )
+    }
+
+    private func makeDatasource(primary: String) -> ChatViewController.Datasource {
+        ChatViewController.Datasource(
+            primary: primary,
+            jid: "overlay-peer@example.com",
+            owner: "overlay-owner@example.com",
+            outgoing: true,
+            sender: Sender(id: "overlay-owner@example.com", displayName: "Owner"),
+            messageId: "\(primary)-message-id",
+            sentDate: Date(timeIntervalSince1970: 100),
+            editDate: nil,
+            kind: .attributedText(NSAttributedString(string: primary)),
+            withAuthor: false,
+            withAvatar: false,
+            error: false,
+            errorType: "",
+            canPinMessage: false,
+            canEditMessage: true,
+            canDeleteMessage: true,
+            forwards: [],
+            isOutgoing: true,
+            isEdited: false,
+            groupchatAuthorRole: "",
+            groupchatAuthorId: "",
+            groupchatAuthorNickname: "",
+            groupchatAuthorBadge: "",
+            isHasAttachedMessages: false,
+            isDownloaded: true,
+            state: .read,
+            searchString: nil,
+            errorMetadata: nil,
+            burnDate: -1,
+            afterburnInterval: -1,
+            archivedId: "\(primary)-archived",
+            queryIds: nil,
+            isRead: true,
+            selectedSearchResultId: nil,
+            isHadHistoryGap: false,
+            tailed: false,
+            isFakeMessage: false,
+            images: [],
+            videos: [],
+            files: [],
+            audios: [],
+            timeMarkerText: NSAttributedString(string: ""),
+            indicator: .none,
+            avatarUrl: nil,
+            attributedAuthor: nil
         )
     }
 }

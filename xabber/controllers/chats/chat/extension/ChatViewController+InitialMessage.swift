@@ -279,6 +279,11 @@ extension ChatViewController {
         
         private lazy var titleHeightConstraint = titleLabel.heightAnchor.constraint(equalToConstant: Layout.titleHeight)
         private lazy var learnMoreHeightConstraint = learnmoreButton.heightAnchor.constraint(equalToConstant: Layout.learnMoreHeight)
+        private var learnMoreURL: URL?
+
+        internal var onOpenURL: (URL) -> Void = { url in
+            UIApplication.shared.open(url, options: [:], completionHandler: nil)
+        }
 
         override init(frame: CGRect) {
             super.init(frame: frame)
@@ -299,6 +304,11 @@ extension ChatViewController {
             self.containerStack.addArrangedSubview(self.descriptionLabel)
             self.containerStack.addArrangedSubview(self.learnmoreButton)
             self.addSubview(self.iconButton)
+            self.learnmoreButton.addTarget(
+                self,
+                action: #selector(openLearnMoreURL),
+                for: .touchUpInside
+            )
 
             NSLayoutConstraint.activate([
                 titleHeightConstraint,
@@ -308,6 +318,8 @@ extension ChatViewController {
         
         public func update(frame: CGRect, conversationType: ClientSynchronizationManager.ConversationType, privacy: GroupChatStorageItem.Privacy? = nil, peerToPeer: Bool? = nil) {
             self.frame = frame
+            self.learnMoreURL = nil
+            self.learnmoreButton.accessibilityIdentifier = nil
             self.containerView.layer.cornerRadius = 8
             self.containerView.layer.masksToBounds = true
 
@@ -395,8 +407,52 @@ extension ChatViewController {
                 case .notifications:
                     break
                 case .saved:
-                    break
+                    self.iconButton.setImage(
+                        imageLiteral("bookmark.fill", dimension: 28),
+                        for: .normal
+                    )
+                    self.titleLabel.text = "Saved messages".localizeString(
+                        id: "saved_messages__header",
+                        arguments: []
+                    )
+                    self.descriptionLabel.text = "Save notes, links, files, and forwarded messages here. Your saved messages are synchronized across your devices.".localizeString(
+                        id: "intro_saved_messages_text",
+                        arguments: []
+                    )
+                    let title = "Learn more about Saved Messages".localizeString(
+                        id: "intro_saved_messages_learn",
+                        arguments: []
+                    )
+                    self.learnmoreButton.setAttributedTitle(
+                        NSAttributedString(
+                            string: title,
+                            attributes: [
+                                .foregroundColor: UIColor.tintColor,
+                                .font: UIFont.systemFont(
+                                    ofSize: 14,
+                                    weight: .regular
+                                )
+                            ]
+                        ),
+                        for: .normal
+                    )
+                    self.learnmoreButton.accessibilityLabel = title
+                    self.learnmoreButton.accessibilityIdentifier =
+                        "chat.initial_message.saved.learn_more"
+                    self.learnMoreURL = URL(
+                        string: "https://www.xabber.com/learn/saved/".localizeString(
+                            id: "intro_saved_messages_link",
+                            arguments: []
+                        )
+                    )
             }
+        }
+
+        @objc private func openLearnMoreURL() {
+            guard let learnMoreURL else {
+                return
+            }
+            onOpenURL(learnMoreURL)
         }
 
         private func iconButtonSize(for bounds: CGRect) -> CGFloat {

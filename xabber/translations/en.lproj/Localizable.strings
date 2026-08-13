@@ -1180,6 +1180,15 @@ I don\'t need luck. I have ammo.";
 "intro_regular_chat_link" = "https://www.xabber.com/learn/regular";
 
 
+"intro_saved_messages_text" = "Save notes, links, files, and forwarded messages here. Your saved messages are synchronized across your devices.";
+
+
+"intro_saved_messages_learn" = "Learn more about Saved Messages";
+
+
+"intro_saved_messages_link" = "https://www.xabber.com/learn/saved/";
+
+
 "intro_encrypted_chat" = "Encrypted chat";
 
 

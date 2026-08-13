@@ -459,6 +459,48 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
     }
 
     @MainActor
+    func testAuthoritativeEmptyTerminalActivatesTimelineStoreObservation() throws {
+        let controller = try makeFreshSavedController(
+            owner: "empty-observation-owner@dxs.xabber.com"
+        )
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+
+        try commitAuthoritativeEmptyTerminal(controller)
+
+        XCTAssertTrue(waitUntil {
+            controller.timelineSession?.hasActiveStoreObservationForTests == true
+        })
+    }
+
+    @MainActor
+    func testFirstLocalOutgoingAfterEmptyAppearsInRegularDatasource() throws {
+        let controller = try makeFreshController(
+            owner: "first-regular-owner@dxs.xabber.com",
+            jid: "first-regular-peer@dxs.xabber.com",
+            conversationType: .regular
+        )
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+
+        try assertFirstLocalOutgoingAppearsAfterEmpty(in: controller)
+    }
+
+    @MainActor
+    func testFirstLocalOutgoingAfterEmptyAppearsInSavedDatasource() throws {
+        let controller = try makeFreshSavedController(
+            owner: "first-saved-owner@dxs.xabber.com"
+        )
+        defer {
+            controller.performTerminalChatResourceTeardownForTesting()
+        }
+
+        try assertFirstLocalOutgoingAppearsAfterEmpty(in: controller)
+    }
+
+    @MainActor
     func testLateSavedTrackingConsumesCommittedEmptyReceiptWithoutRestartingLoading() throws {
         let controller = try makeFreshSavedController(
             owner: "late-saved-owner@dxs.xabber.com"
@@ -767,14 +809,27 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
 
     @MainActor
     private func makeFreshSavedController(owner: String) throws -> ChatViewController {
+        try makeFreshController(
+            owner: owner,
+            jid: "favorites.dxs.xabber.com",
+            conversationType: .saved
+        )
+    }
+
+    @MainActor
+    private func makeFreshController(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) throws -> ChatViewController {
         let controller = ChatViewController()
         controller.owner = owner
-        controller.jid = "favorites.dxs.xabber.com"
-        controller.conversationType = .saved
+        controller.jid = jid
+        controller.conversationType = conversationType
         controller.ownerSender = Sender(id: owner, displayName: "Owner")
         controller.opponentSender = Sender(
             id: controller.jid,
-            displayName: "Saved Messages"
+            displayName: conversationType == .saved ? "Saved Messages" : jid
         )
         let realm = try WRealm.safe()
         let chat = LastChatsStorageItem()
@@ -798,7 +853,77 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
         return controller
     }
 
+    @MainActor
+    private func commitAuthoritativeEmptyTerminal(
+        _ controller: ChatViewController
+    ) throws {
+        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
+        let key = controller.initialBootstrapRequestKey
+        guard case .start(let lease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "empty-terminal-\(UUID().uuidString)",
+            timeout: 45,
+            purpose: .interactiveBootstrap,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("test setup must own the empty bootstrap lease")
+        }
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: lease.queryId,
+            hasDurableCoverage: true,
+            resultCount: 0,
+            confirmsEmptyConversation: true,
+            hasPresentationMaterialization: false
+        )
+        try markFreshConversationDurablyEmpty(controller)
+
+        controller.beginInitialBootstrapTracking(
+            queryId: lease.queryId,
+            timeout: 45
+        )
+
+        XCTAssertTrue(waitUntil {
+            controller.appliedBootstrapLoadingState == .empty &&
+                controller.datasource.isEmpty &&
+                !controller.showSkeletonObserver.value
+        })
+    }
+
+    @MainActor
+    private func assertFirstLocalOutgoingAppearsAfterEmpty(
+        in controller: ChatViewController
+    ) throws {
+        try commitAuthoritativeEmptyTerminal(controller)
+        let manager = makeMessageManager(owner: controller.owner)
+        defer {
+            manager.updateSendingMessagesTimer?.invalidate()
+            manager.updateSendingMessagesTimer = nil
+            manager.unsubscribeReceiver()
+            manager.unsubscribeSender()
+        }
+
+        let originId = manager.sendSimpleMessage(
+            "First message after empty",
+            to: controller.jid,
+            forwarded: [],
+            conversationType: controller.conversationType
+        )
+
+        XCTAssertTrue(waitUntil {
+            controller.datasource.contains {
+                !$0.isFakeMessage && $0.messageId == originId
+            }
+        })
+    }
+
     private func markFreshSavedConversationDurablyEmpty(
+        _ controller: ChatViewController
+    ) throws {
+        try markFreshConversationDurablyEmpty(controller)
+    }
+
+    private func markFreshConversationDurablyEmpty(
         _ controller: ChatViewController
     ) throws {
         let realm = try WRealm.safe()

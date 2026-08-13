@@ -2949,6 +2949,25 @@ extension ChatViewController {
         }
     }
     
+    internal func bindInitialMessageOverlayVisibility() {
+        self.shouldShowInitialMessage
+            .asObservable()
+            .observe(on: MainScheduler.instance)
+            .subscribe { value in
+                if value {
+                    if self.initialMessageOverlayView.superview == nil {
+                        self.view.addSubview(self.initialMessageOverlayView)
+                    }
+                    self.updateInitialMessageOverlayFrame()
+                    self.initialMessageOverlayView.isHidden = false
+                } else {
+                    self.initialMessageOverlayView.isHidden = true
+                    self.initialMessageOverlayView.removeFromSuperview()
+                }
+            }
+            .disposed(by: self.bag)
+    }
+
     internal func subscribe() throws {
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
         self.bag = DisposeBag()
@@ -3057,21 +3076,7 @@ extension ChatViewController {
             }
             .disposed(by: bag)
         
-        self.shouldShowInitialMessage
-            .asObservable()
-            .observe(on: MainScheduler.asyncInstance)
-            .subscribe { value in
-            if value {
-                if self.initialMessageOverlayView.superview == nil {
-                    self.view.addSubview(self.initialMessageOverlayView)
-                }
-                self.updateInitialMessageOverlayFrame()
-                self.initialMessageOverlayView.isHidden = false
-            } else {
-                self.initialMessageOverlayView.isHidden = true
-                self.initialMessageOverlayView.removeFromSuperview()
-            }
-        }.disposed(by: bag)
+        self.bindInitialMessageOverlayVisibility()
 
         
         self.inSearchMode

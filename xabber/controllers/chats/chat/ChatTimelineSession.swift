@@ -1423,7 +1423,12 @@ final class ChatTimelineSession {
         observation?.invalidate()
     }
 
-    func activateStoreObservation() {
+    /// Installs the store observer once. An authoritative empty bootstrap has
+    /// no committed page lineage, so its explicitly empty snapshot supplies
+    /// the trusted baseline for the observer's synchronous initial delivery.
+    func activateStoreObservation(
+        authoritativeEmptyBaseline: Bool = false
+    ) {
         operationLock.withLock {
             let activationEpoch = lock.withLock { () -> UInt64? in
                 guard observation == nil, !isInstallingStoreObservation else {
@@ -1444,7 +1449,7 @@ final class ChatTimelineSession {
                     authorityState.1,
                     for: committed,
                     conversationKey: conversationKey
-                )
+                ) || (authoritativeEmptyBaseline && committed.items.isEmpty)
             let baseline = ChatTimelineStoreObservationBaseline(
                 isAuthoritative: hasAuthoritativeBaseline,
                 residentItems: committed.items,

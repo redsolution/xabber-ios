@@ -11860,9 +11860,6 @@ extension ChatViewController {
                     return
                 }
                 transactionCompletion?(result)
-                if case .committed = result {
-                    completion?()
-                }
             }
         )
         if self.messagesCollectionView.isTracking ||
@@ -12339,6 +12336,11 @@ extension ChatViewController {
                 _ = self.completeInitialBootstrapIfNeeded()
             }
             datasourceApplySignpost.end()
+            if presentationCommitMode == .standard,
+               let completedViewportTransactionResult,
+               case .committed = completedViewportTransactionResult {
+                completion?()
+            }
             if presentationCommitMode == .atomicInitialFrame,
                let completedViewportTransactionResult {
                 transactionCompletion?(completedViewportTransactionResult)
@@ -18249,16 +18251,7 @@ extension ChatViewController {
                     presentationAttempt {
                     self.initialLocalFirstFrameTerminalizingAttempt = nil
                 }
-                if let committedSession = self.timelineSession {
-                    DispatchQueue.main.async { [weak self, weak committedSession] in
-                        guard let self,
-                              let committedSession,
-                              self.timelineSession === committedSession else {
-                            return
-                        }
-                        committedSession.activateStoreObservation()
-                    }
-                }
+                self.scheduleTimelineStoreObservationActivation()
 
             case .failed(let failure, _):
                 applyPreparedFrame = nil
@@ -18655,6 +18648,27 @@ extension ChatViewController {
         )
     }
 
+    /// Activates the committed session's observer once UIKit has finished the
+    /// current presentation pass. Realm's synchronous initial delivery then
+    /// reconciles writes that landed while activation was being scheduled.
+    private func scheduleTimelineStoreObservationActivation(
+        authoritativeEmptyBaseline: Bool = false
+    ) {
+        guard let committedSession = self.timelineSession else {
+            return
+        }
+        DispatchQueue.main.async { [weak self, weak committedSession] in
+            guard let self,
+                  let committedSession,
+                  self.timelineSession === committedSession else {
+                return
+            }
+            committedSession.activateStoreObservation(
+                authoritativeEmptyBaseline: authoritativeEmptyBaseline
+            )
+        }
+    }
+
     /// Publishes the authoritative empty timeline without re-entering local
     /// frame preparation. Once bootstrap committed `rsm-counter=0`, mapping
     /// an older skeleton snapshot is both unnecessary and capable of racing a
@@ -18708,7 +18722,11 @@ extension ChatViewController {
                 )
             }
         }
+        self.hasCommittedTimelinePresentationInCurrentLifecycle = true
         self.initialLocalFirstFramePhase = .committed(terminalDescriptor)
+        self.scheduleTimelineStoreObservationActivation(
+            authoritativeEmptyBaseline: true
+        )
         self.cancelPendingArchiveObserverRefresh(
             reason: "authoritativeEmptyBootstrapTerminal"
         )
