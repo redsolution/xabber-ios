@@ -8973,6 +8973,7 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
             )
         }
         let hasCommittedFirstFrame = self.isCommittedStackedNavigationFirstFrameReady
+        // #TODO sometimes fail
         assert(
             hasCommittedFirstFrame,
             "Stacked chat fallback must commit a deterministic first frame before presentation"
