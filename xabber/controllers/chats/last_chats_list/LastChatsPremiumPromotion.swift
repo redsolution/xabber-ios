@@ -11,14 +11,14 @@ enum LastChatsPremiumPromotionContent {
     static let iconName = "star.circle.fill"
 
     static var title: String {
-        "Extend your Xabber".localizeString(
+        "The Full Experience".localizeString(
             id: "last_chats_premium_promotion_title",
             arguments: []
         )
     }
 
     static var subtitle: String {
-        "Buy premium to get locked features".localizeString(
+        "Available with Premium.".localizeString(
             id: "last_chats_premium_promotion_subtitle",
             arguments: []
         )

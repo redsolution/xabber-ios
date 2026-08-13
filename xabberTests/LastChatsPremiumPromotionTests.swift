@@ -137,6 +137,8 @@ final class LastChatsPremiumPromotionTests: XCTestCase {
 
         cell.configurePremiumPromotion()
 
+        XCTAssertEqual(cell.titleLabel.text, "The Full Experience")
+        XCTAssertEqual(cell.subtitleLabel.text, "Available with Premium.")
         XCTAssertEqual(cell.titleLabel.text, LastChatsPremiumPromotionContent.title)
         XCTAssertEqual(cell.subtitleLabel.text, LastChatsPremiumPromotionContent.subtitle)
         XCTAssertNotNil(cell.leadingIconImageView.image)

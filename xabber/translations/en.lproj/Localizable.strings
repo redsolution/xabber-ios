@@ -6696,6 +6696,6 @@ What’s your name?";
 "chat_search_result_not_found_message" = "The message is no longer available.";
 "chat_search_result_ambiguous_message" = "Several messages match this result, so none was opened.";
 "chat_search_result_bounded_window_message" = "The message could not be identified within the bounded search window.";
-"last_chats_premium_promotion_title" = "Extend your Xabber";
-"last_chats_premium_promotion_subtitle" = "Buy premium to get locked features";
+"last_chats_premium_promotion_title" = "The Full Experience";
+"last_chats_premium_promotion_subtitle" = "Available with Premium.";
 "last_chats_premium_promotion_hide" = "Hide premium offer";
