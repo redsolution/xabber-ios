@@ -116,6 +116,192 @@ private struct XMPPAccountStateConnectionCheckKey: Hashable {
     let connectionAttemptID: UInt64?
 }
 
+struct AccountProductsHTTPResponse {
+    let statusCode: Int?
+    let result: Result<Any, Error>
+
+    var isAuthorizationFailure: Bool {
+        statusCode == 401 || statusCode == 403
+    }
+
+    static func success(statusCode: Int?, value: Any) -> AccountProductsHTTPResponse {
+        AccountProductsHTTPResponse(statusCode: statusCode, result: .success(value))
+    }
+
+    static func failure(statusCode: Int?, error: Error) -> AccountProductsHTTPResponse {
+        AccountProductsHTTPResponse(statusCode: statusCode, result: .failure(error))
+    }
+}
+
+enum AccountProductsAuthenticatedRequestResult {
+    case response(AccountProductsHTTPResponse)
+    case authenticationUnavailable
+}
+
+private final class AccountProductsSingleInvocation {
+    private let lock = NSLock()
+    private var didInvoke = false
+
+    func perform(_ block: () -> Void) {
+        lock.lock()
+        guard !didInvoke else {
+            lock.unlock()
+            return
+        }
+        didInvoke = true
+        lock.unlock()
+        block()
+    }
+}
+
+final class AccountProductsAuthenticatedRequestExecutor {
+    typealias TokenProvider = () -> String?
+    typealias ClearStoredToken = () -> Void
+    typealias FreshTokenRequest = (@escaping (String?) -> Void) -> Bool
+    typealias AuthenticatedRequest = (
+        _ token: String,
+        _ completion: @escaping (AccountProductsHTTPResponse) -> Void
+    ) -> Void
+
+    private let allowInitialTokenRequest: Bool
+    private let tokenProvider: TokenProvider
+    private let clearStoredToken: ClearStoredToken
+    private let freshTokenRequest: FreshTokenRequest
+    private let authenticatedRequest: AuthenticatedRequest
+    private let completionLock = NSLock()
+    private var completionHandler: ((AccountProductsAuthenticatedRequestResult) -> Void)?
+    private var didComplete = false
+    private var authorizationRetryCount = 0
+
+    init(
+        allowInitialTokenRequest: Bool = true,
+        tokenProvider: @escaping TokenProvider,
+        clearStoredToken: @escaping ClearStoredToken,
+        requestFreshToken: @escaping FreshTokenRequest,
+        request: @escaping AuthenticatedRequest
+    ) {
+        self.allowInitialTokenRequest = allowInitialTokenRequest
+        self.tokenProvider = tokenProvider
+        self.clearStoredToken = clearStoredToken
+        self.freshTokenRequest = requestFreshToken
+        self.authenticatedRequest = request
+    }
+
+    func execute(completion: @escaping (AccountProductsAuthenticatedRequestResult) -> Void) {
+        completionLock.lock()
+        guard completionHandler == nil, !didComplete else {
+            completionLock.unlock()
+            return
+        }
+        completionHandler = completion
+        completionLock.unlock()
+
+        if let token = usableToken(tokenProvider()) {
+            performRequest(token: token)
+            return
+        }
+
+        guard allowInitialTokenRequest else {
+            complete(.authenticationUnavailable)
+            return
+        }
+        acquireFreshToken { [self] token in
+            guard let token else {
+                complete(.authenticationUnavailable)
+                return
+            }
+            performRequest(token: token)
+        }
+    }
+
+    private func performRequest(token: String) {
+        let responseGate = AccountProductsSingleInvocation()
+        authenticatedRequest(token) { [self] response in
+            responseGate.perform {
+                handle(response)
+            }
+        }
+    }
+
+    private func handle(_ response: AccountProductsHTTPResponse) {
+        guard response.isAuthorizationFailure else {
+            complete(.response(response))
+            return
+        }
+
+        // The server is authoritative: neither the rejected token nor its
+        // expiry may remain available to another account-products request.
+        clearStoredToken()
+        guard authorizationRetryCount < 1 else {
+            complete(.response(response))
+            return
+        }
+
+        authorizationRetryCount += 1
+        acquireFreshToken { [self] token in
+            guard let token else {
+                complete(.authenticationUnavailable)
+                return
+            }
+            performRequest(token: token)
+        }
+    }
+
+    private func acquireFreshToken(completion: @escaping (String?) -> Void) {
+        let callbackGate = AccountProductsSingleInvocation()
+        let didStart = freshTokenRequest { [self] token in
+            callbackGate.perform {
+                completion(usableToken(token))
+            }
+        }
+        if !didStart {
+            callbackGate.perform {
+                completion(nil)
+            }
+        }
+    }
+
+    private func usableToken(_ token: String?) -> String? {
+        guard let token, !token.isEmpty else {
+            return nil
+        }
+        return token
+    }
+
+    private func complete(_ result: AccountProductsAuthenticatedRequestResult) {
+        let completion: ((AccountProductsAuthenticatedRequestResult) -> Void)?
+        completionLock.lock()
+        if didComplete {
+            completion = nil
+        } else {
+            didComplete = true
+            completion = completionHandler
+            completionHandler = nil
+        }
+        completionLock.unlock()
+        completion?(result)
+    }
+}
+
+final class AccountProductsRefreshGenerationTracker {
+    private let lock = NSLock()
+    private var generations: [String: Int] = [:]
+
+    func begin(for jid: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        let generation = (generations[jid] ?? 0) + 1
+        generations[jid] = generation
+        return generation
+    }
+
+    func isCurrent(for jid: String, generation: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return generations[jid] == generation
+    }
+}
+
 private struct ActivePremiumAccountProduct {
     let item: [String: Any]
     let productData: [String: Any]
@@ -123,7 +309,7 @@ private struct ActivePremiumAccountProduct {
 }
 
 private struct PremiumGalleryAccountProductCandidate {
-    let storageURL: String?
+    let storageURL: String
     let metadata: AccountGalleryPremiumMetadata?
 }
 
@@ -191,6 +377,28 @@ class SubscribtionsManager: NSObject {
     var apiProduct: APIProduct? = nil
     private let xmppAccountStateConnectionCheckLock = NSLock()
     private var xmppAccountStateConnectionCheckKeys: Set<XMPPAccountStateConnectionCheckKey> = Set()
+    private let accountProductsRefreshGenerationTracker = AccountProductsRefreshGenerationTracker()
+    private let postStoreKitRefreshGenerationTracker = AccountProductsRefreshGenerationTracker()
+    static let postStoreKitAccountProductsRetryDelays: [TimeInterval] = [2, 5]
+
+    static func startBoundedAccountProductsRefresh(
+        jid: String,
+        retryDelays: [TimeInterval] = postStoreKitAccountProductsRetryDelays,
+        refresh: @escaping (String) -> Void,
+        schedule: @escaping (TimeInterval, @escaping () -> Void) -> Void
+    ) {
+        guard jid.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty else {
+            return
+        }
+
+        refresh(jid)
+        retryDelays.prefix(2).forEach { delay in
+            guard delay.isFinite, delay > 0 else { return }
+            schedule(delay) {
+                refresh(jid)
+            }
+        }
+    }
 
     override init() {
         super.init()
@@ -604,7 +812,11 @@ class SubscribtionsManager: NSObject {
         }
 
         for item in products {
-            guard let activeProduct = activeIOSAccountProduct(from: item, now: now) else {
+            guard let activeProduct = activeIOSAccountProduct(from: item, now: now),
+                  let productId = nonEmptyString(from: activeProduct.productData["product_id"]),
+                  productId == premiumProductId,
+                  let priceData = dictionary(from: item["price_data"]),
+                  nonEmptyString(from: priceData["price_id"]) != nil else {
                 continue
             }
 
@@ -612,7 +824,7 @@ class SubscribtionsManager: NSObject {
                 ?? servicePremiumGalleryCandidate(from: activeProduct) {
                 return PremiumGalleryAvailability(
                     isAvailable: true,
-                    storageURL: candidate.storageURL ?? AccountGalleryConfiguration.hardcodedPremiumGalleryURL,
+                    storageURL: candidate.storageURL,
                     metadata: candidate.metadata
                 )
             }
@@ -623,12 +835,12 @@ class SubscribtionsManager: NSObject {
 
     private static func topLevelPremiumGalleryCandidate(from activeProduct: ActivePremiumAccountProduct) -> PremiumGalleryAccountProductCandidate? {
         guard let attributes = dictionary(from: activeProduct.item["attributes"]),
-              hasStorageMetadata(attributes) else {
+              let storageURL = validStorageURL(from: attributes) else {
             return nil
         }
 
         return PremiumGalleryAccountProductCandidate(
-            storageURL: validStorageURL(from: attributes),
+            storageURL: storageURL,
             metadata: premiumGalleryMetadata(
                 from: attributes,
                 productData: activeProduct.productData,
@@ -638,17 +850,19 @@ class SubscribtionsManager: NSObject {
     }
 
     private static func servicePremiumGalleryCandidate(from activeProduct: ActivePremiumAccountProduct) -> PremiumGalleryAccountProductCandidate? {
-        let services = dictionaries(from: activeProduct.productData["services"])
-            ?? dictionaries(from: activeProduct.item["services"])
-            ?? []
+        let services = (dictionaries(from: activeProduct.productData["services"]) ?? [])
+            + (dictionaries(from: activeProduct.item["services"]) ?? [])
 
         for service in services {
             guard string(from: service["service"])?.lowercased() == "gallery" else {
                 continue
             }
             let attributes = dictionary(from: service["attributes"]) ?? dictionary(from: activeProduct.item["attributes"])
+            guard let storageURL = validStorageURL(from: attributes) else {
+                continue
+            }
             return PremiumGalleryAccountProductCandidate(
-                storageURL: validStorageURL(from: attributes),
+                storageURL: storageURL,
                 metadata: premiumGalleryMetadata(
                     from: attributes,
                     productData: activeProduct.productData,
@@ -657,14 +871,6 @@ class SubscribtionsManager: NSObject {
             )
         }
         return nil
-    }
-
-    private static func hasStorageMetadata(_ attributes: [String: Any]) -> Bool {
-        return attributes["storage_url"] != nil
-            || attributes["storage"] != nil
-            || attributes["storage_description"] != nil
-            || attributes["storage_includes"] != nil
-            || attributes["message_retention"] != nil
     }
 
     private static func validStorageURL(from attributes: [String: Any]?) -> String? {
@@ -896,48 +1102,84 @@ class SubscribtionsManager: NSObject {
             callback?(hasActiveSubsription(for: jid))
             return
         }
+        let refreshGeneration = beginAccountProductsRefresh(for: jid)
         self.loadProductList()
         let url = api_url + "accounts/account-products/"
-        var headers = HTTPHeaders(["Cache-Control": "no-cache"])
-        if let token = XabberAccountManager.shared.token(for: jid) {
-            headers.add(name: "Authorization", value: "Bearer \(token)")
-            AF
-                .request(
+        let accountManager = XabberAccountManager.shared
+        let executor = AccountProductsAuthenticatedRequestExecutor(
+            // Preserve the legacy retry argument's behavior for any external
+            // caller while keeping 401/403 renewal independently bounded.
+            allowInitialTokenRequest: retry == nil,
+            tokenProvider: {
+                accountManager.token(for: jid)
+            },
+            clearStoredToken: {
+                accountManager.clearToken(for: jid)
+            },
+            requestFreshToken: { completion in
+                accountManager.requestToken(for: jid, callback: completion)
+            },
+            request: { token, completion in
+                let headers = HTTPHeaders([
+                    "Cache-Control": "no-cache",
+                    "Authorization": "Bearer \(token)"
+                ])
+                AF.request(
                     url,
                     method: .get,
                     parameters: Self.accountProductsRequestParameters(),
                     encoding: URLEncoding.default,
                     headers: headers
-                ).responseJSON { [weak self] response in
-                    guard let self = self else { return }
-                    //                print(response)
-                    if (response.response?.statusCode ?? 500) >= 301 {
-                        callback?(self.hasActiveSubsription(for: jid))
-                        return
-                    }
+                ).responseJSON { response in
                     switch response.result {
-                        case .success(let value):
-                            guard let isActive = self.reconcileAccountProductsRefresh(value, for: jid) else {
-                                callback?(self.hasActiveSubsription(for: jid))
-                                return
-                            }
-                            callback?(isActive)
-
-                        case .failure(let error):
-                            DDLogDebug(error.localizedDescription)
-                            callback?(self.hasActiveSubsription(for: jid))
+                    case .success(let value):
+                        completion(.success(statusCode: response.response?.statusCode, value: value))
+                    case .failure(let error):
+                        completion(.failure(statusCode: response.response?.statusCode, error: error))
                     }
                 }
-        } else {
-            guard retry == nil else {
+            }
+        )
+
+        executor.execute { [self] executionResult in
+            guard isCurrentAccountProductsRefresh(
+                for: jid,
+                generation: refreshGeneration
+            ) else {
                 callback?(hasActiveSubsription(for: jid))
                 return
             }
-            _ = XabberAccountManager.shared.requestToken(for: jid) { [weak self] _ in
-                guard let self = self else { return }
-                self.checkXMPPAccountState(jid: jid, retry: 1, callback: callback)
+            switch executionResult {
+            case .authenticationUnavailable:
+                callback?(hasActiveSubsription(for: jid))
+
+            case .response(let response):
+                guard (response.statusCode ?? 500) < 301 else {
+                    callback?(hasActiveSubsription(for: jid))
+                    return
+                }
+                switch response.result {
+                case .success(let value):
+                    guard let isActive = reconcileAccountProductsRefresh(value, for: jid) else {
+                        callback?(hasActiveSubsription(for: jid))
+                        return
+                    }
+                    callback?(isActive)
+
+                case .failure(let error):
+                    DDLogDebug(error.localizedDescription)
+                    callback?(hasActiveSubsription(for: jid))
+                }
             }
         }
+    }
+
+    private func beginAccountProductsRefresh(for jid: String) -> Int {
+        accountProductsRefreshGenerationTracker.begin(for: jid)
+    }
+
+    private func isCurrentAccountProductsRefresh(for jid: String, generation: Int) -> Bool {
+        accountProductsRefreshGenerationTracker.isCurrent(for: jid, generation: generation)
     }
 
     // MARK: - Purchase
@@ -1028,18 +1270,30 @@ class SubscribtionsManager: NSObject {
     func handleVerifiedTransaction(_ transaction: Transaction, fallbackJid: String?) async -> Bool {
         let transactionId = "\(transaction.id)"
         if transaction.revocationDate != nil {
-            removeSubscriptionInfo(transactionId: transactionId)
-            return true
+            return handleTerminalSubscriptionRemoval(
+                transactionId: transactionId,
+                productId: transaction.productID,
+                accountUUID: transaction.appAccountToken?.uuidString,
+                fallbackJid: fallbackJid
+            )
         }
 
         guard let expiration = transaction.expirationDate else {
-            removeSubscriptionInfo(transactionId: transactionId)
-            return true
+            return handleTerminalSubscriptionRemoval(
+                transactionId: transactionId,
+                productId: transaction.productID,
+                accountUUID: transaction.appAccountToken?.uuidString,
+                fallbackJid: fallbackJid
+            )
         }
 
         guard expiration.timeIntervalSince1970 > Date().timeIntervalSince1970 else {
-            removeSubscriptionInfo(transactionId: transactionId)
-            return true
+            return handleTerminalSubscriptionRemoval(
+                transactionId: transactionId,
+                productId: transaction.productID,
+                accountUUID: transaction.appAccountToken?.uuidString,
+                fallbackJid: fallbackJid
+            )
         }
 
         guard let transactionToken = transaction.appAccountToken?.uuidString else {
@@ -1053,13 +1307,37 @@ class SubscribtionsManager: NSObject {
             return false
         }
 
-        return saveSubscriptionInfo(
+        let persisted = saveSubscriptionInfo(
             productId: transaction.productID,
             jid: resolvedJid,
             accountUUID: transactionToken,
             expires: expiration,
             purchaseDate: transaction.purchaseDate,
             transactionId: transactionId
+        )
+        if persisted {
+            startAccountProductsRefreshAfterStoreKitChange(for: resolvedJid)
+        }
+        return persisted
+    }
+
+    private func startAccountProductsRefreshAfterStoreKitChange(for jid: String) {
+        let generation = postStoreKitRefreshGenerationTracker.begin(for: jid)
+        Self.startBoundedAccountProductsRefresh(
+            jid: jid,
+            refresh: { [weak self] jid in
+                guard let self,
+                      self.postStoreKitRefreshGenerationTracker.isCurrent(
+                        for: jid,
+                        generation: generation
+                      ) else {
+                    return
+                }
+                self.checkXMPPAccountState(jid: jid)
+            },
+            schedule: { delay, work in
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+            }
         )
     }
 
@@ -1203,17 +1481,122 @@ class SubscribtionsManager: NSObject {
         return nil
     }
 
-    private func removeSubscriptionInfo(transactionId: String) {
+    @discardableResult
+    func handleTerminalSubscriptionRemoval(
+        transactionId: String,
+        productId: String,
+        accountUUID: String?,
+        fallbackJid: String?
+    ) -> Bool {
         do {
             let realm = try WRealm.safe()
-            if let item = realm.object(ofType: SubsriptionInfoRealmStorage.self, forPrimaryKey: transactionId) {
+            let storedItem = realm.object(
+                ofType: SubsriptionInfoRealmStorage.self,
+                forPrimaryKey: transactionId
+            )
+            let storedJid = storedItem?.jid
+            let storedAccountUUID = storedItem?.accountUUID
+            let removedProductId = storedItem.flatMap { item in
+                item.productId.isNotEmpty ? item.productId : nil
+            } ?? productId
+            let resolvedJid: String?
+            if let storedJid, storedJid.isNotEmpty {
+                resolvedJid = storedJid
+            } else if let storedAccountUUID, storedAccountUUID.isNotEmpty {
+                resolvedJid = self.resolvedJid(
+                    forAccountUUID: storedAccountUUID,
+                    fallbackJid: fallbackJid
+                )
+            } else if let accountUUID, accountUUID.isNotEmpty {
+                resolvedJid = self.resolvedJid(
+                    forAccountUUID: accountUUID,
+                    fallbackJid: fallbackJid
+                )
+            } else {
+                resolvedJid = nil
+            }
+
+            var rowsToDelete: [SubsriptionInfoRealmStorage] = []
+            if let storedItem {
+                rowsToDelete.append(storedItem)
+            }
+            if Self.isPremiumEntitlementProductId(removedProductId),
+               let resolvedJid,
+               resolvedJid.isNotEmpty {
+                let resolvedAccountUUID = Self.appAccountToken(for: resolvedJid).uuidString
+                let accountRows = realm.objects(SubsriptionInfoRealmStorage.self)
+                    .filter(
+                        "jid == %@ OR accountUUID == %@",
+                        resolvedJid,
+                        resolvedAccountUUID
+                    )
+                let backendMirrors = Array(accountRows).filter { item in
+                    item.transactionId.hasPrefix("backend-account-product-")
+                        && Self.isSameCanonicalPremiumProductPlan(
+                            item.productId,
+                            removedProductId
+                        )
+                }
+                rowsToDelete.append(contentsOf: backendMirrors)
+            }
+
+            if rowsToDelete.isNotEmpty {
+                var seenTransactionIds = Set<String>()
+                let uniqueRows = rowsToDelete.filter {
+                    seenTransactionIds.insert($0.transactionId).inserted
+                }
                 try realm.write {
-                    realm.delete(item)
+                    realm.delete(uniqueRows)
                 }
             }
+
+            guard Self.isPremiumEntitlementProductId(removedProductId),
+                  let resolvedJid,
+                  resolvedJid.isNotEmpty else {
+                return true
+            }
+            let hasAnotherActivePremiumEntitlement = activeSubscriptionRows(
+                in: realm,
+                for: resolvedJid
+            ).contains { row in
+                Self.isPremiumEntitlementProductId(row.productId)
+            }
+            guard !hasAnotherActivePremiumEntitlement else {
+                return true
+            }
+
+            accounts = accounts.filter { $0.jid != resolvedJid }
+            subscribtionsList = subscribtionsList.filter {
+                $0.uuid != Self.appAccountToken(for: resolvedJid)
+            }
+            AccountGalleryConfiguration(owner: resolvedJid)
+                .reconcilePremiumGalleryAvailability(
+                    isAvailable: false,
+                    storageURL: nil
+                )
+            postPremiumEntitlementDidChange(for: resolvedJid)
+            return true
         } catch {
             DDLogDebug("SubscribtionsManager: \(#function). \(error.localizedDescription)")
+            return false
         }
+    }
+
+    private static func isPremiumEntitlementProductId(_ productId: String) -> Bool {
+        let normalized = productId
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalized == premiumProductId
+            || normalized.hasPrefix("\(premiumProductId).")
+    }
+
+    private static func isSameCanonicalPremiumProductPlan(
+        _ lhs: String,
+        _ rhs: String
+    ) -> Bool {
+        return isPremiumEntitlementProductId(lhs)
+            && isPremiumEntitlementProductId(rhs)
+            && isSamePremiumSubscriptionPlan(lhs, rhs)
     }
 
     @discardableResult
@@ -1224,15 +1607,19 @@ class SubscribtionsManager: NSObject {
         }
 
         guard activeProducts.isNotEmpty else {
+            // The account-products backend is updated asynchronously after a
+            // StoreKit transaction. An empty valid response is therefore a
+            // transient state, not an authoritative revocation signal.
             return hasActiveSubsription(for: jid)
         }
 
-        let reconciled = reconcileAccountProducts(activeProducts, for: jid)
         AccountGalleryConfiguration(owner: jid).reconcilePremiumGalleryAvailability(
             isAvailable: galleryAvailability.isAvailable,
             storageURL: galleryAvailability.storageURL,
             metadata: galleryAvailability.metadata
         )
+
+        let reconciled = reconcileAccountProducts(activeProducts, for: jid)
         return reconciled ? true : hasActiveSubsription(for: jid)
     }
 

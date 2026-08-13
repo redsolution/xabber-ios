@@ -24,12 +24,15 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         if indexPath.section == datasource.count { // Сell with delete button
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "deleteButton", for: indexPath)
-            let textView = UILabel()
-            textView.text = "Delete"
+            let textView = cell.contentView.viewWithTag(101) as? UILabel ?? UILabel()
+            textView.tag = 101
+            textView.text = isDeleting ? "Deleting…" : "Delete"
             textView.textColor = .systemRed
             textView.textAlignment = .center
-            cell.addSubview(textView)
-            textView.fillSuperview()
+            if textView.superview == nil {
+                cell.contentView.addSubview(textView)
+                textView.fillSuperview()
+            }
             cell.backgroundColor = .systemBackground
             cell.layer.cornerRadius = 10
             cell.selectedBackgroundView = UIView()
@@ -45,9 +48,11 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
         let item = datasource[indexPath.section][indexPath.row]
         
         switch item.kind {
-        case .image:
+        case .image, .avatar:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PhotosMediaCollectionCell.cellName, for: indexPath) as! PhotosMediaCollectionCell
-            cell.setup(photoUrls: (thumb: nil, url: item.uri!))
+            if let uri = item.uri {
+                cell.setup(photoUrls: (thumb: nil, url: uri))
+            }
             return cell
         case .video:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: VideosMediaCollectionCell.cellName, for: indexPath) as! VideosMediaCollectionCell
@@ -55,7 +60,14 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
             return cell
         case .file:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: FilesMediaCollectionCell.cellName, for: indexPath) as! FilesMediaCollectionCell
-            cell.setup(mimeType: item.mimeType!, sender: item.senderName ?? "", date: item.date ?? "", time: item.time ?? "", sizeInBytes: String(item.size!), filename: item.fileName!)
+            cell.setup(
+                mimeType: item.mimeType ?? "file",
+                sender: item.senderName ?? "",
+                date: item.date ?? "",
+                time: item.time ?? "",
+                sizeInBytes: item.size ?? "0 KiB",
+                filename: item.fileName ?? "File"
+            )
             cell.senderNameLabel.text = cell.fileNameLabel.text
             cell.fileNameLabel.isHidden = true
             cell.fileSizeLabel.text = item.size
@@ -65,11 +77,19 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
             return cell
         case .voice:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: VoiceMediaCollectionCell.cellName, for: indexPath) as! VoiceMediaCollectionCell
-//            cell.setup(withReference: item.voiceModel, date: item.date!, send_time: item.time!, sizeInBytes: item.size!, url: item.uri)
-            if item.meters == nil {
-                cell.audioView.configure(.paused, meters: [0.0, 0.0], loading: false, duration: item.audioDuration ?? "", senderName: item.fileName ?? "Audio message", date: item.date!, send_time: item.time!, sizeInBytes: item.size ?? "? КБ")
-            }
-            cell.audioView.durationLabel.text = cell.sizeInBytes
+            let meters = item.meters?
+                .split(separator: " ")
+                .compactMap { Float($0) }
+            cell.audioView.configure(
+                .paused,
+                meters: (meters?.isEmpty == false ? meters : nil) ?? [0.0, 0.0],
+                loading: false,
+                duration: item.audioDuration ?? "",
+                senderName: item.fileName ?? "Audio message",
+                date: item.date ?? "",
+                send_time: item.time ?? "",
+                sizeInBytes: item.size ?? "0 KiB"
+            )
             if indexPath.row == datasource[indexPath.section].count - 1 {
                 cell.audioView.separatorLine.isHidden = true
             }
@@ -90,7 +110,7 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
         if indexPath.section == 0 {
             let label = UILabel()
             label.font = UIFont.preferredFont(forTextStyle: .body)
-            label.text = "Please review the list of files that are about to be deleted from your cloud storage to free up space.\n\nFiles will remain on this device, but will be inaccessible on your other devices."
+            label.text = "Please review the advisory list of files selected to reach \(plan.percent)% free space. The server validates the cleanup again on confirmation. Avatars are excluded."
             label.numberOfLines = 0
             headerView.addSubview(label)
             label.fillSuperviewWithOffset(top: 0, bottom: 0, left: 10, right: 10)
@@ -113,6 +133,8 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
             label.text = "Files"
         case .voice:
             label.text = "Voice messages"
+        case .avatar:
+            label.text = "Avatars"
         default:
             label.text = "Undefined"
         }

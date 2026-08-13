@@ -45,9 +45,6 @@ extension CloudStorageViewController: UITableViewDelegate {
 
         let item = datasource[indexPath.section].children[indexPath.row]
         tableView.deselectRow(at: indexPath, animated: true)
-        if item.subtitle == "0 КБ" {
-            return
-        }
         switch item.key {
         case "storage_upsell":
             guard currentUpsellCardState().action == .openPremium else {
@@ -63,12 +60,17 @@ extension CloudStorageViewController: UITableViewDelegate {
                 return
             }
             let freeQuotaAsPercentage = freeQuotaPercentage()
-            let deleteItems: [ActionSheetPresenter.Item] = [
-                ActionSheetPresenter.Item(destructive: false, title: "Free up 15% of space", value: "15percent", isEnabled: freeQuotaAsPercentage < 15 ? true : false),
-                ActionSheetPresenter.Item(destructive: false, title: "Free up 25% of space", value: "25percent", isEnabled: freeQuotaAsPercentage < 25 ? true : false),
-                ActionSheetPresenter.Item(destructive: false, title: "Free up 50% of space", value: "50percent", isEnabled: freeQuotaAsPercentage < 50 ? true : false),
-                ActionSheetPresenter.Item(destructive: false, title: "Free up 100% of space", value: "100percent", isEnabled: freeQuotaAsPercentage < 100 ? true : false)
-            ]
+            let deleteItems = CloudStorageCleanupPolicy.supportedPercents.map { percent in
+                ActionSheetPresenter.Item(
+                    destructive: false,
+                    title: "Free up \(percent)% of space",
+                    value: "\(percent)percent",
+                    isEnabled: CloudStorageCleanupPolicy.isEnabled(
+                        percent: percent,
+                        currentFreePercent: freeQuotaAsPercentage
+                    )
+                )
+            }
 
             ActionSheetPresenter()
                 .present(in: self,
@@ -79,18 +81,12 @@ extension CloudStorageViewController: UITableViewDelegate {
                          animated: true
                 ) { result in
 
-                    switch result {
-                    case "15percent":
-                        showConfirmationToDelete(percent: 15)
-                    case "25percent":
-                        showConfirmationToDelete(percent: 25)
-                    case "50percent":
-                        showConfirmationToDelete(percent: 50)
-                    case "100percent":
-                        showConfirmationToDelete(percent: 100)
-                    default:
-                        break
+                    guard let rawPercent = result.components(separatedBy: "percent").first,
+                          let percent = Int(rawPercent),
+                          CloudStorageCleanupPolicy.supportedPercents.contains(percent) else {
+                        return
                     }
+                    showConfirmationToDelete(percent: percent)
                 }
             return
         case "images":

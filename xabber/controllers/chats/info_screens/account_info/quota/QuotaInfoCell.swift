@@ -25,6 +25,17 @@ import RxSwift
 import RxCocoa
 import RxRealm
 
+enum QuotaInfoCellPresentation {
+    static func quotaText(
+        used: String,
+        quotaBytes: Int,
+        quotaFormatter: (Int) -> String = AccountQuotaStorageItem.beautify(size:)
+    ) -> String {
+        let displayedQuota = quotaBytes < 0 ? "Unlimited" : quotaFormatter(quotaBytes)
+        return used + " of ".localizeString(id: "of", arguments: []) + displayedQuota
+    }
+}
+
 class QuotaInfoCell: UITableViewCell {
     static let cellName = "QuotaInfoCell-CloudStorage"
 
@@ -382,14 +393,16 @@ class QuotaInfoCell: UITableViewCell {
                     rawVoices: item.voicesBytes,
                     rawAvatars: item.avatarsBytes,
                     quotaRaw: item.quotaBytes,
-                    quota: item.quota,
                     used: item.total
                 )
             }
             Observable.collection(from: collection).subscribe { results in
                 if let item = results.first,
                    AccountGalleryConfiguration(owner: self.owner).cachedQuotaMatchesCurrentGallery() {
-                    self.quotaLabel.text = item.total + " of ".localizeString(id: "of", arguments: []) + item.quota
+                    self.quotaLabel.text = QuotaInfoCellPresentation.quotaText(
+                        used: item.total,
+                        quotaBytes: item.quotaBytes
+                    )
 
                     if item.quotaBytes > 0 {
                         self.imagesWidthMultiplier = CGFloat(item.imagesBytes) / CGFloat(item.quotaBytes)
@@ -546,8 +559,11 @@ class QuotaInfoCell: UITableViewCell {
 //    }
 
     private func setupMainInfoViews(rawImages: Int, rawVideos: Int, rawFiles: Int, rawVoices: Int, rawAvatars: Int,
-                                    quotaRaw: Int, quota: String, used: String) {
-        self.quotaLabel.text = used + " of ".localizeString(id: "of", arguments: []) + quota
+                                    quotaRaw: Int, used: String) {
+        self.quotaLabel.text = QuotaInfoCellPresentation.quotaText(
+            used: used,
+            quotaBytes: quotaRaw
+        )
 
         if quotaRaw > 0 {
             imagesWidthMultiplier = CGFloat(rawImages) / CGFloat(quotaRaw)
@@ -582,37 +598,13 @@ class QuotaInfoCell: UITableViewCell {
 
 
     private func setupDelimeters() {
-        if imagesWidthMultiplier == 0 {
-            firstDelimiterWidth = 0
-        } else {
-            if videosWidthMultiplier == 0 && filesWidthMultiplier == 0 && audioWidthMultiplier == 0 {
-                firstDelimiterWidth = 0
-            }
-        }
-
-        if videosWidthMultiplier == 0 {
-            secondDelimeterWidth = 0
-        } else {
-            if filesWidthMultiplier == 0 && audioWidthMultiplier == 0 {
-                secondDelimeterWidth = 0
-            }
-        }
-
-        if filesWidthMultiplier == 0 {
-            thirdDelimeterWidth = 0
-        } else {
-            if audioWidthMultiplier == 0 {
-                thirdDelimeterWidth = 0
-            }
-        }
-
-        if audioWidthMultiplier == 0 {
-            fourthDelimeterWidth = 0
-        } else {
-            if avatarWidthMultiplier == 0 {
-                fourthDelimeterWidth = 0
-            }
-        }
+        firstDelimiterWidth = imagesWidthMultiplier > 0
+            && (videosWidthMultiplier > 0 || filesWidthMultiplier > 0 || audioWidthMultiplier > 0 || avatarWidthMultiplier > 0) ? 1 : 0
+        secondDelimeterWidth = videosWidthMultiplier > 0
+            && (filesWidthMultiplier > 0 || audioWidthMultiplier > 0 || avatarWidthMultiplier > 0) ? 1 : 0
+        thirdDelimeterWidth = filesWidthMultiplier > 0
+            && (audioWidthMultiplier > 0 || avatarWidthMultiplier > 0) ? 1 : 0
+        fourthDelimeterWidth = audioWidthMultiplier > 0 && avatarWidthMultiplier > 0 ? 1 : 0
     }
 
     private func setupViews() {
@@ -664,6 +656,7 @@ class QuotaInfoCell: UITableViewCell {
 
         if audioWidthMultiplier != 0 {
             mainProgressView.addSubview(voiceProgressView)
+            mainProgressView.addSubview(whiteDelimeterViewFourth)
 
             addSubview(voiceStack)
             voiceStack.addArrangedSubview(voiceIndicator)
@@ -685,8 +678,18 @@ class QuotaInfoCell: UITableViewCell {
             addSubview(avatarStack)
             avatarStack.addArrangedSubview(avatarIndicator)
             avatarStack.addArrangedSubview(avatarLabel)
+            let precedingDelimiter: UIView
+            if audioWidthMultiplier != 0 {
+                precedingDelimiter = whiteDelimeterViewFourth
+            } else if filesWidthMultiplier != 0 {
+                precedingDelimiter = whiteDelimeterViewThird
+            } else if videosWidthMultiplier != 0 {
+                precedingDelimiter = whiteDelimeterViewSecond
+            } else {
+                precedingDelimiter = whiteDelimeterViewFirst
+            }
             NSLayoutConstraint.activate([
-                avatarProgressView.leftAnchor.constraint(equalTo: mainProgressView.rightAnchor),
+                avatarProgressView.leftAnchor.constraint(equalTo: precedingDelimiter.rightAnchor),
                 avatarProgressView.topAnchor.constraint(equalTo: mainProgressView.topAnchor),
                 avatarProgressView.bottomAnchor.constraint(equalTo: mainProgressView.bottomAnchor),
                 avatarProgressView.widthAnchor.constraint(equalTo: mainProgressView.widthAnchor,
@@ -822,10 +825,10 @@ class QuotaInfoCell: UITableViewCell {
                                                      constant: -3/4),
             voiceProgressView.widthAnchor.constraint(greaterThanOrEqualToConstant: 1),
 
-            whiteDelimeterViewThird.leftAnchor.constraint(equalTo: voiceProgressView.rightAnchor),
-            whiteDelimeterViewThird.topAnchor.constraint(equalTo: voiceProgressView.topAnchor),
-            whiteDelimeterViewThird.bottomAnchor.constraint(equalTo: voiceProgressView.bottomAnchor),
-            whiteDelimeterViewThird.widthAnchor.constraint(equalToConstant: fourthDelimeterWidth),
+            whiteDelimeterViewFourth.leftAnchor.constraint(equalTo: voiceProgressView.rightAnchor),
+            whiteDelimeterViewFourth.topAnchor.constraint(equalTo: voiceProgressView.topAnchor),
+            whiteDelimeterViewFourth.bottomAnchor.constraint(equalTo: voiceProgressView.bottomAnchor),
+            whiteDelimeterViewFourth.widthAnchor.constraint(equalToConstant: fourthDelimeterWidth),
 
             voiceStack.leftAnchor.constraint(equalTo: stack.rightAnchor, constant: 20),
             voiceStack.topAnchor.constraint(equalTo: mainProgressView.bottomAnchor, constant: 12),

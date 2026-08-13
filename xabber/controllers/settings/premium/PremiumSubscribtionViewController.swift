@@ -572,14 +572,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
                 self.renderStaticState()
                 self.renderRemoteSections()
 
-                self.showAlert(title: "Success", message: "Your subscription change has been submitted.") {
-                    _ = XabberAccountManager.shared.requestToken(for: self.jid) { token in
-                        DDLogDebug("PremiumSubscription: token request result: \(token != nil ? "success" : "failed")")
-                        if token != nil {
-                            SubscribtionsManager.shared.checkXMPPAccountState(jid: self.jid)
-                        }
-                    }
-                }
+                self.showAlert(title: "Success", message: "Your subscription change has been submitted.")
             }
         }
     }

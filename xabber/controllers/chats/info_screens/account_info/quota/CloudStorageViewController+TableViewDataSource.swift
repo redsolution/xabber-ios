@@ -54,7 +54,7 @@ extension CloudStorageViewController: UITableViewDataSource {
             if !canFreeUpSpace() {
                 cell.selectionStyle = UITableViewCell.SelectionStyle.none
                 listContentConfiguration.textProperties.color = .systemGray
-            } else if quota > 0 && (100 * usedQuota / quota) < 75 {
+            } else if freeQuotaPercentage() > 25 {
                 listContentConfiguration.textProperties.color = .systemBlue
             } else {
                 listContentConfiguration.textProperties.color = .systemRed

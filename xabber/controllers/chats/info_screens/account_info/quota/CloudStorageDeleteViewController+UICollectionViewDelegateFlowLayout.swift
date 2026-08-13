@@ -18,19 +18,25 @@ extension CloudStorageDeleteViewController: UICollectionViewDelegateFlowLayout {
         }
         let item = datasource[indexPath.section][indexPath.row]
         switch item.kind {
-        case .image, .video:
+        case .image, .video, .avatar:
             let layout = collectionViewLayout as! UICollectionViewFlowLayout
-            layout.minimumLineSpacing = InfoScreenFooterView.cellSpacing
-            layout.minimumInteritemSpacing = InfoScreenFooterView.cellSpacing
-            collectionView.collectionViewLayout = layout
-            let width = view.frame.width / InfoScreenFooterView.numberOfCells - InfoScreenFooterView.cellSpacing * (InfoScreenFooterView.numberOfCells + 1) / InfoScreenFooterView.numberOfCells
+            layout.minimumLineSpacing = CloudStorageCategoryLayoutPolicy.spacing
+            layout.minimumInteritemSpacing = CloudStorageCategoryLayoutPolicy.spacing
+            let width = CloudStorageCategoryLayoutPolicy.gridItemWidth(
+                containerWidth: collectionView.bounds.width
+            )
             return CGSize(square: width)
         default:
             let layout = collectionViewLayout as! UICollectionViewFlowLayout
             layout.minimumLineSpacing = 0
             layout.minimumInteritemSpacing = 0
             collectionView.collectionViewLayout = layout
-            return CGSize(width: view.frame.width - InfoScreenFooterView.cellSpacing * 2, height: 60)
+            return CGSize(
+                width: CloudStorageCategoryLayoutPolicy.listItemWidth(
+                    containerWidth: collectionView.bounds.width
+                ),
+                height: CloudStorageCategoryLayoutPolicy.listItemHeight
+            )
         }
     }
     
@@ -53,13 +59,7 @@ extension CloudStorageDeleteViewController: UICollectionViewDelegateFlowLayout {
                          cancel: "Cancel",
                          values: [ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete")],
                          animated: true) { _ in
-                    AccountManager.shared.find(for: self.owner)?.action({ user, _ in
-                        user.cloudStorage.deleteMediaFor(percent: self.percent) {
-                            DispatchQueue.main.async {
-                                self.navigationController?.popViewController(animated: true)
-                            }
-                        }
-                    })
+                    self.performDeletion()
                 }
             return
         }

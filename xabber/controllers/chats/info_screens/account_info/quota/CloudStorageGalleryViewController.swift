@@ -11,6 +11,37 @@ import UIKit
 import CocoaLumberjack
 import MaterialComponents.MDCPalettes
 
+struct CloudStorageGallerySelectionReconciliation: Equatable {
+    let orderedFileIDs: [Int]
+    let indexPaths: [IndexPath]
+}
+
+enum CloudStorageGallerySelectionPolicy {
+    static func reconcile(
+        remainingSelectedFileIDs: Set<Int>,
+        datasourceFileIDs: [Int?]
+    ) -> CloudStorageGallerySelectionReconciliation {
+        var seenFileIDs = Set<Int>()
+        var orderedFileIDs: [Int] = []
+        var indexPaths: [IndexPath] = []
+
+        for (index, candidate) in datasourceFileIDs.enumerated() {
+            guard let fileID = candidate,
+                  remainingSelectedFileIDs.contains(fileID),
+                  seenFileIDs.insert(fileID).inserted else {
+                continue
+            }
+            orderedFileIDs.append(fileID)
+            indexPaths.append(IndexPath(item: index, section: 0))
+        }
+
+        return CloudStorageGallerySelectionReconciliation(
+            orderedFileIDs: orderedFileIDs,
+            indexPaths: indexPaths
+        )
+    }
+}
+
 class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
     let selectedType: MimeIconTypes
     var datasource: [CloudStorageShowFilesViewController.Datasource] = []
@@ -21,6 +52,9 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
     var infoVCDelegate: InfoVCDelegate? = nil
     var isSelectModeEnabled: Bool = false
     private var capturedGalleryIdentity: String?
+    private var loadError: CloudStorageListLoadError?
+    private var remainingSelectedFileIDs = Set<Int>()
+    private var isDeletingSelectedFiles = false
     let impactFeedbackGenerator: UIImpactFeedbackGenerator
     
     @objc func optionButtonTapped() {
@@ -50,6 +84,7 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
     
 
     @objc func cancelSelectButtonTapped() {
+        guard !isDeletingSelectedFiles else { return }
         switch selectedType {
         case .image:
             self.navigationItem.title = "Images"
@@ -66,52 +101,165 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         navigationItem.setRightBarButton(optionButton, animated: true)
         navigationItem.hidesBackButton = false
         navigationItem.setLeftBarButton(nil, animated: true)
-        collectionView.isEditing = false
-        collectionView.reloadData()
+        setEditing(false, animated: true)
     }
     
     @objc func deleteSelectedFilesButtonTapped() {
+        guard !isDeletingSelectedFiles else { return }
+        let reconciliation = currentSelectionReconciliation()
+        remainingSelectedFileIDs = Set(reconciliation.orderedFileIDs)
+        let selectedIDs = reconciliation.orderedFileIDs
+        guard selectedIDs.isNotEmpty else { return }
         ActionSheetPresenter()
             .present(in: self,
                      title: "Delete files",
                      message: "Please confirm deleting files from a cloud storage. This action can not be undone.",
                      cancel: "Cancel",
                      values: [ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete")],
-                     animated: true){ _ in
-                if self.selectedType == .avatar {
-                    self.collectionView.indexPathsForSelectedItems?.forEach { indexPathForSelectedFile in
-                        guard let fileId = self.datasource[indexPathForSelectedFile.row].fileId else {
-                            return
-                        }
-                        AccountManager.shared.find(for: self.owner)?.action({ user, _ in
-                            user.cloudStorage.deleteAvatarFromServer(fileID: fileId)
-                        })
-                    }
-                } else {
-                    self.collectionView.indexPathsForSelectedItems?.forEach { indexPathForSelectedFile in
-                        guard let fileId = self.datasource[indexPathForSelectedFile.row].fileId else {
-                            return
-                        }
-                        AccountManager.shared.find(for: self.owner)?.action({ user, _ in
-                            user.cloudStorage.deleteMediaFromServer(fileID: fileId)
-                        })
-                    }
-                }
-                self.navigationController?.popViewController(animated: true)
-                let lastViewController = self.navigationController?.visibleViewController as! CloudStorageViewController
-                lastViewController.tableView.reloadData()
+                     animated: true) { [weak self] _ in
+                self?.deleteFiles(selectedIDs)
             }
+    }
+
+    private func deleteFiles(_ fileIDs: [Int]) {
+        guard let account = AccountManager.shared.find(for: owner) else {
+            presentDeletionError()
+            return
+        }
+        remainingSelectedFileIDs = Set(fileIDs)
+        isDeletingSelectedFiles = true
+        deleteSelectedFilesButton?.isEnabled = false
+        cancelSelectButton?.isEnabled = false
+        collectionView.isUserInteractionEnabled = false
+        account.action { [weak self] user, _ in
+            guard let self else { return }
+            deleteNextFile(
+                fileIDs,
+                at: 0,
+                with: user.cloudStorage,
+                isAvatar: selectedType == .avatar
+            )
+        }
+    }
+
+    private func deleteNextFile(
+        _ fileIDs: [Int],
+        at index: Int,
+        with manager: XabberUploadManager,
+        isAvatar: Bool
+    ) {
+        guard fileIDs.indices.contains(index) else {
+            DispatchQueue.main.async { [weak self] in
+                self?.remainingSelectedFileIDs.removeAll()
+                self?.isDeletingSelectedFiles = false
+                self?.collectionView.isUserInteractionEnabled = true
+                self?.cancelSelectButton?.isEnabled = true
+                self?.navigationController?.popViewController(animated: true)
+            }
+            return
+        }
+        manager.deleteFile(fileID: fileIDs[index], isAvatar: isAvatar) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                DispatchQueue.main.async {
+                    let deletedFileID = fileIDs[index]
+                    self.remainingSelectedFileIDs.remove(deletedFileID)
+                    self.datasource.removeAll { $0.fileId == deletedFileID }
+                    if self.datasource.isEmpty {
+                        self.datasource = [Datasource(kind: .undefined)]
+                    }
+                    self.reloadCollectionRestoringRemainingSelection()
+                    self.deleteNextFile(fileIDs, at: index + 1, with: manager, isAvatar: isAvatar)
+                }
+            case .failure:
+                DispatchQueue.main.async {
+                    if self.datasource.isEmpty {
+                        self.datasource = [Datasource(kind: .undefined)]
+                    }
+                    self.isDeletingSelectedFiles = false
+                    self.collectionView.isUserInteractionEnabled = true
+                    self.cancelSelectButton?.isEnabled = true
+                    self.reloadCollectionRestoringRemainingSelection()
+                    self.presentDeletionError()
+                }
+            }
+        }
+    }
+
+    private func currentSelectionReconciliation() -> CloudStorageGallerySelectionReconciliation {
+        return CloudStorageGallerySelectionPolicy.reconcile(
+            remainingSelectedFileIDs: remainingSelectedFileIDs,
+            datasourceFileIDs: datasource.map(\.fileId)
+        )
+    }
+
+    private func reloadCollectionRestoringRemainingSelection() {
+        let reconciliation = currentSelectionReconciliation()
+        remainingSelectedFileIDs = Set(reconciliation.orderedFileIDs)
+
+        collectionView.reloadData()
+        (collectionView.indexPathsForSelectedItems ?? []).forEach {
+            collectionView.deselectItem(at: $0, animated: false)
+        }
+        reconciliation.indexPaths.forEach {
+            collectionView.selectItem(at: $0, animated: false, scrollPosition: [])
+        }
+        collectionView.layoutIfNeeded()
+        refreshVisibleSelectionAppearance()
+        updateSelectionControls()
+    }
+
+    private func refreshVisibleSelectionAppearance() {
+        let selectedIndexPaths = Set(collectionView.indexPathsForSelectedItems ?? [])
+        collectionView.indexPathsForVisibleItems.forEach { indexPath in
+            let isSelected = selectedIndexPaths.contains(indexPath)
+            switch selectedType {
+            case .image, .avatar:
+                guard let cell = collectionView.cellForItem(at: indexPath) as? PhotosMediaCollectionCell else { return }
+                if isSelected { cell.select() } else { cell.deselect() }
+            case .video:
+                guard let cell = collectionView.cellForItem(at: indexPath) as? VideosMediaCollectionCell else { return }
+                if isSelected { cell.select() } else { cell.deselect() }
+            case .audio:
+                guard let cell = collectionView.cellForItem(at: indexPath) as? VoiceMediaCollectionCell else { return }
+                if isSelected { cell.select() } else { cell.deselect() }
+            default:
+                guard let cell = collectionView.cellForItem(at: indexPath) as? FilesMediaCollectionCell else { return }
+                if isSelected { cell.select() } else { cell.deselect() }
+            }
+        }
+    }
+
+    private func updateSelectionControls() {
+        guard collectionView.isEditing else { return }
+        navigationItem.title = "\(remainingSelectedFileIDs.count) \(selectedType)s selected"
+        deleteSelectedFilesButton?.isEnabled = !isDeletingSelectedFiles && remainingSelectedFileIDs.isNotEmpty
+    }
+
+    private func presentDeletionError() {
+        let alert = UIAlertController(
+            title: "Couldn't delete files",
+            message: "Cloud Storage was not changed completely. Check your connection and try again.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
     
     @objc func longPressGesture(_ gestureRecognizer: UILongPressGestureRecognizer) {
-        if collectionView.isEditing {
+        guard gestureRecognizer.state == .began,
+              !collectionView.isEditing else {
             return
         }
+        let touchPoint = gestureRecognizer.location(in: collectionView)
+        guard let indexPath = collectionView.indexPathForItem(at: touchPoint),
+              datasource.indices.contains(indexPath.item),
+              datasource[indexPath.item].kind != .undefined,
+              let fileID = datasource[indexPath.item].fileId else { return }
         impactFeedbackGenerator.impactOccurred()
         impactFeedbackGenerator.prepare()
-        self.navigationItem.title = "1 \(selectedType)s selected"
-        let touchPoint = gestureRecognizer.location(in: collectionView)
-        guard let indexPath = collectionView.indexPathForItem(at: touchPoint) else { return }
+        remainingSelectedFileIDs = [fileID]
         cancelSelectButton = UIBarButtonItem(title: "Cancel", style: .plain, target: self, action: #selector(cancelSelectButtonTapped))
         deleteSelectedFilesButton = UIBarButtonItem(image: imageLiteral( "trash-outline"), style: .plain, target: self, action: #selector(deleteSelectedFilesButtonTapped))
         navigationItem.hidesBackButton = true
@@ -119,16 +267,14 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         navigationItem.setLeftBarButton(cancelSelectButton, animated: true)
         setEditing(true, animated: true)
         collectionView.selectItem(at: indexPath, animated: true, scrollPosition: [])
+        updateSelectionControls()
         return
     }
     
     let collectionView: UICollectionView = {
-        let view = UICollectionView(frame: .zero, collectionViewLayout: UICollectionViewLayout.init())
-        
-        var collectionViewflowLayout = UICollectionViewFlowLayout()
-        collectionViewflowLayout.sectionInset = UIEdgeInsets(top: 12, left: InfoScreenFooterView.cellSpacing, bottom: 15, right: InfoScreenFooterView.cellSpacing)
-        
-        view.collectionViewLayout = collectionViewflowLayout
+        let collectionViewflowLayout = UICollectionViewFlowLayout()
+        collectionViewflowLayout.sectionInset = CloudStorageCategoryLayoutPolicy.sectionInsets
+        let view = UICollectionView(frame: .zero, collectionViewLayout: collectionViewflowLayout)
         view.translatesAutoresizingMaskIntoConstraints = false
         
         view.register(PhotosMediaCollectionCell.self, forCellWithReuseIdentifier: PhotosMediaCollectionCell.cellName)
@@ -151,7 +297,6 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
             name: .cloudStorageGalleryDidChange,
             object: nil
         )
-        loadFiles()
     }
 
     deinit {
@@ -171,89 +316,58 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
     }
 
     private func loadFiles() {
-        AccountManager.shared.find(for: self.owner)?.action({ user, _ in
-            if self.selectedType == .avatar {
-                user.cloudStorage.getAvatars(page: 1) { items, totalObjects, objPerPage, totalPages in
-                    guard self.gallerySelectionIsCurrent() else { return }
-                    if items.isEmpty {
-                        DispatchQueue.main.async {
-                            guard self.gallerySelectionIsCurrent() else { return }
-                            self.spinner.removeFromSuperview()
-                            self.spinner.stopAnimating()
-                            self.configureCollections()
-                        }
-                        return
-                    }
-                    
-                    self.totalPages = totalPages
-                    self.items = items
-                    if totalPages == 1 {
-                        DispatchQueue.main.async {
-                            guard self.gallerySelectionIsCurrent() else { return }
-                            self.spinner.removeFromSuperview()
-                            self.spinner.stopAnimating()
-                            self.configureCollections()
-                        }
-                    } else {
-                        for page in 2..<totalPages + 1 {
-                            user.cloudStorage.getAvatars(page: page) { items, totalObjects, objPerPage, pages in
-                                guard self.gallerySelectionIsCurrent() else { return }
-                                DispatchQueue.main.async {
-                                    guard self.gallerySelectionIsCurrent() else { return }
-                                    if items.isEmpty {
-                                        return
-                                    }
-                                    self.items += items
-                                    self.spinner.removeFromSuperview()
-                                    self.spinner.stopAnimating()
-                                    self.configureCollections()
-                                }
-                            }
-                        }
-                    }
+        loadError = nil
+        items.removeAll()
+        datasource.removeAll()
+        collectionView.reloadData()
+        showLoadingIndicator()
+
+        guard let account = AccountManager.shared.find(for: owner) else {
+            finishLoading(.failure(.unavailable))
+            return
+        }
+
+        account.action { [weak self] user, _ in
+            guard let self else { return }
+            CloudStoragePagedLoader().loadAll(fetchPage: { page, completion in
+                if self.selectedType == .avatar {
+                    user.cloudStorage.getAvatarsPage(page: page, completion: completion)
+                } else {
+                    user.cloudStorage.getFilesPage(type: self.selectedType, page: page, completion: completion)
                 }
-                return
-            } else {
-                user.cloudStorage.getFilesOfType(type: self.selectedType, page: 1) { items, totalObjects, objPerPage, totalPages in
-                    guard self.gallerySelectionIsCurrent() else { return }
-                    if items.isEmpty {
-                        DispatchQueue.main.async {
-                            guard self.gallerySelectionIsCurrent() else { return }
-                            self.spinner.removeFromSuperview()
-                            self.spinner.stopAnimating()
-                            self.configureCollections()
-                        }
-                        return
-                    }
-                    self.totalPages = totalPages
-                    self.items = items
-                    if totalPages == 1 {
-                        DispatchQueue.main.async {
-                            guard self.gallerySelectionIsCurrent() else { return }
-                            self.spinner.removeFromSuperview()
-                            self.spinner.stopAnimating()
-                            self.configureCollections()
-                        }
-                    } else {
-                        for page in 2..<totalPages + 1 {
-                            user.cloudStorage.getFilesOfType(type: self.selectedType, page: page) { items, totalObjects, objPerPage, pages in
-                                guard self.gallerySelectionIsCurrent() else { return }
-                                DispatchQueue.main.async {
-                                    guard self.gallerySelectionIsCurrent() else { return }
-                                    if items.isEmpty {
-                                        return
-                                    }
-                                    self.items += items
-                                    self.spinner.removeFromSuperview()
-                                    self.spinner.stopAnimating()
-                                    self.configureCollections()
-                                }
-                            }
-                        }
-                    }
+            }, completion: { [weak self] result in
+                DispatchQueue.main.async {
+                    self?.finishLoading(result)
                 }
-            }
-        })
+            })
+        }
+    }
+
+    private func showLoadingIndicator() {
+        spinner.startAnimating()
+        if spinner.superview == nil {
+            view.addSubview(spinner)
+            NSLayoutConstraint.activate([
+                spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+            ])
+        }
+    }
+
+    private func finishLoading(_ result: Result<[NSDictionary], CloudStorageListLoadError>) {
+        spinner.stopAnimating()
+        spinner.removeFromSuperview()
+        guard gallerySelectionIsCurrent() else { return }
+
+        switch result {
+        case .success(let items):
+            self.items = items
+            loadError = nil
+        case .failure(let error):
+            items.removeAll()
+            loadError = error
+        }
+        configureCollections()
     }
     
     required init?(coder: NSCoder) {
@@ -261,146 +375,50 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
     }
     
     func configureCollections() {
-        if items.isEmpty {
-            datasource.append(Datasource(kind: .undefined))
+        datasource = items.compactMap {
+            CloudStorageItemPresentation.make(from: $0, preferredType: selectedType)
         }
+        datasource.sort { ($0.dateFormatted ?? .distantPast) > ($1.dateFormatted ?? .distantPast) }
+        if datasource.isEmpty {
+            datasource = [Datasource(kind: .undefined)]
+        }
+
         switch selectedType {
         case .image:
-            self.navigationItem.title = "Images"
-            items.forEach { item in
-                let url = item["file"] as? String
-                
-                let createdAt = item["created_at"] as? String
-                var date: Date? = nil
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-                date = dateFormatter.date(from: createdAt ?? "")
-                
-                datasource.append(Datasource(uri: url?.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
-                                             kind: .image,
-                                             mimeType: item["media_type"] as? String,
-                                             dateFormatted: date,
-                                             fileId: item["id"] as? Int))
-            }
+            navigationItem.title = "Images"
         case .video:
-            self.navigationItem.title = "Videos"
-            items.forEach { item in
-                let url = item["file"] as? String
-                let metadata = item["metadata"] as? NSDictionary
-                let videoDuration = metadata?["duration"] as? String
-                let videoPreviewKey = metadata?["video_preview_key"] as? String
-                
-                let createdAt = item["created_at"] as? String
-                var date: Date? = nil
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-                date = dateFormatter.date(from: createdAt ?? "")
-                
-                datasource.append(Datasource(uri: url?.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
-                                             kind: .video,
-                                             videoPreviewKey: videoPreviewKey,
-                                             videoDuration: videoDuration,
-                                             mimeType: item["media_type"] as? String,
-                                             dateFormatted: date,
-                                             fileId: item["id"] as? Int))
-            }
+            navigationItem.title = "Videos"
         case .audio:
-            self.navigationItem.title = "Voice messages"
-            items.forEach { item in
-                let url = item["file"] as? String
-                
-                let metadata = item["metadata"] as? NSDictionary
-                let audioDuration = metadata?["duration"] as? String
-                let meters = metadata?["meters"] as? String
-                
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-                guard let createdAt = item["created_at"] as? String,
-                      let dateToSort = dateFormatter.date(from: createdAt) else {
-                    return
-                }
-                
-                let dateAndTime = PhotoGallery.prepareDate(date: dateToSort)
-                let date = dateAndTime.date
-                let time = dateAndTime.send_time
-                
-                guard let fileSizeBytes = item["size"] else { return }
-                let fileSize = AccountQuotaStorageItem.beautify(size: fileSizeBytes as! Int)
-                
-                datasource.append(Datasource(uri: url?.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
-                                            kind: .voice,
-                                            audioDuration: audioDuration,
-                                            meters: meters,
-                                            mimeType: item["media_type"] as? String,
-                                            fileName: item["name"] as? String,
-                                            dateFormatted: dateToSort,
-                                            date: date,
-                                            time: time,
-                                            size: fileSize,
-                                            fileId: item["id"] as? Int))
-            }
+            navigationItem.title = "Voice messages"
         case .avatar:
-            self.navigationItem.title = "Avatars"
-            items.forEach { item in
-                let url = item["file"] as? String
-                
-                let createdAt = item["created_at"] as? String
-                var date: Date? = nil
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-                date = dateFormatter.date(from: createdAt ?? "")
-                
-                datasource.append(Datasource(uri: url?.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
-                                             kind: .avatar,
-                                             mimeType: item["media_type"] as? String,
-                                             dateFormatted: date,
-                                             fileId: item["id"] as? Int))
-            }
+            navigationItem.title = "Avatars"
         default:
-            self.navigationItem.title = "Files"
-            items.forEach { item in
-                let url = item["file"] as? String
-                
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-                guard let createdAt = item["created_at"] as? String,
-                      let dateToSort = dateFormatter.date(from: createdAt) else {
-                    return
-                }
-                
-                let dateAndTime = PhotoGallery.prepareDate(date: dateToSort)
-                let date = dateAndTime.date
-                let time = dateAndTime.send_time
-                
-                guard let fileSizeBytes = item["size"] else { return }
-                let fileSize = AccountQuotaStorageItem.beautify(size: fileSizeBytes as! Int)
-                
-                datasource.append(Datasource(uri: url?.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
-                                            kind: .file,
-                                            mimeType: item["media_type"] as? String,
-                                            fileName: item["name"] as? String,
-                                            dateFormatted: dateToSort,
-                                            date: date,
-                                            time: time,
-                                            size: fileSize,
-                                            fileId: item["id"] as? Int))
-            }
+            navigationItem.title = "Files"
         }
-        
-        datasource.sort(by: { ($0.dateFormatted ?? .distantPast) > ($1.dateFormatted ?? .distantPast) })
-        optionButton = UIBarButtonItem(image: UIImage(systemName: "ellipsis.circle")!.withRenderingMode(.alwaysTemplate), style: .plain, target: self, action: #selector(optionButtonTapped))
-        if items.isEmpty {
-            optionButton?.isEnabled = false
-        }
+
+        optionButton = UIBarButtonItem(
+            image: UIImage(systemName: "ellipsis.circle"),
+            style: .plain,
+            target: self,
+            action: #selector(optionButtonTapped)
+        )
+        optionButton?.isEnabled = loadError == nil && datasource.first?.kind != .undefined
         navigationItem.setRightBarButton(optionButton, animated: false)
-        
+        collectionView.reloadData()
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemGroupedBackground
         view.addSubview(collectionView)
         collectionView.fillSuperview()
         collectionView.dataSource = self
         collectionView.delegate = self
         collectionView.allowsMultipleSelectionDuringEditing = true
         collectionView.allowsMultipleSelection = true
+        collectionView.accessibilityIdentifier = "cloudStorage.category.list"
         infoVCDelegate = self
+        loadFiles()
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -412,11 +430,6 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
             self.navigationItem.largeTitleDisplayMode = .never
         }
         self.navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
-        view.backgroundColor = .systemGroupedBackground
-        spinner.startAnimating()
-        view.addSubview(spinner)
-        spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor).isActive = true
-        spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor).isActive = true
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -424,16 +437,19 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         
         impactFeedbackGenerator.prepare()
         
-        if datasource.isNotEmpty && spinner.isAnimating {
-            spinner.removeFromSuperview()
-            spinner.stopAnimating()
-        }
     }
     
     override func setEditing(_ editing: Bool, animated: Bool) {
         super.setEditing(editing, animated: animated)
-        collectionView.isEditing = true
+        if !editing {
+            remainingSelectedFileIDs.removeAll()
+            (collectionView.indexPathsForSelectedItems ?? []).forEach {
+                collectionView.deselectItem(at: $0, animated: false)
+            }
+        }
+        collectionView.isEditing = editing
         collectionView.reloadData()
+        updateSelectionControls()
     }
 }
 
@@ -449,7 +465,10 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
         if item.kind == .undefined {
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: NoFilesMediaCollectionCell.cellName, for: indexPath) as! NoFilesMediaCollectionCell
             cell.setup()
-            if selectedType == .audio {
+            if loadError != nil {
+                cell.label.text = "Couldn't load Cloud Storage. Tap to retry."
+                cell.accessibilityIdentifier = "cloudStorage.category.retry"
+            } else if selectedType == .audio {
                 cell.label.text = "No voice messages"
             } else {
                 cell.label.text = "No \(selectedType.rawValue)s"
@@ -459,7 +478,8 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
         switch selectedType {
         case .image, .avatar:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PhotosMediaCollectionCell.cellName, for: indexPath) as! PhotosMediaCollectionCell
-            cell.setup(photoUrls: (thumb: item.thumbnail, url: item.uri!))
+            guard let uri = item.uri else { return cell }
+            cell.setup(photoUrls: (thumb: item.thumbnail, url: uri))
             if collectionView.isEditing {
                 if cell.isSelected {
                     cell.select()
@@ -485,17 +505,28 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
                 }
                 cell.editModeEnabled()
             } else {
-                cell.contentView.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(longPressGesture(_:))))
+                if cell.contentView.gestureRecognizers?.count ?? 0 <= 1 {
+                    cell.contentView.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(longPressGesture(_:))))
+                }
                 cell.editModeDisabled()
             }
             return cell
         case .audio:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: VoiceMediaCollectionCell.cellName, for: indexPath) as! VoiceMediaCollectionCell
-//            cell.setup(withReference: item.voiceModel, date: item.date!, send_time: item.time!, sizeInBytes: item.size!, url: item.uri)
-            if item.meters == nil {
-                cell.audioView.configure(.paused, meters: [0.0, 0.0], loading: false, duration: item.audioDuration ?? "", senderName: item.fileName ?? "Audio message", date: item.date!, send_time: item.time!, sizeInBytes: item.size ?? "? КБ")
-            }
-            cell.audioView.durationLabel.text = cell.sizeInBytes
+            let meters = item.meters?
+                .split(separator: " ")
+                .compactMap { Float($0) }
+            let renderedMeters = (meters?.isEmpty == false ? meters : nil) ?? [0.0, 0.0]
+            cell.audioView.configure(
+                .paused,
+                meters: renderedMeters,
+                loading: false,
+                duration: item.audioDuration ?? "",
+                senderName: item.fileName ?? "Audio message",
+                date: item.date ?? "",
+                send_time: item.time ?? "",
+                sizeInBytes: item.size ?? "0 KiB"
+            )
             if indexPath.row == datasource.count - 1 {
                 cell.audioView.separatorLine.isHidden = true
             }
@@ -527,7 +558,7 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
             return cell
         default:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: FilesMediaCollectionCell.cellName, for: indexPath) as! FilesMediaCollectionCell
-            cell.setup(mimeType: item.mimeType ?? "file", sender: item.senderName ?? "", date: item.date ?? "", time: item.time ?? "", sizeInBytes: String(item.size!), filename: item.fileName ?? "")
+            cell.setup(mimeType: item.mimeType ?? "file", sender: item.senderName ?? "", date: item.date ?? "", time: item.time ?? "", sizeInBytes: item.size ?? "0 KiB", filename: item.fileName ?? "File")
             
             cell.senderNameLabel.text = cell.fileNameLabel.text
             cell.fileNameLabel.isHidden = true
@@ -566,34 +597,53 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
 
 extension CloudStorageGalleryViewController: UICollectionViewDelegateFlowLayout {
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        if items.isEmpty {
-            return CGSize(width: view.frame.width - InfoScreenFooterView.cellSpacing * 2, height: 60)
+        if datasource[indexPath.item].kind == .undefined {
+            return CGSize(
+                width: CloudStorageCategoryLayoutPolicy.listItemWidth(
+                    containerWidth: collectionView.bounds.width
+                ),
+                height: CloudStorageCategoryLayoutPolicy.listItemHeight
+            )
         }
         switch selectedType {
         case .image, .video, .avatar:
             let layout = collectionViewLayout as! UICollectionViewFlowLayout
-            layout.minimumLineSpacing = InfoScreenFooterView.cellSpacing
-            layout.minimumInteritemSpacing = InfoScreenFooterView.cellSpacing
-            collectionView.collectionViewLayout = layout
-            let widthRaw = view.frame.width / InfoScreenFooterView.numberOfCells - InfoScreenFooterView.cellSpacing * (InfoScreenFooterView.numberOfCells + 1) / InfoScreenFooterView.numberOfCells
-            let width = floor(widthRaw * 100) / 100
+            layout.minimumLineSpacing = CloudStorageCategoryLayoutPolicy.spacing
+            layout.minimumInteritemSpacing = CloudStorageCategoryLayoutPolicy.spacing
+            let width = CloudStorageCategoryLayoutPolicy.gridItemWidth(
+                containerWidth: collectionView.bounds.width
+            )
             return CGSize(square: width)
             
         default:
             let layout = collectionViewLayout as! UICollectionViewFlowLayout
             layout.minimumLineSpacing = 0
             layout.minimumInteritemSpacing = 0
-            collectionView.collectionViewLayout = layout
-            return CGSize(width: view.frame.width - InfoScreenFooterView.cellSpacing * 2, height: 60)
+            return CGSize(
+                width: CloudStorageCategoryLayoutPolicy.listItemWidth(
+                    containerWidth: collectionView.bounds.width
+                ),
+                height: CloudStorageCategoryLayoutPolicy.listItemHeight
+            )
         }
     }
     
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        if collectionView.isEditing {
-            if !deleteSelectedFilesButton!.isEnabled {
-                deleteSelectedFilesButton?.isEnabled = true
+        guard datasource.indices.contains(indexPath.item) else { return }
+        if datasource[indexPath.item].kind == .undefined {
+            collectionView.deselectItem(at: indexPath, animated: true)
+            if loadError != nil {
+                loadFiles()
             }
-            self.navigationItem.title = "\(collectionView.indexPathsForSelectedItems?.count ?? 0) \(selectedType)s selected"
+            return
+        }
+        if collectionView.isEditing {
+            guard let fileID = datasource[indexPath.item].fileId else {
+                collectionView.deselectItem(at: indexPath, animated: false)
+                return
+            }
+            remainingSelectedFileIDs.insert(fileID)
+            updateSelectionControls()
             switch selectedType {
             case .image, .avatar:
                 guard let cell = collectionView.cellForItem(at: indexPath) as? PhotosMediaCollectionCell else { return }
@@ -610,31 +660,37 @@ extension CloudStorageGalleryViewController: UICollectionViewDelegateFlowLayout 
             default:
                 guard let cell = collectionView.cellForItem(at: indexPath) as? FilesMediaCollectionCell else { return }
                 cell.select()
-                guard let lastCell = collectionView.cellForItem(at: IndexPath(item: indexPath.item - 1, section: indexPath.section)) as? FilesMediaCollectionCell else { return }
-                lastCell.separatorLine.isHidden = true
+                if indexPath.item > 0 {
+                    let previous = IndexPath(item: indexPath.item - 1, section: indexPath.section)
+                    (collectionView.cellForItem(at: previous) as? FilesMediaCollectionCell)?.separatorLine.isHidden = true
+                }
                 return
             }
         }
         collectionView.deselectItem(at: indexPath, animated: false)
         switch selectedType {
         case .image, .avatar:
-            let imageUrls: [URL] = datasource.compactMap({ URL(string: $0.uri!) })
-            let senders: [String] = datasource.compactMap({ $0.senderName })
-            let dates: [String] = datasource.compactMap({ $0.date })
-            let times: [String] = datasource.compactMap({ $0.time })
-            let messageIds: [String] = datasource.compactMap({ $0.messageId})
+            let imageUrls: [URL] = datasource.compactMap { $0.uri.flatMap(URL.init(string:)) }
+            let senders = datasource.map { $0.senderName ?? "" }
+            let dates = datasource.map { $0.date ?? "" }
+            let times = datasource.map { $0.time ?? "" }
+            let messageIds = datasource.map { $0.messageId ?? "" }
             
             self.infoVCDelegate?.presentPhotoGallery(urls: imageUrls, senders: senders, dates: dates, times: times, messageIds: messageIds, page: indexPath.item)
         default:
-            return
+            guard let rawURL = datasource[indexPath.item].uri,
+                  let url = URL(string: rawURL) else { return }
+            infoVCDelegate?.presentYesNoPresenter(with: url)
         }
     }
     
     func collectionView(_ collectionView: UICollectionView, didDeselectItemAt indexPath: IndexPath) {
-        if collectionView.indexPathsForSelectedItems?.count == 0 {
-            deleteSelectedFilesButton?.isEnabled = false
+        if collectionView.isEditing,
+           datasource.indices.contains(indexPath.item),
+           let fileID = datasource[indexPath.item].fileId {
+            remainingSelectedFileIDs.remove(fileID)
         }
-        self.navigationItem.title = "\(collectionView.indexPathsForSelectedItems?.count ?? 0) \(selectedType)s selected"
+        updateSelectionControls()
         switch selectedType {
         case .image, .avatar:
             guard let cell = collectionView.cellForItem(at: indexPath) as? PhotosMediaCollectionCell else { return }
@@ -649,8 +705,10 @@ extension CloudStorageGalleryViewController: UICollectionViewDelegateFlowLayout 
         default:
             guard let cell = collectionView.cellForItem(at: indexPath) as? FilesMediaCollectionCell else { return }
             cell.deselect()
-            guard let lastCell = collectionView.cellForItem(at: IndexPath(item: indexPath.item - 1, section: indexPath.section)) as? FilesMediaCollectionCell else { return }
-            lastCell.separatorLine.isHidden = false
+            if indexPath.item > 0 {
+                let previous = IndexPath(item: indexPath.item - 1, section: indexPath.section)
+                (collectionView.cellForItem(at: previous) as? FilesMediaCollectionCell)?.separatorLine.isHidden = false
+            }
         }
     }
 }
@@ -688,7 +746,7 @@ extension CloudStorageGalleryViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         dismiss(animated: false)
-        self.navigationItem.title = "0 \(selectedType)s selected"
+        remainingSelectedFileIDs.removeAll()
         cancelSelectButton = UIBarButtonItem(title: "Cancel", style: .plain, target: self, action: #selector(cancelSelectButtonTapped))
         deleteSelectedFilesButton = UIBarButtonItem(image: imageLiteral( "trash-outline"), style: .plain, target: self, action: #selector(deleteSelectedFilesButtonTapped))
         deleteSelectedFilesButton?.isEnabled = false
@@ -696,6 +754,7 @@ extension CloudStorageGalleryViewController: UITableViewDelegate {
         navigationItem.setRightBarButton(deleteSelectedFilesButton, animated: true)
         navigationItem.setLeftBarButton(cancelSelectButton, animated: true)
         setEditing(true, animated: true)
+        updateSelectionControls()
     }
 }
 
@@ -713,14 +772,25 @@ extension CloudStorageGalleryViewController: InfoVCDelegate {
     }
     
     func presentPhotoGallery(urls: [URL], senders: [String], dates: [String], times: [String], messageIds: [String], page: Int) {
-//        let gallery = CloudPhotoGallery(urls: urls, senders: senders, dates: dates, times: times, messageIds: messageIds)
-//        gallery.setPage(page: page)
-//        gallery.setupDelegate(photoGalleryDelegate: self)
-//        
-//        let navigationViewController = UINavigationController(rootViewController: gallery)
-//        navigationViewController.modalPresentationStyle = .overFullScreen
-//        
-//        present(navigationViewController, animated: true)
+        guard urls.indices.contains(page) else { return }
+        let gallery = CloudPhotoGallery(urls: urls, from: urls[page])
+        gallery.senders = normalizedMetadata(senders, count: urls.count)
+        gallery.dates = normalizedMetadata(dates, count: urls.count)
+        gallery.times = normalizedMetadata(times, count: urls.count)
+        gallery.messageIds = normalizedMetadata(messageIds, count: urls.count)
+        gallery.setPage(page: page)
+        gallery.setupDelegate(photoGalleryDelegate: self)
+
+        let navigationViewController = UINavigationController(rootViewController: gallery)
+        navigationViewController.modalPresentationStyle = .overFullScreen
+        present(navigationViewController, animated: true)
+    }
+
+    private func normalizedMetadata(_ values: [String], count: Int) -> [String] {
+        if values.count >= count {
+            return Array(values.prefix(count))
+        }
+        return values + Array(repeating: "", count: count - values.count)
     }
     
     func scrollToMediaGallery() {

@@ -50255,7 +50255,7 @@ final class SettingsCloudStorageQuotaDisplayStateTests: XCTestCase {
             galleryType: .premium
         )
 
-        let expected = "Premium Gallery · "
+        let expected = "Premium Cloud Storage · "
             + AccountQuotaStorageItem.beautify(size: 1024)
             + " of ".localizeString(id: "of", arguments: [])
             + AccountQuotaStorageItem.beautify(size: 2048)
@@ -50284,10 +50284,10 @@ final class SettingsCloudStorageQuotaDisplayStateTests: XCTestCase {
             fallbackPlanText: "3 GB plan"
         )
 
-        XCTAssertEqual(fallbackState.detailText, "Premium Gallery · 3 GB plan")
+        XCTAssertEqual(fallbackState.detailText, "Premium Cloud Storage · 3 GB plan")
         XCTAssertEqual(
             cachedState.detailText,
-            "Premium Gallery · "
+            "Premium Cloud Storage · "
                 + AccountQuotaStorageItem.beautify(size: 1024)
                 + " of ".localizeString(id: "of", arguments: [])
                 + AccountQuotaStorageItem.beautify(size: 2048)
@@ -50296,19 +50296,139 @@ final class SettingsCloudStorageQuotaDisplayStateTests: XCTestCase {
 }
 
 final class AccountGalleryConfigurationTests: XCTestCase {
-    private let alice = "gallery-alice@xabber.com"
-    private let bob = "gallery-bob@xabber.com"
+    private let alice = "gallery-alice@external.example"
+    private let bob = "gallery-bob@external.example"
+    private lazy var hostedOwner = "gallery-hosted@\(CommonConfigManager.shared.config.domain)"
 
     override func setUp() {
         super.setUp()
         cleanup(alice)
         cleanup(bob)
+        cleanup(hostedOwner)
     }
 
     override func tearDown() {
         cleanup(alice)
         cleanup(bob)
+        cleanup(hostedOwner)
         super.tearDown()
+    }
+
+    func testSelectionPolicyNormalizesJIDAndConfiguredDomain() {
+        XCTAssertEqual(
+            AccountGalleryConfiguration.selectionPolicy(
+                owner: "Gallery-Hosted@EXAMPLE.COM/ios",
+                configuredDomain: " example.com. "
+            ),
+            .unifiedHostedStorage
+        )
+        XCTAssertEqual(
+            AccountGalleryConfiguration.selectionPolicy(
+                owner: "external@elsewhere.example/ios",
+                configuredDomain: " example.com. "
+            ),
+            .accountScopedSelection
+        )
+    }
+
+    func testGalleryTypeUsesCloudStorageUserFacingTitles() {
+        XCTAssertEqual(AccountGalleryType.basic.displayTitle, "Basic Cloud Storage")
+        XCTAssertEqual(AccountGalleryType.premium.displayTitle, "Premium Cloud Storage")
+    }
+
+    func testHostedPremiumStatusKeepsDiscoveredEndpointAndDisablesManualSwitching() throws {
+        let configuration = AccountGalleryConfiguration(owner: hostedOwner)
+        configuration.storeBasicGalleryURL("https://hosted-gallery.example/api/")
+
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://premium-routing-must-not-win.example/api/v1"
+        )
+
+        XCTAssertEqual(configuration.selectionPolicy, .unifiedHostedStorage)
+        XCTAssertFalse(configuration.allowsManualGallerySelection)
+        XCTAssertEqual(configuration.currentGalleryType, .premium)
+        XCTAssertEqual(
+            configuration.currentGalleryURL?.absoluteString,
+            "https://hosted-gallery.example/api/"
+        )
+        XCTAssertEqual(
+            configuration.galleryType(for: try XCTUnwrap(configuration.currentGalleryURL)),
+            .premium,
+            "the shared endpoint must use the active Premium token scope"
+        )
+        XCTAssertFalse(configuration.switchGallery(to: .basic))
+        XCTAssertEqual(configuration.currentGalleryType, .premium)
+        XCTAssertFalse(CloudStorageGallerySwitcherPresentation.isVisible(configuration: configuration))
+    }
+
+    func testHostedPremiumWaitsForDiscoAndNeverRoutesThroughSubscriptionURL() {
+        let configuration = AccountGalleryConfiguration(owner: hostedOwner)
+
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://subscription-storage.example/api/v1"
+        )
+
+        XCTAssertEqual(configuration.selectionPolicy, .unifiedHostedStorage)
+        XCTAssertEqual(configuration.currentGalleryType, .premium)
+        XCTAssertNil(configuration.currentGalleryURL)
+        XCTAssertNil(
+            CloudStorageGalleryRequestContext.resolve(owner: hostedOwner),
+            "same-domain storage must remain unavailable until XMPP disco supplies the unified endpoint"
+        )
+
+        configuration.storeBasicGalleryURL("https://disco-storage.example/api/")
+
+        XCTAssertEqual(
+            configuration.currentGalleryURL?.absoluteString,
+            "https://disco-storage.example/api/"
+        )
+    }
+
+    func testExternalGallerySelectionRemainsAccountScoped() {
+        let aliceConfiguration = AccountGalleryConfiguration(owner: alice)
+        let bobConfiguration = AccountGalleryConfiguration(owner: bob)
+        aliceConfiguration.storeBasicGalleryURL("https://alice-basic.example/api/")
+        bobConfiguration.storeBasicGalleryURL("https://bob-basic.example/api/")
+        aliceConfiguration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://alice-premium.example/api/v1"
+        )
+        bobConfiguration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://bob-premium.example/api/v1"
+        )
+
+        XCTAssertTrue(aliceConfiguration.allowsManualGallerySelection)
+        XCTAssertTrue(aliceConfiguration.switchGallery(to: .basic))
+
+        XCTAssertTrue(CloudStorageGallerySwitcherPresentation.isVisible(configuration: aliceConfiguration))
+
+        XCTAssertEqual(aliceConfiguration.currentGalleryType, .basic)
+        XCTAssertEqual(bobConfiguration.currentGalleryType, .premium)
+        XCTAssertEqual(
+            bobConfiguration.currentGalleryURL?.absoluteString,
+            "https://bob-premium.example/api/"
+        )
+    }
+
+    func testPremiumAvailabilityRequiresValidSubscriptionStorageURL() {
+        let configuration = AccountGalleryConfiguration(owner: alice)
+        configuration.storeBasicGalleryURL("https://basic.example/api/")
+
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "not a url"
+        )
+
+        XCTAssertFalse(configuration.isPremiumGalleryAvailable)
+        XCTAssertNil(configuration.premiumGalleryURL)
+        XCTAssertEqual(configuration.currentGalleryType, .basic)
+        XCTAssertEqual(
+            configuration.currentGalleryURL?.absoluteString,
+            "https://basic.example/api/"
+        )
     }
 
     func testPremiumAvailabilityDefaultsSelectionToPremiumWithoutLeakingAcrossAccounts() {
@@ -50443,7 +50563,7 @@ final class CloudStorageUpsellCardStateTests: XCTestCase {
 }
 
 final class CloudStorageQuotaRefreshTests: XCTestCase {
-    private lazy var owner = "quota-\(UUID().uuidString)@xabber.com"
+    private lazy var owner = "quota-\(UUID().uuidString)@external.example"
     private let basicGalleryURL = URL(string: "https://gallery.example/api/")!
     private let premiumGalleryURL = URL(string: "https://premium.example/api/")!
     private var fakeClient: FakeCloudStorageQuotaAPIClient!
@@ -50554,6 +50674,35 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(fakeClient.statsTokens.first, "basic-token")
     }
 
+    func testStatsVoicesCategoryDrivesVoiceCountAndUsagePresentation() throws {
+        fakeClient.statsResponses = [.response(statusCode: 200, value: [
+            "quota": 3_000,
+            "total": ["used": 450, "count": 3],
+            "voices": ["used": 400, "count": 2],
+            "audio": ["used": 50, "count": 1]
+        ])]
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "voice quota refresh")
+
+        manager.refreshQuota(reason: .manual) { result in
+            XCTAssertEqual(result, .success)
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        let item = try XCTUnwrap(
+            try WRealm.safe().object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: owner)
+        )
+        XCTAssertEqual(item.voicesBytes, 400)
+        XCTAssertEqual(item.voicesCount, 2)
+        XCTAssertEqual(item.audioBytes, 50)
+        XCTAssertEqual(item.audioCount, 1)
+        XCTAssertEqual(
+            CloudStorageQuotaCategoryPresentation.rows(from: item)["audio"],
+            CloudStorageQuotaCategoryRow(count: 2, bytes: 400)
+        )
+    }
+
     func testBasicAndPremiumTokensAreStoredSeparately() throws {
         let configuration = AccountGalleryConfiguration(owner: owner)
         configuration.reconcilePremiumGalleryAvailability(
@@ -50647,6 +50796,67 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertTrue(AccountGalleryConfiguration(owner: self.owner).cachedQuotaMatchesCurrentGallery())
     }
 
+    func testSubscriptionStorageURLFlowsThroughPremiumTokenAndStatsQuota() throws {
+        let subscriptionURL = "https://subscription-storage.example/api/v1"
+        let normalizedSubscriptionURL = try XCTUnwrap(
+            AccountGalleryConfiguration.normalizedBaseURL(from: subscriptionURL)
+        )
+        let accountProducts: [[String: Any]] = [[
+            "id": 901,
+            "status": "ACTIVE",
+            "quantity": 1,
+            "expires": Date(timeIntervalSinceNow: 3_600).XMPPFormattedDate,
+            "product_data": [
+                "product_id": SubscribtionsManager.premiumProductId,
+                "group": "ios"
+            ],
+            "price_data": ["price_id": "monthly"],
+            "attributes": ["storage_url": subscriptionURL]
+        ]]
+
+        XCTAssertTrue(
+            try XCTUnwrap(
+                SubscribtionsManager.shared.reconcileAccountProductsRefresh(
+                    accountProducts,
+                    for: owner
+                )
+            )
+        )
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        XCTAssertEqual(configuration.currentGalleryType, .premium)
+        XCTAssertEqual(configuration.currentGalleryURL, normalizedSubscriptionURL)
+
+        configuration.storeToken(
+            "subscription-premium-token",
+            galleryType: .premium,
+            baseURL: normalizedSubscriptionURL
+        )
+        fakeClient.statsResponses = [
+            .response(
+                statusCode: 200,
+                value: statsPayload(quota: 9_000, totalUsed: 1_500, imagesUsed: 600)
+            )
+        ]
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "subscription premium quota")
+
+        manager.refreshQuota(reason: .premiumEntitlementChanged, force: true) { result in
+            XCTAssertEqual(result, .success)
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(fakeClient.statsBaseURLs, [normalizedSubscriptionURL])
+        XCTAssertEqual(fakeClient.statsTokens, ["subscription-premium-token"])
+        let item = try XCTUnwrap(
+            try WRealm.safe().object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: owner)
+        )
+        XCTAssertEqual(item.quotaBytes, 9_000)
+        XCTAssertEqual(item.totalBytes, 1_500)
+        XCTAssertEqual(item.imagesBytes, 600)
+        XCTAssertTrue(configuration.cachedQuotaMatchesCurrentGallery())
+    }
+
     func testSlotPreflightUsesSelectedPremiumGalleryEndpoint() {
         let configuration = AccountGalleryConfiguration(owner: owner)
         configuration.reconcilePremiumGalleryAvailability(
@@ -50685,8 +50895,27 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(item.imagesBytes, 250)
     }
 
-    func testPartialStatsPreservesMissingCategoryValues() throws {
+    func testPartialStatsPreservesMissingCategoryValuesInSameGalleryScope() throws {
         seedQuota(quota: 3000, total: 1000, images: 250)
+        AccountGalleryConfiguration(owner: owner).markQuotaStored(
+            galleryType: .basic,
+            galleryURL: basicGalleryURL
+        )
+        let realm = try WRealm.safe()
+        let seededItem = try XCTUnwrap(
+            realm.object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: owner)
+        )
+        try realm.write {
+            seededItem.imagesCount = 11
+            seededItem.videosBytes = 251
+            seededItem.videosCount = 12
+            seededItem.filesBytes = 252
+            seededItem.filesCount = 13
+            seededItem.voicesBytes = 253
+            seededItem.voicesCount = 14
+            seededItem.avatarsBytes = 254
+            seededItem.avatarsCount = 15
+        }
         fakeClient.statsResponses = [.response(statusCode: 200, value: [
             "quota": 4000,
             "total": ["used": 1200, "count": 4],
@@ -50705,7 +50934,52 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(item.quotaBytes, 4000)
         XCTAssertEqual(item.totalBytes, 1200)
         XCTAssertEqual(item.imagesBytes, 250)
+        XCTAssertEqual(item.imagesCount, 11)
         XCTAssertEqual(item.filesBytes, 700)
+        XCTAssertEqual(item.filesCount, 2)
+        XCTAssertEqual(item.videosBytes, 251)
+        XCTAssertEqual(item.videosCount, 12)
+        XCTAssertEqual(item.voicesBytes, 253)
+        XCTAssertEqual(item.voicesCount, 14)
+        XCTAssertEqual(item.avatarsBytes, 254)
+        XCTAssertEqual(item.avatarsCount, 15)
+    }
+
+    func testFirstStatsInNewGalleryScopeZerosMissingCategoryValues() throws {
+        seedQuota(quota: 3000, total: 1000, images: 250)
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.markQuotaStored(galleryType: .basic, galleryURL: basicGalleryURL)
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: premiumGalleryURL.absoluteString
+        )
+        configuration.storeToken(
+            "premium-token",
+            galleryType: .premium,
+            baseURL: premiumGalleryURL
+        )
+        fakeClient.statsResponses = [.response(statusCode: 200, value: [
+            "quota": 9000,
+            "total": ["used": 600, "count": 2],
+            "files": ["used": 600, "count": 2]
+        ])]
+        let manager = XabberUploadManager(withOwner: owner)
+        let expectation = expectation(description: "premium quota refresh")
+
+        manager.refreshQuota(reason: .galleryEndpointChanged, force: true) { result in
+            XCTAssertEqual(result, .success)
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        let item = try XCTUnwrap(
+            try WRealm.safe().object(ofType: AccountQuotaStorageItem.self, forPrimaryKey: owner)
+        )
+        XCTAssertEqual(item.imagesBytes, 0)
+        XCTAssertEqual(item.imagesCount, 0)
+        XCTAssertEqual(item.filesBytes, 600)
+        XCTAssertEqual(item.filesCount, 2)
+        XCTAssertTrue(configuration.cachedQuotaMatchesCurrentGallery())
     }
 
     func testUnauthorizedStatsTriggersTokenRefreshWithoutClearingCache() throws {
@@ -50945,6 +51219,18 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(CloudStorageQuotaDisplayState.resolve(hasQuotaItem: true, quotaBytes: -1, usedBytes: 10, isRefreshing: false, lastRefreshFailed: false, isAvailable: true), .unlimited)
         XCTAssertEqual(CloudStorageQuotaDisplayState.resolve(hasQuotaItem: true, quotaBytes: 100, usedBytes: 0, isRefreshing: false, lastRefreshFailed: false, isAvailable: true), .empty)
         XCTAssertEqual(CloudStorageQuotaDisplayState.resolve(hasQuotaItem: true, quotaBytes: 100, usedBytes: 100, isRefreshing: false, lastRefreshFailed: false, isAvailable: true), .content)
+        XCTAssertEqual(
+            CloudStorageQuotaDisplayState.resolve(
+                hasQuotaItem: true,
+                quotaBytes: 100,
+                usedBytes: 50,
+                isRefreshing: false,
+                lastRefreshFailed: true,
+                isAvailable: true
+            ),
+            .content,
+            "a failed refresh must not make a valid cached quota unusable"
+        )
     }
 
     func testSlotPreflightQuotaExceededStopsUploadAndRefreshesQuota() {
@@ -51471,6 +51757,7 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         manager.requestAuthIfNeeded(galleryType: .premium, baseURL: premiumGalleryURL)
         XCTAssertTrue(try manager.read(withIQ: makeConfirmIQ(code: "premium-1", url: "https://premium.example/api/v1/account/xmpp_code_request/xmpp_auth")))
         XCTAssertTrue(configuration.switchGallery(to: .basic))
+        configuration.clearToken(galleryType: .basic, baseURL: basicGalleryURL)
         manager.requestAuthIfNeeded(galleryType: .basic, baseURL: basicGalleryURL)
         XCTAssertTrue(try manager.read(withIQ: makeConfirmIQ(code: "basic-2", url: "https://gallery.example/api/v1/account/xmpp_code_request/xmpp_auth")))
 
@@ -52050,6 +52337,390 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
         )
         XCTAssertEqual(SubscribtionsManager.premiumPlanRank(for: "com_xabber_premium_account.yearly"), 2)
         XCTAssertEqual(SubscribtionsManager.premiumPlanRank(for: "monthly"), 1)
+    }
+
+    func testPostPurchaseAccountProductsRefreshStartsImmediatelyAndUsesBoundedRetries() {
+        let jid = "post-purchase@external.example"
+        var refreshedJids: [String] = []
+        var scheduledDelays: [TimeInterval] = []
+        var scheduledWork: [() -> Void] = []
+
+        SubscribtionsManager.startBoundedAccountProductsRefresh(
+            jid: jid,
+            retryDelays: [2, 5],
+            refresh: { refreshedJids.append($0) },
+            schedule: { delay, work in
+                scheduledDelays.append(delay)
+                scheduledWork.append(work)
+            }
+        )
+
+        XCTAssertEqual(refreshedJids, [jid], "the first backend sync must not wait for the success alert")
+        XCTAssertEqual(scheduledDelays, [2, 5])
+
+        scheduledWork.forEach { $0() }
+        XCTAssertEqual(refreshedJids, [jid, jid, jid])
+    }
+
+    func testTerminalPremiumRemovalClearsGalleryAndNotifiesWhenNoOtherPremiumEntitlementRemains() throws {
+        let jid = "terminal-premium@external.example"
+        let transactionId = "tx-terminal-premium"
+        let configuration = AccountGalleryConfiguration(owner: jid)
+        defer { configuration.clearPersistedState() }
+        configuration.storeBasicGalleryURL("https://basic.example/api/")
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://premium.example/api/"
+        )
+        XCTAssertTrue(
+            SubscribtionsManager.shared.saveSubscriptionInfo(
+                productId: "com_xabber_premium_account.monthly",
+                jid: jid,
+                accountUUID: SubscribtionsManager.appAccountToken(for: jid).uuidString,
+                expires: Date(timeIntervalSinceNow: 3_600),
+                purchaseDate: Date(),
+                transactionId: transactionId
+            )
+        )
+
+        let notification = expectation(description: "terminal premium entitlement change")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .premiumEntitlementDidChange,
+            object: nil,
+            queue: nil
+        ) { event in
+            guard event.userInfo?["jid"] as? String == jid else { return }
+            notification.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        XCTAssertTrue(
+            SubscribtionsManager.shared.handleTerminalSubscriptionRemoval(
+                transactionId: transactionId,
+                productId: "com_xabber_premium_account.monthly",
+                accountUUID: nil,
+                fallbackJid: nil
+            ),
+            "The JID must be captured from the persisted row before it is deleted."
+        )
+        wait(for: [notification], timeout: 1)
+
+        let realm = try WRealm.safe()
+        XCTAssertNil(
+            realm.object(
+                ofType: SubsriptionInfoRealmStorage.self,
+                forPrimaryKey: transactionId
+            )
+        )
+        XCTAssertFalse(SubscribtionsManager.shared.hasActiveSubsription(for: jid))
+        XCTAssertFalse(configuration.isPremiumGalleryAvailable)
+        XCTAssertEqual(configuration.currentGalleryType, .basic)
+        XCTAssertEqual(configuration.currentGalleryURL?.absoluteString, "https://basic.example/api/")
+    }
+
+    func testTerminalPremiumRemovalKeepsGalleryWhenAnotherPremiumEntitlementIsActive() throws {
+        let jid = "terminal-premium-survivor@external.example"
+        let removedTransactionId = "tx-terminal-monthly"
+        let survivingTransactionId = "tx-surviving-yearly"
+        let configuration = AccountGalleryConfiguration(owner: jid)
+        defer { configuration.clearPersistedState() }
+        configuration.storeBasicGalleryURL("https://basic.example/api/")
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://premium.example/api/"
+        )
+        XCTAssertTrue(
+            SubscribtionsManager.shared.saveSubscriptionInfo(
+                productId: "com_xabber_premium_account.monthly",
+                jid: jid,
+                accountUUID: SubscribtionsManager.appAccountToken(for: jid).uuidString,
+                expires: Date(timeIntervalSinceNow: 3_600),
+                purchaseDate: Date(),
+                transactionId: removedTransactionId
+            )
+        )
+        XCTAssertTrue(
+            SubscribtionsManager.shared.saveSubscriptionInfo(
+                productId: "com_xabber_premium_account.yearly",
+                jid: jid,
+                accountUUID: SubscribtionsManager.appAccountToken(for: jid).uuidString,
+                expires: Date(timeIntervalSinceNow: 7_200),
+                purchaseDate: Date(),
+                transactionId: survivingTransactionId
+            )
+        )
+        var entitlementNotifications = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .premiumEntitlementDidChange,
+            object: nil,
+            queue: nil
+        ) { event in
+            guard event.userInfo?["jid"] as? String == jid else { return }
+            entitlementNotifications += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        XCTAssertTrue(
+            SubscribtionsManager.shared.handleTerminalSubscriptionRemoval(
+                transactionId: removedTransactionId,
+                productId: "com_xabber_premium_account.monthly",
+                accountUUID: SubscribtionsManager.appAccountToken(for: jid).uuidString,
+                fallbackJid: jid
+            )
+        )
+
+        let realm = try WRealm.safe()
+        XCTAssertNil(
+            realm.object(
+                ofType: SubsriptionInfoRealmStorage.self,
+                forPrimaryKey: removedTransactionId
+            )
+        )
+        XCTAssertNotNil(
+            realm.object(
+                ofType: SubsriptionInfoRealmStorage.self,
+                forPrimaryKey: survivingTransactionId
+            )
+        )
+        XCTAssertTrue(SubscribtionsManager.shared.hasActiveSubsription(for: jid))
+        XCTAssertTrue(configuration.isPremiumGalleryAvailable)
+        XCTAssertEqual(configuration.currentGalleryType, .premium)
+        XCTAssertEqual(entitlementNotifications, 0)
+    }
+
+    func testTerminalStoreKitRemovalDeletesOnlyMatchingBackendMirrorAfterAccountProductsReconciliation() throws {
+        let jid = "terminal-premium-mirror@external.example"
+        let foreignJid = "terminal-premium-mirror-foreign@external.example"
+        let storeKitTransactionId = "tx-storekit-monthly-before-backend-reconcile"
+        let accountUUID = SubscribtionsManager.appAccountToken(for: jid).uuidString
+        let monthlyProductId = "com_xabber_premium_account.monthly"
+        let yearlyProductId = "com_xabber_premium_account.yearly"
+        let monthlyMirrorId = "backend-account-product-1-\(monthlyProductId)"
+        let yearlyMirrorId = "backend-account-product-1-\(yearlyProductId)"
+        let foreignMonthlyMirrorId = "backend-account-product-999-\(monthlyProductId)"
+        let configuration = AccountGalleryConfiguration(owner: jid)
+        defer { configuration.clearPersistedState() }
+        configuration.storeBasicGalleryURL("https://basic.example/api/")
+
+        XCTAssertTrue(
+            SubscribtionsManager.shared.saveSubscriptionInfo(
+                productId: monthlyProductId,
+                jid: jid,
+                accountUUID: accountUUID,
+                expires: Date(timeIntervalSinceNow: 3_600),
+                purchaseDate: Date(),
+                transactionId: storeKitTransactionId
+            )
+        )
+
+        let accountProducts = accountProductsResponse(
+            status: "ACTIVE",
+            expires: Date(timeIntervalSinceNow: 3_600).XMPPFormattedDate,
+            priceId: "monthly",
+            attributes: ["storage_url": "https://premium.example/api/v1"]
+        ) + accountProductsResponse(
+            status: "ACTIVE",
+            expires: Date(timeIntervalSinceNow: 7_200).XMPPFormattedDate,
+            priceId: "yearly",
+            attributes: ["storage_url": "https://premium.example/api/v1"]
+        )
+
+        XCTAssertTrue(
+            try XCTUnwrap(
+                SubscribtionsManager.shared.reconcileAccountProductsRefresh(
+                    accountProducts,
+                    for: jid
+                )
+            )
+        )
+        var realm = try WRealm.safe()
+        let foreignMonthlyMirror = SubsriptionInfoRealmStorage()
+        foreignMonthlyMirror.transactionId = foreignMonthlyMirrorId
+        foreignMonthlyMirror.productId = monthlyProductId
+        foreignMonthlyMirror.jid = foreignJid
+        foreignMonthlyMirror.accountUUID = SubscribtionsManager
+            .appAccountToken(for: foreignJid)
+            .uuidString
+        foreignMonthlyMirror.expires = Date(timeIntervalSinceNow: 7_200)
+        foreignMonthlyMirror.purchaseDate = Date()
+        try realm.write {
+            realm.add(foreignMonthlyMirror, update: .modified)
+        }
+        XCTAssertNil(
+            realm.object(
+                ofType: SubsriptionInfoRealmStorage.self,
+                forPrimaryKey: storeKitTransactionId
+            ),
+            "backend reconciliation replaces the original StoreKit row with account-product mirrors"
+        )
+        XCTAssertNotNil(
+            realm.object(ofType: SubsriptionInfoRealmStorage.self, forPrimaryKey: monthlyMirrorId)
+        )
+        XCTAssertNotNil(
+            realm.object(ofType: SubsriptionInfoRealmStorage.self, forPrimaryKey: yearlyMirrorId)
+        )
+
+        XCTAssertTrue(
+            SubscribtionsManager.shared.handleTerminalSubscriptionRemoval(
+                transactionId: storeKitTransactionId,
+                productId: monthlyProductId,
+                accountUUID: accountUUID,
+                fallbackJid: jid
+            )
+        )
+
+        realm = try WRealm.safe()
+        XCTAssertNil(
+            realm.object(ofType: SubsriptionInfoRealmStorage.self, forPrimaryKey: monthlyMirrorId),
+            "revoking the original StoreKit transaction must remove its same-plan backend mirror"
+        )
+        XCTAssertNotNil(
+            realm.object(ofType: SubsriptionInfoRealmStorage.self, forPrimaryKey: yearlyMirrorId),
+            "a genuinely different active Premium plan must survive the monthly revocation"
+        )
+        XCTAssertNotNil(
+            realm.object(
+                ofType: SubsriptionInfoRealmStorage.self,
+                forPrimaryKey: foreignMonthlyMirrorId
+            ),
+            "a same-plan backend mirror belonging to another account must never be deleted"
+        )
+        XCTAssertTrue(SubscribtionsManager.shared.hasActiveSubsription(for: jid))
+        XCTAssertTrue(configuration.isPremiumGalleryAvailable)
+        XCTAssertEqual(configuration.currentGalleryType, .premium)
+    }
+
+    func testTerminalStoreKitRemovalDowngradesAfterLastMatchingBackendMirror() throws {
+        let jid = "terminal-last-premium-mirror@external.example"
+        let storeKitTransactionId = "tx-storekit-last-monthly-before-backend-reconcile"
+        let accountUUID = SubscribtionsManager.appAccountToken(for: jid).uuidString
+        let productId = "com_xabber_premium_account.monthly"
+        let mirrorId = "backend-account-product-1-\(productId)"
+        let configuration = AccountGalleryConfiguration(owner: jid)
+        defer { configuration.clearPersistedState() }
+        configuration.storeBasicGalleryURL("https://basic.example/api/")
+        XCTAssertTrue(
+            SubscribtionsManager.shared.saveSubscriptionInfo(
+                productId: productId,
+                jid: jid,
+                accountUUID: accountUUID,
+                expires: Date(timeIntervalSinceNow: 3_600),
+                purchaseDate: Date(),
+                transactionId: storeKitTransactionId
+            )
+        )
+
+        let accountProducts = accountProductsResponse(
+            status: "ACTIVE",
+            expires: Date(timeIntervalSinceNow: 3_600).XMPPFormattedDate,
+            priceId: "monthly",
+            attributes: ["storage_url": "https://premium.example/api/v1"]
+        )
+        XCTAssertTrue(
+            try XCTUnwrap(
+                SubscribtionsManager.shared.reconcileAccountProductsRefresh(
+                    accountProducts,
+                    for: jid
+                )
+            )
+        )
+        var realm = try WRealm.safe()
+        XCTAssertNil(
+            realm.object(
+                ofType: SubsriptionInfoRealmStorage.self,
+                forPrimaryKey: storeKitTransactionId
+            )
+        )
+        XCTAssertNotNil(
+            realm.object(ofType: SubsriptionInfoRealmStorage.self, forPrimaryKey: mirrorId)
+        )
+        XCTAssertTrue(configuration.isPremiumGalleryAvailable)
+        XCTAssertEqual(configuration.currentGalleryType, .premium)
+
+        let notification = expectation(description: "last backend mirror removal changes entitlement")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .premiumEntitlementDidChange,
+            object: nil,
+            queue: nil
+        ) { event in
+            guard event.userInfo?["jid"] as? String == jid else { return }
+            notification.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        XCTAssertTrue(
+            SubscribtionsManager.shared.handleTerminalSubscriptionRemoval(
+                transactionId: storeKitTransactionId,
+                productId: productId,
+                accountUUID: accountUUID,
+                fallbackJid: jid
+            )
+        )
+        wait(for: [notification], timeout: 1)
+
+        realm = try WRealm.safe()
+        XCTAssertNil(
+            realm.object(ofType: SubsriptionInfoRealmStorage.self, forPrimaryKey: mirrorId)
+        )
+        XCTAssertFalse(SubscribtionsManager.shared.hasActiveSubsription(for: jid))
+        XCTAssertFalse(configuration.isPremiumGalleryAvailable)
+        XCTAssertEqual(configuration.currentGalleryType, .basic)
+        XCTAssertEqual(
+            configuration.currentGalleryURL?.absoluteString,
+            "https://basic.example/api/"
+        )
+    }
+
+    func testNonPremiumEntitlementDoesNotKeepGalleryAfterLastPremiumRemoval() throws {
+        let jid = "terminal-premium-other-product@external.example"
+        let removedTransactionId = "tx-terminal-premium-only"
+        let unrelatedTransactionId = "tx-unrelated-active"
+        let configuration = AccountGalleryConfiguration(owner: jid)
+        defer { configuration.clearPersistedState() }
+        configuration.storeBasicGalleryURL("https://basic.example/api/")
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://premium.example/api/"
+        )
+        XCTAssertTrue(
+            SubscribtionsManager.shared.saveSubscriptionInfo(
+                productId: "com_xabber_premium_account.monthly",
+                jid: jid,
+                accountUUID: SubscribtionsManager.appAccountToken(for: jid).uuidString,
+                expires: Date(timeIntervalSinceNow: 3_600),
+                purchaseDate: Date(),
+                transactionId: removedTransactionId
+            )
+        )
+        XCTAssertTrue(
+            SubscribtionsManager.shared.saveSubscriptionInfo(
+                productId: "com_example_other_product.monthly",
+                jid: jid,
+                accountUUID: SubscribtionsManager.appAccountToken(for: jid).uuidString,
+                expires: Date(timeIntervalSinceNow: 7_200),
+                purchaseDate: Date(),
+                transactionId: unrelatedTransactionId
+            )
+        )
+
+        XCTAssertTrue(
+            SubscribtionsManager.shared.handleTerminalSubscriptionRemoval(
+                transactionId: removedTransactionId,
+                productId: "com_xabber_premium_account.monthly",
+                accountUUID: SubscribtionsManager.appAccountToken(for: jid).uuidString,
+                fallbackJid: jid
+            )
+        )
+
+        let realm = try WRealm.safe()
+        XCTAssertNotNil(
+            realm.object(
+                ofType: SubsriptionInfoRealmStorage.self,
+                forPrimaryKey: unrelatedTransactionId
+            )
+        )
+        XCTAssertFalse(configuration.isPremiumGalleryAvailable)
+        XCTAssertEqual(configuration.currentGalleryType, .basic)
     }
 
     func testAPIProductSelectionPrefersProductionPremiumProductOverTestProducts() {
@@ -52688,22 +53359,79 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
         )
     }
 
-    func testAccountProductsRefreshEmptyActiveIOSResponsePreservesLocalStoreKitState() throws {
+    func testAccountProductsRefreshEmptyActiveIOSResponsePreservesLocalStoreKitStateAndPremiumRoute() throws {
+        let owner = "empty-products@external.example"
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        defer { configuration.clearPersistedState() }
         SubscribtionsManager.shared.saveSubscriptionInfo(
             productId: "com_xabber_premium_account.yearly",
-            jid: "alice@xabber.com",
-            accountUUID: SubscribtionsManager.appAccountToken(for: "alice@xabber.com").uuidString,
+            jid: owner,
+            accountUUID: SubscribtionsManager.appAccountToken(for: owner).uuidString,
             expires: Date(timeIntervalSinceNow: 7200),
             purchaseDate: Date(timeIntervalSinceNow: -60),
             transactionId: "tx-local-yearly"
         )
+        configuration.storeBasicGalleryURL("https://basic.example/api/")
+        configuration.reconcilePremiumGalleryAvailability(
+            isAvailable: true,
+            storageURL: "https://premium.example/api/v1"
+        )
 
-        let isActive = try XCTUnwrap(SubscribtionsManager.shared.reconcileAccountProductsRefresh([], for: "alice@xabber.com"))
-        let state = SubscribtionsManager.shared.subscriptionPresentationState(for: "alice@xabber.com")
+        let isActive = try XCTUnwrap(
+            SubscribtionsManager.shared.reconcileAccountProductsRefresh([], for: owner)
+        )
+        let state = SubscribtionsManager.shared.subscriptionPresentationState(for: owner)
 
         XCTAssertTrue(isActive)
         XCTAssertEqual(state.activeProductId, "com_xabber_premium_account.yearly")
-        XCTAssertEqual(SubscribtionsManager.shared.getPurchasedProductIds(for: "alice@xabber.com"), ["com_xabber_premium_account.yearly"])
+        XCTAssertEqual(
+            SubscribtionsManager.shared.getPurchasedProductIds(for: owner),
+            ["com_xabber_premium_account.yearly"]
+        )
+        XCTAssertTrue(configuration.isPremiumGalleryAvailable)
+        XCTAssertEqual(configuration.currentGalleryType, .premium)
+        XCTAssertEqual(
+            configuration.currentGalleryURL?.absoluteString,
+            "https://premium.example/api/"
+        )
+    }
+
+    func testAccountProductsReconcilesGalleryBeforePremiumEntitlementNotification() throws {
+        let owner = "notification-order@external.example"
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        defer { configuration.clearPersistedState() }
+        configuration.storeBasicGalleryURL("https://basic.example/api/")
+        let products = accountProductsResponse(
+            status: "ACTIVE",
+            expires: Date(timeIntervalSinceNow: 3600).XMPPFormattedDate,
+            priceId: "monthly",
+            services: [galleryService(storageURL: "https://premium.example/api/v1")]
+        )
+        let expectation = expectation(description: "premium entitlement notification")
+        var observedType: AccountGalleryType?
+        var observedURL: URL?
+        let observer = NotificationCenter.default.addObserver(
+            forName: .premiumEntitlementDidChange,
+            object: nil,
+            queue: nil
+        ) { notification in
+            guard notification.userInfo?["jid"] as? String == owner else { return }
+            let observedConfiguration = AccountGalleryConfiguration(owner: owner)
+            observedType = observedConfiguration.currentGalleryType
+            observedURL = observedConfiguration.currentGalleryURL
+            expectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        XCTAssertTrue(
+            try XCTUnwrap(
+                SubscribtionsManager.shared.reconcileAccountProductsRefresh(products, for: owner)
+            )
+        )
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(observedType, .premium)
+        XCTAssertEqual(observedURL?.absoluteString, "https://premium.example/api/")
     }
 
     func testActiveAccountProductWithGalleryServiceEnablesPremiumGalleryURL() throws {
@@ -52739,7 +53467,7 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
         XCTAssertEqual(availability.metadata?.planDisplayText, "3 GB plan")
     }
 
-    func testActiveGalleryServiceFallsBackToHardcodedURLWhenStorageURLIsMissingOrInvalid() throws {
+    func testActiveGalleryServiceWithoutValidStorageURLDoesNotEnablePremiumGallery() throws {
         let expires = Date(timeIntervalSinceNow: 3600)
         let products = accountProductsResponse(
             status: "ACTIVE",
@@ -52750,11 +53478,11 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
 
         let availability = try XCTUnwrap(SubscribtionsManager.activePremiumGalleryAvailability(from: products, now: Date()))
 
-        XCTAssertTrue(availability.isAvailable)
-        XCTAssertEqual(availability.storageURL, AccountGalleryConfiguration.hardcodedPremiumGalleryURL)
+        XCTAssertFalse(availability.isAvailable)
+        XCTAssertNil(availability.storageURL)
     }
 
-    func testTopLevelPremiumStorageMetadataFallsBackToHardcodedURLWhenStorageURLIsInvalid() throws {
+    func testTopLevelPremiumStorageMetadataWithoutValidStorageURLDoesNotEnablePremiumGallery() throws {
         let expires = Date(timeIntervalSinceNow: 3600)
         let products = accountProductsResponse(
             status: "ACTIVE",
@@ -52769,9 +53497,43 @@ final class SubscriptionEntitlementCacheTests: XCTestCase {
 
         let availability = try XCTUnwrap(SubscribtionsManager.activePremiumGalleryAvailability(from: products, now: Date()))
 
-        XCTAssertTrue(availability.isAvailable)
-        XCTAssertEqual(availability.storageURL, AccountGalleryConfiguration.hardcodedPremiumGalleryURL)
-        XCTAssertEqual(availability.metadata?.storageMegabytes, 3072)
+        XCTAssertFalse(availability.isAvailable)
+        XCTAssertNil(availability.storageURL)
+        XCTAssertNil(availability.metadata)
+    }
+
+    func testStorageURLWithoutPaidPremiumPriceDoesNotEnablePremiumGallery() throws {
+        let products = accountProductsResponse(
+            status: "ACTIVE",
+            expires: Date(timeIntervalSinceNow: 3600).XMPPFormattedDate,
+            priceId: nil,
+            attributes: ["storage_url": "https://premium.example/api/v1"],
+            priceDataIsNull: true
+        )
+
+        let availability = try XCTUnwrap(
+            SubscribtionsManager.activePremiumGalleryAvailability(from: products, now: Date())
+        )
+
+        XCTAssertFalse(availability.isAvailable)
+        XCTAssertNil(availability.storageURL)
+    }
+
+    func testNonPremiumIOSProductStorageURLDoesNotEnablePremiumGallery() throws {
+        let products = accountProductsResponse(
+            status: "ACTIVE",
+            expires: Date(timeIntervalSinceNow: 3600).XMPPFormattedDate,
+            priceId: "monthly",
+            attributes: ["storage_url": "https://other-product.example/api/v1"],
+            productId: "some_other_ios_product"
+        )
+
+        let availability = try XCTUnwrap(
+            SubscribtionsManager.activePremiumGalleryAvailability(from: products, now: Date())
+        )
+
+        XCTAssertFalse(availability.isAvailable)
+        XCTAssertNil(availability.storageURL)
     }
 
     func testInactiveFreeExpiredAndZeroQuantityProductsDoNotEnablePremiumGallery() throws {

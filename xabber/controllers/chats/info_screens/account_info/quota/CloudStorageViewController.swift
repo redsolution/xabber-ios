@@ -50,9 +50,6 @@ enum CloudStorageQuotaDisplayState: Equatable {
         if isRefreshing {
             return usedBytes > 0 ? .content : .loading
         }
-        if lastRefreshFailed {
-            return .error
-        }
         if quotaBytes < 0 {
             return .unlimited
         }
@@ -60,6 +57,13 @@ enum CloudStorageQuotaDisplayState: Equatable {
             return .unavailable
         }
         return usedBytes == 0 ? .empty : .content
+    }
+}
+
+enum CloudStorageGallerySwitcherPresentation {
+    static func isVisible(configuration: AccountGalleryConfiguration) -> Bool {
+        return configuration.isPremiumGalleryAvailable
+            && configuration.allowsManualGallerySelection
     }
 }
 
@@ -273,6 +277,7 @@ class CloudStorageViewController: BaseViewController {
     var filesUsed: String = "0 KiB"
     var audioUsed: String = "0 KiB"
     var avatarUsed: String = "0 KiB"
+    private var eligibleCleanupBytes: Int = 0
     var usedQuota: Int = 0
     var quota: Int = 0
     var hasQuotaItem: Bool = false
@@ -361,7 +366,7 @@ class CloudStorageViewController: BaseViewController {
 
     private func configureGallerySwitcher() {
         let configuration = galleryConfiguration()
-        guard configuration.isPremiumGalleryAvailable else {
+        guard CloudStorageGallerySwitcherPresentation.isVisible(configuration: configuration) else {
             gallerySwitcher = nil
             navigationItem.rightBarButtonItem = nil
             return
@@ -402,6 +407,7 @@ class CloudStorageViewController: BaseViewController {
         filesUsed = "0 KiB"
         audioUsed = "0 KiB"
         avatarUsed = "0 KiB"
+        eligibleCleanupBytes = 0
         usedQuota = 0
         quota = 0
     }
@@ -414,11 +420,17 @@ class CloudStorageViewController: BaseViewController {
         }
 
         hasQuotaItem = true
-        imagesUsed = item.imagesUsed
-        videosUsed = item.videosUsed
-        filesUsed = item.filesUsed
-        audioUsed = item.voicesUsed
-        avatarUsed = item.avatarUsed
+        let rows = CloudStorageQuotaCategoryPresentation.rows(from: item)
+        imagesUsed = rows["images"]?.detailText ?? CloudStorageQuotaCategoryRow(count: 0, bytes: 0).detailText
+        videosUsed = rows["videos"]?.detailText ?? CloudStorageQuotaCategoryRow(count: 0, bytes: 0).detailText
+        filesUsed = rows["files"]?.detailText ?? CloudStorageQuotaCategoryRow(count: 0, bytes: 0).detailText
+        audioUsed = rows["audio"]?.detailText ?? CloudStorageQuotaCategoryRow(count: 0, bytes: 0).detailText
+        avatarUsed = rows["avatars"]?.detailText ?? CloudStorageQuotaCategoryRow(count: 0, bytes: 0).detailText
+        eligibleCleanupBytes = [item.imagesBytes, item.videosBytes, item.filesBytes, item.voicesBytes]
+            .reduce(0) { partial, value in
+                let (sum, overflow) = partial.addingReportingOverflow(max(0, value))
+                return overflow ? Int.max : sum
+            }
         usedQuota = item.totalBytes
         quota = item.quotaBytes
     }
@@ -430,21 +442,7 @@ class CloudStorageViewController: BaseViewController {
             applyQuotaItem(collection.first)
             Observable.collection(from: collection).debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance).subscribe { results in
                 self.applyQuotaItem(results.first)
-                self.datasource[1].children.forEach {
-                    switch $0.key {
-                    case "images":
-                        $0.subtitle = self.imagesUsed
-                    case "videos":
-                        $0.subtitle = self.videosUsed
-                    case "files":
-                        $0.subtitle = self.filesUsed
-                    case "voice":
-                        $0.subtitle = self.audioUsed
-                    default:
-                        break
-                    }
-                }
-                self.datasource[2].children[0].subtitle = self.avatarUsed
+                self.rebuildDatasource()
                 self.updateDisplayState()
                 self.tableView.reloadData()
             } onError: { _ in
@@ -544,13 +542,14 @@ class CloudStorageViewController: BaseViewController {
             break
         }
         guard quota > 0, usedQuota > 0 else { return false }
-        return imagesUsed != "0 KiB" || videosUsed != "0 KiB" || audioUsed != "0 KiB" || filesUsed != "0 KiB"
+        return eligibleCleanupBytes > 0
+            && CloudStorageCleanupPolicy.hasEnabledTarget(
+                currentFreePercent: freeQuotaPercentage()
+            )
     }
 
     func freeQuotaPercentage() -> Int {
-        guard quota > 0 else { return 0 }
-        let value = 100 * max(0, quota - usedQuota) / quota
-        return min(100, max(0, value))
+        return CloudStorageCleanupPolicy.freePercentage(quotaBytes: quota, usedBytes: usedQuota)
     }
 
     private func updateDisplayState() {

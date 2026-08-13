@@ -71,16 +71,34 @@ class XabberAccountManager: NSObject {
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + tokenRequestTimeout, execute: workItem)
     }
     
-    func token(for account: String) -> String? {
-        if let token = CredentialsManager.getXabberAccountToken(for: account) {
+    func token(
+        for account: String,
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) -> String? {
+        guard let token = CredentialsManager.getXabberAccountToken(for: account) else {
+            return nil
+        }
+
+        // Tokens written by older app versions did not persist an expiry. Keep
+        // those usable until the service explicitly rejects them.
+        guard let expiresAt = CredentialsManager.getXabberAccountTokenExpire(for: account) else {
             return token
         }
-        return nil
+        guard expiresAt > now else {
+            clearToken(for: account)
+            return nil
+        }
+        return token
     }
     
     func storeToken(for account: String, token: String, expire: Double) {
         CredentialsManager.shared.setXabberAccountToken(for: account, token: token)
         CredentialsManager.shared.setXabberAccountTokenExpire(for: account, expire: expire)
+    }
+
+    func clearToken(for account: String) {
+        CredentialsManager.shared.removeXabberAccountToken(for: account)
+        CredentialsManager.shared.removeXabberAccountTokenExpire(for: account)
     }
     
     static let xmlns: String = "https://services.xabber.com/protocol/api/services"
