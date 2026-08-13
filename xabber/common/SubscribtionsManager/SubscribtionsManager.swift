@@ -29,6 +29,7 @@ import StoreKit
 import CocoaLumberjack
 import Alamofire
 import RealmSwift
+import UIKit
 
 public struct SubscribtionsSecretStore: Codable {
     var uuid_ns: String
@@ -105,8 +106,11 @@ struct SubscriptionDiagnosticEvent {
         case productLookupCompleted = "product_lookup_completed"
         case accountProductsRefreshStarted = "account_products_refresh_started"
         case accountProductsRefreshCompleted = "account_products_refresh_completed"
+        case accountProductsRequestStarted = "account_products_request_started"
+        case accountProductsRequestCompleted = "account_products_request_completed"
         case purchasePreflightCompleted = "purchase_preflight_completed"
         case storeKitPurchaseStarted = "storekit_purchase_started"
+        case storeKitFlowLifecycle = "storekit_flow_lifecycle"
         case storeKitResult = "storekit_result"
         case storeKitError = "storekit_error"
         case purchaseCompleted = "purchase_completed"
@@ -189,6 +193,36 @@ struct SubscriptionDiagnosticEvent {
         case missing
     }
 
+    enum Lifecycle: String {
+        case willResignActive = "will_resign_active"
+        case didEnterBackground = "did_enter_background"
+        case willEnterForeground = "will_enter_foreground"
+        case didBecomeActive = "did_become_active"
+    }
+
+    enum ApplicationState: String {
+        case active
+        case inactive
+        case background
+        case unknown
+    }
+
+    enum SceneState: String {
+        case foregroundActive = "foreground_active"
+        case foregroundInactive = "foreground_inactive"
+        case background
+        case unattached
+        case mixed
+        case unavailable
+    }
+
+    enum StoreEnvironment: String {
+        case sandbox
+        case production
+        case missing
+        case unknown
+    }
+
     static func message(
         event: Event,
         attemptID: UUID? = nil,
@@ -200,6 +234,15 @@ struct SubscriptionDiagnosticEvent {
         expirationState: ExpirationState? = nil,
         entitlementActive: Bool? = nil,
         persisted: Bool? = nil,
+        lifecycle: Lifecycle? = nil,
+        applicationState: ApplicationState? = nil,
+        sceneState: SceneState? = nil,
+        storeEnvironment: StoreEnvironment? = nil,
+        canMakePayments: Bool? = nil,
+        elapsedMilliseconds: Int? = nil,
+        endpoint: String? = nil,
+        requestOrdinal: Int? = nil,
+        authorizationAttached: Bool? = nil,
         httpStatus: Int? = nil,
         error: NSError? = nil
     ) -> String {
@@ -234,15 +277,97 @@ struct SubscriptionDiagnosticEvent {
         if let persisted {
             fields.append("persisted=\(persisted)")
         }
+        if let lifecycle {
+            fields.append("lifecycle=\(lifecycle.rawValue)")
+        }
+        if let applicationState {
+            fields.append("application_state=\(applicationState.rawValue)")
+        }
+        if let sceneState {
+            fields.append("scene_state=\(sceneState.rawValue)")
+        }
+        if let storeEnvironment {
+            fields.append("store_environment=\(storeEnvironment.rawValue)")
+        }
+        if let canMakePayments {
+            fields.append("can_make_payments=\(canMakePayments)")
+        }
+        if let elapsedMilliseconds {
+            fields.append("elapsed_ms=\(max(0, elapsedMilliseconds))")
+        }
+        if let endpoint {
+            fields.append("endpoint=\(String(reflecting: endpoint))")
+        }
+        if let requestOrdinal {
+            fields.append("request_ordinal=\(requestOrdinal)")
+        }
+        if let authorizationAttached {
+            fields.append("authorization_attached=\(authorizationAttached)")
+        }
         if let httpStatus {
             fields.append("http_status=\(httpStatus)")
         }
         if let error {
+            fields.append("error_category=\(errorCategory(for: error))")
             fields.append("error_domain=\(String(reflecting: error.domain))")
             fields.append("error_code=\(error.code)")
-            fields.append("error_description=\(String(reflecting: error.localizedDescription))")
+            fields.append("error_description=\(String(reflecting: bounded(error.localizedDescription)))")
+            if let failureReason = error.localizedFailureReason, failureReason.isNotEmpty {
+                fields.append("error_failure_reason=\(String(reflecting: bounded(failureReason)))")
+            }
+            if let recoverySuggestion = error.localizedRecoverySuggestion, recoverySuggestion.isNotEmpty {
+                fields.append("error_recovery_suggestion=\(String(reflecting: bounded(recoverySuggestion)))")
+            }
+            underlyingErrors(for: error).enumerated().forEach { index, underlyingError in
+                let ordinal = index + 1
+                fields.append("underlying_error_\(ordinal)_domain=\(String(reflecting: underlyingError.domain))")
+                fields.append("underlying_error_\(ordinal)_code=\(underlyingError.code)")
+            }
         }
         return fields.joined(separator: " ")
+    }
+
+    private static func bounded(_ value: String, limit: Int = 240) -> String {
+        String(value.prefix(limit))
+    }
+
+    private static func errorCategory(for error: NSError) -> String {
+        let normalizedDomain = error.domain.lowercased()
+        if normalizedDomain.contains("storekit") || normalizedDomain == "skerrordomain" {
+            return "storekit"
+        }
+        if error.domain == NSURLErrorDomain || normalizedDomain.contains("network") {
+            return "network"
+        }
+        return "other"
+    }
+
+    private static func underlyingErrors(for rootError: NSError, limit: Int = 3) -> [NSError] {
+        var result: [NSError] = []
+        var queue: [NSError] = [rootError]
+        var visited = Set<ObjectIdentifier>()
+
+        while let current = queue.first, result.count < limit {
+            queue.removeFirst()
+            let identifier = ObjectIdentifier(current)
+            guard visited.insert(identifier).inserted else { continue }
+
+            var children: [NSError] = []
+            if let underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError {
+                children.append(underlying)
+            }
+            if let multiple = current.userInfo["NSMultipleUnderlyingErrors"] as? [NSError] {
+                children.append(contentsOf: multiple)
+            }
+
+            for child in children where result.count < limit {
+                let childIdentifier = ObjectIdentifier(child)
+                guard !visited.contains(childIdentifier) else { continue }
+                result.append(child)
+                queue.append(child)
+            }
+        }
+        return result
     }
 }
 
@@ -257,6 +382,15 @@ private func logSubscriptionDiagnostic(
     expirationState: SubscriptionDiagnosticEvent.ExpirationState? = nil,
     entitlementActive: Bool? = nil,
     persisted: Bool? = nil,
+    lifecycle: SubscriptionDiagnosticEvent.Lifecycle? = nil,
+    applicationState: SubscriptionDiagnosticEvent.ApplicationState? = nil,
+    sceneState: SubscriptionDiagnosticEvent.SceneState? = nil,
+    storeEnvironment: SubscriptionDiagnosticEvent.StoreEnvironment? = nil,
+    canMakePayments: Bool? = nil,
+    elapsedMilliseconds: Int? = nil,
+    endpoint: String? = nil,
+    requestOrdinal: Int? = nil,
+    authorizationAttached: Bool? = nil,
     httpStatus: Int? = nil,
     error: Error? = nil
 ) {
@@ -271,6 +405,15 @@ private func logSubscriptionDiagnostic(
         expirationState: expirationState,
         entitlementActive: entitlementActive,
         persisted: persisted,
+        lifecycle: lifecycle,
+        applicationState: applicationState,
+        sceneState: sceneState,
+        storeEnvironment: storeEnvironment,
+        canMakePayments: canMakePayments,
+        elapsedMilliseconds: elapsedMilliseconds,
+        endpoint: endpoint,
+        requestOrdinal: requestOrdinal,
+        authorizationAttached: authorizationAttached,
         httpStatus: httpStatus,
         error: error as NSError?
     )
@@ -278,6 +421,175 @@ private func logSubscriptionDiagnostic(
         DDLogInfo(message)
     } else {
         DDLogError(message)
+    }
+}
+
+@MainActor
+private final class StoreKitPurchaseFlowDiagnostics: NSObject {
+    private let attemptID: UUID
+    private let productID: String
+    private let accountBinding: SubscriptionDiagnosticEvent.AccountBinding
+    private let startedAt: TimeInterval
+    private let storeEnvironment: SubscriptionDiagnosticEvent.StoreEnvironment
+    private var isObserving = false
+
+    init(
+        attemptID: UUID,
+        productID: String,
+        accountBinding: SubscriptionDiagnosticEvent.AccountBinding,
+        startedAt: TimeInterval
+    ) {
+        self.attemptID = attemptID
+        self.productID = productID
+        self.accountBinding = accountBinding
+        self.startedAt = startedAt
+        self.storeEnvironment = Self.currentStoreEnvironment()
+        super.init()
+
+        let center = NotificationCenter.default
+        center.addObserver(
+            self,
+            selector: #selector(willResignActive),
+            name: UIApplication.willResignActiveNotification,
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(didEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(willEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(didBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        isObserving = true
+
+        logSubscriptionDiagnostic(
+            event: .storeKitPurchaseStarted,
+            attemptID: attemptID,
+            source: .purchase,
+            productID: productID,
+            outcome: .started,
+            accountBinding: accountBinding,
+            applicationState: Self.currentApplicationState(),
+            sceneState: Self.currentSceneState(),
+            storeEnvironment: storeEnvironment,
+            canMakePayments: SKPaymentQueue.canMakePayments(),
+            elapsedMilliseconds: 0
+        )
+    }
+
+    func finish() {
+        guard isObserving else { return }
+        NotificationCenter.default.removeObserver(self)
+        isObserving = false
+    }
+
+    func finishAndSnapshot() -> (
+        applicationState: SubscriptionDiagnosticEvent.ApplicationState,
+        sceneState: SubscriptionDiagnosticEvent.SceneState,
+        storeEnvironment: SubscriptionDiagnosticEvent.StoreEnvironment
+    ) {
+        finish()
+        return (
+            Self.currentApplicationState(),
+            Self.currentSceneState(),
+            storeEnvironment
+        )
+    }
+
+    @objc private func willResignActive() {
+        logLifecycle(.willResignActive)
+    }
+
+    @objc private func didEnterBackground() {
+        logLifecycle(.didEnterBackground)
+    }
+
+    @objc private func willEnterForeground() {
+        logLifecycle(.willEnterForeground)
+    }
+
+    @objc private func didBecomeActive() {
+        logLifecycle(.didBecomeActive)
+    }
+
+    private func logLifecycle(_ lifecycle: SubscriptionDiagnosticEvent.Lifecycle) {
+        logSubscriptionDiagnostic(
+            event: .storeKitFlowLifecycle,
+            attemptID: attemptID,
+            source: .purchase,
+            productID: productID,
+            lifecycle: lifecycle,
+            applicationState: Self.currentApplicationState(),
+            sceneState: Self.currentSceneState(),
+            storeEnvironment: storeEnvironment,
+            elapsedMilliseconds: Self.elapsedMilliseconds(since: startedAt)
+        )
+    }
+
+    nonisolated static func elapsedMilliseconds(since startedAt: TimeInterval) -> Int {
+        Int(max(0, (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000).rounded())
+    }
+
+    private static func currentApplicationState() -> SubscriptionDiagnosticEvent.ApplicationState {
+        switch UIApplication.shared.applicationState {
+        case .active:
+            return .active
+        case .inactive:
+            return .inactive
+        case .background:
+            return .background
+        @unknown default:
+            return .unknown
+        }
+    }
+
+    private static func currentSceneState() -> SubscriptionDiagnosticEvent.SceneState {
+        let states = Set(UIApplication.shared.connectedScenes.map { scene -> String in
+            switch scene.activationState {
+            case .foregroundActive:
+                return SubscriptionDiagnosticEvent.SceneState.foregroundActive.rawValue
+            case .foregroundInactive:
+                return SubscriptionDiagnosticEvent.SceneState.foregroundInactive.rawValue
+            case .background:
+                return SubscriptionDiagnosticEvent.SceneState.background.rawValue
+            case .unattached:
+                return SubscriptionDiagnosticEvent.SceneState.unattached.rawValue
+            @unknown default:
+                return SubscriptionDiagnosticEvent.SceneState.unavailable.rawValue
+            }
+        })
+        guard let onlyState = states.first else {
+            return .unavailable
+        }
+        guard states.count == 1 else {
+            return .mixed
+        }
+        return SubscriptionDiagnosticEvent.SceneState(rawValue: onlyState) ?? .unavailable
+    }
+
+    private static func currentStoreEnvironment() -> SubscriptionDiagnosticEvent.StoreEnvironment {
+        guard let receiptURL = Bundle.main.appStoreReceiptURL else {
+            return .missing
+        }
+        switch receiptURL.lastPathComponent {
+        case "sandboxReceipt":
+            return .sandbox
+        case "receipt":
+            return .production
+        default:
+            return .unknown
+        }
     }
 }
 
@@ -333,6 +645,18 @@ private final class AccountProductsSingleInvocation {
         didInvoke = true
         lock.unlock()
         block()
+    }
+}
+
+private final class SubscriptionDiagnosticOrdinalCounter {
+    private let lock = NSLock()
+    private var value = 0
+
+    func next() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        value += 1
+        return value
     }
 }
 
@@ -770,6 +1094,19 @@ class SubscribtionsManager: NSObject {
             "Cache-Control": "no-cache",
             "Authorization": "Bearer \(accountAPIToken)"
         ])
+    }
+
+    static func subscriptionDiagnosticEndpoint(_ value: String) -> String {
+        guard var components = URLComponents(string: value),
+              components.scheme != nil,
+              components.host != nil else {
+            return "invalid"
+        }
+        components.user = nil
+        components.password = nil
+        components.query = nil
+        components.fragment = nil
+        return components.string ?? "invalid"
     }
 
     static func storeKitProductIdentifiers(for product: APIProduct, fallbackIds: [String]) -> [String] {
@@ -1403,6 +1740,8 @@ class SubscribtionsManager: NSObject {
         let refreshGeneration = beginAccountProductsRefresh(for: jid)
         self.loadProductList()
         let url = api_url + "accounts/account-products/"
+        let diagnosticEndpoint = Self.subscriptionDiagnosticEndpoint(url)
+        let requestDiagnosticOrdinal = SubscriptionDiagnosticOrdinalCounter()
         let accountManager = XabberAccountManager.shared
         let executor = AccountProductsAuthenticatedRequestExecutor(
             // Preserve the legacy retry argument's behavior for any external
@@ -1418,6 +1757,19 @@ class SubscribtionsManager: NSObject {
                 accountManager.requestToken(for: jid, callback: completion)
             },
             request: { token, completion in
+                let requestOrdinal = requestDiagnosticOrdinal.next()
+                let requestStartedAt = ProcessInfo.processInfo.systemUptime
+                logSubscriptionDiagnostic(
+                    event: .accountProductsRequestStarted,
+                    attemptID: diagnosticAttemptID,
+                    source: diagnosticSource,
+                    productID: diagnosticProductID,
+                    outcome: .started,
+                    elapsedMilliseconds: 0,
+                    endpoint: diagnosticEndpoint,
+                    requestOrdinal: requestOrdinal,
+                    authorizationAttached: token.isNotEmpty
+                )
                 AF.request(
                     url,
                     method: .get,
@@ -1427,11 +1779,45 @@ class SubscribtionsManager: NSObject {
                         accountAPIToken: token
                     )
                 ).responseJSON { response in
+                    let elapsedMilliseconds = Int(max(
+                        0,
+                        (ProcessInfo.processInfo.systemUptime - requestStartedAt) * 1_000
+                    ).rounded())
+                    let httpStatus = response.response?.statusCode
                     switch response.result {
                     case .success(let value):
-                        completion(.success(statusCode: response.response?.statusCode, value: value))
+                        let isHTTPFailure = (httpStatus ?? 500) >= 300
+                        logSubscriptionDiagnostic(
+                            event: .accountProductsRequestCompleted,
+                            attemptID: diagnosticAttemptID,
+                            source: diagnosticSource,
+                            productID: diagnosticProductID,
+                            outcome: isHTTPFailure ? .error : .completed,
+                            reason: isHTTPFailure ? .httpFailure : nil,
+                            elapsedMilliseconds: elapsedMilliseconds,
+                            endpoint: diagnosticEndpoint,
+                            requestOrdinal: requestOrdinal,
+                            httpStatus: httpStatus
+                        )
+                        completion(.success(statusCode: httpStatus, value: value))
                     case .failure(let error):
-                        completion(.failure(statusCode: response.response?.statusCode, error: error))
+                        let reason: SubscriptionDiagnosticEvent.Reason = (httpStatus ?? 0) >= 300
+                            ? .httpFailure
+                            : .networkFailure
+                        logSubscriptionDiagnostic(
+                            event: .accountProductsRequestCompleted,
+                            attemptID: diagnosticAttemptID,
+                            source: diagnosticSource,
+                            productID: diagnosticProductID,
+                            outcome: .error,
+                            reason: reason,
+                            elapsedMilliseconds: elapsedMilliseconds,
+                            endpoint: diagnosticEndpoint,
+                            requestOrdinal: requestOrdinal,
+                            httpStatus: httpStatus,
+                            error: error
+                        )
+                        completion(.failure(statusCode: httpStatus, error: error))
                     }
                 }
             }
@@ -1693,18 +2079,22 @@ class SubscribtionsManager: NSObject {
         } else {
             accountBinding = .invalid
         }
-        logSubscriptionDiagnostic(
-            event: .storeKitPurchaseStarted,
-            attemptID: diagnosticAttemptID,
-            source: .purchase,
-            productID: product.id,
-            outcome: .started,
-            accountBinding: accountBinding
-        )
-
         Task {
+            let storeKitStartedAt = ProcessInfo.processInfo.systemUptime
+            let flowDiagnostics = await MainActor.run {
+                StoreKitPurchaseFlowDiagnostics(
+                    attemptID: diagnosticAttemptID,
+                    productID: product.id,
+                    accountBinding: accountBinding,
+                    startedAt: storeKitStartedAt
+                )
+            }
             do {
                 let result = try await product.purchase(options: options)
+                let elapsedMilliseconds = StoreKitPurchaseFlowDiagnostics.elapsedMilliseconds(
+                    since: storeKitStartedAt
+                )
+                let completionSnapshot = await flowDiagnostics.finishAndSnapshot()
                 switch result {
                 case .success(let verification):
                     switch verification {
@@ -1715,7 +2105,11 @@ class SubscribtionsManager: NSObject {
                             source: .purchase,
                             productID: transaction.productID,
                             outcome: .verified,
-                            accountBinding: accountBinding
+                            accountBinding: accountBinding,
+                            applicationState: completionSnapshot.applicationState,
+                            sceneState: completionSnapshot.sceneState,
+                            storeEnvironment: completionSnapshot.storeEnvironment,
+                            elapsedMilliseconds: elapsedMilliseconds
                         )
                         let persisted = await self.handleVerifiedTransaction(
                             transaction,
@@ -1762,6 +2156,10 @@ class SubscribtionsManager: NSObject {
                             accountBinding: accountBinding,
                             entitlementActive: false,
                             persisted: false,
+                            applicationState: completionSnapshot.applicationState,
+                            sceneState: completionSnapshot.sceneState,
+                            storeEnvironment: completionSnapshot.storeEnvironment,
+                            elapsedMilliseconds: elapsedMilliseconds,
                             error: verificationError
                         )
                         callback?(false, nil)
@@ -1774,7 +2172,11 @@ class SubscribtionsManager: NSObject {
                         productID: product.id,
                         outcome: .userCancelled,
                         entitlementActive: false,
-                        persisted: false
+                        persisted: false,
+                        applicationState: completionSnapshot.applicationState,
+                        sceneState: completionSnapshot.sceneState,
+                        storeEnvironment: completionSnapshot.storeEnvironment,
+                        elapsedMilliseconds: elapsedMilliseconds
                     )
                     callback?(false, nil)
                 case .pending:
@@ -1786,7 +2188,11 @@ class SubscribtionsManager: NSObject {
                         outcome: .pending,
                         reason: .awaitingApproval,
                         entitlementActive: false,
-                        persisted: false
+                        persisted: false,
+                        applicationState: completionSnapshot.applicationState,
+                        sceneState: completionSnapshot.sceneState,
+                        storeEnvironment: completionSnapshot.storeEnvironment,
+                        elapsedMilliseconds: elapsedMilliseconds
                     )
                     callback?(false, nil)
                 @unknown default:
@@ -1798,11 +2204,19 @@ class SubscribtionsManager: NSObject {
                         outcome: .unknown,
                         reason: .unsupportedResult,
                         entitlementActive: false,
-                        persisted: false
+                        persisted: false,
+                        applicationState: completionSnapshot.applicationState,
+                        sceneState: completionSnapshot.sceneState,
+                        storeEnvironment: completionSnapshot.storeEnvironment,
+                        elapsedMilliseconds: elapsedMilliseconds
                     )
                     callback?(false, nil)
                 }
             } catch {
+                let elapsedMilliseconds = StoreKitPurchaseFlowDiagnostics.elapsedMilliseconds(
+                    since: storeKitStartedAt
+                )
+                let completionSnapshot = await flowDiagnostics.finishAndSnapshot()
                 logSubscriptionDiagnostic(
                     event: .storeKitError,
                     attemptID: diagnosticAttemptID,
@@ -1811,6 +2225,10 @@ class SubscribtionsManager: NSObject {
                     outcome: .error,
                     entitlementActive: false,
                     persisted: false,
+                    applicationState: completionSnapshot.applicationState,
+                    sceneState: completionSnapshot.sceneState,
+                    storeEnvironment: completionSnapshot.storeEnvironment,
+                    elapsedMilliseconds: elapsedMilliseconds,
                     error: error
                 )
                 callback?(false, nil)
