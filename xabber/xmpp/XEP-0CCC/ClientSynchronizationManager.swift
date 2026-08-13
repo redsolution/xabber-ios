@@ -297,16 +297,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     private struct SnapshotCompletionActions {
         let shouldRunInviteFallback: Bool
         let snapshotRepairTargets: [MessageArchiveManager.SnapshotRepairTarget]
-        let inviteInfoRequests: [String]
-        let inviteMemberRequests: [String]
         let postBootstrapWork: [() -> Void]
         let needsCatchUpSync: Bool
 
         static let none = SnapshotCompletionActions(
             shouldRunInviteFallback: false,
             snapshotRepairTargets: [],
-            inviteInfoRequests: [],
-            inviteMemberRequests: [],
             postBootstrapWork: [],
             needsCatchUpSync: false
         )
@@ -367,8 +363,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     private var isApplyingPage: Bool = false
     private var shouldRequestInviteFallbackAfterSnapshot: Bool = false
     private var pendingSnapshotRepairTargets = Set<MessageArchiveManager.SnapshotRepairTarget>()
-    private var pendingInviteInfoRequests = Set<String>()
-    private var pendingInviteMemberRequests = Set<String>()
     private var pendingPostBootstrapWork: [() -> Void] = []
     private var needsCatchUpAfterSnapshot = false
     
@@ -600,8 +594,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 seenSnapshotConversationKeys.removeAll()
                 shouldRequestInviteFallbackAfterSnapshot = false
                 pendingSnapshotRepairTargets.removeAll()
-                pendingInviteInfoRequests.removeAll()
-                pendingInviteMemberRequests.removeAll()
                 needsCatchUpAfterSnapshot = false
                 return true
             case .snapshotInProgress, .catchingUp:
@@ -694,8 +686,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             isApplyingPage = false
             shouldRequestInviteFallbackAfterSnapshot = false
             pendingSnapshotRepairTargets.removeAll()
-            pendingInviteInfoRequests.removeAll()
-            pendingInviteMemberRequests.removeAll()
             needsCatchUpAfterSnapshot = false
             return true
         }
@@ -806,8 +796,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 let actions = SnapshotCompletionActions(
                     shouldRunInviteFallback: shouldRequestInviteFallbackAfterSnapshot,
                     snapshotRepairTargets: Array(pendingSnapshotRepairTargets),
-                    inviteInfoRequests: Array(pendingInviteInfoRequests),
-                    inviteMemberRequests: Array(pendingInviteMemberRequests),
                     postBootstrapWork: pendingPostBootstrapWork,
                     needsCatchUpSync: needsCatchUpAfterSnapshot
                 )
@@ -818,8 +806,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 phase = .live
                 shouldRequestInviteFallbackAfterSnapshot = false
                 pendingSnapshotRepairTargets.removeAll()
-                pendingInviteInfoRequests.removeAll()
-                pendingInviteMemberRequests.removeAll()
                 pendingPostBootstrapWork.removeAll()
                 needsCatchUpAfterSnapshot = false
                 return actions
@@ -871,42 +857,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         AccountManager.shared.find(for: self.owner)?.mam.scheduleSnapshotArchiveRepairs(targets)
     }
 
-    private func requestInviteInfoImmediately(groupchat: String) {
-        AccountManager.shared.find(for: self.owner)?.action { user, stream in
-            user.groupchats.getGroupInfo(stream, groupchat: groupchat)
-        }
-    }
-
-    private func requestInviteMembersImmediately(groupchat: String) {
-        AccountManager.shared.find(for: self.owner)?.action { user, stream in
-            user.groupchats.requestUsers(stream, groupchat: groupchat)
-        }
-    }
-
-    private func deferOrRequestInviteInfo(groupchat: String) {
-        guard groupchat.isNotEmpty else { return }
-        let shouldDefer = stateQueue.sync { shouldDeferBootstrapWorkLocked() }
-        if shouldDefer {
-            _ = stateQueue.sync {
-                pendingInviteInfoRequests.insert(groupchat)
-            }
-        } else {
-            requestInviteInfoImmediately(groupchat: groupchat)
-        }
-    }
-
-    private func deferOrRequestInviteMembers(groupchat: String) {
-        guard groupchat.isNotEmpty else { return }
-        let shouldDefer = stateQueue.sync { shouldDeferBootstrapWorkLocked() }
-        if shouldDefer {
-            _ = stateQueue.sync {
-                pendingInviteMemberRequests.insert(groupchat)
-            }
-        } else {
-            requestInviteMembersImmediately(groupchat: groupchat)
-        }
-    }
-
     private func shouldDeferBootstrapWorkLocked() -> Bool {
         // A completed snapshot is a usable local baseline. Later stamp-based
         // catch-up must not turn the primary stream back into a bootstrap-only lane.
@@ -946,8 +896,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             account?.groupchats.getInvitesFallback()
         }
         scheduleSnapshotRepairTargetsImmediately(actions.snapshotRepairTargets)
-        actions.inviteInfoRequests.forEach { requestInviteInfoImmediately(groupchat: $0) }
-        actions.inviteMemberRequests.forEach { requestInviteMembersImmediately(groupchat: $0) }
         actions.postBootstrapWork.forEach { $0() }
     }
 
@@ -2047,17 +1995,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
 
         let inviteMessage = XMPPMessage(from: messageElement.copy() as! DDXMLElement)
-        let result = GroupchatInvitePersistenceService(
-            owner: owner,
-            followUp: GroupchatInviteFollowUp(
-                requestGroupInfo: { groupchat in
-                    self.deferOrRequestInviteInfo(groupchat: groupchat)
-                },
-                requestMembers: { groupchat in
-                    self.deferOrRequestInviteMembers(groupchat: groupchat)
-                }
-            )
-        )
+        let result = GroupchatInvitePersistenceService(owner: owner)
         .receive(
             message: inviteMessage,
             date: Date(timeIntervalSince1970: timestamp / 1000000),
@@ -2539,8 +2477,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             self.isApplyingPage = false
             self.shouldRequestInviteFallbackAfterSnapshot = false
             self.pendingSnapshotRepairTargets.removeAll()
-            self.pendingInviteInfoRequests.removeAll()
-            self.pendingInviteMemberRequests.removeAll()
             self.pendingPostBootstrapWork.removeAll()
             self.needsCatchUpAfterSnapshot = false
             self.syncRequestInfoById.removeAll()

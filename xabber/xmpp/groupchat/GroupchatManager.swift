@@ -2012,29 +2012,7 @@ class GroupchatManager: AbstractXMPPManager {
     }
 
     private final func makeInvitePersistenceService() -> GroupchatInvitePersistenceService {
-        GroupchatInvitePersistenceService(
-            owner: owner,
-            followUp: GroupchatInviteFollowUp(
-                requestGroupInfo: { [weak self] groupchat in
-                    self?.requestInviteDetails(groupchat: groupchat)
-                },
-                requestMembers: { [weak self] groupchat in
-                    self?.requestInviteMembers(groupchat: groupchat)
-                }
-            )
-        )
-    }
-
-    private final func requestInviteDetails(groupchat: String) {
-        AccountManager.shared.find(for: owner)?.action({ user, stream in
-            user.groupchats.getGroupInfo(stream, groupchat: groupchat)
-        })
-    }
-
-    private final func requestInviteMembers(groupchat: String) {
-        AccountManager.shared.find(for: owner)?.action({ user, stream in
-            user.groupchats.requestUsers(stream, groupchat: groupchat)
-        })
+        GroupchatInvitePersistenceService(owner: owner)
     }
     
     public final func getInvitesFallback() {

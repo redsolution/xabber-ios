@@ -22,9 +22,10 @@ import Foundation
 import RealmSwift
 
 enum XabberRealmSchema {
-    /// Schema 13 indexes the bounded unread-mention predicate and backfills
-    /// its denormalized conversation identity from legacy notification metadata.
-    static let current: UInt64 = 13
+    /// Schema 14 introduces the canonical Groups snapshot, membership,
+    /// member, permission, and invite tables. Legacy group rows are not
+    /// converted: development installations use a fresh Realm by contract.
+    static let current: UInt64 = 14
 }
 
 
@@ -277,6 +278,10 @@ func makeRealmMigrationConfiguration(
                         : (originalSenderJid?.isNotEmpty == true ? originalSenderJid : nil)
                     newObject["associatedJid"] = conversationJid
                 }
+            }
+            if oldSchemaVersion < 14 {
+                // The canonical group tables are intentionally created empty.
+                // There is no conversion from the legacy group schema.
             }
         },
         deleteRealmIfMigrationNeeded: false) { total, used in

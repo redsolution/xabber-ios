@@ -2,16 +2,6 @@ import Foundation
 import RealmSwift
 import XMPPFramework
 
-struct GroupchatInviteFollowUp {
-    let requestGroupInfo: (String) -> Void
-    let requestMembers: (String) -> Void
-
-    static let none = GroupchatInviteFollowUp(
-        requestGroupInfo: { _ in },
-        requestMembers: { _ in }
-    )
-}
-
 enum GroupchatInviteStoreResult: Equatable {
     case inserted
     case updated
@@ -31,13 +21,11 @@ enum GroupchatInviteStoreResult: Equatable {
 
 final class GroupchatInvitePersistenceService {
     private let owner: String
-    private let followUp: GroupchatInviteFollowUp
     private let now: () -> Date
     private let showLocalNotification: (PushNotificationPreview) -> Void
 
     init(
         owner: String,
-        followUp: GroupchatInviteFollowUp = .none,
         now: @escaping () -> Date = Date.init,
         showLocalNotification: @escaping (PushNotificationPreview) -> Void = { preview in
             DispatchQueue.main.async {
@@ -46,7 +34,6 @@ final class GroupchatInvitePersistenceService {
         }
     ) {
         self.owner = owner
-        self.followUp = followUp
         self.now = now
         self.showLocalNotification = showLocalNotification
     }
@@ -227,8 +214,6 @@ final class GroupchatInvitePersistenceService {
             return .invalid
         }
 
-        followUp.requestGroupInfo(payload.groupchat)
-        followUp.requestMembers(payload.groupchat)
         let age = abs(now().timeIntervalSince(payload.date))
         if ownsCommit,
            notifyLocally,

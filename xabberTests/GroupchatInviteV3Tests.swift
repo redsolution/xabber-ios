@@ -5,8 +5,6 @@ import XMPPFramework
 
 final class GroupchatInviteV3Tests: XCTestCase {
     private let owner = "romeo@example.com"
-    private var infoRequests: [String] = []
-    private var membersRequests: [String] = []
 
     override func setUp() {
         super.setUp()
@@ -15,8 +13,6 @@ final class GroupchatInviteV3Tests: XCTestCase {
         AccountManager.shared.activeUsers.accept(Set<String>())
         AccountManager.shared.connectingUsers.accept(Set<String>())
         AccountManager.shared.authenticatedUsers.accept(Set<String>())
-        infoRequests.removeAll()
-        membersRequests.removeAll()
         let realm = try! WRealm.safe()
         try! realm.write {
             realm.deleteAll()
@@ -43,10 +39,6 @@ final class GroupchatInviteV3Tests: XCTestCase {
     ) -> GroupchatInvitePersistenceService {
         GroupchatInvitePersistenceService(
             owner: owner,
-            followUp: GroupchatInviteFollowUp(
-                requestGroupInfo: { [weak self] groupchat in self?.infoRequests.append(groupchat) },
-                requestMembers: { [weak self] groupchat in self?.membersRequests.append(groupchat) }
-            ),
             now: now,
             showLocalNotification: showLocalNotification
         )
@@ -302,7 +294,7 @@ final class GroupchatInviteV3Tests: XCTestCase {
         XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 0)
     }
 
-    func testNewAndUpdatedInviteRequestsGroupInfoAndMembersExactlyOnce() throws {
+    func testPendingInviteDoesNotCreateGroupBeforeJoin() throws {
         let first = try makeMessage("""
         <message from='juliet@example.com/balcony' to='\(owner)' id='first'>
           <invite xmlns='https://xabber.com/protocol/groups' jid='stage@example.com'/>
@@ -321,16 +313,13 @@ final class GroupchatInviteV3Tests: XCTestCase {
 
         let inviteService = service()
         XCTAssertEqual(inviteService.receive(message: first, date: Date(timeIntervalSince1970: 100), isRead: false), .inserted)
-        XCTAssertEqual(infoRequests, ["stage@example.com"])
-        XCTAssertEqual(membersRequests, ["stage@example.com"])
+        XCTAssertTrue(try WRealm.safe().objects(GroupChatStorageItem.self).isEmpty)
 
         XCTAssertEqual(inviteService.receive(message: duplicate, date: Date(timeIntervalSince1970: 100), isRead: false), .duplicate)
-        XCTAssertEqual(infoRequests, ["stage@example.com"])
-        XCTAssertEqual(membersRequests, ["stage@example.com"])
+        XCTAssertTrue(try WRealm.safe().objects(GroupChatStorageItem.self).isEmpty)
 
         XCTAssertEqual(inviteService.receive(message: newer, date: Date(timeIntervalSince1970: 200), isRead: false), .updated)
-        XCTAssertEqual(infoRequests, ["stage@example.com", "stage@example.com"])
-        XCTAssertEqual(membersRequests, ["stage@example.com", "stage@example.com"])
+        XCTAssertTrue(try WRealm.safe().objects(GroupChatStorageItem.self).isEmpty)
     }
 
     func testAcceptAndDeclineRequestsStillUseStableInviteRow() throws {

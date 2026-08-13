@@ -3380,7 +3380,6 @@ final class Account: NSObject {
     var chatStates: ChatStatesManager
     var chatMarkers: ChatMarkersManager
     var attention: AttentionManger
-    var globalIndex: GlobalIndexManager
     var groupchats: GroupchatManager
     var deliveryManager: ReliableMessageDeliveryManager
     var msgDeleteManager: MessageDeleteManager
@@ -3483,7 +3482,6 @@ final class Account: NSObject {
         self.xTokens = XTokenManager(withOwner: self.jid)
         self.devices = XMPPDeviceManager(withOwner: self.jid)
         self.reconnect = XMPPReconnect(dispatchQueue: queue)
-        self.globalIndex = GlobalIndexManager(withOwner: self.jid)
         self.groupchats = GroupchatManager(withOwner: self.jid)
         self.deliveryManager = ReliableMessageDeliveryManager(withOwner: self.jid)
         self.msgDeleteManager = MessageDeleteManager(withOwner: self.jid)
@@ -4054,7 +4052,6 @@ final class Account: NSObject {
             self.chatStates,
             self.chatMarkers,
             self.attention,
-            self.globalIndex,
             self.groupchats,
             self.deliveryManager,
             self.msgDeleteManager,

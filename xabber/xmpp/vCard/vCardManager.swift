@@ -380,50 +380,6 @@ class VCardManager: AbstractXMPPManager {
             
         }
         
-        if let privacy = query.element(forName: "X-PRIVACY")?.stringValue,
-            let index = query.element(forName: "X-INDEX")?.stringValue,
-            let desc = query.element(forName: "DESC")?.stringValue,
-            let status = query.element(forName: "X-STATUS")?.stringValue,
-            let membership = query.element(forName: "X-MEMBERSHIP")?.stringValue {
-            do {
-                let realm = try  WRealm.safe()
-                try realm.write {
-                    if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: from, owner: self.owner)) {
-                        instance.membership_ = membership
-                        instance.name = self.getEscapingElementValue(element: query.element(forName: "NICKNAME"))
-                        instance.descr = desc
-                        instance.index_ = index
-                        instance.privacy_ = privacy
-                        instance.status = status
-                        if let members = query.element(forName: "X-MEMBERS")?.stringValueAsNSInteger() {
-                            instance.members = members
-                        }
-                    } else {
-                        let instance = GroupChatStorageItem()
-                        instance.name = self.getEscapingElementValue(element: query.element(forName: "NICKNAME"))
-                        instance.membership_ = membership
-                        instance.descr = desc
-                        instance.index_ = index
-                        instance.privacy_ = privacy
-                        instance.status = status
-                        instance.jid = from
-                        instance.owner = self.owner
-                        instance.primary = GroupChatStorageItem.genPrimary(jid: from, owner: self.owner)
-                        if let members = query.element(forName: "X-MEMBERS")?.stringValueAsNSInteger() {
-                            instance.members = members
-                        }
-                        realm.add(instance)
-                    }
-                    realm
-                        .objects(ResourceStorageItem.self)
-                        .filter("owner == %@ AND jid == %@", owner, from)
-                        .forEach { $0.statusMessage = status }
-                    realm.object(ofType: UINotificationStorageItem.self, forPrimaryKey: UINotificationStorageItem.genPrimary(owner: owner, jid: from))?.updateAt = Date()
-                }
-            } catch {
-                DDLogDebug("vCardAvatarManager: \(#function). \(error.localizedDescription)")
-            }
-        }
         return true
     }
     
