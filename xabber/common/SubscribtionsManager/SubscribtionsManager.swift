@@ -765,6 +765,13 @@ class SubscribtionsManager: NSObject {
         ]
     }
 
+    static func accountProductsHTTPHeaders(accountAPIToken: String) -> HTTPHeaders {
+        HTTPHeaders([
+            "Cache-Control": "no-cache",
+            "Authorization": "Bearer \(accountAPIToken)"
+        ])
+    }
+
     static func storeKitProductIdentifiers(for product: APIProduct, fallbackIds: [String]) -> [String] {
         let apiIds = product.prices.map {
             storeKitProductIdentifier(productId: product.productId, priceId: $0.priceId)
@@ -1411,16 +1418,14 @@ class SubscribtionsManager: NSObject {
                 accountManager.requestToken(for: jid, callback: completion)
             },
             request: { token, completion in
-                let headers = HTTPHeaders([
-                    "Cache-Control": "no-cache",
-                    "Authorization": "Bearer \(token)"
-                ])
                 AF.request(
                     url,
                     method: .get,
                     parameters: Self.accountProductsRequestParameters(),
                     encoding: URLEncoding.default,
-                    headers: headers
+                    headers: Self.accountProductsHTTPHeaders(
+                        accountAPIToken: token
+                    )
                 ).responseJSON { response in
                     switch response.result {
                     case .success(let value):
