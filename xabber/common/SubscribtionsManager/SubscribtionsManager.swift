@@ -99,6 +99,188 @@ enum PremiumPurchasePreflightDecision: Equatable {
     case blockDuplicateActivePlan
 }
 
+struct SubscriptionDiagnosticEvent {
+    enum Event: String {
+        case purchaseRequested = "purchase_requested"
+        case productLookupCompleted = "product_lookup_completed"
+        case accountProductsRefreshStarted = "account_products_refresh_started"
+        case accountProductsRefreshCompleted = "account_products_refresh_completed"
+        case purchasePreflightCompleted = "purchase_preflight_completed"
+        case storeKitPurchaseStarted = "storekit_purchase_started"
+        case storeKitResult = "storekit_result"
+        case storeKitError = "storekit_error"
+        case purchaseCompleted = "purchase_completed"
+        case transactionEvaluated = "transaction_evaluated"
+        case transactionPersistenceCompleted = "transaction_persistence_completed"
+        case transactionFinishCompleted = "transaction_finish_completed"
+        case accountProductsReconciliationStarted = "account_products_reconciliation_started"
+        case restoreStarted = "restore_started"
+        case restoreCompleted = "restore_completed"
+    }
+
+    enum Source: String {
+        case purchase
+        case transactionUpdates = "transaction_updates"
+        case currentEntitlements = "current_entitlements"
+        case accountProductsRefresh = "account_products_refresh"
+    }
+
+    enum Outcome: String {
+        case requested
+        case available
+        case unavailable
+        case started
+        case proceed
+        case blocked
+        case verified
+        case unverified
+        case userCancelled = "user_cancelled"
+        case pending
+        case active
+        case rejected
+        case persisted
+        case persistenceFailed = "persistence_failed"
+        case terminalRemoved = "terminal_removed"
+        case finished
+        case completed
+        case superseded
+        case unknown
+        case error
+    }
+
+    enum Reason: String {
+        case localDuplicateActivePlan = "local_duplicate_active_plan"
+        case backendDuplicateActivePlan = "backend_duplicate_active_plan"
+        case productNotLoaded = "product_not_loaded"
+        case accountContextUnavailable = "account_context_unavailable"
+        case managerDeallocated = "manager_deallocated"
+        case awaitingApproval = "awaiting_approval"
+        case verificationFailed = "verification_failed"
+        case unsupportedResult = "unsupported_result"
+        case activeEntitlement = "active_entitlement"
+        case revoked
+        case missingExpiration = "missing_expiration"
+        case expired
+        case missingAccountBinding = "missing_account_binding"
+        case unknownAccountBinding = "unknown_account_binding"
+        case realmPersistenceFailed = "realm_persistence_failed"
+        case invalidEntitlement = "invalid_entitlement"
+        case apiConfigurationMissing = "api_configuration_missing"
+        case authenticationUnavailable = "authentication_unavailable"
+        case duplicateConnectionRefresh = "duplicate_connection_refresh"
+        case staleRefresh = "stale_refresh"
+        case httpFailure = "http_failure"
+        case malformedResponse = "malformed_response"
+        case networkFailure = "network_failure"
+        case reconciled
+    }
+
+    enum AccountBinding: String {
+        case attached
+        case missing
+        case invalid
+        case resolved
+        case unresolved
+    }
+
+    enum ExpirationState: String {
+        case active
+        case expired
+        case missing
+    }
+
+    static func message(
+        event: Event,
+        attemptID: UUID? = nil,
+        source: Source? = nil,
+        productID: String? = nil,
+        outcome: Outcome? = nil,
+        reason: Reason? = nil,
+        accountBinding: AccountBinding? = nil,
+        expirationState: ExpirationState? = nil,
+        entitlementActive: Bool? = nil,
+        persisted: Bool? = nil,
+        httpStatus: Int? = nil,
+        error: NSError? = nil
+    ) -> String {
+        var fields = [
+            "SUBSCRIPTION_DIAGNOSTICS",
+            "event=\(event.rawValue)"
+        ]
+        if let attemptID {
+            fields.append("attempt=\(attemptID.uuidString)")
+        }
+        if let source {
+            fields.append("source=\(source.rawValue)")
+        }
+        if let productID {
+            fields.append("product_id=\(String(reflecting: productID))")
+        }
+        if let outcome {
+            fields.append("outcome=\(outcome.rawValue)")
+        }
+        if let reason {
+            fields.append("reason=\(reason.rawValue)")
+        }
+        if let accountBinding {
+            fields.append("account_binding=\(accountBinding.rawValue)")
+        }
+        if let expirationState {
+            fields.append("expiration_state=\(expirationState.rawValue)")
+        }
+        if let entitlementActive {
+            fields.append("entitlement_active=\(entitlementActive)")
+        }
+        if let persisted {
+            fields.append("persisted=\(persisted)")
+        }
+        if let httpStatus {
+            fields.append("http_status=\(httpStatus)")
+        }
+        if let error {
+            fields.append("error_domain=\(String(reflecting: error.domain))")
+            fields.append("error_code=\(error.code)")
+            fields.append("error_description=\(String(reflecting: error.localizedDescription))")
+        }
+        return fields.joined(separator: " ")
+    }
+}
+
+private func logSubscriptionDiagnostic(
+    event: SubscriptionDiagnosticEvent.Event,
+    attemptID: UUID? = nil,
+    source: SubscriptionDiagnosticEvent.Source? = nil,
+    productID: String? = nil,
+    outcome: SubscriptionDiagnosticEvent.Outcome? = nil,
+    reason: SubscriptionDiagnosticEvent.Reason? = nil,
+    accountBinding: SubscriptionDiagnosticEvent.AccountBinding? = nil,
+    expirationState: SubscriptionDiagnosticEvent.ExpirationState? = nil,
+    entitlementActive: Bool? = nil,
+    persisted: Bool? = nil,
+    httpStatus: Int? = nil,
+    error: Error? = nil
+) {
+    let message = SubscriptionDiagnosticEvent.message(
+        event: event,
+        attemptID: attemptID,
+        source: source,
+        productID: productID,
+        outcome: outcome,
+        reason: reason,
+        accountBinding: accountBinding,
+        expirationState: expirationState,
+        entitlementActive: entitlementActive,
+        persisted: persisted,
+        httpStatus: httpStatus,
+        error: error as NSError?
+    )
+    if error == nil {
+        DDLogInfo(message)
+    } else {
+        DDLogError(message)
+    }
+}
+
 struct PremiumGalleryAvailability: Equatable {
     let isAvailable: Bool
     let storageURL: String?
@@ -405,14 +587,43 @@ class SubscribtionsManager: NSObject {
         Task.detached { [weak self] in
             guard let self = self else { return }
             for await result in Transaction.updates {
+                let attemptID = UUID()
                 switch result {
-                    case .verified(let transaction):
-                        let persisted = await self.handleVerifiedTransaction(transaction, fallbackJid: nil)
-                        if persisted {
-                            await transaction.finish()
-                        }
-                    default:
-                        break
+                case .verified(let transaction):
+                    logSubscriptionDiagnostic(
+                        event: .storeKitResult,
+                        attemptID: attemptID,
+                        source: .transactionUpdates,
+                        productID: transaction.productID,
+                        outcome: .verified
+                    )
+                    let persisted = await self.handleVerifiedTransaction(
+                        transaction,
+                        fallbackJid: nil,
+                        diagnosticAttemptID: attemptID,
+                        diagnosticSource: .transactionUpdates
+                    )
+                    if persisted {
+                        await transaction.finish()
+                        logSubscriptionDiagnostic(
+                            event: .transactionFinishCompleted,
+                            attemptID: attemptID,
+                            source: .transactionUpdates,
+                            productID: transaction.productID,
+                            outcome: .finished,
+                            persisted: true
+                        )
+                    }
+                case .unverified(let transaction, let verificationError):
+                    logSubscriptionDiagnostic(
+                        event: .storeKitResult,
+                        attemptID: attemptID,
+                        source: .transactionUpdates,
+                        productID: transaction.productID,
+                        outcome: .unverified,
+                        reason: .verificationFailed,
+                        error: verificationError
+                    )
                 }
             }
         }
@@ -926,14 +1137,50 @@ class SubscribtionsManager: NSObject {
     /// or when no Xabber Account was used).
     func restoreSubscriptions() {
         Task {
+            let restoreAttemptID = UUID()
+            var verifiedCount = 0
+            logSubscriptionDiagnostic(
+                event: .restoreStarted,
+                attemptID: restoreAttemptID,
+                source: .currentEntitlements,
+                outcome: .started
+            )
             for await result in Transaction.currentEntitlements {
                 switch result {
                 case .verified(let transaction):
-                    _ = await self.handleVerifiedTransaction(transaction, fallbackJid: nil)
-                default:
-                    break
+                    verifiedCount += 1
+                    logSubscriptionDiagnostic(
+                        event: .storeKitResult,
+                        attemptID: restoreAttemptID,
+                        source: .currentEntitlements,
+                        productID: transaction.productID,
+                        outcome: .verified
+                    )
+                    _ = await self.handleVerifiedTransaction(
+                        transaction,
+                        fallbackJid: nil,
+                        diagnosticAttemptID: restoreAttemptID,
+                        diagnosticSource: .currentEntitlements
+                    )
+                case .unverified(let transaction, let verificationError):
+                    logSubscriptionDiagnostic(
+                        event: .storeKitResult,
+                        attemptID: restoreAttemptID,
+                        source: .currentEntitlements,
+                        productID: transaction.productID,
+                        outcome: .unverified,
+                        reason: .verificationFailed,
+                        error: verificationError
+                    )
                 }
             }
+            logSubscriptionDiagnostic(
+                event: .restoreCompleted,
+                attemptID: restoreAttemptID,
+                source: .currentEntitlements,
+                outcome: .completed,
+                entitlementActive: verifiedCount > 0 && self.hasActiveSubsription()
+            )
         }
     }
 
@@ -1089,7 +1336,12 @@ class SubscribtionsManager: NSObject {
     @discardableResult
     public final func checkXMPPAccountStateAfterConnection(jid: String, connectionAttemptID: UInt64?) -> Bool {
         guard reserveXMPPAccountStateCheckAfterConnection(jid: jid, connectionAttemptID: connectionAttemptID) else {
-            DDLogDebug("skip duplicate subscription check jid=\(jid) attempt=\(connectionAttemptID.map(String.init) ?? "none")")
+            logSubscriptionDiagnostic(
+                event: .accountProductsRefreshCompleted,
+                source: .accountProductsRefresh,
+                outcome: .blocked,
+                reason: .duplicateConnectionRefresh
+            )
             return false
         }
 
@@ -1097,9 +1349,48 @@ class SubscribtionsManager: NSObject {
         return true
     }
 
-    public func checkXMPPAccountState(jid: String, retry: Int? = nil, callback: ((Bool) -> Void)? = nil) {
+    public func checkXMPPAccountState(
+        jid: String,
+        retry: Int? = nil,
+        callback: ((Bool) -> Void)? = nil
+    ) {
+        checkXMPPAccountState(
+            jid: jid,
+            retry: retry,
+            diagnosticAttemptID: nil,
+            diagnosticSource: .accountProductsRefresh,
+            diagnosticProductID: nil,
+            callback: callback
+        )
+    }
+
+    private func checkXMPPAccountState(
+        jid: String,
+        retry: Int? = nil,
+        diagnosticAttemptID: UUID? = nil,
+        diagnosticSource: SubscriptionDiagnosticEvent.Source,
+        diagnosticProductID: String? = nil,
+        callback: ((Bool) -> Void)? = nil
+    ) {
+        logSubscriptionDiagnostic(
+            event: .accountProductsRefreshStarted,
+            attemptID: diagnosticAttemptID,
+            source: diagnosticSource,
+            productID: diagnosticProductID,
+            outcome: .started
+        )
         guard let api_url = SubscribtionsSecretStore.bundle?.api_url else {
-            callback?(hasActiveSubsription(for: jid))
+            let hasActiveEntitlement = hasActiveSubsription(for: jid)
+            logSubscriptionDiagnostic(
+                event: .accountProductsRefreshCompleted,
+                attemptID: diagnosticAttemptID,
+                source: diagnosticSource,
+                productID: diagnosticProductID,
+                outcome: .error,
+                reason: .apiConfigurationMissing,
+                entitlementActive: hasActiveEntitlement
+            )
+            callback?(hasActiveEntitlement)
             return
         }
         let refreshGeneration = beginAccountProductsRefresh(for: jid)
@@ -1146,29 +1437,93 @@ class SubscribtionsManager: NSObject {
                 for: jid,
                 generation: refreshGeneration
             ) else {
-                callback?(hasActiveSubsription(for: jid))
+                let hasActiveEntitlement = hasActiveSubsription(for: jid)
+                logSubscriptionDiagnostic(
+                    event: .accountProductsRefreshCompleted,
+                    attemptID: diagnosticAttemptID,
+                    source: diagnosticSource,
+                    productID: diagnosticProductID,
+                    outcome: .superseded,
+                    reason: .staleRefresh,
+                    entitlementActive: hasActiveEntitlement
+                )
+                callback?(hasActiveEntitlement)
                 return
             }
             switch executionResult {
             case .authenticationUnavailable:
-                callback?(hasActiveSubsription(for: jid))
+                let hasActiveEntitlement = hasActiveSubsription(for: jid)
+                logSubscriptionDiagnostic(
+                    event: .accountProductsRefreshCompleted,
+                    attemptID: diagnosticAttemptID,
+                    source: diagnosticSource,
+                    productID: diagnosticProductID,
+                    outcome: .error,
+                    reason: .authenticationUnavailable,
+                    entitlementActive: hasActiveEntitlement
+                )
+                callback?(hasActiveEntitlement)
 
             case .response(let response):
                 guard (response.statusCode ?? 500) < 301 else {
-                    callback?(hasActiveSubsription(for: jid))
+                    let hasActiveEntitlement = hasActiveSubsription(for: jid)
+                    logSubscriptionDiagnostic(
+                        event: .accountProductsRefreshCompleted,
+                        attemptID: diagnosticAttemptID,
+                        source: diagnosticSource,
+                        productID: diagnosticProductID,
+                        outcome: .error,
+                        reason: .httpFailure,
+                        entitlementActive: hasActiveEntitlement,
+                        httpStatus: response.statusCode
+                    )
+                    callback?(hasActiveEntitlement)
                     return
                 }
                 switch response.result {
                 case .success(let value):
                     guard let isActive = reconcileAccountProductsRefresh(value, for: jid) else {
-                        callback?(hasActiveSubsription(for: jid))
+                        let hasActiveEntitlement = hasActiveSubsription(for: jid)
+                        logSubscriptionDiagnostic(
+                            event: .accountProductsRefreshCompleted,
+                            attemptID: diagnosticAttemptID,
+                            source: diagnosticSource,
+                            productID: diagnosticProductID,
+                            outcome: .error,
+                            reason: .malformedResponse,
+                            entitlementActive: hasActiveEntitlement,
+                            httpStatus: response.statusCode
+                        )
+                        callback?(hasActiveEntitlement)
                         return
                     }
+                    logSubscriptionDiagnostic(
+                        event: .accountProductsRefreshCompleted,
+                        attemptID: diagnosticAttemptID,
+                        source: diagnosticSource,
+                        productID: diagnosticProductID,
+                        outcome: .completed,
+                        reason: .reconciled,
+                        entitlementActive: isActive,
+                        httpStatus: response.statusCode
+                    )
                     callback?(isActive)
 
                 case .failure(let error):
                     DDLogDebug(error.localizedDescription)
-                    callback?(hasActiveSubsription(for: jid))
+                    let hasActiveEntitlement = hasActiveSubsription(for: jid)
+                    logSubscriptionDiagnostic(
+                        event: .accountProductsRefreshCompleted,
+                        attemptID: diagnosticAttemptID,
+                        source: diagnosticSource,
+                        productID: diagnosticProductID,
+                        outcome: .error,
+                        reason: .networkFailure,
+                        entitlementActive: hasActiveEntitlement,
+                        httpStatus: response.statusCode,
+                        error: error
+                    )
+                    callback?(hasActiveEntitlement)
                 }
             }
         }
@@ -1190,33 +1545,129 @@ class SubscribtionsManager: NSObject {
         jid: String? = nil,
         callback: ((Bool, Transaction?) -> Void)?
     ) {
+        let attemptID = UUID()
+        let accountBinding: SubscriptionDiagnosticEvent.AccountBinding
+        if let accountUUID {
+            accountBinding = UUID(uuidString: accountUUID) == nil ? .invalid : .attached
+        } else {
+            accountBinding = .missing
+        }
+        logSubscriptionDiagnostic(
+            event: .purchaseRequested,
+            attemptID: attemptID,
+            source: .purchase,
+            productID: id,
+            outcome: .requested,
+            accountBinding: accountBinding
+        )
+
         if premiumPurchasePreflightDecision(targetProductId: id, jid: jid) == .blockDuplicateActivePlan {
-            DDLogDebug("SubscribtionsManager: skip duplicate active subscription purchase for \(id)")
+            logSubscriptionDiagnostic(
+                event: .purchasePreflightCompleted,
+                attemptID: attemptID,
+                source: .purchase,
+                productID: id,
+                outcome: .blocked,
+                reason: .localDuplicateActivePlan,
+                accountBinding: accountBinding,
+                entitlementActive: true
+            )
             callback?(false, nil)
             return
         }
 
         guard let product = self.products.first(where: { $0.id == id }) else {
+            logSubscriptionDiagnostic(
+                event: .productLookupCompleted,
+                attemptID: attemptID,
+                source: .purchase,
+                productID: id,
+                outcome: .unavailable,
+                reason: .productNotLoaded,
+                accountBinding: accountBinding
+            )
             callback?(false, nil)
             return
         }
+        logSubscriptionDiagnostic(
+            event: .productLookupCompleted,
+            attemptID: attemptID,
+            source: .purchase,
+            productID: id,
+            outcome: .available,
+            accountBinding: accountBinding
+        )
 
         guard let purchaseJid = jid, purchaseJid.isNotEmpty else {
-            performStoreKitPurchase(product: product, accountUUID: accountUUID, jid: jid, callback: callback)
+            logSubscriptionDiagnostic(
+                event: .purchasePreflightCompleted,
+                attemptID: attemptID,
+                source: .purchase,
+                productID: id,
+                outcome: .proceed,
+                reason: .accountContextUnavailable,
+                accountBinding: accountBinding
+            )
+            performStoreKitPurchase(
+                product: product,
+                accountUUID: accountUUID,
+                jid: jid,
+                diagnosticAttemptID: attemptID,
+                callback: callback
+            )
             return
         }
 
-        checkXMPPAccountState(jid: purchaseJid) { [weak self] _ in
+        checkXMPPAccountState(
+            jid: purchaseJid,
+            diagnosticAttemptID: attemptID,
+            diagnosticSource: .purchase,
+            diagnosticProductID: id
+        ) { [weak self] hasActiveEntitlement in
             guard let self = self else {
+                logSubscriptionDiagnostic(
+                    event: .purchasePreflightCompleted,
+                    attemptID: attemptID,
+                    source: .purchase,
+                    productID: id,
+                    outcome: .error,
+                    reason: .managerDeallocated,
+                    accountBinding: accountBinding,
+                    entitlementActive: hasActiveEntitlement
+                )
                 callback?(false, nil)
                 return
             }
             if self.premiumPurchasePreflightDecision(targetProductId: id, jid: purchaseJid) == .blockDuplicateActivePlan {
-                DDLogDebug("SubscribtionsManager: skip duplicate active subscription purchase after account-products preflight for \(id)")
+                logSubscriptionDiagnostic(
+                    event: .purchasePreflightCompleted,
+                    attemptID: attemptID,
+                    source: .purchase,
+                    productID: id,
+                    outcome: .blocked,
+                    reason: .backendDuplicateActivePlan,
+                    accountBinding: accountBinding,
+                    entitlementActive: true
+                )
                 callback?(false, nil)
                 return
             }
-            self.performStoreKitPurchase(product: product, accountUUID: accountUUID, jid: purchaseJid, callback: callback)
+            logSubscriptionDiagnostic(
+                event: .purchasePreflightCompleted,
+                attemptID: attemptID,
+                source: .purchase,
+                productID: id,
+                outcome: .proceed,
+                accountBinding: accountBinding,
+                entitlementActive: hasActiveEntitlement
+            )
+            self.performStoreKitPurchase(
+                product: product,
+                accountUUID: accountUUID,
+                jid: purchaseJid,
+                diagnosticAttemptID: attemptID,
+                callback: callback
+            )
         }
     }
 
@@ -1224,12 +1675,27 @@ class SubscribtionsManager: NSObject {
         product: Product,
         accountUUID: String?,
         jid: String?,
+        diagnosticAttemptID: UUID,
         callback: ((Bool, Transaction?) -> Void)?
     ) {
         var options: Set<Product.PurchaseOption> = []
+        let accountBinding: SubscriptionDiagnosticEvent.AccountBinding
         if let accountUUID = accountUUID, let uuid = UUID(uuidString: accountUUID) {
             options.insert(.appAccountToken(uuid))
+            accountBinding = .attached
+        } else if accountUUID == nil {
+            accountBinding = .missing
+        } else {
+            accountBinding = .invalid
         }
+        logSubscriptionDiagnostic(
+            event: .storeKitPurchaseStarted,
+            attemptID: diagnosticAttemptID,
+            source: .purchase,
+            productID: product.id,
+            outcome: .started,
+            accountBinding: accountBinding
+        )
 
         Task {
             do {
@@ -1238,28 +1704,111 @@ class SubscribtionsManager: NSObject {
                 case .success(let verification):
                     switch verification {
                     case .verified(let transaction):
-                        let persisted = await self.handleVerifiedTransaction(transaction, fallbackJid: jid)
+                        logSubscriptionDiagnostic(
+                            event: .storeKitResult,
+                            attemptID: diagnosticAttemptID,
+                            source: .purchase,
+                            productID: transaction.productID,
+                            outcome: .verified,
+                            accountBinding: accountBinding
+                        )
+                        let persisted = await self.handleVerifiedTransaction(
+                            transaction,
+                            fallbackJid: jid,
+                            diagnosticAttemptID: diagnosticAttemptID,
+                            diagnosticSource: .purchase
+                        )
                         if persisted {
                             await transaction.finish()
+                            logSubscriptionDiagnostic(
+                                event: .transactionFinishCompleted,
+                                attemptID: diagnosticAttemptID,
+                                source: .purchase,
+                                productID: transaction.productID,
+                                outcome: .finished,
+                                persisted: true
+                            )
                         }
-                        if persisted && (transaction.expirationDate?.timeIntervalSince1970 ?? 0) > Date().timeIntervalSince1970 {
+                        let entitlementActive = persisted
+                            && (transaction.expirationDate?.timeIntervalSince1970 ?? 0) > Date().timeIntervalSince1970
+                        logSubscriptionDiagnostic(
+                            event: .purchaseCompleted,
+                            attemptID: diagnosticAttemptID,
+                            source: .purchase,
+                            productID: transaction.productID,
+                            outcome: entitlementActive ? .active : .rejected,
+                            reason: entitlementActive ? .activeEntitlement : .invalidEntitlement,
+                            entitlementActive: entitlementActive,
+                            persisted: persisted
+                        )
+                        if entitlementActive {
                             callback?(true, transaction)
                         } else {
                             callback?(false, transaction)
                         }
-                    default:
+                    case .unverified(let transaction, let verificationError):
+                        logSubscriptionDiagnostic(
+                            event: .storeKitResult,
+                            attemptID: diagnosticAttemptID,
+                            source: .purchase,
+                            productID: transaction.productID,
+                            outcome: .unverified,
+                            reason: .verificationFailed,
+                            accountBinding: accountBinding,
+                            entitlementActive: false,
+                            persisted: false,
+                            error: verificationError
+                        )
                         callback?(false, nil)
                     }
                 case .userCancelled:
+                    logSubscriptionDiagnostic(
+                        event: .storeKitResult,
+                        attemptID: diagnosticAttemptID,
+                        source: .purchase,
+                        productID: product.id,
+                        outcome: .userCancelled,
+                        entitlementActive: false,
+                        persisted: false
+                    )
                     callback?(false, nil)
                 case .pending:
+                    logSubscriptionDiagnostic(
+                        event: .storeKitResult,
+                        attemptID: diagnosticAttemptID,
+                        source: .purchase,
+                        productID: product.id,
+                        outcome: .pending,
+                        reason: .awaitingApproval,
+                        entitlementActive: false,
+                        persisted: false
+                    )
                     callback?(false, nil)
                 @unknown default:
+                    logSubscriptionDiagnostic(
+                        event: .storeKitResult,
+                        attemptID: diagnosticAttemptID,
+                        source: .purchase,
+                        productID: product.id,
+                        outcome: .unknown,
+                        reason: .unsupportedResult,
+                        entitlementActive: false,
+                        persisted: false
+                    )
                     callback?(false, nil)
                 }
             } catch {
+                logSubscriptionDiagnostic(
+                    event: .storeKitError,
+                    attemptID: diagnosticAttemptID,
+                    source: .purchase,
+                    productID: product.id,
+                    outcome: .error,
+                    entitlementActive: false,
+                    persisted: false,
+                    error: error
+                )
                 callback?(false, nil)
-                DDLogDebug("SubscribtionsManager: \(#function). \(error.localizedDescription)")
             }
         }
     }
@@ -1267,45 +1816,160 @@ class SubscribtionsManager: NSObject {
     // MARK: - Realm Persistence
 
     @discardableResult
-    func handleVerifiedTransaction(_ transaction: Transaction, fallbackJid: String?) async -> Bool {
+    func handleVerifiedTransaction(
+        _ transaction: Transaction,
+        fallbackJid: String?,
+        diagnosticAttemptID: UUID = UUID(),
+        diagnosticSource: SubscriptionDiagnosticEvent.Source = .transactionUpdates
+    ) async -> Bool {
         let transactionId = "\(transaction.id)"
+        let expirationState: SubscriptionDiagnosticEvent.ExpirationState
+        if let expiration = transaction.expirationDate {
+            expirationState = expiration > Date() ? .active : .expired
+        } else {
+            expirationState = .missing
+        }
+
         if transaction.revocationDate != nil {
-            return handleTerminalSubscriptionRemoval(
+            logSubscriptionDiagnostic(
+                event: .transactionEvaluated,
+                attemptID: diagnosticAttemptID,
+                source: diagnosticSource,
+                productID: transaction.productID,
+                outcome: .rejected,
+                reason: .revoked,
+                accountBinding: transaction.appAccountToken == nil ? .missing : .attached,
+                expirationState: expirationState,
+                entitlementActive: false
+            )
+            let removed = handleTerminalSubscriptionRemoval(
                 transactionId: transactionId,
                 productId: transaction.productID,
                 accountUUID: transaction.appAccountToken?.uuidString,
                 fallbackJid: fallbackJid
             )
+            logSubscriptionDiagnostic(
+                event: .transactionPersistenceCompleted,
+                attemptID: diagnosticAttemptID,
+                source: diagnosticSource,
+                productID: transaction.productID,
+                outcome: removed ? .terminalRemoved : .persistenceFailed,
+                reason: removed ? .revoked : .realmPersistenceFailed,
+                expirationState: expirationState,
+                entitlementActive: false,
+                persisted: removed
+            )
+            return removed
         }
 
         guard let expiration = transaction.expirationDate else {
-            return handleTerminalSubscriptionRemoval(
+            logSubscriptionDiagnostic(
+                event: .transactionEvaluated,
+                attemptID: diagnosticAttemptID,
+                source: diagnosticSource,
+                productID: transaction.productID,
+                outcome: .rejected,
+                reason: .missingExpiration,
+                accountBinding: transaction.appAccountToken == nil ? .missing : .attached,
+                expirationState: .missing,
+                entitlementActive: false
+            )
+            let removed = handleTerminalSubscriptionRemoval(
                 transactionId: transactionId,
                 productId: transaction.productID,
                 accountUUID: transaction.appAccountToken?.uuidString,
                 fallbackJid: fallbackJid
             )
+            logSubscriptionDiagnostic(
+                event: .transactionPersistenceCompleted,
+                attemptID: diagnosticAttemptID,
+                source: diagnosticSource,
+                productID: transaction.productID,
+                outcome: removed ? .terminalRemoved : .persistenceFailed,
+                reason: removed ? .missingExpiration : .realmPersistenceFailed,
+                expirationState: .missing,
+                entitlementActive: false,
+                persisted: removed
+            )
+            return removed
         }
 
         guard expiration.timeIntervalSince1970 > Date().timeIntervalSince1970 else {
-            return handleTerminalSubscriptionRemoval(
+            logSubscriptionDiagnostic(
+                event: .transactionEvaluated,
+                attemptID: diagnosticAttemptID,
+                source: diagnosticSource,
+                productID: transaction.productID,
+                outcome: .rejected,
+                reason: .expired,
+                accountBinding: transaction.appAccountToken == nil ? .missing : .attached,
+                expirationState: .expired,
+                entitlementActive: false
+            )
+            let removed = handleTerminalSubscriptionRemoval(
                 transactionId: transactionId,
                 productId: transaction.productID,
                 accountUUID: transaction.appAccountToken?.uuidString,
                 fallbackJid: fallbackJid
             )
+            logSubscriptionDiagnostic(
+                event: .transactionPersistenceCompleted,
+                attemptID: diagnosticAttemptID,
+                source: diagnosticSource,
+                productID: transaction.productID,
+                outcome: removed ? .terminalRemoved : .persistenceFailed,
+                reason: removed ? .expired : .realmPersistenceFailed,
+                expirationState: .expired,
+                entitlementActive: false,
+                persisted: removed
+            )
+            return removed
         }
 
         guard let transactionToken = transaction.appAccountToken?.uuidString else {
-            DDLogDebug("SubscribtionsManager: verified transaction \(transactionId) has no appAccountToken")
+            logSubscriptionDiagnostic(
+                event: .transactionEvaluated,
+                attemptID: diagnosticAttemptID,
+                source: diagnosticSource,
+                productID: transaction.productID,
+                outcome: .rejected,
+                reason: .missingAccountBinding,
+                accountBinding: .missing,
+                expirationState: .active,
+                entitlementActive: false,
+                persisted: false
+            )
             return false
         }
 
         let jid = resolvedJid(forAccountUUID: transactionToken, fallbackJid: fallbackJid)
         guard let resolvedJid = jid else {
-            DDLogDebug("SubscribtionsManager: verified transaction \(transactionId) belongs to unknown account token \(transactionToken)")
+            logSubscriptionDiagnostic(
+                event: .transactionEvaluated,
+                attemptID: diagnosticAttemptID,
+                source: diagnosticSource,
+                productID: transaction.productID,
+                outcome: .rejected,
+                reason: .unknownAccountBinding,
+                accountBinding: .unresolved,
+                expirationState: .active,
+                entitlementActive: false,
+                persisted: false
+            )
             return false
         }
+
+        logSubscriptionDiagnostic(
+            event: .transactionEvaluated,
+            attemptID: diagnosticAttemptID,
+            source: diagnosticSource,
+            productID: transaction.productID,
+            outcome: .active,
+            reason: .activeEntitlement,
+            accountBinding: .resolved,
+            expirationState: .active,
+            entitlementActive: true
+        )
 
         let persisted = saveSubscriptionInfo(
             productId: transaction.productID,
@@ -1315,14 +1979,45 @@ class SubscribtionsManager: NSObject {
             purchaseDate: transaction.purchaseDate,
             transactionId: transactionId
         )
+        logSubscriptionDiagnostic(
+            event: .transactionPersistenceCompleted,
+            attemptID: diagnosticAttemptID,
+            source: diagnosticSource,
+            productID: transaction.productID,
+            outcome: persisted ? .persisted : .persistenceFailed,
+            reason: persisted ? .activeEntitlement : .realmPersistenceFailed,
+            accountBinding: .resolved,
+            expirationState: .active,
+            entitlementActive: persisted,
+            persisted: persisted
+        )
         if persisted {
-            startAccountProductsRefreshAfterStoreKitChange(for: resolvedJid)
+            startAccountProductsRefreshAfterStoreKitChange(
+                for: resolvedJid,
+                diagnosticAttemptID: diagnosticAttemptID,
+                diagnosticSource: diagnosticSource,
+                productID: transaction.productID
+            )
         }
         return persisted
     }
 
-    private func startAccountProductsRefreshAfterStoreKitChange(for jid: String) {
+    private func startAccountProductsRefreshAfterStoreKitChange(
+        for jid: String,
+        diagnosticAttemptID: UUID,
+        diagnosticSource: SubscriptionDiagnosticEvent.Source,
+        productID: String
+    ) {
         let generation = postStoreKitRefreshGenerationTracker.begin(for: jid)
+        logSubscriptionDiagnostic(
+            event: .accountProductsReconciliationStarted,
+            attemptID: diagnosticAttemptID,
+            source: diagnosticSource,
+            productID: productID,
+            outcome: .started,
+            entitlementActive: true,
+            persisted: true
+        )
         Self.startBoundedAccountProductsRefresh(
             jid: jid,
             refresh: { [weak self] jid in
@@ -1333,7 +2028,12 @@ class SubscribtionsManager: NSObject {
                       ) else {
                     return
                 }
-                self.checkXMPPAccountState(jid: jid)
+                self.checkXMPPAccountState(
+                    jid: jid,
+                    diagnosticAttemptID: diagnosticAttemptID,
+                    diagnosticSource: diagnosticSource,
+                    diagnosticProductID: productID
+                )
             },
             schedule: { delay, work in
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
