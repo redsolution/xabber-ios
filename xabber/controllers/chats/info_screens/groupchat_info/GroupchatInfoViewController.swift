@@ -422,7 +422,7 @@ final class GroupchatInfoViewController: SimpleBaseViewController {
 
     @objc func onInviteButtonTouchUpInside(_ sender: InfoHeaderButton) { onInvite() }
     @objc func onWriteButtonTouchUpInside(_ sender: InfoHeaderButton) { openChat() }
-    @objc func onSearchButtonTouchUpInside(_ sender: UIBarButtonItem) { openSearch() }
+    @objc func onSearchButtonTouchUpInside(_ sender: UIBarButtonItem) { searchChat() }
     @objc func onNotifyButtonTouchUpInside(_ sender: InfoHeaderButton) { onChangeNotifications() }
 
     func reportRoom() {

@@ -113,7 +113,7 @@ extension GroupchatInfoViewController: UITableViewDelegate {
                 case "gc_export_history":
                     exportHistory()
                 case "gc_search":
-                    openSearch()
+                    searchChat()
                 case "invite":
                     onInvite()
                 case "leave":

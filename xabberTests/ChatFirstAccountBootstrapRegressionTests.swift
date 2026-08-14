@@ -105,7 +105,8 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
             ClientSynchronizationManager.ConversationType.regular,
             .group,
             .channel,
-            .saved
+            .saved,
+            .omemo
         ] {
             XCTAssertEqual(
                 ChatCommittedArchiveTerminalPresentationPolicy.resolvedState(
@@ -118,6 +119,42 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
                 "count=0 must be terminal for \(conversationType.rawValue)"
             )
         }
+    }
+
+    func testAuxiliaryMAMInheritsExtendedArchiveCapabilityForOmemoBootstrap() throws {
+        let primaryManager = MessageArchiveManager(withOwner: "owner@example.com")
+        primaryManager.isExtendedArchiveAvailable = true
+        let auxiliaryManager = MessageArchiveManager(withOwner: "owner@example.com")
+        let stream = ChatBootstrapCapturingXMPPStream()
+
+        auxiliaryManager.synchronizeArchiveCapabilities(from: primaryManager)
+        auxiliaryManager.requestArchive(
+            stream,
+            jid: "secure-contact@example.com",
+            isContinues: false,
+            conversationType: .omemo,
+            purpose: .bootstrap,
+            queryId: "omemo-typed-bootstrap",
+            nextPage: "",
+            max: 30
+        )
+
+        let iq = try XCTUnwrap(stream.sentElements.last)
+        let conversationTypeValues = iq
+            .element(forName: "query")?
+            .element(forName: "x")?
+            .elements(forName: "field")
+            .first(where: {
+                $0.attributeStringValue(forName: "var") == "conversation-type"
+            })?
+            .elements(forName: "value")
+            .compactMap(\.stringValue)
+
+        XCTAssertTrue(auxiliaryManager.isExtendedArchiveAvailable)
+        XCTAssertEqual(
+            conversationTypeValues,
+            [ClientSynchronizationManager.ConversationType.omemo.rawValue]
+        )
     }
 
     func testEveryInitialChatBootstrapRequestsTheAuthoritativeServerCounter() throws {

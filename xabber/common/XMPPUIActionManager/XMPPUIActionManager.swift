@@ -412,6 +412,7 @@ class XMPPUIActionManager: NSObject {
 
             switch decision {
             case .ready:
+                self.synchronizeArchiveCapabilitiesFromPrimaryAccount(owner: owner)
                 action(self.stream, self)
 
             case .start(let start):
@@ -616,6 +617,7 @@ class XMPPUIActionManager: NSObject {
     final func resumePendingPerformRequests(owner: String) {
         let pending = self.pendingRequestRegistry.take(owner: owner)
         guard pending.isNotEmpty else { return }
+        self.synchronizeArchiveCapabilitiesFromPrimaryAccount(owner: owner)
         self.logConnectionDiagnostics(
             event: "ui_action_perform_request_resumed_after_auth",
             jid: owner,
@@ -633,6 +635,12 @@ class XMPPUIActionManager: NSObject {
                 jid: owner
             )
         }
+    }
+
+    private func synchronizeArchiveCapabilitiesFromPrimaryAccount(owner: String) {
+        self.mam?.synchronizeArchiveCapabilities(
+            from: AccountManager.shared.find(for: owner)?.mam
+        )
     }
 
     final func failPendingPerformRequests(owner: String? = nil, reason: String) {
@@ -742,6 +750,9 @@ class XMPPUIActionManager: NSObject {
         self.deliveryManager = ReliableMessageDeliveryManager(withOwner: owner)
         let messages = MessageManager(withOwner: owner, activeStream: false)
         let mam = MessageArchiveManager(withOwner: owner)
+        mam.synchronizeArchiveCapabilities(
+            from: AccountManager.shared.find(for: owner)?.mam
+        )
         messages.archiveQueryIdPersistenceResolver = { [weak mam] queryId in
             mam?.shouldPersistArchiveQueryId(queryId) ?? false
         }

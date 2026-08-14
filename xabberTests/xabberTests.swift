@@ -1350,6 +1350,43 @@ final class InfoCardChatSearchRoutingTests: XCTestCase {
         XCTAssertTrue(chatController.inSearchMode.value)
     }
 
+    func testGroupInfoSearchButtonUsesSharedResidentChatRoute() throws {
+        let controller = GroupchatInfoViewController()
+        controller.owner = "alice@example.com"
+        controller.jid = "team@conference.example.com"
+        let leftMenuSpy = LeftMenuSpy()
+        controller.leftMenuDelegate = leftMenuSpy
+
+        controller.onSearchButtonTouchUpInside(controller.searchButton)
+
+        let route = try XCTUnwrap(leftMenuSpy.capturedRoutes.first)
+        XCTAssertEqual(leftMenuSpy.capturedRoutes.count, 1)
+        XCTAssertEqual(route.conversationType, .group)
+        let residentChat = ChatViewController()
+        residentChat.owner = route.owner
+        residentChat.jid = route.jid
+        residentChat.conversationType = route.conversationType
+        route.configure?(residentChat)
+        XCTAssertTrue(residentChat.inSearchMode.value)
+    }
+
+    func testGroupInfoSearchReusesResidentGroupChatInSameNavigationStack() {
+        let residentChat = ChatViewController()
+        residentChat.owner = "alice@example.com"
+        residentChat.jid = "team@conference.example.com"
+        residentChat.conversationType = .group
+        let navigationController = UINavigationController(rootViewController: residentChat)
+        let controller = GroupchatInfoViewController()
+        controller.owner = residentChat.owner
+        controller.jid = residentChat.jid
+        navigationController.pushViewController(controller, animated: false)
+
+        controller.searchChat()
+
+        XCTAssertIdentical(navigationController.topViewController, residentChat)
+        XCTAssertTrue(residentChat.inSearchMode.value)
+    }
+
     func testLeftMenuRouteContractCarriesNotificationAnchorDuringInitialChatConstruction() throws {
         let request = ChatOpenMessageRequest(
             chatJid: "bob@example.com",

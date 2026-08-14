@@ -132,6 +132,26 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
             conversationType: .group
         )
 
+        if let navigationController,
+           let residentChat = InfoCardChatSearchRouting.matchingCurrentChat(
+                in: navigationController,
+                route: route
+           ) {
+            configure?(residentChat)
+            if let destinationIndex = navigationController.viewControllers.firstIndex(where: {
+                $0 === residentChat || InfoCardChatSearchRouting.matchingCurrentChat(
+                    in: $0,
+                    route: route
+                ) === residentChat
+            }) {
+                navigationController.setViewControllers(
+                    Array(navigationController.viewControllers[...destinationIndex]),
+                    animated: navigationController.viewIfLoaded?.window != nil
+                )
+            }
+            return
+        }
+
         performAfterResolvedGroupchatInfoExit { [weak self] routePresenter in
             guard let self else { return }
 
@@ -473,31 +493,6 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
     
     func exportHistory() {
         self.view.makeToast("History export is not implemented yet".localizeString(id: "history_export_not_implemented", arguments: []))
-    }
-    
-    func openSearch() {
-        
-        
-        if leftMenuDelegate == nil {
-            let chatVc = ChatViewController()
-            chatVc.owner = self.owner
-            chatVc.jid = self.jid
-            chatVc.conversationType = .group
-            chatVc.activateSearchModeFromExternalRoute()
-            navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-            navigationController?.navigationBar.shadowImage = nil
-            if let rootVc = navigationController?.viewControllers.first {
-                navigationController?.setViewControllers([rootVc, chatVc], animated: true)
-            } else {
-                navigationController?.pushViewController(chatVc, animated: true)
-            }
-        } else {
-            self.leftMenuDelegate?.openChatlistWithChat(owner: self.owner, jid: self.jid, conversationType: .group, configure: { chatVc in
-                chatVc?.activateSearchModeFromExternalRoute()
-            })
-            self.dismiss(animated: true)
-        }
-        
     }
     
     @objc

@@ -152,6 +152,22 @@ final class ChatComposerRecordSendSeparationTests: XCTestCase {
         XCTAssertTrue(inputView.attachButton.isEnabled)
     }
 
+    func testGroupComposerPermissionGateDoesNotDisableSearchSurface() {
+        let inputView = makeInputView()
+
+        inputView.isComposerInteractionEnabled = false
+        inputView.changeState(to: .search)
+
+        XCTAssertTrue(inputView.isUserInteractionEnabled)
+        XCTAssertFalse(inputView.textField.isEditable)
+        XCTAssertFalse(inputView.attachButton.isEnabled)
+        XCTAssertFalse(inputView.timerButton.isEnabled)
+        XCTAssertFalse(inputView.recordButton.isEnabled)
+        XCTAssertFalse(inputView.sendButton.isEnabled)
+        XCTAssertFalse(inputView.searchPanel.isHidden)
+        XCTAssertTrue(inputView.searchPanel.isUserInteractionEnabled)
+    }
+
     func testScheduledMessagesStayInEmptyRecordModeAndHideForTextSend() {
         let inputView = makeInputView()
         inputView.hasScheduledMessagesForCurrentChat = true

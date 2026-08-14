@@ -4310,6 +4310,19 @@ class ModernXabberInputView: UIView {
     
     public var isSendButtonEnabled: Bool = false
 
+    /// Gates only message-composition controls. Alternate input-bar modes,
+    /// including chat search, must remain interactive when group permissions
+    /// temporarily or permanently prevent sending.
+    public var isComposerInteractionEnabled: Bool = true {
+        didSet {
+            guard oldValue != isComposerInteractionEnabled else { return }
+            if !isComposerInteractionEnabled {
+                textField.resignFirstResponder()
+            }
+            updateComposerActionReadiness()
+        }
+    }
+
     final func changeComposerActionMode(to mode: ComposerActionMode, animated: Bool = false) {
         let previousMode = self.currentComposerActionMode
         self.currentComposerActionMode = mode
@@ -4398,15 +4411,20 @@ class ModernXabberInputView: UIView {
     }
 
     private func updateComposerActionColors() {
-        self.attachButton.isEnabled = true
-        self.recordButton.isEnabled = self.isSendButtonEnabled
-        self.sendButton.isEnabled = self.isSendButtonEnabled
-        self.sendButton.tintColor = self.isSendButtonEnabled ? self.accountPalette.tint600 : .secondaryLabel
+        let canCompose = self.isComposerInteractionEnabled
+        let canSend = canCompose && self.isSendButtonEnabled
+        self.textField.isEditable = canCompose
+        self.textField.isUserInteractionEnabled = canCompose
+        self.attachButton.isEnabled = canCompose
+        self.timerButton.isEnabled = canCompose
+        self.recordButton.isEnabled = canSend
+        self.sendButton.isEnabled = canSend
+        self.sendButton.tintColor = canSend ? self.accountPalette.tint600 : .secondaryLabel
 
         if !self.recordButton.pulseView.isHidden {
             self.recordButton.tintColor = .white
         } else if self.voiceRecordButtonMode == .sendVoice {
-            self.recordButton.tintColor = self.isSendButtonEnabled ? self.accountPalette.tint600 : .secondaryLabel
+            self.recordButton.tintColor = canSend ? self.accountPalette.tint600 : .secondaryLabel
         } else {
             self.recordButton.tintColor = .secondaryLabel
         }

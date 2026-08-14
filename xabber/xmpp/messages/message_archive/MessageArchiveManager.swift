@@ -2033,6 +2033,14 @@ class MessageArchiveManager: AbstractXMPPManager {
     
     public var allowHistoryFixTask: Bool = false
     public var isExtendedArchiveAvailable: Bool = false
+
+    /// Auxiliary transports do not run the account's full service-discovery
+    /// pipeline. Keep their MAM query capabilities aligned with the primary
+    /// account before issuing conversation-type scoped requests.
+    final func synchronizeArchiveCapabilities(from primaryManager: MessageArchiveManager?) {
+        guard let primaryManager else { return }
+        isExtendedArchiveAvailable = primaryManager.isExtendedArchiveAvailable
+    }
     
     public var continuesTaskID: String? = nil
     
