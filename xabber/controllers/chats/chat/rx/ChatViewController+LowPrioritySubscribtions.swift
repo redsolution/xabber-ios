@@ -84,12 +84,17 @@ extension ChatViewController {
         hasPendingOrFailedMessage: Bool,
         omemoAvailability: OmemoSendAvailabilityPolicy.Availability? = nil
     ) {
-        let isEnabled = ChatSendButtonReadinessPolicy.isEnabled(
+        let baseEnabled = ChatSendButtonReadinessPolicy.isEnabled(
             conversationType: self.conversationType,
             isSkeletonVisible: isSkeletonVisible,
             isAccountConnecting: isAccountConnecting,
             hasPendingOrFailedMessage: hasPendingOrFailedMessage,
             omemoAvailability: omemoAvailability ?? self.baseOmemoAvailabilityForSendButton()
+        )
+        let isEnabled = ChatGroupProjectionAdapter.allowsComposer(
+            baseEnabled: baseEnabled,
+            isGroupConversation: self.conversationType == .group,
+            state: self.canonicalGroupProjectionState
         )
         guard self.xabberInputView.isSendButtonEnabled != isEnabled else { return }
         self.xabberInputView.isSendButtonEnabled = isEnabled
@@ -286,12 +291,9 @@ extension ChatViewController {
                             let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
                             var nickname = item.outgoing ? self.ownerSender.displayName : ""
                             if self.conversationType == .group {
-                                if let instance = realm
-                                    .objects(GroupchatUserStorageItem.self)
-                                    .filter("groupchatId == %@ AND isMe == true AND isHidden == false", [self.jid, self.owner].prp())
-                                    .first {
-                                    nickname = instance.nickname
-                                }
+                                nickname = self.canonicalGroupProjectionState?
+                                    .selfMember?
+                                    .nickname ?? ""
                             } else if !item.outgoing,
                                let displayName = realm
                                    .object(ofType: RosterStorageItem.self,

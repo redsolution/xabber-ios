@@ -147,7 +147,7 @@ enum ChatSearchResultMapper {
         case .group, .channel:
             let userId = nonEmpty(item.groupchatAuthorId)
                 ?? (item.outgoing ? context.scope.owner : senderTitle)
-            let url = nonEmpty(item.groupchatCard?.avatarUrl)
+            let url = nonEmpty(item.groupchatAuthorAvatarURL)
             return ChatSearchResult.Avatar(
                 identity: "group:\(context.scope.owner)|\(context.scope.jid)|\(userId)",
                 fallbackTitle: senderTitle,

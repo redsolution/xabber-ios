@@ -44,7 +44,12 @@ struct GroupInviteMessageEvent: Equatable, Sendable {
 enum GroupIQPayload: Equatable, Sendable {
     case empty
     case snapshot(GroupSnapshot)
+    case info(GroupInfo)
+    case settings(GroupSettings)
     case members([GroupMember])
+    case member(GroupMember)
+    case invites([String])
+    case blocklist([String])
     case permissions(GroupPermissionSet)
     case invite(GroupInvite)
 }
@@ -72,10 +77,33 @@ enum GroupReducerIngress: Equatable, Sendable {
     case message
 }
 
+enum GroupPresenceReply: Equatable, Sendable {
+    case subscribed
+    case unsubscribed
+}
+
 struct GroupReducerInput: Equatable, Sendable {
     let groupJID: String
     let ingress: GroupReducerIngress
     let events: [GroupDomainEvent]
+    /// A reciprocal presence leg which must be sent after `events` are reduced
+    /// and before `eventsAfterReply` become visible to the domain/UI.
+    let requiredReply: GroupPresenceReply?
+    let eventsAfterReply: [GroupDomainEvent]
+
+    init(
+        groupJID: String,
+        ingress: GroupReducerIngress,
+        events: [GroupDomainEvent],
+        requiredReply: GroupPresenceReply? = nil,
+        eventsAfterReply: [GroupDomainEvent] = []
+    ) {
+        self.groupJID = groupJID
+        self.ingress = ingress
+        self.events = events
+        self.requiredReply = requiredReply
+        self.eventsAfterReply = eventsAfterReply
+    }
 }
 
 enum GroupStanzaEvent: Equatable, Sendable {
@@ -99,13 +127,6 @@ enum GroupStanzaEvent: Equatable, Sendable {
                     events: [.system(systemEvent)]
                 )
             }
-            if let author = message.author {
-                return GroupReducerInput(
-                    groupJID: message.groupJID,
-                    ingress: .message,
-                    events: [.member(author)]
-                )
-            }
             return nil
 
         case .iq, .invite:
@@ -127,8 +148,7 @@ enum GroupStanzaRouter {
         _ iq: XMPPIQ,
         correlating requestIDs: Set<String>
     ) throws -> GroupStanzaEvent? {
-        guard !containsLegacyGroupNamespace(iq),
-              let requestID = nonEmpty(iq.elementID),
+        guard let requestID = nonEmpty(iq.elementID),
               requestIDs.contains(requestID) else {
             return nil
         }
@@ -180,11 +200,12 @@ enum GroupStanzaRouter {
         }
     }
 
-    static func route(_ presence: XMPPPresence) throws -> GroupStanzaEvent? {
-        guard !containsLegacyGroupNamespace(presence) else {
-            return nil
-        }
-        let groups = directChildren(of: presence).filter {
+    static func route(
+        _ presence: XMPPPresence,
+        knownGroupJIDs: Set<String> = []
+    ) throws -> GroupStanzaEvent? {
+        let presenceChildren = directChildren(of: presence)
+        let groups = presenceChildren.filter {
             $0.name == "group" && effectiveNamespace(of: $0) == GroupProtocolNamespace.groups
         }
         guard groups.count <= 1 else {
@@ -192,27 +213,60 @@ enum GroupStanzaRouter {
                 "presence contains multiple canonical group payloads"
             )
         }
-        guard let groupElement = groups.first else {
-            return nil
-        }
-        let groupJID = try requiredBareJID(presence.from?.bare)
         let rawType = nonEmpty(presence.attributeStringValue(forName: "type"))
+        if groups.isEmpty {
+            guard let rawType,
+                  presenceChildren.isEmpty,
+                  ["unsubscribe", "unsubscribed", "unavailable"].contains(rawType),
+                  let groupJID = normalizedBareJID(presence.from?.bare),
+                  knownGroupJIDs.compactMap(normalizedBareJID).contains(groupJID) else {
+                return nil
+            }
+            return .reducer(
+                GroupReducerInput(
+                    groupJID: groupJID,
+                    ingress: .presence,
+                    events: [.selfSubscription(.none)],
+                    requiredReply: rawType == "unsubscribe" ? .unsubscribed : nil
+                )
+            )
+        }
+        guard let groupElement = groups.first else { return nil }
+        let groupJID = try requiredBareJID(presence.from?.bare)
 
         let subscription: GroupSelfSubscription?
         let isSnapshot: Bool
+        let requiredReply: GroupPresenceReply?
+        let eventsAfterReply: [GroupDomainEvent]
         switch rawType {
         case "subscribe":
-            subscription = .wait
+            // The server remains in `wait` until the client sends the
+            // reciprocal `subscribed`. Activation is therefore a post-reply
+            // transition, never a consequence of the preceding stanza alone.
+            subscription = nil
             isSnapshot = true
+            requiredReply = .subscribed
+            eventsAfterReply = [.selfSubscription(.both)]
         case "subscribed":
-            subscription = .both
+            subscription = nil
             isSnapshot = true
-        case "unsubscribe", "unsubscribed":
+            requiredReply = nil
+            eventsAfterReply = []
+        case "unsubscribe":
             subscription = GroupSelfSubscription.none
             isSnapshot = false
+            requiredReply = .unsubscribed
+            eventsAfterReply = []
+        case "unsubscribed":
+            subscription = GroupSelfSubscription.none
+            isSnapshot = false
+            requiredReply = nil
+            eventsAfterReply = []
         case nil, "unavailable":
             subscription = nil
             isSnapshot = false
+            requiredReply = nil
+            eventsAfterReply = []
         default:
             return nil
         }
@@ -235,14 +289,15 @@ enum GroupStanzaRouter {
             GroupReducerInput(
                 groupJID: groupJID,
                 ingress: .presence,
-                events: events
+                events: events,
+                requiredReply: requiredReply,
+                eventsAfterReply: eventsAfterReply
             )
         )
     }
 
     static func route(_ message: XMPPMessage) throws -> GroupStanzaEvent? {
-        guard !containsLegacyGroupNamespace(message),
-              message.attributeStringValue(forName: "type") != "groupchat" else {
+        guard message.attributeStringValue(forName: "type") != "groupchat" else {
             return nil
         }
 
@@ -256,8 +311,7 @@ enum GroupStanzaRouter {
         }
 
         let unwrapped = try unwrapStandardEnvelope(message)
-        guard !containsLegacyGroupNamespace(unwrapped.message),
-              unwrapped.message.attributeStringValue(forName: "type") != "groupchat" else {
+        guard unwrapped.message.attributeStringValue(forName: "type") != "groupchat" else {
             return nil
         }
         return try routeMessageContent(
@@ -491,6 +545,9 @@ private extension GroupStanzaRouter {
             let children = directChildren(of: x)
             if children.count == 1, children.first?.name == "system-message" {
                 systemEvent = try GroupProtocolCodec.decodeSystemEvent(x)
+                if systemEvent?.type == .create {
+                    guard case .mam = source else { return nil }
+                }
             } else {
                 author = try GroupProtocolCodec.decodeMessageAuthor(x)
             }
@@ -538,16 +595,24 @@ private extension GroupStanzaRouter {
 
     static func canonicalIQPayloads(in iq: XMPPIQ) throws -> [GroupIQPayload] {
         try directChildren(of: iq).compactMap { element in
-            switch (element.name, effectiveNamespace(of: element)) {
-            case ("group", GroupProtocolNamespace.groups):
+            switch element.name {
+            case "group":
                 return .snapshot(try GroupProtocolCodec.decodeGroupSnapshot(element))
-            case ("members", GroupProtocolNamespace.groups):
+            case "info":
+                return .info(try GroupProtocolCodec.decodeInfo(element))
+            case "settings":
+                return .settings(try GroupProtocolCodec.decodeSettings(element))
+            case "members":
                 return .members(try GroupProtocolCodec.decodeFullMembers(element))
-            case ("invite", GroupProtocolNamespace.groups):
+            case "user":
+                return .member(try GroupProtocolCodec.decodeMember(element))
+            case "invites":
+                return .invites(try GroupProtocolCodec.decodeInvites(element))
+            case "block":
+                return .blocklist(try GroupProtocolCodec.decodeBlocklist(element))
+            case "invite":
                 return .invite(try GroupProtocolCodec.decodeInvite(element))
-            case ("permissions", GroupProtocolNamespace.permissions),
-                 ("defaults", GroupProtocolNamespace.permissions),
-                 ("newbies", GroupProtocolNamespace.permissions):
+            case "permissions", "defaults", "newbies":
                 return .permissions(try GroupProtocolCodec.decodePermissionSet(element))
             default:
                 return nil
@@ -607,21 +672,6 @@ private extension GroupStanzaRouter {
             current = candidate.parent as? DDXMLElement
         }
         return nil
-    }
-
-    static func containsLegacyGroupNamespace(_ element: DDXMLElement) -> Bool {
-        if let namespace = effectiveNamespace(of: element),
-           isLegacyGroupNamespace(namespace) {
-            return true
-        }
-        return directChildren(of: element).contains { containsLegacyGroupNamespace($0) }
-    }
-
-    static func isLegacyGroupNamespace(_ namespace: String) -> Bool {
-        namespace == "http://xabber.com/protocol/groupchat"
-            || namespace == "https://xabber.com/protocol/groupchat"
-            || namespace.hasPrefix("https://xabber.com/protocol/groups#")
-            || namespace.hasPrefix("http://xabber.com/protocol/groups")
     }
 
     static func requiredBareJID(_ raw: String?) throws -> String {

@@ -174,8 +174,27 @@ extension ChatViewController {
             safeAreaInsets: self.view.safeAreaInsets,
             inputTopY: inputTopY
         )
-        self.initialMessageOverlayView.update(frame: frame, conversationType: self.conversationType)
+        let groupSnapshot = self.activeGroupSnapshotForInitialMessage()
+        self.initialMessageOverlayView.update(
+            frame: frame,
+            conversationType: self.conversationType,
+            privacy: groupSnapshot?.privacy,
+            peerToPeer: groupSnapshot.map { $0.parentJID != nil }
+        )
         self.keepInteractiveChatControlsAboveInitialMessage()
+    }
+
+    private func activeGroupSnapshotForInitialMessage() -> GroupSnapshot? {
+        guard self.conversationType == .group,
+              let realm = try? WRealm.safe(),
+              let projection = try? GroupRepository(realm: realm).projection(
+                owner: self.owner,
+                groupJID: self.jid
+              ),
+              projection.state.isActive else {
+            return nil
+        }
+        return projection.state.snapshot
     }
 
     private func currentInputTopYForInitialMessageOverlay() -> CGFloat {
@@ -306,7 +325,12 @@ extension ChatViewController {
             ])
         }
         
-        public func update(frame: CGRect, conversationType: ClientSynchronizationManager.ConversationType, privacy: GroupChatStorageItem.Privacy? = nil, peerToPeer: Bool? = nil) {
+        public func update(
+            frame: CGRect,
+            conversationType: ClientSynchronizationManager.ConversationType,
+            privacy: GroupPrivacy? = nil,
+            peerToPeer: Bool? = nil
+        ) {
             self.frame = frame
             self.containerView.layer.cornerRadius = 8
             self.containerView.layer.masksToBounds = true
@@ -344,43 +368,33 @@ extension ChatViewController {
                     self.learnmoreButton.setAttributedTitle(string, for: .normal)
 //                    self.learnmoreButton.setTitle(string.string, for: .normal)
                 case .group:
-                    if let privacy = privacy, let peerToPeer = peerToPeer {
-                        if peerToPeer {
-                            self.iconButton.setImage(imageLiteral("person.line.dotted.person", dimension: 28), for: .normal)
-                            self.titleLabel.text = "Private chat".localizeString(id: "intro_private_chat", arguments: [])
-                            self.descriptionLabel.text = "Private chat with incognito user. Messages are routed through group server and your identities are kept secret from each other. Be vigilant, do not disclose yourself by being careless.".localizeString(id: "intro_private_chat_text", arguments: [])
-                            self.learnmoreButton.setAttributedTitle(NSAttributedString(string: "Learn more about private chats".localizeString(id: "intro_private_chat_learn", arguments: []), attributes: [
-                                .foregroundColor: UIColor.tintColor,
-                                .font: UIFont.systemFont(ofSize: 14, weight: .regular)
-                            ]), for: .normal)
-                        } else {
-                            switch privacy {
-                                case .incognito:
-                                    self.iconButton.setImage(imageLiteral("person.2", dimension: 28), for: .normal)
-                                    self.titleLabel.text = "Incognito group".localizeString(id: "intro_incognito_group", arguments: [])
-                                    self.descriptionLabel.text = "Identities of users in this group are kept hidden from each other, only group admins can access your real XMPP ID. Be vigilant, do not disclose yourself by being careless.".localizeString(id: "intro_incognito_group_text", arguments: [])
-                                    self.learnmoreButton.setAttributedTitle(NSAttributedString(string: "Learn more about incognito groups".localizeString(id: "intro_incognito_group_learn", arguments: []), attributes: [
-                                        .foregroundColor: UIColor.tintColor,
-                                        .font: UIFont.systemFont(ofSize: 14, weight: .regular)
-                                    ]), for: .normal)
-                                case .publicChat, .none:
-                                    self.iconButton.setImage(imageLiteral("person.2.fill", dimension: 28), for: .normal)
-                                    self.titleLabel.text = "Public group".localizeString(id: "intro_public_group", arguments: [])
-                                    self.descriptionLabel.text = "Identities of users in this group are public, so any member can contact you using your real XMPP ID.".localizeString(id: "intro_public_group_text", arguments: [])
-                                    self.learnmoreButton.setAttributedTitle(NSAttributedString(string: "Learn more about public groups".localizeString(id: "intro_public_group_learn", arguments: []), attributes: [
-                                        .foregroundColor: UIColor.tintColor,
-                                        .font: UIFont.systemFont(ofSize: 14, weight: .regular)
-                                    ]), for: .normal)
-                            }
-                        }
-                    } else {
-                        self.iconButton.setImage(imageLiteral("person.2.fill", dimension: 28), for: .normal)
-                        self.titleLabel.text = "Public group".localizeString(id: "intro_public_group", arguments: [])
-                        self.descriptionLabel.text = "Identities of users in this group are public, so any member can contact you using your real XMPP ID.".localizeString(id: "intro_public_group_text", arguments: [])
-                        self.learnmoreButton.setAttributedTitle(NSAttributedString(string: "Learn more about public groups".localizeString(id: "intro_public_group_learn", arguments: []), attributes: [
+                    if peerToPeer == true {
+                        self.iconButton.setImage(imageLiteral("person.line.dotted.person", dimension: 28), for: .normal)
+                        self.titleLabel.text = "Private chat".localizeString(id: "intro_private_chat", arguments: [])
+                        self.descriptionLabel.text = "Private chat with incognito user. Messages are routed through group server and your identities are kept secret from each other. Be vigilant, do not disclose yourself by being careless.".localizeString(id: "intro_private_chat_text", arguments: [])
+                        self.learnmoreButton.setAttributedTitle(NSAttributedString(string: "Learn more about private chats".localizeString(id: "intro_private_chat_learn", arguments: []), attributes: [
                             .foregroundColor: UIColor.tintColor,
                             .font: UIFont.systemFont(ofSize: 14, weight: .regular)
                         ]), for: .normal)
+                    } else {
+                        switch privacy ?? .publicGroup {
+                            case .incognito:
+                                self.iconButton.setImage(imageLiteral("person.2", dimension: 28), for: .normal)
+                                self.titleLabel.text = "Incognito group".localizeString(id: "intro_incognito_group", arguments: [])
+                                self.descriptionLabel.text = "Identities of users in this group are kept hidden from each other, only group admins can access your real XMPP ID. Be vigilant, do not disclose yourself by being careless.".localizeString(id: "intro_incognito_group_text", arguments: [])
+                                self.learnmoreButton.setAttributedTitle(NSAttributedString(string: "Learn more about incognito groups".localizeString(id: "intro_incognito_group_learn", arguments: []), attributes: [
+                                    .foregroundColor: UIColor.tintColor,
+                                    .font: UIFont.systemFont(ofSize: 14, weight: .regular)
+                                ]), for: .normal)
+                            case .publicGroup:
+                                self.iconButton.setImage(imageLiteral("person.2.fill", dimension: 28), for: .normal)
+                                self.titleLabel.text = "Public group".localizeString(id: "intro_public_group", arguments: [])
+                                self.descriptionLabel.text = "Identities of users in this group are public, so any member can contact you using your real XMPP ID.".localizeString(id: "intro_public_group_text", arguments: [])
+                                self.learnmoreButton.setAttributedTitle(NSAttributedString(string: "Learn more about public groups".localizeString(id: "intro_public_group_learn", arguments: []), attributes: [
+                                    .foregroundColor: UIColor.tintColor,
+                                    .font: UIFont.systemFont(ofSize: 14, weight: .regular)
+                                ]), for: .normal)
+                        }
                     }
                 case .channel:
                     break

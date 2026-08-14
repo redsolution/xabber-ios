@@ -96,8 +96,6 @@ extension GroupchatInfoViewController: UITableViewDelegate {
                     self.present(shareVC, animated: true, completion: nil)
                 case "gc_settings":
                     showSettings()
-                case "gc_default_restrictions":
-                    showDefaultRestrictions()
                 case "gc_invitations":
                     showInvitations()
                 case "gc_blocked":
@@ -127,7 +125,7 @@ extension GroupchatInfoViewController: UITableViewDelegate {
                     let vc = GroupchatMembersListViewController()
                     vc.owner = self.owner
                     vc.jid = self.jid
-                    vc.permissionScope = "owner,admin,member,custom"
+                    vc.permissionScope = "owner,admin,member"
                     navigationController?.pushViewController(vc, animated: true)
                     
                 case "images":

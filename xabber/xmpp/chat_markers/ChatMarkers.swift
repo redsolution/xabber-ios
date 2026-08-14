@@ -22,6 +22,31 @@ import Foundation
 import RealmSwift
 import XMPPFramework
 
+enum GroupDisplayedMarkerCodec {
+    static let markerNamespace = "urn:xmpp:chat-markers:0"
+    static let stanzaIDNamespace = "urn:xmpp:sid:0"
+
+    static func make(
+        originID: String,
+        groupStanzaID: String,
+        groupJID rawGroupJID: String
+    ) -> DDXMLElement? {
+        let originID = originID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let groupStanzaID = groupStanzaID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let groupJID = GroupStorageKey.bareJID(rawGroupJID)
+        guard !originID.isEmpty, !groupStanzaID.isEmpty, !groupJID.isEmpty else {
+            return nil
+        }
+        let displayed = DDXMLElement(name: "displayed", xmlns: markerNamespace)
+        displayed.addAttribute(withName: "id", stringValue: originID)
+        let stanzaID = DDXMLElement(name: "stanza-id", xmlns: stanzaIDNamespace)
+        stanzaID.addAttribute(withName: "by", stringValue: groupJID)
+        stanzaID.addAttribute(withName: "id", stringValue: groupStanzaID)
+        displayed.addChild(stanzaID)
+        return displayed
+    }
+}
+
 class ChatMarkersManager: AbstractXMPPManager {
     
     enum BurnMessagesTimerValues: Int {
@@ -489,14 +514,26 @@ class ChatMarkersManager: AbstractXMPPManager {
                     return
                 }
                 let elementId = "ChatMarkers: \(NanoID.new(8))"
-                let displayed = DDXMLElement(name: "displayed", xmlns: getPrimaryNamespace())
-                displayed.addAttribute(withName: "id", stringValue: instance.messageId)
-                if let stanzaInstance = realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: [primaryKey, "stanza"].prp()) {
-                    let document = try DDXMLDocument(xmlString: stanzaInstance.stanza, options: 0)
-                    if let message = document.rootElement() {
-                        message
-                            .elements(forName: "stanza-id")
-                            .forEach { displayed.addChild($0.copy() as! DDXMLElement) }
+                let displayed: DDXMLElement
+                if instance.conversationType == .group {
+                    guard let groupDisplayed = GroupDisplayedMarkerCodec.make(
+                        originID: instance.messageId,
+                        groupStanzaID: instance.archivedId,
+                        groupJID: instance.opponent
+                    ) else {
+                        return
+                    }
+                    displayed = groupDisplayed
+                } else {
+                    displayed = DDXMLElement(name: "displayed", xmlns: getPrimaryNamespace())
+                    displayed.addAttribute(withName: "id", stringValue: instance.messageId)
+                    if let stanzaInstance = realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: [primaryKey, "stanza"].prp()) {
+                        let document = try DDXMLDocument(xmlString: stanzaInstance.stanza, options: 0)
+                        if let message = document.rootElement() {
+                            message
+                                .elements(forName: "stanza-id")
+                                .forEach { displayed.addChild($0.copy() as! DDXMLElement) }
+                        }
                     }
                 }
                 let response = XMPPMessage(messageType: .chat, to: XMPPJID(string: instance.opponent), elementID: elementId, child: displayed)

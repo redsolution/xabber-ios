@@ -24,7 +24,6 @@ import XMPPFramework.XMPPJID
 
 protocol CreateNewGroupSelectJIDViewControllerDelegate {
     func onUpdateLocalPart(_ localPart: String)
-    func onUpdateServer(_ server: String)
 }
 
 class CreateNewGroupSelectJIDViewController: SimpleBaseViewController {
@@ -109,7 +108,6 @@ class CreateNewGroupSelectJIDViewController: SimpleBaseViewController {
         enum Kind {
             case localpart
             case server
-            case customServer
         }
         var kind: Kind
         var title: String?
@@ -128,14 +126,8 @@ class CreateNewGroupSelectJIDViewController: SimpleBaseViewController {
     internal var header: [String] = []
     internal var footer: [String] = []
     
-    static let servers: [String] = [
-        "redsolution.com",
-        "xmppdev01.xabber.com"
-    ]
-    
-    open var selectedServer: String = CreateNewGroupSelectJIDViewController.servers[0]
+    open var serviceJID: String?
     open var selectedLocalPart: String = ""
-    open var customServer: String? = nil
     
     internal let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
@@ -150,28 +142,11 @@ class CreateNewGroupSelectJIDViewController: SimpleBaseViewController {
     open func localPartFieldCallback(_ sender: UITextField) {
         if let text = sender.text,
            text.isNotEmpty,
-           let jid = XMPPJID(user: text, domain: self.selectedServer, resource: nil),
+           let serviceJID,
+           let jid = XMPPJID(user: text, domain: serviceJID, resource: nil),
            let local = jid.user {
             self.selectedLocalPart = local
             self.delegate?.onUpdateLocalPart(local)
-        }
-    }
-    
-    open func customServerFieldCallback(_ sender: UITextField) {
-        if let text = sender.text,
-            text.isNotEmpty,
-            let jid = XMPPJID(user: nil, domain: text, resource: nil) {
-            self.customServer = jid.domain
-            self.delegate?.onUpdateServer(jid.domain)
-        }
-    }
-    
-    open func onServerSelect(_ server: String?) {
-        if let text = server,
-            text.isNotEmpty,
-            let jid = XMPPJID(user: nil, domain: text, resource: nil) {
-            self.selectedServer = jid.domain
-            self.delegate?.onUpdateServer(jid.domain)
         }
     }
     
@@ -181,15 +156,11 @@ class CreateNewGroupSelectJIDViewController: SimpleBaseViewController {
     
     override func loadDatasource() {
         super.loadDatasource()
-        var serversDatasource = CreateNewGroupSelectJIDViewController.servers.compactMap {
-            return Datasource(kind: .server, title: $0, value: $0, selected: $0 == self.selectedServer)
-        }
-        serversDatasource.append(Datasource(kind: .customServer, title: "You can select tour custom server", value: self.customServer))
         self.datasource = [
             [
                 Datasource(kind: .localpart, title: "Group XMPP ID", value: self.selectedLocalPart)
             ],
-            serversDatasource
+            serviceJID.map { [Datasource(kind: .server, title: $0, value: $0, selected: true)] } ?? []
         ]
         
         self.header = [
@@ -199,7 +170,8 @@ class CreateNewGroupSelectJIDViewController: SimpleBaseViewController {
         
         self.footer = [
             "",
-            "You can also choose your own domain".localizeString(id: "choose_own_domain_tint", arguments: [])
+            "Group service discovered from your XMPP server"
+                .localizeString(id: "groupchats_discovered_service_hint", arguments: [])
         ]
     }
     
@@ -254,17 +226,6 @@ extension CreateNewGroupSelectJIDViewController: UITableViewDataSource {
                 cell.accessoryType = item.selected ? .checkmark : .none
                 cell.selectionStyle = .none
                 return cell
-            case .customServer:
-                guard let cell = tableView
-                    .dequeueReusableCell(withIdentifier: TextCell.cellName,
-                                         for: indexPath) as? TextCell else {
-                    fatalError()
-                }
-                
-                cell.configure("Custom server".localizeString(id: "contact_custom_server", arguments: []), value: self.customServer ?? "")
-                cell.callback = customServerFieldCallback
-                cell.selectionStyle = .none
-                return cell
         }
     }
 }
@@ -281,16 +242,8 @@ extension CreateNewGroupSelectJIDViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let item = datasource[indexPath.section][indexPath.row]
 
-        if item.kind == .server {
-            self.datasource[indexPath.section].forEach {
-                $0.selected = false
-            }
-            self.datasource[indexPath.section][indexPath.row].selected = true
-            self.onServerSelect(item.value)
-            self.tableView.reloadSections([indexPath.section], with: .none)
-        } else {
+        if item.kind == .localpart {
             (tableView.cellForRow(at: indexPath) as? TextCell)?.field.becomeFirstResponder()
         }
     }
 }
-

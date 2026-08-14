@@ -193,7 +193,6 @@ class BlockManager: AbstractXMPPManager {
         }
         saveItems(result)
         lastUpdate = Date()
-        AccountManager.shared.find(for: owner)?.groupchats.updateInvitesState()
         return true
     }
     

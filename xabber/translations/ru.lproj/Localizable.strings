@@ -3215,6 +3215,9 @@
 
 
 "group_chat__pinned_message__tooltip_unpin" = "Открепить";
+"group_chat__pinned_message" = "Закреплённое сообщение";
+"group_chat__pinned_message__loading" = "Загрузка закреплённого сообщения…";
+"group_chat__pinned_messages" = "Закреплённые сообщения";
 
 
 "group_settings__properties__tooltip_copy_by_click" = "Нажмите, чтобы скопировать";
@@ -5612,3 +5615,16 @@
 "chat_search_result_not_found_message" = "Сообщение больше недоступно.";
 "chat_search_result_ambiguous_message" = "Этому результату соответствует несколько сообщений, поэтому ни одно из них не было открыто.";
 "chat_search_result_bounded_window_message" = "Не удалось определить сообщение в ограниченном окне поиска.";
+"groupchat_membership_type_private" = "По приглашениям";
+"groupchats_private_membership_hint" = "В приватную группу можно вступить только по приглашению.";
+"groupchats_service_unavailable" = "Сервис групп недоступен";
+"groupchats_discovered_service_hint" = "Сервис групп определяется вашим XMPP-сервером.";
+"groupchat_delete_p2p_confirm" = "Выход из этой приватной группы навсегда удалит %@.";
+"groupchat_delete_last_owner_confirm" = "Вы — последний владелец. Выход навсегда удалит группу %@.";
+"groupchats_no_pin_permission" = "У вас нет разрешения закреплять сообщения";
+"groupchats_no_unpin_permission" = "У вас нет разрешения откреплять сообщения";
+"groupchat_permissions_reset_action" = "Сбросить";
+"groupchat_permissions_reset_defaults_confirmation" = "Восстановить встроенные разрешения группы по умолчанию?";
+"groupchat_permissions_reset_personal_confirmation" = "Восстановить разрешения этого участника до текущих базовых значений?";
+"groupchat_permissions_reset_newbies_confirmation" = "Удалить все временные разрешения для новых участников?";
+"groupchat_permissions_reset_success" = "Разрешения сброшены";

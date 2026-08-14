@@ -239,15 +239,23 @@ class MessageReferenceStorageItem: Object {
             }
             do {
                 let realm = try WRealm.safe()
+                let groupPrimary = GroupStorageKey.groupPrimary(
+                    owner: owner,
+                    groupJID: jid
+                )
                 guard let group = realm.object(
-                    ofType: GroupChatStorageItem.self,
-                    forPrimaryKey: GroupChatStorageItem.genPrimary(jid: jid, owner: owner)
+                    ofType: GroupSnapshotStorageItem.self,
+                    forPrimaryKey: groupPrimary
                 ),
-                      group.isDeleted == false,
-                      group.peerToPeer == false else {
+                      realm.object(
+                        ofType: GroupSelfMembershipStorageItem.self,
+                        forPrimaryKey: groupPrimary
+                      )?.stateRaw == GroupSelfMembershipState.both.rawValue else {
                     return nil
                 }
-                return group.privacy == .incognito ? .incognito : .groupchat
+                return group.privacyRaw == GroupPrivacy.incognito.rawValue
+                    ? .incognito
+                    : .groupchat
             } catch {
                 return nil
             }

@@ -799,26 +799,6 @@ extension OmemoManager {
         return true
     }
     
-    /*<iq xmlns="jabber:client" lang="ru" to="igor.boldin@redsolution.com/xabber-ios-3F02F22F" from="andrew.nenakhov@redsolution.com" type="result" id="91037A2C-6B83-482B-95B1-5097863B27DD">
-     <pubsub xmlns="http://jabber.org/protocol/pubsub">
-       <items node="urn:xmpp:omemo:1:bundles">
-         <item id="1364917854">
-           <bundle xmlns="urn:xmpp:omemo:1">
-             <spk id="1">BVdAi9fv4ziu3ysZs6axEw9cMhznZv8/oGxcHO3QRJE2</spk>
-             <spks>CUROQwqBC8gmRJfqz5R28P+bj/RJaGyJIbAJJ/oWeBOvCEPP7DY+AmGaCEyscVQCiaL9BwoPyRrpmWbWw4njAA==</spks>
-             <ik>BYE+pWj1STfb9waS3P/cdWesWp0abplMyOdTU70aj2VN</ik>
-             <prekeys>
-               <pk id="1">BUekWGI8i31EXQbiAgfUp8B55BnjWS7exYrLwT1vHP1Q</pk>
-                ...
-               <pk id="99">BX6rrIEVTzV6DnKMv1oRWH1s/rXjPSWqHWObEZ173yxy</pk>
-               <pk id="100">BaYGC9npc5M+MkE0cy140YqLUpF5aajW21S4+C4UABY2</pk>
-             </prekeys>
-           </bundle>
-         </item>
-       </items>
-     </pubsub>
-   </iq>*/
-    
     private final func onContactBundleErrorReceive(_ iq: XMPPIQ) -> Bool {
         guard iq.iqType == .error,
               let from = iq.from?.bare,
@@ -833,7 +813,6 @@ extension OmemoManager {
         return true
     }
     
-//    <message xmlns="jabber:client" to="igor.boldin@xmppdev01.xabber.com/xabber-ios-3F02F22F" from="igor.boldin@xmppdev01.xabber.com" type="headline">
 //      <event xmlns="http://jabber.org/protocol/pubsub#event">
 //        <items node="urn:xmpp:omemo:2:bundles">
 //          <item id="14239832">

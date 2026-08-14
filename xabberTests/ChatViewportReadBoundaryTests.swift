@@ -2672,7 +2672,6 @@ final class ChatViewportReadBoundaryTests: XCTestCase {
             owner: owner,
             conversationType: .group
         )
-        chat.groupchatMyId = "current-member"
         chat.syncUnreadCount = 1
         chat.syncUnreadAfterId = "100"
         chat.syncSnapshotLastArchiveId = "200"

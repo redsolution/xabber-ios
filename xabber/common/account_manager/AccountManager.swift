@@ -300,7 +300,32 @@ struct AccountDeletionStorageCleanupStep {
             XTokenManager.remove(for: $0, commitTransaction: false)
         },
         AccountDeletionStorageCleanupStep(kind: .groupchats) {
-            GroupchatManager.remove(for: $0, commitTransaction: false)
+            guard let realm = try? WRealm.safe() else { return }
+            let owner = GroupStorageKey.bareJID($0)
+            realm.delete(
+                realm.objects(GroupPermissionStorageItem.self)
+                    .filter("owner == %@", owner)
+            )
+            realm.delete(
+                realm.objects(GroupPermissionSetStorageItem.self)
+                    .filter("owner == %@", owner)
+            )
+            realm.delete(
+                realm.objects(GroupMemberStorageItem.self)
+                    .filter("owner == %@", owner)
+            )
+            realm.delete(
+                realm.objects(GroupInviteStorageItem.self)
+                    .filter("owner == %@", owner)
+            )
+            realm.delete(
+                realm.objects(GroupSnapshotStorageItem.self)
+                    .filter("owner == %@", owner)
+            )
+            realm.delete(
+                realm.objects(GroupSelfMembershipStorageItem.self)
+                    .filter("owner == %@", owner)
+            )
         },
         AccountDeletionStorageCleanupStep(kind: .recentChats) {
             LastChats.remove(for: $0, commitTransaction: false)

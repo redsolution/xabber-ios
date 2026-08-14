@@ -472,6 +472,8 @@ extension Account: XMPPStreamDelegate {
             errorDescription: self.disconnectErrorDescription(error)
         )
         self.disco.cancelCloudDiscoveryForDisconnect()
+        self.disconnectCanonicalGroupTransport()
+        self.groupActivationSyncGate.invalidateAll()
         self.cloudStorage.markAvailabilityRetryableFailure(stage: .disconnected)
         self.discardBootstrapQueuedPrimaryStanzas(reason: "streamDisconnect")
         CredentialsManager.shared.getItem(for: self.jid).release(.authFailedRecoverable)
@@ -551,7 +553,15 @@ extension Account: XMPPStreamDelegate {
         if !isTrackedPingResult {
             self.connectionResilience.noteInboundActivity("iq")
         }
+        let didRouteCanonicalGroupIQ: Bool
+        do {
+            didRouteCanonicalGroupIQ = try self.groupchatService.receive(iq)
+        } catch {
+            DDLogError("Canonical group IQ routing failed: \(error)")
+            didRouteCanonicalGroupIQ = true
+        }
         switch true {
+            case didRouteCanonicalGroupIQ: break
             case self.syncManager.read(withIQ: iq):
                 AccountManager.shared.markAsConnected(jid: jid)
                 _ = self.syncManager.checkNextPage(sender, in: iq)
@@ -570,7 +580,6 @@ extension Account: XMPPStreamDelegate {
             case XabberAccountManager.shared.read(sender, with: iq): break
             case self.cloudStorage.read(withIQ: iq): break
             case self.xTokens.read(withIQ: iq): break
-            case self.groupchats.read(sender, withIQ: iq): break
             case self.blocked.read(withIQ: iq): break
             case self.msgDeleteManager.read(withIQ: iq): break
             case self.messageSchedule.read(withIQ: iq): break
@@ -609,7 +618,7 @@ extension Account: XMPPStreamDelegate {
         if presence.from?.bare == sender.myJID?.bare {
             _ = self.devices.read(withPresence: presence, commitTransaction: true)
         }
-        if self.groupchats.read(sender, withPresence: presence){
+        if self.routeCanonicalGroupPresence(presence) {
             return
         }
         if self.presences.read(withPresence: presence) {
@@ -644,9 +653,6 @@ extension Account: XMPPStreamDelegate {
             ],
             rawXML: presence.xmlString
         )
-        if self.groupchats.success(presence: presence) {
-            return
-        }
         //self.presences.read(outgoingPresence: presence)
         if SettingManager.logEnabled {
             DDLogInfo("S. presence: to \(presence.to?.bare ?? "none"), from \(presence.from?.bare ?? "none")")
@@ -693,6 +699,11 @@ extension Account: XMPPStreamDelegate {
                 _ = self.mam.recordDeferredArchiveControlConsumption(message)
             }
         }
+        let canonicalGroupRouting = self.routeCanonicalGroupMessage(message)
+        if canonicalGroupRouting == .consumed {
+            didIntentionallyConsumeArchiveResult = true
+            return
+        }
         
         switch message.messageType ?? .chat {
             case .chat, .normal:
@@ -703,10 +714,6 @@ extension Account: XMPPStreamDelegate {
             }
             
             if self.notifications.read(withMessage: message) {
-                didIntentionallyConsumeArchiveResult = true
-                return
-            }
-            if self.groupchats.readMessage(withMessage: message) {
                 didIntentionallyConsumeArchiveResult = true
                 return
             }
@@ -735,10 +742,6 @@ extension Account: XMPPStreamDelegate {
                         return
                     }
                     if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message)) {
-                        didIntentionallyConsumeArchiveResult = true
-                        return
-                    }
-                    if self.groupchats.readArchivedInviteEnvelope(message, isRead: nil) {
                         didIntentionallyConsumeArchiveResult = true
                         return
                     }
@@ -780,8 +783,6 @@ extension Account: XMPPStreamDelegate {
                         return
                     } else if VoIPManager.shared.onReceiveMessage(bareMessage, owner: self.jid, archivedDate: getDeliveryTime(bareMessage, owner: self.jid) ?? getDelayedDate(message), runtime: true, outgoing: true) {
                         return
-                    } else if self.groupchats.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) {
-                        return
                     }
                 }
                 if self.chatMarkers.read(withMessage: message) {
@@ -811,8 +812,6 @@ extension Account: XMPPStreamDelegate {
                         return
                     } else if self.chatStates.read(withMessage: bareMessage) {
                         return
-                    } else if self.groupchats.readInvite(in: bareMessage, date: getDelayedDate(message) ?? Date(), isRead: nil) {
-                        return
                     }
                 }
                 if self.omemo.didReceiveOmemoMessage(message) {
@@ -841,9 +840,6 @@ extension Account: XMPPStreamDelegate {
                     return
                 }
                 if self.deliveryReceipts.read(withMessage: message) {
-                    return
-                }
-                if self.groupchats.readInvite(in: message, date: Date(), isRead: false) {
                     return
                 }
                 self.devices.readMessage(message: message)
@@ -964,9 +960,6 @@ extension Account: XMPPStreamDelegate {
             rawXML: iq.xmlString,
             error: error
         )
-        if self.groupchats.fail(iq: iq) {
-            return
-        }
     }
 
     func xmppStream(_ sender: XMPPStream, didFailToSend presence: XMPPPresence, error: Error) {
@@ -980,9 +973,6 @@ extension Account: XMPPStreamDelegate {
             rawXML: presence.xmlString,
             error: error
         )
-        if self.groupchats.fail(presence: presence) {
-            return
-        }
     }
 
     func xmppStreamWasTold(toAbortConnect sender: XMPPStream) {

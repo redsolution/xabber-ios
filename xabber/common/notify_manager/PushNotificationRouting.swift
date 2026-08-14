@@ -513,7 +513,7 @@ enum LocalMessageNotificationPreviewFactory {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         switch normalized {
-        case "group", "groupchat", "https://xabber.com/protocol/groups":
+        case "group", "https://xabber.com/protocol/groups":
             return "group"
         case "channel", "https://xabber.com/protocol/channels":
             return "channel"
@@ -726,7 +726,7 @@ enum PushNotificationArchiveParser {
         let toBare = bareJid(message.attributeString("to") ?? "")
         let groupUser = groupchatUserElement(from: message)
         let groupReference = groupchatReferenceElement(from: message)
-        let isGroupMessage = message.attributeString("type") == "groupchat" || groupUser != nil
+        let isGroupMessage = message.attributeString("type") == "chat" && groupUser != nil
         let routeJid = isGroupMessage ? fromBare : (fromBare == owner ? toBare : fromBare)
         guard !routeJid.isEmpty else {
             return nil
@@ -789,46 +789,47 @@ enum PushNotificationArchiveParser {
     }
 
     private static func parseInvite(_ message: DDXMLElement, owner: String) -> PushNotificationPreview? {
-        guard let payload = GroupchatInviteV3Parser.parse(message, owner: owner, date: Date(), archiveId: nil) else {
+        guard ["chat", "headline"].contains(message.attributeString("type") ?? ""),
+              let payload = canonicalGroupInvite(in: message) else {
             return nil
         }
 
-        let groupElement = message.firstChild(named: "group", xmlns: XMLNS.groups)
-        let inviteElement = message.firstChild(named: "invite", xmlns: XMLNS.groups)
-        let inviterUser = inviteElement?.firstChild(named: "user")
+        let groupElement = payload.group
+        let inviterUser = payload.inviter
         let inviteKind: String
-        if groupElement?.firstChild(named: "parent-chat") != nil {
+        if groupElement?.attributeString("parent") != nil {
             inviteKind = "peer-to-peer"
-        } else if payload.isAnonymous {
+        } else if payload.privacy == "incognito" {
             inviteKind = "incognito"
         } else {
             inviteKind = "group"
         }
 
-        let groupName = trimmed(groupElement?.firstChild(named: "info")?.firstChild(named: "name")?.stringValue)
-            ?? trimmed(groupElement?.firstChild(named: "name")?.stringValue)
-        let inviterNickname = trimmed(inviterUser?.firstChild(named: "nickname")?.stringValue)
+        let info = groupElement.flatMap { uniqueCanonicalChild(named: "info", in: $0) }
+        let groupName = info.flatMap { uniqueCanonicalChild(named: "name", in: $0) }.flatMap {
+            trimmed($0.stringValue)
+        }
+        let inviterNickname = inviterUser
+            .flatMap { uniqueCanonicalChild(named: "nickname", in: $0) }
+            .flatMap { trimmed($0.stringValue) }
         let inviterUserId = trimmed(inviterUser?.attributeString("id"))
-        let explicitInviterJid = trimmed(inviterUser?.attributeString("jid"))
-            ?? trimmed(inviterUser?.firstChild(named: "jid")?.stringValue)
+        let explicitInviterJid = inviterUser
+            .flatMap { uniqueCanonicalChild(named: "jid", in: $0) }
+            .flatMap { canonicalBareJID($0.stringValue) }
         let inviterJid: String?
         if inviteKind == "incognito" {
             inviterJid = nil
-        } else if let explicitInviterJid {
-            inviterJid = bareJid(explicitInviterJid)
-        } else if payload.sender != payload.groupchat {
-            inviterJid = payload.sender
         } else {
-            inviterJid = nil
+            inviterJid = explicitInviterJid
         }
-        let inviterAvatarInfo = inviterUser?.firstChild(named: "avatar")?.firstChild(named: "info")
-            ?? inviterUser?.firstChild(named: "metadata", xmlns: "urn:xmpp:avatar:metadata")?
-                .firstChild(named: "info")
+        let inviterAvatarInfo = inviterUser
+            .flatMap { uniqueCanonicalChild(named: "avatar", in: $0) }
+            .flatMap { avatarMetadataInfo(in: $0) }
         let inviterAvatarURL = trimmed(inviterAvatarInfo?.attributeString("url"))
             .flatMap { PushNotificationMediaURLPolicy.remoteURLString($0) }
         let route = PushNotificationRoutePayload.groupInvite(
             owner: owner,
-            groupchat: payload.groupchat,
+            groupchat: payload.groupJID,
             inviteKind: inviteKind,
             inviterJid: inviterJid,
             inviterNickname: inviterNickname,
@@ -854,6 +855,276 @@ enum PushNotificationArchiveParser {
             )
         }
         return PushNotificationPreview(route: route, body: body, groupName: groupName, mediaItems: [])
+    }
+
+    private struct CanonicalGroupInvitePayload {
+        let groupJID: String
+        let privacy: String?
+        let inviter: DDXMLElement?
+        let group: DDXMLElement?
+    }
+
+    /// PushNotificationRouting is shared with the notification-service target,
+    /// which deliberately does not link XMPPFramework. Keep this small decoder
+    /// strict and wire-equivalent to GroupProtocolCodec instead of retaining a
+    /// permissive legacy invite parser in the extension.
+    private static func canonicalGroupInvite(
+        in message: DDXMLElement
+    ) -> CanonicalGroupInvitePayload? {
+        let inviteElements = directChildren(of: message).filter {
+            $0.name == "invite" && effectiveNamespace(of: $0) == XMLNS.groups
+        }
+        let groupElements = directChildren(of: message).filter {
+            $0.name == "group" && effectiveNamespace(of: $0) == XMLNS.groups
+        }
+        guard inviteElements.count == 1,
+              groupElements.count <= 1,
+              let invite = inviteElements.first,
+              let groupJID = canonicalBareJID(invite.attributeString("jid")) else {
+            return nil
+        }
+
+        let inviteChildren = directChildren(of: invite)
+        guard canonicalChildren(
+            inviteChildren,
+            allowedNames: ["reason", "user"],
+            uniqueNames: ["reason", "user"]
+        ) else {
+            return nil
+        }
+        let inviter = uniqueCanonicalChild(named: "user", in: invite)
+        guard inviter.map(isCanonicalGroupMember) ?? true else {
+            return nil
+        }
+
+        let group = groupElements.first
+        guard group.map(isCanonicalGroupPreview) ?? true else {
+            return nil
+        }
+        return CanonicalGroupInvitePayload(
+            groupJID: groupJID,
+            privacy: group?.attributeString("privacy"),
+            inviter: inviter,
+            group: group
+        )
+    }
+
+    private static func isCanonicalGroupPreview(_ group: DDXMLElement) -> Bool {
+        if let privacy = group.attributeString("privacy"),
+           !["public", "incognito"].contains(privacy) {
+            return false
+        }
+        if let jid = group.attributeString("jid"), canonicalBareJID(jid) == nil {
+            return false
+        }
+        if let parent = group.attributeString("parent"), canonicalBareJID(parent) == nil {
+            return false
+        }
+        if let members = group.attributeString("members"),
+           Int(members).map({ $0 >= 0 }) != true {
+            return false
+        }
+
+        let children = directChildren(of: group)
+        guard canonicalChildren(
+            children,
+            allowedNames: ["localpart", "info", "settings", "pinned", "present"],
+            uniqueNames: ["localpart", "info", "settings", "pinned", "present"]
+        ) else {
+            return false
+        }
+        if let info = uniqueCanonicalChild(named: "info", in: group),
+           !isCanonicalGroupInfo(info) {
+            return false
+        }
+        if let settings = uniqueCanonicalChild(named: "settings", in: group),
+           !isCanonicalGroupSettings(settings) {
+            return false
+        }
+        if let pinned = uniqueCanonicalChild(named: "pinned", in: group),
+           !isCanonicalPinnedList(pinned) {
+            return false
+        }
+        if let present = uniqueCanonicalChild(named: "present", in: group),
+           Int(trimmed(present.stringValue) ?? "").map({ $0 >= 0 }) != true {
+            return false
+        }
+        return true
+    }
+
+    private static func isCanonicalGroupInfo(_ info: DDXMLElement) -> Bool {
+        let children = directChildren(of: info)
+        guard canonicalChildren(
+            children,
+            allowedNames: ["name", "description", "avatar", "status"],
+            uniqueNames: ["name", "description", "avatar", "status"]
+        ) else {
+            return false
+        }
+        return uniqueCanonicalChild(named: "avatar", in: info)
+            .map(isCanonicalAvatar) ?? true
+    }
+
+    private static func isCanonicalGroupSettings(_ settings: DDXMLElement) -> Bool {
+        let children = directChildren(of: settings)
+        guard canonicalChildren(
+            children,
+            allowedNames: ["membership", "contacts", "domains", "index", "state"],
+            uniqueNames: ["membership", "contacts", "domains", "index", "state"]
+        ) else {
+            return false
+        }
+        if let membership = uniqueCanonicalChild(named: "membership", in: settings),
+           !["open", "private"].contains(trimmed(membership.stringValue) ?? "") {
+            return false
+        }
+        if let index = uniqueCanonicalChild(named: "index", in: settings),
+           !["none", "local", "global"].contains(trimmed(index.stringValue) ?? "") {
+            return false
+        }
+        if let state = uniqueCanonicalChild(named: "state", in: settings),
+           !["active", "inactive"].contains(trimmed(state.stringValue) ?? "") {
+            return false
+        }
+        if let contacts = uniqueCanonicalChild(named: "contacts", in: settings) {
+            let values = directChildren(of: contacts)
+            guard canonicalChildren(values, allowedNames: ["contact"], uniqueNames: []),
+                  values.allSatisfy({ canonicalBareJID($0.stringValue) != nil }) else {
+                return false
+            }
+        }
+        if let domains = uniqueCanonicalChild(named: "domains", in: settings) {
+            let values = directChildren(of: domains)
+            guard canonicalChildren(values, allowedNames: ["domain"], uniqueNames: []),
+                  values.allSatisfy({ canonicalDomain($0.stringValue) != nil }) else {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func isCanonicalPinnedList(_ pinned: DDXMLElement) -> Bool {
+        let messages = directChildren(of: pinned)
+        return canonicalChildren(messages, allowedNames: ["pinned-message"], uniqueNames: [])
+            && messages.allSatisfy { child in
+                directChildren(of: child).isEmpty && trimmed(child.attributeString("id")) != nil
+            }
+    }
+
+    private static func isCanonicalGroupMember(_ user: DDXMLElement) -> Bool {
+        let attributes = user.attributes ?? []
+        guard attributes.count == 1,
+              attributes.first?.name == "id",
+              let memberID = user.attributeString("id"),
+              trimmed(memberID) == memberID,
+              !memberID.contains(where: { $0.isWhitespace }) else {
+            return false
+        }
+        let children = directChildren(of: user)
+        guard canonicalChildren(
+            children,
+            allowedNames: ["jid", "role", "nickname", "badge", "avatar", "last", "allow-p2p"],
+            uniqueNames: ["jid", "role", "nickname", "badge", "avatar", "last", "allow-p2p"]
+        ) else {
+            return false
+        }
+        if let jid = uniqueCanonicalChild(named: "jid", in: user),
+           canonicalBareJID(jid.stringValue) == nil {
+            return false
+        }
+        if let role = uniqueCanonicalChild(named: "role", in: user),
+           !["owner", "admin", "member", "none"].contains(trimmed(role.stringValue) ?? "") {
+            return false
+        }
+        if let avatar = uniqueCanonicalChild(named: "avatar", in: user),
+           !isCanonicalAvatar(avatar) {
+            return false
+        }
+        if let last = uniqueCanonicalChild(named: "last", in: user),
+           xmppDate(from: trimmed(last.stringValue) ?? "") == nil {
+            return false
+        }
+        return true
+    }
+
+    private static func isCanonicalAvatar(_ avatar: DDXMLElement) -> Bool {
+        let children = directChildren(of: avatar)
+        guard children.count <= 1 else { return false }
+        guard let info = children.first else { return true }
+        guard info.name == "info",
+              effectiveNamespace(of: info) == "urn:xmpp:avatar:metadata",
+              directChildren(of: info).isEmpty,
+              trimmed(info.attributeString("id")) != nil,
+              trimmed(info.attributeString("type")) != nil,
+              Int(info.attributeString("bytes") ?? "").map({ $0 >= 0 }) == true else {
+            return false
+        }
+        for name in ["width", "height"] {
+            if let raw = info.attributeString(name), Int(raw).map({ $0 >= 0 }) != true {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func avatarMetadataInfo(in avatar: DDXMLElement) -> DDXMLElement? {
+        let children = directChildren(of: avatar).filter {
+            $0.name == "info" && effectiveNamespace(of: $0) == "urn:xmpp:avatar:metadata"
+        }
+        return children.count == 1 ? children[0] : nil
+    }
+
+    private static func canonicalChildren(
+        _ children: [DDXMLElement],
+        allowedNames: Set<String>,
+        uniqueNames: Set<String>
+    ) -> Bool {
+        guard children.allSatisfy({ child in
+            guard let name = child.name else { return false }
+            return allowedNames.contains(name) && effectiveNamespace(of: child) == XMLNS.groups
+        }) else {
+            return false
+        }
+        return uniqueNames.allSatisfy { name in
+            children.filter { $0.name == name }.count <= 1
+        }
+    }
+
+    private static func uniqueCanonicalChild(
+        named name: String,
+        in parent: DDXMLElement
+    ) -> DDXMLElement? {
+        let matches = directChildren(of: parent).filter {
+            $0.name == name && effectiveNamespace(of: $0) == XMLNS.groups
+        }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    private static func canonicalBareJID(_ raw: String?) -> String? {
+        guard let rawValue = trimmed(raw)?.lowercased(),
+              !rawValue.contains(where: { $0.isWhitespace }) else {
+            return nil
+        }
+        let value = rawValue.split(separator: "/", maxSplits: 1).first.map(String.init) ?? rawValue
+        let components = value.split(separator: "@", omittingEmptySubsequences: false)
+        guard components.count == 2,
+              !components[0].isEmpty,
+              canonicalDomain(String(components[1])) != nil else {
+            return nil
+        }
+        return value
+    }
+
+    private static func canonicalDomain(_ raw: String?) -> String? {
+        guard let value = trimmed(raw)?.lowercased(),
+              !value.contains("@"),
+              !value.contains("/"),
+              !value.contains(where: { $0.isWhitespace }),
+              !value.hasPrefix("."),
+              !value.hasSuffix(".") else {
+            return nil
+        }
+        return value
     }
 
     private static func parseVerificationRequest(
@@ -929,22 +1200,50 @@ enum PushNotificationArchiveParser {
     }
 
     private static func groupchatReferenceElement(from message: DDXMLElement) -> DDXMLElement? {
-        message
-            .firstChild(named: "x", xmlns: XMLNS.groups)?
-            .firstChild(named: "reference", xmlns: XMLNS.references)
+        guard let groupDecoration = directChildren(of: message).first(where: {
+            $0.name == "x" && effectiveNamespace(of: $0) == XMLNS.groups
+        }) else {
+            return nil
+        }
+        return directChildren(of: groupDecoration).first {
+            $0.name == "reference" && effectiveNamespace(of: $0) == XMLNS.references
+        }
     }
 
     private static func groupchatUserElement(from message: DDXMLElement) -> DDXMLElement? {
-        if let directUser = message
-            .firstChild(named: "x", xmlns: XMLNS.groups)?
-            .firstChild(named: "user", xmlns: XMLNS.groups)
-            ?? message.firstChild(named: "x", xmlns: XMLNS.groups)?.firstChild(named: "user") {
-            return directUser
+        let groupDecorations = directChildren(of: message).filter {
+            $0.name == "x" && effectiveNamespace(of: $0) == XMLNS.groups
         }
+        guard message.attributeString("type") == "chat",
+              groupDecorations.count == 1,
+              let groupDecoration = groupDecorations.first,
+              (groupDecoration.attributes ?? []).isEmpty else {
+            return nil
+        }
+        let children = directChildren(of: groupDecoration)
+        guard children.count == 1,
+              let user = children.first,
+              user.name == "user",
+              effectiveNamespace(of: user) == XMLNS.groups,
+              isCanonicalGroupMember(user) else {
+            return nil
+        }
+        return user
+    }
 
-        return groupchatReferenceElement(from: message)?
-            .firstChild(named: "user", xmlns: XMLNS.groups)
-            ?? groupchatReferenceElement(from: message)?.firstChild(named: "user")
+    private static func directChildren(of element: DDXMLElement) -> [DDXMLElement] {
+        element.children?.compactMap { $0 as? DDXMLElement } ?? []
+    }
+
+    private static func effectiveNamespace(of element: DDXMLElement) -> String? {
+        var current: DDXMLElement? = element
+        while let candidate = current {
+            if let namespace = candidate.xmlns() {
+                return namespace
+            }
+            current = candidate.parent as? DDXMLElement
+        }
+        return nil
     }
 
     private static func mediaItems(from references: [DDXMLElement]) -> [PushNotificationMediaItem] {
@@ -1075,9 +1374,6 @@ enum PushNotificationArchiveParser {
         if reference.firstChild(named: "forwarded", xmlns: XMLNS.forward) != nil {
             return "forward"
         }
-        if reference.firstChild(named: "user") != nil {
-            return "groupchat"
-        }
         return nil
     }
 
@@ -1116,7 +1412,7 @@ enum PushNotificationArchiveParser {
                 continue
             }
             switch kind {
-            case "media", "voice", "forward", "groupchat":
+            case "media", "voice", "forward":
                 out.removeSubrange(range)
             case "quote":
                 out = out.replacingOccurrences(of: ">", with: "", options: [], range: range)

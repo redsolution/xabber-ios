@@ -1,695 +1,417 @@
-//
-//
-//
-//  This program is free software; you can redistribute it and/or
-//  modify it under the terms of the GNU General Public License as
-//  published by the Free Software Foundation; either version 3 of the
-//  License.
-//
-//  This program is distributed in the hope that it will be useful,
-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-//  General Public License for more details.
-//
-//  You should have received a copy of the GNU General Public License along
-//  with this program; if not, write to the Free Software Foundation, Inc.,
-//  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-//
-//
-//
-
 import Foundation
 import UIKit
-import RealmSwift
-import RxCocoa
-import RxSwift
-import RxRealm
-import DeepDiff
 import CocoaLumberjack
-import Kingfisher
-import MaterialComponents.MDCPalettes
 
-class GroupchatMembersListViewController: SimpleBaseViewController {
-    
-    class ButtonTableCell: UITableViewCell {
-        static let cellName: String = "ButtonTableCell"
-        
-        let stack: UIStackView = {
-            let stack = UIStackView()
-            
-            stack.axis = .horizontal
-            stack.distribution = .fill
-            stack.alignment = .center
-            stack.layoutMargins = UIEdgeInsets(top: 2, bottom: 0, left: 16, right: 16)
-            stack.isLayoutMarginsRelativeArrangement = true
-            
-            return stack
-        }()
-        
-        let titleLabel: UILabel = {
-            let label = UILabel()
-            
-            label.textColor = .tintColor
-            
-            return label
-        }()
-        
-        func configure(title: String) {
-            self.titleLabel.text = title
-        }
-        
-        func setupSubviews() {
-            self.contentView.addSubview(stack)
-            self.stack.fillSuperview()
-            self.stack.addArrangedSubview(self.titleLabel)
-            self.accessoryType = .disclosureIndicator
-        }
-        
+final class GroupchatMembersListViewController: SimpleBaseViewController {
+    final class ButtonTableCell: UITableViewCell {
+        static let cellName = "ButtonTableCell"
+        private let titleLabel = UILabel()
+
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
             super.init(style: style, reuseIdentifier: reuseIdentifier)
-            self.setupSubviews()
+            titleLabel.textColor = .tintColor
+            contentView.addSubview(titleLabel)
+            titleLabel.fillSuperviewWithOffset(top: 0, bottom: 0, left: 16, right: 16)
+            accessoryType = .disclosureIndicator
         }
-        
+
         required init?(coder: NSCoder) {
-            super.init(coder: coder)
-            self.setupSubviews()
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        func configure(title: String) {
+            titleLabel.text = title
         }
     }
-    
-    class Datasource: DiffAware, Equatable, Hashable {
-        var userId: String
-        var jid: String
-        var title: String
-        var badge: String
-        var isMe: Bool
-        var subtitle: String
-        var status: ResourceStatus
-        var avatarUrl: String
-        var role: GroupchatUserStorageItem.Role
-        var canPromote: Bool
-        var canRestrict: Bool
-        var canEdit: Bool
-        var canKick: Bool
-        
-        typealias DiffId = String
-        
-        var diffId: String {
-            get {
-                return userId
+
+    struct Datasource: Equatable {
+        let member: GroupMember
+        let isMe: Bool
+        let canPromote: Bool
+        let canRestrict: Bool
+        let canEdit: Bool
+        let canKick: Bool
+
+        var displayName: String {
+            member.nickname?.isNotEmpty == true
+                ? member.nickname!
+                : (member.jid ?? member.id)
+        }
+
+        var subtitle: String {
+            guard let lastSeen = member.lastSeen else {
+                return member.jid ?? "Offline".localizeString(id: "unavailable", arguments: [])
             }
-        }
-        
-        static func == (lhs: Datasource, rhs: Datasource) -> Bool {
-            return lhs.userId == rhs.userId
-        }
-        
-        
-        init(userId: String, jid: String, title: String, badge: String, isMe: Bool, subtitle: String, status: ResourceStatus, avatarUrl: String, role: GroupchatUserStorageItem.Role, canPromote: Bool, canRestrict: Bool, canEdit: Bool, canKick: Bool) {
-            self.userId = userId
-            self.jid = jid
-            self.title = title
-            self.badge = badge
-            self.isMe = isMe
-            self.subtitle = subtitle
-            self.status = status
-            self.avatarUrl = avatarUrl
-            self.role = role
-            self.canPromote = canPromote
-            self.canRestrict = canRestrict
-            self.canEdit = canEdit
-            self.canKick = canKick
-        }
-        
-        func hash(into hasher: inout Hasher) {
-            hasher.combine(userId)
-        }
-        
-        static func compareContent(_ a: GroupchatMembersListViewController.Datasource, _ b: GroupchatMembersListViewController.Datasource) -> Bool {
-            return a.userId == b.userId &&
-            a.title == b.title &&
-            a.badge == b.badge &&
-            a.isMe == b.isMe &&
-            a.subtitle == b.subtitle &&
-            a.status == b.status &&
-            a.avatarUrl == b.avatarUrl &&
-            a.role == b.role
+            return DateFormatter.localizedString(
+                from: lastSeen,
+                dateStyle: .medium,
+                timeStyle: .short
+            )
         }
     }
-    
-    internal var datasource: [Datasource] = []
-    
-//    open var jid: String = ""
-//    open var owner: String = ""
-    
-    internal var membersObserver: Results<GroupchatUserStorageItem>? = nil
-    
-//    open var showOnlyAdmins: Bool = false
-    
-    internal let tableView: UITableView = {
+
+    var permissionScope = "member"
+    var canPromote = true
+    var canRestrict = true
+    var canEdit = true
+    var canKick = true
+
+    private let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
-        
         view.register(CommonMemberTableCell.self, forCellReuseIdentifier: CommonMemberTableCell.cellName)
         view.register(ButtonTableCell.self, forCellReuseIdentifier: ButtonTableCell.cellName)
-        
         return view
     }()
-        
-    internal let updateQueue: DispatchQueue = {
-//        let queue = DispatchQueue(
-//            label: "com.xabber.lastchats.updater",
-//            qos: .background,
-//            attributes: [],
-//            autoreleaseFrequency: .never,
-//            target: nil
-//        )
-//        return queue
-        return DispatchQueue.global(qos: .background)
-    }()
-    
-    open var permissionScope: String = "member"
-    
-    override func subscribe() {
-        super.subscribe()
-        do {
-            let realm = try WRealm.safe()
-            membersObserver = realm
-                    .objects(GroupchatUserStorageItem.self)
-                    .filter("groupchatId == %@ AND isBlocked == false AND isKicked == false AND isTemporary == false AND role_ IN %@ AND isHidden == false", [jid, owner].prp(), permissionScope.components(separatedBy: ","))
-                    .sorted(by: [
-                        SortDescriptor(keyPath: "isMe", ascending: false),
-                        SortDescriptor(keyPath: "sortedRole", ascending: true)
-                    ])
-            
-            
-            Observable
-                .collection(from: membersObserver!)
-                .debounce(.milliseconds(400), scheduler: MainScheduler.asyncInstance)
-                .subscribe { (results) in
-                    self.runDatasetUpdateTask()
-                } onError: { (error) in
-                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX error: \(error.localizedDescription)")
-                } onCompleted: {
-                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX state: completed")
-                } onDisposed: {
-                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX state: disposed")
-                }
-                .disposed(by: bag)
+    private var datasource: [Datasource] = []
+    private var repository: GroupRepository?
+    private var observation: GroupRepositoryObservation?
+    private var projection: GroupRepositoryProjection?
+    private var refreshTask: Task<Void, Never>?
+    private var isPromoteAdmin = false
 
-            canUpdateDataset = true
-            runDatasetUpdateTask()
-            
-        } catch {
-            DDLogDebug("GroupchatMembersListViewController: \(#function). \(error.localizedDescription)")
-        }
+    func configurePromoteAdmin() {
+        isPromoteAdmin = true
     }
-    
+
     override func setupSubviews() {
         super.setupSubviews()
         view.addSubview(tableView)
         tableView.fillSuperview()
     }
-    
-    internal var isPromoteAdmin: Bool = false
-    
-    public final func configurePromoteAdmin() {
-        self.isPromoteAdmin = true
-    }
-    
+
     override func configure() {
         super.configure()
         tableView.delegate = self
         tableView.dataSource = self
-        if self.permissionScope == "member" {
-            title = "Members".localizeString(id: "group_settings__members_list__header", arguments: [])
-        } else if self.permissionScope == "owner,admin" {
-            title = "Administrators"
-        } else if self.isPromoteAdmin {
+        if isPromoteAdmin {
             title = "Select user"
-        } else if self.permissionScope == "restrited" {
-            title = "Restricted users"
+        } else if permissionScope == "owner,admin" {
+            title = "Administrators"
+        } else if permissionScope == "member" {
+            title = "Members".localizeString(id: "group_settings__members_list__header", arguments: [])
         } else {
-            title = nil
+            title = "Members".localizeString(id: "group_settings__members_list__header", arguments: [])
         }
     }
-    
-    override func onAppear() {
-        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-        navigationController?.navigationBar.shadowImage = nil
-    }
-    
-    var canPromote: Bool = true
-    var canRestrict: Bool = true
-    var canEdit: Bool = true
-    var canKick: Bool = true
-    
-    private final func mapDataset() -> [Datasource] {
-        guard let collection = membersObserver else {
-            return []
-        }
-        return collection.compactMap {
-            item in
-            
-            let canPromote: Bool = !item.isMe && self.canPromote
-            let canRestrict: Bool = !item.isMe && self.canRestrict
-            let canEdit: Bool = !item.isMe && self.canEdit
-            let canKick: Bool = !item.isMe && self.canKick
-            
-            return Datasource(
-                userId: item.userId,
-                jid: item.jid,
-                title: item.nickname,
-                badge: item.badge,
-                isMe: item.isMe,
-                subtitle: item.isOnline ? "Online".localizeString(id: "account_state_connected", arguments: []): item.dateString ?? "Offline".localizeString(id: "unavailable", arguments: []),
-                status: item.isOnline ? .online : .offline,
-                avatarUrl: item.avatarURI,
-                role: item.role,
-                canPromote: canPromote,
-                canRestrict: canRestrict,
-                canEdit: canEdit,
-                canKick: canKick
-            )
-        }
-    }
-    
-    public final var canUpdateDataset = true
-    
-    
-    private final func convertChangeset(changes: [Change<Datasource>]) -> ChangesWithIndexPath {
-        let section: Int = self.permissionScope == "owner,admin" ? 1 : 0
-        
-        let inserts =  changes.compactMap { return $0.insert?.index }.compactMap({ return IndexPath(row:$0, section: section)})
-        let deletes =  changes.compactMap { return $0.delete?.index }.compactMap({ return IndexPath(row:$0, section: section )})
-        let replaces = changes.compactMap { return $0.replace?.index }.compactMap({ return IndexPath(row:$0, section: section )})
-        
-        let moves = changes.compactMap({ $0.move }).map({
-          (
-            from: IndexPath(item: $0.fromIndex, section: section),
-            to: IndexPath(item: $0.toIndex, section: section)
-          )
-        })
-        
-        return ChangesWithIndexPath(
-            inserts: inserts,
-            deletes: deletes,
-            replaces: replaces,
-            moves: moves
-        )
-    }
-    
-    public final func initializeDataset() {
-        
-    }
-    
-    public final func runDatasetUpdateTask() {
-        preprocessDataset()
-        postprocessDataset()
-    }
-    
-    private final func preprocessDataset() {
-        if !canUpdateDataset { return }
-        self.updateQueue.sync {
-            self.canUpdateDataset = false
-            let newDataset = self.mapDataset()
-            let changes = diff(old: self.datasource, new: newDataset)
-            let indexPaths = self.convertChangeset(changes: changes)
-            DispatchQueue.main.async {
-                self.apply(changes: indexPaths) {
-                    self.datasource = newDataset
+
+    override func subscribe() {
+        super.subscribe()
+        do {
+            let repository = GroupRepository(realm: try WRealm.safe())
+            self.repository = repository
+            observation = try repository.observeProjection(
+                owner: owner,
+                groupJID: jid
+            ) { [weak self] projection in
+                DispatchQueue.main.async {
+                    self?.apply(projection)
                 }
+            }
+            refreshMembers()
+        } catch {
+            present(error: error)
+        }
+    }
+
+    override func unsubscribe() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        observation?.invalidate()
+        observation = nil
+        repository = nil
+        super.unsubscribe()
+    }
+
+    private func refreshMembers() {
+        refreshTask?.cancel()
+        guard let account = AccountManager.shared.find(for: owner) else {
+            present(error: GroupchatServiceError.notPrepared)
+            return
+        }
+        refreshTask = Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            do {
+                let members = try await account.groupchatService.refreshMembers(groupJID: jid)
+                try repository?.replaceMembers(members, owner: owner, groupJID: jid)
+            } catch is CancellationError {
+                return
+            } catch {
+                present(error: error)
             }
         }
     }
-    
-    private final func postprocessDataset() {
-        
+
+    private func apply(_ projection: GroupRepositoryProjection) {
+        self.projection = projection
+        let allowedRoles = canonicalRoles(from: permissionScope)
+        let capabilities = projection.capabilities
+        datasource = projection.state.members
+            .filter { allowedRoles.contains($0.role ?? .none) }
+            .map { member in
+                let isMe = member.id == projection.selfMemberID
+                return Datasource(
+                    member: member,
+                    isMe: isMe,
+                    canPromote: !isMe && canPromote && capabilities.createAdmins,
+                    canRestrict: !isMe && canRestrict && capabilities.changePermissions,
+                    canEdit: !isMe && canEdit && capabilities.changeUserInfo,
+                    canKick: !isMe && canKick && capabilities.blockUsers && member.jid?.isNotEmpty == true
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.isMe != rhs.isMe { return lhs.isMe }
+                let lhsRank = roleRank(lhs.member.role)
+                let rhsRank = roleRank(rhs.member.role)
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+            }
+        tableView.reloadData()
     }
-    
-    private final func apply(changes: ChangesWithIndexPath, prepare: @escaping (() -> Void)) {
-        
-//        print("changes", changes.deletes.count, changes.inserts.count, changes.moves.count, changes.replaces.count)
-        
-        if changes.deletes.isEmpty &&
-            changes.inserts.isEmpty &&
-            changes.moves.isEmpty &&
-            changes.replaces.isEmpty {
-            prepare()
-            self.canUpdateDataset = true
-            return
+
+    private func canonicalRoles(from scope: String) -> Set<GroupMemberRole> {
+        let roles = Set(scope.split(separator: ",").compactMap { GroupMemberRole(rawValue: String($0)) })
+        return roles.isEmpty ? [.owner, .admin, .member] : roles
+    }
+
+    private func roleRank(_ role: GroupMemberRole?) -> Int {
+        switch role {
+        case .owner: return 0
+        case .admin: return 1
+        case .member: return 2
+        case .some(.none), nil: return 3
         }
-        UIView.performWithoutAnimation {
-            self.tableView.performBatchUpdates({
-                prepare()
-                if !changes.deletes.isEmpty {
-                    self.tableView.deleteRows(at: changes.deletes, with: .none)
-                }
-                
-                if !changes.inserts.isEmpty {
-                    self.tableView.insertRows(at: changes.inserts, with: .none)
-                }
-                
-                if changes.moves.isNotEmpty {
-                    changes.moves.forEach {
-                        (from, to) in
-                        self.tableView.moveRow(at: from, to: to)
+    }
+
+    private func openMember(_ memberID: String) {
+        let controller = GroupchatContactInfoViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.userId = memberID
+        navigationController?.pushViewController(controller, animated: true)
+    }
+
+    private func kick(_ item: Datasource) {
+        guard let account = AccountManager.shared.find(for: owner) else { return }
+        Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            view.makeToastActivity(.center)
+            defer { view.hideToastActivity() }
+            do {
+                let members = try await account.groupchatService.kickMember(
+                    groupJID: jid,
+                    member: item.member
+                )
+                try repository?.replaceMembers(members, owner: owner, groupJID: jid)
+            } catch let partial as GroupModerationPartialFailure {
+                do {
+                    if let members = partial.members {
+                        try repository?.replaceMembers(
+                            members,
+                            owner: owner,
+                            groupJID: jid
+                        )
                     }
+                } catch {
+                    DDLogDebug("Group kick projection: \(error.localizedDescription)")
                 }
-            }, completion: {
-                result in
-                self.canUpdateDataset = true
-                if changes.replaces.isEmpty { return }
-                self.tableView.reloadRows(at: changes.replaces, with: .none)
-            })
+                present(error: partial)
+            } catch {
+                present(error: error)
+            }
         }
     }
-    
-    
+
+    private func createPrivateChat(_ memberID: String) {
+        guard let account = AccountManager.shared.find(for: owner) else { return }
+        Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            view.makeToastActivity(.center)
+            defer { view.hideToastActivity() }
+            do {
+                let snapshot = try await CanonicalGroupP2PFlow.createOrJoin(
+                    owner: owner,
+                    parentJID: jid,
+                    repository: GroupRepository(realm: try WRealm.safe()),
+                    create: {
+                        try await account.groupchatService.createP2P(
+                            parentJID: self.jid,
+                            memberID: memberID
+                        )
+                    },
+                    joinExisting: {
+                        try account.groupchatService.sendJoin(groupJID: $0)
+                    }
+                )
+                guard let p2pJID = snapshot.jid else {
+                    throw GroupchatServiceError.missingCreatedGroupJID
+                }
+                let chat = ChatViewController()
+                chat.owner = owner
+                chat.jid = p2pJID
+                chat.conversationType = .group
+                showDetail(chat, currentVc: self)
+            } catch {
+                present(error: error)
+            }
+        }
+    }
+
+    private func present(error: Error) {
+        DDLogDebug("GroupchatMembersListViewController: \(error.localizedDescription)")
+        ErrorMessagePresenter().present(
+            in: self,
+            message: CanonicalGroupMembershipLifecycle.localizedErrorMessage(error),
+            animated: true,
+            completion: nil
+        )
+    }
 }
 
 extension GroupchatMembersListViewController: UITableViewDataSource {
     func numberOfSections(in tableView: UITableView) -> Int {
-        if self.isPromoteAdmin {
-            return 1
-        }
-        if self.permissionScope == "member" {
-            return 1
-        } else if self.permissionScope == "owner,admin" {
-            return 2
-        } else {
-            return 1
-        }
+        permissionScope == "owner,admin" && !isPromoteAdmin ? 2 : 1
     }
-    
+
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if self.isPromoteAdmin {
-            return datasource.count
-        }
-        if self.permissionScope == "owner,admin" {
-            if section == 0 {
-                return 1
-            } else {
-                return datasource.count
-            }
-        } else {
-            return datasource.count
-        }
-        
+        permissionScope == "owner,admin" && !isPromoteAdmin && section == 0 ? 1 : datasource.count
     }
-    
+
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        if indexPath.section == 0 && self.permissionScope == "owner,admin" {
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: ButtonTableCell.cellName, for: indexPath) as? ButtonTableCell else {
-                fatalError()
-            }
-            
+        if permissionScope == "owner,admin" && !isPromoteAdmin && indexPath.section == 0 {
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: ButtonTableCell.cellName,
+                for: indexPath
+            ) as? ButtonTableCell else { fatalError("ButtonTableCell is not registered") }
             cell.configure(title: "Add Administrator")
-            cell.selectionStyle = .none
-            
-            return cell
-        } else {
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: CommonMemberTableCell.cellName, for: indexPath) as? CommonMemberTableCell else {
-                fatalError()
-            }
-            let item = datasource[indexPath.row]
-            
-            cell.configure(
-                avatarUrl: item.avatarUrl,
-                jid: self.jid,
-                owner: self.owner,
-                userId: item.userId,
-                title: item.title,
-                badge: item.badge,
-                isMe: item.isMe,
-                subtitle: item.subtitle,
-                status: item.status,
-                entity: .contact,
-                role: item.role
-            )
             return cell
         }
-        
+        guard let cell = tableView.dequeueReusableCell(
+            withIdentifier: CommonMemberTableCell.cellName,
+            for: indexPath
+        ) as? CommonMemberTableCell else { fatalError("CommonMemberTableCell is not registered") }
+        let item = datasource[indexPath.row]
+        cell.configure(
+            avatarUrl: item.member.avatar?.url,
+            jid: jid,
+            owner: owner,
+            userId: item.member.id,
+            title: item.displayName,
+            badge: item.member.badge ?? "",
+            isMe: item.isMe,
+            subtitle: item.subtitle,
+            status: .offline,
+            entity: .contact,
+            role: item.member.role == .owner
+                ? .owner
+                : (item.member.role == .admin ? .admin : .member)
+        )
+        return cell
     }
-    
-    
 }
 
 extension GroupchatMembersListViewController: UITableViewDelegate {
-    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        if indexPath.section == 0 && self.permissionScope == "owner,admin" {
-            return 52
-        }
-        return 64
-    }
-    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        return 0
-    }
-    
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat { 64 }
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat { 0 }
+
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        if permissionScope == "owner,admin" && !isPromoteAdmin && indexPath.section == 0 {
+            let controller = GroupchatMembersListViewController()
+            controller.permissionScope = "member"
+            controller.jid = jid
+            controller.owner = owner
+            controller.configurePromoteAdmin()
+            navigationController?.pushViewController(controller, animated: true)
+            return
+        }
         let item = datasource[indexPath.row]
-        if self.isPromoteAdmin {
-            let vc = GroupchatSettingsPromoteAdminViewController()
-            
-            vc.userId = item.userId
-            vc.jid = self.jid
-            vc.owner = self.owner
-            
-            self.navigationController?.pushViewController(vc, animated: true)
-            return
-        }
-        if indexPath.section == 0 && self.permissionScope == "owner,admin" {
-            self.onAddAdmin()
-            return
-        }
-        if self.permissionScope == "owner,admin" {
-            let vc = GroupchatSettingsPromoteAdminViewController()
-            
-            vc.userId = item.userId
-            vc.jid = self.jid
-            vc.owner = self.owner
-            
-            self.navigationController?.pushViewController(vc, animated: true)
-            return
-        }
-        if item.jid.isNotEmpty {
-            let vc = ContactInfoViewController()
-            vc.owner = self.owner
-            vc.jid = item.jid
-            vc.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
-            self.navigationController?.pushViewController(vc, animated: true)
-            return
+        if isPromoteAdmin || permissionScope == "owner,admin" {
+            let controller = GroupchatSettingsPromoteAdminViewController()
+            controller.userId = item.member.id
+            controller.jid = jid
+            controller.owner = owner
+            navigationController?.pushViewController(controller, animated: true)
         } else {
-            let vc = GroupchatContactInfoViewController()
-            vc.owner = self.owner
-            vc.jid = self.jid
-            vc.userId = item.userId
-            
-            navigationController?.pushViewController(vc, animated: true)
-            return
+            openMember(item.member.id)
         }
     }
-    
-    func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        if self.isPromoteAdmin {
-            return nil
-        }
-        let index = indexPath.row
-        let item = self.datasource[index]
-        
-        let infoAction = UIContextualAction(style: .destructive, title: "Information") { action, view, handler in
-            let item = self.datasource[index]
-            self.onInfoUser(userId: item.userId)
-            handler(true)
-        }
-        
-        infoAction.image = imageLiteral("person.fill")
-        infoAction.backgroundColor = .systemBlue
-        
-        let kickAction = UIContextualAction(style: .destructive, title: "Kick") { action, view, handler in
-            let item = self.datasource[index]
-            self.onKickUser(userId: item.userId)
-            handler(true)
-        }
-        
-        kickAction.image = imageLiteral("person.fill.xmark")
-        kickAction.backgroundColor = .systemRed
-        
-        let restrictAction = UIContextualAction(style: .normal, title: "Restrict") { action, view, handler in
-            let item = self.datasource[index]
-            self.onRestrictUser(userId: item.userId)
-            handler(true)
-        }
-        
-        restrictAction.image = imageLiteral("person.badge.key.fill")
-        restrictAction.backgroundColor = .systemYellow
-        
-        let promoteAction = UIContextualAction(style: .normal, title: "Promote") { action, view, handler in
-            let item = self.datasource[index]
-            self.onPromoteUser(userId: item.userId)
-            handler(true)
-        }
-        
-        promoteAction.image = imageLiteral("xabber.person.star.fill")
-        promoteAction.backgroundColor = .systemBlue
 
-        let reportAction = UIContextualAction(style: .normal, title: "Report User".localizeString(id: "report_user_action", arguments: [])) { action, view, handler in
-            let item = self.datasource[index]
-            self.onReportUser(item)
-            handler(true)
-        }
-
-        reportAction.image = imageLiteral("exclamationmark.circle")
-        reportAction.backgroundColor = .systemOrange
-        
+    func tableView(
+        _ tableView: UITableView,
+        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
+    ) -> UISwipeActionsConfiguration? {
+        guard !(permissionScope == "owner,admin" && indexPath.section == 0), !isPromoteAdmin else { return nil }
+        let item = datasource[indexPath.row]
         var actions: [UIContextualAction] = []
-        
-        if item.isMe {
-            actions.append(infoAction)
-        } else {
-            actions.append(reportAction)
-            if item.canKick {
-                actions.append(kickAction)
-            }
-            if item.canRestrict {
-                if item.role == .member || item.role == .custom {
-                    actions.append(restrictAction)
-                }
-            }
-            if item.canPromote {
-                actions.append(promoteAction)
-            }
-        }
-        
-        let conf = UISwipeActionsConfiguration(actions: actions)
-        conf.performsFirstActionWithFullSwipe = true
-        return conf
-    }
-    
-    func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        if self.isPromoteAdmin {
-            return nil
-        }
-        let item = self.datasource[indexPath.row]
-        let index = indexPath.row
-        let directChat = UIContextualAction(style: .normal, title: "Chat") { action, view, handler in
-            let item = self.datasource[index]
-            self.onDirectChat(jid: item.jid)
-            handler(true)
-        }
-        
-        directChat.image = imageLiteral("custom.person.bubble.left.fill")
-        directChat.backgroundColor = AccountColorManager.shared.palette(for: self.owner).tint700
-        
-        let privateChat = UIContextualAction(style: .normal, title: "Chat") { action, view, handler in
-            let item = self.datasource[index]
-            self.onPrivateChat(userId: item.userId)
-            handler(true)
-        }
-        
-        privateChat.image = imageLiteral("xabber.incognito.fill.bubble.left.fill")
-        privateChat.backgroundColor = AccountColorManager.shared.palette(for: self.owner).tint700
-        
-        let messagesFilterAction = UIContextualAction(style: .normal, title: "Messages") { action, view, handler in
-            let item = self.datasource[index]
-            self.onShowMessages(userId: item.userId)
-            handler(true)
-        }
-        
-        messagesFilterAction.image = imageLiteral("bubble.left.and.bubble.right.fill")
-        messagesFilterAction.backgroundColor = .systemBlue
-        
-        let editUserAction = UIContextualAction(style: .normal, title: "Edit") { action, view, handler in
-            let item = self.datasource[index]
-            self.onEditUser(userId: item.userId)
-            handler(true)
-        }
-        
-        editUserAction.image = imageLiteral("pencil")
-        editUserAction.backgroundColor = .systemOrange
-        
-        var actions: [UIContextualAction] = []
-        if !item.isMe {
-            if item.jid.isEmpty {
-                actions.append(privateChat)
-            } else {
-                actions.append(directChat)
-            }
-        }
-        actions.append(messagesFilterAction)
-        if item.canEdit {
-            actions.append(editUserAction)
-        }
-        
-        let conf = UISwipeActionsConfiguration(actions: [directChat, messagesFilterAction, editUserAction])
-        conf.performsFirstActionWithFullSwipe = true
-        return conf
-    }
-}
 
-extension GroupchatMembersListViewController {
-    private func onDirectChat(jid: String) {
-        
-    }
-    
-    private func onPrivateChat(userId: String) {
-        
-    }
-    
-    private func onShowMessages(userId: String) {
-        
-    }
-    
-    private func onEditUser(userId: String) {
-        
-    }
-    
-    private func onKickUser(userId: String) {
-        
-    }
-    
-    private func onRestrictUser(userId: String) {
-        let vc = GroupchatSettingsRestrictUserViewController()
-        
-        vc.userId = userId
-        vc.jid = self.jid
-        vc.owner = self.owner
-        
-        self.navigationController?.pushViewController(vc, animated: true)
-    }
-    
-    private func onPromoteUser(userId: String) {
-        let vc = GroupchatSettingsPromoteAdminViewController()
-        
-        vc.userId = userId
-        vc.jid = self.jid
-        vc.owner = self.owner
-        
-        self.navigationController?.pushViewController(vc, animated: true)
-    }
-    
-    private func onInfoUser(userId: String) {
-        
+        let info = UIContextualAction(style: .normal, title: "Information") { [weak self] _, _, completion in
+            self?.openMember(item.member.id)
+            completion(true)
+        }
+        info.backgroundColor = .systemBlue
+        actions.append(info)
+
+        if item.canKick {
+            let kick = UIContextualAction(style: .destructive, title: "Kick") { [weak self] _, _, completion in
+                self?.kick(item)
+                completion(true)
+            }
+            actions.append(kick)
+        }
+        if item.canRestrict {
+            let restrict = UIContextualAction(style: .normal, title: "Restrict") { [weak self] _, _, completion in
+                guard let self else { completion(false); return }
+                let controller = GroupchatSettingsRestrictUserViewController()
+                controller.userId = item.member.id
+                controller.jid = jid
+                controller.owner = owner
+                navigationController?.pushViewController(controller, animated: true)
+                completion(true)
+            }
+            restrict.backgroundColor = .systemYellow
+            actions.append(restrict)
+        }
+        if item.canPromote {
+            let promote = UIContextualAction(style: .normal, title: "Promote") { [weak self] _, _, completion in
+                guard let self else { completion(false); return }
+                let controller = GroupchatSettingsPromoteAdminViewController()
+                controller.userId = item.member.id
+                controller.jid = jid
+                controller.owner = owner
+                navigationController?.pushViewController(controller, animated: true)
+                completion(true)
+            }
+            promote.backgroundColor = .systemBlue
+            actions.append(promote)
+        }
+        return UISwipeActionsConfiguration(actions: actions)
     }
 
-    private func onReportUser(_ item: Datasource) {
-        let vc = AbuseReportViewController()
-        vc.configureUserReport(
-            owner: self.owner,
-            jid: self.jid,
-            reportedUserJid: item.jid.isNotEmpty ? item.jid : item.userId,
-            roomJid: self.jid,
-            conversationType: .group
-        )
-        showModal(vc, parent: self)
-    }
-    
-    private func onAddAdmin() {
-        let vc = GroupchatMembersListViewController()
-        
-        vc.permissionScope = "member"
-        vc.jid = self.jid
-        vc.owner = self.owner
-        vc.configurePromoteAdmin()
-        
-        self.navigationController?.pushViewController(vc, animated: true)
+    func tableView(
+        _ tableView: UITableView,
+        leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath
+    ) -> UISwipeActionsConfiguration? {
+        guard !(permissionScope == "owner,admin" && indexPath.section == 0), !isPromoteAdmin else { return nil }
+        let item = datasource[indexPath.row]
+        guard !item.isMe else { return nil }
+        if let realJID = item.member.jid {
+            let direct = UIContextualAction(style: .normal, title: "Chat") { [weak self] _, _, completion in
+                guard let self else { completion(false); return }
+                let chat = ChatViewController()
+                chat.owner = owner
+                chat.jid = realJID
+                chat.conversationType = ClientSynchronizationManager.ConversationType(
+                    rawValue: CommonConfigManager.shared.config.locked_conversation_type
+                ) ?? .regular
+                showDetail(chat, currentVc: self)
+                completion(true)
+            }
+            return UISwipeActionsConfiguration(actions: [direct])
+        }
+        guard item.member.allowsPeerToPeer else { return nil }
+        let privateChat = UIContextualAction(style: .normal, title: "Chat") { [weak self] _, _, completion in
+            self?.createPrivateChat(item.member.id)
+            completion(true)
+        }
+        return UISwipeActionsConfiguration(actions: [privateChat])
     }
 }

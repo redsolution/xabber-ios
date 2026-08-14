@@ -23,19 +23,12 @@ import UIKit
 
 extension GroupchatContactInfoViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        let title: String
-        if section >= datasource.count {
-            title = formSectionTitles[section - datasource.count]
-        } else {
-            title = datasource[section].title
-        }
+        guard datasource.indices.contains(section) else { return 0 }
+        let title = datasource[section].title
         return InfoScreenSectionMetrics.headerHeight(for: title, section: section)
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        if indexPath.section >= datasource.count {
-            return 64
-        }
         if #available(iOS 26, *) {
             return 52
         } else {
@@ -45,11 +38,13 @@ extension GroupchatContactInfoViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        if indexPath.section < datasource.count {
-            let item = datasource[indexPath.section].childs[indexPath.row]
-            if item.key == "report_user" {
-                reportUser()
-            }
+        guard datasource.indices.contains(indexPath.section),
+              datasource[indexPath.section].childs.indices.contains(indexPath.row) else {
+            return
+        }
+        let item = datasource[indexPath.section].childs[indexPath.row]
+        if item.key == "report_user" {
+            reportUser()
         }
     }
 }

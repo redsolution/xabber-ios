@@ -61,8 +61,6 @@ extension APNSManager {
         ]
         print(params, "REGJIDPARAMS")
 //        let retrier = RequestRetrier()
-        /*SUCCESS: {"action":"regjid","result":"success","jid":"igor.boldin@xmppdev01.xabber.com/3F02F22F-5185-43A9-9116-B1C1E306F6C7","node":"65be5460-5052-4ada-8483-a3a869731e16","service":"pubsub.devpush.xabber.com"}
-         */
 //        self.sendDeleteRequest(jid: jid, voip: voip) {
             AF.request(url, method: .post, parameters: params, encoding: JSONEncoding.default, headers: HTTPHeaders(headers)).responseData { response in
                 print("PUSH RESPONSE", response.debugDescription, response)

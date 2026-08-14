@@ -11,6 +11,45 @@ import UIKit
 import RealmSwift
 import CocoaLumberjack
 
+enum ChatPinnedMessageSelectionPolicy {
+    static func displayedMessageIDs(
+        _ canonicalIDs: [String]?,
+        fallbackMessageID: String? = nil
+    ) -> [String] {
+        let source = canonicalIDs ?? fallbackMessageID.map { [$0] } ?? []
+        var seen = Set<String>()
+        return source.filter { messageID in
+            guard messageID.isNotEmpty,
+                  messageID != "0",
+                  !seen.contains(messageID) else {
+                return false
+            }
+            seen.insert(messageID)
+            return true
+        }
+    }
+}
+
+enum ChatPinnedMessageAction: String, Equatable, Sendable {
+    case pin
+    case unpin
+}
+
+enum ChatPinnedMessageActionPolicy {
+    static func action(
+        groupStanzaID: String,
+        pinnedMessageIDs: [String]?,
+        canPin: Bool
+    ) -> ChatPinnedMessageAction? {
+        guard canPin,
+              groupStanzaID.isNotEmpty,
+              groupStanzaID != "0" else {
+            return nil
+        }
+        return pinnedMessageIDs?.contains(groupStanzaID) == true ? .unpin : .pin
+    }
+}
+
 extension ChatViewController {
     private func makeFloatingPanel(
         icon: UIImage?,
@@ -235,9 +274,10 @@ extension ChatViewController {
         return "Pinned message".localizeString(id: "group_chat__pinned_message", arguments: [])
     }
 
-    internal func pinnedMessageOpenRequest() -> ChatOpenMessageRequest? {
-        guard let archivedId = currentPinnedMessageId,
-              archivedId.isNotEmpty else {
+    internal func pinnedMessageOpenRequest(archivedId: String? = nil) -> ChatOpenMessageRequest? {
+        guard let archivedId = archivedId ?? currentPinnedMessageId,
+              archivedId.isNotEmpty,
+              archivedId != "0" else {
             return nil
         }
 
@@ -262,7 +302,49 @@ extension ChatViewController {
 
     @objc
     final func onPinnedMessagePanelTouchUpInside(_ sender: ChatPinnedMessagePanelView) {
-        guard let request = pinnedMessageOpenRequest() else {
+        let pinnedMessageIDs = ChatPinnedMessageSelectionPolicy.displayedMessageIDs(
+            canonicalGroupProjectionState?.pinnedMessageIDs,
+            fallbackMessageID: currentPinnedMessageId
+        )
+        guard pinnedMessageIDs.isNotEmpty else {
+            return
+        }
+        guard pinnedMessageIDs.count > 1 else {
+            openPinnedMessage(archivedId: pinnedMessageIDs[0])
+            return
+        }
+
+        let values = pinnedMessageIDs.enumerated().map { index, messageID in
+            let presentation = pinnedMessagePanelPresentation(messageId: messageID)
+            let ordinal = index + 1
+            let fallback = "Pinned message".localizeString(
+                id: "group_chat__pinned_message",
+                arguments: []
+            )
+            let preview = presentation.preview.isNotEmpty ? presentation.preview : fallback
+            return ActionSheetPresenter.Item(
+                destructive: false,
+                title: "\(ordinal). \(preview)",
+                value: messageID
+            )
+        }
+        ActionSheetPresenter().present(
+            in: self,
+            title: "Pinned messages".localizeString(
+                id: "group_chat__pinned_messages",
+                arguments: []
+            ),
+            message: nil,
+            cancel: "Cancel".localizeString(id: "cancel", arguments: []),
+            values: values,
+            animated: true
+        ) { [weak self] messageID in
+            self?.openPinnedMessage(archivedId: messageID)
+        }
+    }
+
+    private func openPinnedMessage(archivedId: String) {
+        guard let request = pinnedMessageOpenRequest(archivedId: archivedId) else {
             return
         }
         queueOpenMessageRequest(
@@ -303,37 +385,94 @@ extension ChatViewController {
     }
 
     private func performPinnedMessageUnpin() {
-        DispatchQueue.main.async {
-            self.view.makeToastActivity(self.view.center)
-            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { stream, session in
-                session.groupchat?.unpinMessage(stream, groupchat: self.jid) { error in
-                    self.handlePinnedMessageUnpinResult(error)
+        guard let groupStanzaID = pinnedMessageId.value,
+              canonicalGroupProjectionState?.canPinMessages == true else {
+            return
+        }
+        performPinnedMessageMutation(.unpin, groupStanzaID: groupStanzaID)
+    }
+
+    internal func performPinnedMessageMutation(
+        _ action: ChatPinnedMessageAction,
+        groupStanzaID: String
+    ) {
+        guard canonicalGroupProjectionState?.canPinMessages == true,
+              groupStanzaID.isNotEmpty,
+              groupStanzaID != "0",
+              let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+        view.makeToastActivity(view.center)
+        Task { [weak self, weak account] in
+            guard let self, let account else { return }
+            do {
+                let snapshot: GroupSnapshot
+                switch action {
+                case .pin:
+                    snapshot = try await account.groupchatService.pin(
+                        groupJID: self.jid,
+                        groupStanzaID: groupStanzaID
+                    )
+                case .unpin:
+                    snapshot = try await account.groupchatService.unpin(
+                        groupJID: self.jid,
+                        groupStanzaID: groupStanzaID
+                    )
                 }
-            }) {
-                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                    user.groupchats.unpinMessage(stream, groupchat: self.jid) { error in
-                        self.handlePinnedMessageUnpinResult(error)
-                    }
-                })
+                try GroupRepository(realm: WRealm.safe()).applySnapshot(
+                    snapshot,
+                    owner: self.owner,
+                    groupJID: self.jid
+                )
+                await MainActor.run {
+                    self.handlePinnedMessageMutationResult(
+                        action: action,
+                        error: nil,
+                        pinnedMessageIDs: snapshot.pinnedMessageIDs ?? []
+                    )
+                }
+            } catch {
+                await MainActor.run {
+                    self.handlePinnedMessageMutationResult(
+                        action: action,
+                        error: error,
+                        pinnedMessageIDs: nil
+                    )
+                }
             }
         }
     }
 
-    private func handlePinnedMessageUnpinResult(_ error: String?) {
-        DispatchQueue.main.async {
-            self.view.hideToastActivity()
-            if let error {
-                var message = "Internal error: \(error)"
-                    .localizeString(id: "message_manager_internal_error_message", arguments: ["\(error)"])
-                if error == "not-allowed" {
+    @MainActor
+    private func handlePinnedMessageMutationResult(
+        action: ChatPinnedMessageAction,
+        error: Error?,
+        pinnedMessageIDs: [String]?
+    ) {
+        view.hideToastActivity()
+        if let error {
+            var message = "Internal error: \(error)"
+                .localizeString(id: "message_manager_internal_error_message", arguments: ["\(error)"])
+            if let serviceError = error as? GroupchatServiceError,
+               case let .iq(stanzaError) = serviceError,
+               stanzaError.condition == "not-allowed" {
+                switch action {
+                case .pin:
+                    message = "You don't have permission to pin messages"
+                        .localizeString(id: "groupchats_no_pin_permission", arguments: [])
+                case .unpin:
                     message = "You don't have permission to unpin messages"
                         .localizeString(id: "groupchats_no_unpin_permission", arguments: [])
                 }
-                self.view.makeToast(message, danger: true)
-                return
             }
-            self.updatePinnedMessagePanelState(pinnedMessageId: nil, canUnpin: self.canUnpinMessage.value)
+            view.makeToast(message, danger: true)
+            return
         }
+        updatePinnedMessagePanelState(
+            pinnedMessageId: pinnedMessageIDs?.first,
+            canUnpin: canonicalGroupProjectionState?.canPinMessages == true
+                && pinnedMessageIDs?.first != nil
+        )
     }
     
     internal func applyAudioPlayerPanel() {

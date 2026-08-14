@@ -165,7 +165,13 @@ class AvatarUploadManager: AbstractXMPPManager {
         let upload = PendingAvatarUpload(target: .groupchat(groupchat), imageData: imageData, mimeType: mimeType)
         uploadAvatar(upload,
                      successCallback: { [weak self] avatar in
-            self?.handleAvatarUploadSuccess(avatar, upload: upload, successCallback: successCallback)
+            self?.handleGroupAvatarUploadSuccess(
+                groupchat: groupchat,
+                avatar: avatar,
+                upload: upload,
+                successCallback: successCallback,
+                failCallback: failCallback
+            )
         }, failCallback: { status, failError in
             failCallback?(status, failError)
             DDLogDebug("AvatarUploadManager: \(#function). \(failError)")
@@ -175,82 +181,102 @@ class AvatarUploadManager: AbstractXMPPManager {
     private func handleAvatarUploadSuccess(_ avatar: AvatarResponse, upload: PendingAvatarUpload, successCallback: (() -> Void)?) {
         switch upload.target {
         case .groupchat(let groupchat):
-            handleGroupAvatarUploadSuccess(groupchat: groupchat, avatar: avatar, imageData: upload.imageData, successCallback: successCallback)
+            handleGroupAvatarUploadSuccess(
+                groupchat: groupchat,
+                avatar: avatar,
+                upload: upload,
+                successCallback: successCallback,
+                failCallback: nil
+            )
         case .account:
             handleAccountAvatarUploadSuccess(avatar: avatar, imageData: upload.imageData, successCallback: successCallback)
         }
     }
 
-    private func handleGroupAvatarUploadSuccess(groupchat: String, avatar: AvatarResponse, imageData: Data, successCallback: (() -> Void)?) {
-
-
-
-            do {
-                let realm = try WRealm.safe()
-                var maxUrl: String = avatar.file
-                var minUrl: String? = nil
-                avatar.thumbnails.forEach {
-                    thumb in
-                    let thumbUrl = thumb.url
-                    let width = thumb.width
-                    if width >= 512 {
-                        maxUrl = thumbUrl
-                        return
-                    } else if width >= 256 {
-                        maxUrl = thumbUrl
-                        return
-                    }
-                }
-
-                avatar.thumbnails.forEach {
-                    thumb in
-                    let thumbUrl = thumb.url
-                    let width = thumb.width
-                    if width < 256 && width >= 128 {
-                        minUrl = thumbUrl
-                        return
-                    } else if width < 128 {
-                        minUrl = thumbUrl
-                        return
-                    }
-                }
-                let uploadedImage = UIImage(data: imageData)
-                if let image = uploadedImage {
-                    ImageCache.default.store(image, forKey: maxUrl, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
-                    let thumbImage = image.resize(targetSize: CGSize(square: 256))
-                    if thumbImage.pngData() != nil,
-                       let minUrl = minUrl {
-                        ImageCache.default.store(thumbImage, forKey: minUrl, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
-                    }
-                }
-
-                successCallback?()
-
-                if let group = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: groupchat, owner: self.owner)) {
-                    try realm.write {
-                        group.oldschoolAvatarKey = avatar.hash
-                        group.avatarUpdatedTS = Date().timeIntervalSince1970
-                        group.avatarMaxUrl = maxUrl
-                        group.avatarMinUrl = minUrl
-                    }
-                }
-                if let uploadedImage {
-                    DefaultAvatarManager.shared.publishPushAvatarSnapshot(
-                        uploadedImage,
-                        sourceKey: maxUrl,
-                        metadataRevision: avatar.hash,
-                        owner: self.owner,
-                        jid: groupchat
-                    )
-                }
-
-                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                    user.avatarUploader.sendImageMetadata(stream, avatar: avatar, to: XMPPJID(string: groupchat))
-                })
-
-            } catch {
-                DDLogDebug("AvatarUploadManager: \(#function). \(error.localizedDescription)")
+    private func handleGroupAvatarUploadSuccess(
+        groupchat: String,
+        avatar: AvatarResponse,
+        upload: PendingAvatarUpload,
+        successCallback: (() -> Void)?,
+        failCallback: ((Int, String) -> Void)?
+    ) {
+        var maxUrl = avatar.file
+        var minUrl: String?
+        avatar.thumbnails.forEach { thumbnail in
+            if thumbnail.width >= 256 {
+                maxUrl = thumbnail.url
+            } else {
+                minUrl = thumbnail.url
             }
+        }
+
+        let uploadedImage = UIImage(data: upload.imageData)
+        if let uploadedImage {
+            ImageCache.default.store(
+                uploadedImage,
+                forKey: maxUrl,
+                options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory])
+            )
+            if let minUrl {
+                ImageCache.default.store(
+                    uploadedImage.resize(targetSize: CGSize(square: 256)),
+                    forKey: minUrl,
+                    options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory])
+                )
+            }
+            DefaultAvatarManager.shared.publishPushAvatarSnapshot(
+                uploadedImage,
+                sourceKey: maxUrl,
+                metadataRevision: avatar.hash,
+                owner: owner,
+                jid: groupchat
+            )
+        }
+
+        guard let account = AccountManager.shared.find(for: owner) else {
+            failCallback?(0, GroupchatServiceError.notPrepared.localizedDescription)
+            return
+        }
+        account.action { user, stream in
+            user.avatarUploader.sendImageMetadata(
+                stream,
+                avatar: avatar,
+                to: XMPPJID(string: groupchat)
+            )
+        }
+        let metadata = GroupAvatar(
+            id: avatar.hash,
+            mediaType: upload.mimeType,
+            bytes: upload.imageData.count,
+            width: uploadedImage.map { Int($0.size.width) },
+            height: uploadedImage.map { Int($0.size.height) },
+            url: maxUrl
+        )
+        Task { [weak account] in
+            guard let account else { return }
+            do {
+                _ = try await account.groupchatService.updateGroupAvatar(
+                    groupJID: groupchat,
+                    metadata: metadata
+                )
+                let snapshot = try await account.groupchatService.refreshGroup(
+                    groupJID: groupchat
+                )
+                let repository = GroupRepository(realm: try WRealm.safe())
+                try repository.applySnapshot(
+                    snapshot,
+                    owner: owner,
+                    groupJID: groupchat
+                )
+                DispatchQueue.main.async {
+                    successCallback?()
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    failCallback?(0, error.localizedDescription)
+                }
+            }
+        }
     }
 
     fileprivate func posAvatarUpdate(image imageData: Data, mimeType: String, callback successCallback: (() -> Void)? = nil, failCallback: ((Int, String) -> Void)? = nil, queuedCallback: (() -> Void)? = nil) {
@@ -336,7 +362,7 @@ class AvatarUploadManager: AbstractXMPPManager {
             }
     }
 
-    public final func setGrpoupAvatar(groupchat: String, image: UIImage?, successCallback: (() -> Void)? = nil, failureCallback: ((Int, String) -> Void)? = nil, queuedCallback: (() -> Void)? = nil) {
+    public final func setGroupAvatar(groupchat: String, image: UIImage?, successCallback: (() -> Void)? = nil, failureCallback: ((Int, String) -> Void)? = nil, queuedCallback: (() -> Void)? = nil) {
         guard let imageData = image?.pngData() else { return }
 
         posGroupAvatarUpdate(

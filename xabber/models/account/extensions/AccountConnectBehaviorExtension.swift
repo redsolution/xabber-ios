@@ -46,6 +46,7 @@ extension Account {
         if didResume {
             self.sendReadiness.markStreamManagementResumeSucceeded()
             self.sendCoordinator.streamManagementResumeSucceeded()
+            self.recoverCanonicalGroupRuntimeAfterStreamManagementResume()
             self.syncManager.restoreAfterStreamManagementResume()
             self.roster.retryInitialRosterAfterResumeIfNeeded(self.xmppStream)
             AccountManager.shared.markAsConnected(jid: self.jid)
@@ -63,6 +64,7 @@ extension Account {
                 ToastPresenter().present(message: "Synchronization", image: imageLiteral("cloud"))
             }
             self.configureExtensions()
+            self.recoverCanonicalGroupRuntimeAfterFullAuthentication()
             self.disco.configure(self.xmppStream)
             if self.roster.version != nil {
                 if self.syncManager.isAvailable {

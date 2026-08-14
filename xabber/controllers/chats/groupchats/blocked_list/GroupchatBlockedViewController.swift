@@ -1,297 +1,152 @@
-//
-//
-//
-//  This program is free software; you can redistribute it and/or
-//  modify it under the terms of the GNU General Public License as
-//  published by the Free Software Foundation; either version 3 of the
-//  License.
-//
-//  This program is distributed in the hope that it will be useful,
-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-//  General Public License for more details.
-//
-//  You should have received a copy of the GNU General Public License along
-//  with this program; if not, write to the Free Software Foundation, Inc.,
-//  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-//
-//
-//
-
 import Foundation
 import UIKit
-import RealmSwift
-import RxCocoa
-import RxSwift
-import RxRealm
-import DeepDiff
 import CocoaLumberjack
-import Kingfisher
-import MaterialComponents.MDCPalettes
 
-class GroupchatBlockedViewController: SimpleBaseViewController {
-    
-    class Datasource: DiffAware, Equatable, Hashable {
-        var userId: String
-        var jid: String
-        var title: String
-        var subtitle: String
-        var avatarUrl: String?
-        
-        typealias DiffId = String
-        
-        var diffId: String {
-            get {
-                return userId
-            }
-        }
-        
-        static func == (lhs: Datasource, rhs: Datasource) -> Bool {
-            return lhs.jid == rhs.jid
-        }
-        
-        
-        init(userId: String, jid: String, title: String, subtitle: String, avatarUrl: String?) {
-            self.userId = userId
-            self.jid = jid
-            self.title = title
-            self.subtitle = subtitle
-            self.avatarUrl = avatarUrl
-        }
-        
-        func hash(into hasher: inout Hasher) {
-            hasher.combine(jid)
-        }
-        
-        static func compareContent(_ a: Datasource, _ b: Datasource) -> Bool {
-            return a.userId == b.userId &&
-            a.jid == b.jid &&
-            a.title == b.title &&
-            a.subtitle == b.subtitle &&
-            a.avatarUrl == b.avatarUrl
-        }
+/// Canonical blocklist UI. The server currently has no blocklist repository
+/// projection, so its GET result is kept as immutable screen-local state.
+final class GroupchatBlockedViewController: SimpleBaseViewController {
+    struct Datasource: Equatable {
+        let target: String
+        let title: String
+        let subtitle: String
+        let avatarURL: String?
     }
-    
-    internal var datasource: [Datasource] = []
-    
-    internal var membersObserver: Results<GroupchatUserStorageItem>? = nil
-    
-    var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
-    
-    internal let tableView: UITableView = {
+
+    var leftMenuDelegate: LeftMenuSelectRootScreenDelegate?
+
+    private let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
-        
-        view.register(CommonMemberTableCell.self, forCellReuseIdentifier: CommonMemberTableCell.cellName)
-        
+        view.register(
+            CommonMemberTableCell.self,
+            forCellReuseIdentifier: CommonMemberTableCell.cellName
+        )
         return view
     }()
-        
-    internal let updateQueue: DispatchQueue = {
-        return DispatchQueue.global(qos: .background)
-    }()
-    
-    
-    override func subscribe() {
-        super.subscribe()
-        do {
-            let realm = try WRealm.safe()
-            membersObserver = realm
-                    .objects(GroupchatUserStorageItem.self)
-                    .filter("groupchatId == %@ AND isBlocked == true", [jid, owner].prp())
-                    .sorted(by: [
-                        SortDescriptor(keyPath: "nickname", ascending: true),
-                        SortDescriptor(keyPath: "jid", ascending: true)
-                    ])
-            
-            
-            Observable
-                .collection(from: membersObserver!)
-                .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
-                .subscribe { (results) in
-                    self.runDatasetUpdateTask()
-                } onError: { (error) in
-                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX error: \(error.localizedDescription)")
-                } onCompleted: {
-                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX state: completed")
-                } onDisposed: {
-                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX state: disposed")
-                }
-                .disposed(by: bag)
+    private var datasource: [Datasource] = []
+    private var refreshTask: Task<Void, Never>?
 
-            canUpdateDataset = true
-            runDatasetUpdateTask()
-            
-        } catch {
-            DDLogDebug("GroupchatMembersListViewController: \(#function). \(error.localizedDescription)")
-        }
-    }
-    
     override func setupSubviews() {
         super.setupSubviews()
         view.addSubview(tableView)
         tableView.fillSuperview()
     }
-    
-    internal var isPromoteAdmin: Bool = false
-    
-    public final func configurePromoteAdmin() {
-        self.isPromoteAdmin = true
-    }
-    
+
     override func configure() {
         super.configure()
+        title = "Blocked".localizeString(id: "groupchat_blocked", arguments: [])
         tableView.delegate = self
         tableView.dataSource = self
-        title = "Blocked"
-        let blockBarButton = UIBarButtonItem(image: imageLiteral("custom.nosign.badge.plus"), style: .plain, target: self, action: #selector(onBlockBarButtonTouchUpInside))
-        
-        self.navigationItem.setRightBarButton(blockBarButton, animated: true)
-    }
-    
-    @objc
-    private func onBlockBarButtonTouchUpInside(_ sender: UIBarButtonItem) {
-        self.onBlock()
-    }
-    
-    override func onAppear() {
-//        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-//        navigationController?.navigationBar.shadowImage = nil
-    }
-    
-    var canPromote: Bool = true
-    var canRestrict: Bool = true
-    var canEdit: Bool = true
-    var canKick: Bool = true
-    
-    private final func mapDataset() -> [Datasource] {
-        guard let collection = membersObserver else {
-            return []
-        }
-        return collection.compactMap {
-            item in
-                        
-            return Datasource(
-                userId: item.userId,
-                jid: item.jid,
-                title: item.nickname.isNotEmpty ? item.nickname : item.jid,
-                subtitle: item.nickname.isEmpty ? "" : item.jid,
-                avatarUrl: item.avatarUrl
-            )
-        }
-    }
-    
-    public final var canUpdateDataset = true
-    
-    
-    private final func convertChangeset(changes: [Change<Datasource>]) -> ChangesWithIndexPath {
-        let section: Int = 0
-        
-        let inserts =  changes.compactMap { return $0.insert?.index }.compactMap({ return IndexPath(row:$0, section: section)})
-        let deletes =  changes.compactMap { return $0.delete?.index }.compactMap({ return IndexPath(row:$0, section: section )})
-        let replaces = changes.compactMap { return $0.replace?.index }.compactMap({ return IndexPath(row:$0, section: section )})
-        
-        let moves = changes.compactMap({ $0.move }).map({
-          (
-            from: IndexPath(item: $0.fromIndex, section: section),
-            to: IndexPath(item: $0.toIndex, section: section)
-          )
-        })
-        
-        return ChangesWithIndexPath(
-            inserts: inserts,
-            deletes: deletes,
-            replaces: replaces,
-            moves: moves
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            image: imageLiteral("custom.nosign.badge.plus"),
+            style: .plain,
+            target: self,
+            action: #selector(onBlockBarButtonTouchUpInside)
         )
     }
-    
-    public final func initializeDataset() {
-        
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        refresh()
     }
-    
-    public final func runDatasetUpdateTask() {
-        preprocessDataset()
-        postprocessDataset()
+
+    deinit {
+        refreshTask?.cancel()
     }
-    
-    private final func preprocessDataset() {
-        if !canUpdateDataset { return }
-        self.updateQueue.sync {
-            self.canUpdateDataset = false
-            let newDataset = self.mapDataset()
-            let changes = diff(old: self.datasource, new: newDataset)
-            let indexPaths = self.convertChangeset(changes: changes)
-            DispatchQueue.main.async {
-                self.apply(changes: indexPaths) {
-                    self.datasource = newDataset
-                }
+
+    @objc private func onBlockBarButtonTouchUpInside() {
+        let controller = GroupchatBlockAddViewController()
+        controller.jid = jid
+        controller.owner = owner
+        navigationController?.pushViewController(controller, animated: true)
+    }
+
+    private func refresh() {
+        refreshTask?.cancel()
+        guard let account = AccountManager.shared.find(for: owner) else {
+            present(error: GroupchatServiceError.notPrepared)
+            return
+        }
+        refreshTask = Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            do {
+                let targets = try await account.groupchatService.refreshBlocklist(
+                    groupJID: jid
+                )
+                try Task.checkCancellation()
+                datasource = targets
+                    .map { target in
+                        Datasource(
+                            target: target,
+                            title: target,
+                            subtitle: target.contains("@") ? "XMPP ID" : "Domain",
+                            avatarURL: nil
+                        )
+                    }
+                    .sorted { $0.target.localizedCaseInsensitiveCompare($1.target) == .orderedAscending }
+                tableView.reloadData()
+            } catch is CancellationError {
+                return
+            } catch {
+                present(error: error)
             }
         }
     }
-    
-    private final func postprocessDataset() {
-        
-    }
-    
-    private final func apply(changes: ChangesWithIndexPath, prepare: @escaping (() -> Void)) {
 
-        if changes.deletes.isEmpty &&
-            changes.inserts.isEmpty &&
-            changes.moves.isEmpty &&
-            changes.replaces.isEmpty {
-            prepare()
-            self.canUpdateDataset = true
+    private func unblock(_ target: String) {
+        guard let account = AccountManager.shared.find(for: owner) else {
+            present(error: GroupchatServiceError.notPrepared)
             return
         }
-        UIView.performWithoutAnimation {
-            self.tableView.performBatchUpdates({
-                prepare()
-                if !changes.deletes.isEmpty {
-                    self.tableView.deleteRows(at: changes.deletes, with: .none)
-                }
-                
-                if !changes.inserts.isEmpty {
-                    self.tableView.insertRows(at: changes.inserts, with: .none)
-                }
-                
-                if changes.moves.isNotEmpty {
-                    changes.moves.forEach {
-                        (from, to) in
-                        self.tableView.moveRow(at: from, to: to)
-                    }
-                }
-            }, completion: {
-                result in
-                self.canUpdateDataset = true
-                if changes.replaces.isEmpty { return }
-                self.tableView.reloadRows(at: changes.replaces, with: .none)
-            })
+        Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            view.makeToastActivity(.center)
+            defer { view.hideToastActivity() }
+            do {
+                let targets = try await account.groupchatService.unblock(
+                    groupJID: jid,
+                    target: target
+                )
+                datasource = targets
+                    .map { Datasource(target: $0, title: $0, subtitle: $0.contains("@") ? "XMPP ID" : "Domain", avatarURL: nil) }
+                    .sorted { $0.target.localizedCaseInsensitiveCompare($1.target) == .orderedAscending }
+                tableView.reloadData()
+            } catch {
+                present(error: error)
+            }
         }
     }
-    
-    
+
+    private func present(error: Error) {
+        DDLogDebug("GroupchatBlockedViewController: \(error.localizedDescription)")
+        ErrorMessagePresenter().present(
+            in: self,
+            message: CanonicalGroupMembershipLifecycle.localizedErrorMessage(error),
+            animated: true,
+            completion: nil
+        )
+    }
 }
 
 extension GroupchatBlockedViewController: UITableViewDataSource {
-    func numberOfSections(in tableView: UITableView) -> Int {
-        return 1
-    }
-    
+    func numberOfSections(in tableView: UITableView) -> Int { 1 }
+
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return datasource.count
+        datasource.count
     }
-    
+
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        guard let cell = tableView.dequeueReusableCell(withIdentifier: CommonMemberTableCell.cellName, for: indexPath) as? CommonMemberTableCell else {
-            fatalError()
+        guard let cell = tableView.dequeueReusableCell(
+            withIdentifier: CommonMemberTableCell.cellName,
+            for: indexPath
+        ) as? CommonMemberTableCell else {
+            fatalError("CommonMemberTableCell is not registered")
         }
         let item = datasource[indexPath.row]
-        
         cell.configure(
-            avatarUrl: item.avatarUrl,
-            jid: self.jid,
-            owner: self.owner,
-            userId: "",
+            avatarUrl: item.avatarURL,
+            jid: jid,
+            owner: owner,
+            userId: item.target,
             title: item.title,
             badge: "",
             isMe: false,
@@ -302,104 +157,25 @@ extension GroupchatBlockedViewController: UITableViewDataSource {
         )
         return cell
     }
-    
-    
 }
 
 extension GroupchatBlockedViewController: UITableViewDelegate {
-    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-//        if indexPath.section == 0 && self.permissionScope == "owner,admin" {
-//            return 52
-//        }
-        return 64
-    }
-    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        return 0
-    }
-    
-    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let item = datasource[indexPath.row]
-        let vc = ContactInfoViewController()
-        vc.owner = self.owner
-        vc.jid = item.jid
-        vc.conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
-        self.navigationController?.pushViewController(vc, animated: true)
-    }
-    
-    func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        let index = indexPath.row
-        let cancelInviteAction = UIContextualAction(style: .destructive, title: "Unblock") { action, view, handler in
-            let item = self.datasource[index]
-            self.onUnblock(jid: item.jid)
-            handler(true)
-        }
-        
-        cancelInviteAction.image = imageLiteral("xmark")
-        cancelInviteAction.backgroundColor = .systemRed
-        
-        let conf = UISwipeActionsConfiguration(actions: [cancelInviteAction])
-        conf.performsFirstActionWithFullSwipe = true
-        return conf
-    }
-    
-    func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        let index = indexPath.row
-        let directChat = UIContextualAction(style: .normal, title: "Chat") { action, view, handler in
-            let item = self.datasource[index]
-            self.onDirectChat(jid: item.jid)
-            handler(true)
-        }
-        
-        directChat.image = imageLiteral("custom.person.bubble.left.fill")
-        directChat.backgroundColor = AccountColorManager.shared.palette(for: self.owner).tint700
-        
-        let conf = UISwipeActionsConfiguration(actions: [directChat])
-        conf.performsFirstActionWithFullSwipe = true
-        return conf
-    }
-}
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat { 64 }
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat { 0 }
 
-extension GroupchatBlockedViewController {
-    
-    internal func onBlock() {
-        let vc = GroupchatBlockAddViewController()
-        vc.jid = self.jid
-        vc.owner = self.owner
-        self.navigationController?.pushViewController(vc, animated: true)
-    }
-    
-    private func onInvite() {
-        let vc = GroupchatInviteViewController()
-        vc.configure(jid: self.jid, owner: self.owner)
-        self.navigationController?.pushViewController(vc, animated: true)
-    }
-    
-    private func onUnblock(jid invitedJid: String) {
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            session.groupchat?.cancelInvite(stream, groupchat: self.jid, jid: invitedJid)
-        } fail: {
-            AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                user.groupchats.cancelInvite(stream, groupchat: self.jid, jid: invitedJid)
-            }
+    func tableView(
+        _ tableView: UITableView,
+        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
+    ) -> UISwipeActionsConfiguration? {
+        let target = datasource[indexPath.row].target
+        let action = UIContextualAction(
+            style: .destructive,
+            title: "Unblock".localizeString(id: "groupchat_unblock", arguments: [])
+        ) { [weak self] _, _, completion in
+            self?.unblock(target)
+            completion(true)
         }
-    }
-    
-    private func onDirectChat(jid invitationJid: String) {
-        let conversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
-        if conversationType == .omemo {
-            AccountManager.shared.find(for: self.owner)?.omemo.initChat(jid: invitationJid)
-        }
-        if leftMenuDelegate == nil {
-            let chatVc = ChatViewController()
-            chatVc.owner = self.owner
-            chatVc.jid = invitationJid
-            chatVc.conversationType = conversationType
-            
-            showDetail(chatVc, currentVc: self)
-        } else {
-            self.leftMenuDelegate?.openChatlistWithChat(owner: self.owner, jid: invitationJid, conversationType: conversationType, configure: nil)
-            self.dismiss(animated: true) {
-            }
-        }
+        action.image = imageLiteral("xmark")
+        return UISwipeActionsConfiguration(actions: [action])
     }
 }

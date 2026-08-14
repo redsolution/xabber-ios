@@ -6,6 +6,11 @@ enum GroupRepositoryMutationResult: Equatable {
     case ignoredInactiveMembership
 }
 
+enum GroupRepositoryAdmissionResult: Equatable {
+    case admitted
+    case ignoredTombstone
+}
+
 enum GroupRepositoryError: Error, Equatable {
     case invalidOwner
     case invalidGroupJID
@@ -13,6 +18,7 @@ enum GroupRepositoryError: Error, Equatable {
     case missingGroup(String)
     case emptyMemberID
     case duplicateMemberID(String)
+    case unknownSelfMemberID(String)
     case missingPersonalPermissionTarget
     case unexpectedPermissionTarget
     case duplicatePermissionName(String)
@@ -45,20 +51,25 @@ final class GroupRepository {
         var result = GroupRepositoryMutationResult.applied
 
         try write {
-            guard self.allowsGroupState(context) else {
+            guard self.allowsSnapshotState(context) else {
                 result = .ignoredInactiveMembership
                 return
             }
 
-            let item = self.realm.object(
+            let existingItem = self.realm.object(
                 ofType: GroupSnapshotStorageItem.self,
                 forPrimaryKey: context.groupPrimary
-            ) ?? GroupSnapshotStorageItem()
-            item.primary = context.groupPrimary
-            item.owner = context.owner
-            item.groupJID = context.groupJID
+            )
+            let item = existingItem ?? GroupSnapshotStorageItem()
+            if existingItem == nil {
+                item.primary = context.groupPrimary
+                item.owner = context.owner
+                item.groupJID = context.groupJID
+            }
             self.replaceSnapshot(item, with: snapshot)
-            self.realm.add(item, update: .modified)
+            if existingItem == nil {
+                self.realm.add(item, update: .error)
+            }
         }
         return result
     }
@@ -76,7 +87,7 @@ final class GroupRepository {
         var result = GroupRepositoryMutationResult.applied
 
         try write {
-            guard self.allowsGroupState(context) else {
+            guard self.allowsSnapshotState(context) else {
                 result = .ignoredInactiveMembership
                 return
             }
@@ -100,15 +111,105 @@ final class GroupRepository {
     ) throws {
         let context = try makeContext(owner: owner, groupJID: groupJID)
         try write {
+            let previousStateRaw = self.realm.object(
+                ofType: GroupSelfMembershipStorageItem.self,
+                forPrimaryKey: context.groupPrimary
+            )?.stateRaw
+            let previousState = previousStateRaw.flatMap {
+                GroupSelfMembershipState(rawValue: $0)
+            }
             self.upsertMembership(
                 state,
                 memberID: memberID,
                 context: context
             )
-            if state != .both {
+            if state == .none || (state == .wait && previousState != .wait) {
                 self.deleteGroupState(context)
             }
         }
+    }
+
+    /// Admits a server-returned group snapshot and its self membership as one
+    /// coherent Realm transition. A fresh `wait` admission clears stale
+    /// authoritative state, while an already-active `both` membership keeps
+    /// members and permissions intact during P2P conflict reconciliation.
+    @discardableResult
+    func admitSnapshot(
+        _ snapshot: GroupSnapshot,
+        membership state: GroupSelfMembershipState,
+        memberID: String?,
+        owner: String,
+        groupJID: String,
+        members: [GroupMember]? = nil,
+        rejectingTombstone: Bool = false
+    ) throws -> GroupRepositoryAdmissionResult {
+        let context = try makeContext(owner: owner, groupJID: groupJID)
+        try validate(snapshotJID: snapshot.jid, context: context)
+        if let members {
+            try validateMembers(members)
+            guard let memberID,
+                  !memberID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  members.contains(where: { $0.id == memberID }) else {
+                throw GroupRepositoryError.unknownSelfMemberID(memberID ?? "")
+            }
+        }
+        let memberReplacements = members?.map { makeMember($0, context: context) }
+        var result = GroupRepositoryAdmissionResult.admitted
+        try write {
+            let previousStateRaw = self.realm.object(
+                ofType: GroupSelfMembershipStorageItem.self,
+                forPrimaryKey: context.groupPrimary
+            )?.stateRaw
+            let previousState = previousStateRaw.flatMap {
+                GroupSelfMembershipState(rawValue: $0)
+            }
+            if rejectingTombstone,
+               previousState == GroupSelfMembershipState.none {
+                result = .ignoredTombstone
+                return
+            }
+            if state == .wait, previousState != .wait {
+                self.deleteGroupState(context)
+            }
+            self.upsertMembership(
+                state,
+                memberID: memberID,
+                context: context
+            )
+            guard state != .none else {
+                self.deleteGroupState(context)
+                return
+            }
+            let existingItem = self.realm.object(
+                ofType: GroupSnapshotStorageItem.self,
+                forPrimaryKey: context.groupPrimary
+            )
+            let item = existingItem ?? GroupSnapshotStorageItem()
+            if existingItem == nil {
+                item.primary = context.groupPrimary
+                item.owner = context.owner
+                item.groupJID = context.groupJID
+            }
+            self.replaceSnapshot(item, with: snapshot)
+            if existingItem == nil {
+                self.realm.add(item, update: .error)
+            }
+            if let memberReplacements {
+                self.realm.delete(
+                    self.realm.objects(GroupMemberStorageItem.self)
+                        .filter("groupPrimary == %@", context.groupPrimary)
+                )
+                self.realm.add(memberReplacements, update: .error)
+                self.realm.delete(
+                    self.realm.objects(GroupInviteStorageItem.self).filter(
+                        "groupPrimary == %@ AND directionRaw == %@",
+                        context.groupPrimary,
+                        GroupInviteDirection.incoming.rawValue
+                    )
+                )
+            }
+        }
+        return result
     }
 
     func recordLeave(owner: String, groupJID: String) throws {
@@ -133,7 +234,7 @@ final class GroupRepository {
         var result = GroupRepositoryMutationResult.applied
 
         try write {
-            guard self.allowsGroupState(context) else {
+            guard self.allowsActiveState(context) else {
                 result = .ignoredInactiveMembership
                 return
             }
@@ -181,7 +282,7 @@ final class GroupRepository {
         var result = GroupRepositoryMutationResult.applied
 
         try write {
-            guard self.allowsGroupState(context) else {
+            guard self.allowsActiveState(context) else {
                 result = .ignoredInactiveMembership
                 return
             }
@@ -222,6 +323,9 @@ final class GroupRepository {
 
     func storeInvite(_ invite: GroupInviteRecord, owner: String) throws {
         let context = try makeContext(owner: owner, groupJID: invite.groupJID)
+        if let previewJID = invite.preview?.jid {
+            try validate(snapshotJID: previewJID, context: context)
+        }
         let target = invite.target.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else {
             throw GroupRepositoryError.emptyInviteTarget
@@ -234,18 +338,152 @@ final class GroupRepository {
         )
 
         try write {
-            let item = self.realm.object(
+            let existingItem = self.realm.object(
                 ofType: GroupInviteStorageItem.self,
                 forPrimaryKey: primary
-            ) ?? GroupInviteStorageItem()
-            item.primary = primary
-            item.groupPrimary = context.groupPrimary
-            item.owner = context.owner
-            item.groupJID = context.groupJID
+            )
+            let item = existingItem ?? GroupInviteStorageItem()
+            if existingItem == nil {
+                item.primary = primary
+                item.groupPrimary = context.groupPrimary
+                item.owner = context.owner
+                item.groupJID = context.groupJID
+            }
             item.directionRaw = invite.direction.rawValue
             item.target = target
             item.reason = invite.reason
-            self.realm.add(item, update: .modified)
+            self.replaceInviteAuthor(item, with: invite.inviter)
+            self.replaceInvitePreview(
+                item,
+                with: invite.preview
+            )
+            if existingItem == nil {
+                self.realm.add(item, update: .error)
+            }
+        }
+    }
+
+    func invites(
+        owner: String,
+        direction: GroupInviteDirection? = nil
+    ) throws -> [GroupInviteRecord] {
+        let normalizedOwner = GroupStorageKey.bareJID(owner)
+        guard !normalizedOwner.isEmpty else {
+            throw GroupRepositoryError.invalidOwner
+        }
+        var items = realm.objects(GroupInviteStorageItem.self)
+            .filter("owner == %@", normalizedOwner)
+        if let direction {
+            items = items.filter("directionRaw == %@", direction.rawValue)
+        }
+        return items
+            .sorted(byKeyPath: "primary", ascending: true)
+            .compactMap { self.makeInviteRecord($0) }
+    }
+
+    func invite(primary: String) throws -> GroupInviteRecord? {
+        let trimmedPrimary = primary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPrimary.isEmpty else {
+            return nil
+        }
+        return realm.object(
+            ofType: GroupInviteStorageItem.self,
+            forPrimaryKey: trimmedPrimary
+        ).flatMap { self.makeInviteRecord($0) }
+    }
+
+    func incomingInvite(owner: String, groupJID: String) throws -> GroupInviteRecord? {
+        let context = try makeContext(owner: owner, groupJID: groupJID)
+        return realm.objects(GroupInviteStorageItem.self)
+            .filter(
+                "groupPrimary == %@ AND directionRaw == %@",
+                context.groupPrimary,
+                GroupInviteDirection.incoming.rawValue
+            )
+            .sorted(byKeyPath: "primary", ascending: true)
+            .first
+            .flatMap { self.makeInviteRecord($0) }
+    }
+
+    func removeInvite(primary: String) throws {
+        let trimmedPrimary = primary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPrimary.isEmpty else {
+            return
+        }
+        try write {
+            guard let invite = self.realm.object(
+                ofType: GroupInviteStorageItem.self,
+                forPrimaryKey: trimmedPrimary
+            ) else {
+                return
+            }
+            self.realm.delete(invite)
+        }
+    }
+
+    @discardableResult
+    func replaceOutgoingInvites(
+        owner: String,
+        groupJID: String,
+        targets: [String]
+    ) throws -> [GroupInviteRecord] {
+        let context = try makeContext(owner: owner, groupJID: groupJID)
+        var seen = Set<String>()
+        let normalizedTargets = try targets.map { rawTarget -> String in
+            let target = GroupStorageKey.bareJID(rawTarget)
+            guard !target.isEmpty else {
+                throw GroupRepositoryError.emptyInviteTarget
+            }
+            return target
+        }.filter { seen.insert($0).inserted }
+        let replacements = normalizedTargets.map { target -> GroupInviteStorageItem in
+            let item = GroupInviteStorageItem()
+            item.primary = GroupStorageKey.invitePrimary(
+                owner: context.owner,
+                groupJID: context.groupJID,
+                direction: .outgoing,
+                target: target
+            )
+            item.groupPrimary = context.groupPrimary
+            item.owner = context.owner
+            item.groupJID = context.groupJID
+            item.directionRaw = GroupInviteDirection.outgoing.rawValue
+            item.target = target
+            return item
+        }
+
+        try write {
+            let current = self.realm.objects(GroupInviteStorageItem.self).filter(
+                "groupPrimary == %@ AND directionRaw == %@",
+                context.groupPrimary,
+                GroupInviteDirection.outgoing.rawValue
+            )
+            self.realm.delete(current)
+            self.realm.add(replacements, update: .error)
+        }
+        return replacements.compactMap { self.makeInviteRecord($0) }
+    }
+
+    func removeInvites(
+        owner: String,
+        groupJID: String,
+        direction: GroupInviteDirection? = nil,
+        target: String? = nil
+    ) throws {
+        let context = try makeContext(owner: owner, groupJID: groupJID)
+        try write {
+            var invitations = self.realm.objects(GroupInviteStorageItem.self)
+                .filter("groupPrimary == %@", context.groupPrimary)
+            if let direction {
+                invitations = invitations.filter(
+                    "directionRaw == %@",
+                    direction.rawValue
+                )
+            }
+            if let target {
+                invitations = invitations.filter("target == %@", target)
+            }
+            self.realm.delete(invitations)
         }
     }
 
@@ -283,18 +521,53 @@ final class GroupRepository {
 
     private func recordTerminalMembership(owner: String, groupJID: String) throws {
         let context = try makeContext(owner: owner, groupJID: groupJID)
+        let terminalContexts = try terminalContexts(startingAt: context)
         try write {
-            let memberID = self.realm.object(
-                ofType: GroupSelfMembershipStorageItem.self,
-                forPrimaryKey: context.groupPrimary
-            )?.memberID
-            self.upsertMembership(
-                .none,
-                memberID: memberID,
-                context: context
-            )
-            self.deleteGroupState(context)
+            for terminalContext in terminalContexts {
+                let memberID = self.realm.object(
+                    ofType: GroupSelfMembershipStorageItem.self,
+                    forPrimaryKey: terminalContext.groupPrimary
+                )?.memberID
+                self.upsertMembership(
+                    .none,
+                    memberID: memberID,
+                    context: terminalContext
+                )
+                self.deleteGroupState(terminalContext)
+                self.realm.delete(
+                    self.realm.objects(GroupInviteStorageItem.self)
+                        .filter("groupPrimary == %@", terminalContext.groupPrimary)
+                )
+            }
         }
+    }
+
+    /// Resolves descendants before entering the write transaction because
+    /// deleting the parent snapshots also removes the P2P relationship index.
+    private func terminalContexts(startingAt root: Context) throws -> [Context] {
+        var result = [root]
+        var seen = Set([root.groupPrimary])
+        var index = 0
+        while index < result.count {
+            let parent = result[index]
+            index += 1
+            let childJIDs = Array(
+                realm.objects(GroupSnapshotStorageItem.self)
+                    .filter(
+                        "owner == %@ AND parentJID == %@",
+                        parent.owner,
+                        parent.groupJID
+                    )
+                    .map(\.groupJID)
+            )
+            for childJID in childJIDs {
+                let child = try makeContext(owner: parent.owner, groupJID: childJID)
+                if seen.insert(child.groupPrimary).inserted {
+                    result.append(child)
+                }
+            }
+        }
+        return result
     }
 
     private func upsertMembership(
@@ -313,13 +586,26 @@ final class GroupRepository {
         item.owner = context.owner
         item.groupJID = context.groupJID
         item.stateRaw = state.rawValue
-        item.memberID = memberID
+        // A nil value means the latest stanza did not disclose identity. It
+        // must not erase a stable Member ID learned earlier in an incognito
+        // group, where no real JID exists to reconstruct it later.
+        item.memberID = memberID ?? existingItem?.memberID
         if existingItem == nil {
             realm.add(item, update: .error)
         }
     }
 
-    private func allowsGroupState(_ context: Context) -> Bool {
+    private func allowsSnapshotState(_ context: Context) -> Bool {
+        guard let membership = realm.object(
+            ofType: GroupSelfMembershipStorageItem.self,
+            forPrimaryKey: context.groupPrimary
+        ) else {
+            return true
+        }
+        return membership.stateRaw != GroupSelfMembershipState.none.rawValue
+    }
+
+    private func allowsActiveState(_ context: Context) -> Bool {
         guard let membership = realm.object(
             ofType: GroupSelfMembershipStorageItem.self,
             forPrimaryKey: context.groupPrimary
@@ -361,9 +647,156 @@ final class GroupRepository {
         item.localpart = snapshot.localpart
         replaceInfo(item, with: snapshot.info)
         replaceSettings(item, with: snapshot.settings)
+        item.pinnedMessageIDsPresent = snapshot.pinnedMessageIDs != nil
         replace(
             item.pinnedMessageIDs,
             with: unique(snapshot.pinnedMessageIDs ?? [])
+        )
+    }
+
+    private func replaceInviteAuthor(
+        _ item: GroupInviteStorageItem,
+        with inviter: GroupMember?
+    ) {
+        item.inviterID = inviter?.id
+        item.inviterJID = inviter?.jid.map(GroupStorageKey.bareJID)
+        item.inviterRoleRaw = inviter?.role?.rawValue
+        item.inviterNickname = inviter?.nickname
+        item.inviterBadge = inviter?.badge
+        item.inviterLastSeen = inviter?.lastSeen
+        item.inviterAllowsPeerToPeer = inviter?.allowsPeerToPeer ?? false
+        item.inviterAvatarID = inviter?.avatar?.id
+        item.inviterAvatarMediaType = inviter?.avatar?.mediaType
+        item.inviterAvatarBytes = inviter?.avatar?.bytes
+        item.inviterAvatarWidth = inviter?.avatar?.width
+        item.inviterAvatarHeight = inviter?.avatar?.height
+        item.inviterAvatarURL = inviter?.avatar?.url
+    }
+
+    private func replaceInvitePreview(
+        _ item: GroupInviteStorageItem,
+        with preview: GroupSnapshot?
+    ) {
+        item.previewPresent = preview != nil
+        item.previewPrivacyRaw = preview?.privacy?.rawValue
+        item.previewParentJID = preview?.parentJID.map(GroupStorageKey.bareJID)
+        item.previewMemberCount = preview?.memberCount
+        item.previewPresentCount = preview?.presentCount
+        item.previewLocalpart = preview?.localpart
+        item.previewInfoPresent = preview?.info != nil
+        item.previewName = preview?.info?.name
+        item.previewDescriptionText = preview?.info?.description
+        item.previewStatus = preview?.info?.status
+        item.previewAvatarID = preview?.info?.avatar?.id
+        item.previewAvatarMediaType = preview?.info?.avatar?.mediaType
+        item.previewAvatarBytes = preview?.info?.avatar?.bytes
+        item.previewAvatarWidth = preview?.info?.avatar?.width
+        item.previewAvatarHeight = preview?.info?.avatar?.height
+        item.previewAvatarURL = preview?.info?.avatar?.url
+        item.previewSettingsPresent = preview?.settings != nil
+        item.previewMembershipRaw = preview?.settings?.membership?.rawValue
+        item.previewIndexRaw = preview?.settings?.index?.rawValue
+        item.previewLifecycleStateRaw = preview?.settings?.state?.rawValue
+        item.previewContactsPresent = preview?.settings?.contacts != nil
+        item.previewDomainsPresent = preview?.settings?.domains != nil
+        replace(
+            item.previewContacts,
+            with: unique((preview?.settings?.contacts ?? []).map(GroupStorageKey.bareJID))
+        )
+        replace(
+            item.previewDomains,
+            with: unique((preview?.settings?.domains ?? []).map(normalizedDomain))
+        )
+        item.previewPinnedMessageIDsPresent = preview?.pinnedMessageIDs != nil
+        replace(
+            item.previewPinnedMessageIDs,
+            with: unique(preview?.pinnedMessageIDs ?? [])
+        )
+    }
+
+    private func makeInviteRecord(_ item: GroupInviteStorageItem) -> GroupInviteRecord? {
+        guard let direction = GroupInviteDirection(rawValue: item.directionRaw) else {
+            return nil
+        }
+        let inviter: GroupMember? = item.inviterID.map { id in
+            GroupMember(
+                id: id,
+                jid: item.inviterJID,
+                role: item.inviterRoleRaw.flatMap(GroupMemberRole.init(rawValue:)),
+                nickname: item.inviterNickname,
+                badge: item.inviterBadge,
+                avatar: makeAvatar(
+                    id: item.inviterAvatarID,
+                    mediaType: item.inviterAvatarMediaType,
+                    bytes: item.inviterAvatarBytes,
+                    width: item.inviterAvatarWidth,
+                    height: item.inviterAvatarHeight,
+                    url: item.inviterAvatarURL
+                ),
+                lastSeen: item.inviterLastSeen,
+                allowsPeerToPeer: item.inviterAllowsPeerToPeer
+            )
+        }
+        let preview: GroupSnapshot?
+        if item.previewPresent {
+            let avatar = makeAvatar(
+                id: item.previewAvatarID,
+                mediaType: item.previewAvatarMediaType,
+                bytes: item.previewAvatarBytes,
+                width: item.previewAvatarWidth,
+                height: item.previewAvatarHeight,
+                url: item.previewAvatarURL
+            )
+            preview = GroupSnapshot(
+                jid: item.groupJID,
+                privacy: item.previewPrivacyRaw.flatMap(GroupPrivacy.init(rawValue:)),
+                parentJID: item.previewParentJID,
+                memberCount: item.previewMemberCount,
+                localpart: item.previewLocalpart,
+                info: item.previewInfoPresent
+                    ? GroupInfo(
+                        name: item.previewName,
+                        description: item.previewDescriptionText,
+                        avatar: avatar,
+                        status: item.previewStatus
+                    )
+                    : nil,
+                settings: item.previewSettingsPresent
+                    ? GroupSettings(
+                        membership: item.previewMembershipRaw.flatMap(
+                            GroupMembership.init(rawValue:)
+                        ),
+                        contacts: item.previewContactsPresent
+                            ? Array(item.previewContacts)
+                            : nil,
+                        domains: item.previewDomainsPresent
+                            ? Array(item.previewDomains)
+                            : nil,
+                        index: item.previewIndexRaw.flatMap(
+                            GroupIndexVisibility.init(rawValue:)
+                        ),
+                        state: item.previewLifecycleStateRaw.flatMap(
+                            GroupLifecycleState.init(rawValue:)
+                        )
+                    )
+                    : nil,
+                pinnedMessageIDs: item.previewPinnedMessageIDsPresent
+                    ? Array(item.previewPinnedMessageIDs)
+                    : nil,
+                presentCount: item.previewPresentCount
+            )
+        } else {
+            preview = nil
+        }
+        return GroupInviteRecord(
+            primary: item.primary,
+            owner: item.owner,
+            groupJID: item.groupJID,
+            direction: direction,
+            target: item.target,
+            reason: item.reason,
+            inviter: inviter,
+            preview: preview
         )
     }
 
@@ -381,9 +814,12 @@ final class GroupRepository {
         _ item: GroupSnapshotStorageItem,
         with settings: GroupSettings?
     ) {
+        item.settingsPresent = settings != nil
         item.membershipRaw = settings?.membership?.rawValue
         item.indexRaw = settings?.index?.rawValue
         item.lifecycleStateRaw = settings?.state?.rawValue
+        item.contactsPresent = settings?.contacts != nil
+        item.domainsPresent = settings?.domains != nil
         replace(
             item.contacts,
             with: unique((settings?.contacts ?? []).map(GroupStorageKey.bareJID))
@@ -451,12 +887,14 @@ final class GroupRepository {
         case .value(nil):
             replaceSettings(item, with: nil)
         case let .value(settingsPatch?):
+            item.settingsPresent = true
             apply(settingsPatch, to: item)
         }
         switch patch.pinnedMessageIDs {
         case .absent:
             break
         case let .value(value):
+            item.pinnedMessageIDsPresent = value != nil
             replace(item.pinnedMessageIDs, with: unique(value ?? []))
         }
     }
@@ -517,6 +955,7 @@ final class GroupRepository {
         case .absent:
             break
         case let .value(value):
+            item.contactsPresent = value != nil
             replace(
                 item.contacts,
                 with: unique((value ?? []).map(GroupStorageKey.bareJID))
@@ -526,6 +965,7 @@ final class GroupRepository {
         case .absent:
             break
         case let .value(value):
+            item.domainsPresent = value != nil
             replace(
                 item.domains,
                 with: unique((value ?? []).map(normalizedDomain))
@@ -670,5 +1110,566 @@ final class GroupRepository {
         try realm.write {
             try mutation()
         }
+    }
+}
+
+struct GroupRepositoryProjection: Equatable, Sendable {
+    let state: GroupViewState
+    let selfMemberID: String?
+    let capabilities: GroupCapabilities
+}
+
+/// Immutable list row exposed to UI and orchestration layers. Realm identity
+/// and managed objects never cross the repository boundary.
+struct GroupRepositoryListRecord: Equatable, Sendable {
+    let primary: String
+    let owner: String
+    let groupJID: String
+    let projection: GroupRepositoryProjection
+}
+
+/// One coherent immutable snapshot for group-list consumers.
+struct GroupRepositoryListState: Equatable, Sendable {
+    let activeGroups: [GroupRepositoryListRecord]
+    let incomingInvites: [GroupInviteRecord]
+
+    init(
+        activeGroups: [GroupRepositoryListRecord] = [],
+        incomingInvites: [GroupInviteRecord] = []
+    ) {
+        self.activeGroups = activeGroups
+        self.incomingInvites = incomingInvites
+    }
+}
+
+final class GroupRepositoryObservation {
+    private var tokens: [NotificationToken] = []
+    private let projectionLock = NSLock()
+    private var lastProjection: GroupRepositoryProjection?
+
+    func invalidate() {
+        tokens.forEach { $0.invalidate() }
+        tokens.removeAll()
+    }
+
+    fileprivate func retain(_ token: NotificationToken) {
+        tokens.append(token)
+    }
+
+    fileprivate func publishIfChanged(
+        _ projection: GroupRepositoryProjection,
+        onChange: (GroupRepositoryProjection) -> Void
+    ) {
+        projectionLock.lock()
+        let shouldPublish = lastProjection != projection
+        if shouldPublish {
+            lastProjection = projection
+        }
+        projectionLock.unlock()
+
+        if shouldPublish {
+            onChange(projection)
+        }
+    }
+
+    deinit {
+        invalidate()
+    }
+}
+
+final class GroupRepositoryListObservation {
+    private var tokens: [NotificationToken] = []
+    private let stateLock = NSLock()
+    private var lastState: GroupRepositoryListState?
+
+    func invalidate() {
+        tokens.forEach { $0.invalidate() }
+        tokens.removeAll()
+    }
+
+    fileprivate func retain(_ token: NotificationToken) {
+        tokens.append(token)
+    }
+
+    fileprivate func publishIfChanged(
+        _ state: GroupRepositoryListState,
+        onChange: (GroupRepositoryListState) -> Void
+    ) {
+        stateLock.lock()
+        let shouldPublish = lastState != state
+        if shouldPublish {
+            lastState = state
+        }
+        stateLock.unlock()
+
+        if shouldPublish {
+            onChange(state)
+        }
+    }
+
+    deinit {
+        invalidate()
+    }
+}
+
+final class GroupRepositoryIncomingInvitesObservation {
+    private var token: NotificationToken?
+    private let stateLock = NSLock()
+    private var lastInvites: [GroupInviteRecord]?
+
+    func invalidate() {
+        token?.invalidate()
+        token = nil
+    }
+
+    fileprivate func retain(_ token: NotificationToken) {
+        self.token = token
+    }
+
+    fileprivate func publishIfChanged(
+        _ invites: [GroupInviteRecord],
+        onChange: ([GroupInviteRecord]) -> Void
+    ) {
+        stateLock.lock()
+        let shouldPublish = lastInvites != invites
+        if shouldPublish {
+            lastInvites = invites
+        }
+        stateLock.unlock()
+
+        if shouldPublish {
+            onChange(invites)
+        }
+    }
+
+    deinit {
+        invalidate()
+    }
+}
+
+extension GroupRepository {
+    func projection(
+        owner: String,
+        groupJID: String
+    ) throws -> GroupRepositoryProjection {
+        let context = try makeContext(owner: owner, groupJID: groupJID)
+        let membershipItem = realm.object(
+            ofType: GroupSelfMembershipStorageItem.self,
+            forPrimaryKey: context.groupPrimary
+        )
+        let selfSubscription = subscription(from: membershipItem?.stateRaw)
+        let snapshot = makeSnapshot(
+            realm.object(
+                ofType: GroupSnapshotStorageItem.self,
+                forPrimaryKey: context.groupPrimary
+            ),
+            fallbackJID: context.groupJID
+        )
+        let members = realm.objects(GroupMemberStorageItem.self)
+            .filter("groupPrimary == %@", context.groupPrimary)
+            .sorted(byKeyPath: "memberID", ascending: true)
+            .map(makeMember)
+        let permissionSets = makePermissionSets(context: context)
+        let selfMemberID = membershipItem?.memberID
+        let selfMember = selfMemberID.flatMap { id in
+            members.first { $0.id == id }
+        }
+        let personalPermissions = selfMemberID.flatMap { id in
+            permissionSets.first {
+                $0.scope == .direct && $0.target == id
+            }
+        }
+
+        return GroupRepositoryProjection(
+            state: GroupViewState(
+                snapshot: snapshot,
+                members: Array(members),
+                permissionSets: permissionSets,
+                selfSubscription: selfSubscription,
+                isDeleted: selfSubscription == .none
+            ),
+            selfMemberID: selfMemberID,
+            capabilities: GroupCapabilities.derive(
+                role: selfMember?.role,
+                permissionSet: personalPermissions
+            )
+        )
+    }
+
+    func observeProjection(
+        owner: String,
+        groupJID: String,
+        onChange: @escaping (GroupRepositoryProjection) -> Void
+    ) throws -> GroupRepositoryObservation {
+        let context = try makeContext(owner: owner, groupJID: groupJID)
+        let observation = GroupRepositoryObservation()
+        let emit: () -> Void = { [weak observation] in
+            guard let observation,
+                  let value = try? self.projection(
+                    owner: context.owner,
+                    groupJID: context.groupJID
+                  ) else {
+                return
+            }
+            observation.publishIfChanged(value, onChange: onChange)
+        }
+
+        let snapshotResults = realm.objects(GroupSnapshotStorageItem.self)
+            .filter("primary == %@", context.groupPrimary)
+        let membershipResults = realm.objects(GroupSelfMembershipStorageItem.self)
+            .filter("primary == %@", context.groupPrimary)
+        let memberResults = realm.objects(GroupMemberStorageItem.self)
+            .filter("groupPrimary == %@", context.groupPrimary)
+        let permissionSetResults = realm.objects(GroupPermissionSetStorageItem.self)
+            .filter("groupPrimary == %@", context.groupPrimary)
+        let permissionResults = realm.objects(GroupPermissionStorageItem.self)
+            .filter("groupPrimary == %@", context.groupPrimary)
+
+        emit()
+        observation.retain(snapshotResults.observe { _ in emit() })
+        observation.retain(membershipResults.observe { _ in emit() })
+        observation.retain(memberResults.observe { _ in emit() })
+        observation.retain(permissionSetResults.observe { _ in emit() })
+        observation.retain(permissionResults.observe { _ in emit() })
+        return observation
+    }
+
+    func activeGroup(
+        owner: String,
+        groupJID: String
+    ) throws -> GroupRepositoryListRecord? {
+        let context = try makeContext(owner: owner, groupJID: groupJID)
+        guard let membership = realm.object(
+            ofType: GroupSelfMembershipStorageItem.self,
+            forPrimaryKey: context.groupPrimary
+        ), membership.stateRaw == GroupSelfMembershipState.both.rawValue,
+              realm.object(
+                ofType: GroupSnapshotStorageItem.self,
+                forPrimaryKey: context.groupPrimary
+              ) != nil else {
+            return nil
+        }
+        let projection = try projection(owner: context.owner, groupJID: context.groupJID)
+        guard projection.state.isActive else { return nil }
+        return GroupRepositoryListRecord(
+            primary: context.groupPrimary,
+            owner: context.owner,
+            groupJID: context.groupJID,
+            projection: projection
+        )
+    }
+
+    func activeGroups(owners: [String]? = nil) throws -> [GroupRepositoryListRecord] {
+        let normalizedOwners = normalizedListOwners(owners)
+        if owners != nil, normalizedOwners?.isEmpty == true {
+            return []
+        }
+        var memberships = realm.objects(GroupSelfMembershipStorageItem.self)
+            .filter("stateRaw == %@", GroupSelfMembershipState.both.rawValue)
+        if let normalizedOwners {
+            memberships = memberships.filter("owner IN %@", normalizedOwners)
+        }
+
+        return memberships
+            .compactMap { membership in
+                let primary = GroupStorageKey.groupPrimary(
+                    owner: membership.owner,
+                    groupJID: membership.groupJID
+                )
+                guard membership.primary == primary,
+                      self.realm.object(
+                        ofType: GroupSnapshotStorageItem.self,
+                        forPrimaryKey: primary
+                      ) != nil,
+                      let projection = try? self.projection(
+                        owner: membership.owner,
+                        groupJID: membership.groupJID
+                      ),
+                      projection.state.isActive else {
+                    return nil
+                }
+                return GroupRepositoryListRecord(
+                    primary: primary,
+                    owner: membership.owner,
+                    groupJID: membership.groupJID,
+                    projection: projection
+                )
+            }
+            .sorted {
+                ($0.owner, $0.groupJID, $0.primary) <
+                    ($1.owner, $1.groupJID, $1.primary)
+            }
+    }
+
+    func incomingInvites(owners: [String]? = nil) -> [GroupInviteRecord] {
+        let normalizedOwners = normalizedListOwners(owners)
+        if owners != nil, normalizedOwners?.isEmpty == true {
+            return []
+        }
+        var inviteItems = realm.objects(GroupInviteStorageItem.self).filter(
+            "directionRaw == %@",
+            GroupInviteDirection.incoming.rawValue
+        )
+        if let normalizedOwners {
+            inviteItems = inviteItems.filter("owner IN %@", normalizedOwners)
+        }
+        return inviteItems
+            .compactMap(makeInviteRecord)
+            .sorted {
+                ($0.owner, $0.groupJID, $0.target, $0.primary) <
+                    ($1.owner, $1.groupJID, $1.target, $1.primary)
+            }
+    }
+
+    func observeIncomingInvites(
+        owners: [String]? = nil,
+        onChange: @escaping ([GroupInviteRecord]) -> Void
+    ) -> GroupRepositoryIncomingInvitesObservation {
+        let normalizedOwners = normalizedListOwners(owners)
+        let observation = GroupRepositoryIncomingInvitesObservation()
+        let emit: () -> Void = { [weak observation] in
+            guard let observation else { return }
+            observation.publishIfChanged(
+                self.incomingInvites(owners: normalizedOwners),
+                onChange: onChange
+            )
+        }
+        var inviteResults = realm.objects(GroupInviteStorageItem.self).filter(
+            "directionRaw == %@",
+            GroupInviteDirection.incoming.rawValue
+        )
+        if let normalizedOwners {
+            inviteResults = inviteResults.filter("owner IN %@", normalizedOwners)
+        }
+
+        emit()
+        observation.retain(inviteResults.observe { _ in emit() })
+        return observation
+    }
+
+    func listState(owners: [String]? = nil) throws -> GroupRepositoryListState {
+        let normalizedOwners = normalizedListOwners(owners)
+        if owners != nil, normalizedOwners?.isEmpty == true {
+            return GroupRepositoryListState()
+        }
+        return GroupRepositoryListState(
+            activeGroups: try activeGroups(owners: normalizedOwners),
+            incomingInvites: incomingInvites(owners: normalizedOwners)
+        )
+    }
+
+    func observeList(
+        owners: [String]? = nil,
+        onChange: @escaping (GroupRepositoryListState) -> Void
+    ) throws -> GroupRepositoryListObservation {
+        let normalizedOwners = normalizedListOwners(owners)
+        let observation = GroupRepositoryListObservation()
+        let emit: () -> Void = { [weak observation] in
+            guard let observation,
+                  let state = try? self.listState(owners: normalizedOwners) else {
+                return
+            }
+            observation.publishIfChanged(state, onChange: onChange)
+        }
+
+        var snapshotResults = realm.objects(GroupSnapshotStorageItem.self)
+        var membershipResults = realm.objects(GroupSelfMembershipStorageItem.self)
+        var memberResults = realm.objects(GroupMemberStorageItem.self)
+        var permissionSetResults = realm.objects(GroupPermissionSetStorageItem.self)
+        var permissionResults = realm.objects(GroupPermissionStorageItem.self)
+        var inviteResults = realm.objects(GroupInviteStorageItem.self).filter(
+            "directionRaw == %@",
+            GroupInviteDirection.incoming.rawValue
+        )
+        if let normalizedOwners {
+            snapshotResults = snapshotResults.filter("owner IN %@", normalizedOwners)
+            membershipResults = membershipResults.filter("owner IN %@", normalizedOwners)
+            memberResults = memberResults.filter("owner IN %@", normalizedOwners)
+            permissionSetResults = permissionSetResults.filter("owner IN %@", normalizedOwners)
+            permissionResults = permissionResults.filter("owner IN %@", normalizedOwners)
+            inviteResults = inviteResults.filter("owner IN %@", normalizedOwners)
+        }
+
+        emit()
+        observation.retain(snapshotResults.observe { _ in emit() })
+        observation.retain(membershipResults.observe { _ in emit() })
+        observation.retain(memberResults.observe { _ in emit() })
+        observation.retain(permissionSetResults.observe { _ in emit() })
+        observation.retain(permissionResults.observe { _ in emit() })
+        observation.retain(inviteResults.observe { _ in emit() })
+        return observation
+    }
+}
+
+private extension GroupRepository {
+    func normalizedListOwners(_ owners: [String]?) -> [String]? {
+        owners.map {
+            Array(Set($0.map(GroupStorageKey.bareJID)))
+                .filter { !$0.isEmpty }
+                .sorted()
+        }
+    }
+
+    func subscription(from rawValue: String?) -> GroupSelfSubscription {
+        switch rawValue.flatMap(GroupSelfMembershipState.init(rawValue:)) {
+        case .some(.both):
+            return .both
+        case .some(.none):
+            return .none
+        case .some(.wait), nil:
+            return .wait
+        }
+    }
+
+    func makeSnapshot(
+        _ item: GroupSnapshotStorageItem?,
+        fallbackJID: String
+    ) -> GroupSnapshot {
+        guard let item else {
+            return GroupSnapshot(jid: fallbackJID)
+        }
+        let avatar = makeAvatar(
+            id: item.avatarID,
+            mediaType: item.avatarMediaType,
+            bytes: item.avatarBytes,
+            width: item.avatarWidth,
+            height: item.avatarHeight,
+            url: item.avatarURL
+        )
+        let hasInfo = item.name != nil
+            || item.descriptionText != nil
+            || item.status != nil
+            || avatar != nil
+        let contacts = item.contactsPresent ? Array(item.contacts) : nil
+        let domains = item.domainsPresent ? Array(item.domains) : nil
+
+        return GroupSnapshot(
+            jid: item.groupJID,
+            privacy: item.privacyRaw.flatMap(GroupPrivacy.init(rawValue:)),
+            parentJID: item.parentJID,
+            memberCount: item.memberCount,
+            localpart: item.localpart,
+            info: hasInfo
+                ? GroupInfo(
+                    name: item.name,
+                    description: item.descriptionText,
+                    avatar: avatar,
+                    status: item.status
+                )
+                : nil,
+            settings: item.settingsPresent
+                ? GroupSettings(
+                    membership: item.membershipRaw.flatMap(GroupMembership.init(rawValue:)),
+                    contacts: contacts,
+                    domains: domains,
+                    index: item.indexRaw.flatMap(GroupIndexVisibility.init(rawValue:)),
+                    state: item.lifecycleStateRaw.flatMap(GroupLifecycleState.init(rawValue:))
+                )
+                : nil,
+            pinnedMessageIDs: item.pinnedMessageIDsPresent
+                ? Array(item.pinnedMessageIDs)
+                : nil,
+            presentCount: item.presentCount
+        )
+    }
+
+    func makeMember(_ item: GroupMemberStorageItem) -> GroupMember {
+        GroupMember(
+            id: item.memberID,
+            jid: item.jid,
+            role: item.roleRaw.flatMap(GroupMemberRole.init(rawValue:)),
+            nickname: item.nickname,
+            badge: item.badge,
+            avatar: makeAvatar(
+                id: item.avatarID,
+                mediaType: item.avatarMediaType,
+                bytes: item.avatarBytes,
+                width: item.avatarWidth,
+                height: item.avatarHeight,
+                url: item.avatarURL
+            ),
+            lastSeen: item.lastSeen,
+            allowsPeerToPeer: item.allowsPeerToPeer
+        )
+    }
+
+    func makeAvatar(
+        id: String?,
+        mediaType: String?,
+        bytes: Int?,
+        width: Int?,
+        height: Int?,
+        url: String?
+    ) -> GroupAvatar? {
+        guard id != nil
+                || mediaType != nil
+                || bytes != nil
+                || width != nil
+                || height != nil
+                || url != nil else {
+            return nil
+        }
+        return GroupAvatar(
+            id: id,
+            mediaType: mediaType,
+            bytes: bytes,
+            width: width,
+            height: height,
+            url: url
+        )
+    }
+
+    private func makePermissionSets(context: Context) -> [GroupPermissionSet] {
+        realm.objects(GroupPermissionSetStorageItem.self)
+            .filter("groupPrimary == %@", context.groupPrimary)
+            .sorted(byKeyPath: "primary", ascending: true)
+            .compactMap { header in
+                guard let scope = permissionScope(from: header.scopeRaw) else {
+                    return nil
+                }
+                let permissions = realm.objects(GroupPermissionStorageItem.self)
+                    .filter("setPrimary == %@", header.primary)
+                    .sorted(byKeyPath: "name", ascending: true)
+                    .map { item in
+                        GroupPermission(
+                            name: item.name,
+                            level: item.level,
+                            status: item.status,
+                            seconds: self.unsigned(item.seconds),
+                            expires: self.unsigned(item.expires),
+                            tag: item.tag,
+                            fixed: item.fixed,
+                            display: item.display
+                        )
+                    }
+                return GroupPermissionSet(
+                    scope: scope,
+                    target: header.targetMemberID,
+                    label: header.label,
+                    actor: header.actorMemberID,
+                    stamp: header.stamp,
+                    permissions: Array(permissions)
+                )
+            }
+    }
+
+    func permissionScope(from rawValue: String) -> GroupPermissionScope? {
+        switch GroupPermissionStorageScope(rawValue: rawValue) {
+        case .some(.personal):
+            return .direct
+        case .some(.defaults):
+            return .defaults
+        case .some(.newbies):
+            return .newbies
+        case nil:
+            return nil
+        }
+    }
+
+    func unsigned(_ value: Int64?) -> UInt64? {
+        guard let value, value >= 0 else {
+            return nil
+        }
+        return UInt64(value)
     }
 }

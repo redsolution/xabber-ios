@@ -3909,6 +3909,9 @@ I don\'t need luck. I have ammo.";
 
 
 "group_chat__pinned_message__tooltip_unpin" = "Unpin";
+"group_chat__pinned_message" = "Pinned message";
+"group_chat__pinned_message__loading" = "Loading pinned message…";
+"group_chat__pinned_messages" = "Pinned messages";
 
 
 "group_settings__properties__tooltip_copy_by_click" = "Click to copy";
@@ -6690,3 +6693,16 @@ What’s your name?";
 "last_chats_premium_promotion_title" = "Extend your Xabber";
 "last_chats_premium_promotion_subtitle" = "Buy premium to get locked features";
 "last_chats_premium_promotion_hide" = "Hide premium offer";
+"groupchat_membership_type_private" = "Private";
+"groupchats_private_membership_hint" = "Private groups can be joined only by invitation.";
+"groupchats_service_unavailable" = "Group service unavailable";
+"groupchats_discovered_service_hint" = "The group service is discovered from your XMPP server.";
+"groupchat_delete_p2p_confirm" = "Leaving this private group will permanently delete %@.";
+"groupchat_delete_last_owner_confirm" = "You are the last owner. Leaving now will permanently delete %@.";
+"groupchats_no_pin_permission" = "You don't have permission to pin messages";
+"groupchats_no_unpin_permission" = "You don't have permission to unpin messages";
+"groupchat_permissions_reset_action" = "Reset";
+"groupchat_permissions_reset_defaults_confirmation" = "Restore the built-in default group permissions?";
+"groupchat_permissions_reset_personal_confirmation" = "Restore this member's permissions to the current baseline?";
+"groupchat_permissions_reset_newbies_confirmation" = "Remove all temporary permissions for new members?";
+"groupchat_permissions_reset_success" = "Permissions reset";

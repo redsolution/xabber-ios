@@ -1,592 +1,595 @@
-//
-//  GroupchatSettingsPermissionsViewController.swift
-//  xabber
-//
-//  Created by Игорь Болдин on 29.10.2025.
-//  Copyright © 2025 Igor Boldin. All rights reserved.
-//
-
-import Foundation
 import UIKit
-import Realm
-import RealmSwift
-import MaterialComponents.MDCPalettes
-import CocoaLumberjack
 import RxSwift
 import RxCocoa
 import RxRelay
-import DeepDiff
+import MaterialComponents.MDCPalettes
+import CocoaLumberjack
 
-class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
-    
-    
-    class SettingsSwitchCell: UITableViewCell {
-        static let cellName: String = "SettingsSwitchCell"
-        
-        let stack: UIStackView = {
-            let stack = UIStackView()
-            
-            stack.axis = .horizontal
-            stack.distribution = .fill
-            stack.alignment = .center
-            stack.spacing = 4
-            stack.layoutMargins = UIEdgeInsets(top: 2, bottom: 0, left: 16, right: 16)
-            stack.isLayoutMarginsRelativeArrangement = true
-            
-            return stack
-        }()
-        
-        let titleLabel: UILabel = {
-            let label = UILabel()
-            
-            label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            
-            return label
-        }()
-                
-        let switchView: UISwitch = {
-            let view = UISwitch()
-            
-            view.isOn = false
-            view.tintColor = .green
-            view.preferredStyle = .sliding
-            
-            return view
-        }()
-        
-        
-        var key: String = ""
-        var originalStatus: Bool = false
-        
-        func configure(title: String, isOn: Bool, key: String, isChanged: Bool, originalStatus: Bool) {
-            self.titleLabel.text = title
-            self.switchView.isOn = isOn
-            self.key = key
-            self.originalStatus = originalStatus
-            if originalStatus != isOn {
-                self.switchView.backgroundColor = .systemGreen
-                self.switchView.onTintColor = .systemGreen
-            } else {
-                self.switchView.backgroundColor = MDCPalette.green.tint100//.systemGreen.withAlphaComponent(0.2)
-                self.switchView.onTintColor = MDCPalette.green.tint100//.systemGreen.withAlphaComponent(0.2)
-            }
-        }
-        
-        open var onSwitchValueChangedCallback: ((String, Bool) -> Void)? = nil
-        
-        @objc
-        func onChangeSwitchValue(_ sender: UISwitch) {
-//            print()
-            UIView.animate(withDuration: 0.33) {
-                if self.originalStatus != sender.isOn {
-                    self.switchView.backgroundColor = .systemGreen
-                    self.switchView.onTintColor = .systemGreen
-                } else {
-                    self.switchView.backgroundColor = MDCPalette.green.tint100//.systemGreen.withAlphaComponent(0.2)
-                    self.switchView.onTintColor = MDCPalette.green.tint100//.systemGreen.withAlphaComponent(0.2)
-                }
-            }
-            self.onSwitchValueChangedCallback?(self.key, sender.isOn)
-        }
-        
-        func setupSubviews() {
-            self.contentView.addSubview(stack)
-            self.stack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 4, right: 4)
-            self.stack.addArrangedSubview(self.titleLabel)
-            self.stack.addArrangedSubview(self.switchView)
-            self.switchView.backgroundColor = .red
-            self.switchView.layer.cornerRadius = self.switchView.bounds.height / 2
-            self.switchView.layer.masksToBounds = true
-            self.switchView.addTarget(self, action: #selector(onChangeSwitchValue), for: .valueChanged)
-        }
-        
-        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-            super.init(style: style, reuseIdentifier: reuseIdentifier)
-            self.setupSubviews()
-        }
-        
-        required init?(coder: NSCoder) {
-            super.init(coder: coder)
-            self.setupSubviews()
-        }
-        
-        open var onCustomPeriodCallback: ((String) -> Void)? = nil
-        
-        @objc
-        private func onCustomPeriodButtonTouchUpInside(_ sender: UIButton) {
-            self.onCustomPeriodCallback?(self.key)
-        }
-    }
-    
-    
-    class Datasource: DiffAware, Equatable, Hashable {
-        enum Kind {
-            case permission
-            case button
-            case member
-        }
-        
-        var kind: Kind
-        var title: String
-        var value: String
-        var status: Bool
-        var originalStatus: Bool = false
-        var changed: Bool = false
-        
-        var userId: String = ""
-        var jid: String = ""
-        var badge: String = ""
-        var isMe: Bool = false
-        var subtitle: String = ""
-        var memberStatus: ResourceStatus = .offline
-        var avatarUrl: String = ""
-        var role: GroupchatUserStorageItem.Role = .member
-        
-        typealias DiffId = String
-        
-        var diffId: String {
-            get {
-                return userId
-            }
-        }
-        
-        static func == (lhs: Datasource, rhs: Datasource) -> Bool {
-            return lhs.userId == rhs.userId
-        }
-        
-        init(kind: Kind, title: String, value: String, status: Bool = false, badge: String? = nil) {
-            self.userId = value
-            self.kind = kind
-            self.title = title
-            self.value = value
-            self.status = status
-            self.originalStatus = status
-            self.badge = badge ?? ""
-        }
-        
-        init(forMember userId: String, jid: String, title: String, badge: String, isMe: Bool, subtitle: String, status: ResourceStatus, avatarUrl: String, role: GroupchatUserStorageItem.Role) {
-            self.kind = .member
-            self.value = ""
-            self.status = false
-            self.originalStatus = false
-            
-            self.userId = userId
-            self.jid = jid
-            self.title = title
-            self.badge = badge
-            self.isMe = isMe
-            self.subtitle = subtitle
-            self.memberStatus = status
-            self.avatarUrl = avatarUrl
-            self.role = role
-        }
-        
-        func hash(into hasher: inout Hasher) {
-            hasher.combine(self.userId)
-        }
-        
-        static func compareContent(_ a: GroupchatMembersListViewController.Datasource, _ b: GroupchatMembersListViewController.Datasource) -> Bool {
-            return a.userId == b.userId &&
-            a.title == b.title &&
-            a.badge == b.badge &&
-            a.isMe == b.isMe &&
-            a.subtitle == b.subtitle &&
-            a.status == b.status &&
-            a.avatarUrl == b.avatarUrl &&
-            a.role == b.role
-        }
-    }
-    
-    internal var datasource: [[Datasource]] = []
-    
-    internal var currentValue: String = ""
-    
-    internal var defaultPermissions: [GroupchatPermission] = []
-    
-    internal var changesObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
-    
-    
-    internal let tableView: UITableView = {
-        let view = UITableView(frame: .zero, style: .insetGrouped)
-        
-        view.register(SettingsSwitchCell.self, forCellReuseIdentifier: SettingsSwitchCell.cellName)
-        view.register(GroupchatSettingsViewControllerT.SettingsItemCell.self, forCellReuseIdentifier: GroupchatSettingsViewControllerT.SettingsItemCell.cellName)
-        view.register(CommonMemberTableCell.self, forCellReuseIdentifier: CommonMemberTableCell.cellName)
-        
-        return view
-    }()
-    
-    internal let saveBarButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(systemItem: .save)
-        
-        return button
-    }()
-    
-    internal var cancelBarButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(systemItem: .cancel)
-        
-        return button
-    }()
-    
-    internal var membersObserver: Results<GroupchatUserStorageItem>? = nil
-    
-    internal var canUpdateDataset: Bool = true
-    
-    private func runDatasetUpdateTask(firstLaunch: Bool) {
-        guard let collection = self.membersObserver else {
-            return
-        }
-        
-        let out = collection.toArray()
-            .filter({ $0.permissionsDiffer(then: self.defaultPermissions) })
-            .compactMap {
-            item in
-            return Datasource(
-                forMember: item.userId,
-                jid: item.jid,
-                title: item.nickname,
-                badge: item.badge,
-                isMe: item.isMe,
-                subtitle: item.isOnline ? "Online".localizeString(id: "account_state_connected", arguments: []): item.dateString ?? "Offline".localizeString(id: "unavailable", arguments: []),
-                status: item.isOnline ? .online : .offline,
-                avatarUrl: item.avatarURI,
-                role: item.role,
-            )
-        }
-        if firstLaunch {
-            let index = self.datasource.count - 1
-            self.datasource[index] = out
-            self.tableView.reloadData()
-        } else {
-            self.apply(members: out)
-        }
-        
-    }
-    
-    private func apply(members newDataset: [Datasource]) {
-        let index = self.datasource.count - 1
-        let oldDataset = self.datasource[index]
-        let changes = diff(old: oldDataset, new: newDataset)
-        let indexPaths = self.convertChangeset(changes: changes)
-        DispatchQueue.main.async {
-            self.apply(changes: indexPaths) {
-                self.datasource[index] = newDataset
-            }
-        }
-    
-    }
+struct GroupPermissionEditorRow: Equatable, Sendable {
+    let permission: GroupPermission
+    var status: Bool
+    var seconds: UInt64?
+    var changed: Bool
+}
 
-    private final func apply(changes: ChangesWithIndexPath, prepare: @escaping (() -> Void)) {
-        if changes.deletes.isEmpty &&
-            changes.inserts.isEmpty &&
-            changes.moves.isEmpty &&
-            changes.replaces.isEmpty {
-            prepare()
-            self.canUpdateDataset = true
-            return
+enum GroupPermissionMutationBuilder {
+    static func partial(
+        scope: GroupPermissionScope,
+        targetMemberID: String?,
+        rows: [GroupPermissionEditorRow]
+    ) -> GroupPermissionSet? {
+        if scope == .newbies { return nil }
+        if scope == .direct,
+           targetMemberID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            return nil
         }
-        UIView.performWithoutAnimation {
-            self.tableView.performBatchUpdates({
-                prepare()
-                if !changes.deletes.isEmpty {
-                    self.tableView.deleteRows(at: changes.deletes, with: .none)
-                }
-                
-                if !changes.inserts.isEmpty {
-                    self.tableView.insertRows(at: changes.inserts, with: .none)
-                }
-                
-                if changes.moves.isNotEmpty {
-                    changes.moves.forEach {
-                        (from, to) in
-                        self.tableView.moveRow(at: from, to: to)
-                    }
-                }
-            }, completion: {
-                result in
-                self.canUpdateDataset = true
-                if changes.replaces.isEmpty { return }
-                self.tableView.reloadRows(at: changes.replaces, with: .none)
-            })
-        }
-    }
-    
-    private final func convertChangeset(changes: [Change<Datasource>]) -> ChangesWithIndexPath {
-        let section: Int = self.datasource.count - 1
-        
-        let inserts =  changes.compactMap { return $0.insert?.index }.compactMap({ return IndexPath(row:$0, section: section)})
-        let deletes =  changes.compactMap { return $0.delete?.index }.compactMap({ return IndexPath(row:$0, section: section )})
-        let replaces = changes.compactMap { return $0.replace?.index }.compactMap({ return IndexPath(row:$0, section: section )})
-        
-        let moves = changes.compactMap({ $0.move }).map({
-          (
-            from: IndexPath(item: $0.fromIndex, section: section),
-            to: IndexPath(item: $0.toIndex, section: section)
-          )
-        })
-        
-        return ChangesWithIndexPath(
-            inserts: inserts,
-            deletes: deletes,
-            replaces: replaces,
-            moves: moves
+        let permissions = rows
+            .filter(\.changed)
+            .compactMap { mutationPermission(from: $0, scope: scope) }
+        guard !permissions.isEmpty else { return nil }
+        return GroupPermissionSet(
+            scope: scope,
+            target: scope == .direct ? targetMemberID : nil,
+            permissions: permissions
         )
     }
-    
-    override func subscribe() {
-        super.subscribe()
-        self.changesObserver
-            .asObservable()
-            .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
-            .subscribe { value in
-                if value {
-                    self.navigationItem.setLeftBarButton(self.cancelBarButton, animated: true)
-                    self.navigationItem.setRightBarButton(self.saveBarButton, animated: true)
-                } else {
-                    self.navigationItem.setLeftBarButton(self.navigationItem.backBarButtonItem, animated: true)
-                    self.navigationItem.setRightBarButton(nil, animated: true)
-                }
-            }
-            .disposed(by: self.bag)
-        
-        do {
-            let realm = try WRealm.safe()
-            membersObserver = realm
-                    .objects(GroupchatUserStorageItem.self)
-                    .filter("groupchatId == %@ AND isBlocked == false AND isKicked == false AND isTemporary == false AND isHidden == false", [jid, owner].prp())
-                    .sorted(by: [
-                        SortDescriptor(keyPath: "isMe", ascending: false),
-                        SortDescriptor(keyPath: "sortedRole", ascending: true)
-                    ])
-            
-            
-            Observable
-                .collection(from: membersObserver!)
-                .debounce(.milliseconds(400), scheduler: MainScheduler.asyncInstance)
-                .subscribe { (results) in
-                    self.runDatasetUpdateTask(firstLaunch: false)
-                } onError: { (error) in
-                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX error: \(error.localizedDescription)")
-                } onCompleted: {
-                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX state: completed")
-                } onDisposed: {
-                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX state: disposed")
-                }
-                .disposed(by: bag)
 
-            canUpdateDataset = true
-            runDatasetUpdateTask(firstLaunch: true)
-            
-        } catch {
-            DDLogDebug("GroupchatMembersListViewController: \(#function). \(error.localizedDescription)")
-        }
-    }
-    
-    
-    @objc
-    internal func onCancelButtonTouchUpInside(_ sender: AnyObject) {
-        self.navigationController?.popViewController(animated: true)
-    }
-        
-    @objc
-    internal func onSaveButtonTouchUpInside(_ sender: AnyObject) {
-        let changes = self.datasource[0].filter({ $0.changed }).compactMap({
-            return GroupchatPermission(role: "member", name: $0.value, status: $0.status, displayName: $0.title, expires: nil)
-        })
-        guard changes.isNotEmpty else {
-            return
-        }
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            session.groupchat?.updateDefaultPermissions(stream, groupchat: self.jid, changes: changes)
-        } fail: {
-            AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                user.groupchats.updateDefaultPermissions(stream, groupchat: self.jid, changes: changes)
+    static func newbiesReplacement(
+        rows: [GroupPermissionEditorRow]
+    ) -> GroupPermissionSet {
+        GroupPermissionSet(
+            scope: .newbies,
+            permissions: rows.compactMap {
+                mutationPermission(from: $0, scope: .newbies)
             }
-        }
-        ToastPresenter().presentSuccess(message: "Chages saved")
-        self.navigationController?.popViewController(animated: true)
+        )
     }
-    
+
+    static func durationSeconds(
+        for permission: GroupPermission,
+        now: UInt64 = UInt64(Date().timeIntervalSince1970)
+    ) -> UInt64? {
+        if let expires = permission.expires {
+            return expires > now ? expires - now : nil
+        }
+        return permission.seconds
+    }
+
+    private static func mutationPermission(
+        from row: GroupPermissionEditorRow,
+        scope: GroupPermissionScope
+    ) -> GroupPermission? {
+        guard row.permission.name.lowercased() != GroupMemberRole.owner.rawValue else {
+            return nil
+        }
+        return GroupPermission(
+            name: row.permission.name,
+            level: row.permission.level,
+            status: row.status,
+            seconds: scope == .defaults ? nil : row.seconds,
+            expires: nil,
+            tag: row.permission.tag,
+            fixed: row.permission.fixed,
+            display: row.permission.display
+        )
+    }
+}
+
+class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
+    final class SettingsSwitchCell: UITableViewCell {
+        static let cellName = "CanonicalGroupPermissionSwitchCell"
+        private let titleLabel = UILabel()
+        let switchView = UISwitch()
+        private var key = ""
+        private var originalStatus = false
+        var onSwitchValueChanged: ((String, Bool) -> Void)?
+
+        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+            super.init(style: style, reuseIdentifier: reuseIdentifier)
+            let stack = UIStackView(arrangedSubviews: [titleLabel, switchView])
+            stack.axis = .horizontal
+            stack.alignment = .center
+            stack.spacing = 8
+            contentView.addSubview(stack)
+            stack.fillSuperviewWithOffset(top: 4, bottom: 4, left: 16, right: 16)
+            titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            switchView.addTarget(self, action: #selector(onChange), for: .valueChanged)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        func configure(
+            title: String,
+            isOn: Bool,
+            key: String,
+            originalStatus: Bool,
+            isEnabled: Bool
+        ) {
+            titleLabel.text = title
+            switchView.isOn = isOn
+            switchView.isEnabled = isEnabled
+            self.key = key
+            self.originalStatus = originalStatus
+            let changed = originalStatus != isOn
+            switchView.onTintColor = changed ? .systemGreen : MDCPalette.green.tint100
+        }
+
+        @objc private func onChange(_ sender: UISwitch) {
+            switchView.onTintColor = sender.isOn == originalStatus
+                ? MDCPalette.green.tint100
+                : .systemGreen
+            onSwitchValueChanged?(key, sender.isOn)
+        }
+    }
+
+    final class MemberCell: UITableViewCell {
+        static let cellName = "CanonicalGroupPermissionMemberCell"
+
+        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+            super.init(style: .subtitle, reuseIdentifier: reuseIdentifier)
+            accessoryType = .disclosureIndicator
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        func configure(_ member: GroupMember) {
+            textLabel?.text = member.nickname?.isEmpty == false ? member.nickname : member.id
+            let role = member.role?.rawValue ?? GroupMemberRole.member.rawValue
+            detailTextLabel?.text = member.jid.map { "\(role) · \($0)" } ?? role
+        }
+    }
+
+    final class Datasource {
+        enum Kind { case permission, button, member }
+
+        let kind: Kind
+        let key: String
+        let title: String
+        var editorRow: GroupPermissionEditorRow?
+        let badge: String?
+        let member: GroupMember?
+
+        init(permission: GroupPermission) {
+            kind = .permission
+            key = permission.name
+            title = permission.display ?? permission.name
+            editorRow = GroupPermissionEditorRow(
+                permission: permission,
+                status: permission.status,
+                seconds: nil,
+                changed: false
+            )
+            badge = nil
+            member = nil
+        }
+
+        init(button key: String, title: String, badge: String?) {
+            kind = .button
+            self.key = key
+            self.title = title
+            self.badge = badge
+            editorRow = nil
+            member = nil
+        }
+
+        init(member: GroupMember) {
+            kind = .member
+            key = member.id
+            title = member.nickname ?? member.id
+            self.member = member
+            editorRow = nil
+            badge = nil
+        }
+    }
+
+    private var datasource: [[Datasource]] = [[], [], []]
+    private(set) var defaultPermissions: [GroupPermission] = []
+    private var repository: GroupRepository?
+    private var projectionObservation: GroupRepositoryObservation?
+    private var refreshTask: Task<Void, Never>?
+    private var saveTask: Task<Void, Never>?
+    private var canEditDefaults = false
+    private let changesObserver = BehaviorRelay<Bool>(value: false)
+
+    private let tableView: UITableView = {
+        let view = UITableView(frame: .zero, style: .insetGrouped)
+        view.register(SettingsSwitchCell.self, forCellReuseIdentifier: SettingsSwitchCell.cellName)
+        view.register(GroupchatSettingsViewControllerT.SettingsItemCell.self, forCellReuseIdentifier: GroupchatSettingsViewControllerT.SettingsItemCell.cellName)
+        view.register(MemberCell.self, forCellReuseIdentifier: MemberCell.cellName)
+        return view
+    }()
+    private let saveBarButton = UIBarButtonItem(systemItem: .save)
+    private let cancelBarButton = UIBarButtonItem(systemItem: .cancel)
+    private let resetBarButton = UIBarButtonItem(
+        title: "Reset".localizeString(
+            id: "groupchat_permissions_reset_action",
+            arguments: []
+        ),
+        style: .plain,
+        target: nil,
+        action: nil
+    )
+
     override func loadDatasource() {
         super.loadDatasource()
-        
-        var newbiesBadge: String? = nil
         do {
-            let realm = try WRealm.safe()
-            if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                self.defaultPermissions = instance.defaultPermissions
-                newbiesBadge = "\(instance.newbiesPermissions.count) / \(instance.defaultPermissions.count)"
-            }
+            let repository = GroupRepository(realm: try WRealm.safe())
+            self.repository = repository
+            apply(try repository.projection(owner: owner, groupJID: jid), force: true)
         } catch {
-            DDLogDebug("GroupchatSettingsMembershipViewController: \(#function). \(error.localizedDescription)")
+            DDLogDebug("GroupchatSettingsPermissionsViewController: \(#function). \(error.localizedDescription)")
         }
-        self.datasource = [
-            self.defaultPermissions.compactMap {
-                return Datasource(kind: .permission, title: $0.displayName, value: $0.name, status: $0.status)
-            },
-            [
-                Datasource(kind: .button, title: "Permissions for new members", value: "newbies", badge: newbiesBadge)
-            ],
-            []
-        ]
     }
-    
+
     override func setupSubviews() {
         super.setupSubviews()
-        self.view.addSubview(self.tableView)
-        self.tableView.fillSuperview()
+        view.addSubview(tableView)
+        tableView.fillSuperview()
     }
-    
+
     override func configure() {
         super.configure()
-        self.title = "Permissions"
-        self.tableView.dataSource = self
-        self.tableView.delegate = self
-        self.cancelBarButton.action = #selector(onCancelButtonTouchUpInside)
-        self.cancelBarButton.target = self
-        self.saveBarButton.action = #selector(onSaveButtonTouchUpInside)
-        self.saveBarButton.target = self
+        title = "Permissions"
+        tableView.dataSource = self
+        tableView.delegate = self
+        cancelBarButton.action = #selector(onCancel)
+        cancelBarButton.target = self
+        saveBarButton.action = #selector(onSave)
+        saveBarButton.target = self
+        resetBarButton.action = #selector(onReset)
+        resetBarButton.target = self
+        resetBarButton.accessibilityIdentifier = "groupchat_permissions_reset_defaults"
     }
+
+    override func subscribe() {
+        super.subscribe()
+        changesObserver
+            .asObservable()
+            .distinctUntilChanged()
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] hasChanges in
+                self?.updateNavigationItems(hasChanges: hasChanges)
+            })
+            .disposed(by: bag)
+
+        do {
+            let repository: GroupRepository
+            if let existingRepository = self.repository {
+                repository = existingRepository
+            } else {
+                repository = GroupRepository(realm: try WRealm.safe())
+            }
+            self.repository = repository
+            projectionObservation?.invalidate()
+            projectionObservation = try repository.observeProjection(
+                owner: owner,
+                groupJID: jid
+            ) { [weak self] projection in
+                DispatchQueue.main.async {
+                    self?.apply(projection, force: false)
+                }
+            }
+        } catch {
+            DDLogDebug("GroupchatSettingsPermissionsViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+
     override func onAppear() {
         super.onAppear()
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            session.groupchat?.getDefaultPermissions(stream, groupchat: self.jid)
-            session.groupchat?.getNewbiesPermissions(stream, groupchat: self.jid)
-        } fail: {
-            AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                user.groupchats.getDefaultPermissions(stream, groupchat: self.jid)
-                user.groupchats.getNewbiesPermissions(stream, groupchat: self.jid)
+        refreshAuthoritativeState()
+    }
+
+    deinit {
+        refreshTask?.cancel()
+        saveTask?.cancel()
+        projectionObservation?.invalidate()
+    }
+
+    private func apply(_ projection: GroupRepositoryProjection, force: Bool) {
+        canEditDefaults = projection.capabilities.changeDefaultPermissions
+        guard force || !changesObserver.value else { return }
+        let defaults = projection.state.permissionSets.first { $0.scope == .defaults }
+        let newbies = projection.state.permissionSets.first { $0.scope == .newbies }
+        defaultPermissions = defaults?.permissions.filter {
+            $0.name.lowercased() != GroupMemberRole.owner.rawValue
+        } ?? []
+        let directTargets = Set(
+            projection.state.permissionSets.compactMap { set in
+                set.scope == .direct && !set.permissions.isEmpty ? set.target : nil
+            }
+        )
+        datasource = [
+            defaultPermissions.map { Datasource(permission: $0) },
+            [
+                Datasource(
+                    button: "newbies",
+                    title: "Permissions for new members",
+                    badge: "\(newbies?.permissions.count ?? 0) / \(defaultPermissions.count)"
+                )
+            ],
+            projection.state.members
+                .filter { directTargets.contains($0.id) }
+                .map { Datasource(member: $0) }
+        ]
+        changesObserver.accept(false)
+        updateNavigationItems(hasChanges: false)
+        tableView.reloadData()
+    }
+
+    private func refreshAuthoritativeState() {
+        guard refreshTask == nil,
+              let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+        refreshTask = Task { [weak self, weak account] in
+            guard let self, let account else { return }
+            defer { self.refreshTask = nil }
+            do {
+                async let defaults = account.groupchatService.getPermissions(
+                    groupJID: self.jid,
+                    scope: GroupPermissionScope.defaults
+                )
+                async let newbies = account.groupchatService.getPermissions(
+                    groupJID: self.jid,
+                    scope: GroupPermissionScope.newbies
+                )
+                async let members = account.groupchatService.refreshMembers(groupJID: self.jid)
+                let values = try await (defaults, newbies, members)
+                let repository: GroupRepository
+                if let existingRepository = self.repository {
+                    repository = existingRepository
+                } else {
+                    repository = GroupRepository(realm: try WRealm.safe())
+                }
+                self.repository = repository
+                try repository.replacePermissionSet(values.0, owner: self.owner, groupJID: self.jid)
+                try repository.replacePermissionSet(values.1, owner: self.owner, groupJID: self.jid)
+                try repository.replaceMembers(values.2, owner: self.owner, groupJID: self.jid)
+            } catch is CancellationError {
+                return
+            } catch {
+                DDLogDebug("GroupchatSettingsPermissionsViewController: \(#function). \(error.localizedDescription)")
             }
         }
     }
-    
-    internal func updateValue() {
-        
+
+    @objc private func onCancel() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    @objc private func onSave() {
+        guard saveTask == nil,
+              canEditDefaults,
+              let mutation = GroupPermissionMutationBuilder.partial(
+                scope: .defaults,
+                targetMemberID: nil,
+                rows: datasource[0].compactMap(\.editorRow)
+              ),
+              let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+        tableView.isUserInteractionEnabled = false
+        saveBarButton.isEnabled = false
+        saveTask = Task { [weak self, weak account] in
+            guard let self, let account else { return }
+            defer {
+                self.saveTask = nil
+                self.tableView.isUserInteractionEnabled = true
+                self.saveBarButton.isEnabled = true
+            }
+            do {
+                let authoritative = try await account.groupchatService.setPermissions(
+                    groupJID: self.jid,
+                    permissions: mutation
+                )
+                let repository: GroupRepository
+                if let existingRepository = self.repository {
+                    repository = existingRepository
+                } else {
+                    repository = GroupRepository(realm: try WRealm.safe())
+                }
+                self.repository = repository
+                try repository.replacePermissionSet(authoritative, owner: self.owner, groupJID: self.jid)
+                ToastPresenter().presentSuccess(message: "Changes saved")
+                self.navigationController?.popViewController(animated: true)
+            } catch is CancellationError {
+                return
+            } catch {
+                ToastPresenter().presentError(message: "Error: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    @objc private func onReset() {
+        guard saveTask == nil, canEditDefaults else { return }
+        let alert = UIAlertController(
+            title: "Reset".localizeString(
+                id: "groupchat_permissions_reset_action",
+                arguments: []
+            ),
+            message: "Restore the built-in default group permissions?".localizeString(
+                id: "groupchat_permissions_reset_defaults_confirmation",
+                arguments: []
+            ),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(
+            title: "Cancel".localizeString(id: "cancel", arguments: []),
+            style: .cancel
+        ))
+        alert.addAction(UIAlertAction(
+            title: "Reset".localizeString(
+                id: "groupchat_permissions_reset_action",
+                arguments: []
+            ),
+            style: .destructive
+        ) { [weak self] _ in
+            self?.performDefaultReset()
+        })
+        present(alert, animated: true)
+    }
+
+    private func performDefaultReset() {
+        guard saveTask == nil,
+              canEditDefaults,
+              let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+        tableView.isUserInteractionEnabled = false
+        resetBarButton.isEnabled = false
+        saveTask = Task { [weak self, weak account] in
+            guard let self, let account else { return }
+            defer {
+                self.saveTask = nil
+                self.tableView.isUserInteractionEnabled = true
+                self.resetBarButton.isEnabled = true
+            }
+            do {
+                let authoritative = try await account.groupchatService.resetDefaultPermissions(
+                    groupJID: self.jid
+                )
+                let repository: GroupRepository
+                if let currentRepository = self.repository {
+                    repository = currentRepository
+                } else {
+                    repository = GroupRepository(realm: try WRealm.safe())
+                }
+                self.repository = repository
+                try repository.replacePermissionSet(
+                    authoritative,
+                    owner: self.owner,
+                    groupJID: self.jid
+                )
+                ToastPresenter().presentSuccess(
+                    message: "Permissions reset".localizeString(
+                        id: "groupchat_permissions_reset_success",
+                        arguments: []
+                    )
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                ToastPresenter().presentError(message: "Error: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func updateNavigationItems(hasChanges: Bool) {
+        navigationItem.setLeftBarButton(
+            hasChanges ? cancelBarButton : navigationItem.backBarButtonItem,
+            animated: true
+        )
+        navigationItem.setRightBarButton(
+            hasChanges ? saveBarButton : (canEditDefaults ? resetBarButton : nil),
+            animated: true
+        )
+    }
+
+    private func onSwitchChanged(key: String, value: Bool) {
+        guard let item = datasource[0].first(where: { $0.key == key }),
+              var row = item.editorRow,
+              !row.permission.fixed else {
+            return
+        }
+        row.status = value
+        row.changed = value != row.permission.status
+        item.editorRow = row
+        changesObserver.accept(datasource[0].contains { $0.editorRow?.changed == true })
     }
 }
 
 extension GroupchatSettingsPermissionsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        let item = self.datasource[indexPath.section][indexPath.row]
-        switch item.kind {
-            case .button, .permission:
-                return 52
-            case .member:
-                return 64
-        }
+        datasource[indexPath.section][indexPath.row].kind == .member ? 64 : 52
     }
-    
+
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let item = self.datasource[indexPath.section][indexPath.row]
+        tableView.deselectRow(at: indexPath, animated: true)
+        let item = datasource[indexPath.section][indexPath.row]
         switch item.kind {
-            case .member:
-                let vc = GroupchatSettingsRestrictUserViewController()
-                
-                vc.userId = item.userId
-                vc.jid = self.jid
-                vc.owner = self.owner
-                
-                self.navigationController?.pushViewController(vc, animated: true)
-            case .button:
-                switch item.value {
-                    case "newbies":
-                        let vc = GroupchatSettingsNewbiesPermissionsViewController()
-                        
-                        vc.jid = self.jid
-                        vc.owner = self.owner
-                        vc.defaultPermissions = defaultPermissions
-                        
-                        self.navigationController?.pushViewController(vc, animated: true)
-                    default:
-                        break
-                }
-            case .permission:
-                break
+        case .member:
+            guard let member = item.member else { return }
+            let controller = GroupchatSettingsRestrictUserViewController()
+            controller.userId = member.id
+            controller.jid = jid
+            controller.owner = owner
+            navigationController?.pushViewController(controller, animated: true)
+        case .button where item.key == "newbies":
+            let controller = GroupchatSettingsNewbiesPermissionsViewController()
+            controller.jid = jid
+            controller.owner = owner
+            controller.baselinePermissions = defaultPermissions
+            navigationController?.pushViewController(controller, animated: true)
+        case .button, .permission:
+            break
         }
-        
     }
 }
 
 extension GroupchatSettingsPermissionsViewController: UITableViewDataSource {
-    func numberOfSections(in tableView: UITableView) -> Int {
-        return self.datasource.count
-    }
-    
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return self.datasource[section].count
-    }
-    
-    func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        switch section{
-            case 0:
-                return "Default permissions are applied to newly joined group members. This is a way to control spam and unpredictable behaviour by newcomers. Note that group admins can apply more severe restrictions on any group member."
-            case 1:
-                return "Secure your group with these settings. Changes apply instantly to protect your chats."
-            default:
-                return nil
-        }
-        
-    }
-    
-    func onSwitchValueChangedCallback(key: String, value: Bool) {
-        guard let index = self.datasource[0].firstIndex(where: { $0.value == key }) else {
-            return
-        }
-        self.datasource[0][index].status = value
-        if self.datasource[0][index].originalStatus != value {
-            self.datasource[0][index].changed = true
-            let item = self.datasource[0][index]
-        } else {
-            self.datasource[0][index].changed = false
-        }
-        self.changesObserver.accept(self.datasource[0].filter({ $0.changed }).isNotEmpty)
-    }
-    
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let item = self.datasource[indexPath.section][indexPath.row]
-        switch item.kind {
-            case .permission:
-                guard let cell = tableView.dequeueReusableCell(withIdentifier: SettingsSwitchCell.cellName, for: indexPath) as? SettingsSwitchCell else {
-                    fatalError()
-                }
-                
-                cell.configure(title: item.title, isOn: item.status, key: item.value, isChanged: item.changed, originalStatus: item.originalStatus)
-                cell.onSwitchValueChangedCallback = self.onSwitchValueChangedCallback
-                cell.selectionStyle = .none
-                cell.accessoryType = .none
-                return cell
-            case .button:
-                guard let cell = tableView.dequeueReusableCell(withIdentifier: GroupchatSettingsViewControllerT.SettingsItemCell.cellName, for: indexPath) as? GroupchatSettingsViewControllerT.SettingsItemCell else {
-                    fatalError()
-                }
-                
-                cell.configure(title: item.title, badge: item.badge, icon: "custom.person.fill.badge.minus.square.fill")
-                cell.selectionStyle = .none
-                cell.accessoryType = .disclosureIndicator
-                return cell
-            case .member:
-                guard let cell = tableView.dequeueReusableCell(withIdentifier: CommonMemberTableCell.cellName, for: indexPath) as? CommonMemberTableCell else {
-                    fatalError()
-                }
-                cell.configure(
-                    avatarUrl: item.avatarUrl,
-                    jid: item.jid,
-                    owner: self.owner,
-                    userId: item.userId,
-                    title: item.title,
-                    badge: item.badge,
-                    isMe: item.isMe,
-                    subtitle: item.subtitle,
-                    status: item.memberStatus,
-                    entity: .contact,
-                    role: item.role
-                )
-                cell.selectionStyle = .none
-                cell.accessoryType = .disclosureIndicator
-                return cell
-        }
-    }
-    
-    
-}
+    func numberOfSections(in tableView: UITableView) -> Int { datasource.count }
 
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        datasource[section].count
+    }
+
+    func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        switch section {
+        case 0:
+            return "Default permissions apply to members unless a personal permission overrides them."
+        case 1:
+            return "New-member permissions replace the full temporary permission set."
+        default:
+            return nil
+        }
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let item = datasource[indexPath.section][indexPath.row]
+        switch item.kind {
+        case .permission:
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: SettingsSwitchCell.cellName,
+                for: indexPath
+            ) as? SettingsSwitchCell,
+                  let row = item.editorRow else {
+                fatalError("Unexpected permission cell")
+            }
+            cell.configure(
+                title: item.title,
+                isOn: row.status,
+                key: item.key,
+                originalStatus: row.permission.status,
+                isEnabled: canEditDefaults && !row.permission.fixed
+            )
+            cell.onSwitchValueChanged = { [weak self] key, value in
+                self?.onSwitchChanged(key: key, value: value)
+            }
+            cell.selectionStyle = .none
+            return cell
+        case .button:
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: GroupchatSettingsViewControllerT.SettingsItemCell.cellName,
+                for: indexPath
+            ) as? GroupchatSettingsViewControllerT.SettingsItemCell else {
+                fatalError("Unexpected permission navigation cell")
+            }
+            cell.configure(title: item.title, badge: item.badge ?? "", icon: "person.badge.clock")
+            return cell
+        case .member:
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: MemberCell.cellName,
+                for: indexPath
+            ) as? MemberCell,
+                  let member = item.member else {
+                fatalError("Unexpected member cell")
+            }
+            cell.configure(member)
+            return cell
+        }
+    }
+}

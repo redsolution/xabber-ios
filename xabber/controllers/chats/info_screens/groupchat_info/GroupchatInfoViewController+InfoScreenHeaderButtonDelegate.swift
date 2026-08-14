@@ -34,9 +34,6 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
     }
     
     func shouldUpdateAvatar() -> UIImage? {
-//        AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-//            user.PEPAvatars.refreshAvatar(jid: self.jid)
-//        })
         let conf = LetterAvatarBuilderConfiguration()
         conf.username = self.nickname.uppercased()
         conf.size = DefaultAvatarManager.defaultSize
@@ -173,7 +170,6 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         let vc = GroupchatInviteViewController()
         vc.configure(jid: self.jid, owner: self.owner)
         self.navigationController?.pushViewController(vc, animated: true)
-//        showModal(vc, parent: self)
     }
     
     internal func onChangeNotifications() {
@@ -225,17 +221,70 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
     
     internal func onLeave() {
         do {
-            let realm = try WRealm.safe()
-            let displayedName = realm.object(ofType: GroupChatStorageItem.self,
-                                             forPrimaryKey: [jid, owner].prp())?.name ?? jid
-            let leaveItems: [ActionSheetPresenter.Item] = [
-                ActionSheetPresenter.Item(destructive: false, title: "Leave".localizeString(id: "groupchat_leave", arguments: []), value: "leave"),
-                ActionSheetPresenter.Item(destructive: true, title: "Leave and block".localizeString(id: "groupchats_leave_block", arguments: []), value: "leave_and_block"),
-            ]
+            let repository = GroupRepository(realm: try WRealm.safe())
+            let projection = try repository.projection(owner: owner, groupJID: jid)
+            let displayedName = projection.state.snapshot.info?.name ?? jid
+            let exitMode = try CanonicalGroupMembershipLifecycle.exitMode(
+                owner: owner,
+                groupJID: jid
+            )
+            let leaveItems: [ActionSheetPresenter.Item]
+            let message: String
+            switch exitMode {
+            case .leave:
+                leaveItems = [
+                    ActionSheetPresenter.Item(
+                        destructive: false,
+                        title: "Leave".localizeString(id: "groupchat_leave", arguments: []),
+                        value: "leave"
+                    ),
+                    ActionSheetPresenter.Item(
+                        destructive: true,
+                        title: "Leave and block".localizeString(id: "groupchats_leave_block", arguments: []),
+                        value: "leave_and_block"
+                    ),
+                ]
+                message = "Do you really want to leave group \(displayedName)?"
+                    .localizeString(
+                        id: "groupchat_leave_confirm",
+                        arguments: ["\(displayedName)"]
+                    )
+            case .deletePeerToPeer:
+                leaveItems = [
+                    ActionSheetPresenter.Item(
+                        destructive: true,
+                        title: "Delete".localizeString(id: "delete", arguments: []),
+                        value: "delete"
+                    ),
+                ]
+                message = "Leaving this private group will permanently delete \(displayedName)."
+                    .localizeString(
+                        id: "groupchat_delete_p2p_confirm",
+                        arguments: [displayedName]
+                    )
+            case .deleteLastOwner:
+                leaveItems = [
+                    ActionSheetPresenter.Item(
+                        destructive: true,
+                        title: "Delete".localizeString(id: "delete", arguments: []),
+                        value: "delete"
+                    ),
+                ]
+                message = "You are the last owner. Leaving now will permanently delete \(displayedName)."
+                    .localizeString(
+                        id: "groupchat_delete_last_owner_confirm",
+                        arguments: [displayedName]
+                    )
+            }
             ActionSheetPresenter().present(
                 in: self,
-                title: "Leave group".localizeString(id: "groupchat_leave_full", arguments: []),
-                message: "Do you really want to leave group \(displayedName)?".localizeString(id: "groupchat_leave_confirm", arguments: ["\(displayedName)"]),
+                title: exitMode.deletesGroup
+                    ? "Delete".localizeString(id: "delete", arguments: [])
+                    : "Leave group".localizeString(
+                        id: "groupchat_leave_full",
+                        arguments: []
+                    ),
+                message: message,
                 cancel: "Cancel".localizeString(id: "cancel", arguments: []),
                 values: leaveItems,
                 animated: true,
@@ -247,42 +296,57 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
     }
     
     internal func onLeaveCallback(_ action: String) {
-        switch action {
-        case "leave":
-            AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-                user.groupchats.leave(stream, groupchat: self.jid, callback: self.onLeaveResultCallback)
-            })
-        case "leave_and_block":
-            AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-                user.groupchats.leave(stream, groupchat: self.jid, callback: self.onLeaveResultCallback)
-            })
-            AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-                user.blocked.blockContact(stream, jid: self.jid)
-            })
-        default: break
+        guard ["leave", "leave_and_block", "delete"].contains(action),
+              let account = AccountManager.shared.find(for: owner) else {
+            if action.isNotEmpty {
+                onLeaveResultCallback(.failure(GroupchatServiceError.notPrepared))
+            }
+            return
+        }
+        Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            do {
+                let exitMode = try CanonicalGroupMembershipLifecycle.exitMode(
+                    owner: self.owner,
+                    groupJID: self.jid
+                )
+                switch exitMode {
+                case .leave:
+                    try await CanonicalGroupMembershipLifecycle.leave(
+                        account: account,
+                        groupJID: self.jid
+                    )
+                case .deletePeerToPeer, .deleteLastOwner:
+                    try await CanonicalGroupMembershipLifecycle.delete(
+                        account: account,
+                        groupJID: self.jid
+                    )
+                }
+                if action == "leave_and_block" {
+                    account.action { user, stream in
+                        user.blocked.blockContact(stream, jid: self.jid)
+                    }
+                }
+                self.onLeaveResultCallback(.success(()))
+            } catch {
+                self.onLeaveResultCallback(.failure(error))
+            }
         }
     }
     
-    internal func onLeaveResultCallback(_ error: String?) {
-        if let error = error {
-            var message: String = ""
-            switch error {
-            case "fail": message = "Connection failed".localizeString(id: "grouchats_connection_failed", arguments: [])
-            case "not-allowed": message = "Last owner can`t leave chat. Please transfer owner rights to somebody".localizeString(id: "groupchats_last_owner_leave_error", arguments: [])
-            default: message = "Internal server error".localizeString(id: "error_internal_server", arguments: [])
-            }
-            DispatchQueue.main.async {
-                ErrorMessagePresenter().present(in: self, message: message, animated: true, completion: nil)
-            }
-        } else {
-            DispatchQueue.main.async {
-                self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-                self.navigationController?.navigationBar.shadowImage = nil
-                self.navigationController?.popToRootViewController(animated: true)
-            }
-            AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-                user.groupchats.afterLeave(groupchat: self.jid)
-            })
+    internal func onLeaveResultCallback(_ result: Result<Void, Error>) {
+        switch result {
+        case let .failure(error):
+            ErrorMessagePresenter().present(
+                in: self,
+                message: CanonicalGroupMembershipLifecycle.localizedErrorMessage(error),
+                animated: true,
+                completion: nil
+            )
+        case .success:
+            navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
+            navigationController?.navigationBar.shadowImage = nil
+            navigationController?.popToRootViewController(animated: true)
         }
     }
     
@@ -300,44 +364,23 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         self.navigationController?.pushViewController(vc, animated: true)
     }
     
-    func showDefaultRestrictions() {
-//        self.shouldResetNavbar = false
-        let vc = GroupchatDefaultRightsViewController()
-        vc.configure(self.owner, jid: self.jid)
-        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-        self.navigationController?.navigationBar.shadowImage = nil
-        navigationController?.pushViewController(vc, animated: true)
-    }
-    
     func showInvitations() {
         let vc = GroupchatInviteListViewController()
         vc.jid = self.jid
         vc.owner = self.owner
         self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
+        navigationController?.pushViewController(vc, animated: true)
     }
     
     func showBlocked() {
-//        self.shouldResetNavbar = false
         let vc = GroupchatBlockedViewController()
-//        vc.configure(jid, owner: owner)
         vc.jid = self.jid
         vc.owner = self.owner
         navigationController?.pushViewController(vc, animated: true)
     }
     
     func setStatus() {
-        self.shouldResetNavbar = false
-//        let vc = GroupchatSettingsViewController()
-//        vc.jid = self.jid
-//        vc.owner = self.owner
-//        vc.isStatus = true
-//        vc.entity = self.isIncognitoChat ? .incognitoChat : .groupchat
-//        vc.configure(self.owner, jid: self.jid)
-//        self.navigationController?.pushViewController(vc, animated: true)
-//        showModal(vc, parent: self)
-//        self.navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-//        self.navigationController?.navigationBar.shadowImage = nil
-//        navigationController?.pushViewController(vc, animated: true)
+        showSettings()
     }
     
     @objc
@@ -348,25 +391,20 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         vc.jid = self.jid
         vc.stringValue = "xmpp:\(self.jid)"
         
-        do {
-            let realm = try WRealm.safe()
-            let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [jid, owner].prp())
-            
-            let avatarUrl = instance?.avatarUrl
-            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 56) { image in
-                if let image = image?.resize(targetSize: CGSize(square: 56)) {
-                    vc.avatarImageView.image = image
-                } else {
-                    vc.avatarImageView.image = UIImageView.getDefaultAvatar(for: self.nickname, owner: self.owner, size: 56)
-                }
+        let avatarURL = currentProjection?.state.snapshot.info?.avatar?.url
+        DefaultAvatarManager.shared.getAvatar(url: avatarURL, jid: jid, owner: owner, size: 56) { image in
+            if let image = image?.resize(targetSize: CGSize(square: 56)) {
+                vc.avatarImageView.image = image
+            } else {
+                vc.avatarImageView.image = UIImageView.getDefaultAvatar(
+                    for: self.nickname,
+                    owner: self.owner,
+                    size: 56
+                )
             }
-            
-        } catch {
-            DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
         
         self.navigationController?.pushViewController(vc, animated: true)
-//        showModal(vc, parent: self)
     }
     
     func clearHistory() {
@@ -462,40 +500,16 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         
     }
     
-    private final func showGroupInfo() {
-        let vc = GroupchatInfoViewControllerSecondary()
-        vc.owner = self.owner
-        vc.jid = self.jid
-        vc.isViewForAdmin = self.canBeChanged
-        // V3: membership/index/privacy are well-known protocol values, no form request needed
-        vc.membershipValues = [
-            ["label": GroupChatStorageItem.Membership.open.localized ?? "Open", "value": GroupChatStorageItem.Membership.open.rawValue],
-            ["label": GroupChatStorageItem.Membership.memberOnly.localized ?? "Member only", "value": GroupChatStorageItem.Membership.memberOnly.rawValue],
-        ]
-        vc.indexValues = [
-            ["label": GroupChatStorageItem.Index.none.localized ?? "None", "value": GroupChatStorageItem.Index.none.rawValue],
-            ["label": GroupChatStorageItem.Index.local.localized ?? "Local", "value": GroupChatStorageItem.Index.local.rawValue],
-            ["label": GroupChatStorageItem.Index.global.localized ?? "Global", "value": GroupChatStorageItem.Index.global.rawValue],
-        ]
-        self.navigationController?.pushViewController(vc, animated: true)
-    }
-    
     @objc
     internal func groupchatInfo(_ sender: UIBarButtonItem) {
-        showGroupInfo()
-    }
-    
-    private final func onChatSettingsFormResponseRuntime(values: [[String: Any]]?, error: String?) {
-        self.onChatSettingsFormResponse(values: values, error: error)
-        
+        showSettings()
     }
     
     func onChangeAvatar() {
         let groupchatItems = [
             ActionSheetPresenter.Item(destructive: false, title: "Use emoji".localizeString(id: "account_emoji_profile_image_button", arguments: []), value: "emoji"),
             ActionSheetPresenter.Item(destructive: false, title: "Open gallery".localizeString(id: "account_open_gallery", arguments: []), value: "gallery"),
-            ActionSheetPresenter.Item(destructive: false, title: "Open camera".localizeString(id: "account_open_camera", arguments: []), value: "camera"),
-            ActionSheetPresenter.Item(destructive: true, title: "Clear avatar".localizeString(id: "account_clear_avatar", arguments: []), value: "clear")
+            ActionSheetPresenter.Item(destructive: false, title: "Open camera".localizeString(id: "account_open_camera", arguments: []), value: "camera")
         ]
         ActionSheetPresenter().present(in: self,
                                        title: nil,
@@ -507,7 +521,6 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
                                         case "camera": self.onOpenCamera()
                                         case "gallery": self.onOpenGallery()
                                         case "emoji": self.onOpenEmojiPicker()
-                                        case "clear": self.onClearAvatar()
                                         default: break
                                         }
         }
@@ -569,7 +582,6 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         vc.palette = nil
         vc.lastSettedEmoji = nil
         self.navigationController?.pushViewController(vc, animated: true)
-//        showModal(vc, parent: self)
     }
     
     internal final func onOpenEmojiPicker() {
@@ -584,52 +596,50 @@ extension GroupchatInfoViewController: InfoScreenHeaderDelegate {
         openGallery()
     }
     
-    internal final func onClearAvatar() {
-        onUpdateAvatar(nil)
-    }
-    
     func onUpdateAvatar(_ image: UIImage?) {
-        DispatchQueue.main.async {
-            self.view.makeToastActivity(.center)
-        }
-        // V3: update avatar via <info xmlns='...'><avatar>...</avatar></info>
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            session.groupchat?.updateGroupAvatar(stream,
-                                                 groupchat: self.jid,
-                                                 image: image,
-                                                 callback: self.onUpdateAvatarCallback)
-        } fail: {
-            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                user.groupchats.updateGroupAvatar(stream,
-                                                  groupchat: self.jid,
-                                                  image: image,
-                                                  callback: self.onUpdateAvatarCallback)
-            })
-        }
-    }
-    
-    func onUpdateAvatarCallback(_ error: String?) {
-        DispatchQueue.main.async {
-            self.view.hideToastActivity()
-            if let error = error {
-                var message: String = ""
-                switch error {
-                case "not-allowed":
-                    message = "You have no permission to change member`s avatar".localizeString(id: "groupchats_member_avatar_no_permission", arguments: [])
-                case "fail":
-                    message = "Connection failed".localizeString(id: "grouchats_connection_failed", arguments: [])
-                default:
-                    message = "Internal server error".localizeString(id: "error_internal_server", arguments: [])
+        guard let image,
+              let account = AccountManager.shared.find(for: owner) else { return }
+        view.makeToastActivity(.center)
+        account.avatarUploader.setGroupAvatar(
+            groupchat: jid,
+            image: image,
+            successCallback: { [weak self] in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.view.hideToastActivity()
+                    self.headerView.imageButton.setImage(
+                        image.resize(targetSize: CGSize(square: 128)),
+                        for: .normal
+                    )
                 }
-                ErrorMessagePresenter().present(in: self,
-                                                message: message,
-                                                animated: true,
-                                                completion: nil)
-            } else {
-                
+            },
+            failureCallback: { [weak self] _, error in
+                DispatchQueue.main.async {
+                    self?.onUpdateAvatarFailure(error)
+                }
+            },
+            queuedCallback: { [weak self] in
+                DispatchQueue.main.async {
+                    self?.view.hideToastActivity()
+                    self?.headerView.imageButton.setImage(
+                        image.resize(targetSize: CGSize(square: 128)),
+                        for: .normal
+                    )
+                }
             }
-        }
-        
+        )
+    }
+
+    private func onUpdateAvatarFailure(_ error: String) {
+        view.hideToastActivity()
+        ErrorMessagePresenter().present(
+            in: self,
+            message: error.isNotEmpty
+                ? error
+                : "Internal server error".localizeString(id: "error_internal_server", arguments: []),
+            animated: true,
+            completion: nil
+        )
     }
 }
 

@@ -39,13 +39,8 @@
 
 import Foundation
 import UIKit
-import RealmSwift
-import RxCocoa
-import RxSwift
-import RxRealm
 import DeepDiff
 import CocoaLumberjack
-import Kingfisher
 import MaterialComponents.MDCPalettes
 
 class GroupchatInviteListViewController: SimpleBaseViewController {
@@ -90,8 +85,6 @@ class GroupchatInviteListViewController: SimpleBaseViewController {
     
     internal var datasource: [Datasource] = []
     
-    internal var membersObserver: Results<GroupchatInvitedUsersStorageItem>? = nil
-    
     var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
     
     internal let tableView: UITableView = {
@@ -102,44 +95,9 @@ class GroupchatInviteListViewController: SimpleBaseViewController {
         return view
     }()
         
-    internal let updateQueue: DispatchQueue = {
-        return DispatchQueue.global(qos: .background)
-    }()
-    
-    
     override func subscribe() {
         super.subscribe()
-        do {
-            let realm = try WRealm.safe()
-            membersObserver = realm
-                    .objects(GroupchatInvitedUsersStorageItem.self)
-                    .filter("groupchatId == %@", [jid, owner].prp())
-                    .sorted(by: [
-                        SortDescriptor(keyPath: "nickname", ascending: true),
-                        SortDescriptor(keyPath: "jid", ascending: true)
-                    ])
-            
-            
-            Observable
-                .collection(from: membersObserver!)
-                .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
-                .subscribe { (results) in
-                    self.runDatasetUpdateTask()
-                } onError: { (error) in
-                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX error: \(error.localizedDescription)")
-                } onCompleted: {
-                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX state: completed")
-                } onDisposed: {
-                    DDLogDebug("GroupchatMembersListViewController: \(#function). RX state: disposed")
-                }
-                .disposed(by: bag)
-
-            canUpdateDataset = true
-            runDatasetUpdateTask()
-            
-        } catch {
-            DDLogDebug("GroupchatMembersListViewController: \(#function). \(error.localizedDescription)")
-        }
+        refreshOutgoingInvites()
     }
     
     override func setupSubviews() {
@@ -170,8 +128,7 @@ class GroupchatInviteListViewController: SimpleBaseViewController {
     }
     
     override func onAppear() {
-//        navigationController?.navigationBar.setBackgroundImage(nil, for: .default)
-//        navigationController?.navigationBar.shadowImage = nil
+        refreshOutgoingInvites()
     }
     
     var canPromote: Bool = true
@@ -179,24 +136,25 @@ class GroupchatInviteListViewController: SimpleBaseViewController {
     var canEdit: Bool = true
     var canKick: Bool = true
     
-    private final func mapDataset() -> [Datasource] {
-        guard let collection = membersObserver else {
-            return []
-        }
-        return collection.compactMap {
-            item in
-                        
-            return Datasource(
-                jid: item.jid,
-                title: item.nickname.isNotEmpty ? item.nickname : item.jid,
-                subtitle: item.nickname.isEmpty ? "" : item.jid,
-                avatarUrl: item.avatarUrl
-            )
-        }
+    private final func mapDataset(_ targets: [String]) -> [Datasource] {
+        targets
+            .map(GroupStorageKey.bareJID)
+            .filter(\.isNotEmpty)
+            .reduce(into: [String]()) { result, target in
+                if !result.contains(target) {
+                    result.append(target)
+                }
+            }
+            .sorted()
+            .map { target in
+                Datasource(
+                    jid: target,
+                    title: target,
+                    subtitle: "",
+                    avatarUrl: nil
+                )
+            }
     }
-    
-    public final var canUpdateDataset = true
-    
     
     private final func convertChangeset(changes: [Change<Datasource>]) -> ChangesWithIndexPath {
         let section: Int = 0
@@ -220,32 +178,14 @@ class GroupchatInviteListViewController: SimpleBaseViewController {
         )
     }
     
-    public final func initializeDataset() {
-        
-    }
-    
-    public final func runDatasetUpdateTask() {
-        preprocessDataset()
-        postprocessDataset()
-    }
-    
-    private final func preprocessDataset() {
-        if !canUpdateDataset { return }
-        self.updateQueue.sync {
-            self.canUpdateDataset = false
-            let newDataset = self.mapDataset()
-            let changes = diff(old: self.datasource, new: newDataset)
-            let indexPaths = self.convertChangeset(changes: changes)
-            DispatchQueue.main.async {
-                self.apply(changes: indexPaths) {
-                    self.datasource = newDataset
-                }
-            }
+    @MainActor
+    private final func applyOutgoingInvites(_ targets: [String]) {
+        let newDataset = mapDataset(targets)
+        let changes = diff(old: datasource, new: newDataset)
+        let indexPaths = convertChangeset(changes: changes)
+        apply(changes: indexPaths) {
+            self.datasource = newDataset
         }
-    }
-    
-    private final func postprocessDataset() {
-        
     }
     
     private final func apply(changes: ChangesWithIndexPath, prepare: @escaping (() -> Void)) {
@@ -255,7 +195,6 @@ class GroupchatInviteListViewController: SimpleBaseViewController {
             changes.moves.isEmpty &&
             changes.replaces.isEmpty {
             prepare()
-            self.canUpdateDataset = true
             return
         }
         UIView.performWithoutAnimation {
@@ -277,7 +216,6 @@ class GroupchatInviteListViewController: SimpleBaseViewController {
                 }
             }, completion: {
                 result in
-                self.canUpdateDataset = true
                 if changes.replaces.isEmpty { return }
                 self.tableView.reloadRows(at: changes.replaces, with: .none)
             })
@@ -323,9 +261,6 @@ extension GroupchatInviteListViewController: UITableViewDataSource {
 
 extension GroupchatInviteListViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-//        if indexPath.section == 0 && self.permissionScope == "owner,admin" {
-//            return 52
-//        }
         return 64
     }
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
@@ -375,6 +310,33 @@ extension GroupchatInviteListViewController: UITableViewDelegate {
 }
 
 extension GroupchatInviteListViewController {
+    private func refreshOutgoingInvites() {
+        guard let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+        Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            do {
+                let targets = try await account.groupchatService.refreshInvites(
+                    groupJID: self.jid
+                )
+                let records = try GroupRepository(
+                    realm: WRealm.safe()
+                ).replaceOutgoingInvites(
+                    owner: self.owner,
+                    groupJID: self.jid,
+                    targets: targets
+                )
+                self.applyOutgoingInvites(records.map(\.target))
+            } catch {
+                DDLogDebug("GroupchatInviteListViewController: \(#function). \(error.localizedDescription)")
+                self.view.makeToast(
+                    CanonicalGroupMembershipLifecycle.localizedErrorMessage(error),
+                    danger: true
+                )
+            }
+        }
+    }
     
     private func onInvite() {
         let vc = GroupchatInviteViewController()
@@ -383,11 +345,29 @@ extension GroupchatInviteListViewController {
     }
     
     private func onCancelInvite(jid invitedJid: String) {
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            session.groupchat?.cancelInvite(stream, groupchat: self.jid, jid: invitedJid)
-        } fail: {
-            AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                user.groupchats.cancelInvite(stream, groupchat: self.jid, jid: invitedJid)
+        guard let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+        Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            do {
+                let targets = try await account.groupchatService.revokeInvite(
+                    groupJID: self.jid,
+                    targetJID: invitedJid
+                )
+                let records = try GroupRepository(
+                    realm: WRealm.safe()
+                ).replaceOutgoingInvites(
+                    owner: self.owner,
+                    groupJID: self.jid,
+                    targets: targets
+                )
+                self.applyOutgoingInvites(records.map(\.target))
+            } catch {
+                self.view.makeToast(
+                    CanonicalGroupMembershipLifecycle.localizedErrorMessage(error),
+                    danger: true
+                )
             }
         }
     }

@@ -75,7 +75,7 @@ final class LocalNotificationRichContentTests: XCTestCase {
 
     func testLocalGroupPreviewKeepsExactAnchorAndRealParticipantIdentity() throws {
         let stanza = """
-        <message from='garden@conference.example.com' to='romeo@example.com' type='groupchat' id='message-1'>
+        <message from='garden@conference.example.com' to='romeo@example.com' type='chat' id='message-1'>
           <body>Hello</body>
           <x xmlns='https://xabber.com/protocol/groups'>
             <user id='member-7'><jid>juliet@example.com</jid><nickname>Juliet</nickname></user>

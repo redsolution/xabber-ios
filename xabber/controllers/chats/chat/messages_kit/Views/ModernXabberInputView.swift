@@ -2802,8 +2802,11 @@ class ModernXabberInputView: UIView {
 
     var mentionConversationType: ClientSynchronizationManager.ConversationType = .regular
     var mentionCandidatesProvider: ((String) -> [ComposerMentionCandidate])? = nil
+    var mentionAllCandidateProvider: ((String) -> ComposerMentionCandidate?)? = nil
     var mentionMembersCountProvider: (() -> Int)? = nil
     var mentionUsersReloadHandler: (() -> Void)? = nil
+    var groupMentionSenderRole: GroupMemberRole? = nil
+    var groupMentionAllCapabilityGranted: Bool = false
     private var currentMentionQuery: ComposerMentionQueryState? = nil
     private var isMentionUsersReloadInFlight: Bool = false
     private var isApplyingComposerMutation: Bool = false
@@ -3968,8 +3971,15 @@ class ModernXabberInputView: UIView {
     }
 
     func currentPayload() -> ComposerMessagePayload {
-        ComposerMentionSerializer.payload(
+        let serialized = ComposerMentionSerializer.payload(
             from: self.textField.attributedText ?? NSAttributedString(string: "", attributes: self.baseComposerAttributes())
+        )
+        return ComposerMessagePayload(
+            body: serialized.body,
+            references: serialized.references,
+            groupMentionIntent: serialized.groupMentionIntent,
+            groupMentionSenderRole: self.groupMentionSenderRole,
+            groupMentionAllCapabilityGranted: self.groupMentionAllCapabilityGranted
         )
     }
 
@@ -4117,8 +4127,14 @@ class ModernXabberInputView: UIView {
         }
 
         self.currentMentionQuery = query
-        let candidates = self.mentionCandidatesProvider?(query.query) ?? []
-        let membersCount = self.mentionMembersCountProvider?() ?? candidates.count
+        let memberCandidates = self.mentionCandidatesProvider?(query.query) ?? []
+        var candidates = memberCandidates
+        if ComposerMentionAllPolicy.canPresent(senderRole: self.groupMentionSenderRole),
+           let mentionAll = self.mentionAllCandidateProvider?(query.query),
+           mentionAll.isMentionAll {
+            candidates.insert(mentionAll, at: 0)
+        }
+        let membersCount = self.mentionMembersCountProvider?() ?? memberCandidates.count
         let shouldReload = membersCount == 0 && !self.isMentionUsersReloadInFlight
         if shouldReload {
             self.isMentionUsersReloadInFlight = true
@@ -5170,13 +5186,22 @@ final class ComposerMentionEntity: NSObject, NSSecureCoding {
     let uri: String
     let node: String?
     let jid: String?
+    let isMentionAll: Bool
 
-    init(memberId: String, nickname: String, uri: String, node: String?, jid: String?) {
+    init(
+        memberId: String,
+        nickname: String,
+        uri: String,
+        node: String?,
+        jid: String?,
+        isMentionAll: Bool = false
+    ) {
         self.memberId = memberId
         self.nickname = nickname
         self.uri = uri
         self.node = node
         self.jid = jid
+        self.isMentionAll = isMentionAll
         super.init()
     }
 
@@ -5191,6 +5216,7 @@ final class ComposerMentionEntity: NSObject, NSSecureCoding {
         self.uri = uri
         self.node = coder.decodeObject(of: NSString.self, forKey: "node") as String?
         self.jid = coder.decodeObject(of: NSString.self, forKey: "jid") as String?
+        self.isMentionAll = coder.decodeBool(forKey: "isMentionAll")
         super.init()
     }
 
@@ -5200,6 +5226,7 @@ final class ComposerMentionEntity: NSObject, NSSecureCoding {
         coder.encode(self.uri, forKey: "uri")
         coder.encode(self.node, forKey: "node")
         coder.encode(self.jid, forKey: "jid")
+        coder.encode(self.isMentionAll, forKey: "isMentionAll")
     }
 }
 
@@ -5210,6 +5237,40 @@ struct ComposerMentionCandidate: Equatable {
     let node: String?
     let jid: String?
     let secondaryText: String
+    let isMentionAll: Bool
+
+    init(
+        memberId: String,
+        nickname: String,
+        uri: String,
+        node: String?,
+        jid: String?,
+        secondaryText: String,
+        isMentionAll: Bool = false
+    ) {
+        self.memberId = memberId
+        self.nickname = nickname
+        self.uri = uri
+        self.node = node
+        self.jid = jid
+        self.secondaryText = secondaryText
+        self.isMentionAll = isMentionAll
+    }
+
+    static func mentionAll(groupJID: String) -> ComposerMentionCandidate {
+        ComposerMentionCandidate(
+            memberId: "",
+            nickname: "@all",
+            uri: "xmpp:\(groupJID)?members",
+            node: nil,
+            jid: nil,
+            secondaryText: "Everyone".localizeString(
+                id: "chat_bottom__mentions_list__item_everyone",
+                arguments: []
+            ),
+            isMentionAll: true
+        )
+    }
 
     var avatarInitials: String {
         let source = nickname.isEmpty ? (jid ?? memberId) : nickname
@@ -5227,7 +5288,8 @@ struct ComposerMentionCandidate: Equatable {
             nickname: nickname,
             uri: uri,
             node: node,
-            jid: jid
+            jid: jid,
+            isMentionAll: isMentionAll
         )
     }
 }
@@ -5235,6 +5297,29 @@ struct ComposerMentionCandidate: Equatable {
 struct ComposerMessagePayload {
     let body: String
     let references: [MessageReferenceStorageItem]
+    let groupMentionIntent: GroupMessageMentionIntent
+    let groupMentionSenderRole: GroupMemberRole?
+    let groupMentionAllCapabilityGranted: Bool
+
+    init(
+        body: String,
+        references: [MessageReferenceStorageItem],
+        groupMentionIntent: GroupMessageMentionIntent = .absent,
+        groupMentionSenderRole: GroupMemberRole? = nil,
+        groupMentionAllCapabilityGranted: Bool = false
+    ) {
+        self.body = body
+        self.references = references
+        self.groupMentionIntent = groupMentionIntent
+        self.groupMentionSenderRole = groupMentionSenderRole
+        self.groupMentionAllCapabilityGranted = groupMentionAllCapabilityGranted
+    }
+}
+
+enum ComposerMentionAllPolicy {
+    static func canPresent(senderRole: GroupMemberRole?) -> Bool {
+        senderRole == .admin || senderRole == .owner
+    }
 }
 
 struct ComposerMentionQueryState: Equatable {
@@ -5424,8 +5509,24 @@ enum ComposerMentionRangeCodec {
 enum ComposerMentionSerializer {
     static func payload(from attributedText: NSAttributedString) -> ComposerMessagePayload {
         let body = attributedText.string
-        let references = self.references(from: attributedText, body: body)
-        return ComposerMessagePayload(body: body, references: references)
+        let runs = self.mentionRuns(in: attributedText)
+        let references = self.references(from: runs, body: body)
+        let intent: GroupMessageMentionIntent
+        if runs.contains(where: { $0.entity.isMentionAll }) {
+            intent = .all
+        } else {
+            let memberIDs = GroupMessageMentionsCodec.memberIDs(from: references)
+            if !memberIDs.isEmpty {
+                intent = .members(memberIDs)
+            } else {
+                intent = runs.isEmpty ? .absent : .invalid
+            }
+        }
+        return ComposerMessagePayload(
+            body: body,
+            references: references,
+            groupMentionIntent: intent
+        )
     }
 
     static func attributedText(
@@ -5445,9 +5546,9 @@ enum ComposerMentionSerializer {
         return output
     }
 
-    private static func references(from attributedText: NSAttributedString, body: String) -> [MessageReferenceStorageItem] {
+    private static func references(from runs: [MentionRun], body: String) -> [MessageReferenceStorageItem] {
         var output: [MessageReferenceStorageItem] = []
-        for run in mentionRuns(in: attributedText) {
+        for run in runs where !run.entity.isMentionAll {
             guard let escapedRange = ComposerMentionRangeCodec.escapedRange(for: run.range, in: body) else {
                 continue
             }
@@ -5463,6 +5564,9 @@ enum ComposerMentionSerializer {
                 "jid": run.entity.jid as Any
             ].compactMapValues { $0 }
             reference.url = run.entity.uri
+            guard GroupMessageMentionsCodec.memberID(from: reference) != nil else {
+                continue
+            }
             output.append(reference)
         }
         return output.sorted(by: { $0.begin < $1.begin })
@@ -5564,6 +5668,7 @@ private extension ComposerMentionEntity {
         self.normalizedNickname == other.normalizedNickname &&
         self.uri == other.uri &&
         self.node == other.node &&
-        self.jid == other.jid
+        self.jid == other.jid &&
+        self.isMentionAll == other.isMentionAll
     }
 }

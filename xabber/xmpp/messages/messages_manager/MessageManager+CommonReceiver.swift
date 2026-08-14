@@ -27,6 +27,31 @@ import RxRealm
 
 extension MessageManager {
 
+    private func routeCanonicalGroupMessage(
+        _ message: XMPPMessage
+    ) -> Account.CanonicalGroupMessageRouting {
+        if let account = AccountManager.shared.find(for: owner) {
+            return account.routeCanonicalGroupMessage(message)
+        }
+
+        // A detached message manager has no repository owner. It may validate
+        // and classify canonical traffic, but must never recreate legacy group
+        // storage as a fallback.
+        do {
+            guard let event = try GroupStanzaRouter.route(message) else {
+                return .notGroup
+            }
+            switch event {
+            case .message:
+                return .validatedMessage
+            case .invite, .reducer, .iq:
+                return .consumed
+            }
+        } catch {
+            return .consumed
+        }
+    }
+
     @discardableResult
     internal func performMessageQueueSync<T>(_ block: () -> T) -> T {
         if DispatchQueue.getSpecific(key: self.queueSpecificKey) == self.queueSpecificValue {
@@ -1076,21 +1101,7 @@ extension MessageManager {
         ])
         let delayedDate = getDelayedDate(message)
         let archivedMessage = getArchivedMessageContainer(message)
-        let isInvite: Bool
-        if let delayedDate,
-           let archivedMessage {
-            isInvite =
-                AccountManager.shared.find(for: owner)?.groupchats.readInvite(
-                    in: archivedMessage,
-                    date: getDeliveryTime(
-                        archivedMessage,
-                        owner: owner
-                    ) ?? delayedDate,
-                    isRead: nil
-                ) ?? GroupchatInviteV3Parser.isInvite(archivedMessage)
-        } else {
-            isInvite = false
-        }
+        let canonicalGroupRouting = routeCanonicalGroupMessage(message)
 
         // Received/classified/queued accounting is one serialized ingress
         // operation. Concurrent OMEMO/plaintext callbacks cannot let the
@@ -1123,7 +1134,7 @@ extension MessageManager {
                 }
                 return
             }
-            if isInvite {
+            if canonicalGroupRouting == .consumed {
                 self.updateArchivePersistenceSummary(for: queryId) { summary in
                     summary.skipped += 1
                 }
@@ -1155,10 +1166,10 @@ extension MessageManager {
     }
     
     public func receiveCarbon(_ message: XMPPMessage) {
+        guard routeCanonicalGroupMessage(message) != .consumed else {
+            return
+        }
         if let messageBare = getCarbonCopyMessageContainer(message) {
-            if AccountManager.shared.find(for: owner)?.groupchats.readInvite(in: messageBare, date: getDeliveryTime(messageBare, owner: owner) ?? Date(), isRead: nil) ?? GroupchatInviteV3Parser.isInvite(messageBare) {
-                return
-            }
             enqueue(MessageQueueItem(messageBare,
                                      messageId: getOriginId(messageBare),
                                      archivedFrom: messageBare.from?.bare,
@@ -1196,10 +1207,10 @@ extension MessageManager {
     }
     
     public func receiveCarbonForwarded(_ message: XMPPMessage) {
+        guard routeCanonicalGroupMessage(message) != .consumed else {
+            return
+        }
         if let messageBare = getCarbonForwardedMessageContainer(message) {
-            if AccountManager.shared.find(for: owner)?.groupchats.readInvite(in: messageBare, date: getDeliveryTime(messageBare, owner: owner) ?? Date(), isRead: nil) ?? GroupchatInviteV3Parser.isInvite(messageBare) {
-                return
-            }
             enqueue(MessageQueueItem(messageBare,
                                      messageId: getOriginId(messageBare),
                                      archivedFrom: message.from?.bare,
@@ -1212,12 +1223,7 @@ extension MessageManager {
     }
     
     public func receiveRuntime(_ message: XMPPMessage) {
-        if AccountManager.shared.find(for: owner)?.groupchats.readInvite(
-            in: message,
-            date: getDeliveryTime(message, owner: owner) ?? Date(),
-            isRead: false,
-            notifyLocally: true
-        ) ?? GroupchatInviteV3Parser.isInvite(message) {
+        if routeCanonicalGroupMessage(message) == .consumed {
             return
         }
         enqueue(MessageQueueItem(message,
@@ -1333,8 +1339,23 @@ extension MessageManager {
             if isVoIPMessage(item.message) {
                 return
             }
-            if AccountManager.shared.find(for: owner)?.groupchats.readInvite(in: item.message, date: item.date, isRead: item.forceUnreadState ?? item.isRead) ?? GroupchatInviteV3Parser.isInvite(item.message) {
+            if routeCanonicalGroupMessage(item.message) == .consumed {
                 return
+            }
+            let systemMessageSource: GroupSystemMessageSource =
+                item.queryId?.isNotEmpty == true ? .mam : .live
+            let systemMetadata = parseSystemMessageMetadata(
+                item.message,
+                source: systemMessageSource
+            )
+            if systemMessageSource == .live {
+                let mamOnlySystemType = parseSystemMessageMetadata(
+                    item.message,
+                    source: .mam
+                )?["type"] as? String
+                if mamOnlySystemType == GroupSystemEventType.create.rawValue {
+                    return
+                }
             }
             let instance: MessageStorageItem = MessageStorageItem()
             let from = item.message.from?.bare ?? item.archivedFrom ?? item.originalFrom
@@ -1378,24 +1399,19 @@ extension MessageManager {
             
             if let userId = groupchatUserElement(from: item.message)?
                 .attributeStringValue(forName: "id") {
-                if let userCard = item.groupchatUserCard,
-                    let myId = userCard.attributeStringValue(forName: "id") {
-                    item.originalOutgoing = userId == myId
-                } else {
-                    do {
-                        let realm = try WRealm.safe()
-                        if let instance = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: [userId, opponent, owner].prp()) {
-                            item.originalOutgoing = instance.isMe
-                        }
-                    } catch {
-                        DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
-                    }
+                do {
+                    let realm = try WRealm.safe()
+                    let membership = realm.object(
+                        ofType: GroupSelfMembershipStorageItem.self,
+                        forPrimaryKey: GroupStorageKey.groupPrimary(
+                            owner: owner,
+                            groupJID: opponent
+                        )
+                    )
+                    item.originalOutgoing = membership?.memberID == userId
+                } catch {
+                    DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
                 }
-            } else if let groupchatRef = item.message
-                    .element(forName: "x", xmlns: "https://xabber.com/protocol/groups")?
-                    .elements(forName: "reference"),
-                    let groupchatAuthor = getMessageAuthorGroupchat(groupchatRef, jid: opponent) {
-                    item.originalOutgoing = groupchatAuthor == owner
             } else {
                 item.originalOutgoing = from == owner
             }
@@ -1420,11 +1436,12 @@ extension MessageManager {
                     afterburnInterval: afterburnInterval
                 )
             )
-            if parseSystemMessageMetadata(item.message) != nil {
+            if systemMetadata != nil {
                 instance.configureSystemMessage(item.message,
                                                 owner: owner,
                                                 opponent: opponent,
-                                                date: item.date)
+                                                date: item.date,
+                                                source: systemMessageSource)
                 instance.state = .none
                 instance.isRead = item.forceUnreadState ?? item.isRead
             } else {

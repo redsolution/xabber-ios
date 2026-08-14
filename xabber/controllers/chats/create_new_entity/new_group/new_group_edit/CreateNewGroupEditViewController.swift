@@ -32,7 +32,6 @@ class CreateNewGroupEditViewController: BaseViewController {
     internal var custom: String? = nil
     
     internal let tableView: UITableView = {
-//        let view = UITableView(frame: .zero, style: .grouped)
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(TextCell.self, forCellReuseIdentifier: TextCell.cellName)
@@ -168,4 +167,3 @@ extension CreateNewGroupEditViewController: UITableViewDelegate {
         }
     }
 }
-

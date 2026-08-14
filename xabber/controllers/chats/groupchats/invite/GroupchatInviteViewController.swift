@@ -125,7 +125,6 @@ class GroupchatInviteViewController: BaseViewController {
     internal let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .plain)
         
-//        view.remembersLastFocusedIndexPath = true
         
         view.register(UITableViewCell.self, forCellReuseIdentifier: "UITableViewCell")
         view.register(ContactCell.self, forCellReuseIdentifier: ContactCell.cellName)
@@ -335,4 +334,3 @@ class GroupchatInviteViewController: BaseViewController {
         super.didReceiveMemoryWarning()
     }
 }
-

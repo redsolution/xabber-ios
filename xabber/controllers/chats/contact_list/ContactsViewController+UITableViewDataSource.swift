@@ -181,18 +181,32 @@ extension ContactsViewController: UITableViewDataSource {
                 fatalError()
             }
             
+            let invite = try? GroupRepository(realm: WRealm.safe()).incomingInvite(
+                owner: item.owner,
+                groupJID: item.jid
+            )
+            let preview = invite?.preview
+            let inviter = invite?.inviter
+            let invitedBy = inviter?.nickname
+                ?? inviter?.jid
+                ?? inviter?.id
+                ?? ""
+            let memberCount = preview?.memberCount ?? 0
             cell.configure(
-                primary: item.primary,
-                title: item.title,
-                invitedBy: item.value,
-                subtitle: item.subtitle,
-                descr: item.descr,
-                jid: item.jid,
+                primary: invite?.primary ?? "",
+                title: preview?.info?.name ?? invite?.groupJID ?? item.jid,
+                invitedBy: invitedBy,
+                subtitle: invite?.reason ?? "",
+                descr: preview?.info?.description,
+                jid: invite?.groupJID ?? item.jid,
                 owner: item.owner,
                 showAvatar: true,
-                avatarUrl: item.avatarUrl,
-                members: item.members,
-                bottomLine: item.bottomLine ?? ""
+                avatarUrl: preview?.info?.avatar?.url,
+                members: [],
+                bottomLine: String.membersAndContactsString(
+                    members: memberCount,
+                    contacts: 0
+                )
             )
             cell.cellDelegate = self
             cell.setMask()
@@ -236,189 +250,135 @@ extension ContactsViewController: UITableViewDataSource {
 }
 
 extension ContactsViewController: GroupListActionsCellDelegate {
-    
-    func onAcceptCallback(error: String?, primary: String) {
-        DispatchQueue.main.async {
-            self.view.hideToastActivity()
-        }
-        if let error = error {
-            var message: String = "Internal error".localizeString(id: "message_manager_error_internal", arguments: [])
-            switch error {
-            case "conflict":
-                message = "Conflict".localizeString(id: "message_manager_error_conflict", arguments: [])
-            case "not-allowed":
-                message = "Not allowed".localizeString(id: "message_manager_error_unallowed", arguments: [])
-            case "fail":
-                message = "Network unreachable".localizeString(id: "message_manager_error_unreachable_network", arguments: [])
-            case "timeout":
-                message = "Request timeout".localizeString(id: "message_manager_errpr_request_timeout", arguments: [])
-            default: break
-            }
-            DispatchQueue.main.async {
-                ErrorMessagePresenter().present(
-                    in: self,
-                    alert: true,
-                    message: ["Error".localizeString(id: "error", arguments: []), message].joined(separator: ": "),
-                    animated: true
-                ) {
-                    
-                }
-            }
-        } else {
-            do {
-                let realm = try WRealm.safe()
-                guard let invite = realm.object(ofType: GroupchatInvitesStorageItem.self, forPrimaryKey: primary) else {
-                    return
-                }
-                let owner = invite.owner
-                let jid = invite.groupchat
-                try realm.write {
-                    invite.isProcessed = true
-                    invite.isRead = true
-                }
-                DispatchQueue.main.async {
-//                    self.runDatasetUpdateTask()
-                    self.leftMenuDelegate?.openChatlistWithChat(owner: owner, jid: jid, conversationType: .group, configure: nil)
-                }
-            } catch {
-                DDLogDebug("ContacsViewController: \(#function). \(error.localizedDescription)")
-            }
-        }
-    }
-    
+
     func acceptInvite(invitePrimary primary: String) {
         do {
-            DispatchQueue.main.async {
-                self.view.makeToastActivity(.center)
-            }
-            let realm = try WRealm.safe()
-            guard let invite = realm.object(ofType: GroupchatInvitesStorageItem.self, forPrimaryKey: primary) else {
+            guard let invite = try GroupRepository(
+                realm: WRealm.safe()
+            ).invite(primary: primary) else {
                 return
             }
-            let groupchat = invite.groupchat
+            let groupchat = invite.groupJID
             let owner = invite.owner
-            XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
-                if stream.isAuthenticated {
-                    session.groupchat?.join(stream, uiConnection: true, groupchat: groupchat) { error in
-                        self.onAcceptCallback(error: error, primary: primary)
-                    }
-                }
-            } fail: {
-                AccountManager.shared.find(for: invite.owner)?.action({ user, stream in
-                    if stream.isAuthenticated {
-                        user.groupchats.join(stream, uiConnection: true, groupchat: groupchat) { error in
-                            self.onAcceptCallback(error: error, primary: primary)
-                        }
-                    }
-                })
+            guard let account = AccountManager.shared.find(for: owner) else {
+                presentCanonicalGroupError(GroupchatServiceError.notPrepared)
+                return
             }
-
-            
+            view.makeToastActivity(.center)
+            Task { @MainActor [weak self, weak account] in
+                guard let self, let account else { return }
+                do {
+                    try await CanonicalGroupMembershipLifecycle.join(
+                        account: account,
+                        groupJID: groupchat
+                    )
+                    account.removeCanonicalGroupInvite(groupchat)
+                    self.view.hideToastActivity()
+                    self.leftMenuDelegate?.openChatlistWithChat(
+                        owner: owner,
+                        jid: groupchat,
+                        conversationType: .group,
+                        configure: nil
+                    )
+                } catch {
+                    self.view.hideToastActivity()
+                    self.presentCanonicalGroupError(error)
+                }
+            }
         } catch {
             DDLogDebug("ContacsViewController: \(#function). \(error.localizedDescription)")
         }
     }
-    
-    func onCancelInvite(error: String?, primary: String, value: String) {
-        DispatchQueue.main.async {
-            self.view.hideToastActivity()
-        }
-        if let error = error {
-            var message: String = "Internal error".localizeString(id: "message_manager_error_internal", arguments: [])
-            switch error {
-            case "conflict":
-                message = "Conflict".localizeString(id: "message_manager_error_conflict", arguments: [])
-            case "not-allowed":
-                message = "Not allowed".localizeString(id: "message_manager_error_unallowed", arguments: [])
-            case "fail":
-                message = "Network unreachable".localizeString(id: "message_manager_error_unreachable_network", arguments: [])
-            case "timeout":
-                message = "Request timeout".localizeString(id: "message_manager_errpr_request_timeout", arguments: [])
-            default: break
-            }
-            DispatchQueue.main.async {
-                ErrorMessagePresenter().present(
-                    in: self,
-                    alert: true,
-                    message: ["Error".localizeString(id: "error", arguments: []), message].joined(separator: ": "),
-                    animated: true
-                ) {
-                    
-                }
-            }
-        } else {
-            do {
-                let realm = try WRealm.safe()
-                guard let invite = realm.object(ofType: GroupchatInvitesStorageItem.self, forPrimaryKey: primary) else {
-                    return
-                }
-                if value == "block" {
-                    let invitedBy = invite.jid
-                    AccountManager.shared.find(for: invite.owner)?.action({ user, stream in
-                        user.blocked.blockContact(stream, jid: invitedBy)
-                    })
-                }
-                try realm.write {
-                    invite.isProcessed = true
-                    invite.isRead = true
-                }
-                DispatchQueue.main.async {
-                    self.runDatasetUpdateTask()
-                }
-            } catch {
-                DDLogDebug("ContacsViewController: \(#function). \(error.localizedDescription)")
-            }
-        }
-    }
-    
+
     func cancelInvite(invitePrimary primary: String) {
+        let invite = try? GroupRepository(realm: WRealm.safe()).invite(primary: primary)
+        let canBlockInviter = invite?.inviter?.jid != nil
+        var values = [
+            ActionSheetPresenter.Item(
+                destructive: false,
+                title: "Decline invite",
+                value: "decline"
+            )
+        ]
+        if canBlockInviter {
+            values.append(
+                ActionSheetPresenter.Item(
+                    destructive: true,
+                    title: "Decline and block",
+                    value: "block"
+                )
+            )
+        }
         ActionSheetPresenter().present(
             in: self,
             title: "Decline invite",
             message: nil,
             cancel: "Cancel",
-            values: [
-                ActionSheetPresenter.Item(destructive: false, title: "Decline invite", value: "decline"),
-                ActionSheetPresenter.Item(destructive: true, title: "Decline and block", value: "block")
-            ],
+            values: values,
             animated: true) {
                 
             } completion: { value in
-                if value.isNotEmpty {
-                    do {
-                        DispatchQueue.main.async {
-                            self.view.makeToastActivity(.center)
+                guard value.isNotEmpty else { return }
+                self.performCanonicalInviteDecline(
+                    primary: primary,
+                    blockInviter: value == "block"
+                )
+            }
+    }
+
+    private func performCanonicalInviteDecline(
+        primary: String,
+        blockInviter: Bool
+    ) {
+        do {
+            guard let invite = try GroupRepository(
+                realm: WRealm.safe()
+            ).invite(primary: primary) else {
+                return
+            }
+            let owner = invite.owner
+            let groupchat = invite.groupJID
+            let invitedBy = invite.inviter?.jid
+            guard let account = AccountManager.shared.find(for: owner) else {
+                presentCanonicalGroupError(GroupchatServiceError.notPrepared)
+                return
+            }
+            view.makeToastActivity(.center)
+            Task { @MainActor [weak self, weak account] in
+                guard let self, let account else { return }
+                do {
+                    try await account.groupchatService.declineInvite(
+                        groupJID: groupchat
+                    )
+                    account.removeCanonicalGroupInvite(groupchat)
+                    if blockInviter, let invitedBy {
+                        account.action { user, stream in
+                            user.blocked.blockContact(stream, jid: invitedBy)
                         }
-                        let realm = try WRealm.safe()
-                        guard let invite = realm.object(ofType: GroupchatInvitesStorageItem.self, forPrimaryKey: primary) else {
-                            return
-                        }
-                        let groupchat = invite.groupchat
-                        let owner = invite.owner
-                        XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
-                            if stream.isAuthenticated {
-                                session.groupchat?.decline(stream, groupchat: groupchat) { error in
-                                    self.onCancelInvite(error: error, primary: primary, value: value)
-                                }
-                            }
-                        } fail: {
-                            AccountManager.shared.find(for: invite.owner)?.action({ user, stream in
-                                if stream.isAuthenticated {
-                                    user.groupchats.decline(stream, groupchat: groupchat) { error in
-                                        self.onCancelInvite(error: error, primary: primary, value: value)
-                                    }
-                                }
-                            })
-                        }
-                    } catch {
-                        DDLogDebug("ContacsViewController: \(#function). \(error.localizedDescription)")
                     }
+                    self.view.hideToastActivity()
+                    self.runDatasetUpdateTask()
+                } catch {
+                    self.view.hideToastActivity()
+                    self.presentCanonicalGroupError(error)
                 }
             }
-
+        } catch {
+            DDLogDebug("ContactsViewController: \(#function). \(error.localizedDescription)")
+        }
     }
-    
-    
+
+    private func presentCanonicalGroupError(_ error: Error) {
+        ErrorMessagePresenter().present(
+            in: self,
+            alert: true,
+            message: [
+                "Error".localizeString(id: "error", arguments: []),
+                CanonicalGroupMembershipLifecycle.localizedErrorMessage(error)
+            ].joined(separator: ": "),
+            animated: true
+        ) {}
+    }
 }
 
 extension ContactsViewController: ContactCellSubscribtionActionsDelegate {

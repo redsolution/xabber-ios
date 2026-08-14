@@ -169,6 +169,91 @@ final class GroupRequestCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.cancelPendingRequestsForDisconnect(), 0)
     }
 
+    func testDisconnectCancellationCanBeScopedToTransportGeneration() {
+        let scheduler = ManualGroupRequestTimeoutScheduler()
+        let coordinator = GroupRequestCoordinator<String>(
+            defaultTimeout: 5,
+            scheduler: scheduler
+        )
+        var oldResult: Result<String, GroupRequestError>?
+        var newResult: Result<String, GroupRequestError>?
+
+        coordinator.registerAndSend(
+            id: "old-iq",
+            transportGeneration: 1,
+            send: {},
+            completion: { oldResult = $0 }
+        )
+        coordinator.registerAndSend(
+            id: "new-iq",
+            transportGeneration: 2,
+            send: {},
+            completion: { newResult = $0 }
+        )
+
+        XCTAssertEqual(
+            coordinator.cancelPendingRequestsForDisconnect(
+                transportGeneration: 1
+            ),
+            1
+        )
+        guard case .failure(.disconnected) = oldResult else {
+            return XCTFail("Expected only the old transport request to disconnect")
+        }
+        XCTAssertNil(newResult)
+        XCTAssertEqual(coordinator.pendingRequestCount, 1)
+        XCTAssertEqual(scheduler.pendingActionCount, 1)
+
+        XCTAssertEqual(
+            coordinator.receive(id: "new-iq", response: .result("new")),
+            .completed
+        )
+        XCTAssertEqual(try? newResult?.get(), "new")
+        XCTAssertEqual(coordinator.pendingRequestCount, 0)
+    }
+
+    func testCancelCompletesOnlyRequestedIDAndLateResponseIsIgnored() {
+        let scheduler = ManualGroupRequestTimeoutScheduler()
+        let coordinator = GroupRequestCoordinator<String>(
+            defaultTimeout: 5,
+            scheduler: scheduler
+        )
+        var cancelledResult: Result<String, GroupRequestError>?
+        var retainedResult: Result<String, GroupRequestError>?
+
+        coordinator.registerAndSend(
+            id: "cancelled-iq",
+            send: {},
+            completion: { cancelledResult = $0 }
+        )
+        coordinator.registerAndSend(
+            id: "retained-iq",
+            send: {},
+            completion: { retainedResult = $0 }
+        )
+
+        XCTAssertEqual(
+            coordinator.cancel(id: "cancelled-iq", reason: .cancelled),
+            .completed
+        )
+        guard case .failure(.cancelled) = cancelledResult else {
+            return XCTFail("Expected typed request cancellation")
+        }
+        XCTAssertNil(retainedResult)
+        XCTAssertEqual(coordinator.pendingRequestCount, 1)
+        XCTAssertEqual(scheduler.pendingActionCount, 1)
+        XCTAssertEqual(
+            coordinator.receive(id: "cancelled-iq", response: .result("late")),
+            .ignored
+        )
+
+        XCTAssertEqual(
+            coordinator.receive(id: "retained-iq", response: .result("retained")),
+            .completed
+        )
+        XCTAssertEqual(try? retainedResult?.get(), "retained")
+    }
+
     func testDuplicateAndUnsolicitedResponsesAreIgnored() {
         let scheduler = ManualGroupRequestTimeoutScheduler()
         let coordinator = GroupRequestCoordinator<String>(

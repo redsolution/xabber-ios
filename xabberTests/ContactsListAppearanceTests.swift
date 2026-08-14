@@ -112,21 +112,29 @@ final class ContactsListAppearanceTests: XCTestCase {
     private func addJoinedGroup(
         owner: String,
         jid: String,
-        privacy: GroupChatStorageItem.Privacy = .publicChat,
+        privacy: GroupPrivacy = .publicGroup,
         peerToPeer: Bool = false,
         groups: [String] = []
     ) {
         let realm = try! WRealm.safe()
+        let repository = GroupRepository(realm: realm)
+        try! repository.setSelfMembership(
+            .both,
+            memberID: "self-member",
+            owner: owner,
+            groupJID: jid
+        )
+        try! repository.applySnapshot(
+            GroupSnapshot(
+                jid: jid,
+                privacy: privacy,
+                parentJID: peerToPeer ? "parent@example.com" : nil,
+                info: GroupInfo(name: jid)
+            ),
+            owner: owner,
+            groupJID: jid
+        )
         try! realm.write {
-            let group = GroupChatStorageItem()
-            group.primary = GroupChatStorageItem.genPrimary(jid: jid, owner: owner)
-            group.owner = owner
-            group.jid = jid
-            group.name = jid
-            group.privacy = privacy
-            group.peerToPeer = peerToPeer
-            realm.add(group, update: .modified)
-
             let rosterItem = RosterStorageItem()
             rosterItem.primary = RosterStorageItem.genPrimary(jid: jid, owner: owner)
             rosterItem.owner = owner
@@ -141,19 +149,23 @@ final class ContactsListAppearanceTests: XCTestCase {
 
     private func addIncomingGroupInvite(owner: String, groupJid: String) {
         let realm = try! WRealm.safe()
-        try! realm.write {
-            let invite = GroupchatInvitesStorageItem()
-            invite.primary = GroupchatInvitesStorageItem.genIncomingPrimary(
-                groupchat: groupJid,
-                owner: owner
-            )
-            invite.owner = owner
-            invite.groupchat = groupJid
-            invite.jid = "inviter@example.com"
-            invite.outgoing = false
-            invite.isRead = false
-            realm.add(invite, update: .modified)
-        }
+        try! GroupRepository(realm: realm).storeInvite(
+            GroupInviteRecord(
+                groupJID: groupJid,
+                direction: .incoming,
+                target: "inviter@example.com",
+                inviter: GroupMember(
+                    id: "inviter-member",
+                    jid: "inviter@example.com"
+                ),
+                preview: GroupSnapshot(
+                    jid: groupJid,
+                    privacy: .publicGroup,
+                    info: GroupInfo(name: groupJid)
+                )
+            ),
+            owner: owner
+        )
     }
 
     private func deriveContactsState(

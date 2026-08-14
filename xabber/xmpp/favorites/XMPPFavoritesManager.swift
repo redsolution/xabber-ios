@@ -201,13 +201,7 @@ enum SavedMessageParser {
     }
 
     private static func groupDisplayAuthorJid(from message: XMPPMessage) -> String? {
-        guard let x = message.element(forName: "x", xmlns: "https://xabber.com/protocol/groups") else {
-            return nil
-        }
-
-        return x
-            .element(forName: "reference")?
-            .element(forName: "user")?
+        groupchatUserElement(from: message)?
             .element(forName: "jid")?
             .stringValue
     }
@@ -492,6 +486,10 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         if let existedInstance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.genPrimary(messageId: messageId, owner: self.owner)) {
             if existedInstance.inlineForwards.isEmpty {
                 try performSavedWrite(in: realm, commitTransaction: commitTransaction) {
+                    existedInstance.isSavedForward = envelope.isForwardedSaved
+                    existedInstance.savedForwardAuthorJid = envelope.isForwardedSaved
+                        ? envelope.displayAuthorJid
+                        : ""
                     if let archivedId = envelope.outerArchiveId, archivedId.isNotEmpty, existedInstance.archivedId != archivedId {
                         existedInstance.archivedId = archivedId
                         updateSavedLastChatPreviewIfNeeded(
@@ -522,6 +520,10 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         instance.archivedId = envelope.outerArchiveId ?? ""
         instance.previousId = getPreviousId(envelope.outerMessage)
         instance.originalStanza = envelope.isForwardedSaved ? envelope.storageMessage : envelope.outerMessage
+        instance.isSavedForward = envelope.isForwardedSaved
+        instance.savedForwardAuthorJid = envelope.isForwardedSaved
+            ? envelope.displayAuthorJid
+            : ""
 
         instance.references.append(objectsIn: parseReferences(message, primary: instance.primary, jid: savedServiceJid, owner: self.owner))
         instance.inlineForwards.append(objectsIn: parseInlineMessages(message, parentId: instance.primary, jid: savedServiceJid, owner: self.owner))
@@ -529,9 +531,6 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         instance.references.forEach { $0.messageId = instance.primary }
 
         try performSavedWrite(in: realm, commitTransaction: commitTransaction) {
-            if let groupChatCard = savedForwardAuthorCard(for: envelope, in: realm) {
-                instance.groupchatCard = groupChatCard
-            }
             realm.add(instance, update: isExist ? .all : .modified)
             storeSavedForwardingStanza(for: instance, envelope: envelope, in: realm)
             updateSavedLastChatPreviewIfNeeded(
@@ -540,29 +539,6 @@ class XMPPFavoritesManager: AbstractXMPPManager {
                 instance: instance
             )
         }
-    }
-
-    private func savedForwardAuthorCard(for envelope: SavedMessageEnvelope, in realm: Realm) -> GroupchatUserStorageItem? {
-        guard envelope.isForwardedSaved else {
-            return nil
-        }
-
-        let primary = savedForwardAuthorCardPrimary(displayAuthorJid: envelope.displayAuthorJid)
-        if let groupChatCard = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: primary) {
-            return groupChatCard
-        }
-
-        let groupChatCard = GroupchatUserStorageItem()
-        groupChatCard.owner = self.owner
-        groupChatCard.jid = envelope.displayAuthorJid
-        groupChatCard.nickname = envelope.displayAuthorJid
-        groupChatCard.primary = primary
-        realm.add(groupChatCard, update: .modified)
-        return groupChatCard
-    }
-
-    private func savedForwardAuthorCardPrimary(displayAuthorJid: String) -> String {
-        [GroupChatStorageItem.genPrimary(jid: displayAuthorJid, owner: self.owner), "saved-forwarded"].prp()
     }
 
     private func storeSavedForwardingStanza(

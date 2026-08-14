@@ -123,6 +123,35 @@ enum GroupProtocolCodec {
         return container
     }
 
+    static func encodeMemberUpdate(_ update: GroupMemberUpdate) throws -> DDXMLElement {
+        guard let memberID = nonEmpty(update.memberID), memberID != "0" else {
+            throw GroupProtocolCodecError.invalidAttribute(
+                element: "members",
+                attribute: "id",
+                value: update.memberID
+            )
+        }
+        let members = DDXMLElement(name: "members", xmlns: GroupProtocolNamespace.groups)
+        members.addAttribute(withName: "id", stringValue: memberID)
+        let user = DDXMLElement(name: "user")
+        user.addAttribute(withName: "id", stringValue: memberID)
+        addTextChild("nickname", update.nickname, to: user)
+        addTextChild("badge", update.badge, to: user)
+        if let avatar = update.avatar {
+            user.addChild(try encodeAvatar(avatar))
+        }
+        members.addChild(user)
+        return members
+    }
+
+    static func decodeInvites(_ element: DDXMLElement) throws -> [String] {
+        try decodeAddressList(element, rootName: "invites", allowsDomains: false)
+    }
+
+    static func decodeBlocklist(_ element: DDXMLElement) throws -> [String] {
+        try decodeAddressList(element, rootName: "block", allowsDomains: true)
+    }
+
     static func decodeMessageAuthor(_ element: DDXMLElement) throws -> GroupMember {
         try requireRoot(element, name: "x", namespace: GroupProtocolNamespace.groups)
         let children = childElements(element)
@@ -307,7 +336,7 @@ enum GroupProtocolCodec {
         }
     }
 
-    private static func decodeInfo(_ element: DDXMLElement) throws -> GroupInfo {
+    static func decodeInfo(_ element: DDXMLElement) throws -> GroupInfo {
         try requireElement(element, name: "info", namespace: GroupProtocolNamespace.groups)
         try requireOnlyChildren(
             element,
@@ -322,8 +351,8 @@ enum GroupProtocolCodec {
         )
     }
 
-    private static func encodeInfo(_ info: GroupInfo) throws -> DDXMLElement {
-        let element = DDXMLElement(name: "info")
+    static func encodeInfo(_ info: GroupInfo) throws -> DDXMLElement {
+        let element = DDXMLElement(name: "info", xmlns: GroupProtocolNamespace.groups)
         addTextChild("name", info.name, to: element)
         addTextChild("description", info.description, to: element)
         if let avatar = info.avatar {
@@ -348,7 +377,7 @@ enum GroupProtocolCodec {
         )
     }
 
-    private static func decodeSettings(_ element: DDXMLElement) throws -> GroupSettings {
+    static func decodeSettings(_ element: DDXMLElement) throws -> GroupSettings {
         try requireElement(element, name: "settings", namespace: GroupProtocolNamespace.groups)
         try requireOnlyChildren(
             element,
@@ -370,8 +399,8 @@ enum GroupProtocolCodec {
         )
     }
 
-    private static func encodeSettings(_ settings: GroupSettings) throws -> DDXMLElement {
-        let element = DDXMLElement(name: "settings")
+    static func encodeSettings(_ settings: GroupSettings) throws -> DDXMLElement {
+        let element = DDXMLElement(name: "settings", xmlns: GroupProtocolNamespace.groups)
         addTextChild("membership", settings.membership?.rawValue, to: element)
         if let contacts = settings.contacts {
             let container = DDXMLElement(name: "contacts")
@@ -461,7 +490,7 @@ enum GroupProtocolCodec {
         return pinned
     }
 
-    private static func decodeMember(_ element: DDXMLElement) throws -> GroupMember {
+    static func decodeMember(_ element: DDXMLElement) throws -> GroupMember {
         try requireElement(element, name: "user", namespace: GroupProtocolNamespace.groups)
         try requireOnlyChildren(
             element,
@@ -643,6 +672,37 @@ enum GroupProtocolCodec {
         }
         try requireNamespace(child, GroupProtocolNamespace.permissions)
         return child
+    }
+
+    private static func decodeAddressList(
+        _ element: DDXMLElement,
+        rootName: String,
+        allowsDomains: Bool
+    ) throws -> [String] {
+        try requireRoot(
+            element,
+            name: rootName,
+            namespace: GroupProtocolNamespace.groups
+        )
+        return try childElements(element).map { child in
+            try requireElement(
+                child,
+                name: "jid",
+                namespace: GroupProtocolNamespace.groups
+            )
+            guard childElements(child).isEmpty else {
+                throw GroupProtocolCodecError.unexpectedElement(
+                    parent: "jid",
+                    child: childElements(child).first?.name ?? "",
+                    namespace: childElements(child).first.flatMap(effectiveNamespace)
+                )
+            }
+            let raw = text(child)
+            if allowsDomains, !raw.contains("@") {
+                return try normalizeDomain(raw)
+            }
+            return try normalizeBareJID(raw)
+        }
     }
 
     private static func requireRoot(

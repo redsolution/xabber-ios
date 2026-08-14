@@ -41,7 +41,7 @@ final class PushNotificationRoutingTests: XCTestCase {
     func testRegularTextMessageParsesRouteAndBody() throws {
         let preview = try parseArchivedMessage(
             """
-            <message from='juliet@example.com/mobile' to='romeo@example.com'>
+            <message type='chat' from='juliet@example.com/mobile' to='romeo@example.com'>
               <body>Hello Romeo</body>
               <stanza-id xmlns='urn:xmpp:sid:0' by='juliet@example.com' id='msg-1'/>
             </message>
@@ -139,7 +139,7 @@ final class PushNotificationRoutingTests: XCTestCase {
     func testGroupChatMessageUsesGroupRouteAndSenderNickname() throws {
         let preview = try parseArchivedMessage(
             """
-            <message type='groupchat' from='stage@conference.example.com/member-a' to='romeo@example.com'>
+            <message type='chat' from='stage@conference.example.com/member-a' to='romeo@example.com'>
               <body>Hello group</body>
               <x xmlns='https://xabber.com/protocol/groups'>
                 <user xmlns='https://xabber.com/protocol/groups' id='member-a'>
@@ -159,6 +159,110 @@ final class PushNotificationRoutingTests: XCTestCase {
         XCTAssertEqual(preview.route.stanzaId, "group-1")
     }
 
+    func testPushGroupAuthorRejectsDuplicateAmbiguousAndNestedCanonicalShapes() throws {
+        let malformed = [
+            """
+            <message type='chat' from='stage@conference.example.com' to='romeo@example.com'>
+              <body>Ambiguous wrapper</body>
+              <x xmlns='https://xabber.com/protocol/groups'><user id='member-a'/></x>
+              <x xmlns='https://xabber.com/protocol/groups'><user id='member-b'/></x>
+            </message>
+            """,
+            """
+            <message type='chat' from='stage@conference.example.com' to='romeo@example.com'>
+              <body>Ambiguous users</body>
+              <x xmlns='https://xabber.com/protocol/groups'>
+                <user id='member-a'/><user id='member-b'/>
+              </x>
+            </message>
+            """,
+            """
+            <message type='chat' from='stage@conference.example.com' to='romeo@example.com'>
+              <body>Ambiguous sibling</body>
+              <x xmlns='https://xabber.com/protocol/groups'>
+                <user id='member-a'/>
+                <reference xmlns='https://xabber.com/protocol/references' type='mutable'/>
+              </x>
+            </message>
+            """,
+            """
+            <message type='chat' from='stage@conference.example.com' to='romeo@example.com'>
+              <body>Nested author</body>
+              <x xmlns='https://xabber.com/protocol/groups'>
+                <wrapper><user id='member-a'/></wrapper>
+              </x>
+            </message>
+            """,
+            """
+            <message type='chat' from='stage@conference.example.com' to='romeo@example.com'>
+              <body>Malformed author</body>
+              <x xmlns='https://xabber.com/protocol/groups'>
+                <user id='member-a'><nickname>First</nickname><nickname>Second</nickname></user>
+              </x>
+            </message>
+            """,
+            """
+            <message type='chat' from='stage@conference.example.com' to='romeo@example.com'>
+              <body>Legacy attribute author</body>
+              <x xmlns='https://xabber.com/protocol/groups'>
+                <user id='member-a' jid='member-a@example.com'/>
+              </x>
+            </message>
+            """,
+            """
+            <message type='chat' from='stage@conference.example.com' to='romeo@example.com'>
+              <body>Decorated wrapper</body>
+              <x xmlns='https://xabber.com/protocol/groups' legacy='true'>
+                <user id='member-a'/>
+              </x>
+            </message>
+            """
+        ]
+
+        for xml in malformed {
+            let preview = try XCTUnwrap(parseOptionalArchivedMessage(xml), xml)
+            XCTAssertEqual(preview.route.conversationType, "regular", xml)
+            XCTAssertNil(preview.route.groupchat, xml)
+            XCTAssertNil(preview.route.senderUserId, xml)
+            XCTAssertNil(preview.route.senderNickname, xml)
+        }
+    }
+
+    func testLocalPreviewDoesNotTreatLegacyGroupchatConversationAliasAsGroup() {
+        let legacy = LocalMessageNotificationPreviewFactory.make(
+            originalStanzaXML: nil,
+            owner: owner,
+            routeJid: "stage@conference.example.com",
+            conversationType: "groupchat",
+            archivedId: "archive-legacy",
+            messageId: "message-legacy",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            fallbackBody: "Legacy",
+            senderJid: nil,
+            senderNickname: nil,
+            senderUserId: nil
+        )
+        let canonical = LocalMessageNotificationPreviewFactory.make(
+            originalStanzaXML: nil,
+            owner: owner,
+            routeJid: "stage@conference.example.com",
+            conversationType: "group",
+            archivedId: "archive-current",
+            messageId: "message-current",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            fallbackBody: "Canonical",
+            senderJid: nil,
+            senderNickname: nil,
+            senderUserId: "member-a"
+        )
+
+        XCTAssertEqual(legacy.route.conversationType, "regular")
+        XCTAssertNil(legacy.route.groupchat)
+        XCTAssertEqual(canonical.route.conversationType, "group")
+        XCTAssertEqual(canonical.route.groupchat, "stage@conference.example.com")
+        XCTAssertEqual(canonical.route.senderUserId, "member-a")
+    }
+
     func testSubscriptionRequestRouteEncodesContactChatDestination() throws {
         let route = PushNotificationRoutePayload.subscriptionRequest(
             owner: owner,
@@ -176,8 +280,8 @@ final class PushNotificationRoutingTests: XCTestCase {
     func testGroupInviteParsesCanonicalGroupchatKey() throws {
         let preview = try parseArchivedMessage(
             """
-            <message from='juliet@example.com/mobile' to='romeo@example.com'>
-              <invite xmlns='https://xabber.com/protocol/groups' jid='stage@conference.example.com'/>
+            <message type='chat' from='juliet@example.com/mobile' to='romeo@example.com'>
+              <invite xmlns='https://xabber.com/protocol/groups' jid='Stage@Conference.Example.COM/Group'/>
               <group xmlns='https://xabber.com/protocol/groups' privacy='incognito'/>
             </message>
             """
@@ -210,6 +314,42 @@ final class PushNotificationRoutingTests: XCTestCase {
             </message>
             """
         )?.route.kind, .groupInvite)
+    }
+
+    func testMalformedCanonicalGroupInvitesAreRejectedByPushBoundary() throws {
+        let malformed = [
+            """
+            <message type='groupchat' from='stage@conference.example.com' to='romeo@example.com'>
+              <invite xmlns='https://xabber.com/protocol/groups' jid='stage@conference.example.com'/>
+            </message>
+            """,
+            """
+            <message type='chat' from='stage@conference.example.com' to='romeo@example.com'>
+              <invite xmlns='https://xabber.com/protocol/groups' jid='stage@conference.example.com'>
+                <sender jid='juliet@example.com'/>
+              </invite>
+            </message>
+            """,
+            """
+            <message type='chat' from='stage@conference.example.com' to='romeo@example.com'>
+              <invite xmlns='https://xabber.com/protocol/groups' jid='stage@conference.example.com'/>
+              <group xmlns='https://xabber.com/protocol/groups' privacy='private'/>
+            </message>
+            """,
+            """
+            <message type='chat' from='stage@conference.example.com' to='romeo@example.com'>
+              <invite xmlns='https://xabber.com/protocol/groups' jid='not-a-group-jid'/>
+            </message>
+            """
+        ]
+
+        for xml in malformed {
+            XCTAssertNotEqual(
+                parseOptionalArchivedMessage(xml)?.route.kind,
+                .groupInvite,
+                xml
+            )
+        }
     }
 
     func testXenWrappedVerificationRequestValidatesOFromAndParsesSid() throws {

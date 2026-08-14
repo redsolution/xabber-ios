@@ -259,7 +259,7 @@ final class PushExtensionRichContentTests: XCTestCase {
     func testGroupMessageIdOnlyPushResolvesWithParticipantIdAuthorFilter() throws {
         let preview = try parse(
             """
-            <message type='groupchat' from='stage@conference.example.com/member-a'
+            <message type='chat' from='stage@conference.example.com/member-a'
                      to='romeo@example.com' id='group-message-id'>
               <body>Hello group</body>
               <x xmlns='https://xabber.com/protocol/groups'>
@@ -300,7 +300,7 @@ final class PushExtensionRichContentTests: XCTestCase {
     func testGroupSenderIdentityAndAvatarMetadataSurviveRouteRoundTrip() throws {
         let preview = try parse(
             """
-            <message type='groupchat' from='stage@conference.example.com/member-a' to='romeo@example.com'>
+            <message type='chat' from='stage@conference.example.com/member-a' to='romeo@example.com'>
               <body>Hello group</body>
               <x xmlns='https://xabber.com/protocol/groups'>
                 <user xmlns='https://xabber.com/protocol/groups' id='member-a'>
@@ -325,11 +325,17 @@ final class PushExtensionRichContentTests: XCTestCase {
     func testMediatedIncognitoInviteKeepsOpaqueInviterIdentityWithoutExposingJid() throws {
         let preview = try parse(
             """
-            <message from='stage@conference.example.com' to='romeo@example.com' id='invite-1'>
+            <message type='chat' from='stage@conference.example.com' to='romeo@example.com' id='invite-1'>
               <invite xmlns='https://xabber.com/protocol/groups' jid='stage@conference.example.com'>
                 <user id='member-juliet'>
                   <nickname>Juliet</nickname>
-                  <avatar><info url='https://cdn.example.com/juliet.jpg'/></avatar>
+                  <avatar>
+                    <info xmlns='urn:xmpp:avatar:metadata'
+                          id='avatar-juliet'
+                          type='image/jpeg'
+                          bytes='1234'
+                          url='https://cdn.example.com/juliet.jpg'/>
+                  </avatar>
                 </user>
               </invite>
               <group xmlns='https://xabber.com/protocol/groups' privacy='incognito'>

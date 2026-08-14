@@ -245,6 +245,30 @@ struct GroupMember: Equatable, Sendable {
     }
 }
 
+/// A partial, stable-ID-addressed member mutation.
+///
+/// The current server accepts only mutable member-card fields here. Identity,
+/// role, last-seen and P2P flags are authoritative response data and therefore
+/// cannot accidentally be serialized by this command model.
+struct GroupMemberUpdate: Equatable, Sendable {
+    var memberID: String
+    var nickname: String?
+    var badge: String?
+    var avatar: GroupAvatar?
+
+    init(
+        memberID: String,
+        nickname: String? = nil,
+        badge: String? = nil,
+        avatar: GroupAvatar? = nil
+    ) {
+        self.memberID = memberID
+        self.nickname = nickname
+        self.badge = badge
+        self.avatar = avatar
+    }
+}
+
 enum GroupInvite: Equatable, Sendable {
     case request(targetJID: String, send: Bool?, reason: String?)
     case message(groupJID: String, reason: String?, inviter: GroupMember?)

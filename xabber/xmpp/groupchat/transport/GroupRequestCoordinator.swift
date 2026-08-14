@@ -14,6 +14,7 @@ enum GroupRequestError: Error, Equatable {
     case iq(GroupRequestIQError)
     case timeout
     case disconnected
+    case cancelled
     case duplicateRequestID(String)
 }
 
@@ -80,11 +81,17 @@ final class GroupRequestCoordinator<Payload> {
 
     private final class PendingRequest {
         let generation: UInt64
+        let transportGeneration: UInt64?
         let completion: Completion
         var timeoutCancellation: GroupRequestTimeoutCancellation?
 
-        init(generation: UInt64, completion: @escaping Completion) {
+        init(
+            generation: UInt64,
+            transportGeneration: UInt64?,
+            completion: @escaping Completion
+        ) {
             self.generation = generation
+            self.transportGeneration = transportGeneration
             self.completion = completion
         }
     }
@@ -110,9 +117,14 @@ final class GroupRequestCoordinator<Payload> {
         stateQueue.sync { pendingRequests.count }
     }
 
+    func isPending(id: String) -> Bool {
+        stateQueue.sync { pendingRequests[id] != nil }
+    }
+
     @discardableResult
     func registerAndSend(
         id: String,
+        transportGeneration: UInt64? = nil,
         timeout: TimeInterval? = nil,
         send: () -> Void,
         completion: @escaping Completion
@@ -125,6 +137,7 @@ final class GroupRequestCoordinator<Payload> {
             nextGeneration &+= 1
             let request = PendingRequest(
                 generation: nextGeneration,
+                transportGeneration: transportGeneration,
                 completion: completion
             )
             pendingRequests[id] = request
@@ -184,18 +197,25 @@ final class GroupRequestCoordinator<Payload> {
     }
 
     @discardableResult
-    func cancelPendingRequestsForDisconnect() -> Int {
-        let requests: [PendingRequest] = stateQueue.sync {
-            let requests = Array(pendingRequests.values)
-            pendingRequests.removeAll(keepingCapacity: true)
-            return requests
-        }
+    func cancel(
+        id: String,
+        reason: GroupRequestError
+    ) -> GroupRequestResponseDisposition {
+        complete(id: id, result: .failure(reason)) ? .completed : .ignored
+    }
 
-        requests.forEach { request in
-            request.timeoutCancellation?.cancel()
-            request.completion(.failure(.disconnected))
+    @discardableResult
+    func cancelPendingRequestsForDisconnect() -> Int {
+        cancelPendingRequestsForDisconnect(where: { _ in true })
+    }
+
+    @discardableResult
+    func cancelPendingRequestsForDisconnect(
+        transportGeneration: UInt64
+    ) -> Int {
+        cancelPendingRequestsForDisconnect {
+            $0.transportGeneration == transportGeneration
         }
-        return requests.count
     }
 
     @discardableResult
@@ -222,5 +242,22 @@ final class GroupRequestCoordinator<Payload> {
         request.timeoutCancellation?.cancel()
         request.completion(result)
         return true
+    }
+
+    private func cancelPendingRequestsForDisconnect(
+        where shouldCancel: (PendingRequest) -> Bool
+    ) -> Int {
+        let requests: [PendingRequest] = stateQueue.sync {
+            let ids = pendingRequests.compactMap { id, request in
+                shouldCancel(request) ? id : nil
+            }
+            return ids.compactMap { pendingRequests.removeValue(forKey: $0) }
+        }
+
+        requests.forEach { request in
+            request.timeoutCancellation?.cancel()
+            request.completion(.failure(.disconnected))
+        }
+        return requests.count
     }
 }

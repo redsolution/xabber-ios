@@ -58,13 +58,10 @@ class MessageForwardsInlineStorageItem: Object {
         self.primary = [parentId, messageId].prp()
         self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: jid, owner: owner))
         self.subforwards.append(objectsIn: parseInlineMessages(messageContainer, parentId: self.primary, jid: jid, owner: owner))
-        let groupchatRef = messageContainer
-            .element(forName: "x",xmlns: "https://xabber.com/protocol/groups")?
-            .element(forName: "reference",xmlns: "https://xabber.com/protocol/references")
         self.body = messageContainer
             .body?
             .xmlEscaping(reverse: false)
-            .excludeFromBody(messageContainer.elements(forName: "reference"), groupchat: groupchatRef) ?? ""
+            .excludeFromBody(messageContainer.elements(forName: "reference"), groupchat: nil) ?? ""
         self.jid = jid
         self.owner = owner
         self.opponent = opponent

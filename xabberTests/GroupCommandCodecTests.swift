@@ -56,18 +56,110 @@ final class GroupCommandCodecTests: XCTestCase {
 
     func testMemberMutationRequiresStableNonSpecialMemberID() throws {
         let element = try GroupCommandCodec.encode(
-            .updateMember(GroupMember(id: "member-7", nickname: "Juliet"))
+            .updateMember(
+                GroupMemberUpdate(
+                    memberID: "member-7",
+                    nickname: "Juliet",
+                    badge: "moderator"
+                )
+            )
         )
         let user = try XCTUnwrap(element.element(forName: "user"))
+        XCTAssertEqual(element.attributeStringValue(forName: "id"), "member-7")
         XCTAssertEqual(user.attributeStringValue(forName: "id"), "member-7")
-        XCTAssertNil(element.attribute(forName: "id"))
+        XCTAssertEqual(user.element(forName: "nickname")?.stringValue, "Juliet")
+        XCTAssertEqual(user.element(forName: "badge")?.stringValue, "moderator")
+        XCTAssertNil(user.element(forName: "role"))
+        XCTAssertNil(user.element(forName: "jid"))
 
         XCTAssertThrowsError(
             try GroupCommandCodec.encode(
-                .updateMember(GroupMember(id: "0", nickname: "Juliet"))
+                .updateMember(GroupMemberUpdate(memberID: "0", nickname: "Juliet"))
+            )
+        )
+        XCTAssertThrowsError(
+            try GroupCommandCodec.encode(
+                .updateMember(GroupMemberUpdate(memberID: "member-7"))
             )
         )
         XCTAssertThrowsError(try GroupCommandCodec.encode(.setOwner(memberID: "0")))
+    }
+
+    func testInfoAndSettingsMutationsEncodeCanonicalPartialRoots() throws {
+        let info = try GroupCommandCodec.encode(
+            .updateInfo(GroupInfo(name: "New stage", description: ""))
+        )
+        XCTAssertEqual(info.name, "info")
+        XCTAssertEqual(info.xmlns(), GroupProtocolNamespace.groups)
+        XCTAssertEqual(info.element(forName: "name")?.stringValue, "New stage")
+        XCTAssertEqual(info.element(forName: "description")?.stringValue, "")
+        XCTAssertNil(info.element(forName: "settings"))
+
+        let settings = try GroupCommandCodec.encode(
+            .updateSettings(
+                GroupSettings(
+                    membership: .privateGroup,
+                    contacts: [],
+                    domains: ["Example.COM"]
+                )
+            )
+        )
+        XCTAssertEqual(settings.name, "settings")
+        XCTAssertEqual(settings.xmlns(), GroupProtocolNamespace.groups)
+        XCTAssertEqual(settings.element(forName: "membership")?.stringValue, "private")
+        XCTAssertNotNil(settings.element(forName: "contacts"))
+        XCTAssertTrue(settings.element(forName: "contacts")?.elements(forName: "contact").isEmpty == true)
+        XCTAssertEqual(
+            settings.element(forName: "domains")?.element(forName: "domain")?.stringValue,
+            "example.com"
+        )
+    }
+
+    func testRevokeUnblockAndURLAvatarUseCurrentServerShapes() throws {
+        let revoke = try GroupCommandCodec.encode(
+            .revokeInvite(targetJID: "Juliet@Example.com/Balcony")
+        )
+        XCTAssertEqual(revoke.name, "revoke")
+        XCTAssertEqual(revoke.element(forName: "jid")?.stringValue, "juliet@example.com")
+
+        let unblock = try GroupCommandCodec.encode(
+            .unblock(target: "Blocked.Example.com")
+        )
+        XCTAssertEqual(unblock.name, "unblock")
+        XCTAssertEqual(unblock.element(forName: "jid")?.stringValue, "blocked.example.com")
+
+        let avatar = GroupAvatar(
+            id: "sha256",
+            mediaType: "image/png",
+            bytes: 42,
+            width: 64,
+            height: 64,
+            url: "https://media.example.com/avatar.png"
+        )
+        let info = try GroupCommandCodec.encode(
+            .updateInfo(GroupInfo(avatar: avatar))
+        )
+        let metadata = try XCTUnwrap(
+            info.element(forName: "avatar")?.element(
+                forName: "info",
+                xmlns: GroupProtocolNamespace.avatarMetadata
+            )
+        )
+        XCTAssertEqual(metadata.attributeStringValue(forName: "url"), avatar.url)
+
+        XCTAssertThrowsError(
+            try GroupCommandCodec.encode(
+                .updateInfo(
+                    GroupInfo(
+                        avatar: GroupAvatar(
+                            id: "sha256",
+                            mediaType: "image/png",
+                            bytes: 42
+                        )
+                    )
+                )
+            )
+        )
     }
 
     func testInviteBlockKickAndPinAddressCanonicalIdentifiers() throws {
@@ -93,7 +185,7 @@ final class GroupCommandCodecTests: XCTestCase {
         let pin = try GroupCommandCodec.encode(.pin(groupStanzaID: "group-stanza-1"))
         XCTAssertEqual(pin.name, "pinned-message")
         XCTAssertEqual(pin.attributeStringValue(forName: "id"), "group-stanza-1")
-        XCTAssertNil(pin.attribute(forName: "status"))
+        XCTAssertEqual(pin.attributeStringValue(forName: "status"), "pinned")
 
         let unpin = try GroupCommandCodec.encode(.unpin(groupStanzaID: "group-stanza-1"))
         XCTAssertEqual(unpin.attributeStringValue(forName: "status"), "remove")

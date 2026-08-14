@@ -163,37 +163,6 @@
 ////        self.tabBar.isHidden = false
 //    }
 //    
-//    @objc
-//    internal func appDidBecomeActive() {
-//        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { (_) in
-//            self.displayChatIfNeeded()
-//        }
-//        
-//        NotifyManager.shared.openViewControllerPayload = nil
-//    }
-//    
-//    public func displayChatIfNeeded() {
-//        if let payload = NotifyManager.shared.openViewControllerPayload,
-//            let owner = payload["owner"],
-//            let jid = payload["jid"],
-//            owner != jid,
-//            let action = payload["action"] {
-//            var isGroupchat: Bool = false
-//            do {
-//                let realm = try WRealm.safe()
-//                isGroupchat = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: [jid, owner].prp()) != nil
-//            } catch {
-//                print("XabberTabBar: \(#function). \(error.localizedDescription)")
-//            }
-//            NotifyManager.shared.openViewControllerPayload = nil
-//            switch action {
-//            case "foregroundChat":
-//                displayChat(owner: owner, jid: jid, conversationType: isGroupchat ? .group : .omemo)
-//            default: break
-//            }
-//        }
-//    }
-//    
 //    public final func displayAddContactVC(jid: String, nickname: String?) {
 //        do {
 //            let realm = try WRealm.safe()

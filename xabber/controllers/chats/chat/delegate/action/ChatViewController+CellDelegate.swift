@@ -91,6 +91,20 @@ extension ChatViewController: ContextMenuDelegate {
                 }
             case "retry":
                 self.retryMessageSend(primary)
+            case ChatPinnedMessageAction.pin.rawValue, ChatPinnedMessageAction.unpin.rawValue:
+                guard let requestedAction = ChatPinnedMessageAction(rawValue: value),
+                      let groupStanzaID = self.datasource[index].archivedId,
+                      ChatPinnedMessageActionPolicy.action(
+                        groupStanzaID: groupStanzaID,
+                        pinnedMessageIDs: self.canonicalGroupProjectionState?.pinnedMessageIDs,
+                        canPin: self.datasource[index].canPinMessage
+                      ) == requestedAction else {
+                    return false
+                }
+                self.performPinnedMessageMutation(
+                    requestedAction,
+                    groupStanzaID: groupStanzaID
+                )
             case "select":
                 self.selectMessage(in: cell)
             default: break
@@ -425,22 +439,6 @@ extension ChatViewController: MessageCellDelegate {
     }
     
     func didTapAvatar(in cell: MessageCollectionViewCell) {
-//        if self.showSkeletonObserver.value {
-//            return
-//        }
-//        if groupchat {
-//            guard let indexPath = indexPathFor(cell),
-//                let item = residentMessages?[indexPath.section],
-//                let userId = item.groupchatMetadata?["id"] as? String else {
-//                    return
-//            }
-//            let vc = GroupchatContactInfoViewController()
-//            vc.owner = self.owner
-//            vc.jid = self.jid
-//            vc.userId = userId
-//            vc.shouldResetNavbar = true
-//            showModal(vc)
-//        }
         return
     }
     
@@ -543,6 +541,9 @@ extension ChatViewController: MessageCellDelegate {
             if hasMedia {
                 actions.append(ContextMenuItemWithImage(title: "Report Media".localizeString(id: "report_media_action", arguments: []), image: imageLiteral("exclamationmark.circle")!, value: "report_media", danger: false))
             }
+            if let pinItem = pinnedMessageContextMenuItem(for: item) {
+                actions.append(pinItem)
+            }
             CM.items = [actions, [
                 ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: isLocallyDeletablePending ? "delete_sending" : "delete", danger: true)
             ]]
@@ -557,12 +558,45 @@ extension ChatViewController: MessageCellDelegate {
             if hasMedia {
                 actions.append(ContextMenuItemWithImage(title: "Report Media".localizeString(id: "report_media_action", arguments: []), image: imageLiteral("exclamationmark.circle")!, value: "report_media", danger: false))
             }
+            if let pinItem = pinnedMessageContextMenuItem(for: item) {
+                actions.append(pinItem)
+            }
             CM.items = [actions, [
                 ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: "delete", danger: true)
             ]]
         }
         dismissKeyboard()
         CM.showMenu(viewTargeted: cell.contentView, delegate: self, animated: true)
+    }
+
+    private func pinnedMessageContextMenuItem(
+        for item: ChatViewController.Datasource
+    ) -> ContextMenuItemWithImage? {
+        guard let groupStanzaID = item.archivedId,
+              let action = ChatPinnedMessageActionPolicy.action(
+                groupStanzaID: groupStanzaID,
+                pinnedMessageIDs: canonicalGroupProjectionState?.pinnedMessageIDs,
+                canPin: item.canPinMessage
+              ) else {
+            return nil
+        }
+        let title: String
+        switch action {
+        case .pin:
+            title = "Pin".localizeString(id: "message_pin", arguments: [])
+        case .unpin:
+            title = "Unpin".localizeString(
+                id: "group_chat__pinned_message__tooltip_unpin",
+                arguments: []
+            )
+        }
+        return ContextMenuItemWithImage(
+            title: title,
+            image: UIImage(systemName: action == .pin ? "pin" : "pin.slash")
+                ?? imageLiteral("menu")!,
+            value: action.rawValue,
+            danger: false
+        )
     }
 
     private func reportableMediaReferencePrimary(for messagePrimary: String) -> String? {
@@ -828,60 +862,6 @@ extension ChatViewController: MessageCellDelegate {
 //        editMessageId.accept(item.primary)
 //    }
 //
-//    func onPinMessage(cell: MessageCollectionViewCell) {
-//        guard groupchat,
-//            let indexPath = indexPathFor(cell),
-//            let item = residentMessages?[indexPath.section] else {
-//                return
-//        }
-//        var origin = self.view.center
-//        let keyboardHeight = 432 / UIScreen.main.scale
-//        if self.view.bounds.height - origin.x < keyboardHeight {
-//            origin.x = self.view.bounds.height - keyboardHeight - 44
-//        }
-//        self.view.makeToastActivity(origin)
-//        let messageId = item.archivedId
-//        guard messageId.isNotEmpty else { return }
-//
-//        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-//            session.groupchat?.pinMessage(stream, groupchat: self.jid, message: messageId) { (error) in
-//                DispatchQueue.main.async {
-//                    self.view.hideToastActivity()
-//                    if let error = error {
-//                        var message = "Internal error: \(error)"
-//                        switch error {
-//                        case "not-allowed": message = "You haven`t permissions to pin messages"
-//                        default: break
-//                        }
-//                        self.showToast(error: message)
-//                    } else {
-//                        self.pinnedMessageId.accept(messageId)
-//                    }
-//                }
-//            }
-//        }) {
-//            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-//                user.groupchats.pinMessage(stream, groupchat: self.jid, message: messageId) { (error) in
-//                    DispatchQueue.main.async {
-//                        self.view.hideToastActivity()
-//                        if let error = error {
-//                            var message = "Internal error: \(error)"
-//                            switch error {
-//                            case "not-allowed": message = "You haven`t permissions to pin messages"
-//                            default: break
-//                            }
-//                            self.showToast(error: message)
-//                        } else {
-//                            self.pinnedMessageId.accept(messageId)
-//                        }
-//                    }
-//                }
-//            })
-//        }
-//
-//
-//    }
-    
     func isEditable(cell: MessageCollectionViewCell) -> Bool {
         if self.showSkeletonObserver.value {
             return false
@@ -1091,39 +1071,6 @@ extension ChatViewController: MessageCellDelegate {
         if self.showSkeletonObserver.value {
             return
         }
-//        var uri: URL? = nil
-//        var title: String = ""
-//        switch self.entity {
-//        case .contact:
-//            uri = URL(string: "https://www.xabber.com/learn/regular")
-//            title = "Regular chats"
-//        case .groupchat:
-//            uri = URL(string: "https://www.xabber.com/learn/groups")
-//            title = "Public groups"
-//        case .bot:
-//            uri = URL(string: "https://www.xabber.com/learn/bot")
-//            title = "Bots"
-//        case .server:
-//            uri = URL(string: "https://www.xabber.com/learn/server")
-//            title = "Servers"
-//        case .incognitoChat:
-//            uri = URL(string: "https://www.xabber.com/learn/incognito")
-//            title = "Incognito groups"
-//        case .privateChat:
-//            uri = URL(string: "https://www.xabber.com/learn/private")
-//            title = "Private chats"
-//        case .encryptedChat:
-//            uri = URL(string: "https://www.xabber.com/learn/encrypted")
-//            title = "Encrypted chats"
-//        case .issue:
-//            uri = URL(string: "https://www.xabber.com/learn/issue")
-//            title = "Issue"
-//        }
-//        guard let url = uri else { return }
-//        
-//        let vc = XabberWebViewController()
-//        vc.configure(url: url, title: title)
-//        showModal(vc)
     }
     
     

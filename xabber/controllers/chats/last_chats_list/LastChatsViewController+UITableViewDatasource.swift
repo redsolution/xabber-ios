@@ -170,18 +170,16 @@ extension LastChatsViewController: UITableViewDataSource {
                     let uiInvites = realm
                         .objects(UINotificationStorageItem.self)
                         .filter("owner IN %@ AND isRead == %@ AND kind_ == %@", jids, false, UINotificationStorageItem.Kind.invite.rawValue)
-                    let groupInvites = realm
-                        .objects(GroupchatInvitesStorageItem.self)
-                        .filter("owner IN %@ AND isRead == %@", jids, false)
+                    let invitePrimaries = try CanonicalGroupInviteUIQuery
+                        .incoming(in: realm, owners: jids)
+                        .map(\.primary)
                     try realm.write {
                         uiInvites.forEach {
                             $0.isRead = true
                             $0.readAt = Date()
                         }
-                        groupInvites.forEach {
-                            $0.isRead = true
-                        }
                     }
+                    dismissedCanonicalInviteBannerPrimaries.formUnion(invitePrimaries)
                 default:
                     break
             }

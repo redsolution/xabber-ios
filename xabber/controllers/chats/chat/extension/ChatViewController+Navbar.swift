@@ -119,12 +119,16 @@ extension ChatViewController {
             }
 
             if self.conversationType == .group {
-                if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
+                let projection = try GroupRepository(realm: realm).projection(
+                    owner: self.owner,
+                    groupJID: self.jid
+                )
+                if projection.state.isActive {
                     appendTitle(
                         ChatNavigationTitleTextPolicy.displayTitle(
                             jid: self.jid,
                             conversationType: self.conversationType,
-                            groupName: instance.name
+                            groupName: projection.state.snapshot.info?.name
                         ),
                         color: color
                     )

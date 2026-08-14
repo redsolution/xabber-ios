@@ -44,6 +44,173 @@ struct ContactsFilterState: Equatable {
     let searchQuery: String?
 }
 
+/// Immutable presentation values derived only from the canonical invite row.
+/// Embedded group data is preview-only and is never promoted to group, roster,
+/// resource, member, message, or Last Chats storage before successful join.
+struct CanonicalGroupInvitePresentation: Equatable, Sendable {
+    let primary: String
+    let owner: String
+    let groupJID: String
+    let title: String
+    let subtitle: String
+    let description: String?
+    let avatarURL: String?
+    let inviterName: String
+    let inviterJID: String?
+    let inviterAvatarURL: String?
+    let inviterID: String
+    let memberCount: Int
+    let privacy: GroupPrivacy?
+    let parentJID: String?
+
+    init(_ invite: GroupInviteRecord) {
+        let preview = invite.preview
+        let inviter = invite.inviter
+        primary = invite.primary
+        owner = invite.owner
+        groupJID = invite.groupJID
+        title = Self.nonEmpty(preview?.info?.name)
+            ?? Self.nonEmpty(preview?.localpart)
+            ?? invite.groupJID
+        subtitle = invite.reason ?? ""
+        description = Self.nonEmpty(preview?.info?.description)
+        avatarURL = Self.nonEmpty(preview?.info?.avatar?.url)
+        inviterName = Self.nonEmpty(inviter?.nickname)
+            ?? Self.nonEmpty(inviter?.jid)
+            ?? Self.nonEmpty(inviter?.id)
+            ?? invite.target
+        inviterJID = Self.nonEmpty(inviter?.jid)
+        inviterAvatarURL = Self.nonEmpty(inviter?.avatar?.url)
+        inviterID = Self.nonEmpty(inviter?.id) ?? invite.target
+        memberCount = preview?.memberCount ?? 0
+        privacy = preview?.privacy
+        parentJID = preview?.parentJID
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        return value
+    }
+}
+
+enum CanonicalGroupInviteUIQuery {
+    static func incoming(
+        in realm: Realm,
+        owners: [String]
+    ) throws -> [GroupInviteRecord] {
+        GroupRepository(realm: realm).incomingInvites(owners: owners)
+    }
+}
+
+struct CanonicalGroupMemberListPresentation: Equatable, Sendable {
+    let memberID: String
+    let jid: String?
+    let nickname: String
+    let avatarURL: String?
+
+    init(_ member: GroupMember) {
+        memberID = member.id
+        jid = member.jid
+        nickname = Self.nonEmpty(member.nickname)
+            ?? Self.nonEmpty(member.jid)
+            ?? member.id
+        avatarURL = Self.nonEmpty(member.avatar?.url)
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        return value
+    }
+}
+
+struct CanonicalGroupListPresentation: Equatable, Sendable {
+    let primary: String
+    let owner: String
+    let groupJID: String
+    let title: String
+    let subtitle: String
+    let avatarURL: String?
+    let privacy: GroupPrivacy?
+    let parentJID: String?
+    let memberCount: Int?
+    let presentCount: Int?
+    let status: String?
+    let lifecycleState: GroupLifecycleState?
+    let members: [CanonicalGroupMemberListPresentation]
+
+    init(
+        primary: String,
+        owner: String,
+        groupJID: String,
+        projection: GroupRepositoryProjection
+    ) {
+        let snapshot = projection.state.snapshot
+        self.primary = primary
+        self.owner = GroupStorageKey.bareJID(owner)
+        self.groupJID = GroupStorageKey.bareJID(snapshot.jid ?? groupJID)
+        title = Self.nonEmpty(snapshot.info?.name)
+            ?? Self.nonEmpty(snapshot.localpart)
+            ?? self.groupJID
+        subtitle = Self.nonEmpty(snapshot.info?.description) ?? ""
+        avatarURL = Self.nonEmpty(snapshot.info?.avatar?.url)
+        privacy = snapshot.privacy
+        parentJID = snapshot.parentJID.map(GroupStorageKey.bareJID)
+        memberCount = snapshot.memberCount
+        presentCount = snapshot.presentCount
+        status = Self.nonEmpty(snapshot.info?.status)
+        lifecycleState = snapshot.settings?.state
+        members = projection.state.members.map(CanonicalGroupMemberListPresentation.init)
+    }
+
+    var isPeerToPeer: Bool {
+        parentJID != nil
+    }
+
+    var statusDisplayed: ResourceStatus {
+        if lifecycleState == .inactive {
+            return .offline
+        }
+        switch status?.lowercased() {
+        case "xa": return .xa
+        case "away": return .away
+        case "dnd": return .dnd
+        case "online", "chat", "active": return .online
+        default: return .offline
+        }
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        return value
+    }
+}
+
+enum CanonicalGroupListUIQuery {
+    static func active(
+        in realm: Realm,
+        owners: [String]
+    ) -> [CanonicalGroupListPresentation] {
+        let normalizedOwners = Array(Set(owners.map(GroupStorageKey.bareJID)))
+            .filter { !$0.isEmpty }
+            .sorted()
+        guard normalizedOwners.isNotEmpty else { return [] }
+
+        let repository = GroupRepository(realm: realm)
+        return ((try? repository.activeGroups(owners: normalizedOwners)) ?? [])
+            .map { record in
+                return CanonicalGroupListPresentation(
+                    primary: record.primary,
+                    owner: record.owner,
+                    groupJID: record.groupJID,
+                    projection: record.projection
+                )
+            }
+    }
+}
+
 struct ContactsListCoordinator {
     struct DerivedState {
         let context: ContactsListSupport.Context
@@ -93,10 +260,9 @@ enum ContactsListSupport {
         let contactRosterItems: [RosterStorageItem]
         let joinedContactRosterItems: [RosterStorageItem]
         let rosterItemsByPrimary: [String: RosterStorageItem]
-        let groupChats: [GroupChatStorageItem]
-        let invites: [GroupchatInvitesStorageItem]
+        let canonicalGroups: [CanonicalGroupListPresentation]
+        let invites: [GroupInviteRecord]
         let groups: [RosterGroupStorageItem]
-        let groupUsersByGroupId: [String: [GroupchatUserStorageItem]]
         let contactJids: Set<String>
     }
 
@@ -118,32 +284,26 @@ enum ContactsListSupport {
             .toArray()
         let rosterItemsByPrimary = Dictionary(uniqueKeysWithValues: allRosterItems.map { ($0.primary, $0) })
 
-        let groupChats = realm
-            .objects(GroupChatStorageItem.self)
-            .filter("owner IN %@", accountJids)
-            .toArray()
+        let canonicalGroups = CanonicalGroupListUIQuery.active(
+            in: realm,
+            owners: accountJids
+        )
 
-        let invites = realm
-            .objects(GroupchatInvitesStorageItem.self)
-            .filter("owner IN %@", accountJids)
-            .toArray()
+        let invites = (try? CanonicalGroupInviteUIQuery.incoming(
+            in: realm,
+            owners: accountJids
+        )) ?? []
 
         let groups = realm
             .objects(RosterGroupStorageItem.self)
             .filter("owner IN %@ AND isSystemGroup == false", accountJids)
             .toArray()
 
-        let groupUsers = realm
-            .objects(GroupchatUserStorageItem.self)
-            .filter("isHidden == false")
-            .toArray()
-        let groupUsersByGroupId = Dictionary(grouping: groupUsers, by: \.groupchatId)
-
         let visibleContactJids: Set<String> = Set(joinedContactRosterItems.compactMap { item in
             guard item.subscribtion == .both else {
                 return nil
             }
-            return item.jid
+            return GroupStorageKey.bareJID(item.jid)
         })
 
         return Context(
@@ -153,10 +313,9 @@ enum ContactsListSupport {
             contactRosterItems: contactRosterItems,
             joinedContactRosterItems: joinedContactRosterItems,
             rosterItemsByPrimary: rosterItemsByPrimary,
-            groupChats: groupChats,
+            canonicalGroups: canonicalGroups,
             invites: invites,
             groups: groups,
-            groupUsersByGroupId: groupUsersByGroupId,
             contactJids: visibleContactJids
         )
     }
@@ -189,8 +348,8 @@ enum ContactsListSupport {
     }
 
     static func hasAnyGroupAreaContent(context: Context) -> Bool {
-        visibleJoinedGroupRosterItems(context: context).isNotEmpty ||
-        context.invites.contains { $0.isRead == false }
+        visibleJoinedGroups(context: context).isNotEmpty ||
+        context.invites.isNotEmpty
     }
 
     static func filterablePresenceRowCount(
@@ -202,11 +361,15 @@ enum ContactsListSupport {
                 return 0
             }
 
-            return context.groupChats.reduce(into: 0) { count, group in
-                guard !context.ignoredJids.contains(group.jid),
+            return context.canonicalGroups.reduce(into: 0) { count, group in
+                let rosterItem = rosterItem(
+                    for: group.groupJID,
+                    owner: group.owner,
+                    context: context
+                )
+                guard !context.ignoredJids.contains(group.groupJID),
                       groupMatchesPresenceCategory(group, category: state.category),
-                      let rosterItem = rosterItem(for: group.jid, owner: group.owner, context: context),
-                      includeGroup(contact: rosterItem, state: state) else {
+                      includeGroup(group, contact: rosterItem, state: state) else {
                     return
                 }
                 count += 1
@@ -252,29 +415,29 @@ enum ContactsListSupport {
         return primaryResource.status != .offline
     }
 
-    static func includeGroup(contact: RosterStorageItem, state: ContactsFilterState) -> Bool {
-        guard contact.isContact == false else {
+    static func includeGroup(
+        _ group: CanonicalGroupListPresentation,
+        contact: RosterStorageItem?,
+        state: ContactsFilterState
+    ) -> Bool {
+        let rosterGroups = contact.map { Set($0.groups) } ?? Set<String>()
+        guard filteredGroupsMatch(itemGroups: rosterGroups, state: state) else {
             return false
         }
-        guard contact.subscribtion == .both else {
-            return false
-        }
-        guard filteredGroupsMatch(itemGroups: Set(contact.groups), state: state) else {
-            return false
-        }
-        guard state.filteredAccounts.isEmpty || state.filteredAccounts.contains(contact.owner) else {
+        let filteredOwners = Set(state.filteredAccounts.map(GroupStorageKey.bareJID))
+        guard filteredOwners.isEmpty || filteredOwners.contains(group.owner) else {
             return false
         }
         guard state.showOffline == false else {
             return true
         }
-        guard let primaryResource = contact.getPrimaryResource() else {
-            return false
+        if let primaryResource = contact?.getPrimaryResource() {
+            guard primaryResource.isTemporary == false else {
+                return false
+            }
+            return primaryResource.status != .offline
         }
-        guard primaryResource.isTemporary == false else {
-            return false
-        }
-        return primaryResource.status != .offline
+        return group.statusDisplayed != .offline
     }
 
     static func hasSearchQuery(_ query: String?) -> Bool {
@@ -322,31 +485,32 @@ enum ContactsListSupport {
         return normalized.isEmpty ? nil : normalized
     }
 
-    static func memberStats(groupchatJid: String, owner: String, context: Context) -> (members: Int, contacts: Int, membersList: [ContactsViewController.GroupDisplayMember]) {
-        let groupId = [groupchatJid, owner].prp()
-        let groupUsers = context.groupUsersByGroupId[groupId] ?? []
-        let memberIdentifiers = Set(groupUsers.compactMap { user in
-            user.jid.isEmpty ? user.userId : user.jid
+    static func memberStats(
+        group: CanonicalGroupListPresentation,
+        context: Context
+    ) -> (members: Int, contacts: Int, membersList: [ContactsViewController.GroupDisplayMember]) {
+        let memberIdentifiers = Set(group.members.map(\.memberID))
+        let memberJIDs = Set(group.members.compactMap { member in
+            member.jid.map(GroupStorageKey.bareJID)
         })
-        let members = groupUsers.compactMap {
+        let members = group.members.map {
             ContactsViewController.GroupDisplayMember(
                 name: $0.nickname,
                 jid: $0.jid,
-                avatarUrl: $0.avatarURI,
-                uuid: $0.userId
+                avatarUrl: $0.avatarURL,
+                uuid: $0.memberID
             )
         }
-        return (memberIdentifiers.count, memberIdentifiers.intersection(context.contactJids).count, members)
+        let authoritativeCount = max(group.memberCount ?? 0, memberIdentifiers.count)
+        return (
+            authoritativeCount,
+            memberJIDs.intersection(context.contactJids).count,
+            members
+        )
     }
 
     static func rosterItem(for jid: String, owner: String, context: Context) -> RosterStorageItem? {
         context.rosterItemsByPrimary[RosterStorageItem.genPrimary(jid: jid, owner: owner)]
-    }
-
-    static func groupchat(for jid: String, owner: String, context: Context) -> GroupChatStorageItem? {
-        context.groupChats.first {
-            $0.owner == owner && $0.jid == jid
-        }
     }
 
     private static func selectedAccountJids(realm: Realm, state: ContactsFilterState) -> [String] {
@@ -398,19 +562,17 @@ enum ContactsListSupport {
     }
 
     private static func groupCategoryDatasource(context: Context) -> [[ContactsCategoryViewController.Datasource]] {
-        let visibleGroups = visibleJoinedGroupRosterItems(context: context)
+        let visibleGroups = visibleJoinedGroups(context: context)
         let publicCount = visibleGroups.filter {
-            groupchat(for: $0.jid, owner: $0.owner, context: context)?.privacy == .publicChat &&
-            groupchat(for: $0.jid, owner: $0.owner, context: context)?.peerToPeer == false
+            $0.privacy == .publicGroup && !$0.isPeerToPeer
         }.count
         let incognitoCount = visibleGroups.filter {
-            groupchat(for: $0.jid, owner: $0.owner, context: context)?.privacy == .incognito &&
-            groupchat(for: $0.jid, owner: $0.owner, context: context)?.peerToPeer == false
+            $0.privacy == .incognito && !$0.isPeerToPeer
         }.count
         let privateCount = visibleGroups.filter {
-            groupchat(for: $0.jid, owner: $0.owner, context: context)?.peerToPeer == true
+            $0.isPeerToPeer
         }.count
-        let invitationsCount = context.invites.filter { $0.isRead == false }.count
+        let invitationsCount = context.invites.count
 
         let circles = circleCounts(context: context).map {
             ContactsCategoryViewController.Datasource(
@@ -442,30 +604,47 @@ enum ContactsListSupport {
     }
 
     private static func visibleJoinedGroupRosterItems(context: Context) -> [RosterStorageItem] {
-        context.groupChats.compactMap { group in
-            guard let rosterItem = rosterItem(for: group.jid, owner: group.owner, context: context) else {
+        context.canonicalGroups.compactMap { group in
+            guard let rosterItem = rosterItem(
+                for: group.groupJID,
+                owner: group.owner,
+                context: context
+            ) else {
                 return nil
             }
-            guard includeGroup(contact: rosterItem, state: context.state) else {
+            guard includeGroup(group, contact: rosterItem, state: context.state) else {
                 return nil
             }
             return rosterItem
         }
     }
 
+    private static func visibleJoinedGroups(
+        context: Context
+    ) -> [CanonicalGroupListPresentation] {
+        context.canonicalGroups.filter { group in
+            let rosterItem = rosterItem(
+                for: group.groupJID,
+                owner: group.owner,
+                context: context
+            )
+            return includeGroup(group, contact: rosterItem, state: context.state)
+        }
+    }
+
     private static func groupMatchesPresenceCategory(
-        _ group: GroupChatStorageItem,
+        _ group: CanonicalGroupListPresentation,
         category: String?
     ) -> Bool {
         switch category {
         case "public":
-            return group.privacy == .publicChat && !group.peerToPeer
+            return group.privacy == .publicGroup && !group.isPeerToPeer
         case "incognito":
-            return group.privacy == .incognito && !group.peerToPeer
+            return group.privacy == .incognito && !group.isPeerToPeer
         case "private":
-            return group.peerToPeer
+            return group.isPeerToPeer
         case nil, "all":
-            return !group.peerToPeer
+            return !group.isPeerToPeer
         default:
             return false
         }
@@ -1066,7 +1245,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         var categoryHeader: [Datasource] = []
         var out: [Datasource] = []
         
-        let requests = context.invites.filter { $0.isRead == false }
+        let requests = context.invites
         
         if state.category == nil && state.filteredGroups.isEmpty {
             if requests.isNotEmpty {
@@ -1082,38 +1261,10 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                     value: "show_all_invites"
                 ))
             }
-            out.append(contentsOf: requests.sorted(by: { $0.jid > $1.jid }).prefix(3).compactMap {
-                invite in
-                let groupInstance = ContactsListSupport.groupchat(for: invite.groupchat, owner: invite.owner, context: context)
-                let memberStats = ContactsListSupport.memberStats(groupchatJid: invite.groupchat, owner: invite.owner, context: context)
-                let rosterItem = ContactsListSupport.rosterItem(for: invite.groupchat, owner: invite.owner, context: context)
-                let invitedBy = ContactsListSupport.rosterItem(for: invite.jid, owner: invite.owner, context: context)?.displayName ?? invite.jid
-                var entity: RosterItemEntity = .groupchat
-                if groupInstance?.privacy == .incognito {
-                    entity = .incognitoChat
-                }
-                if (groupInstance?.peerToPeer ?? false) {
-                    entity = .privateChat
-                }
-                
-                return Datasource(
-                    owner: invite.owner,
-                    title: groupInstance?.name ?? invite.jid,
-                    jid: invite.groupchat,
-                    subtitle: invite.reason ?? "",
-                    avatarUrl: rosterItem?.avatarUrl,
-                    groups: [],
-                    conversationType: .group,
-                    isInvite: true,
-                    value: invitedBy,
-                    bottomLine: String.membersAndContactsString(members: groupInstance?.members ?? memberStats.members, contacts: memberStats.contacts),
-                    descr: groupInstance?.descr,
-                    members: memberStats.membersList,
-                    status: rosterItem?.getPrimaryResource()?.status ?? .away,
-                    entity: rosterItem?.getPrimaryResource()?.entity ?? entity,
-                    primary: invite.primary
-                )
-            })
+            out.append(contentsOf: requests
+                .sorted { $0.primary < $1.primary }
+                .prefix(3)
+                .map(makeInviteDatasource))
         }
         
         if state.category == "invitations" {
@@ -1127,42 +1278,14 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                 isHeader: true,
                 icon: "xabber.invite.square.fill"
             ))
-            out.append(contentsOf: requests.sorted(by: { $0.date.timeIntervalSince1970 > $1.date.timeIntervalSince1970 }).compactMap {
-                invite in
-                let groupInstance = ContactsListSupport.groupchat(for: invite.groupchat, owner: invite.owner, context: context)
-                let memberStats = ContactsListSupport.memberStats(groupchatJid: invite.groupchat, owner: invite.owner, context: context)
-                let rosterItem = ContactsListSupport.rosterItem(for: invite.groupchat, owner: invite.owner, context: context)
-                let invitedBy = ContactsListSupport.rosterItem(for: invite.jid, owner: invite.owner, context: context)?.displayName ?? invite.jid
-                var entity: RosterItemEntity = .groupchat
-                if groupInstance?.privacy == .incognito {
-                    entity = .incognitoChat
-                }
-                if (groupInstance?.peerToPeer ?? false) {
-                    entity = .privateChat
-                }
-                
-                return Datasource(
-                    owner: invite.owner,
-                    title: groupInstance?.name ?? invite.jid,
-                    jid: invite.groupchat,
-                    subtitle: invite.reason ?? "",
-                    avatarUrl: rosterItem?.avatarUrl,
-                    groups: [],
-                    conversationType: .group,
-                    isInvite: true,
-                    value: invitedBy,
-                    bottomLine: String.membersAndContactsString(members: groupInstance?.members ?? memberStats.members, contacts: memberStats.contacts),
-                    descr: groupInstance?.descr,
-                    members: memberStats.membersList,
-                    status: rosterItem?.getPrimaryResource()?.status ?? .away,
-                    entity: rosterItem?.getPrimaryResource()?.entity ?? entity,
-                    primary: invite.primary
-                )
-            })
+            out.append(contentsOf: requests
+                .sorted { $0.primary < $1.primary }
+                .map(makeInviteDatasource))
         }
         if state.category == "public" {
-            let groups = context.groupChats.filter {
-                $0.privacy == .publicChat && $0.peerToPeer == false && !context.ignoredJids.contains($0.jid)
+            let groups = context.canonicalGroups.filter {
+                $0.privacy == .publicGroup && !$0.isPeerToPeer &&
+                !context.ignoredJids.contains($0.groupJID)
             }
             categoryHeader.append(Datasource(
                 owner: "",
@@ -1174,40 +1297,23 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                 isHeader: true,
                 icon: "custom.person.2.square.fill"
             ))
-            out.append(contentsOf: groups.sorted(by: { $0.jid > $1.jid }).compactMap {
-                group in
-                guard let contact = ContactsListSupport.rosterItem(for: group.jid, owner: group.owner, context: context) else {
-                    return nil
+            out.append(contentsOf: groups
+                .sorted(by: { $0.groupJID > $1.groupJID })
+                .compactMap {
+                    makeCanonicalGroupDatasource(
+                        $0,
+                        state: state,
+                        context: context,
+                        usesRosterStatus: true,
+                        usesRosterEntity: true
+                    )
                 }
-                guard ContactsListSupport.includeGroup(contact: contact, state: state) else {
-                    return nil
-                }
-                let memberStats = ContactsListSupport.memberStats(groupchatJid: group.jid, owner: group.owner, context: context)
-                var entity: RosterItemEntity = .groupchat
-                if group.privacy == .incognito {
-                    entity = .incognitoChat
-                }
-                if group.peerToPeer {
-                    entity = .privateChat
-                }
-                
-                return Datasource(
-                    owner: group.owner,
-                    title: group.name,
-                    jid: contact.jid,
-                    subtitle: group.descr,
-                    avatarUrl: contact.avatarUrl,
-                    groups: Array(Set(contact.groups.toArray())).sorted(),
-                    conversationType: .group,
-                    bottomLine: String.membersAndContactsString(members: memberStats.members, contacts: memberStats.contacts),
-                    status: contact.getPrimaryResource()?.status ?? group.statusDisplayed,
-                    entity: contact.getPrimaryResource()?.entity ?? entity
-                )
-            })
+            )
         }
         if state.category == "incognito" {
-            let groups = context.groupChats.filter {
-                $0.privacy == .incognito && $0.peerToPeer == false && !context.ignoredJids.contains($0.jid)
+            let groups = context.canonicalGroups.filter {
+                $0.privacy == .incognito && !$0.isPeerToPeer &&
+                !context.ignoredJids.contains($0.groupJID)
             }
             categoryHeader.append(Datasource(
                 owner: "",
@@ -1219,39 +1325,22 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                 isHeader: true,
                 icon: "xabber.incognito.square.fill"
             ))
-            out.append(contentsOf: groups.sorted(by: { $0.jid > $1.jid }).compactMap {
-                group in
-                guard let contact = ContactsListSupport.rosterItem(for: group.jid, owner: group.owner, context: context) else {
-                    return nil
+            out.append(contentsOf: groups
+                .sorted(by: { $0.groupJID > $1.groupJID })
+                .compactMap {
+                    makeCanonicalGroupDatasource(
+                        $0,
+                        state: state,
+                        context: context,
+                        usesRosterStatus: true,
+                        usesRosterEntity: true
+                    )
                 }
-                guard ContactsListSupport.includeGroup(contact: contact, state: state) else {
-                    return nil
-                }
-                let memberStats = ContactsListSupport.memberStats(groupchatJid: group.jid, owner: group.owner, context: context)
-                var entity: RosterItemEntity = .groupchat
-                if group.privacy == .incognito {
-                    entity = .incognitoChat
-                }
-                if group.peerToPeer {
-                    entity = .privateChat
-                }
-                return Datasource(
-                    owner: group.owner,
-                    title: group.name,
-                    jid: contact.jid,
-                    subtitle: group.descr,
-                    avatarUrl: contact.avatarUrl,
-                    groups: Array(Set(contact.groups.toArray())).sorted(),
-                    conversationType: .group,
-                    bottomLine: String.membersAndContactsString(members: memberStats.members, contacts: memberStats.contacts),
-                    status: contact.getPrimaryResource()?.status ?? group.statusDisplayed,
-                    entity: contact.getPrimaryResource()?.entity ?? entity
-                )
-            })
+            )
         }
         if state.category == "private" {
-            let groups = context.groupChats.filter {
-                $0.peerToPeer == true && !context.ignoredJids.contains($0.jid)
+            let groups = context.canonicalGroups.filter {
+                $0.isPeerToPeer && !context.ignoredJids.contains($0.groupJID)
             }
             categoryHeader.append(Datasource(
                 owner: "",
@@ -1263,75 +1352,34 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                 isHeader: true,
                 icon: "custom.bubble.square.fill"
             ))
-            out.append(contentsOf: groups.sorted(by: { $0.jid > $1.jid }).compactMap {
-                group in
-                guard let contact = ContactsListSupport.rosterItem(for: group.jid, owner: group.owner, context: context) else {
-                    return nil
+            out.append(contentsOf: groups
+                .sorted(by: { $0.groupJID > $1.groupJID })
+                .compactMap {
+                    makeCanonicalGroupDatasource(
+                        $0,
+                        state: state,
+                        context: context,
+                        usesRosterStatus: false,
+                        usesRosterEntity: false
+                    )
                 }
-                guard ContactsListSupport.includeGroup(contact: contact, state: state) else {
-                    return nil
-                }
-                let memberStats = ContactsListSupport.memberStats(groupchatJid: group.jid, owner: group.owner, context: context)
-                var entity: RosterItemEntity = .groupchat
-                if group.privacy == .incognito {
-                    entity = .incognitoChat
-                }
-                if group.peerToPeer {
-                    entity = .privateChat
-                }
-                
-                return Datasource(
-                    owner: group.owner,
-                    title: group.name,
-                    jid: contact.jid,
-                    subtitle: group.descr,
-                    avatarUrl: contact.avatarUrl,
-                    groups: Array(Set(contact.groups.toArray())).sorted(),
-                    conversationType: .group,
-                    bottomLine: String.membersAndContactsString(members: memberStats.members, contacts: memberStats.contacts),
-                    status: group.statusDisplayed,
-                    entity: entity
-                )
-            })
+            )
         }
         if state.category == nil || state.category == "all" {
-            let groups = context.groupChats.filter {
-                $0.peerToPeer == false && !context.ignoredJids.contains($0.jid)
+            let groups = context.canonicalGroups.filter {
+                !$0.isPeerToPeer && !context.ignoredJids.contains($0.groupJID)
             }
             
-            out.append(contentsOf: groups.sorted(by: { $0.name < $1.name })
-                .compactMap({
-                    group in
-                    if group.name.isEmpty {
-                        return nil
-                    }
-                    guard let contact = ContactsListSupport.rosterItem(for: group.jid, owner: group.owner, context: context) else {
-                        return nil
-                    }
-                    guard ContactsListSupport.includeGroup(contact: contact, state: state) else {
-                        return nil
-                    }
-                    let memberStats = ContactsListSupport.memberStats(groupchatJid: group.jid, owner: group.owner, context: context)
-                    var entity: RosterItemEntity = .groupchat
-                    if group.privacy == .incognito {
-                        entity = .incognitoChat
-                    }
-                    if group.peerToPeer {
-                        entity = .privateChat
-                    }
-                    return Datasource(
-                        owner: group.owner,
-                        title: group.name,
-                        jid: group.jid,
-                        subtitle: group.descr,
-                        avatarUrl: contact.avatarUrl,
-                        groups: Array(Set(contact.groups.toArray())).sorted(),
-                        conversationType: .group,
-                        bottomLine: String.membersAndContactsString(members: memberStats.members, contacts: memberStats.contacts),
-                        status: contact.getPrimaryResource()?.status ?? group.statusDisplayed,
-                        entity: entity
+            out.append(contentsOf: groups.sorted(by: { $0.title < $1.title })
+                .compactMap {
+                    makeCanonicalGroupDatasource(
+                        $0,
+                        state: state,
+                        context: context,
+                        usesRosterStatus: true,
+                        usesRosterEntity: false
                     )
-                }))
+                })
         }
         out = out.sorted(by: { $0.isHeader == true && $0.status.statusToSortedItem() > $1.status.statusToSortedItem() })
         if categoryHeader.isNotEmpty {
@@ -1342,6 +1390,101 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         } else {
             return [ContactsListSupport.filteredDatasourceRows(out, searchQuery: state.searchQuery)]
         }
+    }
+
+    private func makeCanonicalGroupDatasource(
+        _ group: CanonicalGroupListPresentation,
+        state: ContactsFilterState,
+        context: ContactsListSupport.Context,
+        usesRosterStatus: Bool,
+        usesRosterEntity: Bool
+    ) -> Datasource? {
+        let contact = ContactsListSupport.rosterItem(
+            for: group.groupJID,
+            owner: group.owner,
+            context: context
+        )
+        guard ContactsListSupport.includeGroup(
+            group,
+            contact: contact,
+            state: state
+        ) else {
+            return nil
+        }
+
+        let memberStats = ContactsListSupport.memberStats(
+            group: group,
+            context: context
+        )
+        let canonicalEntity: RosterItemEntity
+        if group.isPeerToPeer {
+            canonicalEntity = .privateChat
+        } else if group.privacy == .incognito {
+            canonicalEntity = .incognitoChat
+        } else {
+            canonicalEntity = .groupchat
+        }
+        let resource = contact?.getPrimaryResource()
+
+        return Datasource(
+            owner: group.owner,
+            title: group.title,
+            jid: group.groupJID,
+            subtitle: group.subtitle,
+            avatarUrl: group.avatarURL ?? contact?.avatarUrl,
+            groups: contact.map { Array(Set($0.groups.toArray())).sorted() } ?? [],
+            conversationType: .group,
+            bottomLine: String.membersAndContactsString(
+                members: memberStats.members,
+                contacts: memberStats.contacts
+            ),
+            status: usesRosterStatus
+                ? (resource?.status ?? group.statusDisplayed)
+                : group.statusDisplayed,
+            entity: usesRosterEntity
+                ? (resource?.entity ?? canonicalEntity)
+                : canonicalEntity
+        )
+    }
+
+    private func makeInviteDatasource(_ invite: GroupInviteRecord) -> Datasource {
+        let presentation = CanonicalGroupInvitePresentation(invite)
+        let entity: RosterItemEntity
+        if presentation.parentJID != nil {
+            entity = .privateChat
+        } else if presentation.privacy == .incognito {
+            entity = .incognitoChat
+        } else {
+            entity = .groupchat
+        }
+        let members = invite.inviter.map {
+            [GroupDisplayMember(
+                name: presentation.inviterName,
+                jid: presentation.inviterJID,
+                avatarUrl: presentation.inviterAvatarURL,
+                uuid: $0.id
+            )]
+        } ?? []
+        return Datasource(
+            owner: presentation.owner,
+            title: presentation.title,
+            jid: presentation.groupJID,
+            subtitle: presentation.subtitle,
+            avatarUrl: presentation.avatarURL,
+            groups: [],
+            conversationType: .group,
+            isInvite: true,
+            value: presentation.inviterName,
+            bottomLine: String.membersAndContactsString(
+                members: presentation.memberCount,
+                contacts: 0
+            ),
+            descr: presentation.description,
+            members: members,
+            status: .away,
+            entity: entity,
+            primary: presentation.primary
+        )
     }
     
     public final func initializeDataset() {
@@ -1620,8 +1763,6 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             let realm = try  WRealm.safe()
             let accountsCollection = realm.objects(AccountStorageItem.self).filter("enabled == true")
             let rosterCollection = realm.objects(RosterStorageItem.self)
-            let groupchatCollection = realm.objects(GroupChatStorageItem.self)
-            let groupUsersCollection = realm.objects(GroupchatUserStorageItem.self).filter("isHidden == false")
             let groupsCollection = realm.objects(RosterGroupStorageItem.self).filter("isSystemGroup == false")
             
             var invalidations: [Observable<Void>] = [
@@ -1630,11 +1771,11 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                 Observable.collection(from: groupsCollection).map { _ in () }
             ]
             
-            if isGroup {
-                let invitesCollection = realm.objects(GroupchatInvitesStorageItem.self)
-                invalidations.append(Observable.collection(from: invitesCollection).map { _ in () })
-                invalidations.append(Observable.collection(from: groupchatCollection).map { _ in () })
-                invalidations.append(Observable.collection(from: groupUsersCollection).map { _ in () })
+            let groupStateChanges: PublishSubject<GroupRepositoryListState>? = isGroup
+                ? PublishSubject<GroupRepositoryListState>()
+                : nil
+            if let groupStateChanges {
+                invalidations.append(groupStateChanges.map { _ in () })
             }
             
             Observable.merge(invalidations)
@@ -1643,6 +1784,14 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                     self?.runDatasetUpdateTask()
                 })
                 .disposed(by: self.bag)
+
+            if let groupStateChanges {
+                let observation = try GroupRepository(realm: realm).observeList { state in
+                    groupStateChanges.onNext(state)
+                }
+                Disposables.create { observation.invalidate() }
+                    .disposed(by: bag)
+            }
         } catch {
             DDLogDebug("ContactsViewController: \(#function). \(error.localizedDescription)")
         }

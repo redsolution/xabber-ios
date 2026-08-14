@@ -51,45 +51,24 @@ extension CreateNewGroupViewController: UITableViewDelegate {
                              footer: "Selected account would be a groupchat owner".localizeString(id: "groupchats_new_groupchat_owner", arguments: []),
                              current: account) { (value) in
                     self.account = value
+                    self.refreshGroupServiceSelection(reloadTable: false)
                     DispatchQueue.main.async {
-                        self.tableView
-                            .reloadRows(at: [IndexPath(row: self.datasource[0].firstIndex(where: { $0 == .account })!, section: 0)],
-                                        with: .none)
+                        var paths = [IndexPath(row: self.datasource[0].firstIndex(where: { $0 == .account })!, section: 0)]
+                        if let servicePath = self.groupServiceIndexPath() {
+                            paths.append(servicePath)
+                        }
+                        self.tableView.reloadRows(at: paths, with: .none)
                     }
                                 
                     
                 }
                 navigationController?.pushViewController(vc, animated: true)
             case .server:
+                guard let selectedServer = self.selectedServer else { return }
                 let vc = CreateNewGroupSelectJIDViewController()
                 vc.selectedLocalPart = self.localpart ?? ""
-                vc.selectedServer = self.selectedServer
+                vc.serviceJID = selectedServer
                 vc.delegate = self
-//                var custom = ["type": "custom", "label": "", "value": ""]
-//                if server["type"] == "custom" {
-//                    custom = server
-//                }
-//                
-//                vc.configure([["type": "default", "label": "gc.xabber.com", "value": "gc.xabber.com"],
-//                              ["type": "default", "label": "xmppdev01.xabber.com", "value": "xmppdev01.xabber.com"],
-//    //                          ["type": "default", "label": "c0005.soni.redsolution.ru", "value": "c0005.soni.redsolution.ru"],
-//                              custom],
-//                             title: "Server".localizeString(id: "account_server_name", arguments: []),
-//                             header: "Select groupchat domain".localizeString(id: "select_groupchat_domain", arguments: []),
-//                             footer: "You can also choose your own domain".localizeString(id: "choose_own_domain_tint", arguments: []),
-//                             current: server) { (value) in
-//                    self.server = value
-//                    if AccountManager.shared.users.count > 1 {
-//                        DispatchQueue.main.async {
-//                            self.tableView.reloadRows(at: [IndexPath(row: self.datasource[2].firstIndex(where: { $0 == .server })!, section: 2)], with: .none)
-//                        }
-//                    } else {
-//                        DispatchQueue.main.async {
-//                            self.tableView.reloadRows(at: [IndexPath(row: self.datasource[1].firstIndex(where: { $0 == .server })!, section: 1)], with: .none)
-//                        }
-//                    }
-//                    
-//                }
                 navigationController?.pushViewController(vc, animated: true)
             case .privacy:
                 let vc = CreateNewGroupEditViewController()
@@ -123,12 +102,15 @@ extension CreateNewGroupViewController: UITableViewDelegate {
                                "label": "Open".localizeString(id: "groupchat_membership_type_open", arguments: []),
                                "value": "open"],
                               ["type": "default",
-                               "label": "Member only".localizeString(id: "groupchat_status_member_only", arguments: []),
-                               "value": "member-only"]],
+                               "label": "Private".localizeString(
+                                id: "groupchat_membership_type_private",
+                                arguments: []
+                               ),
+                               "value": GroupMembership.privateGroup.rawValue]],
                              title: "Membership".localizeString(id: "groupchat_membership", arguments: []),
                              header: "",
-                             footer: "In member only groupchats participants can join only by invitation"
-                                .localizeString(id: "groupchats_member_only_hint", arguments: []),
+                             footer: "Private groups can be joined only by invitation"
+                                .localizeString(id: "groupchats_private_membership_hint", arguments: []),
                              current: membership) { (value) in
                     self.membership = value
                     if AccountManager.shared.users.count > 1 {
@@ -180,8 +162,4 @@ extension CreateNewGroupViewController: CreateNewGroupSelectJIDViewControllerDel
         self.tableView.reloadRows(at: [IndexPath(row: 0, section: 1)], with: .none)
     }
     
-    func onUpdateServer(_ server: String) {
-        self.selectedServer = server
-        self.tableView.reloadRows(at: [IndexPath(row: 0, section: 1)], with: .none)
-    }
 }

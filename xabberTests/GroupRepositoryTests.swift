@@ -156,6 +156,83 @@ final class GroupRepositoryTests: XCTestCase {
         XCTAssertEqual(membership.memberID, "member-self")
     }
 
+    func testNilMembershipUpdatePreservesIncognitoSelfMemberID() throws {
+        let realm = try makeRealm()
+        let repository = GroupRepository(realm: realm)
+        let primary = GroupStorageKey.groupPrimary(
+            owner: "owner@example.com",
+            groupJID: "secret@example.com"
+        )
+
+        try repository.setSelfMembership(
+            .wait,
+            memberID: "incognito-self",
+            owner: "owner@example.com/ios",
+            groupJID: "secret@example.com/Group"
+        )
+        try repository.setSelfMembership(
+            .both,
+            memberID: nil,
+            owner: "owner@example.com",
+            groupJID: "secret@example.com"
+        )
+
+        let membership = try XCTUnwrap(
+            realm.object(
+                ofType: GroupSelfMembershipStorageItem.self,
+                forPrimaryKey: primary
+            )
+        )
+        XCTAssertEqual(membership.stateRaw, GroupSelfMembershipState.both.rawValue)
+        XCTAssertEqual(membership.memberID, "incognito-self")
+    }
+
+    func testJoinWaitAcceptsHandshakeSnapshotButNotMembersOrPermissions() throws {
+        let realm = try makeRealm()
+        let repository = GroupRepository(realm: realm)
+        try repository.setSelfMembership(
+            .wait,
+            memberID: nil,
+            owner: "owner@example.com",
+            groupJID: "stage@example.com"
+        )
+
+        XCTAssertEqual(
+            try repository.applySnapshot(
+                GroupSnapshot(
+                    jid: "stage@example.com",
+                    info: GroupInfo(name: "Handshake preview")
+                ),
+                owner: "owner@example.com",
+                groupJID: "stage@example.com"
+            ),
+            .applied
+        )
+        XCTAssertEqual(
+            realm.objects(GroupSnapshotStorageItem.self).first?.name,
+            "Handshake preview"
+        )
+        XCTAssertEqual(
+            try repository.replaceMembers(
+                [GroupMember(id: "too-early")],
+                owner: "owner@example.com",
+                groupJID: "stage@example.com"
+            ),
+            .ignoredInactiveMembership
+        )
+        XCTAssertEqual(
+            try repository.replacePermissionSet(
+                GroupPermissionSet(
+                    scope: .defaults,
+                    permissions: [GroupPermission(name: "send-messages", status: true)]
+                ),
+                owner: "owner@example.com",
+                groupJID: "stage@example.com"
+            ),
+            .ignoredInactiveMembership
+        )
+    }
+
     func testFullMemberReplacementUsesStableMemberIDAndRemovesPreviousRows() throws {
         let realm = try makeRealm()
         let repository = GroupRepository(realm: realm)
@@ -288,6 +365,48 @@ final class GroupRepositoryTests: XCTestCase {
         XCTAssertTrue(item.pinnedMessageIDs.isEmpty)
     }
 
+    func testStorageTracksContainerPresenceSeparatelyFromEmptyLists() throws {
+        let realm = try makeRealm()
+        let repository = GroupRepository(realm: realm)
+        try repository.applySnapshot(
+            GroupSnapshot(
+                jid: "stage@example.com",
+                settings: GroupSettings(contacts: [], domains: nil),
+                pinnedMessageIDs: []
+            ),
+            owner: "owner@example.com",
+            groupJID: "stage@example.com"
+        )
+
+        let item = try XCTUnwrap(realm.objects(GroupSnapshotStorageItem.self).first)
+        XCTAssertTrue(item.settingsPresent)
+        XCTAssertTrue(item.contactsPresent)
+        XCTAssertFalse(item.domainsPresent)
+        XCTAssertTrue(item.pinnedMessageIDsPresent)
+        XCTAssertTrue(item.contacts.isEmpty)
+        XCTAssertTrue(item.domains.isEmpty)
+        XCTAssertTrue(item.pinnedMessageIDs.isEmpty)
+
+        try repository.applyPatch(
+            GroupPatch(
+                settings: .value(
+                    GroupSettingsPatch(
+                        contacts: .value(nil),
+                        domains: .value([])
+                    )
+                ),
+                pinnedMessageIDs: .value(nil)
+            ),
+            owner: "owner@example.com",
+            groupJID: "stage@example.com"
+        )
+
+        XCTAssertTrue(item.settingsPresent)
+        XCTAssertFalse(item.contactsPresent)
+        XCTAssertTrue(item.domainsPresent)
+        XCTAssertFalse(item.pinnedMessageIDsPresent)
+    }
+
     func testLeaveTombstoneDeletesGroupStateAndRejectsLateStateUntilBoth() throws {
         let realm = try makeRealm()
         let repository = GroupRepository(realm: realm)
@@ -311,6 +430,14 @@ final class GroupRepositoryTests: XCTestCase {
             owner: "owner@example.com",
             groupJID: "stage@example.com"
         )
+        try repository.storeInvite(
+            GroupInviteRecord(
+                groupJID: "stage@example.com",
+                direction: .incoming,
+                target: "member-inviter"
+            ),
+            owner: "owner@example.com"
+        )
 
         try repository.recordLeave(
             owner: "owner@example.com",
@@ -321,6 +448,7 @@ final class GroupRepositoryTests: XCTestCase {
         XCTAssertTrue(realm.objects(GroupMemberStorageItem.self).isEmpty)
         XCTAssertTrue(realm.objects(GroupPermissionSetStorageItem.self).isEmpty)
         XCTAssertTrue(realm.objects(GroupPermissionStorageItem.self).isEmpty)
+        XCTAssertTrue(realm.objects(GroupInviteStorageItem.self).isEmpty)
         let membership = try XCTUnwrap(
             realm.objects(GroupSelfMembershipStorageItem.self).first
         )
@@ -371,6 +499,141 @@ final class GroupRepositoryTests: XCTestCase {
             GroupSelfMembershipState.none.rawValue
         )
         XCTAssertTrue(realm.objects(GroupSnapshotStorageItem.self).isEmpty)
+    }
+
+    func testParentLeaveAndDeletionCascadeOnlyToRelatedPeerToPeerGroups() throws {
+        for terminalAction in ["leave", "delete"] {
+            let realm = try makeRealm()
+            let repository = GroupRepository(realm: realm)
+            let owner = "owner@example.com/ios"
+            let parent = "parent@groups.example.com"
+            let child = "private@groups.example.com"
+            let unrelated = "unrelated@groups.example.com"
+
+            for (jid, parentJID) in [
+                (parent, nil),
+                (child, parent),
+                (unrelated, "different@groups.example.com")
+            ] as [(String, String?)] {
+                try repository.setSelfMembership(
+                    .both,
+                    memberID: "self-\(jid)",
+                    owner: owner,
+                    groupJID: jid
+                )
+                try repository.applySnapshot(
+                    GroupSnapshot(jid: jid, parentJID: parentJID),
+                    owner: owner,
+                    groupJID: jid
+                )
+            }
+            try repository.replaceMembers(
+                [GroupMember(id: "private-member")],
+                owner: owner,
+                groupJID: child
+            )
+            try repository.replacePermissionSet(
+                GroupPermissionSet(
+                    scope: .direct,
+                    target: "self-\(child)",
+                    permissions: [
+                        GroupPermission(name: "send-messages", status: true)
+                    ]
+                ),
+                owner: owner,
+                groupJID: child
+            )
+            try repository.storeInvite(
+                GroupInviteRecord(
+                    groupJID: child,
+                    direction: .outgoing,
+                    target: "private-member"
+                ),
+                owner: owner
+            )
+
+            if terminalAction == "leave" {
+                try repository.recordLeave(owner: owner, groupJID: parent)
+            } else {
+                try repository.recordDeletion(owner: owner, groupJID: parent)
+            }
+
+            let parentPrimary = GroupStorageKey.groupPrimary(
+                owner: owner,
+                groupJID: parent
+            )
+            let childPrimary = GroupStorageKey.groupPrimary(
+                owner: owner,
+                groupJID: child
+            )
+            let unrelatedPrimary = GroupStorageKey.groupPrimary(
+                owner: owner,
+                groupJID: unrelated
+            )
+            XCTAssertNil(
+                realm.object(
+                    ofType: GroupSnapshotStorageItem.self,
+                    forPrimaryKey: parentPrimary
+                ),
+                terminalAction
+            )
+            XCTAssertNil(
+                realm.object(
+                    ofType: GroupSnapshotStorageItem.self,
+                    forPrimaryKey: childPrimary
+                ),
+                terminalAction
+            )
+            XCTAssertNotNil(
+                realm.object(
+                    ofType: GroupSnapshotStorageItem.self,
+                    forPrimaryKey: unrelatedPrimary
+                ),
+                terminalAction
+            )
+            XCTAssertEqual(
+                realm.object(
+                    ofType: GroupSelfMembershipStorageItem.self,
+                    forPrimaryKey: childPrimary
+                )?.stateRaw,
+                GroupSelfMembershipState.none.rawValue,
+                terminalAction
+            )
+            XCTAssertEqual(
+                realm.object(
+                    ofType: GroupSelfMembershipStorageItem.self,
+                    forPrimaryKey: childPrimary
+                )?.memberID,
+                "self-\(child)",
+                terminalAction
+            )
+            XCTAssertTrue(
+                realm.objects(GroupMemberStorageItem.self)
+                    .filter("groupPrimary == %@", childPrimary)
+                    .isEmpty,
+                terminalAction
+            )
+            XCTAssertTrue(
+                realm.objects(GroupPermissionSetStorageItem.self)
+                    .filter("groupPrimary == %@", childPrimary)
+                    .isEmpty,
+                terminalAction
+            )
+            XCTAssertTrue(
+                realm.objects(GroupInviteStorageItem.self)
+                    .filter("groupPrimary == %@", childPrimary)
+                    .isEmpty,
+                terminalAction
+            )
+            XCTAssertEqual(
+                realm.object(
+                    ofType: GroupSelfMembershipStorageItem.self,
+                    forPrimaryKey: unrelatedPrimary
+                )?.stateRaw,
+                GroupSelfMembershipState.both.rawValue,
+                terminalAction
+            )
+        }
     }
 
     func testPermissionSetsAreNormalizedForPersonalDefaultsAndNewbies() throws {
@@ -469,6 +732,49 @@ final class GroupRepositoryTests: XCTestCase {
         )
     }
 
+    func testCanonicalUpsertsPreserveManagedPrimaryKeys() throws {
+        let realm = try makeRealm()
+        let repository = GroupRepository(realm: realm)
+        let owner = "owner@example.com"
+        let group = "stage@example.com"
+
+        try repository.setSelfMembership(
+            .both,
+            memberID: "self-1",
+            owner: owner,
+            groupJID: group
+        )
+        try repository.applySnapshot(
+            GroupSnapshot(jid: group, info: GroupInfo(name: "Before")),
+            owner: owner,
+            groupJID: group
+        )
+        try repository.applySnapshot(
+            GroupSnapshot(jid: group, info: GroupInfo(name: "After")),
+            owner: owner,
+            groupJID: group
+        )
+
+        let invite = GroupInviteRecord(
+            groupJID: group,
+            direction: .incoming,
+            target: "member-inviter",
+            reason: "Before"
+        )
+        try repository.storeInvite(invite, owner: owner)
+        var updatedInvite = invite
+        updatedInvite.reason = "After"
+        try repository.storeInvite(updatedInvite, owner: owner)
+
+        XCTAssertEqual(
+            try repository.projection(owner: owner, groupJID: group)
+                .state.snapshot.info?.name,
+            "After"
+        )
+        XCTAssertEqual(realm.objects(GroupInviteStorageItem.self).count, 1)
+        XCTAssertEqual(realm.objects(GroupInviteStorageItem.self).first?.reason, "After")
+    }
+
     func testInviteUsesUnifiedDirectionAndTargetWithoutCreatingGroup() throws {
         let realm = try makeRealm()
         let repository = GroupRepository(realm: realm)
@@ -503,5 +809,17 @@ final class GroupRepositoryTests: XCTestCase {
         XCTAssertEqual(incoming.groupJID, "stage@example.com")
         XCTAssertEqual(incoming.target, "member-inviter")
         XCTAssertEqual(incoming.reason, "Join us")
+
+        try repository.removeInvites(
+            owner: "Owner@Example.COM/Phone",
+            groupJID: "Stage@Example.COM/Group",
+            direction: .incoming
+        )
+
+        XCTAssertEqual(realm.objects(GroupInviteStorageItem.self).count, 1)
+        XCTAssertEqual(
+            realm.objects(GroupInviteStorageItem.self).first?.directionRaw,
+            GroupInviteDirection.outgoing.rawValue
+        )
     }
 }

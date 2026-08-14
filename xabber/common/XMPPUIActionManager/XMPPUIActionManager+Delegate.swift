@@ -26,6 +26,45 @@ import Foundation
 import XMPPFramework
 import CocoaAsyncSocket
 
+enum CanonicalAuxiliaryGroupMessageRouting: Equatable {
+    case notGroup
+    case validatedMessage
+    case consumed
+}
+
+/// Canonical-only group ingress for secondary XMPP streams.
+///
+/// These streams never own group commands or request correlation. They only
+/// validate ordinary group messages and apply unsolicited canonical events
+/// (most importantly invite previews) through the repository-backed reducer.
+enum CanonicalAuxiliaryGroupMessageRouter {
+    static func route(
+        _ message: XMPPMessage,
+        owner: String
+    ) -> CanonicalAuxiliaryGroupMessageRouting {
+        do {
+            guard let event = try GroupStanzaRouter.route(message) else {
+                return .notGroup
+            }
+            let processor = GroupEventProcessor(
+                owner: owner,
+                repository: {
+                    GroupRepository(realm: try WRealm.safe())
+                }
+            )
+            switch try processor.process(event) {
+            case .message:
+                return .validatedMessage
+            case .handled, .invite, .ignored:
+                return .consumed
+            }
+        } catch {
+            DDLogDebug("Canonical auxiliary group stanza rejected: \(error)")
+            return .consumed
+        }
+    }
+}
+
 extension XMPPUIActionManager: XMPPStreamDelegate {
     private func isCurrentStream(_ sender: XMPPStream, callback: String) -> Bool {
         guard sender === self.stream else {
@@ -396,7 +435,6 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         case (self.mam?.read(sender, withIQ: iq) ?? false):
                 self.messages?.scheduleQueuedMessagesDrainWithoutWaiting()
                 return true
-        case (self.groupchat?.read(sender, withIQ: iq) ?? false): return true
         case (AccountManager.shared.find(for: self.currentJid ?? "")?.omemo.read(withIQ: iq) ?? false):
             return true
         case (self.vcardManager?.read(withIQ: iq) ?? false): return true
@@ -440,7 +478,6 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
             rawXML: iq.xmlString,
             error: error
         )
-        _ = self.groupchat?.fail(iq: iq)
 //        print("FAIL", iq.prettyXMLString())
     }
     
@@ -493,14 +530,18 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                     .recordDeferredArchiveControlConsumption(message)
             }
         }
+        let canonicalGroupRouting = CanonicalAuxiliaryGroupMessageRouter.route(
+            message,
+            owner: sender.myJID?.bare ?? currentJid ?? ""
+        )
+        if canonicalGroupRouting == .consumed {
+            didIntentionallyConsumeArchiveResult = true
+            return
+        }
         
         switch message.messageType ?? .chat {
         case .chat, .normal:
             if self.mam?.readMessage(message) ?? false {
-                didIntentionallyConsumeArchiveResult = true
-                return
-            }
-            if self.groupchat?.readMessage(withMessage: message) ?? false {
                 didIntentionallyConsumeArchiveResult = true
                 return
             }
@@ -521,9 +562,6 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                     }
                     
                     if VoIPManager.shared.onReceiveMessage(bareMessage, owner: sender.myJID!.bare, archivedDate: getDeliveryTime(message, owner: sender.myJID!.bare) ?? getDelayedDate(message)) {
-                        didIntentionallyConsumeArchiveResult = true
-                        return
-                    } else if self.groupchat?.readArchivedInviteEnvelope(message, isRead: nil) ?? false {
                         didIntentionallyConsumeArchiveResult = true
                         return
                     }

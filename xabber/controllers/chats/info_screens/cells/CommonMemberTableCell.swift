@@ -154,7 +154,7 @@ class CommonMemberTableCell: UITableViewCell {
     }
     var currentUrl: String? = ""
     
-    open func configure(avatarUrl: String?, jid: String, owner: String, userId: String?, title: String, badge: String, isMe: Bool, subtitle: String, status: ResourceStatus, entity: RosterItemEntity, role: GroupchatUserStorageItem.Role) {
+    open func configure(avatarUrl: String?, jid: String, owner: String, userId: String?, title: String, badge: String, isMe: Bool, subtitle: String, status: ResourceStatus, entity: RosterItemEntity, role: GroupMemberRole) {
         titleLabel.text = title
         if currentUrl != avatarUrl {
             DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 128) { image in
@@ -198,7 +198,7 @@ class CommonMemberTableCell: UITableViewCell {
             roleIndicator.image = imageLiteral( "star.fill")
         case .admin:
             roleIndicator.image = imageLiteral( "star")
-        case .member, .custom:
+        case .member, .none:
             roleIndicator.image = nil
         }
     }

@@ -78,21 +78,33 @@ enum GroupInviteDirection: String, Equatable, Sendable {
 }
 
 struct GroupInviteRecord: Equatable, Sendable {
+    var primary: String
+    var owner: String
     var groupJID: String
     var direction: GroupInviteDirection
     var target: String
     var reason: String?
+    var inviter: GroupMember?
+    var preview: GroupSnapshot?
 
     init(
+        primary: String = "",
+        owner: String = "",
         groupJID: String,
         direction: GroupInviteDirection,
         target: String,
-        reason: String? = nil
+        reason: String? = nil,
+        inviter: GroupMember? = nil,
+        preview: GroupSnapshot? = nil
     ) {
+        self.primary = primary
+        self.owner = owner
         self.groupJID = groupJID
         self.direction = direction
         self.target = target
         self.reason = reason
+        self.inviter = inviter
+        self.preview = preview
     }
 }
 
@@ -121,8 +133,12 @@ final class GroupSnapshotStorageItem: Object {
     @Persisted var membershipRaw: String?
     @Persisted var indexRaw: String?
     @Persisted var lifecycleStateRaw: String?
+    @Persisted var settingsPresent = false
+    @Persisted var contactsPresent = false
+    @Persisted var domainsPresent = false
     @Persisted var contacts = List<String>()
     @Persisted var domains = List<String>()
+    @Persisted var pinnedMessageIDsPresent = false
     @Persisted var pinnedMessageIDs = List<String>()
 }
 
@@ -195,4 +211,48 @@ final class GroupInviteStorageItem: Object {
     @Persisted(indexed: true) var directionRaw = ""
     @Persisted(indexed: true) var target = ""
     @Persisted var reason: String?
+
+    // The invite preview is intentionally embedded into the invite row. It is
+    // presentation-only and must never be promoted to authoritative group or
+    // member storage before membership becomes `both`.
+    @Persisted var inviterID: String?
+    @Persisted var inviterJID: String?
+    @Persisted var inviterRoleRaw: String?
+    @Persisted var inviterNickname: String?
+    @Persisted var inviterBadge: String?
+    @Persisted var inviterLastSeen: Date?
+    @Persisted var inviterAllowsPeerToPeer = false
+    @Persisted var inviterAvatarID: String?
+    @Persisted var inviterAvatarMediaType: String?
+    @Persisted var inviterAvatarBytes: Int?
+    @Persisted var inviterAvatarWidth: Int?
+    @Persisted var inviterAvatarHeight: Int?
+    @Persisted var inviterAvatarURL: String?
+
+    @Persisted var previewPresent = false
+    @Persisted var previewPrivacyRaw: String?
+    @Persisted var previewParentJID: String?
+    @Persisted var previewMemberCount: Int?
+    @Persisted var previewPresentCount: Int?
+    @Persisted var previewLocalpart: String?
+    @Persisted var previewInfoPresent = false
+    @Persisted var previewName: String?
+    @Persisted var previewDescriptionText: String?
+    @Persisted var previewStatus: String?
+    @Persisted var previewAvatarID: String?
+    @Persisted var previewAvatarMediaType: String?
+    @Persisted var previewAvatarBytes: Int?
+    @Persisted var previewAvatarWidth: Int?
+    @Persisted var previewAvatarHeight: Int?
+    @Persisted var previewAvatarURL: String?
+    @Persisted var previewSettingsPresent = false
+    @Persisted var previewMembershipRaw: String?
+    @Persisted var previewIndexRaw: String?
+    @Persisted var previewLifecycleStateRaw: String?
+    @Persisted var previewContactsPresent = false
+    @Persisted var previewDomainsPresent = false
+    @Persisted var previewContacts = List<String>()
+    @Persisted var previewDomains = List<String>()
+    @Persisted var previewPinnedMessageIDsPresent = false
+    @Persisted var previewPinnedMessageIDs = List<String>()
 }

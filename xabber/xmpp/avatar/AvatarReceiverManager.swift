@@ -275,57 +275,6 @@ class XmppAvatarManager: AbstractXMPPManager {
         return true
     }
     
-    public final func readFromUserCard(groupchat: String, user card: DDXMLElement) -> Bool {
-        guard let userId = card.attributeStringValue(forName: "id"),
-              let info = card.element(forName: "avatar")?.element(forName: "info")
-                ?? card
-                    .element(forName: "metadata", xmlns: "urn:xmpp:avatar:metadata")?
-                    .element(forName: "info"),
-              let imageHash = info.attributeStringValue(forName: "id"),
-              let urlRaw = info.attributeStringValue(forName: "url") else {
-            return false
-        }
-        do {
-            let realm = try WRealm.safe()
-            guard let instance = realm.object(
-                ofType: GroupchatUserStorageItem.self,
-                forPrimaryKey: GroupchatUserStorageItem.genPrimary(
-                    id: userId,
-                    groupchat: groupchat,
-                    owner: owner
-                )
-            ) else {
-                return false
-            }
-            if instance.avatarURI != urlRaw || instance.avatarHash != imageHash {
-                DefaultAvatarManager.shared.invalidatePushAvatarSnapshot(
-                    owner: owner,
-                    groupchat: groupchat,
-                    participantId: userId
-                )
-            }
-            guard instance.avatarURI != urlRaw || instance.avatarHash != imageHash else {
-                return true
-            }
-            let updateMetadata = {
-                instance.avatarURI = urlRaw
-                instance.avatarHash = imageHash
-                instance.updatedTS = Date().timeIntervalSince1970
-            }
-            if realm.isInWriteTransaction {
-                updateMetadata()
-            } else {
-                try realm.write {
-                    updateMetadata()
-                }
-            }
-            return true
-        } catch {
-            DDLogDebug("XMPPAvatarManager: \(#function). \(error.localizedDescription)")
-            return false
-        }
-    }
-    
     public final func readMessage(_ message: XMPPMessage) -> Bool {
         guard message.messageType == .headline,
               let event = message.element(forName: "event", xmlns: "http://jabber.org/protocol/pubsub#event"),

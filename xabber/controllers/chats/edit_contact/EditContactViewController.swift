@@ -167,8 +167,14 @@ class EditContactViewController: BaseViewController {
             let realm = try WRealm.safe()
             let vcardItem = realm.object(ofType: vCardStorageItem.self, forPrimaryKey: jid)
             let rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [jid, owner].prp())
-            let groupchat = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: [jid, owner].prp())
-            isGroupchat = groupchat != nil
+            let groupProjection = try? GroupRepository(realm: realm).projection(
+                owner: owner,
+                groupJID: jid
+            )
+            let groupSnapshot = groupProjection?.state.isActive == true
+                ? groupProjection?.state.snapshot
+                : nil
+            isGroupchat = groupSnapshot != nil
             switch rosterItem?.subscribtion ?? .none {
             case .to:
                 self.askSubscribtions.accept(true)
@@ -220,7 +226,12 @@ class EditContactViewController: BaseViewController {
                     .forEach { self.tableView.selectRow(at: $0, animated: false, scrollPosition: .none) }
             } else {
                 datasource = [
-                    [Datasource(kind: .field, key: "nickname", title: groupchat?.name ?? vcardItem?.generatedNickname ?? jid, string: rosterItem?.customUsername)],
+                    [Datasource(
+                        kind: .field,
+                        key: "nickname",
+                        title: groupSnapshot?.info?.name ?? vcardItem?.generatedNickname ?? jid,
+                        string: rosterItem?.customUsername
+                    )],
                     [Datasource(kind: .simple, key: "presence_receive", title: "Receiving presence updates".localizeString(id: "subscription_status_out_to", arguments: []), bool: nil, string: nil),
                      Datasource(kind: .simple, key: "presence_send", title: "Sending presence updates".localizeString(id: "subscription_status_in_from", arguments: []), bool: nil, string: nil)],
                     [Datasource(kind: .danger, key: "delete", title: "Delete".localizeString(id: "delete", arguments: []))]

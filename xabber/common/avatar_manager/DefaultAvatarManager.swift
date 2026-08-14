@@ -565,18 +565,6 @@ class DefaultAvatarManager: NSObject {
                         case .success(let image):
                             ImageCache.default.store(image.image, forKey: url, options: KingfisherParsedOptionsInfo([.alsoPrefetchToMemory]))
                             self.pushAvatarPublisher.publish(image.image, token: token)
-                            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-                                do {
-                                    let realm = try WRealm.safe()
-                                    if let instance = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: GroupchatUserStorageItem.genPrimary(id: userId, groupchat: jid, owner: owner)) {
-                                        try realm.write {
-                                            instance.updatedTS = Date().timeIntervalSince1970
-                                        }
-                                    }
-                                } catch {
-                                    DDLogDebug("DefaultAvatarManager: \(#function). \(error.localizedDescription)")
-                                }
-                            }
                         default:
                             break
                     }
@@ -793,39 +781,40 @@ class DefaultAvatarManager: NSObject {
                 cursor.phase = 2
             }
 
-            let groupUsers = realm.objects(GroupchatUserStorageItem.self)
+            let groupUsers = realm.objects(GroupMemberStorageItem.self)
             while cursor.phase == 2,
                   cursor.groupParticipantOffset < groupUsers.count,
                   candidates.count < limit,
                   budget.canContinue(at: ProcessInfo.processInfo.systemUptime) {
                 let item = groupUsers[cursor.groupParticipantOffset]
                 cursor.groupParticipantOffset += 1
-                let participantId = item.userId.isEmpty ? item.jid : item.userId
-                guard !item.avatarURI.isEmpty,
+                let participantId = item.memberID
+                guard let avatarURL = item.avatarURL,
+                      avatarURL.isNotEmpty,
                       !participantId.isEmpty,
-                      !item.groupchatId.isEmpty,
-                      !item.isKicked,
-                      !item.isHidden,
-                      !item.isTemporary,
+                      !item.groupPrimary.isEmpty,
                       let group = realm.object(
-                        ofType: GroupChatStorageItem.self,
-                        forPrimaryKey: item.groupchatId
+                        ofType: GroupSnapshotStorageItem.self,
+                        forPrimaryKey: item.groupPrimary
                       ),
-                      !group.isDeleted,
+                      realm.object(
+                        ofType: GroupSelfMembershipStorageItem.self,
+                        forPrimaryKey: item.groupPrimary
+                      )?.stateRaw == GroupSelfMembershipState.both.rawValue,
                       let identity = Self.pushAvatarGroupIdentity(
                         owner: item.owner,
-                        storedGroupPrimary: item.groupchatId,
-                        resolvedGroupJid: group.jid,
+                        storedGroupPrimary: item.groupPrimary,
+                        resolvedGroupJid: group.groupJID,
                         participantId: participantId
                       ) else {
                     continue
                 }
                 appendCandidate(
                     identity: identity,
-                    sourceKeys: [item.avatarURI],
+                    sourceKeys: [avatarURL],
                     metadataRevision: Self.groupAvatarMetadataRevision(
-                        avatarHash: item.avatarHash,
-                        temporaryAvatarHash: item.temporaryAvatarHash
+                        avatarHash: item.avatarID ?? "",
+                        temporaryAvatarHash: ""
                     )
                 )
             }
@@ -1003,22 +992,22 @@ class DefaultAvatarManager: NSObject {
                 }
             case .groupParticipant:
                 guard let participantId = identity.participantId else { return nil }
-                let groupPrimary = GroupChatStorageItem.genPrimary(
-                    jid: identity.entityJid,
-                    owner: identity.owner
+                let groupPrimary = GroupStorageKey.groupPrimary(
+                    owner: identity.owner,
+                    groupJID: identity.entityJid
                 )
                 var item = realm.object(
-                    ofType: GroupchatUserStorageItem.self,
-                    forPrimaryKey: GroupchatUserStorageItem.genPrimary(
-                        id: participantId,
-                        groupchat: identity.entityJid,
-                        owner: identity.owner
+                    ofType: GroupMemberStorageItem.self,
+                    forPrimaryKey: GroupStorageKey.memberPrimary(
+                        owner: identity.owner,
+                        groupJID: identity.entityJid,
+                        memberID: participantId
                     )
                 )
                 if item == nil, participantId.contains("@") {
-                    item = realm.objects(GroupchatUserStorageItem.self)
+                    item = realm.objects(GroupMemberStorageItem.self)
                         .filter(
-                            "owner == %@ AND groupchatId == %@ AND jid ==[c] %@",
+                            "owner == %@ AND groupPrimary == %@ AND jid ==[c] %@",
                             identity.owner,
                             groupPrimary,
                             participantId
@@ -1028,23 +1017,22 @@ class DefaultAvatarManager: NSObject {
                 guard let item else {
                     return Self.missingRecordSourceRevision(for: token)
                 }
-                guard !item.isKicked,
-                      !item.isHidden,
-                      !item.isTemporary || token.sourceScope == .unmanagedTransient else {
-                    return nil
-                }
                 guard let group = realm.object(
-                    ofType: GroupChatStorageItem.self,
+                    ofType: GroupSnapshotStorageItem.self,
                     forPrimaryKey: groupPrimary
-                ), !group.isDeleted else {
+                ), group.groupJID.isNotEmpty,
+                realm.object(
+                    ofType: GroupSelfMembershipStorageItem.self,
+                    forPrimaryKey: groupPrimary
+                )?.stateRaw == GroupSelfMembershipState.both.rawValue else {
                     return token.sourceScope == .unmanagedTransient
                         ? Self.missingRecordSourceRevision(for: token)
                         : nil
                 }
-                sourceKeys = Self.uniqueNonEmptySourceKeys([item.avatarURI])
+                sourceKeys = Self.uniqueNonEmptySourceKeys([item.avatarURL])
                 metadataRevision = Self.groupAvatarMetadataRevision(
-                    avatarHash: item.avatarHash,
-                    temporaryAvatarHash: item.temporaryAvatarHash
+                    avatarHash: item.avatarID ?? "",
+                    temporaryAvatarHash: ""
                 )
             }
             guard sourceKeys.contains(token.sourceKey) else { return nil }

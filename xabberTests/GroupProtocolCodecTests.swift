@@ -265,6 +265,75 @@ final class GroupProtocolCodecTests: XCTestCase {
         """)))
     }
 
+    func testInvitationAndBlockListsDecodeCanonicalTypedAddresses() throws {
+        let invites = try GroupProtocolCodec.decodeInvites(element("""
+        <invites xmlns='https://xabber.com/protocol/groups'>
+          <jid>Juliet@Example.COM/Balcony</jid>
+          <jid>Romeo@Example.COM/Phone</jid>
+        </invites>
+        """))
+        XCTAssertEqual(invites, ["juliet@example.com", "romeo@example.com"])
+
+        let blocklist = try GroupProtocolCodec.decodeBlocklist(element("""
+        <block xmlns='https://xabber.com/protocol/groups'>
+          <jid>Tybalt@Example.COM/Sword</jid>
+          <jid>Spam.Example.COM</jid>
+        </block>
+        """))
+        XCTAssertEqual(blocklist, ["tybalt@example.com", "spam.example.com"])
+
+        XCTAssertEqual(
+            try GroupProtocolCodec.decodeInvites(element("""
+            <invites xmlns='https://xabber.com/protocol/groups'/>
+            """)),
+            []
+        )
+        XCTAssertEqual(
+            try GroupProtocolCodec.decodeBlocklist(element("""
+            <block xmlns='https://xabber.com/protocol/groups'/>
+            """)),
+            []
+        )
+    }
+
+    func testInvitationAndBlockListsRejectLegacyOrMixedShapes() throws {
+        XCTAssertThrowsError(try GroupProtocolCodec.decodeInvites(element("""
+        <invites xmlns='https://xabber.com/protocol/groups#invites'>
+          <jid>juliet@example.com</jid>
+        </invites>
+        """)))
+        XCTAssertThrowsError(try GroupProtocolCodec.decodeInvites(element("""
+        <invites xmlns='https://xabber.com/protocol/groups'>
+          <user jid='juliet@example.com'/>
+        </invites>
+        """)))
+        XCTAssertThrowsError(try GroupProtocolCodec.decodeBlocklist(element("""
+        <block xmlns='https://xabber.com/protocol/groups'>
+          <item jid='juliet@example.com'/>
+        </block>
+        """)))
+    }
+
+    func testInfoAndSettingsStandalonePayloadsRoundTrip() throws {
+        let info = GroupInfo(name: "Stage", description: "Discussion", status: "active")
+        XCTAssertEqual(
+            try GroupProtocolCodec.decodeInfo(GroupProtocolCodec.encodeInfo(info)),
+            info
+        )
+
+        let settings = GroupSettings(
+            membership: .privateGroup,
+            contacts: [],
+            domains: ["example.com"],
+            index: .local,
+            state: .active
+        )
+        XCTAssertEqual(
+            try GroupProtocolCodec.decodeSettings(GroupProtocolCodec.encodeSettings(settings)),
+            settings
+        )
+    }
+
     func testPermissionsParseCanonicalAttributesAndDurations() throws {
         let set = try GroupProtocolCodec.decodePermissionSet(element(Fixture.permissions))
 

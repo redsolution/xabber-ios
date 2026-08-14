@@ -22,6 +22,12 @@ import Foundation
 import XMPPFramework
 import RealmSwift
 
+enum CanonicalGroupSynchronizationSignal: Equatable {
+    case active(groupJID: String)
+    case pendingInvite(groupJID: String)
+    case deleted(groupJID: String)
+}
+
 struct ClientSyncPageParser {
     struct RSMPage {
         let first: String?
@@ -97,7 +103,6 @@ struct ClientSyncPageApplier {
 
     struct ApplyResult {
         let queueItems: Set<MessageManager.MessageQueueItem>
-        let detectedInvite: Bool
         let summary: ApplySummary
     }
 
@@ -134,7 +139,6 @@ struct ClientSyncPageApplier {
         readPresence: (DDXMLElement, Realm) -> Void
     ) throws -> ApplyResult {
         var queueItems = Set<MessageManager.MessageQueueItem>()
-        var detectedInvite = false
         var createdChatCount = 0
         var updatedChatCount = 0
         var skippedConversationCount = 0
@@ -143,6 +147,20 @@ struct ClientSyncPageApplier {
         conversations.forEach { sourceConversation in
             let conversation = (sourceConversation.copy() as? DDXMLElement) ?? sourceConversation
             let identity = Self.identity(from: conversation, owner: owner)
+            // For a not-yet-admitted Xabber Group, XEP-SYNC is only a discovery
+            // signal. Existing `.both` memberships may still consume ordinary
+            // unread/pin/mute projection metadata, but generic sync cannot
+            // create LastChat/roster/resource before membership is proven.
+            if let identity,
+               identity.conversationType == .group,
+               !CanonicalGroupMessageAdmission.allowsPersistence(
+                    owner: owner,
+                    groupJID: identity.jid,
+                    repository: GroupRepository(realm: realm)
+               ) {
+                skippedConversationCount += 1
+                return
+            }
             let existedBefore = identity
                 .flatMap { realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: $0.primary) } != nil
             var didApplyConversationState = false
@@ -155,7 +173,6 @@ struct ClientSyncPageApplier {
                     }
                     didApplyConversationState = true
                     if readInvites(conversation, realm) {
-                        detectedInvite = true
                         consumedInvite = true
                         return
                     }
@@ -189,7 +206,6 @@ struct ClientSyncPageApplier {
 
         return ApplyResult(
             queueItems: queueItems,
-            detectedInvite: detectedInvite,
             summary: ApplySummary(
                 receivedCount: conversations.count,
                 createdChatCount: createdChatCount,
@@ -272,7 +288,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     }
 
     private struct SyncPayloadApplyResult {
-        let detectedInvite: Bool
         let snapshotRepairTargets: [MessageArchiveManager.SnapshotRepairTarget]
         let applySummary: ClientSyncPageApplier.ApplySummary
     }
@@ -295,13 +310,11 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     }
 
     private struct SnapshotCompletionActions {
-        let shouldRunInviteFallback: Bool
         let snapshotRepairTargets: [MessageArchiveManager.SnapshotRepairTarget]
         let postBootstrapWork: [() -> Void]
         let needsCatchUpSync: Bool
 
         static let none = SnapshotCompletionActions(
-            shouldRunInviteFallback: false,
             snapshotRepairTargets: [],
             postBootstrapWork: [],
             needsCatchUpSync: false
@@ -361,7 +374,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     private var requestedSnapshotAfterTokens = Set<String>()
     private var seenSnapshotConversationKeys = Set<String>()
     private var isApplyingPage: Bool = false
-    private var shouldRequestInviteFallbackAfterSnapshot: Bool = false
     private var pendingSnapshotRepairTargets = Set<MessageArchiveManager.SnapshotRepairTarget>()
     private var pendingPostBootstrapWork: [() -> Void] = []
     private var needsCatchUpAfterSnapshot = false
@@ -592,7 +604,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 activeSnapshotRequestedStampMode = nil
                 requestedSnapshotAfterTokens.removeAll()
                 seenSnapshotConversationKeys.removeAll()
-                shouldRequestInviteFallbackAfterSnapshot = false
                 pendingSnapshotRepairTargets.removeAll()
                 needsCatchUpAfterSnapshot = false
                 return true
@@ -684,7 +695,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             requestedSnapshotAfterTokens.removeAll()
             seenSnapshotConversationKeys.removeAll()
             isApplyingPage = false
-            shouldRequestInviteFallbackAfterSnapshot = false
             pendingSnapshotRepairTargets.removeAll()
             needsCatchUpAfterSnapshot = false
             return true
@@ -708,6 +718,67 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             }
     }
 
+    private func routeCanonicalGroupMessages(
+        from conversations: [DDXMLElement]
+    ) {
+        guard let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+        conversations.compactMap(Self.syncLastMessage).forEach { message in
+            _ = account.routeCanonicalGroupMessage(message)
+        }
+    }
+
+    static func canonicalGroupSynchronizationSignal(
+        from conversation: DDXMLElement
+    ) -> CanonicalGroupSynchronizationSignal? {
+        guard conversation.attributeStringValue(forName: "type") ==
+                ConversationType.group.rawValue,
+              let rawJID = conversation.attributeStringValue(forName: "jid") else {
+            return nil
+        }
+        let groupJID = GroupStorageKey.bareJID(rawJID)
+        guard !groupJID.isEmpty else { return nil }
+        if conversation.element(forName: "deleted") != nil ||
+            conversation.attributeStringValue(forName: "status") ==
+                ConversationStatus.deleted.rawValue {
+            return .deleted(groupJID: groupJID)
+        }
+        if let message = syncLastMessage(from: conversation),
+           isCanonicalGroupInvite(message) {
+            return .pendingInvite(groupJID: groupJID)
+        }
+        let status = conversation.attributeStringValue(forName: "status")
+        guard status == nil || status == ConversationStatus.active.rawValue ||
+                status == ConversationStatus.archived.rawValue else {
+            return nil
+        }
+        return .active(groupJID: groupJID)
+    }
+
+    private func routeCanonicalGroupSynchronization(
+        from conversations: [DDXMLElement]
+    ) {
+        let signals = conversations.compactMap(
+            Self.canonicalGroupSynchronizationSignal(from:)
+        )
+        guard let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+        signals.forEach { signal in
+            switch signal {
+            case let .active(groupJID):
+                account.recoverCanonicalGroupMembershipFromSynchronization(groupJID)
+            case .pendingInvite:
+                // The canonical invite message was routed above and remains a
+                // separate pending object. It is never admitted as a chat.
+                break
+            case let .deleted(groupJID):
+                account.reconcileCanonicalGroupDeletionFromSynchronization(groupJID)
+            }
+        }
+    }
+
     private func applySyncPayload(
         conversations: [DDXMLElement],
         accountCreateDate: Date?,
@@ -718,6 +789,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
            !isCurrentSyncSessionGeneration(expectedGeneration) {
             throw SyncSessionApplyError.invalidated
         }
+        routeCanonicalGroupMessages(from: conversations)
         var snapshotRepairTargets: [MessageArchiveManager.SnapshotRepairTarget] = []
         var seenSnapshotRepairTargets = Set<MessageArchiveManager.SnapshotRepairTarget>()
         let recordSnapshotRepairTarget: (MessageArchiveManager.SnapshotRepairTarget) -> Void = { target in
@@ -746,8 +818,8 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             readPresence: self.readPresence(_:realm:)
         )
         processQueueItems(result.queueItems)
+        routeCanonicalGroupSynchronization(from: conversations)
         return SyncPayloadApplyResult(
-            detectedInvite: result.detectedInvite,
             snapshotRepairTargets: snapshotRepairTargets,
             applySummary: result.summary
         )
@@ -794,7 +866,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             isApplyingPage = false
             if isFinalPage {
                 let actions = SnapshotCompletionActions(
-                    shouldRunInviteFallback: shouldRequestInviteFallbackAfterSnapshot,
                     snapshotRepairTargets: Array(pendingSnapshotRepairTargets),
                     postBootstrapWork: pendingPostBootstrapWork,
                     needsCatchUpSync: needsCatchUpAfterSnapshot
@@ -804,7 +875,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 requestedSnapshotAfterTokens.removeAll()
                 seenSnapshotConversationKeys.removeAll()
                 phase = .live
-                shouldRequestInviteFallbackAfterSnapshot = false
                 pendingSnapshotRepairTargets.removeAll()
                 pendingPostBootstrapWork.removeAll()
                 needsCatchUpAfterSnapshot = false
@@ -826,16 +896,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 return false
             }
             result.snapshotRepairTargets.forEach { pendingSnapshotRepairTargets.insert($0) }
-            if result.detectedInvite {
-                shouldRequestInviteFallbackAfterSnapshot = true
-            }
             return true
-        }
-    }
-
-    private func noteInviteFallbackNeeded() {
-        stateQueue.sync {
-            shouldRequestInviteFallbackAfterSnapshot = true
         }
     }
 
@@ -892,9 +953,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         let account = AccountManager.shared.find(for: self.owner)
         account?.flushBootstrapQueuedPrimaryStanzas(reason: "snapshotComplete")
         account?.xmppTaskScheduler.bootstrapGateDidChange()
-        if actions.shouldRunInviteFallback {
-            account?.groupchats.getInvitesFallback()
-        }
         scheduleSnapshotRepairTargetsImmediately(actions.snapshotRepairTargets)
         actions.postBootstrapWork.forEach { $0() }
     }
@@ -1070,6 +1128,52 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         conversation
             .elements(forName: "metadata")
             .first(where: { $0.attributeStringValue(forName: "node") == ClientSynchronizationManager.primaryNamespace })
+    }
+
+    private static func syncLastMessage(
+        from conversation: DDXMLElement
+    ) -> XMPPMessage? {
+        guard let message = syncMetadata(from: conversation)?
+            .element(forName: "last-message")?
+            .element(forName: "message")?
+            .copy() as? DDXMLElement else {
+            return nil
+        }
+        return XMPPMessage(from: message)
+    }
+
+    private static func classifyCanonicalGroupMessage(
+        _ message: XMPPMessage
+    ) -> Account.CanonicalGroupMessageRouting {
+        do {
+            guard let event = try GroupStanzaRouter.route(message) else {
+                return .notGroup
+            }
+            switch event {
+            case .message:
+                return .validatedMessage
+            case .invite, .reducer, .iq:
+                return .consumed
+            }
+        } catch {
+            return .consumed
+        }
+    }
+
+    private static func isCanonicalGroupInvite(_ message: XMPPMessage) -> Bool {
+        do {
+            guard let event = try GroupStanzaRouter.route(message) else {
+                return false
+            }
+            if case .invite = event {
+                return true
+            }
+            return false
+        } catch {
+            return message.elements(forName: "invite").contains {
+                $0.xmlns() == GroupProtocolNamespace.groups
+            }
+        }
     }
 
     private static func normalizedArchiveId(_ value: String?) -> String? {
@@ -1440,16 +1544,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             ])
             if isBootstrapCriticalSyncInProgress() {
                 deferSnapshotRepairTargets(applyResult.snapshotRepairTargets)
-                if applyResult.detectedInvite {
-                    noteInviteFallbackNeeded()
-                }
                 noteCatchUpNeededAfterSnapshot()
             } else {
                 scheduleSnapshotRepairTargetsImmediately(applyResult.snapshotRepairTargets)
                 markLastRecognizedEventStamp(stamp)
-                if applyResult.detectedInvite {
-                    AccountManager.shared.find(for: owner)?.groupchats.getInvitesFallback()
-                }
                 AccountManager.shared.find(for: owner)?.mam.scheduleRegularIdleBackfillIfNeeded()
             }
         } catch {
@@ -1524,14 +1622,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         return true
     }
     
-//    <iq xmlns="jabber:client" lang="ru" to="igor.boldin@redsolution.com/xabber-ios-3F02F22F" from="igor.boldin@redsolution.com" type="result" id="EF06FF8B-BC20-4215-A7C5-CC9675DC5366">
-//      <synchronization xmlns="https://xabber.com/protocol/synchronization" stamp="1594109688793236">
-//        <set xmlns="http://jabber.org/protocol/rsm">
-//          <count>82</count>
-//        </set>
-//      </synchronization>
-//    </iq>
-
     internal func claimInitialPresenceSend() -> Bool {
         stateQueue.sync {
             guard case .ready = initialPresenceSessionState else { return false }
@@ -1985,25 +2075,9 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     }
     
     @discardableResult
-    internal func readInvites(_ conversation: DDXMLElement, realm: Realm) -> Bool {
-        let timestamp = conversation.attributeDoubleValue(forName: "stamp")
-        guard let messageElement = conversation.elements(forName: "metadata")
-            .first(where: { $0.attributeStringValue(forName: "node") == ClientSynchronizationManager.primaryNamespace })?
-            .element(forName: "last-message")?
-            .element(forName: "message") else {
-            return false
-        }
-
-        let inviteMessage = XMPPMessage(from: messageElement.copy() as! DDXMLElement)
-        let result = GroupchatInvitePersistenceService(owner: owner)
-        .receive(
-            message: inviteMessage,
-            date: Date(timeIntervalSince1970: timestamp / 1000000),
-            isRead: false,
-            realm: realm,
-            commit: false
-        )
-        guard result.shouldConsume else {
+    internal func readInvites(_ conversation: DDXMLElement, realm _: Realm) -> Bool {
+        guard let inviteMessage = Self.syncLastMessage(from: conversation),
+              Self.isCanonicalGroupInvite(inviteMessage) else {
             return false
         }
         conversation.removeAttribute(forName: "jid")
@@ -2125,10 +2199,9 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             
             
             
-            if let messageElement = metadata.element(forName: "last-message")?.element(forName: "message") {
-                if (AccountManager.shared.find(for: owner)?.groupchats.isInvite(XMPPMessage(from: messageElement)) ?? false) {
-                    return nil
-                }
+            if let messageElement = metadata.element(forName: "last-message")?.element(forName: "message"),
+               Self.isCanonicalGroupInvite(XMPPMessage(from: messageElement)) {
+                return nil
             }
             
             let isNewChatInstance = realm.object(
@@ -2230,14 +2303,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     resource.primary = ResourceStorageItem.genPrimary(jid: jid, owner: owner, resource: owner)
                     realm.add(resource, update: .modified)
 
-                    if realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: jid, owner: owner)) == nil {
-                        let groupchatStorageItem = GroupChatStorageItem()
-                        groupchatStorageItem.jid = jid
-                        groupchatStorageItem.owner = owner
-                        groupchatStorageItem.primary = GroupChatStorageItem.genPrimary(jid: jid, owner: owner)
-                        groupchatStorageItem.members = 1
-                        realm.add(groupchatStorageItem, update: .modified)
-                    }
                 } else {
                     if jid == XMPPJID(string: owner)?.domain {
                         let resourceInstance = ResourceStorageItem()
@@ -2260,18 +2325,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 .elements(forName: "metadata")
                 .first(where: { $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/groups" })?
                 .element(forName: "user", xmlns: "https://xabber.com/protocol/groups")
-            if let card = userCard {
-                _ = AccountManager
-                    .shared
-                    .find(for: owner)?
-                    .groupchats
-                    .updateUserCard(card,
-                                    myCard: true,
-                                    groupchat: jid,
-                                    trustedSource: true,
-                                    messageAction: nil,
-                                    commitTransaction: false)
-            }
             
             if conversationType.isEncrypted,
                metadata.element(forName: "last-message")?.element(forName: "message") == nil {
@@ -2328,10 +2381,11 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                 if VoIPManager.shared.onReceiveMessage(messageElement, owner: self.owner, archivedDate: conversationDate, commitTransaction: false, realm: realm) {
                     return nil
                 }
-                if ((AccountManager.shared.find(for: self.owner)?.groupchats.readMessage(withMessage: messageElement as! XMPPMessage, commitTransaction: false)) ?? false) {
+                let messageStanza = XMPPMessage(from: messageElement)
+                if Self.classifyCanonicalGroupMessage(messageStanza) == .consumed {
                     return nil
                 }
-                let stanzaId = getStanzaId(XMPPMessage(from: messageElement), owner: self.owner)
+                let stanzaId = getStanzaId(messageStanza, owner: self.owner)
                 var state: MessageStorageItem.MessageSendingState = .sended
                 if unreadAfterTS == messageSyncStamp {
                     state = .read
@@ -2339,61 +2393,53 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     state = .deliver
                 }
                 let readDate = state != .read ? nil : Date(timeIntervalSince1970: stamp / 1000000)
-                
-                if !(AccountManager
-                        .shared
-                        .find(for: owner)?
-                        .groupchats
-                        .isInvite(XMPPMessage(from: messageElement)) ?? false) {
-                    let messageStanza = XMPPMessage(from: messageElement)
-                    guard let from = messageStanza.from?.bare,
-                          let to = messageStanza.to?.bare,
-                          [self.owner, jid].contains(from),
-                          [self.owner, jid].contains(to) else {
-                        return nil
-                    }
-                    if conversationType.supportsSnapshotArchiveRepair {
-                        let snapshot = self.conversationSnapshotIdentity(
-                            from: messageStanza,
-                            fallbackDate: conversationDate
-                        )
-                        self.applyConversationSnapshotArchiveState(
-                            jid: jid,
-                            conversationType: conversationType,
-                            snapshot: snapshot,
-                            lastChat: instance,
-                            previousSyncUnreadCount: previousSyncUnreadCount,
-                            previousSyncUnreadAfterId: previousSyncUnreadAfterId,
-                            previousLastMessageId: previousLastMessageId,
-                            previousLastMessage: previousLastMessage,
-                            isNewChatInstance: isNewChatInstance,
-                            realm: realm,
-                            recordRepairTarget: recordSnapshotRepairTarget ?? { _ in }
-                        )
-                    } else if instance.lastMessageId != getUniqueMessageId(messageStanza, owner: self.owner) {
-                        instance.isSynced = false//!firstSync
-                    }
-                    if conversationType == .saved {
-                        let favorites = AccountManager.shared.find(for: owner)?.favorites ?? XMPPFavoritesManager(withOwner: owner)
-                        try favorites.receiveSaved(
-                            message: messageStanza,
-                            realm: realm,
-                            commitTransaction: false,
-                            favoritesNodeOverride: jid
-                        )
-                        return nil
-                    }
-                    return AccountManager
-                        .shared
-                        .find(for: owner)?
-                        .messages
-                        .receiveClientSyncRaw(messageStanza,
-                                              groupchatUserCard: userCard,
-                                              isRead: state == .read,
-                                              state: state,
-                                              date: conversationDate,
-                                              readDate: readDate)
+                guard let from = messageStanza.from?.bare,
+                      let to = messageStanza.to?.bare,
+                      [self.owner, jid].contains(from),
+                      [self.owner, jid].contains(to) else {
+                    return nil
                 }
+                if conversationType.supportsSnapshotArchiveRepair {
+                    let snapshot = self.conversationSnapshotIdentity(
+                        from: messageStanza,
+                        fallbackDate: conversationDate
+                    )
+                    self.applyConversationSnapshotArchiveState(
+                        jid: jid,
+                        conversationType: conversationType,
+                        snapshot: snapshot,
+                        lastChat: instance,
+                        previousSyncUnreadCount: previousSyncUnreadCount,
+                        previousSyncUnreadAfterId: previousSyncUnreadAfterId,
+                        previousLastMessageId: previousLastMessageId,
+                        previousLastMessage: previousLastMessage,
+                        isNewChatInstance: isNewChatInstance,
+                        realm: realm,
+                        recordRepairTarget: recordSnapshotRepairTarget ?? { _ in }
+                    )
+                } else if instance.lastMessageId != getUniqueMessageId(messageStanza, owner: self.owner) {
+                    instance.isSynced = false//!firstSync
+                }
+                if conversationType == .saved {
+                    let favorites = AccountManager.shared.find(for: owner)?.favorites ?? XMPPFavoritesManager(withOwner: owner)
+                    try favorites.receiveSaved(
+                        message: messageStanza,
+                        realm: realm,
+                        commitTransaction: false,
+                        favoritesNodeOverride: jid
+                    )
+                    return nil
+                }
+                return AccountManager
+                    .shared
+                    .find(for: owner)?
+                    .messages
+                    .receiveClientSyncRaw(messageStanza,
+                                          groupchatUserCard: userCard,
+                                          isRead: state == .read,
+                                          state: state,
+                                          date: conversationDate,
+                                          readDate: readDate)
             } else {
                 if let retractVersion = conversation
                     .elements(forName: "metadata")
@@ -2475,7 +2521,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             self.requestedSnapshotAfterTokens.removeAll()
             self.seenSnapshotConversationKeys.removeAll()
             self.isApplyingPage = false
-            self.shouldRequestInviteFallbackAfterSnapshot = false
             self.pendingSnapshotRepairTargets.removeAll()
             self.pendingPostBootstrapWork.removeAll()
             self.needsCatchUpAfterSnapshot = false

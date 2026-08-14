@@ -20,7 +20,6 @@
 
 import Foundation
 import UIKit
-import RealmSwift
 import CocoaLumberjack
 
 
@@ -40,36 +39,59 @@ extension ChatViewController {
     
     internal func didReceiveInvite(_ primary: String) {
         do {
-            let realm = try  WRealm.safe()
-            if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [self.jid, self.owner].prp()),
-               instance.subscribtion == .both {
-                try realm.write {
-                    realm.object(ofType: GroupchatInvitesStorageItem.self, forPrimaryKey: primary)?.isProcessed = true
-                }
+            let repository = GroupRepository(realm: try WRealm.safe())
+            guard let invite = try repository.invite(primary: primary),
+                  invite.owner == GroupStorageKey.bareJID(owner),
+                  invite.groupJID == GroupStorageKey.bareJID(jid) else {
                 return
             }
+            let projection = try repository.projection(
+                owner: owner,
+                groupJID: jid
+            )
+            if projection.state.isActive {
+                AccountManager.shared.find(for: owner)?
+                    .removeCanonicalGroupInvite(jid)
+                return
+            }
+            showInviteActionsMenu(invite)
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
-        
-        self.showInviteActionsMenu()
     }
     
     internal func showInviteActionsMenuFromNotification() {
+        let invite: GroupInviteRecord
+        do {
+            guard let storedInvite = try GroupRepository(
+                realm: WRealm.safe()
+            ).incomingInvite(owner: owner, groupJID: jid) else {
+                return
+            }
+            invite = storedInvite
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+            return
+        }
+        showInviteActionsMenu(invite)
+    }
+
+    private final func showInviteActionsMenu(_ invite: GroupInviteRecord) {
         DispatchQueue.main.async {
             guard self.presentedViewController == nil else {
                 return
             }
             let message: String
-            switch self.conversationType {
-            case .group:
-                message = "You are invited to join this group"
-            default:
+            if invite.preview?.parentJID != nil {
                 message = "You are invited to join this chat"
+            } else if invite.preview?.privacy == .incognito {
+                message = "You are invited to join this incognito group"
+            } else {
+                message = "You are invited to join this group"
             }
 
             let alert = UIAlertController(title: nil, message: message, preferredStyle: .actionSheet)
-            let joinTitle = self.conversationType == .group
+            let joinTitle = invite.preview?.parentJID == nil
                 ? "Join group".localizeString(id: "join_group", arguments: [])
                 : "Join chat".localizeString(id: "join_chat", arguments: [])
             alert.addAction(UIAlertAction(title: joinTitle, style: .default) { _ in
@@ -80,10 +102,12 @@ extension ChatViewController {
                 self.onInviteActionSelected()
                 self.onDeclineInvite()
             })
-            alert.addAction(UIAlertAction(title: "Block".localizeString(id: "contact_bar_block", arguments: []), style: .destructive) { _ in
-                self.onInviteActionSelected()
-                self.onBlockInvite()
-            })
+            if invite.inviter?.jid != nil {
+                alert.addAction(UIAlertAction(title: "Block".localizeString(id: "contact_bar_block", arguments: []), style: .destructive) { _ in
+                    self.onInviteActionSelected()
+                    self.onBlockInvite()
+                })
+            }
             alert.addAction(UIAlertAction(title: "Cancel".localizeString(id: "cancel", arguments: []), style: .cancel))
             if let popover = alert.popoverPresentationController {
                 popover.sourceView = self.view
@@ -93,238 +117,76 @@ extension ChatViewController {
             self.present(alert, animated: true)
         }
     }
-
-    private final func showInviteActionsMenu() {
-        showInviteActionsMenuFromNotification()
-        return
-//        let incognitoMessage: String = "You are invited to join this incognito group"
-//            .localizeString(id: "incognito_group_invitation", arguments: [])
-//        let publicMessage: String = "You are invited to join this public group"
-//            .localizeString(id: "public_group_invitation", arguments: [])
-//        let privateChatMessage: String = "You are invited to join private chat"
-//            .localizeString(id: "private_chat_invitation", arguments: [])
-//        var message: String = publicMessage
-//        let values: [ActionSheetPresenter.Item] = [
-//            ActionSheetPresenter.Item(destructive: false, title: self.entity == .privateChat ? "Join chat".localizeString(id: "join_chat", arguments: []) : "Join group".localizeString(id: "join_group", arguments: []), value: "accept"),
-//            ActionSheetPresenter.Item(destructive: false,
-//                                      title: "Decline".localizeString(id: "decline", arguments: []),
-//                                      value: "decline"),
-//            ActionSheetPresenter.Item(destructive: true,
-//                                      title: "Block".localizeString(id: "contact_bar_block", arguments: []),
-//                                      value: "block"),
-//        ]
-//        
-//        switch self.entity {
-//        case .groupchat: message = publicMessage
-//        case .incognitoChat: message = incognitoMessage
-//        case .privateChat: message = privateChatMessage
-//        default: break
-//        }
-//        
-//        self.view.tintAdjustmentMode = .normal
-////        UIView.performWithoutAnimation {
-////            self.xabberInputBar.alpha = true
-////            self.xabberInputBar.layoutIfNeeded()
-////        }
-//        let presenter = ActionSheetPresenter()
-//        presenter.completion = self.onCompleteInvite
-////        self.initialtp[
-////        additionalTopInset = 274
-//        self.messageCollectionViewLastKBPosition = 224
-////        self.messageCollectionViewTopInset = self.requiredInitialScrollViewBottomInset()
-//        presenter.present(
-//            in: self,
-//            title: nil,
-//            message: message,
-//            cancel: "Cancel".localizeString(id: "cancel", arguments: []),
-//            values: values,
-//            animated: false,
-//            cancelAction: onCancelInvite) { (value) in
-//            self.onInviteActionSelected()
-//            switch value {
-//            case "accept":
-//                self.onAcceptInvite()
-//            case "decline":
-//                self.onDeclineInvite()
-//            case "block":
-//                self.onBlockInvite()
-//            default:
-//                break
-//            }
-//            self.becomeFirstResponder()
-//            UIView.animate(withDuration: 0.2) {
-//                self.messageCollectionViewLastKBPosition = 0
-////                self.messageCollectionViewTopInset = self.requiredInitialScrollViewBottomInset()
-//            }
-//        }
-    }
     
     private final func onAcceptInvite() {
-        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-            session.groupchat?.join(stream, uiConnection: true, groupchat: self.jid) { (error) in
-                self.onReceiveAcceptInviteCallback(error: error)
+        guard let account = AccountManager.shared.find(for: owner) else {
+            onReceiveInviteError(GroupchatServiceError.notPrepared)
+            return
+        }
+        Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            do {
+                try await CanonicalGroupMembershipLifecycle.join(
+                    account: account,
+                    groupJID: self.jid
+                )
+                account.removeCanonicalGroupInvite(self.jid)
+                self.onInviteCallbackCalled()
+            } catch {
+                self.onReceiveInviteError(error)
             }
-        }, fail: {
-            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                user.groupchats.join(stream, uiConnection: false, groupchat: self.jid) { (error) in
-                    self.onReceiveAcceptInviteCallback(error: error)
-                }
-            })
-        })
+        }
     }
     
-    private final func onReceiveAcceptInviteCallback(error: String?) {
+    private final func onReceiveInviteError(_ error: Error) {
         self.onInviteCallbackCalled()
-        if let error = error {
-            var message: String = "Internal error".localizeString(id: "message_manager_error_internal", arguments: [])
-            switch error {
-            case "conflict":
-                message = "Conflict".localizeString(id: "message_manager_error_conflict", arguments: [])
-            case "not-allowed":
-                message = "Not allowed".localizeString(id: "message_manager_error_unallowed", arguments: [])
-            case "fail":
-                message = "Network unreachable".localizeString(id: "message_manager_error_unreachable_network", arguments: [])
-            case "timeout":
-                message = "Request timeout".localizeString(id: "message_manager_errpr_request_timeout", arguments: [])
-            default: break
-            }
-            DispatchQueue.main.async {
-                ErrorMessagePresenter().present(
-                    in: self,
-                    alert: true,
-                    message: ["Error".localizeString(id: "error", arguments: []), message].joined(separator: ": "),
-                    animated: true
-                ) {
-                    self.navigationController?.popViewController(animated: true)
-                }
-            }
-
-        } else {
-            DispatchQueue.global(qos: .userInteractive).async {
-                do {
-                    let realm = try  WRealm.safe()
-                    if let instance = realm
-                        .objects(GroupchatInvitesStorageItem.self)
-                        .filter("owner == %@ AND groupchat == %@", self.owner, self.jid)
-                        .first {
-                        try realm.write {
-                            instance.isRead = true
-                            instance.isProcessed = true
-                        }
-                    }
-                } catch {
-                    DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-                }
+        DispatchQueue.main.async {
+            ErrorMessagePresenter().present(
+                in: self,
+                alert: true,
+                message: [
+                    "Error".localizeString(id: "error", arguments: []),
+                    CanonicalGroupMembershipLifecycle.localizedErrorMessage(error)
+                ].joined(separator: ": "),
+                animated: true
+            ) {
+                self.navigationController?.popViewController(animated: true)
             }
         }
     }
     
     private final func onDeclineInvite() {
-        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-            session.groupchat?.decline(stream, groupchat: self.jid) { (error) in
-                self.onReceiveDeclineInviteCallback(error: error)
-            }
-        }, fail: {
-            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                user.groupchats.decline(stream, groupchat: self.jid) { (error) in
-                    self.onReceiveDeclineInviteCallback(error: error)
-                }
-            })
-        })
+        performDeclineInvite(block: false)
     }
     
-    private final func onReceiveDeclineInviteCallback(error: String?, blockCallback: Bool = false) {
-        self.onInviteCallbackCalled()
-        if let error = error {
-            var message: String = "Internal error".localizeString(id: "message_manager_error_internal", arguments: [])
-            switch error {
-            case "conflict":
-                message = "Conflict".localizeString(id: "message_manager_error_conflict", arguments: [])
-            case "not-allowed":
-                message = "Not allowed".localizeString(id: "message_manager_error_unallowed", arguments: [])
-            case "fail":
-                message = "Network unreachable".localizeString(id: "message_manager_error_unreachable_network", arguments: [])
-            case "timeout":
-                message = "Request timeout".localizeString(id: "message_manager_errpr_request_timeout", arguments: [])
-            default: break
-            }
-            DispatchQueue.main.async {
-                ErrorMessagePresenter().present(
-                    in: self,
-                    alert: true,
-                    message: ["Error".localizeString(id: "error", arguments: []), message].joined(separator: ": "),
-                    animated: true
-                ) {
-                    self.navigationController?.popViewController(animated: true)
-                }
-            }
-
-        } else {
-            if blockCallback {
-                XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-                    session.blocked?.blockContact(stream, jid: self.jid)
-                }, fail: {
-                    AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                        user.blocked.blockContact(stream, jid: self.jid)
-                    })
-                })
-
-            }
-            DispatchQueue.global(qos: .utility).async {
-                do {
-                    let realm = try  WRealm.safe()
-                    if let instance = realm
-                        .objects(GroupchatInvitesStorageItem.self)
-                        .filter("owner == %@ AND groupchat == %@", self.owner, self.jid)
-                        .first {
-                        try realm.write {
-                            if instance.isInvalidated { return }
-                            realm.delete(instance)
-                        }
+    private final func performDeclineInvite(block: Bool) {
+        guard let account = AccountManager.shared.find(for: owner) else {
+            onReceiveInviteError(GroupchatServiceError.notPrepared)
+            return
+        }
+        Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            do {
+                let invite = try GroupRepository(
+                    realm: WRealm.safe()
+                ).incomingInvite(owner: self.owner, groupJID: self.jid)
+                try await account.groupchatService.declineInvite(groupJID: self.jid)
+                account.removeCanonicalGroupInvite(self.jid)
+                if block, let inviterJID = invite?.inviter?.jid {
+                    account.action { user, stream in
+                        user.blocked.blockContact(stream, jid: inviterJID)
                     }
-                    if let notification = realm.object(
-                        ofType: UINotificationStorageItem.self,
-                        forPrimaryKey: UINotificationStorageItem.genPrimary(owner: self.owner, jid: self.jid)
-                    ) {
-                        try realm.write {
-                            if notification.isInvalidated { return }
-                            realm.delete(notification)
-                        }
-                    }
-                } catch {
-                    DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
                 }
-            }
-            DispatchQueue.main.async {
+                self.onInviteCallbackCalled()
                 self.navigationController?.popToRootViewController(animated: true)
+            } catch {
+                self.onReceiveInviteError(error)
             }
         }
     }
     
     private final func onBlockInvite() {
-        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-            session.groupchat?.decline(stream, groupchat: self.jid) { (error) in
-                self.onReceiveDeclineInviteCallback(error: error, blockCallback: true)
-            }
-        }, fail: {
-            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                user.groupchats.decline(stream, groupchat: self.jid) { (error) in
-                    self.onReceiveDeclineInviteCallback(error: error, blockCallback: true)
-                }
-            })
-        })
-    }
-    
-    private final func onCancelInvite() {
-        UIView.performWithoutAnimation {
-//            self.messageCollectionViewLastKBPosition = 0
-//            self.messageCollectionViewTopInset = self.requiredInitialScrollViewBottomInset()
-        }
-        self.navigationController?.popViewController(animated: true)
-    }
-    
-    private final func onCompleteInvite() {
-        
+        performDeclineInvite(block: true)
     }
     
 }

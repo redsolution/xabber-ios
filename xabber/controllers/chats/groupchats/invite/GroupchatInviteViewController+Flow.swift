@@ -21,6 +21,15 @@
 import Foundation
 import UIKit
 
+enum CanonicalGroupInviteErrorPresentation {
+    static func condition(for error: Error) -> String? {
+        guard case let GroupchatServiceError.iq(stanzaError) = error else {
+            return nil
+        }
+        return stanzaError.condition
+    }
+}
+
 extension GroupchatInviteViewController {
     
     internal func onSelectCallback(_ item: String) {
@@ -68,76 +77,50 @@ extension GroupchatInviteViewController {
     }
     
     internal func onInvite() {
-        self.inSaveMode.accept(true)
+        guard let account = AccountManager.shared.find(for: owner) else {
+            inviteErrorMessage = "Connection failed"
+                .localizeString(id: "grouchats_connection_failed", arguments: [])
+            finishInviting()
+            return
+        }
+        inSaveMode.accept(true)
         conflictJids.removeAll()
         invitedJids = selectedJids.value
-        self.invitedJidsCount = invitedJids.count
-        self.errorJidsCount = 0
-        let jids = selectedJids.value
-        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-            jids.forEach {
-                contact in
-                session.groupchat?.willInvite(stream,
-                                              groupchat: self.jid,
-                                              jid: contact,
-                                              callback: self.willInviteCallback)
-            }
-            
-        }) {
-            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                jids.forEach {
-                    contact in
-                    user.groupchats.willInvite(stream,
-                                               groupchat: self.jid,
-                                               jid: contact,
-                                               callback: self.willInviteCallback)
+        invitedJidsCount = invitedJids.count
+        errorJidsCount = 0
+        let targets = selectedJids.value.sorted()
+        Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            for target in targets {
+                do {
+                    let authoritativeTargets = try await account.groupchatService.invite(
+                        groupJID: self.jid,
+                        targetJID: target
+                    )
+                    _ = try GroupRepository(
+                        realm: WRealm.safe()
+                    ).replaceOutgoingInvites(
+                        owner: self.owner,
+                        groupJID: self.jid,
+                        targets: authoritativeTargets
+                    )
+                } catch {
+                    self.errorJidsCount += 1
+                    switch CanonicalGroupInviteErrorPresentation.condition(for: error) {
+                    case "conflict":
+                        self.conflictJids.insert(target)
+                    case "not-allowed", "forbidden":
+                        self.inviteErrorMessage = "You have no permission to invite members"
+                            .localizeString(id: "groupchats_no_permission_to_invite", arguments: [])
+                    default:
+                        self.inviteErrorMessage = "Internal server error"
+                            .localizeString(id: "error_internal_server", arguments: [])
+                    }
                 }
-            })
+                self.invitedJids.remove(target)
+            }
+            self.finishInviting()
         }
-//        selectedJids.value.forEach {
-//            contact in
-//            
-//            
-//        }
-    }
-    
-    internal func willInviteCallback(_ contact: String, error: String?) {
-        DispatchQueue.main.async {
-            if error != nil {
-                switch error {
-                case "conflict":
-                    self.conflictJids.insert(contact)
-//                    if self.conflictJids.count > 1 {
-//                        self.inviteErrorMessage = "Failed to send invitations".localizeString(id: "groupchat__toast_failed_to_sent_invitations[other]", arguments: [])
-//                    } else {
-//                        self.inviteErrorMessage = "Failed to send invitation".localizeString(id: "groupchat__toast_failed_to_sent_invitations[one]", arguments: [])
-//                    }
-                case "not-allowed":
-                    self.inviteErrorMessage = "You have no permission to invite members"
-                        .localizeString(id: "groupchats_no_permission_to_invite", arguments: [])
-                case "fail":
-                    self.inviteErrorMessage = "Connection failed"
-                        .localizeString(id: "grouchats_connection_failed", arguments: [])
-                default:
-                    self.inviteErrorMessage = "Internal server error"
-                        .localizeString(id: "error_internal_server", arguments: [])
-                }
-            } else {
-                XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-                    session.groupchat?.didInvite(stream, groupchat: self.jid, jid: contact)
-                }) {
-                    AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                        user.groupchats.didInvite(stream, groupchat: self.jid, jid: contact)
-                    })
-                }
-                
-            }
-            self.invitedJids.remove(contact)
-            if self.invitedJids.isEmpty {
-                self.finishInviting()
-            }
-        }
-        
     }
     
     internal func finishInviting() {
@@ -176,14 +159,6 @@ extension GroupchatInviteViewController {
                 .indexPathsForSelectedRows?
                 .forEach { self.tableView
                     .deselectRow(at: $0, animated: true) }
-//            self.navigationController?.dismiss(animated: true, completion: nil)
-//            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-//                session.groupchat?.requestInvitedUsers(stream, groupchat: self.jid)
-//            }) {
-//                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-//                    user.groupchats.requestInvitedUsers(stream, groupchat: self.jid)
-//                })
-//            }
         } else {
             self.tableView.reloadData()
         }

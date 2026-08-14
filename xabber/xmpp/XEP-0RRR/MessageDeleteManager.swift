@@ -503,8 +503,6 @@ class MessageDeleteManager: AbstractXMPPManager {
         }
     }
     
-//    <iq type='set' to='test-group-ios-07102021-02@xmppdev01.xabber.com/Group' xmlns='jabber:client' id='d8c63ca7-9707-49a1-b04c-9b4519b96f62:sendIQ'><retract-user id='qzsgkk4vchfeloei' xmlns='https://xabber.com/protocol/rewrite' symmetric='true'/></iq>
-    
     open func deleteMessageGroupchat(_ xmppStream: XMPPStream, chat: String, userId: String, callback: ((String?, Bool) -> Void)?) {
         let retract = DDXMLElement(name: "retract-user", xmlns: getPrimaryNamespace())
         retract.addAttribute(withName: "symmetric", stringValue: "true")

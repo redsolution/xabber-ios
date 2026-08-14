@@ -127,8 +127,6 @@ struct SavedMessageDisplayPolicy {
         let authorColorKey: String
     }
 
-    private static let savedForwardCardSuffix = "_saved-forwarded"
-
     static func presentation(
         for item: MessageStorageItem,
         currentUserJid: String,
@@ -137,7 +135,7 @@ struct SavedMessageDisplayPolicy {
     ) -> Presentation {
         let resolvedAuthorProfile = authorProfileLookup ?? defaultAuthorProfile
         let isSavedMessage = item.conversationType == .saved
-        let isSavedForward = isSavedMessage && isSyntheticSavedForwardCard(item.groupchatCard)
+        let isSavedForward = isSavedMessage && item.isSavedForward
         let isDeleted = item.isDeleted || item.deleteState == .autoDeleted
         let references = isDeleted ? [] : item.references.toArray()
         let visibleForwards = isDeleted ? [] : item.inlineForwards.toArray()
@@ -155,7 +153,7 @@ struct SavedMessageDisplayPolicy {
                 isDirectSavedNote: false,
                 displayAuthorJid: nonEmpty(groupJid) ?? authorJid,
                 displayAuthorName: nonEmpty(groupName) ?? fallbackName,
-                displayAvatarSource: nonEmpty(item.groupchatCard?.avatarURI) ?? avatarSource(from: references),
+                displayAvatarSource: avatarSource(from: references),
                 displayOutgoing: item.outgoing,
                 visibleBody: isDeleted ? "" : item.bodyForAttachmentRendering,
                 visibleReferences: references,
@@ -176,22 +174,17 @@ struct SavedMessageDisplayPolicy {
             let groupJid = MessageStorageItem.groupchatMessageAuthorJid(references)
             let groupId = MessageStorageItem.groupchatMessageAuthorId(references)
             let authorJid = nonEmpty(groupJid)
-                ?? nonEmpty(item.groupchatCard?.jid)
-                ?? nonEmpty(item.groupchatCard?.nickname)
+                ?? nonEmpty(item.savedForwardAuthorJid)
                 ?? currentUserJid
             let authorProfile = resolvedAuthorProfile(authorJid, currentUserJid)
             let groupDisplayName = displayNameCandidate(groupName, authorJid: authorJid)
-            let cardDisplayName = displayNameCandidate(item.groupchatCard?.nickname, authorJid: authorJid)
             let authorName = groupDisplayName
                 ?? authorProfile?.displayName
-                ?? cardDisplayName
                 ?? preparedJid(authorJid)
             let authorRole = nonEmpty(item.groupchatMetadata?["role"] as? String)
-                ?? nonEmpty(item.groupchatCard?.role.rawValue)
                 ?? "member"
             let authorAvatarSource = avatarSource(from: references)
                 ?? authorProfile?.avatarUrl
-                ?? nonEmpty(item.groupchatCard?.avatarURI)
             return Presentation(
                 isSavedMessage: true,
                 isSavedForward: true,
@@ -205,7 +198,7 @@ struct SavedMessageDisplayPolicy {
                 visibleForwards: visibleForwards,
                 visibleDate: item.sentDate,
                 groupchatAuthorRole: authorRole,
-                groupchatAuthorId: nonEmpty(groupId) ?? nonEmpty(item.groupchatCard?.userId) ?? "",
+                groupchatAuthorId: nonEmpty(groupId) ?? "",
                 groupchatAuthorNickname: authorName,
                 groupchatAuthorBadge: nonEmpty(item.groupchatAuthorBadge) ?? "",
                 isDeleted: isDeleted,
@@ -270,10 +263,6 @@ struct SavedMessageDisplayPolicy {
             searchedText: searchedText,
             searchedTextColor: searchedTextColor
         )
-    }
-
-    private static func isSyntheticSavedForwardCard(_ card: GroupchatUserStorageItem?) -> Bool {
-        card?.primary.hasSuffix(savedForwardCardSuffix) == true
     }
 
     private static func avatarSource(from references: [MessageReferenceStorageItem]) -> String? {
@@ -1185,7 +1174,7 @@ struct ChatDatasourceMappingContext {
     let timeMarkerAttributes: [NSAttributedString.Key: Any]
     let searchHighlightColor: UIColor
     let avatarVerticalPosition: String
-    let canUnpinMessage: Bool
+    let canPinMessages: Bool
     var revealedSensitiveMediaPrimaries: Set<String>
     let layoutContext: ChatMessageLayoutContext
     let layoutReuseSnapshot: ChatMessageLayoutSnapshot
@@ -1858,17 +1847,8 @@ struct ChatMessageRichStorageRevision: Hashable {
         hasher.combine(item.isLocallyHiddenByReport)
         hasher.combine(item.localReportState)
         hasher.combine(item.systemMetadata_)
-        if let card = item.groupchatCard {
-            hasher.combine(card.primary)
-            hasher.combine(card.jid)
-            hasher.combine(card.userId)
-            hasher.combine(card.nickname)
-            hasher.combine(card.avatarURI)
-            hasher.combine(card.badge)
-            hasher.combine(card.role.rawValue)
-        } else {
-            hasher.combine("group-card:nil")
-        }
+        hasher.combine(item.isSavedForward)
+        hasher.combine(item.savedForwardAuthorJid)
 
         hasher.combine(item.references.count)
         for reference in item.references {
@@ -10388,7 +10368,7 @@ extension ChatViewController {
             ],
             searchHighlightColor: searchHighlightColor,
             avatarVerticalPosition: self.avatarVerticalPosition,
-            canUnpinMessage: self.canUnpinMessage.value,
+            canPinMessages: self.canonicalGroupProjectionState?.canPinMessages == true,
             revealedSensitiveMediaPrimaries: self.revealedSensitiveMediaPrimaries,
             layoutContext: ChatMessageLayoutContext(
                 width: layoutWidth,
@@ -19437,7 +19417,7 @@ extension ChatViewController {
                 reservesAvatarSpace: reservesAvatarSpace,
                 error: effectiveState == .error,
                 errorType: item.messageError ?? "",
-                canPinMessage: [.system, .sticker].contains(snapshot.displayAs) ? false : context.canUnpinMessage,
+                canPinMessage: [.system, .sticker].contains(snapshot.displayAs) ? false : context.canPinMessages,
                 canEditMessage: item.archivedId.isNotEmpty ? snapshot.displayAs == .text && presentation.displayOutgoing : false,
                 canDeleteMessage: [MessageStorageItem.MessageSendingState.deliver, MessageStorageItem.MessageSendingState.read].contains(effectiveState),
                 forwards: forwards,

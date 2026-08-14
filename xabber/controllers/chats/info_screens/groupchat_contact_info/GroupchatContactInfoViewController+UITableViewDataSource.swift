@@ -20,120 +20,21 @@
 
 import Foundation
 import UIKit
-import MaterialComponents.MDCPalettes
 
 extension GroupchatContactInfoViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if section >= datasource.count {
-            return formDatasource[section - datasource.count].count
-        }
+        guard datasource.indices.contains(section) else { return 0 }
         return datasource[section].childs.count
     }
     
     func numberOfSections(in tableView: UITableView) -> Int {
-        return datasource.count + formDatasource.count
+        return datasource.count
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        if indexPath.section >= datasource.count {
-            let section = indexPath.section - datasource.count
-            if section >= formDatasource.count { fatalError() }
-            if indexPath.row >= formDatasource[section].count { fatalError() }
-            let item = formDatasource[section][indexPath.row]
-            switch item.kind {
-            case .fixed:
-                guard let cell = tableView
-                    .dequeueReusableCell(withIdentifier: InfoCell.cellName,
-                                         for: indexPath) as? InfoCell else {
-                    fatalError()
-                }
-                var value: String? = item.value
-                if value == "0" {
-                    value = " "
-                } else if let stringValue = item.value,
-                    let interval = TimeInterval(stringValue) {
-                    let currentDate = Date()
-                    if currentDate.timeIntervalSince1970 > interval {
-                        value = nil
-                    } else {
-                        let expireDate = Date(timeIntervalSince1970: interval - Double(TimeZone.current.secondsFromGMT()))
-                        let result = NSCalendar.current.dateComponents([.month, .day, .hour, .minute], from: currentDate, to: expireDate)
-                        if let months = result.month,
-                            months > 0 {
-                            value = "in \(months == 1 ? "a" : "\(months)") month\(months == 1 ? "" : "s")".localizeString(id: "groupchats_in_months", arguments: ["\(months)"])
-                        } else if let days = result.day,
-                            days > 0 {
-                            value = "in \(days == 1 ? "a" : "\(days)") day\(days == 1 ? "" : "s")".localizeString(id: "groupchats_in_days", arguments: ["\(days)"])
-                        } else if let hours = result.hour,
-                            hours > 0 {
-                            value = "in \(hours == 1 ? "a" : "\(hours)") hour\(hours == 1 ? "" : "s")".localizeString(id: "groupchats_in_hours", arguments: ["\(hours)"])
-                        } else if let minutes = result.minute,
-                            minutes > 0 {
-                            value = "in \(minutes == 1 ? "a" : "\(minutes)") minute\(minutes == 1 ? "" : "s")".localizeString(id: "groupchats_in_minutes", arguments: ["\(minutes)"])
-                        }
-                    }
-                }
-                cell.configure(.list, itemId: item.itemId, title: item.title, value: value, editable: false, last: false)
-                
-                cell.switchItem.isEnabled = false
-                
-                cell.selectionStyle = .none
-                return cell
-            case .boolItem:
-                guard let cell = tableView
-                    .dequeueReusableCell(withIdentifier: ItemCell.cellName,
-                                         for: indexPath) as? ItemCell else {
-                    fatalError()
-                }
-                
-                cell.configure(item.itemId,
-                               title: item.title,
-                               enabled: item.state,
-                               editable: false,
-                               last: false)
-                cell.delegate = self
-
-                cell.selectionStyle = .none
-                
-                return cell
-            case .listItem:
-                guard let cell = tableView
-                    .dequeueReusableCell(withIdentifier: InfoCell.cellName,
-                                         for: indexPath) as? InfoCell else {
-                    fatalError()
-                }
-                cell.delegate = self
-                var value: String? = item.value
-                if value == "0" {
-                    value = ""
-                } else if let stringValue = item.value,
-                    let interval = TimeInterval(stringValue) {
-                    let currentDate = Date()
-                    if currentDate.timeIntervalSince1970 > interval {
-                        value = nil
-                    } else {
-                        let expireDate = Date(timeIntervalSince1970: interval - Double(TimeZone.current.secondsFromGMT()))
-                        let result = NSCalendar.current.dateComponents([.month, .day, .hour, .minute], from: currentDate, to: expireDate)
-                        if let months = result.month,
-                            months > 0 {
-                            value = "in \(months == 1 ? "a" : "\(months)") month\(months == 1 ? "" : "s")".localizeString(id: "groupchats_in_months", arguments: ["\(months)"])
-                        } else if let days = result.day,
-                            days > 0 {
-                            value = "in \(days == 1 ? "a" : "\(days)") day\(days == 1 ? "" : "s")".localizeString(id: "groupchats_in_days", arguments: ["\(days)"])
-                        } else if let hours = result.hour,
-                            hours > 0 {
-                            value = "in \(hours == 1 ? "a" : "\(hours)") hour\(hours == 1 ? "" : "s")".localizeString(id: "groupchats_in_hours", arguments: ["\(hours)"])
-                        } else if let minutes = result.minute,
-                            minutes > 0 {
-                            value = "in \(minutes == 1 ? "a" : "\(minutes)") minute\(minutes == 1 ? "" : "s")".localizeString(id: "groupchats_in_minutes", arguments: ["\(minutes)"])
-                        }
-                    }
-                }
-                cell.configure(.list, itemId: item.itemId, title: item.title, value: value, editable: false, last: false)
-
-                cell.selectionStyle = .none
-                return cell
-            }
+        guard datasource.indices.contains(indexPath.section),
+              datasource[indexPath.section].childs.indices.contains(indexPath.row) else {
+            preconditionFailure("Invalid canonical group member section")
         }
         let item = datasource[indexPath.section].childs[indexPath.row]
         switch item.kind {
@@ -189,9 +90,7 @@ extension GroupchatContactInfoViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        if section >= datasource.count {
-            return formSectionTitles[section - datasource.count]
-        }
+        guard datasource.indices.contains(section) else { return nil }
         return datasource[section].title
     }
 }

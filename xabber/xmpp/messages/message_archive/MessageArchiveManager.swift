@@ -5179,6 +5179,38 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
     
     
+    /// Starts the authoritative newest-page MAM bootstrap for an active Xabber
+    /// Group membership. The group component owns this archive, so the query is
+    /// addressed directly to the normalized bare group JID and must not carry
+    /// account-archive `with` or `conversation-type` data-form filters.
+    @discardableResult
+    internal final func requestCanonicalGroupHistory(
+        _ stream: XMPPStream,
+        groupJID: XMPPJID,
+        queryId: String? = nil,
+        pageSize: Int? = nil
+    ) -> String {
+        let normalizedGroupJID = groupJID.bare.lowercased()
+        let request = Self.newestBootstrapPageRequest(
+            pageSize: pageSize ?? self.pageSize
+        )
+        let resolvedQueryId = queryId ?? "MAM canonical group bootstrap: \(NanoID.new(6))"
+
+        requestArchive(
+            stream,
+            jid: normalizedGroupJID,
+            isContinues: false,
+            conversationType: .group,
+            purpose: .bootstrap,
+            queryId: resolvedQueryId,
+            nextPage: request.nextPage,
+            prevPage: request.prevPage,
+            max: request.max,
+            coverageUpdateKind: .bootstrapNewest
+        )
+        return resolvedQueryId
+    }
+
     internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, ids: [String]? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, coverageUpdateKind: RegularArchiveCoverageUpdateKind = .none, consumerManagesArchiveEnd: Bool = false, consumerManagesHistoryCursor: Bool = false, deferCoverageCommitUntilConsumerProof: Bool = false, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) {
         let isGroupchat = [.group, .channel].contains(conversationType)
         // Xabber Server returns the real result-set cardinality only when the
@@ -6033,24 +6065,19 @@ class MessageArchiveManager: AbstractXMPPManager {
             
             if let userId = groupchatUserElement(from: item.message)?
                 .attributeStringValue(forName: "id") {
-                if let userCard = item.groupchatUserCard,
-                    let myId = userCard.attributeStringValue(forName: "id") {
-                    item.originalOutgoing = userId == myId
-                } else {
-                    do {
-                        let realm = try WRealm.safe()
-                        if let instance = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: [userId, opponent, owner].prp()) {
-                            item.originalOutgoing = instance.isMe
-                        }
-                    } catch {
-                        DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
-                    }
+                do {
+                    let realm = try WRealm.safe()
+                    let membership = realm.object(
+                        ofType: GroupSelfMembershipStorageItem.self,
+                        forPrimaryKey: GroupStorageKey.groupPrimary(
+                            owner: owner,
+                            groupJID: opponent
+                        )
+                    )
+                    item.originalOutgoing = membership?.memberID == userId
+                } catch {
+                    DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
                 }
-            } else if let groupchatRef = item.message
-                    .element(forName: "x", xmlns: "https://xabber.com/protocol/groups")?
-                    .elements(forName: "reference"),
-                      let groupchatAuthor = MessageManager.getMessageAuthorGroupchatStatic(groupchatRef, jid: opponent, owner: self.owner) {
-                    item.originalOutgoing = groupchatAuthor == owner
             } else {
                 item.originalOutgoing = from == owner
             }
@@ -6064,11 +6091,12 @@ class MessageArchiveManager: AbstractXMPPManager {
             } else {
                 item.isRead = item.state == .read
             }
-            if parseSystemMessageMetadata(item.message) != nil {
+            if parseSystemMessageMetadata(item.message, source: .mam) != nil {
                 instance.configureSystemMessage(item.message,
                                                 owner: owner,
                                                 opponent: opponent,
-                                                date: item.date)
+                                                date: item.date,
+                                                source: .mam)
                 instance.state = .none
                 instance.isRead = item.forceUnreadState ?? item.isRead
             } else {

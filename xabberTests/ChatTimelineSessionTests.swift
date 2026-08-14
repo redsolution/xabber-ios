@@ -746,7 +746,6 @@ final class ChatTimelineSessionTests: XCTestCase {
         chat.syncUnreadCount = 7
         chat.runtimeUnreadCount = 0
         chat.mentionId = target.archivedId
-        chat.groupchatMyId = "member-me"
 
         let notification = NotificationStorageItem()
         notification.primary = NotificationStorageItem.genPrimary(
@@ -999,7 +998,6 @@ final class ChatTimelineSessionTests: XCTestCase {
         chat.syncUnreadCount = 7
         chat.runtimeUnreadCount = 0
         chat.mentionId = target.archivedId
-        chat.groupchatMyId = "member-me"
 
         let notification = NotificationStorageItem()
         notification.primary = NotificationStorageItem.genPrimary(
@@ -1199,7 +1197,6 @@ final class ChatTimelineSessionTests: XCTestCase {
         chat.syncUnreadCount = 7
         chat.runtimeUnreadCount = 0
         chat.mentionId = target.archivedId
-        chat.groupchatMyId = "member-me"
         chat.isSynced = true
         chat.isInitialArchiveLoaded = true
         chat.fullArchiveLoaded = true

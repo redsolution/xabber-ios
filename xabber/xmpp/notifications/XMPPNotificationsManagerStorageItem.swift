@@ -291,27 +291,13 @@ enum MentionNotificationSync {
     }
 
     static func currentGroupMemberId(owner: String, groupchatJid: String, in realm: Realm) -> String? {
-        if let currentMemberId = realm.object(
-            ofType: LastChatsStorageItem.self,
-            forPrimaryKey: LastChatsStorageItem.genPrimary(
-                jid: groupchatJid,
+        realm.object(
+            ofType: GroupSelfMembershipStorageItem.self,
+            forPrimaryKey: GroupStorageKey.groupPrimary(
                 owner: owner,
-                conversationType: .group
+                groupJID: groupchatJid
             )
-        )?.groupchatMyId,
-           currentMemberId.isNotEmpty {
-            return currentMemberId
-        }
-
-        // Active chat and last chats must resolve "my" group member through the same composite key.
-        return realm.objects(GroupchatUserStorageItem.self)
-            .filter(
-                "owner == %@ AND groupchatId == %@ AND isMe == true AND isHidden == false",
-                owner,
-                [groupchatJid, owner].prp()
-            )
-            .first?
-            .userId
+        )?.memberID
     }
 
     static func unreadMentionNotificationPrimaries(

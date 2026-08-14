@@ -194,13 +194,11 @@ class ContactsCategoryViewController: BaseViewController {
                 Observable.collection(from: groupsCollection).map { _ in () }
             ]
 
-            if isGroup {
-                let invitesCollection = realm.objects(GroupchatInvitesStorageItem.self)
-                let groupchatCollection = realm.objects(GroupChatStorageItem.self)
-                let groupUsersCollection = realm.objects(GroupchatUserStorageItem.self).filter("isHidden == false")
-                invalidations.append(Observable.collection(from: invitesCollection).map { _ in () })
-                invalidations.append(Observable.collection(from: groupchatCollection).map { _ in () })
-                invalidations.append(Observable.collection(from: groupUsersCollection).map { _ in () })
+            let groupStateChanges: PublishSubject<GroupRepositoryListState>? = isGroup
+                ? PublishSubject<GroupRepositoryListState>()
+                : nil
+            if let groupStateChanges {
+                invalidations.append(groupStateChanges.map { _ in () })
             }
 
             Observable.merge(invalidations)
@@ -209,6 +207,14 @@ class ContactsCategoryViewController: BaseViewController {
                     self?.reloadDataAndSelection()
                 })
                 .disposed(by: bag)
+
+            if let groupStateChanges {
+                let observation = try GroupRepository(realm: realm).observeList { state in
+                    groupStateChanges.onNext(state)
+                }
+                Disposables.create { observation.invalidate() }
+                    .disposed(by: bag)
+            }
         } catch {
             DDLogDebug("ContactsCategoryViewController: \(#function). \(error.localizedDescription)")
         }

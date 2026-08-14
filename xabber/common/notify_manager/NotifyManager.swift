@@ -1472,27 +1472,25 @@ class NotifyManager {
         var isIncognito: Bool = false
         do {
             let realm = try WRealm.safe()
-            if let instance = realm.object(ofType: GroupChatStorageItem.self,
-                                           forPrimaryKey: [jid, owner].prp()) {
+            let groupPrimary = GroupStorageKey.groupPrimary(
+                owner: owner,
+                groupJID: jid
+            )
+            if let instance = realm.object(
+                ofType: GroupSnapshotStorageItem.self,
+                forPrimaryKey: groupPrimary
+            ), realm.object(
+                ofType: GroupSelfMembershipStorageItem.self,
+                forPrimaryKey: groupPrimary
+            )?.stateRaw == GroupSelfMembershipState.both.rawValue {
                 isGroupchat = true
-                isIncognito = instance.privacy == .incognito
+                isIncognito = instance.privacyRaw == GroupPrivacy.incognito.rawValue
             } else {
-//                print(userInfo)
                 if let stanza = userInfo["stanza"] as? String,
                    let document = try? DDXMLDocument(xmlString: stanza, options: 0),
                    let message = document.rootElement(),
                    let bareMessage = getArchivedMessageContainer(XMPPMessage(from: message)) {
-//                    print("bareMessage", bareMessage.prettyXMLString!)
-                }
-                if let stanza = userInfo["stanza"] as? String,
-                   let document = try? DDXMLDocument(xmlString: stanza, options: 0),
-                   let message = document.rootElement(),
-                   let bareMessage = getArchivedMessageContainer(XMPPMessage(from: message)),
-                   let x = bareMessage.element(forName: "x", xmlns: GroupchatManager.staticGetNamespace() + "#system-message"),
-                   let privacy = x.element(forName: "privacy", xmlns: GroupchatManager.staticGetNamespace())?.stringValue {
-                    isGroupchat = true
-                    isIncognito = privacy == "incognito"
-//                    print("isIncognito", isIncognito)
+                    isGroupchat = conversationTypeByMessage(bareMessage) == .group
                 }
             }
 

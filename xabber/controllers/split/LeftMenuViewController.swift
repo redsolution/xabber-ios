@@ -757,7 +757,10 @@ class LeftMenuViewController: UIViewController {
             let calls = realm.objects(CallMetadataStorageItem.self)
             let contacts = realm.objects(RosterStorageItem.self).filter("owner IN %@ AND isHidden == false AND removed == false AND ask_ == %@ AND isContact == true AND NOT (jid IN %@)", jids, "in", ignoredJids)
             let notificationsCount = NotificationsSupport.unreadVisibleCount(in: realm, owners: jids)
-            let invitations = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@ AND isRead == false", jids)
+            let invitations = try CanonicalGroupInviteUIQuery.incoming(
+                in: realm,
+                owners: jids
+            )
             let favoritesNodesByOwner = SavedMessagesAvailabilityPolicy.favoritesNodesByOwner(
                 in: realm,
                 enabledOwners: jids
@@ -848,7 +851,6 @@ class LeftMenuViewController: UIViewController {
             let calls = realm.objects(CallMetadataStorageItem.self)
             let contacts = realm.objects(RosterStorageItem.self).filter("owner IN %@ AND isHidden == false AND removed == false AND ask_ == %@ AND isContact == true AND NOT (jid IN %@)", jids, "in", ignoredJids)
             let notifications = realm.objects(NotificationStorageItem.self).filter("owner IN %@ AND isRead == false AND shouldShow == true", jids)
-            let invitations = realm.objects(GroupchatInvitesStorageItem.self).filter("owner IN %@ AND isRead == false", jids)
             let favoritesNodes = realm.objects(XMPPFavoritesManagerStorageItem.self).filter("owner IN %@", jids)
             let savedConversations = SavedMessagesAvailabilityPolicy.visibleSavedLastChats(
                 in: realm,
@@ -979,21 +981,25 @@ class LeftMenuViewController: UIViewController {
                 }
                 .disposed(by: self.bag)
             
-            Observable
-                .collection(from: invitations)
+            let incomingInvites = PublishSubject<[GroupInviteRecord]>()
+            incomingInvites
                 .skip(1)
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
-                .subscribe { results in
-                    self.updateDatasourceSubtitle(for: "groups", section: section, subtitle: "\(results.count)")
-                    
-                } onError: { _ in
-                    
-                } onCompleted: {
-                    
-                } onDisposed: {
-                    
-                }
+                .subscribe(onNext: { [weak self] invites in
+                    self?.updateDatasourceSubtitle(
+                        for: "groups",
+                        section: section,
+                        subtitle: "\(invites.count)"
+                    )
+                })
                 .disposed(by: self.bag)
+            let invitationObservation = GroupRepository(realm: realm).observeIncomingInvites(
+                owners: jids
+            ) { invites in
+                incomingInvites.onNext(invites)
+            }
+            Disposables.create { invitationObservation.invalidate() }
+                .disposed(by: bag)
 
             Observable
                 .collection(from: favoritesNodes)

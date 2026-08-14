@@ -10,7 +10,11 @@ enum GroupCommand: Equatable, Sendable {
     case invites
     case blocklist
     case declineInvite
-    case updateMember(GroupMember)
+    case revokeInvite(targetJID: String)
+    case unblock(target: String)
+    case updateInfo(GroupInfo)
+    case updateSettings(GroupSettings)
+    case updateMember(GroupMemberUpdate)
     case setOwner(memberID: String)
     case invite(targetJID: String, send: Bool?, reason: String?)
     case block(targets: [String])
@@ -24,8 +28,10 @@ enum GroupCommand: Equatable, Sendable {
 enum GroupCommandCodecError: Error, Equatable {
     case invalidMemberID(String)
     case invalidJID(String)
+    case emptyMemberUpdate
     case emptyBlockTargets
     case invalidGroupStanzaID(String)
+    case invalidAvatarURL(String?)
     case missingPermissionTarget
     case forbiddenPermissionTarget(scope: GroupPermissionScope)
     case forbiddenPermission(String)
@@ -75,9 +81,38 @@ enum GroupCommandCodec {
         case .declineInvite:
             return groupsElement(named: "decline")
 
-        case var .updateMember(member):
-            member.id = try normalizeMemberID(member.id)
-            return try GroupProtocolCodec.encodeFullMembers([member])
+        case let .revokeInvite(targetJID):
+            let element = groupsElement(named: "revoke")
+            element.addChild(
+                DDXMLElement(name: "jid", stringValue: try normalizeBareJID(targetJID))
+            )
+            return element
+
+        case let .unblock(target):
+            let element = groupsElement(named: "unblock")
+            element.addChild(
+                DDXMLElement(name: "jid", stringValue: try normalizeJIDOrDomain(target))
+            )
+            return element
+
+        case let .updateInfo(info):
+            if let avatar = info.avatar {
+                try requireURLAvatar(avatar)
+            }
+            return try GroupProtocolCodec.encodeInfo(info)
+
+        case let .updateSettings(settings):
+            return try GroupProtocolCodec.encodeSettings(settings)
+
+        case var .updateMember(update):
+            update.memberID = try normalizeMemberID(update.memberID)
+            guard update.nickname != nil || update.badge != nil || update.avatar != nil else {
+                throw GroupCommandCodecError.emptyMemberUpdate
+            }
+            if let avatar = update.avatar {
+                try requireURLAvatar(avatar)
+            }
+            return try GroupProtocolCodec.encodeMemberUpdate(update)
 
         case let .setOwner(memberID):
             let element = groupsElement(named: "owner")
@@ -112,7 +147,7 @@ enum GroupCommandCodec {
             return element
 
         case let .pin(groupStanzaID):
-            return try pinnedMessage(groupStanzaID: groupStanzaID, status: nil)
+            return try pinnedMessage(groupStanzaID: groupStanzaID, status: "pinned")
 
         case let .unpin(groupStanzaID):
             return try pinnedMessage(groupStanzaID: groupStanzaID, status: "remove")
@@ -216,6 +251,16 @@ enum GroupCommandCodec {
             throw GroupCommandCodecError.invalidMemberID(raw)
         }
         return value
+    }
+
+    private static func requireURLAvatar(_ avatar: GroupAvatar) throws {
+        guard let rawURL = nonEmpty(avatar.url),
+              let components = URLComponents(string: rawURL),
+              let scheme = components.scheme?.lowercased(),
+              (scheme == "https" || scheme == "http"),
+              components.host != nil else {
+            throw GroupCommandCodecError.invalidAvatarURL(avatar.url)
+        }
     }
 
     private static func normalizeBareJID(_ raw: String) throws -> String {

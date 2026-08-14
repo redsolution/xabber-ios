@@ -975,7 +975,14 @@ extension ChatViewController: XabberInputBarDelegate {
                     let primary = editedMessage
                     AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
                         user.messages.readLastMessage(jid: self.jid, conversationType: self.conversationType)
-                        user.messages.editSimpleMessage(payload.body, primary: primary, references: payload.references)
+                        user.messages.editSimpleMessage(
+                            payload.body,
+                            primary: primary,
+                            references: payload.references,
+                            groupMentionIntent: payload.groupMentionIntent,
+                            groupMentionSenderRole: payload.groupMentionSenderRole,
+                            groupMentionAllCapabilityGranted: payload.groupMentionAllCapabilityGranted
+                        )
                     })
                 } else {
                     self.beginSendToLocalRowSignpost()
@@ -988,7 +995,10 @@ extension ChatViewController: XabberInputBarDelegate {
                             to: self.jid,
                             forwarded: forwarded,
                             conversationType: self.conversationType,
-                            references: payload.references
+                            references: payload.references,
+                            groupMentionIntent: payload.groupMentionIntent,
+                            groupMentionSenderRole: payload.groupMentionSenderRole,
+                            groupMentionAllCapabilityGranted: payload.groupMentionAllCapabilityGranted
                         )
                     })
                 }
