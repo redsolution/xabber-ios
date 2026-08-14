@@ -44,6 +44,49 @@ enum ChatStackedNavigationInitialFrameStrategy: Equatable {
     case skeletonFirst
 }
 
+enum ChatInitialPresentationContext: Equatable {
+    case standard
+    case newlyCreatedGroup
+}
+
+enum ChatInitialPresentationContextPolicy {
+    static func loadingState(
+        standard: ChatBootstrapLoadingState,
+        context: ChatInitialPresentationContext,
+        localMessageCount: Int
+    ) -> ChatBootstrapLoadingState {
+        guard context == .newlyCreatedGroup else {
+            return standard
+        }
+        switch standard {
+        case .blockingArchive, .blockingTarget:
+            return localMessageCount > 0 ? .content : .empty
+        case .content, .empty, .failure:
+            return standard
+        }
+    }
+
+    static func shouldUseSkeletonFirstFrame(
+        strategy: ChatStackedNavigationInitialFrameStrategy,
+        context: ChatInitialPresentationContext,
+        isDatasourceEmpty: Bool
+    ) -> Bool {
+        context == .standard &&
+            strategy == .skeletonFirst &&
+            isDatasourceEmpty
+    }
+
+    static func timeoutFallback(
+        context: ChatInitialPresentationContext,
+        hasRealRows: Bool
+    ) -> ChatBootstrapViewState {
+        if hasRealRows {
+            return .content
+        }
+        return context == .newlyCreatedGroup ? .empty : .skeleton
+    }
+}
+
 /// In-memory UI-intent identity. Exact anchors that share the same MAM
 /// transport target (`latest`) must still own different open generations.
 /// This value is never emitted, exported, or persisted.
@@ -2474,6 +2517,10 @@ class ChatViewController: MessagesViewController {
     internal var isNavigationTransitionActive: Bool = false
     internal var stackedNavigationInitialFrameStrategy:
         ChatStackedNavigationInitialFrameStrategy = .contentFirst
+    internal private(set) var initialPresentationContext:
+        ChatInitialPresentationContext = .standard
+    private var initialPresentationContextConversationKey:
+        ChatTimelineConversationKey?
     internal var isPreparingStackedNavigationPresentation: Bool = false
     internal var isStackedNavigationPresentationPreparationCancelled: Bool = false
     internal var shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion: Bool = false
@@ -8874,6 +8921,20 @@ extension ChatViewController {
 }
 
 extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStackedNavigationPresentationPreparing {
+    internal var effectiveInitialPresentationContext:
+        ChatInitialPresentationContext {
+        guard initialPresentationContextConversationKey ==
+                chatTimelineConversationKey else {
+            return .standard
+        }
+        return initialPresentationContext
+    }
+
+    internal func prepareForNewlyCreatedGroupPresentation() {
+        initialPresentationContext = .newlyCreatedGroup
+        initialPresentationContextConversationKey = chatTimelineConversationKey
+    }
+
     func prepareForStackedNavigationPresentation(targetBounds: CGRect?) {
         self.prepareForStackedNavigationPresentation(
             targetBounds: targetBounds,
@@ -8944,8 +9005,11 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
             finishAfterCommittedFirstFrame()
             return
         }
-        if self.stackedNavigationInitialFrameStrategy == .skeletonFirst,
-           self.datasource.isEmpty {
+        if ChatInitialPresentationContextPolicy.shouldUseSkeletonFirstFrame(
+            strategy: self.stackedNavigationInitialFrameStrategy,
+            context: self.effectiveInitialPresentationContext,
+            isDatasourceEmpty: self.datasource.isEmpty
+        ) {
             // A committed deterministic skeleton is a valid first-frame
             // receipt. Compact navigation can start immediately while the
             // owned real frame is prepared in parallel with the push. The
@@ -9022,14 +9086,22 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
             _ = self.commitPreparedRealDatasourceAsFirstFrameSynchronouslyIfNeeded()
         }
         if !self.isCommittedStackedNavigationFirstFrameReady {
-            // The presentation handle completes immediately after this callback
-            // returns. Commit the bounded skeleton transaction synchronously so
-            // UIKit can never push a destination with an empty first frame.
-            self.applyBootstrapViewState(
-                .skeleton,
-                forceRender: true,
-                synchronousSkeletonCommit: true
+            let fallback = ChatInitialPresentationContextPolicy.timeoutFallback(
+                context: self.effectiveInitialPresentationContext,
+                hasRealRows: self.datasource.contains { !$0.isFakeMessage }
             )
+            if fallback == .empty {
+                _ = self.commitNewlyCreatedGroupEmptyFirstFrameSynchronouslyIfNeeded()
+            } else {
+                // The presentation handle completes immediately after this callback
+                // returns. Commit the bounded skeleton transaction synchronously so
+                // UIKit can never push a destination with an empty first frame.
+                self.applyBootstrapViewState(
+                    fallback,
+                    forceRender: true,
+                    synchronousSkeletonCommit: true
+                )
+            }
         }
         let hasCommittedFirstFrame = self.isCommittedStackedNavigationFirstFrameReady
         // #TODO sometimes fail

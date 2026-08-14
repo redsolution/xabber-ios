@@ -110,12 +110,21 @@ extension CreateNewGroupViewController {
         DispatchQueue.main.async {
             self.dismiss(animated: true) {
                 if self.leftMenuSelectRootCategoryDelegate != nil {
-                    self.leftMenuSelectRootCategoryDelegate?.openChatlistWithChat(owner: owner, jid: groupJID, conversationType: .group, configure: nil)
+                    self.leftMenuSelectRootCategoryDelegate?.openChatlistWithChat(
+                        owner: owner,
+                        jid: groupJID,
+                        conversationType: .group,
+                        configure: { chatViewController in
+                            chatViewController?
+                                .prepareForNewlyCreatedGroupPresentation()
+                        }
+                    )
                 } else {
                     let vc = ChatViewController()
                     vc.jid = groupJID
                     vc.owner = owner
                     vc.conversationType = .group
+                    vc.prepareForNewlyCreatedGroupPresentation()
                     
                     if let presenterVc = self.presentationController {
                         showStacked(vc, in: presenterVc.presentingViewController)

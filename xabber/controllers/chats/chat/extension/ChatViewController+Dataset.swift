@@ -15951,7 +15951,7 @@ extension ChatViewController {
     internal func bootstrapLoadingState(chatInstance: LastChatsStorageItem?) -> ChatBootstrapLoadingState {
         let readinessProof = self.currentInitialFrameReadinessProof()
         let localMessageCount = self.localHistoryMessageCountForBootstrap()
-        return ChatBootstrapLoadingReducer.resolve(.init(
+        let standardState = ChatBootstrapLoadingReducer.resolve(.init(
             messageCount: localMessageCount,
             isSynced: readinessProof?.isSynced ?? chatInstance?.isSynced ?? false,
             isInitialArchiveLoaded:
@@ -15966,6 +15966,11 @@ extension ChatViewController {
                 chatInstance: chatInstance
             )
         ))
+        return ChatInitialPresentationContextPolicy.loadingState(
+            standard: standardState,
+            context: self.effectiveInitialPresentationContext,
+            localMessageCount: localMessageCount
+        )
     }
 
     internal func bootstrapViewState(chatInstance: LastChatsStorageItem?) -> ChatBootstrapViewState {
@@ -18615,7 +18620,9 @@ extension ChatViewController {
         switch state {
         case .skeleton:
             let resolved = currentBootstrapLoadingState()
-            loadingState = resolved.showsSkeleton ? resolved : .blockingArchive
+            loadingState = effectiveInitialPresentationContext == .newlyCreatedGroup
+                ? resolved
+                : resolved.showsSkeleton ? resolved : .blockingArchive
         case .content:
             loadingState = .content
         case .empty:
@@ -18721,6 +18728,12 @@ extension ChatViewController {
         hasTrustedPersistedBootstrapPage: Bool = false,
         replacingConversationDatasource: Bool = false
     ) {
+        let contextualRequestedState =
+            ChatInitialPresentationContextPolicy.loadingState(
+                standard: requestedState,
+                context: self.effectiveInitialPresentationContext,
+                localMessageCount: self.localHistoryMessageCountForBootstrap()
+            )
         let archiveReadiness = ChatInitialBootstrapRequestCoordinator.shared
             .readiness(for: self.initialBootstrapRequestKey)
         let hasMaterializedContent =
@@ -18730,7 +18743,7 @@ extension ChatViewController {
                 self.initialBootstrapRequestKey
         let terminalResolvedState =
             ChatCommittedArchiveTerminalPresentationPolicy.resolvedState(
-                requested: requestedState,
+                requested: contextualRequestedState,
                 readiness: archiveReadiness,
                 committedBoundaryMatchesCurrent: archiveReadiness.map(
                     self.committedArchiveReceiptMatchesCurrentBoundary
@@ -18755,7 +18768,7 @@ extension ChatViewController {
             self.commitConsumedEmptyArchiveTerminalPresentation()
             return
         }
-        if (requestedState.showsSkeleton || requestedState.showsRetry),
+        if (contextualRequestedState.showsSkeleton || contextualRequestedState.showsRetry),
            !state.showsSkeleton,
            !state.showsRetry {
             // A terminal frame for this conversation is monotonic. Archive
@@ -18765,7 +18778,7 @@ extension ChatViewController {
             // stale relay was the independent entrance behind the regression.
             ChatArchiveDebugTrace.log("bootstrapSkeletonSuppressedAfterTerminal", [
                 ("hasMaterializedContent", state == .content),
-                ("requestedTarget", requestedState == .blockingTarget)
+                ("requestedTarget", contextualRequestedState == .blockingTarget)
             ])
             self.cancelBootstrapSkeletonMappingJobs()
             self.appliedBootstrapLoadingState = state
@@ -18929,6 +18942,44 @@ extension ChatViewController {
                 self?.resolvePendingBootstrapFirstFrameReadinessCompletionsIfPossible()
             }
         }
+    }
+
+    @discardableResult
+    internal func commitNewlyCreatedGroupEmptyFirstFrameSynchronouslyIfNeeded()
+        -> Bool {
+        assert(Thread.isMainThread, "First-frame datasource commits must run on main")
+        guard effectiveInitialPresentationContext == .newlyCreatedGroup,
+              !datasource.contains(where: { !$0.isFakeMessage }) else {
+            return isCommittedStackedNavigationFirstFrameReady
+        }
+
+        cancelBootstrapSkeletonMappingJobs()
+        appliedBootstrapLoadingState = .empty
+        preservesBootstrapFailureOverlayUntilRetryCommit = false
+        setBootstrapFailureVisible(false)
+        setSkeletonVisible(false)
+        setDatasourceLoadingEnabled(true)
+        setShouldShowInitialMessage(true)
+        messagesCollectionView.isUserInteractionEnabled = true
+        timelineInteractionState.unlock()
+        performChatOpenPerformancePresentationTransaction(
+            receipt: .empty,
+            schedulesStableFrame: true
+        ) {
+            applyChatDatasource(
+                [],
+                mode: .fullReload(),
+                animated: false,
+                invalidateLayout: false,
+                suppressDefaultBottomScroll: true,
+                presentationCommitMode: .standard
+            )
+        }
+        hasCommittedTimelinePresentationInCurrentLifecycle = true
+        hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle = false
+        scheduleTimelineStoreObservationActivation()
+        resolvePendingBootstrapFirstFrameReadinessCompletionsIfPossible()
+        return isCommittedStackedNavigationFirstFrameReady
     }
 
     private func commitBootstrapSkeletonDatasourceSynchronously(
