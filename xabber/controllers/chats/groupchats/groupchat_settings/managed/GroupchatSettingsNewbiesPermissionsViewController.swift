@@ -1,576 +1,434 @@
-//
-//  GroupchatSettingsNewbiesPermissionsViewController.swift
-//  xabber
-//
-//  Created by Игорь Болдин on 31.10.2025.
-//  Copyright © 2025 Igor Boldin. All rights reserved.
-//
-
-import Foundation
 import UIKit
-import Realm
-import RealmSwift
-import MaterialComponents.MDCPalettes
-import CocoaLumberjack
 import RxSwift
 import RxCocoa
 import RxRelay
+import MaterialComponents.MDCPalettes
+import CocoaLumberjack
 
 class GroupchatSettingsNewbiesPermissionsViewController: SimpleBaseViewController {
-    
-    class SettingsItemCell: UITableViewCell {
-        static let cellName: String = "SettingsItemCell"
-        
-        let stack: UIStackView = {
-            let stack = UIStackView()
-            
-            stack.axis = .horizontal
-            stack.distribution = .fill
-            stack.alignment = .center
-            stack.layoutMargins = UIEdgeInsets(top: 2, bottom: 0, left: 16, right: 16)
-            stack.isLayoutMarginsRelativeArrangement = true
-            
-            return stack
-        }()
-        
-        let titleLabel: UILabel = {
-            let label = UILabel()
-            
-            label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            
-            return label
-        }()
-        
-        let badgeView: UIButton = {
-            let view = UIButton()
+    final class PermissionCell: UITableViewCell {
+        static let cellName = "CanonicalNewbiePermissionCell"
+        private let titleLabel = UILabel()
+        private let durationButton = UIButton(type: .system)
+        private let switchView = UISwitch()
+        private var key = ""
+        var onSwitchChanged: ((String, Bool) -> Void)?
+        var onDurationRequested: ((String) -> Void)?
 
-            return view
-        }()
-        
-        func configure(title: String, badge: String, icon: String) {
-            self.titleLabel.text = title
-//            self.imageView?.image = (UIImage(named: icon) ?? UIImage(systemName: icon))?.withRenderingMode(.alwaysTemplate)
-            self.badgeView.setTitle("\(badge)", for: .normal)
-            self.badgeView.isHidden = false/*badge == "0" ? true : false*/
-            var configuration = UIButton.Configuration.filled()
-            configuration.baseBackgroundColor = .clear
-            configuration.baseForegroundColor = .secondaryLabel
-            configuration.buttonSize = .mini
-            configuration.cornerStyle = .capsule
-            self.badgeView.configuration = configuration
-            self.badgeView.updateConfiguration()
-            self.badgeView.setNeedsLayout()
-            self.badgeView.layoutIfNeeded()
-        }
-        
-        func setupSubviews() {
-            self.contentView.addSubview(stack)
-            self.stack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 4, right: 4)
-            self.stack.addArrangedSubview(self.titleLabel)
-            self.stack.addArrangedSubview(self.badgeView)
-            self.accessoryType = .disclosureIndicator
-        }
-        
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
             super.init(style: style, reuseIdentifier: reuseIdentifier)
-            self.setupSubviews()
-        }
-        
-        required init?(coder: NSCoder) {
-            super.init(coder: coder)
-            self.setupSubviews()
-        }
-        
-        public final func updateTimer(day: Int?, hour: Int?, mins: Int?) {
-            var customString = ""
-            if let value = day, value > 0 {
-                customString += "\(value)d "
-            } else if let value = hour, value > 0 {
-                customString += "\(value)h "
-            } else if let value = mins, value > 0 {
-                customString += "\(value)m"
-            }
-            
-            var conf = UIButton.Configuration.plain()
-            conf.attributedTitle = AttributedString(NSAttributedString(string: customString, attributes: [
-                .font: UIFont.systemFont(ofSize: 13)
-            ]))
-            self.badgeView.configuration = conf
-            self.badgeView.updateConfiguration()
-            self.badgeView.sizeToFit()
-            self.stack.layoutSubviews()
-        }
-        
-    }
-    
-    class SettingsSwitchCell: UITableViewCell {
-        static let cellName: String = "SettingsSwitchCell"
-        
-        let stack: UIStackView = {
-            let stack = UIStackView()
-            
+            let stack = UIStackView(arrangedSubviews: [titleLabel, durationButton, switchView])
             stack.axis = .horizontal
-            stack.distribution = .fill
             stack.alignment = .center
-            stack.spacing = 4
-            stack.layoutMargins = UIEdgeInsets(top: 2, bottom: 0, left: 16, right: 16)
-            stack.isLayoutMarginsRelativeArrangement = true
-            
-            return stack
-        }()
-        
-        let titleLabel: UILabel = {
-            let label = UILabel()
-            
-            label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            
-            return label
-        }()
-                
-        let switchView: UISwitch = {
-            let view = UISwitch()
-            
-            view.isOn = false
-            view.tintColor = .green
-            view.preferredStyle = .sliding
-            
-            return view
-        }()
-        
-        let customPeriodButton: UIButton = {
-            var conf = UIButton.Configuration.plain()
-            
-            conf.attributedTitle = AttributedString(NSAttributedString(string: "2d 13h 11m", attributes: [
-                .font: UIFont.systemFont(ofSize: 13)
-            ]))
-            
-            let button = UIButton(configuration: conf, primaryAction: nil)
-            
-            return button
-        }()
-        
-        var key: String = ""
-        var originalStatus: Bool = false
-        
-        public final func updateTimer(day: Int?, hour: Int?, mins: Int?, isChanged: Bool) {
-            var customString = ""
-            if let value = day, value > 0 {
-                customString += "\(value)d "
-            }
-            if let value = hour, value > 0 {
-                customString += "\(value)h "
-            }
-            if let value = mins, value > 0 {
-                customString += "\(value)m"
-            }
-            
-            var conf = UIButton.Configuration.plain()
-            var color: UIColor = .secondaryLabel
-            if self.originalStatus != switchView.isOn  {
-                color = .tintColor
-            }
-            if isChanged {
-                color = .tintColor
-            }
-            conf.attributedTitle = AttributedString(NSAttributedString(string: customString, attributes: [
-                .font: UIFont.systemFont(ofSize: 13),
-                .foregroundColor: color
-            ]))
-            self.customPeriodButton.configuration = conf
-            self.customPeriodButton.updateConfiguration()
-            self.customPeriodButton.sizeToFit()
-            self.stack.layoutSubviews()
+            stack.spacing = 8
+            contentView.addSubview(stack)
+            stack.fillSuperviewWithOffset(top: 4, bottom: 4, left: 16, right: 16)
+            titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            durationButton.addTarget(self, action: #selector(onDuration), for: .touchUpInside)
+            switchView.addTarget(self, action: #selector(onSwitch), for: .valueChanged)
         }
-        
-        func configure(title: String, isOn: Bool, key: String, isChanged: Bool, originalStatus: Bool, day: Int?, hour: Int?, mins: Int?) {
-            self.titleLabel.text = title
-            self.switchView.isOn = isOn
-            self.key = key
-            self.originalStatus = originalStatus
-            self.updateTimer(day: day, hour: hour, mins: mins, isChanged: isChanged)
-            if originalStatus != isOn {
-                self.switchView.backgroundColor = .systemGreen
-                self.switchView.onTintColor = .systemGreen
-            } else {
-                self.switchView.backgroundColor = MDCPalette.green.tint100//.systemGreen.withAlphaComponent(0.2)
-                self.switchView.onTintColor = MDCPalette.green.tint100//.systemGreen.withAlphaComponent(0.2)
-            }
-        }
-        
-        open var onSwitchValueChangedCallback: ((String, Bool) -> Void)? = nil
-        
-        @objc
-        func onChangeSwitchValue(_ sender: UISwitch) {
-//            print()
-            UIView.animate(withDuration: 0.33) {
-                if self.originalStatus != sender.isOn {
-                    self.switchView.backgroundColor = .systemGreen
-                    self.switchView.onTintColor = .systemGreen
-                } else {
-                    self.switchView.backgroundColor = MDCPalette.green.tint100//.systemGreen.withAlphaComponent(0.2)
-                    self.switchView.onTintColor = MDCPalette.green.tint100//.systemGreen.withAlphaComponent(0.2)
-                }
-            }
-            self.onSwitchValueChangedCallback?(self.key, sender.isOn)
-        }
-        
-        func setupSubviews() {
-            self.contentView.addSubview(stack)
-            self.stack.fillSuperviewWithOffset(top: 0, bottom: 4, left: 4, right: 4)
-            self.stack.addArrangedSubview(self.titleLabel)
-            self.stack.addArrangedSubview(self.customPeriodButton)
-            self.stack.addArrangedSubview(self.switchView)
-            self.switchView.backgroundColor = .red
-            self.switchView.layer.cornerRadius = self.switchView.bounds.height / 2
-            self.switchView.layer.masksToBounds = true
-            self.switchView.addTarget(self, action: #selector(onChangeSwitchValue), for: .valueChanged)
-            self.customPeriodButton.addTarget(self, action: #selector(onCustomPeriodButtonTouchUpInside), for: .touchUpInside)
-        }
-        
-        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-            super.init(style: style, reuseIdentifier: reuseIdentifier)
-            self.setupSubviews()
-        }
-        
+
         required init?(coder: NSCoder) {
-            super.init(coder: coder)
-            self.setupSubviews()
+            fatalError("init(coder:) has not been implemented")
         }
-        
-        open var onCustomPeriodCallback: ((String) -> Void)? = nil
-        
-        @objc
-        private func onCustomPeriodButtonTouchUpInside(_ sender: UIButton) {
-            self.onCustomPeriodCallback?(self.key)
-        }
-    }
-    
-    
-    class Datasource {
-        enum Kind {
-            case permission
-            case button
-        }
-        
-        var kind: Kind
-        var title: String
-        var value: String
-        var status: Bool
-        var originalStatus: Bool
-        var key: String
-        var icon: String
-        
-        var changed: Bool = false
-        
-        var customiPeriodDay: Int? = nil
-        var customiPeriodHour: Int? = nil
-        var customiPeriodMins: Int? = nil
-        
-        var defaultPeriodDay: Int? = nil
-        var defaultPeriodHour: Int? = nil
-        var defaultPeriodMins: Int? = nil
-        
-        init(kind: Kind, title: String, value: String, status: Bool = false, key: String = "", icon: String = "") {
-            self.kind = kind
-            self.title = title
-            self.value = value
-            self.status = status
-            self.originalStatus = status
+
+        func configure(
+            title: String,
+            key: String,
+            status: Bool,
+            originalStatus: Bool,
+            seconds: UInt64?,
+            isEnabled: Bool
+        ) {
+            titleLabel.text = title
             self.key = key
-            self.icon = icon
+            switchView.isOn = status
+            switchView.isEnabled = isEnabled
+            durationButton.isEnabled = isEnabled
+            durationButton.setTitle(Self.durationTitle(seconds), for: .normal)
+            switchView.onTintColor = status == originalStatus
+                ? MDCPalette.green.tint100
+                : .systemGreen
         }
-        
-        var period: Double? {
-            return Double(self.customiPeriodDay ?? 0) * 24 * 60 * 60 + Double(self.customiPeriodHour ?? 0) * 60 * 60 + Double(self.customiPeriodMins ?? 0) * 60
+
+        private static func durationTitle(_ seconds: UInt64?) -> String {
+            guard let seconds else { return "Forever" }
+            let days = seconds / 86_400
+            let hours = (seconds % 86_400) / 3_600
+            let minutes = (seconds % 3_600) / 60
+            let values = [
+                days > 0 ? "\(days)d" : nil,
+                hours > 0 ? "\(hours)h" : nil,
+                minutes > 0 ? "\(minutes)m" : nil
+            ].compactMap { $0 }
+            return values.isEmpty ? "Forever" : values.joined(separator: " ")
         }
-        
-        func isCustomDatedifferToDefaultDate() -> Bool {
-            if (self.customiPeriodDay ?? 0) != (self.defaultPeriodDay ?? 0) {
-                return true
-            } else if (self.customiPeriodHour ?? 0) != (self.defaultPeriodHour ?? 0) {
-                return true
-            } else if (self.customiPeriodMins ?? 0) != (self.defaultPeriodMins ?? 0) {
-                return true
-            }
-            return false
+
+        @objc private func onSwitch(_ sender: UISwitch) {
+            onSwitchChanged?(key, sender.isOn)
         }
-        
-        func updateCustomPeriod(with seconds: Double?) {
-            guard let totalSeconds = seconds, totalSeconds >= 0 else {
-                self.customiPeriodDay = nil
-                self.customiPeriodHour = nil
-                self.customiPeriodMins = nil
-                self.defaultPeriodDay = nil
-                self.defaultPeriodHour = nil
-                self.defaultPeriodMins = nil
-                return
-            }
-            let totalSec = Int(totalSeconds)
-            
-            let days = totalSec / 86400
-            let remainingAfterDays = totalSec % 86400
-            
-            let hours = remainingAfterDays / 3600
-            let remainingAfterHours = remainingAfterDays % 3600
-            
-            let minutes = remainingAfterHours / 60
-            self.customiPeriodDay = days
-            self.customiPeriodHour = hours
-            self.customiPeriodMins = minutes
-            self.defaultPeriodDay = days
-            self.defaultPeriodHour = hours
-            self.defaultPeriodMins = minutes
+
+        @objc private func onDuration() {
+            onDurationRequested?(key)
         }
     }
-    
-    internal var datasource: [[Datasource]] = []
-    
-    internal var currentValue: String = ""
-    
-    internal var defaultPermissions: [GroupchatPermission] = []
-    
-    var customiPeriodDay: Int? = nil
-    var customiPeriodHour: Int? = nil
-    var customiPeriodMins: Int? = nil
-    
-    var predefinedPeriodDay: Int? = nil
-    var predefinedPeriodHour: Int? = nil
-    var predefinedPeriodMins: Int? = nil
-    
-    internal var changesObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
-    
-    internal let tableView: UITableView = {
+
+    final class DurationCell: UITableViewCell {
+        static let cellName = "CanonicalNewbieDurationCell"
+
+        func configure(title: String) {
+            textLabel?.text = title
+        }
+    }
+
+    final class Datasource {
+        let key: String
+        let title: String
+        var editorRow: GroupPermissionEditorRow
+
+        init(permission: GroupPermission) {
+            key = Self.key(for: permission)
+            title = permission.display ?? permission.name
+            editorRow = GroupPermissionEditorRow(
+                permission: permission,
+                status: permission.status,
+                seconds: GroupPermissionMutationBuilder.durationSeconds(for: permission),
+                changed: false
+            )
+        }
+
+        static func key(for permission: GroupPermission) -> String {
+            "\(permission.level ?? ""):\(permission.name)"
+        }
+    }
+
+    var baselinePermissions: [GroupPermission] = []
+    private var datasource: [Datasource] = []
+    private var repository: GroupRepository?
+    private var projectionObservation: GroupRepositoryObservation?
+    private var refreshTask: Task<Void, Never>?
+    private var saveTask: Task<Void, Never>?
+    private var selectedDurationSeconds: UInt64? = 3_600
+    private var canEdit = false
+    private var canReset = false
+    private let changesObserver = BehaviorRelay<Bool>(value: false)
+
+    private let durations: [(key: String, title: String, seconds: UInt64?)] = [
+        ("forever", "Forever", nil),
+        ("1_hour", "1 Hour", 3_600),
+        ("4_hours", "4 Hours", 14_400),
+        ("1_day", "1 Day", 86_400),
+        ("1_week", "1 Week", 604_800),
+        ("2_weeks", "2 Weeks", 1_209_600),
+        ("custom", "Custom", nil)
+    ]
+
+    private let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
-        
-        view.register(SettingsSwitchCell.self, forCellReuseIdentifier: SettingsSwitchCell.cellName)
-        view.register(SettingsItemCell.self, forCellReuseIdentifier: SettingsItemCell.cellName)
-        
+        view.register(PermissionCell.self, forCellReuseIdentifier: PermissionCell.cellName)
+        view.register(DurationCell.self, forCellReuseIdentifier: DurationCell.cellName)
         return view
     }()
-    
-    internal let saveBarButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(systemItem: .save)
-        
-        return button
-    }()
-    
-    internal var cancelBarButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(systemItem: .cancel)
-        
-        return button
-    }()
-    
+    private let saveBarButton = UIBarButtonItem(systemItem: .save)
+    private let cancelBarButton = UIBarButtonItem(systemItem: .cancel)
+    private let resetBarButton = UIBarButtonItem(
+        title: "Reset".localizeString(
+            id: "groupchat_permissions_reset_action",
+            arguments: []
+        ),
+        style: .plain,
+        target: nil,
+        action: nil
+    )
+
     override func loadDatasource() {
         super.loadDatasource()
         do {
-            let realm = try WRealm.safe()
-            if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                self.defaultPermissions = instance.defaultPermissions
-                instance.newbiesPermissions.forEach {
-                    item in
-                    if let index = self.defaultPermissions.firstIndex(where: { $0.name == item.name }) {
-                        self.defaultPermissions[index].status = item.status
-                        self.defaultPermissions[index].expires = item.expires
-                        self.defaultPermissions[index].seconds = item.seconds
-                    }
-                }
-            }
+            let repository = GroupRepository(realm: try WRealm.safe())
+            self.repository = repository
+            apply(try repository.projection(owner: owner, groupJID: jid), force: true)
         } catch {
-            DDLogDebug("GroupchatSettingsMembershipViewController: \(#function). \(error.localizedDescription)")
+            DDLogDebug("GroupchatSettingsNewbiesPermissionsViewController: \(#function). \(error.localizedDescription)")
+            rebuildRows(newbies: [])
         }
-        self.datasource = [
-            self.defaultPermissions.compactMap {
-                let item = Datasource(kind: .permission, title: $0.displayName, value: $0.name, status: $0.status, key: $0.name)
-                if let seconds = $0.seconds {
-                    item.updateCustomPeriod(with: seconds)
-                }
-                return item
-            },
-            [
-                Datasource(kind: .button, title: "1 Hour", value: "", key: "1_hour", icon: "1.square.fill"),
-                Datasource(kind: .button, title: "4 Hours", value: "", key: "4_hours", icon: "12.square.fill"),
-                Datasource(kind: .button, title: "1 Day", value: "", key: "1_day", icon: "24.square.fill"),
-                Datasource(kind: .button, title: "1 Week", value: "", key: "1_week", icon: "24.square.fill"),
-                Datasource(kind: .button, title: "2 Week", value: "", key: "2_week", icon: "24.square.fill"),
-                Datasource(kind: .button, title: "Custom", value: "", key: "custom", icon: "custom.clock.square.fill")
-            ]
-        ]
     }
-    
+
     override func setupSubviews() {
         super.setupSubviews()
-        self.view.addSubview(self.tableView)
-        self.tableView.fillSuperview()
+        view.addSubview(tableView)
+        tableView.fillSuperview()
     }
-    
+
     override func configure() {
         super.configure()
-        self.title = "Permissions for new members"
-        self.tableView.dataSource = self
-        self.tableView.delegate = self
-        self.cancelBarButton.action = #selector(onCancelButtonTouchUpInside)
-        self.cancelBarButton.target = self
-        self.saveBarButton.action = #selector(onSaveButtonTouchUpInside)
-        self.saveBarButton.target = self
+        title = "Permissions for new members"
+        tableView.dataSource = self
+        tableView.delegate = self
+        cancelBarButton.action = #selector(onCancel)
+        cancelBarButton.target = self
+        saveBarButton.action = #selector(onSave)
+        saveBarButton.target = self
+        resetBarButton.action = #selector(onReset)
+        resetBarButton.target = self
+        resetBarButton.accessibilityIdentifier = "groupchat_permissions_reset_newbies"
     }
-    override func onAppear() {
-        super.onAppear()
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            session.groupchat?.getNewbiesPermissions(stream, groupchat: self.jid)
-        } fail: {
-            AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                user.groupchats.getNewbiesPermissions(stream, groupchat: self.jid)
-            }
-        }
-    }
-    
-    internal func updateValue() {
-        
-    }
-    
+
     override func subscribe() {
         super.subscribe()
-        self.changesObserver
+        changesObserver
             .asObservable()
-            .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
-            .subscribe { value in
-                if value {
-                    self.navigationItem.setLeftBarButton(self.cancelBarButton, animated: true)
-                    self.navigationItem.setRightBarButton(self.saveBarButton, animated: true)
-                } else {
-                    self.navigationItem.setLeftBarButton(self.navigationItem.backBarButtonItem, animated: true)
-                    self.navigationItem.setRightBarButton(nil, animated: true)
-                }
-            }
-            .disposed(by: self.bag)
+            .distinctUntilChanged()
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] changed in
+                self?.updateNavigationItems(hasChanges: changed)
+            })
+            .disposed(by: bag)
 
-    }
-    
-    @objc
-    internal func onCancelButtonTouchUpInside(_ sender: AnyObject) {
-        self.navigationController?.popViewController(animated: true)
-    }
-    
-    @objc
-    internal func onSaveButtonTouchUpInside(_ sender: AnyObject) {
-        var changes = self.datasource[0].filter({ $0.changed }).compactMap({
-            return GroupchatPermission(role: "member", name: $0.key, status: $0.status, displayName: $0.title, expires: $0.period)
-        })
         do {
-            let realm = try WRealm.safe()
-            if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                instance.newbiesPermissions.forEach {
-                    item in
-                    if changes.firstIndex(where: { $0.name == item.name }) == nil {
-                        changes.append(item)
-                    }
+            let repository: GroupRepository
+            if let existingRepository = self.repository {
+                repository = existingRepository
+            } else {
+                repository = GroupRepository(realm: try WRealm.safe())
+            }
+            self.repository = repository
+            projectionObservation?.invalidate()
+            projectionObservation = try repository.observeProjection(
+                owner: owner,
+                groupJID: jid
+            ) { [weak self] projection in
+                DispatchQueue.main.async {
+                    self?.apply(projection, force: false)
                 }
             }
         } catch {
-            DDLogDebug("GroupchatSettingsMembershipViewController: \(#function). \(error.localizedDescription)")
+            DDLogDebug("GroupchatSettingsNewbiesPermissionsViewController: \(#function). \(error.localizedDescription)")
         }
-        guard changes.isNotEmpty else {
+    }
+
+    override func onAppear() {
+        super.onAppear()
+        refreshAuthoritativeState()
+    }
+
+    deinit {
+        refreshTask?.cancel()
+        saveTask?.cancel()
+        projectionObservation?.invalidate()
+    }
+
+    private func apply(_ projection: GroupRepositoryProjection, force: Bool) {
+        canEdit = projection.capabilities.changeDefaultPermissions
+        guard force || !changesObserver.value else { return }
+        if let defaults = projection.state.permissionSets.first(where: { $0.scope == .defaults }) {
+            baselinePermissions = defaults.permissions
+        }
+        let newbies = projection.state.permissionSets
+            .first(where: { $0.scope == .newbies })?.permissions ?? []
+        canReset = canEdit && !newbies.isEmpty
+        rebuildRows(newbies: newbies)
+    }
+
+    private func rebuildRows(newbies: [GroupPermission]) {
+        let allowedBaseline = baselinePermissions.filter {
+            $0.name.lowercased() != GroupMemberRole.owner.rawValue
+        }
+        let templates = allowedBaseline.isEmpty ? newbies : allowedBaseline
+        datasource = templates.compactMap { baseline in
+            guard baseline.name.lowercased() != GroupMemberRole.owner.rawValue else { return nil }
+            let key = Datasource.key(for: baseline)
+            let effective = newbies.first { Datasource.key(for: $0) == key } ?? baseline
+            return Datasource(permission: effective)
+        }
+        changesObserver.accept(false)
+        updateNavigationItems(hasChanges: false)
+        tableView.reloadData()
+    }
+
+    private func refreshAuthoritativeState() {
+        guard refreshTask == nil,
+              let account = AccountManager.shared.find(for: owner) else {
             return
         }
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            session.groupchat?.updateNewbiesPermissions(stream, groupchat: self.jid, changes: changes)
-        } fail: {
-            AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                user.groupchats.updateNewbiesPermissions(stream, groupchat: self.jid, changes: changes)
-            }
-        }
-        self.navigationController?.popViewController(animated: true)
-    }
-}
-
-extension GroupchatSettingsNewbiesPermissionsViewController: UITableViewDelegate {
-    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 52
-    }
-    
-    func deselectCellsFor(indexPath: IndexPath) {
-        (0..<self.datasource[indexPath.section].count).forEach({
-            self.tableView.cellForRow(at: IndexPath(row: $0, section: indexPath.section))?.accessoryType = .none
-        })
-    }
-    
-    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let item = self.datasource[indexPath.section][indexPath.row]
-        switch item.key {
-            case "1_hour":
-                self.predefinedPeriodDay = 0
-                self.predefinedPeriodHour = 1
-                self.predefinedPeriodMins = 0
-            case "12_hours":
-                self.predefinedPeriodDay = 0
-                self.predefinedPeriodHour = 12
-                self.predefinedPeriodMins = 0
-            case "4_hours":
-                self.predefinedPeriodDay = 0
-                self.predefinedPeriodHour = 4
-                self.predefinedPeriodMins = 0
-            case "1_day":
-                self.predefinedPeriodDay = 1
-                self.predefinedPeriodHour = 0
-                self.predefinedPeriodMins = 0
-            case "1_week":
-                self.predefinedPeriodDay = 7
-                self.predefinedPeriodHour = 0
-                self.predefinedPeriodMins = 0
-            case "2_week":
-                self.predefinedPeriodDay = 14
-                self.predefinedPeriodHour = 0
-                self.predefinedPeriodMins = 0
-            case "custom":
-                let picker = TimePickerPresenter()
-                picker.delegate = self
-                picker.present(
-                    in: self,
-                    title: "Select custom duration",
-                    message: "\n\n\n\n\n\n",
-                    cancel: "Cancel",
-                    animated: true,
-                    key: nil
+        refreshTask = Task { [weak self, weak account] in
+            guard let self, let account else { return }
+            defer { self.refreshTask = nil }
+            do {
+                async let defaults = account.groupchatService.getPermissions(
+                    groupJID: self.jid,
+                    scope: GroupPermissionScope.defaults
                 )
-            default:
-                break
-        }
-        if item.key != "custom" {
-            deselectCellsFor(indexPath: indexPath)
-            self.datasource[0].filter({ $0.changed }).forEach {
-                $0.customiPeriodDay = self.predefinedPeriodDay
-                $0.customiPeriodHour = self.predefinedPeriodHour
-                $0.customiPeriodMins = self.predefinedPeriodMins
+                async let newbies = account.groupchatService.getPermissions(
+                    groupJID: self.jid,
+                    scope: GroupPermissionScope.newbies
+                )
+                let values = try await (defaults, newbies)
+                let repository: GroupRepository
+                if let existingRepository = self.repository {
+                    repository = existingRepository
+                } else {
+                    repository = GroupRepository(realm: try WRealm.safe())
+                }
+                self.repository = repository
+                try repository.replacePermissionSet(values.0, owner: self.owner, groupJID: self.jid)
+                try repository.replacePermissionSet(values.1, owner: self.owner, groupJID: self.jid)
+            } catch is CancellationError {
+                return
+            } catch {
+                DDLogDebug("GroupchatSettingsNewbiesPermissionsViewController: \(#function). \(error.localizedDescription)")
             }
-            self.customiPeriodDay = nil
-            self.customiPeriodHour = nil
-            self.customiPeriodMins = nil
-            self.tableView.reconfigureRows(at: (0..<self.datasource[0].count).compactMap({ return IndexPath(row: $0, section: 0) }))
-            self.tableView.cellForRow(at: indexPath)?.accessoryType = .checkmark
         }
     }
-}
 
-extension GroupchatSettingsNewbiesPermissionsViewController: UITableViewDataSource {
-    func numberOfSections(in tableView: UITableView) -> Int {
-        return self.datasource.count
+    @objc private func onCancel() {
+        navigationController?.popViewController(animated: true)
     }
-    
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return self.datasource[section].count
-    }
-    
-    func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        switch section {
-            case 0:
-                return "Set a trial period: These rules govern new members for selected period, helping prevent spam while welcoming them fully afterward."
-            default:
-                return nil
+
+    @objc private func onSave() {
+        guard saveTask == nil,
+              canEdit,
+              changesObserver.value,
+              let account = AccountManager.shared.find(for: owner) else {
+            return
         }
-        
+        let replacement = GroupPermissionMutationBuilder.newbiesReplacement(
+            rows: datasource.map(\.editorRow)
+        )
+        tableView.isUserInteractionEnabled = false
+        saveBarButton.isEnabled = false
+        saveTask = Task { [weak self, weak account] in
+            guard let self, let account else { return }
+            defer {
+                self.saveTask = nil
+                self.tableView.isUserInteractionEnabled = true
+                self.saveBarButton.isEnabled = true
+            }
+            do {
+                let authoritative = try await account.groupchatService.setPermissions(
+                    groupJID: self.jid,
+                    permissions: replacement
+                )
+                let repository: GroupRepository
+                if let existingRepository = self.repository {
+                    repository = existingRepository
+                } else {
+                    repository = GroupRepository(realm: try WRealm.safe())
+                }
+                self.repository = repository
+                try repository.replacePermissionSet(authoritative, owner: self.owner, groupJID: self.jid)
+                ToastPresenter().presentSuccess(message: "Changes saved")
+                self.navigationController?.popViewController(animated: true)
+            } catch is CancellationError {
+                return
+            } catch {
+                ToastPresenter().presentError(message: "Error: \(error.localizedDescription)")
+            }
+        }
     }
-    
-    func onCustomPeriodButtonCallback(key: String) {
+
+    @objc private func onReset() {
+        guard saveTask == nil, canReset else { return }
+        let alert = UIAlertController(
+            title: "Reset".localizeString(
+                id: "groupchat_permissions_reset_action",
+                arguments: []
+            ),
+            message: "Remove all temporary permissions for new members?".localizeString(
+                id: "groupchat_permissions_reset_newbies_confirmation",
+                arguments: []
+            ),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(
+            title: "Cancel".localizeString(id: "cancel", arguments: []),
+            style: .cancel
+        ))
+        alert.addAction(UIAlertAction(
+            title: "Reset".localizeString(
+                id: "groupchat_permissions_reset_action",
+                arguments: []
+            ),
+            style: .destructive
+        ) { [weak self] _ in
+            self?.performNewbiesReset()
+        })
+        present(alert, animated: true)
+    }
+
+    private func performNewbiesReset() {
+        guard saveTask == nil,
+              canReset,
+              let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+        tableView.isUserInteractionEnabled = false
+        resetBarButton.isEnabled = false
+        saveTask = Task { [weak self, weak account] in
+            guard let self, let account else { return }
+            defer {
+                self.saveTask = nil
+                self.tableView.isUserInteractionEnabled = true
+                self.resetBarButton.isEnabled = true
+            }
+            do {
+                let authoritative = try await account.groupchatService.resetNewbiesPermissions(
+                    groupJID: self.jid
+                )
+                let repository: GroupRepository
+                if let existingRepository = self.repository {
+                    repository = existingRepository
+                } else {
+                    repository = GroupRepository(realm: try WRealm.safe())
+                }
+                self.repository = repository
+                try repository.replacePermissionSet(
+                    authoritative,
+                    owner: self.owner,
+                    groupJID: self.jid
+                )
+                ToastPresenter().presentSuccess(
+                    message: "Permissions reset".localizeString(
+                        id: "groupchat_permissions_reset_success",
+                        arguments: []
+                    )
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                ToastPresenter().presentError(message: "Error: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func updateNavigationItems(hasChanges: Bool) {
+        navigationItem.setLeftBarButton(
+            hasChanges ? cancelBarButton : navigationItem.backBarButtonItem,
+            animated: true
+        )
+        navigationItem.setRightBarButton(
+            hasChanges ? saveBarButton : (canReset ? resetBarButton : nil),
+            animated: true
+        )
+    }
+
+    private func updateRow(key: String, mutation: (inout GroupPermissionEditorRow) -> Void) {
+        guard let item = datasource.first(where: { $0.key == key }),
+              !item.editorRow.permission.fixed else {
+            return
+        }
+        mutation(&item.editorRow)
+        item.editorRow.changed = item.editorRow.status != item.editorRow.permission.status
+            || item.editorRow.seconds != GroupPermissionMutationBuilder.durationSeconds(
+                for: item.editorRow.permission
+            )
+        changesObserver.accept(datasource.contains { $0.editorRow.changed })
+        tableView.reloadRows(
+            at: [IndexPath(row: datasource.firstIndex(where: { $0 === item })!, section: 0)],
+            with: .none
+        )
+    }
+
+    private func presentDurationPicker(key: String?) {
         let picker = TimePickerPresenter()
         picker.delegate = self
         picker.present(
@@ -582,108 +440,107 @@ extension GroupchatSettingsNewbiesPermissionsViewController: UITableViewDataSour
             key: key
         )
     }
-    
-    func onSwitchValueChangedCallback(key: String, value: Bool) {
-        guard let index = self.datasource[0].firstIndex(where: { $0.key == key }) else {
+}
+
+extension GroupchatSettingsNewbiesPermissionsViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat { 52 }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        guard indexPath.section == 1 else { return }
+        let duration = durations[indexPath.row]
+        if duration.key == "custom" {
+            presentDurationPicker(key: nil)
             return
         }
-        self.datasource[0][index].status = value
-        if self.datasource[0][index].originalStatus != value {
-            self.datasource[0][index].changed = true
-            self.datasource[0][index].customiPeriodDay = self.customiPeriodDay ?? self.predefinedPeriodDay
-            self.datasource[0][index].customiPeriodHour = self.customiPeriodHour ?? self.predefinedPeriodHour ?? 1
-            self.datasource[0][index].customiPeriodMins = self.customiPeriodMins ?? self.predefinedPeriodMins
-            let item = self.datasource[0][index]
-            (self.tableView.cellForRow(at: IndexPath(row: index, section: 0)) as? SettingsSwitchCell)?.updateTimer(day: item.customiPeriodDay, hour: item.customiPeriodHour, mins: item.customiPeriodMins, isChanged: item.changed)
-        } else {
-            self.datasource[0][index].changed = false
-            self.datasource[0][index].updateCustomPeriod(with: self.defaultPermissions.first(where: { self.datasource[0][index].value == $0.name })?.seconds)
-            let item = self.datasource[0][index]
-            (self.tableView.cellForRow(at: IndexPath(row: index, section: 0)) as? SettingsSwitchCell)?.updateTimer(day: item.customiPeriodDay, hour: item.customiPeriodHour, mins: item.customiPeriodMins, isChanged: item.changed)
+        selectedDurationSeconds = duration.seconds
+        datasource.filter { $0.editorRow.changed }.forEach {
+            $0.editorRow.seconds = duration.seconds
         }
-        self.changesObserver.accept(self.datasource[0].filter({ $0.changed }).isNotEmpty)
+        changesObserver.accept(datasource.contains { $0.editorRow.changed })
+        tableView.reloadSections(IndexSet(integer: 0), with: .none)
     }
-    
+}
+
+extension GroupchatSettingsNewbiesPermissionsViewController: UITableViewDataSource {
+    func numberOfSections(in tableView: UITableView) -> Int { 2 }
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        section == 0 ? datasource.count : durations.count
+    }
+
+    func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        section == 0
+            ? "These temporary permissions are sent as one full replacement set."
+            : nil
+    }
+
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let item = self.datasource[indexPath.section][indexPath.row]
-        switch item.kind {
-            case .permission:
-                guard let cell = tableView.dequeueReusableCell(withIdentifier: SettingsSwitchCell.cellName, for: indexPath) as? SettingsSwitchCell else {
-                    fatalError()
+        if indexPath.section == 0 {
+            let item = datasource[indexPath.row]
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: PermissionCell.cellName,
+                for: indexPath
+            ) as? PermissionCell else {
+                fatalError("Unexpected newbie permission cell")
+            }
+            cell.configure(
+                title: item.title,
+                key: item.key,
+                status: item.editorRow.status,
+                originalStatus: item.editorRow.permission.status,
+                seconds: item.editorRow.seconds,
+                isEnabled: canEdit && !item.editorRow.permission.fixed
+            )
+            cell.onSwitchChanged = { [weak self] key, value in
+                self?.updateRow(key: key) { row in
+                    row.status = value
+                    if value != row.permission.status,
+                       row.seconds == nil {
+                        row.seconds = self?.selectedDurationSeconds
+                    }
                 }
-                
-                cell.configure(title: item.title, isOn: item.status, key: item.value, isChanged: item.changed, originalStatus: item.originalStatus, day: item.customiPeriodDay, hour: item.customiPeriodHour, mins: item.customiPeriodMins)
-                cell.onCustomPeriodCallback = self.onCustomPeriodButtonCallback
-                cell.onSwitchValueChangedCallback = self.onSwitchValueChangedCallback
-                cell.selectionStyle = .none
-                cell.accessoryType = .none
-                return cell
-            case .button:
-                guard let cell = tableView.dequeueReusableCell(withIdentifier: SettingsItemCell.cellName, for: indexPath) as? SettingsItemCell else {
-                    fatalError()
-                }
-                
-                cell.configure(title: item.title, badge: "", icon: item.icon)
-                cell.selectionStyle = .none
-                cell.accessoryType = .none
-                if item.key == "custom" {
-                    cell.updateTimer(day: self.customiPeriodDay, hour: self.customiPeriodHour, mins: self.customiPeriodMins)
-                }
-                return cell
+            }
+            cell.onDurationRequested = { [weak self] key in
+                self?.presentDurationPicker(key: key)
+            }
+            cell.selectionStyle = .none
+            return cell
         }
+
+        guard let cell = tableView.dequeueReusableCell(
+            withIdentifier: DurationCell.cellName,
+            for: indexPath
+        ) as? DurationCell else {
+            fatalError("Unexpected duration cell")
+        }
+        cell.configure(title: durations[indexPath.row].title)
+        return cell
     }
-    
-    
 }
 
 extension GroupchatSettingsNewbiesPermissionsViewController: TimePickerAlertControllerDelegate {
-    
-    func timePickerAlertControllerDidCancel() {
-        print("cancel")
-    }
-    
-    func timePickerAlertControllerDidSet(key: String?, days: Int?, hours: Int?, minutes: Int?) {
-        if let key = key {
-            guard let index = self.datasource[0].firstIndex(where: { $0.key == key }) else {
-                return
-            }
-            self.datasource[0][index].customiPeriodDay = days
-            self.datasource[0][index].customiPeriodHour = hours
-            self.datasource[0][index].customiPeriodMins = minutes
-            self.datasource[0][index].changed = self.datasource[0][index].isCustomDatedifferToDefaultDate()
-            self.tableView.reconfigureRows(at: [IndexPath(row: index, section: 0)])
+    func timePickerAlertControllerDidCancel() {}
+
+    func timePickerAlertControllerDidSet(
+        key: String?,
+        days: Int?,
+        hours: Int?,
+        minutes: Int?
+    ) {
+        let seconds = UInt64(max(0, days ?? 0)) * 86_400
+            + UInt64(max(0, hours ?? 0)) * 3_600
+            + UInt64(max(0, minutes ?? 0)) * 60
+        let normalized = seconds > 0 ? seconds : nil
+        if let key {
+            updateRow(key: key) { $0.seconds = normalized }
         } else {
-            let section = 1
-            self.deselectCellsFor(indexPath: IndexPath(row: 0, section: section))
-            self.datasource[0].filter({ $0.changed }).forEach {
-                $0.customiPeriodDay = days
-                $0.customiPeriodHour = hours
-                $0.customiPeriodMins = minutes
+            selectedDurationSeconds = normalized
+            datasource.filter { $0.editorRow.changed }.forEach {
+                $0.editorRow.seconds = normalized
             }
-            self.tableView.reconfigureRows(at: (0..<self.datasource[0].count).compactMap({ return IndexPath(row: $0, section: 0) }))
-            guard let row = self.datasource[section].firstIndex(where: { $0.key == "custom" }) else {
-                return
-            }
-            self.tableView.cellForRow(at: IndexPath(row: Int(row), section: section))?.accessoryType = .checkmark
-            
-            self.customiPeriodDay = days
-            self.customiPeriodHour = hours
-            self.customiPeriodMins = minutes
-            self.predefinedPeriodDay = nil
-            self.predefinedPeriodHour = nil
-            self.predefinedPeriodMins = nil
-            self.updateCustomTimer()
+            changesObserver.accept(datasource.contains { $0.editorRow.changed })
+            tableView.reloadSections(IndexSet(integer: 0), with: .none)
         }
     }
-    
-    func updateCustomTimer() {
-        guard let index = self.datasource[1].firstIndex(where: { $0.key == "custom" }) else {
-            return
-        }
-        
-        (self.tableView.cellForRow(at: IndexPath(row: index, section: 1)) as? SettingsItemCell)?
-            .updateTimer(day: self.customiPeriodDay, hour: self.customiPeriodHour, mins: self.customiPeriodMins)
-        
-    }
-    
 }

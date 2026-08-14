@@ -51,7 +51,8 @@ func isArchiveId(_ candidate: String?, newerThan boundary: String?) -> Bool? {
 }
 
 func getStanzaId(_ message: XMPPMessage, owner: String) -> String {
-    let isGroupchat = message.element(forName: "x", xmlns: "https://xabber.com/protocol/groups") != nil
+    let isGroupchat = ["chat", "headline"].contains(message.attributeStringValue(forName: "type") ?? "")
+        && message.element(forName: "x", xmlns: "https://xabber.com/protocol/groups") != nil
     var resultId: String? = nil
     if !isGroupchat,
         let received = message.element(forName: "received",
@@ -365,10 +366,12 @@ func isArchivedByMe(_ message: XMPPMessage) -> Bool {
 }
 
 func conversationTypeByMessage(_ message: XMPPMessage) -> ClientSynchronizationManager.ConversationType {
-    if message.elements(forXmlns: "https://xabber.com/protocol/groups").count > 0 {
-        return .group
+    let stanzaType = message.attributeStringValue(forName: "type") ?? ""
+    guard stanzaType != "groupchat" else {
+        return .regular
     }
-    if message.elements(forXmlns: "https://xabber.com/protocol/groups#system-message").count > 0 {
+    if ["chat", "headline"].contains(stanzaType),
+       (try? GroupStanzaRouter.route(message)) != nil {
         return .group
     }
     if let xmlns = message.element(forName: "encrypted")?.xmlns {

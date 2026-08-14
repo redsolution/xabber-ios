@@ -65,7 +65,6 @@ extension GroupchatInviteViewController: GroupchatInviteViewControllerDelegate {
                 }
             }
         }
-//        if let index = self.datasource.firstIndex(where: { $0.name == group }) {
 //            let indexSet = IndexSet( [index] )
 //            self.tableView.reloadSections(indexSet, with: .automatic)
 //        }

@@ -2296,7 +2296,14 @@ final class ChatPerformanceLabTests: XCTestCase {
                 conversationType: .group
             )
         ))
-        XCTAssertEqual(lastChat.groupchatMyId, targetMemberId)
+        let membership = try XCTUnwrap(realm.object(
+            ofType: GroupSelfMembershipStorageItem.self,
+            forPrimaryKey: GroupStorageKey.groupPrimary(
+                owner: controller.owner,
+                groupJID: controller.jid
+            )
+        ))
+        XCTAssertEqual(membership.memberID, targetMemberId)
         XCTAssertEqual(
             lastChat.mentionId,
             controller.openScenarioArchiveId(plan.p14ExplicitMentionOrdinal)

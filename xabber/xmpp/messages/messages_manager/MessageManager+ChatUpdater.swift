@@ -25,17 +25,98 @@ import RealmSwift
 extension MessageManager {
         
     public func runChatUpdateTasks(_ xmppStream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, callback: (() -> Void)?) {
-        if [.group, .channel].contains(conversationType) {
+        if conversationType == .group {
+            refreshCanonicalGroupState(jid)
             XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
                 session.retract?.enableForGroupchat(stream, jid: jid)
-                session.groupchat?.requestUsers(stream, groupchat: jid)
-                session.groupchat?.requestMyPermissions(stream, groupchat: jid)
             }) {
                 AccountManager.shared.find(for: self.owner)?.delayedAction(delay: 3, toExecute: { (user, stream) in
                     user.msgDeleteManager.enableForGroupchat(stream, jid: jid)
-                    user.groupchats.requestUsers(stream, groupchat: jid)
-                    user.groupchats.requestMyPermissions(stream, groupchat: jid)
                 })
+            }
+        } else if conversationType == .channel {
+            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
+                session.retract?.enableForGroupchat(stream, jid: jid)
+            }) {
+                AccountManager.shared.find(for: self.owner)?.delayedAction(delay: 3, toExecute: { (user, stream) in
+                    user.msgDeleteManager.enableForGroupchat(stream, jid: jid)
+                })
+            }
+        }
+    }
+
+    private func refreshCanonicalGroupState(_ rawGroupJID: String) {
+        guard let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+        let groupJID = GroupStorageKey.bareJID(rawGroupJID)
+
+        Task { [weak account] in
+            guard let account else { return }
+            do {
+                let initialProjection = try GroupRepository(
+                    realm: WRealm.safe()
+                ).projection(owner: account.jid, groupJID: groupJID)
+                guard initialProjection.state.selfSubscription == .both else {
+                    return
+                }
+
+                let snapshot = try await account.groupchatService.refreshGroup(
+                    groupJID: groupJID
+                )
+                guard try GroupRepository(realm: WRealm.safe()).applySnapshot(
+                    snapshot,
+                    owner: account.jid,
+                    groupJID: groupJID
+                ) == .applied else {
+                    return
+                }
+
+                let members = try await account.groupchatService.refreshMembers(
+                    groupJID: groupJID
+                )
+                let selfMemberID: String? = try {
+                    let repository = GroupRepository(realm: try WRealm.safe())
+                    guard try repository.replaceMembers(
+                        members,
+                        owner: account.jid,
+                        groupJID: groupJID
+                    ) == .applied else {
+                        return nil
+                    }
+
+                    let ownerBareJID = GroupStorageKey.bareJID(account.jid)
+                    let memberID = initialProjection.selfMemberID ?? members.first {
+                        $0.jid.map(GroupStorageKey.bareJID) == ownerBareJID
+                    }?.id
+                    try repository.setSelfMembership(
+                        .both,
+                        memberID: memberID,
+                        owner: account.jid,
+                        groupJID: groupJID
+                    )
+                    return memberID
+                }()
+                guard let selfMemberID else {
+                    return
+                }
+
+                let permissions = try await account.groupchatService.getPermissions(
+                    groupJID: groupJID,
+                    scope: .direct,
+                    targetMemberID: selfMemberID
+                )
+                try GroupRepository(realm: WRealm.safe()).replacePermissionSet(
+                    permissions,
+                    owner: account.jid,
+                    groupJID: groupJID
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                DDLogDebug(
+                    "Canonical group chat refresh failed for \(groupJID): \(error)"
+                )
             }
         }
     }

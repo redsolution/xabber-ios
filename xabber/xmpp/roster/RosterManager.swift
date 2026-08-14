@@ -457,18 +457,18 @@ class RosterManager: AbstractXMPPManager {
             }
             var removedGroupParticipantIds: [String: [String]] = [:]
             removedJids.forEach { jid in
-                let groupPrimary = GroupChatStorageItem.genPrimary(
-                    jid: jid,
-                    owner: owner
+                let groupPrimary = GroupStorageKey.groupPrimary(
+                    owner: owner,
+                    groupJID: jid
                 )
                 if realm.object(
-                    ofType: GroupChatStorageItem.self,
+                    ofType: GroupSnapshotStorageItem.self,
                     forPrimaryKey: groupPrimary
                 ) != nil {
                     let participantIds = Array(
-                        realm.objects(GroupchatUserStorageItem.self)
-                            .filter("groupchatId == %@", groupPrimary)
-                            .map { $0.userId.isEmpty ? $0.jid : $0.userId }
+                        realm.objects(GroupMemberStorageItem.self)
+                            .filter("groupPrimary == %@", groupPrimary)
+                            .map(\.memberID)
                             .filter { !$0.isEmpty }
                     )
                     removedGroupParticipantIds[jid] = participantIds
@@ -503,9 +503,7 @@ class RosterManager: AbstractXMPPManager {
                                                                                  forPrimaryKey: PreaprovedSubscribtionStorageItem.genPrimary(jid: jid, owner: owner)) {
                                 realm.delete(preaprovedSubscribtionInstance)
                             }
-                            if let groupchatInstance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: [jid, self.owner].prp()) {
-                                groupchatInstance.isDeleted = true
-                            } else {
+                            if removedGroupParticipantIds[jid] == nil {
                                 DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 0.75) {
                                     do {
                                         let realm = try  WRealm.safe()
@@ -560,10 +558,6 @@ class RosterManager: AbstractXMPPManager {
                         instance.groups.removeAll()
                         instance.groups.append(objectsIn: groups)
                         updateGroups(instance, groups: groups)
-                        let isGroupchat = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: [jid, self.owner].prp()) != nil
-                        if isGroupchat {
-                            realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: [jid, self.owner].prp())?.isDeleted = false
-                        }                        
                         realm
                             .objects(LastChatsStorageItem.self)
                             .filter("owner == %@ AND jid == %@", self.owner, jid)
@@ -606,10 +600,6 @@ class RosterManager: AbstractXMPPManager {
                         realm.add(instance, update: .modified)
                         
                         updateGroups(instance, groups: groups)
-                        let isGroupchat = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: [jid, self.owner].prp()) != nil
-                        if isGroupchat {
-                            realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: [jid, self.owner].prp())?.isDeleted = false
-                        }
                         if jid == XMPPJID(string: owner)?.domain {
                             let resourceInstance = ResourceStorageItem()
                             resourceInstance.jid = jid

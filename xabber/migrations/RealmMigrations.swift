@@ -22,9 +22,11 @@ import Foundation
 import RealmSwift
 
 enum XabberRealmSchema {
-    /// Schema 13 indexes the bounded unread-mention predicate and backfills
-    /// its denormalized conversation identity from legacy notification metadata.
-    static let current: UInt64 = 13
+    /// Schema 18 persists canonical group mention intent and the authorization
+    /// snapshot required to reproduce @all exactly on an outgoing retry.
+    /// Legacy group rows are not converted: development installations use a
+    /// fresh Realm by contract.
+    static let current: UInt64 = 18
 }
 
 
@@ -128,51 +130,8 @@ func makeRealmMigrationConfiguration(
                 // Existing recoverable sending messages are reconstructed by MessageManager startup.
             }
             if oldSchemaVersion < 10 {
-                var newestIncomingInviteByKey: [String: (primary: String, date: Date)] = [:]
-                var duplicateIncomingInvitePrimaries = Set<String>()
-
-                migration.enumerateObjects(ofType: GroupchatInvitesStorageItem.className()) { oldObject, _ in
-                    let outgoing = (oldObject?["outgoing"] as? Bool) ?? true
-                    guard !outgoing,
-                          let owner = oldObject?["owner"] as? String,
-                          let groupchat = oldObject?["groupchat"] as? String,
-                          !owner.isEmpty,
-                          !groupchat.isEmpty,
-                          let primary = oldObject?["primary"] as? String else {
-                        return
-                    }
-                    let stableKey = [groupchat, owner].prp()
-                    let date = (oldObject?["date"] as? Date) ?? Date(timeIntervalSinceReferenceDate: 0)
-                    if let existing = newestIncomingInviteByKey[stableKey] {
-                        if existing.date >= date {
-                            duplicateIncomingInvitePrimaries.insert(primary)
-                        } else {
-                            duplicateIncomingInvitePrimaries.insert(existing.primary)
-                            newestIncomingInviteByKey[stableKey] = (primary, date)
-                        }
-                    } else {
-                        newestIncomingInviteByKey[stableKey] = (primary, date)
-                    }
-                }
-
-                migration.enumerateObjects(ofType: GroupchatInvitesStorageItem.className()) { oldObject, newObject in
-                    guard let newObject else { return }
-                    let oldPrimary = (oldObject?["primary"] as? String) ?? ""
-                    if duplicateIncomingInvitePrimaries.contains(oldPrimary) {
-                        migration.delete(newObject)
-                        return
-                    }
-
-                    let outgoing = (oldObject?["outgoing"] as? Bool) ?? true
-                    let owner = (oldObject?["owner"] as? String) ?? ""
-                    let groupchat = (oldObject?["groupchat"] as? String) ?? ""
-                    if !outgoing, !owner.isEmpty, !groupchat.isEmpty {
-                        newObject["primary"] = [groupchat, owner].prp()
-                    }
-                    newObject["originId"] = ""
-                    newObject["stanzaId"] = oldObject?["messageId"] as? String ?? ""
-                    newObject["archiveId"] = oldObject?["messageId"] as? String ?? ""
-                }
+                // Canonical group storage is intentionally fresh-only. Legacy
+                // group invite rows are not converted by the hard-cut contract.
             }
             if oldSchemaVersion < 11 {
                 // XMPPMessageScheduleStorageItem is a new table for pending/failed scheduled messages.
@@ -277,6 +236,15 @@ func makeRealmMigrationConfiguration(
                         : (originalSenderJid?.isNotEmpty == true ? originalSenderJid : nil)
                     newObject["associatedJid"] = conversationJid
                 }
+            }
+            if oldSchemaVersion < 14 {
+                // The canonical group tables are intentionally created empty.
+                // There is no conversion from the legacy group schema.
+            }
+            if oldSchemaVersion < 18 {
+                // Existing messages have no durable @all send intent. The new
+                // fields keep their nil/false defaults; only newly composed
+                // messages can be retried with an empty canonical <mentions/>.
             }
         },
         deleteRealmIfMigrationNeeded: false) { total, used in

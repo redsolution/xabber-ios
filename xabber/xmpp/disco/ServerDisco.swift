@@ -23,6 +23,10 @@ import RealmSwift
 import CryptoSwift
 import XMPPFramework
 
+extension Notification.Name {
+    static let groupServiceDiscoveryDidChange = Notification.Name("groupServiceDiscoveryDidChange")
+}
+
 class ServerDiscoManager: AbstractXMPPManager {
 
     enum CloudDiscoveryTerminalKind: Equatable {
@@ -77,11 +81,21 @@ class ServerDiscoManager: AbstractXMPPManager {
     var hasCachedFeatures: Bool = false
     var features: SynchronizedArray<String> = SynchronizedArray<String>()
     private let cloudDiscoveryLock = NSRecursiveLock()
+    private let groupServiceLock = NSLock()
+    private var discoveredGroupServiceJID: String?
+    private var groupServiceCandidateRanks: [String: Int] = [:]
+    private var discoveredGroupServiceRank: Int?
     private var activeCloudDiscoveryQuery: ActiveCloudDiscoveryQuery?
     private var accountOwnerCapabilityGeneration: UInt64 = 0
     private var accountOwnerCapabilityDiscovery: AccountOwnerCapabilityDiscovery?
 
     var accountOwnerCapabilityGraceInterval = ServerDiscoManager.defaultAccountOwnerCapabilityGraceInterval
+
+    var groupServiceJID: String? {
+        groupServiceLock.lock()
+        defer { groupServiceLock.unlock() }
+        return discoveredGroupServiceJID
+    }
 
     var activeCloudDiscoveryQueryIDForTesting: String? {
         cloudDiscoveryLock.lock()
@@ -118,15 +132,16 @@ class ServerDiscoManager: AbstractXMPPManager {
     }
 
     open func configure(_ xmppStream: XMPPStream) {
-        let startedCapabilityDiscovery = self.requestFeatures(xmppStream)
+        _ = self.requestFeatures(xmppStream)
         self.requestServerFeatures(xmppStream)
         let hasCachedFeatures = self.loadFeatures()
         if hasCachedFeatures {
             self.hasCachedFeatures = true
 //            AccountManager.shared.changeNewUserState(for: owner, to: .capsReceived([]))
-        } else if startedCapabilityDiscovery {
-            self.requestItems(xmppStream)
         }
+        // A group service is authoritative only when it is returned by root
+        // disco#items and advertises the canonical Groups feature.
+        requestItems(xmppStream)
     }
 
 
@@ -237,6 +252,7 @@ class ServerDiscoManager: AbstractXMPPManager {
 
     @discardableResult
     func cancelCloudDiscoveryForDisconnect() -> Bool {
+        resetGroupServiceDiscovery()
         let activeCloudDiscovery = consumeActiveCloudDiscovery(
             elementID: nil,
             terminal: .disconnect,
@@ -258,6 +274,7 @@ class ServerDiscoManager: AbstractXMPPManager {
     }
 
     func requestItems(_ xmppStream: XMPPStream) {
+        resetGroupServiceDiscovery()
         let elementId = xmppStream.generateUUID
         xmppStream.send(XMPPIQ(iqType: .get,
                                to: xmppStream.myJID?.domainJID,
@@ -314,14 +331,6 @@ class ServerDiscoManager: AbstractXMPPManager {
         completeRetryableServerCapabilitiesOnboarding(for: activeDiscovery)
         return true
     }
-//    <iq xmlns="jabber:client" lang="ru" to="igor.boldin@redsolution.com/xabber-ios-BF9ED1E2" from="notify.redsolution.com" type="result" id="DA41EFEC-DB97-42F1-BAA1-31DB09E0A438">
-//      <query xmlns="http://jabber.org/protocol/disco#info">
-//        <identity name="Notification service" type="notification" category="component"/>
-//        <feature var="http://jabber.org/protocol/disco#info"/>
-//        <feature var="http://jabber.org/protocol/disco#items"/>
-//        <feature var="urn:xabber:notify:0"/>
-//      </query>
-//    </iq>
     func readFeatures(withIQ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
             iq.iqType == .result,
@@ -380,6 +389,7 @@ class ServerDiscoManager: AbstractXMPPManager {
                 }
                 if let jid = iq.from?.bare {
                     switch true {
+                        case getGroupServiceNode(query, jid: jid): return true
                         case getNotificationServiceNode(query, jid: jid): return true
                         case getFavoritesServiceNode(query, jid: jid): return true
                         default: break
@@ -491,7 +501,11 @@ class ServerDiscoManager: AbstractXMPPManager {
             }
             return true
         case "http://jabber.org/protocol/disco#items":
-            query.elements(forName: "item").forEach { item in
+            let items = query.elements(forName: "item")
+            updateGroupServiceCandidates(
+                items.compactMap { $0.attributeStringValue(forName: "jid") }
+            )
+            items.forEach { item in
                 if let jid = item.attributeStringValue(forName: "jid") {
                     AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                         user.disco.checkItem(stream, in: jid, node: item.attributeStringValue(forName: "node"))
@@ -862,6 +876,90 @@ class ServerDiscoManager: AbstractXMPPManager {
             return true
         }
         return false
+    }
+
+    static func supportsGroupService(_ query: DDXMLElement) -> Bool {
+        query.elements(forName: "feature").contains { feature in
+            feature.attributeStringValue(forName: "var") == GroupProtocolNamespace.groups
+        }
+    }
+
+    static func orderedGroupServiceRanks(_ jids: [String]) -> [String: Int] {
+        var ranks: [String: Int] = [:]
+        for (rank, rawJID) in jids.enumerated() {
+            guard let bare = XMPPJID(string: rawJID)?.bare.lowercased(),
+                  ranks[bare] == nil else { continue }
+            ranks[bare] = rank
+        }
+        return ranks
+    }
+
+    static func shouldSelectGroupService(
+        candidateRank: Int,
+        currentRank: Int?
+    ) -> Bool {
+        currentRank.map { candidateRank < $0 } ?? true
+    }
+
+    private func getGroupServiceNode(_ query: DDXMLElement, jid: String) -> Bool {
+        guard Self.supportsGroupService(query),
+              let normalizedJID = XMPPJID(string: jid)?.bare,
+              !normalizedJID.isEmpty else {
+            return false
+        }
+        selectGroupServiceJID(normalizedJID)
+        return true
+    }
+
+    private func resetGroupServiceDiscovery() {
+        groupServiceLock.lock()
+        let didChange = discoveredGroupServiceJID != nil
+        discoveredGroupServiceJID = nil
+        discoveredGroupServiceRank = nil
+        groupServiceCandidateRanks.removeAll()
+        groupServiceLock.unlock()
+
+        publishGroupServiceChangeIfNeeded(didChange)
+    }
+
+    private func updateGroupServiceCandidates(_ jids: [String]) {
+        let ranks = Self.orderedGroupServiceRanks(jids)
+        groupServiceLock.lock()
+        groupServiceCandidateRanks = ranks
+        groupServiceLock.unlock()
+    }
+
+    private func selectGroupServiceJID(_ rawJID: String) {
+        let jid = rawJID.lowercased()
+        groupServiceLock.lock()
+        guard let rank = groupServiceCandidateRanks[jid] else {
+            groupServiceLock.unlock()
+            return
+        }
+        let shouldSelect = Self.shouldSelectGroupService(
+            candidateRank: rank,
+            currentRank: discoveredGroupServiceRank
+        )
+        let didChange = shouldSelect && discoveredGroupServiceJID != jid
+        if shouldSelect {
+            discoveredGroupServiceJID = jid
+            discoveredGroupServiceRank = rank
+        }
+        groupServiceLock.unlock()
+
+        publishGroupServiceChangeIfNeeded(didChange)
+    }
+
+    private func publishGroupServiceChangeIfNeeded(_ didChange: Bool) {
+        guard didChange else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            NotificationCenter.default.post(
+                name: .groupServiceDiscoveryDidChange,
+                object: self,
+                userInfo: ["owner": self.owner]
+            )
+        }
     }
 
     private func getFavoritesServiceNode(_ query: DDXMLElement, jid: String)-> Bool {

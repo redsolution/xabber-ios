@@ -72,10 +72,6 @@ class LastChatsStorageItem: Object {
     
     @objc dynamic var draftMessage: String? = nil
     
-//    @objc dynamic var groupchatRef: GroupChatStorageItem? = nil
-//    @objc dynamic var isGroupchat: Bool = false
-    @objc dynamic var groupchatMyId: String? = nil
-    
     @objc dynamic var isPrereaded: Bool = false
     
     @objc dynamic var pinnedPosition: Double = 0

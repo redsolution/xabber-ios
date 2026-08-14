@@ -9,15 +9,80 @@
 import Foundation
 import AVFoundation
 import UIKit
-import Realm
-import RealmSwift
 import RxSwift
 import RxCocoa
-import RxRealm
 import RxRelay
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
-import XMPPFramework.XMPPJID
+
+struct GroupchatSettingsCanonicalModel: Equatable, Sendable {
+    let name: String
+    let description: String
+    let status: String
+    let avatarURL: String?
+    let membership: GroupMembership?
+    let enabledDefaultPermissionCount: Int
+    let defaultPermissionCount: Int
+    let administratorCount: Int
+    let outgoingInviteCount: Int
+    let blockedCount: Int
+    let isActive: Bool
+    let canEditInfo: Bool
+    let canEditSettings: Bool
+    let canEditDefaultPermissions: Bool
+    let canManageAdmins: Bool
+    let canInvite: Bool
+    let canBlock: Bool
+    let canDelete: Bool
+
+    var shouldRefreshPermissions: Bool { isActive }
+
+    static func authoritativeInfoPatch(_ info: GroupInfo) -> GroupPatch {
+        GroupPatch(
+            info: .value(
+                GroupInfoPatch(
+                    name: .value(info.name),
+                    description: .value(info.description),
+                    avatar: .value(info.avatar),
+                    status: .value(info.status)
+                )
+            )
+        )
+    }
+
+    init(
+        projection: GroupRepositoryProjection,
+        outgoingInviteCount: Int,
+        blockedCount: Int
+    ) {
+        let snapshot = projection.state.snapshot
+        let defaults = projection.state.permissionSets.first { $0.scope == .defaults }
+        let selfRole = projection.selfMemberID.flatMap { projection.state.member(id: $0)?.role }
+        let capabilities = projection.capabilities
+        let active = projection.state.isActive
+
+        name = snapshot.info?.name ?? ""
+        description = snapshot.info?.description ?? ""
+        status = snapshot.info?.status ?? ""
+        avatarURL = snapshot.info?.avatar?.url
+        membership = snapshot.settings?.membership
+        enabledDefaultPermissionCount = defaults?.permissions.filter(\.status).count ?? 0
+        defaultPermissionCount = defaults?.permissions.count ?? 0
+        administratorCount = projection.state.members.filter {
+            $0.role == .owner || $0.role == .admin
+        }.count
+        self.outgoingInviteCount = outgoingInviteCount
+        self.blockedCount = blockedCount
+        isActive = active
+        canEditInfo = active && capabilities.changeGroupInfo
+        canEditSettings = active && capabilities.changeGroupSettings
+        canEditDefaultPermissions = active && capabilities.changeDefaultPermissions
+        canManageAdmins = active && capabilities.createAdmins
+        canInvite = active && capabilities.addMembers
+        canBlock = active && capabilities.blockUsers
+        canDelete = active && selfRole == .owner
+    }
+}
 
 class GroupchatSettingsViewControllerT: SimpleBaseViewController {
     
@@ -430,6 +495,25 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
     }
     
     internal var datasource: [[Datasource]] = []
+
+    private var repository: GroupRepository?
+    private var projectionObservation: GroupRepositoryObservation?
+    private var projection: GroupRepositoryProjection?
+    private var canonicalModel: GroupchatSettingsCanonicalModel?
+    private var outgoingInviteTargets: [String] = []
+    private var blockedTargets: [String] = []
+    private var refreshTask: Task<Void, Never>?
+    private var saveTask: Task<Void, Never>?
+    private var deleteTask: Task<Void, Never>?
+
+    private func canonicalRepository() throws -> GroupRepository {
+        if let repository {
+            return repository
+        }
+        let repository = GroupRepository(realm: try WRealm.safe())
+        self.repository = repository
+        return repository
+    }
     
     var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
     
@@ -466,70 +550,14 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
     override func loadDatasource() {
         super.loadDatasource()
         do {
-            let realm = try WRealm.safe()
-            guard let userCard = realm
-                .objects(GroupchatUserStorageItem.self)
-                .filter("groupchatId == %@ AND isMe == true",
-                        GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)).first else {
-                return
-            }
-            guard let groupInstance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) else {
-                return
-            }
-            self.permissions = groupInstance.defaultPermissions
-            
-            let invitedCount = realm.objects(GroupchatInvitedUsersStorageItem.self).filter("groupchatId == %@", [jid, owner].prp()).count
-            let blockedCount = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isBlocked == true", [jid, owner].prp()).count
-            
-            let adminsCount = realm.objects(GroupchatUserStorageItem.self).filter("owner == %@ AND groupchatId == %@ AND (role_ == %@ OR role_ == %@) AND isBlocked == false AND isKicked == false AND isHidden == false AND isTemporary == false AND isHidden == false", self.owner, [self.jid, self.owner].prp(), GroupchatUserStorageItem.Role.admin.rawValue, GroupchatUserStorageItem.Role.owner.rawValue).count
-            if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                self.datasource = []
-                self.storedTitle = instance.name
-                self.storedDescription = instance.descr
-                self.datasource.append([
-                    Datasource(kind: .textField, title: "Name", key: "title", value: instance.name),
-                    Datasource(kind: .multilineTextField, title: "Description", key: "description", value: instance.descr)
-                ])
-                if userCard.changeGroupSettings {
-                    self.datasource.append([
-                        Datasource(kind: .item, title: "Group type", subtitle: nil, icon: "custom.person.2.square.fill", key: "membership", value: instance.membership.localized ?? ""),
-                    ])
-                }
-                var permDatasource: [Datasource] = []
-                if userCard.changeDefaultPermissions {
-                    permDatasource.append(Datasource(kind: .item, title: "Permissions", subtitle: nil, icon: "custom.key.square.fill", key: "permissions", value: "\(self.permissions.filter({ $0.status}).count) / \(self.permissions.count)"))
-                }
-                if userCard.createAdmins {
-                    permDatasource.append(Datasource(kind: .item, title: "Administrators", subtitle: nil, icon: "star.square.fill", key: "admins", value: "\(adminsCount)"))
-                }
-//                if userCard.changePermissions {
-//                    permDatasource.append(Datasource(kind: .item, title: "Restricted users", subtitle: nil, icon: "custom.exclamationmark.octagon.square.fill", key: "restrited", value: ""))
-//                }
-                if permDatasource.isNotEmpty {
-                    self.datasource.append(permDatasource)
-                }
-                
-                var membersDatasource: [Datasource] = []
-                
-//                if userCard.addMembers {
-//                    if groupInstance.invited.count > 0 {
-                        membersDatasource.append(Datasource(kind: .item, title: "Invitations", subtitle: nil, icon: "xabber.invite.square.fill", key: "invites", value: "\(invitedCount)"))
-//                    }
-//                }
-//                if userCard.blockUsers {
-                    membersDatasource.append(Datasource(kind: .item, title: "Blocked", subtitle: nil, icon: "custom.nosign.square.fill", key: "block", value: "\(blockedCount)"))
-//                }
-                self.datasource.append(membersDatasource)
-                if userCard.isOwner {
-                    self.datasource.append([
-                        Datasource(kind: .delete, title: "Delete  group", subtitle: nil, icon: nil, key: "delete", value: "")
-                    ])
-                }
-            }
+            let repository = try canonicalRepository()
+            apply(
+                try repository.projection(owner: owner, groupJID: jid),
+                force: true
+            )
         } catch {
             DDLogDebug("GroupchatSettingsViewController: \(#function). \(error.localizedDescription)")
         }
-        
     }
     
     override func setupSubviews() {
@@ -537,7 +565,6 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
         self.view.addSubview(self.tableView)
         self.tableView.fillSuperviewWithOffset(top: -24, bottom: 0, left: 0, right: 0)
         self.tableView.tableHeaderView = self.headerView
-        self.headerView.avatarButtonTouchUpCallback = self.onChangeAvatar
         NSLayoutConstraint.activate([
             self.headerView.widthAnchor.constraint(equalTo: self.tableView.widthAnchor),
             self.headerView.heightAnchor.constraint(equalToConstant: 176)
@@ -553,65 +580,33 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
         self.saveBarButton.action = #selector(onSaveButtonTouchUpInside)
         self.saveBarButton.target = self
     }
-    
-    var permissions: [GroupchatPermission] = []
-    
+
     override func onAppear() {
         super.onAppear()
-        
-        do {
-            let realm = try WRealm.safe()
-            if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                self.headerView.configure(avatarUrl: instance.avatarUrl, username: instance.displayName, jid: self.jid, owner: self.owner)
-            }
-        } catch {
-            DDLogDebug("GroupchatSettingsViewController: \(#function). \(error.localizedDescription)")
-        }
-        
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            session.groupchat?.requestPermissionsEachUser(stream, groupchat: self.jid)
-            session.groupchat?.getDefaultPermissions(stream, groupchat: self.jid)
-            session.groupchat?.getNewbiesPermissions(stream, groupchat: self.jid)
-//            session
-        } fail: {
-            AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                user.groupchats.requestPermissionsEachUser(stream, groupchat: self.jid)
-                user.groupchats.getDefaultPermissions(stream, groupchat: self.jid)
-                user.groupchats.getNewbiesPermissions(stream, groupchat: self.jid)
-            }
-        }
+        refreshAuthoritativeState()
     }
     
     internal var changesObserver: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     
     var titleObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     var descriptionObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
+    var statusObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     
     var storedTitle: String? = nil
     var storedDescription: String? = nil
-    
-    
+    var storedStatus: String? = nil
+
     override func subscribe() {
         super.subscribe()
-        do {
-            let realm = try WRealm.safe()
-            if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                self.storedTitle = instance.name
-                self.storedDescription = instance.descr
-                self.titleObserver.accept(self.storedTitle)
-                self.descriptionObserver.accept(self.storedDescription)
-            }
-        } catch {
-            DDLogDebug("")
-        }
         self.titleObserver
             .asObservable()
             .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
-            .subscribe { value in
+            .subscribe { [weak self] value in
+                guard let self else { return }
                 if value != self.storedTitle {
                     self.changesObserver.accept(true)
                 } else {
-                    self.changesObserver.accept(self.storedDescription != self.descriptionObserver.value)
+                    self.updateChangesState()
                 }
             }
             .disposed(by: self.bag)
@@ -620,19 +615,35 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
         self.descriptionObserver
             .asObservable()
             .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
-            .subscribe { value in
+            .subscribe { [weak self] value in
+                guard let self else { return }
                 if value != self.storedDescription {
                     self.changesObserver.accept(true)
                 } else {
-                    self.changesObserver.accept(self.storedTitle != self.titleObserver.value)
+                    self.updateChangesState()
+                }
+            }
+            .disposed(by: self.bag)
+
+        self.statusObserver
+            .asObservable()
+            .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
+            .subscribe { [weak self] value in
+                guard let self else { return }
+                if value != self.storedStatus {
+                    self.changesObserver.accept(true)
+                } else {
+                    self.updateChangesState()
                 }
             }
             .disposed(by: self.bag)
         
         self.changesObserver
             .asObservable()
+            .distinctUntilChanged()
             .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
-            .subscribe { value in
+            .subscribe { [weak self] value in
+                guard let self else { return }
                 if value {
                     self.navigationItem.setLeftBarButton(self.cancelBarButton, animated: true)
                     self.navigationItem.setRightBarButton(self.saveBarButton, animated: true)
@@ -642,120 +653,350 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
                 }
             }
             .disposed(by: self.bag)
-        
-        do {
-            let realm = try WRealm.safe()
-            let collection = realm.objects(GroupChatStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
-            Observable
-                .collection(from: collection, synchronousStart: true)
-                .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
-                .subscribe { results in
-                    DispatchQueue.main.async {
-                        if !self.isFirstResponder {
-                            self.loadDatasource()
-                            self.tableView.reloadData()
-                        }
-                    }
-                }
-                .disposed(by: self.bag)
 
+        do {
+            let repository = try canonicalRepository()
+            projectionObservation?.invalidate()
+            projectionObservation = try repository.observeProjection(
+                owner: owner,
+                groupJID: jid
+            ) { [weak self] projection in
+                DispatchQueue.main.async {
+                    self?.apply(projection, force: false)
+                }
+            }
         } catch {
-            
+            DDLogDebug("GroupchatSettingsViewController: \(#function). \(error.localizedDescription)")
         }
     }
-    
+
+    override func unsubscribe() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        saveTask?.cancel()
+        saveTask = nil
+        deleteTask?.cancel()
+        deleteTask = nil
+        projectionObservation?.invalidate()
+        projectionObservation = nil
+        repository = nil
+        super.unsubscribe()
+    }
+
+    deinit {
+        refreshTask?.cancel()
+        saveTask?.cancel()
+        deleteTask?.cancel()
+        projectionObservation?.invalidate()
+    }
+
     @objc
     internal func onCancelButtonTouchUpInside(_ sender: AnyObject) {
-        self.changesObserver.accept(false)
-        self.tableView.reconfigureRows(at: self.datasource[0].enumerated().compactMap({ return IndexPath(row: $0.offset, section: 0) }))
+        if let projection {
+            apply(projection, force: true)
+        } else {
+            titleObserver.accept(storedTitle)
+            descriptionObserver.accept(storedDescription)
+            statusObserver.accept(storedStatus)
+            changesObserver.accept(false)
+        }
     }
-    
+
     @objc
     internal func onSaveButtonTouchUpInside(_ sender: AnyObject) {
-//        self.resignFirstResponder()
-        self.datasource[0].enumerated().compactMap({ return IndexPath(row: $0.offset, section: 0) }).compactMap({ self.tableView.cellForRow(at: $0) as? SettingsTextFieldCell}).forEach {
-            cell in
-            cell.field.resignFirstResponder()
+        guard saveTask == nil,
+              canonicalModel?.canEditInfo == true,
+              let account = AccountManager.shared.find(for: owner) else {
+            return
         }
-        self.changesObserver.accept(false)
-        if let index = self.datasource[0].firstIndex(where: { $0.key == "title" }) {
-            self.datasource[0][index].value = self.titleObserver.value ?? ""
-        }
-        if let index = self.datasource[0].firstIndex(where: { $0.key == "description" }) {
-            self.datasource[0][index].value = self.descriptionObserver.value ?? ""
-        }
-        self.tableView.reconfigureRows(at: self.datasource[0].enumerated().compactMap({ return IndexPath(row: $0.offset, section: 0) }))
-        
-        // V3: update name/description via <info xmlns='...'>
-        let info: [String: Any] = [
-            "name": self.titleObserver.value ?? "",
-            "description": self.descriptionObserver.value ?? ""
-        ]
+        datasource.first?.enumerated().compactMap {
+            tableView.cellForRow(at: IndexPath(row: $0.offset, section: 0)) as? SettingsTextFieldCell
+        }.forEach { $0.field.resignFirstResponder() }
 
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            session.groupchat?.updateInfo(stream, groupchat: self.jid, info: info) { error in
-                do {
-                    let realm = try WRealm.safe()
-                    if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                        try realm.write {
-                            instance.name = self.titleObserver.value ?? ""
-                            instance.descr = self.descriptionObserver.value ?? ""
-                            realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner))?.customUsername = self.titleObserver.value ?? ""
-                        }
-                    }
-                } catch {
-                    DDLogDebug("")
-                }
-                DispatchQueue.main.async {self.storedTitle = self.titleObserver.value
-                    self.storedDescription = self.descriptionObserver.value
-                    if let index = self.datasource[0].firstIndex(where: { $0.key == "title" }) {
-                        self.datasource[0][index].value = self.titleObserver.value ?? ""
-                    }
-                    if let index = self.datasource[0].firstIndex(where: { $0.key == "description" }) {
-                        self.datasource[0][index].value = self.descriptionObserver.value ?? ""
-                    }
-                    if let error {
-                        ToastPresenter().presentError(message: "Error: \(error)")
-                    } else {
-                        ToastPresenter().presentSuccess(message: "Info updated")
-                    }
-                }
+        let requestedInfo = GroupInfo(
+            name: titleObserver.value ?? "",
+            description: descriptionObserver.value ?? "",
+            status: statusObserver.value ?? ""
+        )
+        tableView.isUserInteractionEnabled = false
+        saveBarButton.isEnabled = false
+        saveTask = Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            defer {
+                self.tableView.isUserInteractionEnabled = true
+                self.saveBarButton.isEnabled = true
+                self.saveTask = nil
             }
-        } fail: {
-            AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                user.groupchats.updateInfo(stream, groupchat: self.jid, info: info) { error in
-                    do {
-                        let realm = try WRealm.safe()
-                        if let instance = realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: GroupChatStorageItem.genPrimary(jid: self.jid, owner: self.owner)) {
-                            try realm.write {
-                                instance.name = self.titleObserver.value ?? ""
-                                instance.descr = self.descriptionObserver.value ?? ""
-                                realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.jid, owner: self.owner))?.customUsername = self.titleObserver.value ?? ""
-                            }
-                        }
-                    } catch {
-                        DDLogDebug("")
-                    }
-                    DispatchQueue.main.async {
-                        self.storedTitle = self.titleObserver.value
-                        self.storedDescription = self.descriptionObserver.value
-                        if let index = self.datasource[0].firstIndex(where: { $0.key == "title" }) {
-                            self.datasource[0][index].value = self.titleObserver.value ?? ""
-                        }
-                        if let index = self.datasource[0].firstIndex(where: { $0.key == "description" }) {
-                            self.datasource[0][index].value = self.descriptionObserver.value ?? ""
-                        }
-                        if let error {
-                            ToastPresenter().presentError(message: "Error: \(error)")
-                        } else {
-                            ToastPresenter().presentSuccess(message: "Info updated")
-                        }
-                    }
-                }
+            do {
+                let authoritative = try await account.groupchatService.updateInfo(
+                    groupJID: self.jid,
+                    info: requestedInfo
+                )
+                let repository = try self.canonicalRepository()
+                let patch = GroupchatSettingsCanonicalModel.authoritativeInfoPatch(authoritative)
+                try repository.applyPatch(patch, owner: self.owner, groupJID: self.jid)
+                let projection = try repository.projection(owner: self.owner, groupJID: self.jid)
+                self.apply(projection, force: true)
+                ToastPresenter().presentSuccess(message: "Info updated")
+            } catch is CancellationError {
+                return
+            } catch {
+                ToastPresenter().presentError(message: "Error: \(error.localizedDescription)")
             }
         }
-        
-//        self.navigationController?.popViewController(animated: true)
+    }
+
+    private func apply(_ projection: GroupRepositoryProjection, force: Bool) {
+        self.projection = projection
+        let model = GroupchatSettingsCanonicalModel(
+            projection: projection,
+            outgoingInviteCount: outgoingInviteTargets.count,
+            blockedCount: blockedTargets.count
+        )
+        canonicalModel = model
+
+        let shouldReload = force || !changesObserver.value
+        if shouldReload {
+            storedTitle = model.name
+            storedDescription = model.description
+            storedStatus = model.status
+            titleObserver.accept(model.name)
+            descriptionObserver.accept(model.description)
+            statusObserver.accept(model.status)
+            changesObserver.accept(false)
+            datasource = makeDatasource(model)
+        }
+
+        headerView.configure(
+            avatarUrl: model.avatarURL,
+            username: model.name.isEmpty ? jid : model.name,
+            jid: jid,
+            owner: owner
+        )
+        headerView.avatarButtonTouchUpCallback = model.canEditInfo ? { [weak self] in
+            self?.onChangeAvatar()
+        } : nil
+        headerView.imageButton.isEnabled = model.canEditInfo
+        headerView.actionButton.isEnabled = model.canEditInfo
+        headerView.actionButton.isHidden = !model.canEditInfo
+        if shouldReload {
+            tableView.reloadData()
+        }
+    }
+
+    private func makeDatasource(_ model: GroupchatSettingsCanonicalModel) -> [[Datasource]] {
+        let editing = changesObserver.value
+        var sections: [[Datasource]] = [[
+            Datasource(
+                kind: .textField,
+                title: "Name",
+                key: "title",
+                value: editing ? (titleObserver.value ?? "") : model.name
+            ),
+            Datasource(
+                kind: .multilineTextField,
+                title: "Description",
+                key: "description",
+                value: editing ? (descriptionObserver.value ?? "") : model.description
+            ),
+            Datasource(
+                kind: .textField,
+                title: "Status".localizeString(id: "groupchat_status", arguments: []),
+                key: "status",
+                value: editing ? (statusObserver.value ?? "") : model.status
+            )
+        ]]
+
+        if model.canEditSettings {
+            sections.append([
+                Datasource(
+                    kind: .item,
+                    title: "Group type",
+                    icon: "custom.person.2.square.fill",
+                    key: "membership",
+                    value: membershipTitle(model.membership)
+                )
+            ])
+        }
+
+        var administration: [Datasource] = []
+        if model.canEditDefaultPermissions {
+            administration.append(
+                Datasource(
+                    kind: .item,
+                    title: "Permissions",
+                    icon: "custom.key.square.fill",
+                    key: "permissions",
+                    value: "\(model.enabledDefaultPermissionCount) / \(model.defaultPermissionCount)"
+                )
+            )
+        }
+        if model.canManageAdmins {
+            administration.append(
+                Datasource(
+                    kind: .item,
+                    title: "Administrators",
+                    icon: "star.square.fill",
+                    key: "admins",
+                    value: "\(model.administratorCount)"
+                )
+            )
+        }
+        if !administration.isEmpty {
+            sections.append(administration)
+        }
+
+        var membershipActions: [Datasource] = []
+        if model.canInvite {
+            membershipActions.append(
+                Datasource(
+                    kind: .item,
+                    title: "Invitations",
+                    icon: "xabber.invite.square.fill",
+                    key: "invites",
+                    value: "\(model.outgoingInviteCount)"
+                )
+            )
+        }
+        if model.canBlock {
+            membershipActions.append(
+                Datasource(
+                    kind: .item,
+                    title: "Blocked",
+                    icon: "custom.nosign.square.fill",
+                    key: "block",
+                    value: "\(model.blockedCount)"
+                )
+            )
+        }
+        if !membershipActions.isEmpty {
+            sections.append(membershipActions)
+        }
+
+        if model.canDelete {
+            sections.append([
+                Datasource(
+                    kind: .delete,
+                    title: "Delete group",
+                    key: "delete",
+                    value: ""
+                )
+            ])
+        }
+        return sections
+    }
+
+    private func membershipTitle(_ membership: GroupMembership?) -> String {
+        switch membership {
+        case .open:
+            return "Open".localizeString(id: "groupchat_membership_type_open", arguments: [])
+        case .privateGroup:
+            return "Private".localizeString(id: "groupchat_membership_type_private", arguments: [])
+        case nil:
+            return ""
+        }
+    }
+
+    private func refreshAuthoritativeState() {
+        guard refreshTask == nil,
+              canonicalModel?.shouldRefreshPermissions == true,
+              let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+        refreshTask = Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            defer { self.refreshTask = nil }
+            do {
+                async let snapshotRequest = account.groupchatService.refreshGroup(groupJID: self.jid)
+                async let membersRequest = account.groupchatService.refreshMembers(groupJID: self.jid)
+                async let invitesRequest = account.groupchatService.refreshInvites(groupJID: self.jid)
+                async let blocklistRequest = account.groupchatService.refreshBlocklist(groupJID: self.jid)
+                let (snapshot, members, invites, blocklist) = try await (
+                    snapshotRequest,
+                    membersRequest,
+                    invitesRequest,
+                    blocklistRequest
+                )
+                let repository = try self.canonicalRepository()
+                try repository.applySnapshot(snapshot, owner: self.owner, groupJID: self.jid)
+                try repository.replaceMembers(members, owner: self.owner, groupJID: self.jid)
+                _ = try repository.replaceOutgoingInvites(
+                    owner: self.owner,
+                    groupJID: self.jid,
+                    targets: invites
+                )
+                self.outgoingInviteTargets = invites
+                self.blockedTargets = blocklist
+
+                let activeProjection = try repository.projection(owner: self.owner, groupJID: self.jid)
+                self.apply(activeProjection, force: false)
+                guard activeProjection.state.selfSubscription == .both else { return }
+
+                async let defaultsRequest = account.groupchatService.getPermissions(
+                    groupJID: self.jid,
+                    scope: GroupPermissionScope.defaults
+                )
+                async let newbiesRequest = account.groupchatService.getPermissions(
+                    groupJID: self.jid,
+                    scope: GroupPermissionScope.newbies
+                )
+                let (defaults, newbies) = try await (defaultsRequest, newbiesRequest)
+                try repository.replacePermissionSet(defaults, owner: self.owner, groupJID: self.jid)
+                try repository.replacePermissionSet(newbies, owner: self.owner, groupJID: self.jid)
+                if let selfMemberID = activeProjection.selfMemberID {
+                    let direct = try await account.groupchatService.getPermissions(
+                        groupJID: self.jid,
+                        scope: GroupPermissionScope.direct,
+                        targetMemberID: selfMemberID
+                    )
+                    try repository.replacePermissionSet(direct, owner: self.owner, groupJID: self.jid)
+                }
+                self.apply(
+                    try repository.projection(owner: self.owner, groupJID: self.jid),
+                    force: false
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                DDLogDebug("GroupchatSettingsViewController: \(#function). \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func confirmDelete() {
+        guard canonicalModel?.canDelete == true else { return }
+        let alert = UIAlertController(
+            title: "Delete group",
+            message: "Deleting this group removes it for every member.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
+            self?.deleteGroup()
+        })
+        present(alert, animated: true)
+    }
+
+    private func deleteGroup() {
+        guard deleteTask == nil,
+              canonicalModel?.canDelete == true,
+              let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+        deleteTask = Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            defer { self.deleteTask = nil }
+            do {
+                try await account.groupchatService.delete(groupJID: self.jid)
+                let repository = try self.canonicalRepository()
+                try repository.recordDeletion(owner: self.owner, groupJID: self.jid)
+                self.navigationController?.popViewController(animated: true)
+            } catch is CancellationError {
+                return
+            } catch {
+                ToastPresenter().presentError(message: "Error: \(error.localizedDescription)")
+            }
+        }
     }
 
 }
@@ -772,6 +1013,7 @@ extension GroupchatSettingsViewControllerT: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
         let item = self.datasource[indexPath.section][indexPath.row]
         switch item.key {
             case "membership":
@@ -829,6 +1071,8 @@ extension GroupchatSettingsViewControllerT: UITableViewDelegate {
                 vc.leftMenuDelegate = self.leftMenuDelegate
                 
                 self.navigationController?.pushViewController(vc, animated: true)
+            case "delete":
+                confirmDelete()
             default:
                 break
         }
@@ -845,15 +1089,25 @@ extension GroupchatSettingsViewControllerT: UITableViewDataSource {
     }
     
     public func onTextFieldDidChange(key: String, value: String?) {
-//        self.
         switch key {
             case "title":
                 self.titleObserver.accept(value)
             case "description":
                 self.descriptionObserver.accept(value)
+            case "status":
+                self.statusObserver.accept(value)
             default:
                 break
         }
+        updateChangesState()
+    }
+
+    private func updateChangesState() {
+        changesObserver.accept(
+            titleObserver.value != storedTitle
+                || descriptionObserver.value != storedDescription
+                || statusObserver.value != storedStatus
+        )
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -874,7 +1128,8 @@ extension GroupchatSettingsViewControllerT: UITableViewDataSource {
                 }
                 
                 cell.configure(item.title, value: item.value, key: item.key)
-                cell.callback = self.onTextFieldDidChange
+                cell.field.isEnabled = canonicalModel?.canEditInfo == true
+                cell.callback = canonicalModel?.canEditInfo == true ? self.onTextFieldDidChange : nil
                 cell.selectionStyle = .none
                 
                 return cell
@@ -884,7 +1139,8 @@ extension GroupchatSettingsViewControllerT: UITableViewDataSource {
                 }
                 
                 cell.configure(item.title, value: item.value, key: item.key)
-                cell.callback = self.onTextFieldDidChange
+                cell.field.isEnabled = canonicalModel?.canEditInfo == true
+                cell.callback = canonicalModel?.canEditInfo == true ? self.onTextFieldDidChange : nil
                 cell.selectionStyle = .none
                 
                 return cell
@@ -916,8 +1172,7 @@ extension GroupchatSettingsViewControllerT {
         let items = [
             ActionSheetPresenter.Item(destructive: false, title: "Use emoji".localizeString(id: "account_emoji_profile_image_button", arguments: []), value: "emoji"),
             ActionSheetPresenter.Item(destructive: false, title: "Open gallery".localizeString(id: "account_open_gallery", arguments: []), value: "gallery"),
-            ActionSheetPresenter.Item(destructive: false, title: "Open camera".localizeString(id: "account_open_camera", arguments: []), value: "camera"),
-            ActionSheetPresenter.Item(destructive: true, title: "Clear avatar".localizeString(id: "account_clear_avatar", arguments: []), value: "clear")
+            ActionSheetPresenter.Item(destructive: false, title: "Open camera".localizeString(id: "account_open_camera", arguments: []), value: "camera")
         ]
         ActionSheetPresenter().present(in: self,
                                        title: nil,
@@ -929,7 +1184,6 @@ extension GroupchatSettingsViewControllerT {
                                         case "camera": self.onOpenCamera()
                                         case "gallery": self.onOpenGallery()
                                         case "emoji": self.onOpenEmojiPicker()
-                                        case "clear": self.onClearAvatar()
                                         default: break
                                         }
         }
@@ -1002,53 +1256,20 @@ extension GroupchatSettingsViewControllerT {
         openGallery()
     }
     
-    func onClearAvatar() {
-//        do {
-            self.beforeSettingAvatar()
-
-//            let realm = try WRealm.safe()
-            
-            if owner == "" {
-                owner = jid
-            }
-            
-//            guard let avatar = realm.object(ofType: AvatarStorageItem.self,
-//                                            forPrimaryKey: [jid, owner].prp()),
-//                  let url = avatar.uploadUrl,
-//                  let previousHash = avatar.imageHash,
-//                  let uuidFirstPart = UUID().uuidString.split(separator: "_").first else { return }
-//            let hash = previousHash + "#" + uuidFirstPart
-//
-//            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-//                session.avatarUploader?.sendClearMetadata(stream) {
-//                    self.afterSettingAvatar(image: nil)
-//                }
-//            }, fail: {
-                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                    user.avatarUploader.sendClearMetadata(
-                        stream,
-                        to: XMPPJID(string: self.jid)
-                    ) {
-                        self.afterSettingAvatar(image: nil)
-                    }
-                })
-//            })
-//        } catch {
-//            DDLogDebug("AccountInfoViewController+InfoScreenHeaderButtonDelegate: \(#function). \(error.localizedDescription)")
-//        }
-    }
-    
     func onUpdateAvatar(_ image: UIImage?) {
-        
+        guard canonicalModel?.canEditInfo == true,
+              let account = AccountManager.shared.find(for: owner),
+              let image else {
+            return
+        }
         self.beforeSettingAvatar()
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            
-            session.avatarUploader?.setGrpoupAvatar(groupchat: self.jid, image: image, successCallback: {
+        account.action { [weak self] user, _ in
+            guard let self else { return }
+            user.avatarUploader.setGroupAvatar(groupchat: self.jid, image: image, successCallback: {
                 self.afterSettingAvatar(image: image)
-                session.cloudStorage?.getStats()
-            }, failureCallback: {
-                status, error in
-                self.afterSettingAvatar(image: nil)
+                user.cloudStorage.getStats()
+            }, failureCallback: { _, _ in
+                self.afterAvatarUploadFailure()
                 DispatchQueue.main.async {
                     let errorMessage = "Unable to send file: out of Cloud Storage"//item.messageError
                     let itemsWithQuota = [
@@ -1075,45 +1296,7 @@ extension GroupchatSettingsViewControllerT {
             }, queuedCallback: {
                 self.afterSettingAvatar(image: image)
             })
-        } fail: {
-            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                self.beforeSettingAvatar()
-                user.avatarUploader.setGrpoupAvatar(groupchat: self.jid, image: image, successCallback: {
-                    self.afterSettingAvatar(image: image)
-                    user.cloudStorage.getStats()
-                }, failureCallback: {
-                    status, error in
-                    self.afterSettingAvatar(image: nil)
-                    DispatchQueue.main.async {
-                        let errorMessage = "Unable to send file: out of Cloud Storage"//item.messageError
-                        let itemsWithQuota = [
-                            ActionSheetPresenter.Item(destructive: false, title: "Manage Cloud Storage", value: "quota")
-                        ]
-                        ActionSheetPresenter().present(
-                            in: self,
-                            title: "Avatar upload error",
-                            message: errorMessage,
-                            cancel: "Cancel",
-                            values: itemsWithQuota,
-                            animated: true) { value in
-                                switch value {
-                                    case "quota":
-                                        let vc = CloudStorageViewController()
-                                        vc.configure(jid: self.owner)
-                                        self.navigationController?.pushViewController(vc, animated: true)
-                                    default:
-                                        break
-                                }
-                            }
-                    }
-                    DDLogDebug("AccountInfoVC, InfoScreenButtonDelegate: \(#function). Fail to set avatar.")
-                }, queuedCallback: {
-                    self.afterSettingAvatar(image: image)
-                })
-            })
         }
-
-        
     }
     
     func beforeSettingAvatar() {
@@ -1122,14 +1305,26 @@ extension GroupchatSettingsViewControllerT {
         }
     }
     
-    func afterSettingAvatar(image: UIImage?) {
+    func afterSettingAvatar(image: UIImage) {
         DispatchQueue.main.async {
             self.headerView.imageButton.hideLoading()
-            if image == nil {
-                self.headerView.imageButton.setImage(UIImageView.getDefaultAvatar(for: self.jid, owner: self.jid, size: 256), for: .normal)
-            } else {
-                self.headerView.imageButton.setImage(image?.resize(targetSize: CGSize(square: 128)), for: .normal)
-            }
+            self.headerView.imageButton.setImage(
+                image.resize(targetSize: CGSize(square: 128)),
+                for: .normal
+            )
+        }
+    }
+
+    func afterAvatarUploadFailure() {
+        DispatchQueue.main.async {
+            self.headerView.imageButton.hideLoading()
+            guard let model = self.canonicalModel else { return }
+            self.headerView.configure(
+                avatarUrl: model.avatarURL,
+                username: model.name.isEmpty ? self.jid : model.name,
+                jid: self.jid,
+                owner: self.owner
+            )
         }
     }
 }

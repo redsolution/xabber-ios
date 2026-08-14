@@ -101,18 +101,18 @@ final class ChatSearchResultPresentationTests: XCTestCase {
             archivedId: "1",
             conversationType: .group
         )
-        let nicknameCard = GroupchatUserStorageItem()
-        nicknameCard.nickname = "Group Nickname"
-        nicknameItem.groupchatCard = nicknameCard
+        appendGroupAuthor(
+            to: nicknameItem,
+            id: "nickname-author",
+            nickname: "Group Nickname"
+        )
 
         let authorItem = makeMessage(
             primary: "author",
             archivedId: "2",
             conversationType: .group
         )
-        let authorCard = GroupchatUserStorageItem()
-        authorCard.userId = "author-id"
-        authorItem.groupchatCard = authorCard
+        appendGroupAuthor(to: authorItem, id: "author-id")
 
         let context = mappingContext(conversationType: .group)
         let nicknameResult = try XCTUnwrap(ChatSearchResultMapper.map(nicknameItem, context: context))
@@ -120,6 +120,25 @@ final class ChatSearchResultPresentationTests: XCTestCase {
 
         XCTAssertEqual(nicknameResult.senderTitle, "Group Nickname")
         XCTAssertEqual(authorResult.senderTitle, "author-id")
+    }
+
+    private func appendGroupAuthor(
+        to message: MessageStorageItem,
+        id: String,
+        nickname: String? = nil,
+        avatarURL: String? = nil
+    ) {
+        let reference = MessageReferenceStorageItem()
+        reference.primary = "\(message.primary)-group-author"
+        reference.owner = message.owner
+        reference.jid = message.opponent
+        reference.messageId = message.primary
+        reference.kind = .groupchat
+        var metadata: [String: Any] = ["id": id]
+        metadata["nickname"] = nickname ?? ""
+        metadata["avatar_uri"] = avatarURL ?? ""
+        reference.metadata = metadata
+        message.references.append(reference)
     }
 
     func testSnippetIsDerivedWithoutMutatingOriginalBody() throws {

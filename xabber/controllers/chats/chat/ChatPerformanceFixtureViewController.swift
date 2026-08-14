@@ -3783,7 +3783,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                     chat.runtimeUnreadCount = 0
                     chat.syncUnreadAfterId = nil
                     chat.lastReadId = nil
-                    chat.groupchatMyId = p13CurrentMemberId
                     chat.mentionId = openArchiveId(
                         plan.p13DeletedMentionOrdinal
                     )
@@ -3820,7 +3819,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                     chat.mentionId = openArchiveId(
                         plan.p14ExplicitMentionOrdinal
                     )
-                    chat.groupchatMyId = p14CurrentMemberId
                 }
             } else if plan.scenario == .confirmedEmpty {
                 archiveState.lastSnapshotArchiveId = nil
@@ -3829,6 +3827,28 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             }
             archiveState.updatedAt = Date()
             realm.add(chat, update: .modified)
+
+            let canonicalSelfMemberID: String?
+            switch plan.scenario {
+            case .mentionDeletedAdvance:
+                canonicalSelfMemberID = p13CurrentMemberId
+            case .lastChatsSeededMentionExact:
+                canonicalSelfMemberID = p14CurrentMemberId
+            default:
+                canonicalSelfMemberID = nil
+            }
+            if let canonicalSelfMemberID {
+                let membership = GroupSelfMembershipStorageItem()
+                membership.primary = GroupStorageKey.groupPrimary(
+                    owner: owner,
+                    groupJID: jid
+                )
+                membership.owner = GroupStorageKey.bareJID(owner)
+                membership.groupJID = GroupStorageKey.bareJID(jid)
+                membership.stateRaw = GroupSelfMembershipState.both.rawValue
+                membership.memberID = canonicalSelfMemberID
+                realm.add(membership, update: .modified)
+            }
 
             if plan.scenario == .mentionDeletedAdvance {
                 let deletedOrdinal = plan.p13DeletedMentionOrdinal
@@ -3869,9 +3889,21 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                 unrelatedChat.isAllHistoryLoaded = true
                 unrelatedChat.syncSnapshotLastArchiveId =
                     unrelatedMessage.archivedId
-                unrelatedChat.groupchatMyId = p13CurrentMemberId
                 unrelatedChat.mentionId = unrelatedMessage.archivedId
                 realm.add(unrelatedChat, update: .modified)
+
+                let unrelatedMembership = GroupSelfMembershipStorageItem()
+                unrelatedMembership.primary = GroupStorageKey.groupPrimary(
+                    owner: owner,
+                    groupJID: p13UnrelatedGroupJidForTesting
+                )
+                unrelatedMembership.owner = GroupStorageKey.bareJID(owner)
+                unrelatedMembership.groupJID = GroupStorageKey.bareJID(
+                    p13UnrelatedGroupJidForTesting
+                )
+                unrelatedMembership.stateRaw = GroupSelfMembershipState.both.rawValue
+                unrelatedMembership.memberID = p13CurrentMemberId
+                realm.add(unrelatedMembership, update: .modified)
 
                 let unrelatedArchive =
                     RegularChatArchiveSyncStateStorageItem.ensure(

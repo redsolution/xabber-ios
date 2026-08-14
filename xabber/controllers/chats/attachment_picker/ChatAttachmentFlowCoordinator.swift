@@ -546,6 +546,7 @@ final class ChatAttachmentContactSourceDataSource: ChatAttachmentContactSourceDa
     func loadItems(owner: String, searchQuery: String) -> [ChatAttachmentContactListItem] {
         do {
             let realm = try WRealm.safe()
+            let groupRepository = GroupRepository(realm: realm)
             let records = realm
                 .objects(RosterStorageItem.self)
                 .filter("owner == %@", owner)
@@ -557,14 +558,21 @@ final class ChatAttachmentContactSourceDataSource: ChatAttachmentContactSourceDa
                         jid: rosterItem.jid
                     )
                     let primaryResource = rosterItem.getPrimaryResource()
-                    let groupItem = realm.object(
-                        ofType: GroupChatStorageItem.self,
-                        forPrimaryKey: GroupChatStorageItem.genPrimary(jid: rosterItem.jid, owner: owner)
+                    let activeGroup = try? groupRepository.activeGroup(
+                        owner: owner,
+                        groupJID: rosterItem.jid
                     )
-                    let entity = Self.entity(primaryResource: primaryResource, groupItem: groupItem)
+                    let entity = Self.entity(
+                        primaryResource: primaryResource,
+                        activeGroup: activeGroup
+                    )
                     let displayTitle = entity == .contact
                         ? rosterItem.displayName
-                        : (ChatAttachmentContactText.nonEmpty(groupItem?.name) ?? rosterItem.displayName)
+                        : (
+                            ChatAttachmentContactText.nonEmpty(
+                                activeGroup?.projection.state.snapshot.info?.name
+                            ) ?? rosterItem.displayName
+                        )
                     return ChatAttachmentContactRosterRecord(
                         owner: rosterItem.owner,
                         jid: rosterItem.jid,
@@ -593,14 +601,12 @@ final class ChatAttachmentContactSourceDataSource: ChatAttachmentContactSourceDa
 
     private static func entity(
         primaryResource: ResourceStorageItem?,
-        groupItem: GroupChatStorageItem?
+        activeGroup: GroupRepositoryListRecord?
     ) -> MessageContactEntityKind {
-        if let groupItem {
-            guard groupItem.isDeleted == false,
-                  groupItem.peerToPeer == false else {
-                return .contact
-            }
-            return groupItem.privacy == .incognito ? .incognito : .groupchat
+        if let activeGroup {
+            return activeGroup.projection.state.snapshot.privacy == .incognito
+                ? .incognito
+                : .groupchat
         }
         switch primaryResource?.entity {
         case .groupchat:

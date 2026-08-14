@@ -200,11 +200,6 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
         return false
     }
     
-    /*
-     <message xmlns="jabber:client" to="igor.boldin@redsolution.com/xabber-ios-3F02F22F" from="test-group-ios-301020-01@xmppdev01.xabber.com/Groupchat" type="headline" id="3453128220472810953">
-       <retract-message xmlns="https://xabber.com/protocol/rewrite#notify" by="igor.boldin@redsolution.com" symmetric="true" conversation="test-group-ios-301020-01@xmppdev01.xabber.com" version="3" id="1604396219156505"/>
-     </message>
-     */
     //TODO bring to rrr
     internal func readRealtimeNotification(_ message: XMPPMessage) -> Bool {
         guard let retractElement = message.element(forName: "retract-message",

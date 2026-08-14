@@ -1,32 +1,8 @@
-//
-//
-//
-//  This program is free software; you can redistribute it and/or
-//  modify it under the terms of the GNU General Public License as
-//  published by the Free Software Foundation; either version 3 of the
-//  License.
-//
-//  This program is distributed in the hope that it will be useful,
-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-//  General Public License for more details.
-//
-//  You should have received a copy of the GNU General Public License along
-//  with this program; if not, write to the Free Software Foundation, Inc.,
-//  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-//
-//
-//
-
 import Foundation
 import UIKit
 import RealmSwift
-import RxRealm
-import RxSwift
-import RxCocoa
 import DeepDiff
 import CocoaLumberjack
-import XMPPFramework.XMPPJID
 
 enum GroupchatInfoActionExitPolicy {
     static func resolve(
@@ -38,13 +14,11 @@ enum GroupchatInfoActionExitPolicy {
             guard let presentingViewController else {
                 return ContactInfoActionExitResolution(action: .ignore, routePresenter: nil)
             }
-
             return ContactInfoActionExitResolution(
                 action: .dismissThenPerform,
                 routePresenter: presentingViewController
             )
         }
-
         return ContactInfoActionExitResolution(
             action: .performImmediately,
             routePresenter: currentController
@@ -56,656 +30,405 @@ enum GroupchatInfoAccessibilityIdentifiers {
     static let searchButton = ChatSearchAccessibilityIdentifier.groupInfoEntry
 }
 
-class GroupchatInfoViewController: SimpleBaseViewController {
-    
-    class Datasource: DiffAware, Equatable, Hashable {
-        
-        static func == (lhs: Datasource, rhs: Datasource) -> Bool {
-            return lhs.key == rhs.key && lhs.title == rhs.title && lhs.kind == rhs.kind
-        }
-        
-        typealias DiffId = String
-        
-        var diffId: String {
-            get {
-                return key ?? title
-            }
-        }
-        enum Kind {
-            case text
-            case info
-            case contact
-            case button
-            case danger
-            case jid
-        }
-        
-        var kind: Kind
-        var title: String
+final class GroupchatInfoViewController: SimpleBaseViewController {
+    final class Datasource: DiffAware, Equatable, Hashable {
+        enum Kind { case text, info, contact, button, danger, jid }
+
+        let kind: Kind
+        let title: String
         var subtitle: String?
-        var key: String?
-        var icon: String?
-        
+        let key: String?
+        let icon: String?
         var childs: [Datasource]
-        
-        init(_ kind: Kind, title: String, subtitle: String? = nil, icon: String? = nil, key: String? = nil, childs: [Datasource] = []) {
+
+        typealias DiffId = String
+        var diffId: String { key ?? title }
+
+        init(
+            _ kind: Kind,
+            title: String,
+            subtitle: String? = nil,
+            icon: String? = nil,
+            key: String? = nil,
+            childs: [Datasource] = []
+        ) {
             self.kind = kind
             self.title = title
-            if subtitle?.isEmpty ?? true {
-                self.subtitle = nil
-            } else {
-                self.subtitle = subtitle
-            }
+            self.subtitle = subtitle?.isEmpty == true ? nil : subtitle
+            self.icon = icon
             self.key = key
             self.childs = childs
-            self.icon = icon
         }
-        
+
+        static func == (lhs: Datasource, rhs: Datasource) -> Bool {
+            lhs.key == rhs.key && lhs.title == rhs.title && lhs.kind == rhs.kind
+                && lhs.subtitle == rhs.subtitle && lhs.childs == rhs.childs
+        }
+
         func hash(into hasher: inout Hasher) {
-            hasher.combine(title)
-            if let key = self.key {
-                hasher.combine(key)
-            }
+            hasher.combine(key ?? title)
         }
-        
-        static func compareContent(_ a: Datasource, _ b: Datasource) -> Bool {
-            return a.key == b.key &&
-                a.title == b.title &&
-                a.kind == b.kind &&
-                a.subtitle == b.subtitle &&
-                a.childs.count == b.childs.count &&
-                a.childs.first == b.childs.first
-        }
-        
+
+        static func compareContent(_ a: Datasource, _ b: Datasource) -> Bool { a == b }
     }
-    
-//    open var owner: String = ""
-//    open var jid: String = ""
-    
-    open var leftMenuDelegate: LeftMenuSelectRootScreenDelegate? = nil
-    
-    internal let lastSeenDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        
-        formatter.dateFormat = "MM-dd-yyyy HH:mm"
-        
-        return formatter
-    }()
-    
-    internal let headerView: InfoScreenHeaderView = {
-        let view = InfoScreenHeaderView(frame: .zero)
-                
-        return view
-    }()
-    
-    internal let footerView: InfoScreenFooterView = {
+
+    struct MemberRow {
+        let userId: String
+        let isOnline: Bool
+    }
+
+    var leftMenuDelegate: LeftMenuSelectRootScreenDelegate?
+    var chatStateDelegate: ChangeChatStateProtocol?
+
+    let headerView = InfoScreenHeaderView(frame: .zero)
+    let footerView: InfoScreenFooterView = {
         let view = InfoScreenFooterView(frame: .zero)
         view.isGroupChat = true
-
         return view
-      }()
-    
-    internal let tableView: UITableView = {
+    }()
+    let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
-        
         view.register(XMPPIDInfoScreenYableViewCell.self, forCellReuseIdentifier: XMPPIDInfoScreenYableViewCell.cellName)
         view.register(UITableViewCell.self, forCellReuseIdentifier: "ButtonCell")
         view.register(UITableViewCell.self, forCellReuseIdentifier: "InfoCell")
         view.register(CommonMemberTableCell.self, forCellReuseIdentifier: CommonMemberTableCell.cellName)
         view.register(StatusInfoCell.self, forCellReuseIdentifier: StatusInfoCell.cellName)
         view.register(EditCirclesCell.self, forCellReuseIdentifier: EditCirclesCell.cellName)
-        
         return view
     }()
-    
-    internal let searchButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(image: imageLiteral( "magnifyingglass"), style: .plain, target: nil, action: nil)
-        button.accessibilityIdentifier = GroupchatInfoAccessibilityIdentifiers.searchButton
-        button.accessibilityLabel = "Search".localizeString(id: "search", arguments: [])
-        
-        return button
+    let searchButton: UIBarButtonItem = {
+        let item = UIBarButtonItem(image: imageLiteral("magnifyingglass"), style: .plain, target: nil, action: nil)
+        item.accessibilityIdentifier = GroupchatInfoAccessibilityIdentifiers.searchButton
+        item.accessibilityLabel = "Search".localizeString(id: "search", arguments: [])
+        return item
     }()
-    
-    internal let showQRCodeButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(image: imageLiteral( "qrcode")?.withRenderingMode(.alwaysTemplate), style: .plain, target: nil, action: nil)
-        
-        return button
-    }()
-    
-    open var chatStateDelegate: ChangeChatStateProtocol? = nil
-    
-    internal var headerConstraintSet: NSLayoutConstraintSet? = nil
-    
-    internal var contacts: Results<GroupchatUserStorageItem>? = nil
-    internal var datasource: [Datasource] = []
-    
-    internal var nickname: String = ""
-    
-    internal var membersCount: Int = 0
-    internal var lastPresentContacts: Int = 0
-    internal var onlineContacts: Int = 0
-    internal var blockedCount: Int = 0
-    internal var invitationsCount: Int = 0
-    internal var isBlocked: Bool = false
-    internal var isMuted: Bool = false
-    internal var canInvite: Bool = false
-    internal var canChangeAvatar: Bool = false
-    internal var canChangeStatus: Bool = false
-    internal var isIncognitoChat: Bool = false
-    internal var canBeChanged: Bool = false
-    
-    internal var currentStatus: ResourceStatus = .offline
-    internal var currentVerboseStatus: String = "Offline".localizeString(id: "unavailable", arguments: [])
-    internal var isTemporaryStatus: Bool = true
-    
-    internal var callbackIds: Set<String> = Set<String>()
-    
-    internal var shouldResetNavbar: Bool = false
-    
-    internal var circles: [String] = []
-    internal var groupEditFormValues: [[String: Any]]? = nil
-    
-    
-    private func reloadHeaderTitle(inSection section: Int) {
-        UIView.setAnimationsEnabled(false)
-        tableView.beginUpdates()
+    let showQRCodeButton = UIBarButtonItem(
+        image: imageLiteral("qrcode")?.withRenderingMode(.alwaysTemplate),
+        style: .plain,
+        target: nil,
+        action: nil
+    )
 
-        let headerView = tableView.headerView(forSection: section)
-        headerView?.textLabel?.text = tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: section)?.uppercased()
-        headerView?.sizeToFit()
+    var contacts: [MemberRow]?
+    var datasource: [Datasource] = []
+    var nickname = ""
+    var membersCount = 0
+    var lastPresentContacts = 0
+    var onlineContacts = 0
+    var blockedCount = 0
+    var invitationsCount = 0
+    var isBlocked = false
+    var isMuted = false
+    var canInvite = false
+    var canChangeAvatar = false
+    var canChangeStatus = false
+    var isIncognitoChat = false
+    var canBeChanged = false
+    var currentStatus: ResourceStatus = .offline
+    var currentVerboseStatus = "Offline".localizeString(id: "unavailable", arguments: [])
+    var isTemporaryStatus = false
+    var shouldResetNavbar = false
+    var circles: [String] = []
 
-        tableView.endUpdates()
-        UIView.setAnimationsEnabled(true)
-    }
+    private var repository: GroupRepository?
+    private var observation: GroupRepositoryObservation?
+    private var refreshTask: Task<Void, Never>?
+    var currentProjection: GroupRepositoryProjection?
 
     override func loadDatasource() {
         super.loadDatasource()
-        do {
-            let realm = try WRealm.safe()
-            
-            circles = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner))?.groups.toArray().sorted() ?? []
-            contacts = realm
-                .objects(GroupchatUserStorageItem.self)
-                .filter("groupchatId == %@ AND isBlocked == false AND isKicked == false AND isTemporary == false AND isHidden == false", [jid, owner].prp())
-                .sorted(by: [
-                    SortDescriptor(keyPath: "isMe", ascending: false),
-                    SortDescriptor(keyPath: "sortedRole", ascending: true),
-                    SortDescriptor(keyPath: "nickname", ascending: true)
-                ])
-            
-            Observable
-                .collection(from: realm
-                    .objects(ResourceStorageItem.self)
-                    .filter("owner == %@ AND jid == %@", self.owner, self.jid)
-                    .sorted(by: [
-                        SortDescriptor(keyPath: "timestamp", ascending: false),
-                        SortDescriptor(keyPath: "priority", ascending: false)
-                    ]))
-                .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
-                .subscribe(onNext: { (results) in
-                    if let item = results.first {
-                        self.currentStatus = item.status
-                        self.currentVerboseStatus = item.displayedStatus
-                        self.isTemporaryStatus = item.isTemporary
-                        guard let section = self.datasource.firstIndex(where: { $0.key == "gc_status" }),
-                            let row = self.datasource[section].childs.firstIndex(where: { $0.key == "gc_set_status" }) else {
-                                return
-                        }
-                        DispatchQueue.main.async {
-                            self.tableView.reloadRows(at: [IndexPath(row: row, section: section)], with: .none)
-                        }
-                    }
-                })
-                .disposed(by: bag)
-            
-            let groupChatInstance = realm
-                .objects(GroupChatStorageItem.self)
-                .filter("jid == %@ AND owner == %@", jid, owner)
-            self.membersCount = groupChatInstance.first?.members ?? 0
-            Observable
-                .collection(from: groupChatInstance)
-                .debounce(.milliseconds(80), scheduler: MainScheduler.asyncInstance)
-                .subscribe(onNext: { (results) in
-                    if let item = results.first {
-                        var fullReload: Bool = false
-                        var toUpdateRow: Set<IndexPath> = Set<IndexPath>()
-                        if self.datasource.isEmpty {
-                            fullReload = true
-                        }
-                        var newDatasource: [Datasource] = []
-                        self.canBeChanged = item.canChangeSettings
-//                        DispatchQueue.main.async {
-//                            if self.canBeChanged {
-////                                self.infoButton.title = "Edit"
-//                                self.infoButton.image = imageLiteral("xabber.pencil.cap")
-//                            } else {
-//                                self.infoButton.image = imageLiteral("info.circle.fill")
-//                            }
-//                        }
-                        
-                        self.isIncognitoChat = item.privacy == .incognito
-                        self.canChangeAvatar = item.canChangeSettings
-                        self.canChangeStatus = item.canChangeSettings
-                        self.canInvite = item.canInvite
-
-//                        if self.canInvite {
-//                            newDatasource.append(Datasource(.text, title: " ", childs: [
-//                                Datasource(.button, title: "Invite".localizeString(id: "groupchat_bar_invite", arguments: []), icon: "person.badge.plus", key: "invite"),
-//                                Datasource(.danger, title: "Leave".localizeString(id: "groupchat_bar_leave", arguments: []), icon: "figure.run", key: "leave")
-//                            ]))
-//                        } else {
-//                            newDatasource.append(Datasource(.text, title: " ", childs: [
-//                                Datasource(.danger, title: "Leave".localizeString(id: "groupchat_bar_leave", arguments: []), key: "leave")
-//                            ]))
-//                        }
-                        newDatasource.append(Datasource(.text, title: "XMPP ID".localizeString(id: "jid", arguments: []), childs: [
-                            Datasource(.jid, title: self.jid, subtitle: self.jid),
-                        ]))
-                        newDatasource.append(Datasource(.text, title: "About".localizeString(id: "about", arguments: []), childs: [
-                            Datasource(.info, title: item.descr.isNotEmpty ? item.descr : "No description".localizeString(id: "no_description", arguments: []), key: "gc_descr"),
-                            Datasource(.text, title: "Set status".localizeString(id: "status_editor", arguments: []), key: "gc_set_status")
-                        ]))
-                        toUpdateRow.insert(IndexPath(row: 1, section: newDatasource.count - 1))
-                        
-                        newDatasource.append(Datasource(.text, title: "Circles", childs: [
-                            Datasource(.button, title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "gc_circles"),
-                        ]))
-                        
-                        if self.onlineContacts != 0 {
-                            newDatasource.append(Datasource(.text, title: "", key: "section_members", childs: [Datasource(.button, title: "Members", subtitle: "\(self.contacts?.count ?? 0) (\(self.onlineContacts) online)", key: "members")]))
-                        } else {
-                            newDatasource.append(Datasource(.text, title: "", childs: [Datasource(.button, title: "Members", subtitle: "\(self.contacts?.count ?? 0)", key: "members")]))
-                        }
-                        
-                        let conversationType = ClientSynchronizationManager.ConversationType.group
-                        
-                        let imagesCount = realm
-                            .objects(MessageMediaAttachmentStorageItem.self)
-                            .filter("owner == %@ AND jid == %@ AND conversationType_ == %@ AND kind_ == %@", self.owner, self.jid, conversationType.rawValue, MessageMediaAttachmentStorageItem.Kind.image.rawValue)
-                            .count
-                        let videosCount = realm
-                            .objects(MessageMediaAttachmentStorageItem.self)
-                            .filter("owner == %@ AND jid == %@ AND conversationType_ == %@ AND kind_ == %@", self.owner, self.jid, conversationType.rawValue, MessageMediaAttachmentStorageItem.Kind.video.rawValue)
-                            .count
-                        let audiosCount = realm
-                            .objects(MessageMediaAttachmentStorageItem.self)
-                            .filter("owner == %@ AND jid == %@ AND conversationType_ == %@ AND kind_ == %@", self.owner, self.jid, conversationType.rawValue, MessageMediaAttachmentStorageItem.Kind.voice.rawValue)
-                            .count
-                        let filesCount = realm
-                            .objects(MessageMediaAttachmentStorageItem.self)
-                            .filter("owner == %@ AND jid == %@ AND conversationType_ == %@ AND kind_ == %@", self.owner, self.jid, conversationType.rawValue, MessageMediaAttachmentStorageItem.Kind.file.rawValue)
-                            .count
-                        
-                        newDatasource.append(Datasource(.text, title: "", key: "chat_files", childs: [
-                            Datasource(.button, title: "Images", subtitle: String(imagesCount), key: "images"),
-                            Datasource(.button, title: "Videos", subtitle: String(videosCount), key: "videos"),
-                            Datasource(.button, title: "Files", subtitle: String(filesCount), key: "files"),
-                            Datasource(.button, title: "Voice", subtitle: String(audiosCount), key: "voice")
-                        ]))
-
-                        newDatasource.append(Datasource(.text, title: "Safety".localizeString(id: "report_safety_section", arguments: []), childs: [
-                            Datasource(.button, title: "Report Room".localizeString(id: "report_room_action", arguments: []), icon: "exclamationmark.circle", key: "report_room")
-                        ]))
-                        
-                        if self.datasource.count != newDatasource.count {
-                            fullReload = true
-                        } else {
-                            self.datasource.enumerated().forEach {
-                                (offset, item) in
-                                if item.key != newDatasource[offset].key {
-                                    fullReload = true
-                                } else {
-                                    if item.childs.count != newDatasource[offset].childs.count {
-                                        fullReload = true
-                                    }
-                                }
-                            }
-                        }
-                                                
-                        self.datasource = newDatasource
-                        
-                        if fullReload {
-                            UIView.performWithoutAnimation {
-                                self.tableView.reloadData()
-                            }
-                        } else {
-                            if #available(iOS 11.0, *) {
-                                UIView.performWithoutAnimation {
-                                    self.tableView.performBatchUpdates({
-                                        if toUpdateRow.isNotEmpty {
-                                            self.tableView.reloadRows(at: toUpdateRow.sorted(), with: .none)
-                                        }
-                                    }, completion: nil)
-                                }
-                                
-                            } else {
-                                UIView.performWithoutAnimation {
-                                    self.tableView.beginUpdates()
-                                    if toUpdateRow.isNotEmpty {
-                                        self.tableView.reloadRows(at: toUpdateRow.sorted(), with: .none)
-                                    }
-                                    self.tableView.endUpdates()
-                                }
-                            }
-                        }
-                        if item.present != self.lastPresentContacts || item.members != self.membersCount {
-                            XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-                                session.groupchat?.requestUsers(stream, groupchat: self.jid)
-                            }, fail: {
-                                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                                    user.groupchats.requestUsers(stream, groupchat: self.jid)
-                                })
-                            })
-                        }
-                        self.membersCount = item.members
-                        self.lastPresentContacts = item.present
-                        self.reloadHeaderTitle(inSection: self.datasource.count - 1)
-                    }
-                }).disposed(by: bag)
-            
-            Observable
-                .collection(from: realm
-                    .objects(RosterStorageItem.self)
-                    .filter("owner == %@ AND jid == %@", owner, jid))
-                .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
-                .subscribe(onNext: { (results) in
-                    let subtitle: String
-                    if self.membersCount == 0 {
-                        subtitle = "No members".localizeString(id: "groupchats_no_members", arguments: [])
-                    } else if self.membersCount == 1 {
-                        subtitle = "1 member".localizeString(id: "groupchats_one_member", arguments: [])
-                    } else {
-                        subtitle = "\(self.membersCount) members".localizeString(id: "groupchats_some_members", arguments: ["\(self.membersCount)"])
-                    }
-                    var avatarUrl: String? = nil
-                    if let item = results.first {
-                        avatarUrl = item.avatarMaxUrl ?? item.avatarMinUrl ?? item.oldschoolAvatarKey
-                        self.nickname = item.displayName
-                        if item.groups.toArray().sorted() != self.circles.sorted() {
-                            self.circles = item.groups.toArray().sorted()
-                            if let circleSection = self.datasource.firstIndex(where: { $0.childs.first(where: { $0.key == "gc_circles" }) != nil }),
-                               let circleRow = self.datasource[circleSection].childs.firstIndex(where: { $0.key == "gc_circles" }) {
-                                self.tableView.reloadRows(at: [IndexPath(row: circleRow, section: circleSection)], with: .none)
-                            }
-                        }
-                    } else {
-                        self.nickname = XMPPJID(string: self.jid)?.user ?? self.jid
-                    }
-                    self.headerView.configure(
-                        avatarUrl: avatarUrl,
-                        owner: self.owner,
-                        jid: self.jid,
-                        titleColor: .label,//AccountColorManager.shared.primaryColor(for: self.owner),
-                        title: self.nickname    ,
-                        subtitle: subtitle,
-                        thirdLine: nil
-                    )
-                }).disposed(by: bag)
-                        
-            Observable
-                .changeset(from: contacts!)
-                .subscribe(onNext: { (results) in
-                    self.onlineContacts = self.contacts?.filter({ $0.isOnline }).count ?? 0
-                    guard let indexSection = self.datasource.firstIndex(where: { $0.key == "section_members" }) else {
-                        return
-                    }
-                    
-                    if self.onlineContacts != 0 {
-                        self.datasource[indexSection].childs.first?.subtitle = "\(self.contacts?.count ?? 0) (\(self.onlineContacts) online)"
-                    } else {
-                        self.datasource[indexSection].childs.first?.subtitle = "\(self.contacts?.count ?? 0)"
-                    }
-                    
-                    self.tableView.performBatchUpdates({
-                        self.tableView.reloadSections([indexSection], with: .automatic)
-                    }, completion: nil)
-                    
-                }).disposed(by: bag)
-            
-            Observable.collection(from: realm
-                    .objects(GroupchatUserStorageItem.self)
-                    .filter("groupchatId == %@ AND isBlocked == true AND isHidden == false", [jid, owner].prp()))
-                .debounce(.milliseconds(40), scheduler: MainScheduler.asyncInstance)
-                .subscribe(onNext: { (results) in
-                    self.blockedCount = results.count
-                    guard let section = self.datasource.firstIndex(where: { $0.key == "gc_participants" }),
-                        let row = self.datasource[section].childs.firstIndex(where: { $0.key == "gc_blocked" }) else {
-                            return
-                    }
-                    DispatchQueue.main.async {
-                        UIView.performWithoutAnimation {
-                            if #available(iOS 11.0, *) {
-                                self.tableView.performBatchUpdates({
-                                    self.tableView.reloadRows(at: [IndexPath(row: row, section: section)], with: .none)
-                                }, completion: nil)
-                            } else {
-                                self.tableView.beginUpdates()
-                                self.tableView.reloadRows(at: [IndexPath(row: row, section: section)], with: .none)
-                                self.tableView.endUpdates()
-                            }
-                        }
-                    }
-                })
-                .disposed(by: bag)
-            
-        } catch {
-            DDLogDebug("ContactInfoViewController: \(#function). \(error.localizedDescription)")
-        }
+        startProjectionIfNeeded()
+        refreshCanonicalState()
     }
-    
+
     override func configure() {
         super.configure()
-//        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-//        navigationController?.navigationBar.shadowImage = UIImage()
         view.addSubview(tableView)
-        var showEdit: Bool = false
-        do {
-            let realm = try WRealm.safe()
-            if let instance = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isMe == true AND isHidden == false", [self.jid, self.owner].prp()).first {
-                showEdit = instance.role == .admin || instance.role == .owner
-            }
-            
-        } catch {
-            
-        }
-        
-        if showEdit {
-            let editButton = UIBarButtonItem(image: imageLiteral("slider.horizontal.3"), style: .plain, target: self, action: #selector(self.onEditButtonTouchUpInside))
-            navigationItem.setRightBarButtonItems([editButton, searchButton], animated: true)
-        } else {
-            navigationItem.setRightBarButtonItems([searchButton], animated: true)
-        }
-        
-        
         tableView.fillSuperview()
         tableView.delegate = self
         tableView.dataSource = self
-        
         tableView.tableHeaderView = headerView
         headerView.delegate = self
-        
-//        footerView.conversationType = .group
-//        footerView.jid = self.jid
-//        footerView.owner = self.owner
-//        
-//        footerView.frame = CGRect(x: 0, y: 0,
-//                                  width: view.frame.width,
-//                                  height: view.frame.height)
-//        footerView.mediaButtonsDelegate = self
-//        footerView.infoVCDelegate = self
-//        footerView.getReferences()
-//        tableView.tableFooterView = footerView
-        
-//        infoButton.target = self
-//        infoButton.action = #selector(groupchatInfo)
-        
-        showQRCodeButton.target = self
-        showQRCodeButton.action = #selector(showQRCode)
+
         searchButton.target = self
         searchButton.action = #selector(onSearchButtonTouchUpInside)
-        datasource = []
-        
-        self.headerView.configureButtons {
-            let invite = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            invite.configure(icon: "xabber.person.plus", title: "Invite")
-            invite.addTarget(self, action: #selector(onInviteButtonTouchUpInside), for: .touchUpInside)
-            
+        showQRCodeButton.target = self
+        showQRCodeButton.action = #selector(showQRCode)
+        navigationItem.setRightBarButtonItems([searchButton], animated: false)
+
+        headerView.configureButtons {
             let write = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
             write.configure(icon: "bubble", title: "Chat")
-            write.addTarget(self, action: #selector(onWriteButtonTouchUpInside), for: .touchUpInside)
-            
-//            let search = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-//            search.configure(icon: "magnifyingglass", title: "Search", forceStrong: false)
-//            search.addTarget(self, action: #selector(onSearchButtonTouchUpInside), for: .touchUpInside)
-            
-            let mute = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            mute.configure(icon: "bell", title: "Sound", forceStrong: false)
-//            mute.addTarget(self, action: #selector(onSearchButtonTouchUpInside), for: .touchUpInside)
-            
-            let more = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            more.configure(icon: "ellipsis", title: "More", forceStrong: false)
-            
+            write.addTarget(self, action: #selector(self.onWriteButtonTouchUpInside), for: .touchUpInside)
+
+            let invite = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+            invite.configure(icon: "xabber.person.plus", title: "Invite")
+            invite.addTarget(self, action: #selector(self.onInviteButtonTouchUpInside), for: .touchUpInside)
+
+            let sound = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
+            sound.configure(icon: "bell", title: "Sound", forceStrong: false)
+            sound.addTarget(self, action: #selector(self.onNotifyButtonTouchUpInside), for: .touchUpInside)
+
             let leave = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            leave.configure(icon: "xabber.figure.exit", title: "Leave", forceStrong: false)
-            leave.addTarget(self, action: #selector(onLeaveHeaderButtonTouchUpInside), for: .touchUpInside)
-            
-            let childs: [UIMenuElement] = [
-                UIAction(
-                    title: "Edit",
-                    image: imageLiteral("slider.horizontal.3"),
-                    identifier: .none,
-                    discoverabilityTitle: "Edit",
-                    attributes: [],
-                    state: .off,//filter.value == .all ? .on : .off,
-                    handler: { action in
-                        self.showSettings()
-                    }
-                ),
-                UIAction(
-                    title: "Leave",
-                    image: imageLiteral("xabber.figure.exit"),
-                    identifier: .none,
-                    discoverabilityTitle: "Leave",
-                    attributes: [],
-                    state: .off,//filter.value == .all ? .on : .off,
-                    handler: { action in
-                        self.onLeave()
-                    }
-                ),
-                UIAction(
-                    title: "Report Room".localizeString(id: "report_room_action", arguments: []),
-                    image: UIImage(systemName: "exclamationmark.circle"),
-                    identifier: .none,
-                    discoverabilityTitle: "Report Room".localizeString(id: "report_room_action", arguments: []),
-                    attributes: [],
-                    state: .off,
-                    handler: { action in
-                        self.reportRoom()
-                    }
-                ),
-            ]
-            more.menu = UIMenu(options: [], children: childs)
-            more.showsMenuAsPrimaryAction = true
-            
-            return [write, invite, mute, leave]
+            leave.configure(
+                icon: "xabber.figure.exit",
+                title: "Exit".localizeString(id: "exit", arguments: []),
+                forceStrong: false
+            )
+            leave.addTarget(self, action: #selector(self.onLeaveHeaderButtonTouchUpInside), for: .touchUpInside)
+            return [write, invite, sound, leave]
         }
     }
-    
-    @objc
-    internal func onInviteButtonTouchUpInside(_ sender: InfoHeaderButton) {
-        print(#function)
-        self.onInvite()
-    }
-    
-    @objc
-    internal func onWriteButtonTouchUpInside(_ sender: InfoHeaderButton) {
-        self.openChat()
+
+    override func subscribe() {
+        super.subscribe()
+        startProjectionIfNeeded()
     }
 
-    internal func reportRoom() {
-        let vc = AbuseReportViewController()
-        vc.configureRoomReport(owner: self.owner, roomJid: self.jid)
-        showModal(vc, parent: self)
+    override func unsubscribe() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        observation?.invalidate()
+        observation = nil
+        repository = nil
+        super.unsubscribe()
     }
-    
-    @objc
-    internal func onSearchButtonTouchUpInside(_ sender: UIBarButtonItem) {
-        self.openSearch()
-    }
-    
-    @objc
-    internal func onNotifyButtonTouchUpInside(_ sender: InfoHeaderButton) {
-        self.onChangeNotifications()
-    }
-    
-    @objc
-    internal func onMoreButtonTouchUpInside(_ sender: InfoHeaderButton) {
-        print(#function)
-    }
-    
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        XMPPUIActionManager.shared.performRequest(owner: self.owner, action: { (stream, session) in
-            session.groupchat?.requestUserPermissions(stream, groupchat: self.jid, user: "0")
-            _ = session.vcardManager?.requestItem(stream, jid: self.jid)
-            session.groupchat?.requestUsers(stream, groupchat: self.jid)
-            session.groupchat?.requestInvitedUsers(stream, groupchat: self.jid)
-            session.groupchat?.blockList(stream, groupchat: self.jid)
-        }, fail: {
-            AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                user.groupchats.requestUserPermissions(stream, groupchat: self.jid, user: "0")
-                _ = user.vcards.requestItem(stream, jid: self.jid)
-                user.groupchats.requestUsers(stream, groupchat: self.jid)
-                user.groupchats.requestInvitedUsers(stream, groupchat: self.jid)
-                user.groupchats.blockList(stream, groupchat: self.jid)
-            })
-        })
-        
-        footerView.imagesButton.isSelected = true
-        
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(reloadDatasource),
-                                               name: .newMaskSelected,
-                                               object: nil)
-    }
-    
-    override func reloadDatasource() {
-        headerView.setMask()
-        tableView.reloadData()
-    }
-    
-    internal final func onChatSettingsFormResponse(values: [[String: Any]]?, error: String?) {
-        self.groupEditFormValues = values
-    }
-    
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         subscribe()
-//        navigationController?.navigationBar.setBackgroundImage(UIImage(), for: .default)
-//        navigationController?.navigationBar.shadowImage = UIImage()
+        refreshCanonicalState()
         tableView.fillSuperview()
-        self.headerView.applyHeaderLayout(to: tableView, width: view.bounds.width)
+        headerView.applyHeaderLayout(to: tableView, width: view.bounds.width)
     }
-    
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-    }
-    
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         navigationItem.backButtonDisplayMode = .minimal
         unsubscribe()
     }
-    
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        callbackIds.forEach {
-            AccountManager.shared.find(for: owner)?.groupchats.invalidateCallback($0)
-            XMPPUIActionManager.shared.groupchat?.invalidateCallback($0)
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        footerView.imagesButton.isSelected = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reloadDatasource),
+            name: .newMaskSelected,
+            object: nil
+        )
+    }
+
+    override func reloadDatasource() {
+        headerView.setMask()
+        if let currentProjection { apply(currentProjection) }
+    }
+
+    deinit {
+        refreshTask?.cancel()
+        observation?.invalidate()
+    }
+
+    private func startProjectionIfNeeded() {
+        guard repository == nil else { return }
+        do {
+            let repository = GroupRepository(realm: try WRealm.safe())
+            self.repository = repository
+            observation = try repository.observeProjection(owner: owner, groupJID: jid) { [weak self] projection in
+                DispatchQueue.main.async { self?.apply(projection) }
+            }
+        } catch {
+            DDLogDebug("GroupchatInfoViewController: \(error.localizedDescription)")
         }
     }
-    
-    override func didReceiveMemoryWarning() {
-        super.didReceiveMemoryWarning()
+
+    private func refreshCanonicalState() {
+        refreshTask?.cancel()
+        guard let account = AccountManager.shared.find(for: owner) else { return }
+        refreshTask = Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            do {
+                async let snapshotRequest = account.groupchatService.refreshGroup(groupJID: jid)
+                async let membersRequest = account.groupchatService.refreshMembers(groupJID: jid)
+                async let invitesRequest = account.groupchatService.refreshInvites(groupJID: jid)
+                async let blocklistRequest = account.groupchatService.refreshBlocklist(groupJID: jid)
+                let (snapshot, members, invites, blocklist) = try await (
+                    snapshotRequest,
+                    membersRequest,
+                    invitesRequest,
+                    blocklistRequest
+                )
+                guard !Task.isCancelled else { return }
+                let repository: GroupRepository
+                if let existingRepository = self.repository {
+                    repository = existingRepository
+                } else {
+                    repository = GroupRepository(realm: try WRealm.safe())
+                    self.repository = repository
+                }
+                try repository.applySnapshot(snapshot, owner: owner, groupJID: jid)
+                try repository.replaceMembers(members, owner: owner, groupJID: jid)
+                let projection = try repository.projection(owner: owner, groupJID: jid)
+                if let selfMemberID = projection.selfMemberID {
+                    let permissions = try await account.groupchatService.getPermissions(
+                        groupJID: jid,
+                        scope: .direct,
+                        targetMemberID: selfMemberID
+                    )
+                    try repository.replacePermissionSet(permissions, owner: owner, groupJID: jid)
+                }
+                invitationsCount = invites.count
+                blockedCount = blocklist.count
+                apply(try repository.projection(owner: owner, groupJID: jid))
+            } catch is CancellationError {
+                return
+            } catch {
+                DDLogDebug("GroupchatInfoViewController refresh: \(error.localizedDescription)")
+            }
+        }
     }
+
+    private func apply(_ projection: GroupRepositoryProjection) {
+        currentProjection = projection
+        let snapshot = projection.state.snapshot
+        let members = projection.state.members
+        let capabilities = projection.capabilities
+        contacts = members.map { MemberRow(userId: $0.id, isOnline: false) }
+        membersCount = snapshot.memberCount ?? members.count
+        onlineContacts = snapshot.presentCount ?? 0
+        lastPresentContacts = onlineContacts
+        canInvite = capabilities.addMembers
+        canChangeAvatar = capabilities.changeGroupInfo
+        canChangeStatus = capabilities.changeGroupInfo
+        canBeChanged = capabilities.changeGroupInfo || capabilities.changeGroupSettings
+        isIncognitoChat = snapshot.privacy == .incognito
+        nickname = snapshot.info?.name?.isNotEmpty == true ? snapshot.info!.name! : jid
+        currentVerboseStatus = snapshot.info?.status?.isNotEmpty == true
+            ? snapshot.info!.status!
+            : "Offline".localizeString(id: "unavailable", arguments: [])
+        currentStatus = projection.state.isActive ? .online : .offline
+
+        loadLocalCircles()
+        datasource = makeDatasource(snapshot: snapshot)
+        configureHeader(snapshot: snapshot)
+        configureNavigation(capabilities: capabilities)
+        tableView.reloadData()
+    }
+
+    private func makeDatasource(snapshot: GroupSnapshot) -> [Datasource] {
+        var result: [Datasource] = [
+            Datasource(.text, title: "XMPP ID".localizeString(id: "jid", arguments: []), childs: [
+                Datasource(.jid, title: jid, subtitle: jid)
+            ]),
+            Datasource(.text, title: "About".localizeString(id: "about", arguments: []), childs: [
+                Datasource(
+                    .info,
+                    title: snapshot.info?.description?.isNotEmpty == true
+                        ? snapshot.info!.description!
+                        : "No description".localizeString(id: "no_description", arguments: []),
+                    key: "gc_descr"
+                ),
+                Datasource(.text, title: "Set status".localizeString(id: "status_editor", arguments: []), key: "gc_set_status")
+            ]),
+            Datasource(.text, title: "Circles", childs: [
+                Datasource(.button, title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "gc_circles")
+            ]),
+            Datasource(.text, title: "", key: "section_members", childs: [
+                Datasource(
+                    .button,
+                    title: "Members",
+                    subtitle: onlineContacts > 0
+                        ? "\(membersCount) (\(onlineContacts) online)"
+                        : "\(membersCount)",
+                    key: "members"
+                )
+            ])
+        ]
+
+        let mediaCounts = localMediaCounts()
+        result.append(Datasource(.text, title: "", key: "chat_files", childs: [
+            Datasource(.button, title: "Images", subtitle: String(mediaCounts.images), key: "images"),
+            Datasource(.button, title: "Videos", subtitle: String(mediaCounts.videos), key: "videos"),
+            Datasource(.button, title: "Files", subtitle: String(mediaCounts.files), key: "files"),
+            Datasource(.button, title: "Voice", subtitle: String(mediaCounts.voice), key: "voice")
+        ]))
+        result.append(Datasource(.text, title: "Safety".localizeString(id: "report_safety_section", arguments: []), childs: [
+            Datasource(.button, title: "Report Room".localizeString(id: "report_room_action", arguments: []), icon: "exclamationmark.circle", key: "report_room")
+        ]))
+        return result
+    }
+
+    private func configureHeader(snapshot: GroupSnapshot) {
+        let subtitle: String
+        if membersCount == 0 {
+            subtitle = "No members".localizeString(id: "groupchats_no_members", arguments: [])
+        } else if membersCount == 1 {
+            subtitle = "1 member".localizeString(id: "groupchats_one_member", arguments: [])
+        } else {
+            subtitle = "\(membersCount) members".localizeString(
+                id: "groupchats_some_members",
+                arguments: ["\(membersCount)"]
+            )
+        }
+        headerView.configure(
+            avatarUrl: snapshot.info?.avatar?.url,
+            owner: owner,
+            jid: jid,
+            titleColor: .label,
+            title: nickname,
+            subtitle: subtitle,
+            thirdLine: nil
+        )
+    }
+
+    private func configureNavigation(capabilities: GroupCapabilities) {
+        if capabilities.changeGroupInfo || capabilities.changeGroupSettings {
+            let edit = UIBarButtonItem(
+                image: imageLiteral("slider.horizontal.3"),
+                style: .plain,
+                target: self,
+                action: #selector(onEditButtonTouchUpInside)
+            )
+            navigationItem.setRightBarButtonItems([edit, searchButton], animated: false)
+        } else {
+            navigationItem.setRightBarButtonItems([searchButton], animated: false)
+        }
+    }
+
+    private func loadLocalCircles() {
+        guard let realm = try? WRealm.safe() else { return }
+        circles = realm.object(
+            ofType: RosterStorageItem.self,
+            forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)
+        )?.groups.toArray().sorted() ?? []
+    }
+
+    private func localMediaCounts() -> (images: Int, videos: Int, files: Int, voice: Int) {
+        guard let realm = try? WRealm.safe() else { return (0, 0, 0, 0) }
+        let all = realm.objects(MessageMediaAttachmentStorageItem.self)
+            .filter(
+                "owner == %@ AND jid == %@ AND conversationType_ == %@",
+                owner,
+                jid,
+                ClientSynchronizationManager.ConversationType.group.rawValue
+            )
+        return (
+            all.filter("kind_ == %@", MessageMediaAttachmentStorageItem.Kind.image.rawValue).count,
+            all.filter("kind_ == %@", MessageMediaAttachmentStorageItem.Kind.video.rawValue).count,
+            all.filter("kind_ == %@", MessageMediaAttachmentStorageItem.Kind.file.rawValue).count,
+            all.filter("kind_ == %@", MessageMediaAttachmentStorageItem.Kind.voice.rawValue).count
+        )
+    }
+
+    @objc func onInviteButtonTouchUpInside(_ sender: InfoHeaderButton) { onInvite() }
+    @objc func onWriteButtonTouchUpInside(_ sender: InfoHeaderButton) { openChat() }
+    @objc func onSearchButtonTouchUpInside(_ sender: UIBarButtonItem) { openSearch() }
+    @objc func onNotifyButtonTouchUpInside(_ sender: InfoHeaderButton) { onChangeNotifications() }
+
+    func reportRoom() {
+        let controller = AbuseReportViewController()
+        controller.configureRoomReport(owner: owner, roomJid: jid)
+        showModal(controller, parent: self)
+    }
+
 }

@@ -28,6 +28,11 @@ private let geolocXMLNS = "http://jabber.org/protocol/geoloc"
 private let contactSharingXMLNS = "https://xabber.com/protocol/contact-sharing"
 private let avatarMetadataXMLNS = "urn:xmpp:avatar:metadata"
 
+enum GroupSystemMessageSource: Equatable {
+    case live
+    case mam
+}
+
 private struct MessageReferenceWireRange: Equatable {
     let begin: Int
     let end: Int
@@ -175,21 +180,36 @@ private func validGeolocAccuracy(_ value: String?) -> String? {
     return value
 }
 
-func groupchatReferenceElement(from message: XMPPMessage) -> DDXMLElement? {
-    message
-        .element(forName: "x", xmlns: groupchatXMLNS)?
-        .element(forName: "reference", xmlns: referencesXMLNS)
+func groupchatUserElement(from message: XMPPMessage) -> DDXMLElement? {
+    guard message.attributeStringValue(forName: "type") == "chat",
+          let groupDecoration = uniqueCanonicalGroupChild(named: "x", in: message),
+          (try? GroupProtocolCodec.decodeMessageAuthor(groupDecoration)) != nil else {
+        return nil
+    }
+    return directElementChildren(of: groupDecoration).first
 }
 
-func groupchatUserElement(from message: XMPPMessage) -> DDXMLElement? {
-    if let directUser = message
-        .element(forName: "x", xmlns: groupchatXMLNS)?
-        .element(forName: "user", xmlns: groupchatXMLNS) {
-        return directUser
+private func uniqueCanonicalGroupChild(named name: String, in parent: DDXMLElement) -> DDXMLElement? {
+    let matches = directElementChildren(of: parent).filter {
+        $0.name == name && effectiveNamespace(of: $0) == groupchatXMLNS
     }
+    guard matches.count == 1 else { return nil }
+    return matches[0]
+}
 
-    return groupchatReferenceElement(from: message)?
-        .element(forName: "user", xmlns: groupchatXMLNS)
+private func directElementChildren(of element: DDXMLElement) -> [DDXMLElement] {
+    element.children?.compactMap { $0 as? DDXMLElement } ?? []
+}
+
+private func effectiveNamespace(of element: DDXMLElement) -> String? {
+    var current: DDXMLElement? = element
+    while let candidate = current {
+        if let namespace = candidate.xmlns() {
+            return namespace
+        }
+        current = candidate.parent as? DDXMLElement
+    }
+    return nil
 }
 
 private func groupchatMetadata(from user: DDXMLElement) -> [String: Any] {
@@ -207,6 +227,19 @@ private func groupchatMetadata(from user: DDXMLElement) -> [String: Any] {
     return metadata
 }
 
+private func groupchatMetadata(from member: GroupMember) -> [String: Any] {
+    var metadata: [String: Any] = ["id": member.id]
+    metadata["jid"] = member.jid ?? ""
+    metadata["nickname"] = member.nickname ?? ""
+    metadata["role"] = member.role?.rawValue ?? ""
+    metadata["badge"] = member.badge ?? ""
+    if let avatar = member.avatar {
+        metadata["avatar_uri"] = avatar.url ?? ""
+        metadata["avatar_id"] = avatar.id ?? ""
+    }
+    return metadata
+}
+
 func resolvedGroupchatAuthorDisplayName(
     userElement: DDXMLElement?,
     references: [MessageReferenceStorageItem]
@@ -219,67 +252,32 @@ func resolvedGroupchatAuthorDisplayName(
         metadata?["jid"] as? String
     ]
 
-    return candidates
-        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .first(where: { $0.isNotEmpty })
+    return candidates.compactMap { candidate in
+        guard let candidate,
+              candidate.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty else {
+            return nil
+        }
+        return candidate
+    }.first
 }
 
-func parseSystemMessageMetadata(_ message: XMPPMessage) -> [String: Any]? {
-//    print(message.prettyXMLString())
-    // V3: <x xmlns='https://xabber.com/protocol/groups'><system-message type='...'/>
-    if let x = message.element(forName: "x", xmlns: groupchatXMLNS),
-       let systemMessage = x.element(forName: "system-message"),
-       let type = systemMessage.attributeStringValue(forName: "type") {
-        switch type {
-        case "create":
-            return ["type": "create"]
-        case "join":
-            return ["type": "join"]
-        case "left":
-            return ["type": "left"]
-        case "kick":
-            return ["type": "kick",
-                    "count": x.elements(forName: "user").count,
-                    "users": x
-                        .elements(forName: "user")
-                        .compactMap { return $0.attributeStringValue(forName: "id")}
-                        .joined(separator: ",") ]
-        case "update":
-            return ["type": "update"]
-        case "user-updated", "user-update":
-            return ["type": "user-update"]
-        case "pinned":
-            return ["type": "update"]
-        default:
-            return ["type": type]
-        }
+func parseSystemMessageMetadata(
+    _ message: XMPPMessage,
+    source: GroupSystemMessageSource = .live
+) -> [String: Any]? {
+    let messageType = message.attributeStringValue(forName: "type")
+    guard messageType == "chat" || messageType == "headline",
+          let groupDecoration = uniqueCanonicalGroupChild(named: "x", in: message),
+          let event = try? GroupProtocolCodec.decodeSystemEvent(groupDecoration),
+          event.type != .create || source == .mam else {
+        return nil
     }
-    // Old format: separate xmlns per type
-    for item in message.elements(forName: "x") {
-        switch item.xmlns() {
-        case "https://xabber.com/protocol/groups#create":
-            return ["type": "create"]
-        case "https://xabber.com/protocol/groups#join":
-            return ["type": "join"]
-        case "https://xabber.com/protocol/groups#left":
-            return ["type": "left"]
-        case "https://xabber.com/protocol/groups#kick":
-            return ["type": "kick",
-                    "count": item.elements(forName: "user").count,
-                    "users": item
-                        .elements(forName: "user")
-                        .compactMap { return $0.attributeStringValue(forName: "id")}
-                        .joined(separator: ",") ]
-        case "https://xabber.com/protocol/groups#update":
-            return ["type": "update"]
-        case "https://xabber.com/protocol/groups#user-updated":
-            return ["type": "user-update"]
-        case "https://xabber.com/protocol/groups#system-message":
-            return ["type": "user-update"]
-        default: break
-        }
+
+    var metadata: [String: Any] = ["type": event.type.rawValue]
+    if let actor = event.user {
+        metadata["user"] = groupchatMetadata(from: actor)
     }
-    return nil
+    return metadata
 }
 
 func parseInlineMessages(_ message: XMPPMessage, parentId: String, jid: String, owner: String) -> [MessageForwardsInlineStorageItem] {
@@ -373,8 +371,6 @@ func getReferenceType(_ ref: DDXMLElement) -> String? {
         return "markup"
     } else if ref.element(forName: "forwarded", xmlns: "urn:xmpp:forward:0") != nil {
         return "forward"
-    } else if ref.element(forName: "user") != nil {
-        return "groupchat"
     }
     return nil
 }
@@ -386,15 +382,14 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
     
     let messageDate = getDelayedDate(message) ?? Date()
     
-    let groupchatRef = groupchatReferenceElement(from: message)
-    let displayBody = escapingBody.excludeFromBody(references, groupchat: groupchatRef)
+    let displayBody = escapingBody.excludeFromBody(references, groupchat: nil)
 
     func displayOffset(for wireOffset: Int) -> Int? {
         guard let prefix = escapingBody.prefixThroughUnicodeScalars(wireOffset) else {
             return nil
         }
         return prefix
-            .excludeFromBody(references, groupchat: groupchatRef)
+            .excludeFromBody(references, groupchat: nil)
             .utf16.count
     }
     
@@ -659,8 +654,7 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                     metadata["ephemeral-timer"] = timer
                 }
             case .groupchat:
-                guard let user = ref.element(forName: "user") else { return nil }
-                metadata = groupchatMetadata(from: user)
+                return nil
             default: break
         }
         reference.metadata = metadata
@@ -668,11 +662,7 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
         return reference
     }
     
-    if let referenceElement = groupchatRef,
-        let reference = parse(referenceElement) {
-        out = [reference]
-    } else if let v3User = groupchatUserElement(from: message) {
-        // V3: user card is directly in <x>, not wrapped in <reference>
+    if let v3User = groupchatUserElement(from: message) {
         let reference = MessageReferenceStorageItem()
         reference.conversationType = conversationTypeByMessage(message)
         reference.jid = jid
@@ -759,7 +749,7 @@ extension String {
             let kind = getReferenceType(reference)
             let removesBody: Bool
             switch kind {
-            case "media", "voice", "forward", "groupchat", "geoloc", "contact":
+            case "media", "voice", "forward", "geoloc", "contact":
                 removesBody = true
             default:
                 removesBody = isAnonymousMutableReference(reference)

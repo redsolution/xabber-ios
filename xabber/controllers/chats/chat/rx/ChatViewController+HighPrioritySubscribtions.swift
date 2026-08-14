@@ -46,36 +46,6 @@ enum ChatInitialBootstrapTransportPolicy {
     }
 }
 
-struct ChatGroupMemberUnreadMetadataRefreshGate {
-    private let authoritativeMemberId: String?
-    private var observedFallbackMemberId: String?
-
-    init(authoritativeMemberId: String?) {
-        self.authoritativeMemberId = Self.normalized(authoritativeMemberId)
-        self.observedFallbackMemberId = nil
-    }
-
-    mutating func shouldRefresh(observedMemberId: String?) -> Bool {
-        guard authoritativeMemberId == nil else {
-            return false
-        }
-        let normalizedObservedMemberId = Self.normalized(observedMemberId)
-        guard normalizedObservedMemberId != observedFallbackMemberId else {
-            return false
-        }
-        observedFallbackMemberId = normalizedObservedMemberId
-        return true
-    }
-
-    private static func normalized(_ memberId: String?) -> String? {
-        guard let memberId,
-              !memberId.isEmpty else {
-            return nil
-        }
-        return memberId
-    }
-}
-
 enum ChatInitialBootstrapPresentationWatchdogPolicy {
     static let maximumPresentationTimeout: TimeInterval = 5
 
@@ -2971,6 +2941,10 @@ extension ChatViewController {
     internal func subscribe() throws {
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
         self.bag = DisposeBag()
+        self.groupProjectionObserver?.invalidate()
+        self.groupProjectionObserver = nil
+        self.canonicalGroupProjectionState = nil
+        self.canonicalGroupChatPresenceState = nil
         let realm = try WRealm.safe()
         self.configureDataset()
         self.observeConversationArchiveTerminal()
@@ -3016,50 +2990,7 @@ extension ChatViewController {
         
         if self.conversationType == .group {
             do {
-                let realm = try WRealm.safe()
-                var groupMemberUnreadMetadataRefreshGate =
-                    ChatGroupMemberUnreadMetadataRefreshGate(
-                        authoritativeMemberId: initialChatInstance?.groupchatMyId
-                    )
-                let myGroupUser = realm.objects(GroupchatUserStorageItem.self)
-                    .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp())
-                Observable
-                    .collection(from: myGroupUser, synchronousStart: true)
-                    .debounce(.milliseconds(30), scheduler: MainScheduler.asyncInstance)
-                    .observe(on: MainScheduler.asyncInstance)
-                    .subscribe(onNext: { results in
-                        let observedMemberId = results.first(where: {
-                            !$0.isHidden
-                        })?.userId
-                        if groupMemberUnreadMetadataRefreshGate.shouldRefresh(
-                            observedMemberId: observedMemberId
-                        ) {
-                            _ = self.timelineSession?.refreshUnreadMetadata()
-                        }
-                        self.rebuildUnreadMentionItems()
-                        self.refreshUnreadMentionsNavigatorState(animated: true)
-                    })
-                    .disposed(by: self.bag)
-                Observable
-                    .collection(
-                        from: realm
-                            .objects(GroupChatStorageItem.self)
-                            .filter("owner == %@ AND jid == %@", self.owner, self.jid),
-                        synchronousStart: true
-                    )
-                    .debounce(.milliseconds(30), scheduler: MainScheduler.asyncInstance)
-                    .observe(on: MainScheduler.asyncInstance)
-                    .subscribe(onNext: { results in
-                        guard let groupchat = results.first else {
-                            self.updatePinnedMessagePanelState(pinnedMessageId: nil, canUnpin: false)
-                            return
-                        }
-                        self.updatePinnedMessagePanelState(
-                            pinnedMessageId: groupchat.pinnedMessage,
-                            canUnpin: groupchat.canChangeSettings
-                        )
-                    })
-                    .disposed(by: self.bag)
+                try observeCanonicalGroupProjection()
             } catch {
                 DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             }
@@ -3230,7 +3161,6 @@ extension ChatViewController {
             }.disposed(by: bag)
 
         
-//        if !self.groupchat {
         Observable
             .collection(from: realm
                                 .objects(ResourceStorageItem.self)
@@ -3239,12 +3169,10 @@ extension ChatViewController {
                                              SortDescriptor(keyPath: "priority", ascending: false)]))
             .observe(on: MainScheduler.asyncInstance)
             .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
-//                .skip(1)
             .subscribe(onNext: { (results) in
                 let nickname = self.opponentSender.displayName
                 let offlineStatus = "last seen recently".localizeString(id: "last_seen_recently", arguments: [])
                 let status = (results.first?.statusMessage.isEmpty ?? true) ? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus) : results.first?.statusMessage ?? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
-//                    self.contactUsename = nickname
                 let statusStr = self.connectionAwareStatusText(fallbackStatus: status)
                 self.runOrDeferChatPresentationRefresh(keySuffix: "presence") { [weak self] in
                     guard let self else { return }
@@ -4054,147 +3982,103 @@ extension ChatViewController {
             
         }
     }
+
+    internal func observeCanonicalGroupProjection() throws {
+        let observer = ChatGroupProjectionObserver()
+        let repository = GroupRepository(realm: try WRealm.safe())
+        groupProjectionObserver?.invalidate()
+        groupProjectionObserver = observer
+        do {
+            try observer.observe(
+                repository: repository,
+                owner: owner,
+                groupJID: jid
+            ) { [weak self] state in
+                guard let self else { return }
+                let applyState = { [weak self] in
+                    guard let self else { return }
+                    let previousState = self.canonicalGroupProjectionState
+                    self.canonicalGroupProjectionState = state
+                    self.xabberInputView.groupMentionSenderRole = state.selfMember?.role
+                    self.xabberInputView.groupMentionAllCapabilityGranted = false
+                    if previousState?.members != state.members {
+                        self.hasRequestedMentionUsersRefresh = false
+                        self.xabberInputView.refreshMentionSuggestions()
+                    }
+                    if previousState != nil,
+                       previousState?.selfMemberID != state.selfMemberID ||
+                        previousState?.members != state.members {
+                        _ = self.timelineSession?.refreshUnreadMetadata()
+                    }
+                    self.rebuildUnreadMentionItems()
+                    self.refreshUnreadMentionsNavigatorState(animated: true)
+                    if self.viewIfLoaded?.window != nil,
+                       UIApplication.shared.applicationState == .active {
+                        self.sendCanonicalGroupChatPresence(.active)
+                    }
+                    self.updatePinnedMessagePanelState(
+                        pinnedMessageId: state.lastPinnedMessageID,
+                        canUnpin: state.canUnpinLastMessage
+                    )
+                    self.xabberInputView.isUserInteractionEnabled = state.isComposerActive
+                    do {
+                        let realm = try WRealm.safe()
+                        self.applyBaseSendButtonReadiness(
+                            isSkeletonVisible: self.showSkeletonObserver.value,
+                            isAccountConnecting: AccountManager.shared.connectingUsers.value.contains(self.owner),
+                            hasPendingOrFailedMessage: self.pendingOrFailedMessageBlocksSend(in: realm)
+                        )
+                    } catch {
+                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                    }
+                }
+                if Thread.isMainThread {
+                    applyState()
+                } else {
+                    DispatchQueue.main.async(execute: applyState)
+                }
+            }
+        } catch {
+            groupProjectionObserver = nil
+            throw error
+        }
+    }
     
     internal final func groupSubscribtions() throws {
-        
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            session.groupchat?.getDefaultPermissions(stream, groupchat: self.jid)
-            session.groupchat?.requestMyPermissions(stream, groupchat: self.jid)
-        } fail: {
-            AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                user.groupchats.getDefaultPermissions(stream, groupchat: self.jid)
-                user.groupchats.requestMyPermissions(stream, groupchat: self.jid)
+        if let account = AccountManager.shared.find(for: owner) {
+            Task { [weak self, weak account] in
+                guard let self, let account else { return }
+                do {
+                    let projection = try GroupRepository(
+                        realm: WRealm.safe()
+                    ).projection(owner: self.owner, groupJID: self.jid)
+                    guard projection.state.isActive,
+                          let selfMemberID = projection.selfMemberID else {
+                        return
+                    }
+                    async let defaults = account.groupchatService.getPermissions(
+                        groupJID: self.jid,
+                        scope: .defaults
+                    )
+                    async let personal = account.groupchatService.getPermissions(
+                        groupJID: self.jid,
+                        scope: .direct,
+                        targetMemberID: selfMemberID
+                    )
+                    let permissionSets = try await [defaults, personal]
+                    let repository = GroupRepository(realm: try WRealm.safe())
+                    for permissionSet in permissionSets {
+                        try repository.replacePermissionSet(
+                            permissionSet,
+                            owner: self.owner,
+                            groupJID: self.jid
+                        )
+                    }
+                } catch {
+                    DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+                }
             }
         }
 
-        let realm = try WRealm.safe()
-        let mentionUsers = self.mentionUsersResults(in: realm)
-        Observable
-            .collection(from: mentionUsers)
-            .debounce(.milliseconds(20), scheduler: MainScheduler.asyncInstance)
-            .observe(on: MainScheduler.asyncInstance)
-            .subscribe(onNext: { results in
-                if !results.isEmpty {
-                    self.hasRequestedMentionUsersRefresh = false
-                }
-                self.xabberInputView.refreshMentionSuggestions()
-            })
-            .disposed(by: bag)
-
-//        let realm = try WRealm.safe()
-//        
-//        self.showMyNickname = realm
-//            .objects(GroupchatUserStorageItem.self)
-//            .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp())
-//            .first?
-//            .nickname == AccountManager.shared.find(for: self.owner)?.username
-//        Observable
-//            .collection(from: realm
-//                .objects(GroupchatInvitesStorageItem.self)
-//                .filter("owner == %@ AND groupchat == %@ AND isProcessed == false", self.owner, self.jid))
-//            .subscribe { (results) in
-//                if let item = results.first {
-//                    self.didReceiveInvite(item.primary)
-//                }
-//            } onError: { (error) in
-//                DDLogDebug("ChatViewController: \(#function). Invite error \(error.localizedDescription)")
-//            } onCompleted: {
-//                DDLogDebug("ChatViewController: \(#function). Invite completed")
-//            } onDisposed: {
-//                DDLogDebug("ChatViewController: \(#function). Invite disposed")
-//            }
-//            .disposed(by: bag)
-//        
-//        Observable
-//            .collection(from: realm
-//                                .objects(GroupChatStorageItem.self)
-//                                .filter("jid == %@ AND owner == %@", jid, owner))
-//            .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
-//            .subscribe(onNext: { (results) in
-//                
-//                let nickname = self.opponentSender.displayName
-//                if let item = results.first {
-//                    if item.descr != self.groupchatDescr {
-//                        self.groupchatDescr = item.descr
-//                        do {
-//                            let realm = try WRealm.safe()
-//                            if let initialMessageInstance = realm.object(
-//                                ofType: MessageStorageItem.self,
-//                                forPrimaryKey: MessageStorageItem.genPrimary(
-//                                    messageId: MessageStorageItem.messageIdForInitial(jid: self.jid, conversationType: self.conversationType),
-//                                    owner: self.owner
-//                                )
-//                            ) {
-//                                if initialMessageInstance.isDeleted {
-//                                    try realm.write {
-//                                        if initialMessageInstance.isInvalidated { return }
-//                                        initialMessageInstance.owner = self.owner
-//                                    }
-//                                }
-//                            }
-//                        } catch {
-//                            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
-//                        }
-//                    }
-//                    
-//                    if item.isDeleted {
-//                        if let value = self.isInitiallyDeletedGroup,
-//                            value == false {
-//                            self.navigationController?.popToRootViewController(animated: true)
-//                        }
-//                    } else {
-//                        self.titleLabel.text = nickname
-//                        let statusStr = self.isInviteViewControllerShowed ? (item.privacy == .incognito ? "Incognito group".localizeString(id: "intro_incognito_group", arguments: []) : "Public group".localizeString(id: "intro_public_group", arguments: [])) : item.statusString
-//                        if self.statusLabel.text == " " {
-//                            self.statusLabel.text = statusStr
-//                        }
-//                        
-//                        self.statusTextObserver.accept(statusStr)
-//                        
-//                        self.contactStatus = self.isInviteViewControllerShowed ? (item.privacy == .incognito ?"Incognito group".localizeString(id: "intro_incognito_group", arguments: []) : "Public group".localizeString(id: "intro_public_group", arguments: [])) : item.statusString
-//                    }
-//                    self.isInitiallyDeletedGroup = item.isDeleted
-//                } else {
-//                    let status = "Unknown".localizeString(id: "unknown", arguments: [])
-////                            if self.entity != .incognitoChat || self.entity != .groupchat {
-////                                self.entity = .groupchat
-////                            }
-//                    if ![.incognitoChat, .groupchat].contains(self.entity) {
-//                        self.entity = .groupchat
-//                    }
-//                    
-//                    self.titleLabel.text = nickname
-//                    self.statusTextObserver.accept(status)
-//                    self.contactStatus = status
-//                }
-//                self.titleLabel.layoutIfNeeded()
-//            })
-//            .disposed(by: bag)
-
-
-//        Observable
-//            .collection(from: realm
-//                .objects(GroupchatUserStorageItem.self)
-//                .filter("groupchatId == %@ AND isMe == true", [self.jid, self.owner].prp()))
-//            .subscribe(onNext: { (results) in
-//                if let item = results.first {
-//                    if item.nickname != (AccountManager.shared.find(for: self.owner)?.username ?? "") {
-//                        if !self.showMyNickname {
-//                            self.showMyNickname = true
-//                            UIView.performWithoutAnimation {
-//                                self.messagesCollectionView.reloadData()
-//                            }
-//                        }
-//                    } else {
-//                        if self.showMyNickname {
-//                            self.showMyNickname = false
-//                            UIView.performWithoutAnimation {
-//                                self.messagesCollectionView.reloadData()
-//                            }
-//                        }
-//                    }
-//                }
-//            })
-//            .disposed(by: bag)
     }
 }

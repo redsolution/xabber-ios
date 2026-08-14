@@ -205,11 +205,18 @@ final class ChatSearchResultCellTests: XCTestCase {
         item.opponent = "room@example.com"
         item.conversationType = .group
         item.body = "group test"
-        let author = GroupchatUserStorageItem()
-        author.userId = "author-id"
-        author.nickname = "Alexey Boldin"
-        author.avatarURI = "https://example.com/avatar.jpg"
-        item.groupchatCard = author
+        let author = MessageReferenceStorageItem()
+        author.primary = "group-primary-author"
+        author.owner = item.owner
+        author.jid = item.opponent
+        author.messageId = item.primary
+        author.kind = .groupchat
+        author.metadata = [
+            "id": "author-id",
+            "nickname": "Alexey Boldin",
+            "avatar_uri": "https://example.com/avatar.jpg"
+        ]
+        item.references.append(author)
         let context = ChatSearchResultMappingContext(
             scope: ChatSearchResult.Scope(
                 owner: item.owner,

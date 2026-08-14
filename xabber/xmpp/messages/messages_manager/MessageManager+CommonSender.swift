@@ -206,7 +206,13 @@ extension MessageManager {
                 if requiresMediaUpload {
                     self.uploadMedia(for: primary, retry: true)
                 } else {
-                    self.processSender(item: primary, retry: true)
+                    self.processSender(
+                        item: primary,
+                        retry: true,
+                        groupMentionIntent: instance.groupMentionIntent,
+                        groupMentionSenderRole: instance.groupMentionSenderRole,
+                        groupMentionAllCapabilityGranted: instance.groupMentionAllCapabilityGranted
+                    )
                 }
             }
         } catch {
@@ -214,11 +220,32 @@ extension MessageManager {
         }
     }
     
-    internal func processSender(item primary: String, retry: Bool = false, childs: [DDXMLElement] = []) {
+    internal func processSender(
+        item primary: String,
+        retry: Bool = false,
+        childs: [DDXMLElement] = [],
+        groupMentionIntent: GroupMessageMentionIntent? = nil,
+        groupMentionSenderRole: GroupMemberRole? = nil,
+        groupMentionAllCapabilityGranted: Bool = false
+    ) {
         do {
             let realm = try WRealm.safe()
             guard let item = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) else {
                 return
+            }
+            if let groupMentionIntent {
+                let persistMentionAuthorization = {
+                    item.groupMentionIntent = groupMentionIntent
+                    item.groupMentionSenderRole = groupMentionSenderRole
+                    item.groupMentionAllCapabilityGranted = groupMentionAllCapabilityGranted
+                }
+                if realm.isInWriteTransaction {
+                    persistMentionAuthorization()
+                } else {
+                    try realm.write {
+                        persistMentionAuthorization()
+                    }
+                }
             }
             let conversationType = item.conversationType
             let conversationJID = Self.canonicalOutgoingConversationJID(
@@ -655,7 +682,14 @@ extension MessageManager {
         return out.sorted(by: { ($0.originalDate?.timeIntervalSince1970 ?? 0.0) < ($1.originalDate?.timeIntervalSince1970 ?? 0.0) })
     }
     
-    public func editSimpleMessage(_ body: String, primary: String, references: [MessageReferenceStorageItem] = []) {
+    public func editSimpleMessage(
+        _ body: String,
+        primary: String,
+        references: [MessageReferenceStorageItem] = [],
+        groupMentionIntent: GroupMessageMentionIntent? = nil,
+        groupMentionSenderRole: GroupMemberRole? = nil,
+        groupMentionAllCapabilityGranted: Bool = false
+    ) {
         do {
             let realm = try  WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
@@ -669,6 +703,9 @@ extension MessageManager {
                     $0.sentDate = Date()
                 }
                 try realm.write {
+                    instance.groupMentionIntent = groupMentionIntent
+                    instance.groupMentionSenderRole = groupMentionSenderRole
+                    instance.groupMentionAllCapabilityGranted = groupMentionAllCapabilityGranted
                     instance.legacyBody = body
                     instance.body = body
                     instance.references
@@ -707,7 +744,18 @@ extension MessageManager {
         }
     }
         
-    public func sendSimpleMessage(_ body: String, to jid: String, childs: [DDXMLElement] = [],  forwarded: [String], conversationType: ClientSynchronizationManager.ConversationType, references: [MessageReferenceStorageItem] = [], isReport: Bool = false) -> String {
+    public func sendSimpleMessage(
+        _ body: String,
+        to jid: String,
+        childs: [DDXMLElement] = [],
+        forwarded: [String],
+        conversationType: ClientSynchronizationManager.ConversationType,
+        references: [MessageReferenceStorageItem] = [],
+        isReport: Bool = false,
+        groupMentionIntent: GroupMessageMentionIntent? = nil,
+        groupMentionSenderRole: GroupMemberRole? = nil,
+        groupMentionAllCapabilityGranted: Bool = false
+    ) -> String {
         let originalId = NanoID.new(8)
         do {
             let realm = try  WRealm.safe()
@@ -739,6 +787,9 @@ extension MessageManager {
                                                                               isReport: isReport,
                                                                               owner: owner,
                                                                               jid: conversationJID))
+            instance.groupMentionIntent = groupMentionIntent
+            instance.groupMentionSenderRole = groupMentionSenderRole
+            instance.groupMentionAllCapabilityGranted = groupMentionAllCapabilityGranted
             if references.contains(where: { [.media, .voice].contains($0.kind) }) {
                 instance.createLegacyBody()
             }
@@ -770,7 +821,13 @@ extension MessageManager {
                 chat?.draftMessage = nil
             }
             
-            self.processSender(item: instance.primary, childs: childs)
+            self.processSender(
+                item: instance.primary,
+                childs: childs,
+                groupMentionIntent: groupMentionIntent,
+                groupMentionSenderRole: groupMentionSenderRole,
+                groupMentionAllCapabilityGranted: groupMentionAllCapabilityGranted
+            )
         } catch {
             DDLogDebug("cant store new message item")
         }

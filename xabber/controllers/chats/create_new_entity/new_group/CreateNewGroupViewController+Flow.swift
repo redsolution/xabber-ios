@@ -28,69 +28,92 @@ import CocoaLumberjack
 extension CreateNewGroupViewController {
     @objc
     internal func onSave() {
+        guard let owner = account["value"],
+              let serviceJID = selectedServer,
+              let groupName = name.value else {
+            onError(conflict: false)
+            return
+        }
         self.inSaveMode.accept(true)
         DispatchQueue.main.async {
             self.navigationItem.setRightBarButton(self.createIndicator, animated: true)
         }
-        var privacyValue: String = "public"
-        if createIncognitoGroup {
-            privacyValue = "incognito"
+        guard let account = AccountManager.shared.find(for: owner),
+              let membership = self.membership["value"].flatMap(GroupMembership.init(rawValue:)),
+              let index = self.index["value"].flatMap(GroupIndexVisibility.init(rawValue:)) else {
+            onError(conflict: false)
+            return
         }
-        
-        
-        AccountManager.shared.find(for: self.account["value"]!)?.action({ (user, stream) in
-            user.groupchats.create(
-                stream,
-                server: self.selectedServer,
-                name: self.name.value!,
-                localPart: self.localpart,
-                privacy: GroupChatStorageItem.Privacy(rawValue: privacyValue),
-                membership: GroupChatStorageItem.Membership(rawValue: self.membership["value"]!),
-                index: GroupChatStorageItem.Index(rawValue: self.index["value"]!),
-                description: self.descr
-            ) { response in
-                DispatchQueue.main.async {
-                    if let value = response {
-                        if value == "success" {
-                            self.onSuccess()
-                        } else if value == "conflict" {
-                            self.onError(conflict: true)
-                        } else {
-                            self.onError(conflict: false)
-                        }
-                    }
+        let request = GroupSnapshot(
+            privacy: createIncognitoGroup ? .incognito : .publicGroup,
+            localpart: localpart,
+            info: GroupInfo(
+                name: groupName,
+                description: descr.isEmpty ? nil : descr
+            ),
+            settings: GroupSettings(membership: membership, index: index)
+        )
+
+        Task { [weak self, weak account] in
+            guard let self, let account else { return }
+            do {
+                let snapshot = try await account.groupchatService.create(
+                    serviceJID: serviceJID,
+                    snapshot: request
+                )
+                guard let rawGroupJID = snapshot.jid else {
+                    throw GroupRepositoryError.invalidGroupJID
+                }
+                let groupJID = GroupStorageKey.bareJID(rawGroupJID)
+                guard !groupJID.isEmpty else {
+                    throw GroupRepositoryError.invalidGroupJID
+                }
+                let repository = GroupRepository(realm: try WRealm.safe())
+                let existingSelfMemberID = try? repository.projection(
+                    owner: owner,
+                    groupJID: groupJID
+                ).selfMemberID
+                try repository.setSelfMembership(
+                    .both,
+                    memberID: existingSelfMemberID,
+                    owner: owner,
+                    groupJID: groupJID
+                )
+                try repository.applySnapshot(
+                    snapshot,
+                    owner: owner,
+                    groupJID: groupJID
+                )
+                account.groupMembershipDidActivate(groupJID)
+                await MainActor.run {
+                    self.onSuccess(groupJID: groupJID)
+                }
+            } catch let GroupchatServiceError.iq(error) {
+                await MainActor.run {
+                    self.onError(conflict: error.condition == "conflict")
+                }
+            } catch {
+                await MainActor.run {
+                    self.onError(conflict: false)
                 }
             }
-        })
+        }
     }
     
-    internal func onSuccess() {
-//        self.navigationController?.dismiss(animated: true, completion: nil)
+    internal func onSuccess(groupJID: String) {
         self.inSaveMode.accept(false)
         
-        guard let owner = self.account["value"],
-            let domainPart = self.server["value"],
-            let localPart = self.localpart else {
-                return
+        guard let owner = self.account["value"] else {
+            return
         }
-        
-        let jid = [localPart, domainPart].joined(separator: "@")
-//        XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
-//            _ = session.mam?.requestHistory(stream, to: jid, count: 2, callback: nil)
-//        } fail: {
-//            AccountManager.shared.find(for: owner)?.action({ user, stream in
-//                _ = user.mam.requestHistory(stream, to: jid, count: 2, callback: nil)
-//            })
-//        }
-        
-        
+
         DispatchQueue.main.async {
             self.dismiss(animated: true) {
                 if self.leftMenuSelectRootCategoryDelegate != nil {
-                    self.leftMenuSelectRootCategoryDelegate?.openChatlistWithChat(owner: owner, jid: jid, conversationType: .group, configure: nil)
+                    self.leftMenuSelectRootCategoryDelegate?.openChatlistWithChat(owner: owner, jid: groupJID, conversationType: .group, configure: nil)
                 } else {
                     let vc = ChatViewController()
-                    vc.jid = jid
+                    vc.jid = groupJID
                     vc.owner = owner
                     vc.conversationType = .group
                     

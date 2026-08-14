@@ -334,6 +334,14 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 _ = self.mam.recordDeferredArchiveControlConsumption(message)
             }
         }
+        let canonicalGroupRouting = CanonicalAuxiliaryGroupMessageRouter.route(
+            message,
+            owner: sender.myJID?.bare ?? jid
+        )
+        if canonicalGroupRouting == .consumed {
+            didIntentionallyConsumeArchiveResult = true
+            return
+        }
         
         switch message.messageType ?? .chat {
         case .chat, .normal:
@@ -349,12 +357,6 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
             }
             if isArchivedMessage(message) {
                 if let bareMessage = getArchivedMessageContainer(message) {
-                    if GroupchatInvitePersistenceService(owner: sender.myJID!.bare)
-                        .receiveArchivedEnvelope(message, isRead: nil)
-                        .shouldConsume {
-                        didIntentionallyConsumeArchiveResult = true
-                        return
-                    }
                     if VoIPManager.shared.onReceiveMessage(bareMessage, owner: sender.myJID!.bare, archivedDate: getDeliveryTime(message, owner: sender.myJID!.bare) ?? getDelayedDate(message)) {
                         didIntentionallyConsumeArchiveResult = true
                         return
@@ -371,16 +373,6 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 }
                 
             } else {
-                if GroupchatInvitePersistenceService(owner: sender.myJID!.bare)
-                    .receive(
-                        message: message,
-                        date: getDeliveryTime(message, owner: sender.myJID!.bare) ?? Date(),
-                        isRead: false,
-                        notifyLocally: true
-                    )
-                    .shouldConsume {
-                    return
-                }
                 if VoIPManager.shared.onReceiveMessage(message, owner: sender.myJID!.bare, archivedDate: nil, runtime: true) {
                     return
                 }

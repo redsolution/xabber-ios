@@ -70,6 +70,8 @@ extension ContactsViewController {
                     action.backgroundColor = .systemRed
                     return UISwipeActionsConfiguration(actions: [action])
                 case "invitations":
+                    let invite = try? GroupRepository(realm: WRealm.safe())
+                        .incomingInvite(owner: item.owner, groupJID: item.jid)
                     let deleteAction = UIContextualAction(style: .normal,
                                                        title: "Decline".localizeString(id: "decline_invite", arguments: [])) {
                         action, view, handler in
@@ -81,12 +83,19 @@ extension ContactsViewController {
                     deleteAction.image = imageLiteral( "trash")?.withRenderingMode(.alwaysTemplate)
                     deleteAction.backgroundColor = .systemRed
                     
+                    guard invite?.inviter?.jid != nil else {
+                        return UISwipeActionsConfiguration(actions: [deleteAction])
+                    }
                     let blockAction = UIContextualAction(style: .normal,
                                                          title: "Block group".localizeString(id: "block_group", arguments: [])) {
                           action, view, handler in
                           let jid = item.jid
                           let owner = item.owner
-                          self.blockContact(jid: jid, owner: owner)
+                          self.cancelInvite(
+                              jid: jid,
+                              owner: owner,
+                              blockInviter: true
+                          )
                           handler(true)
                       }
                     blockAction.image = imageLiteral( "hand.raised")?.withRenderingMode(.alwaysTemplate)
@@ -154,24 +163,69 @@ extension ContactsViewController {
     }
     
     private func leaveGroup(jid: String, owner: String) {
+        let exitMode = (try? CanonicalGroupMembershipLifecycle.exitMode(
+            owner: owner,
+            groupJID: jid
+        )) ?? .leave
+        let confirmation: String
+        switch exitMode {
+        case .leave:
+            confirmation = "Do you really want to leave groupchat \(jid)"
+        case .deletePeerToPeer:
+            confirmation = "Leaving this private group will permanently delete \(jid)."
+                .localizeString(
+                    id: "groupchat_delete_p2p_confirm",
+                    arguments: [jid]
+                )
+        case .deleteLastOwner:
+            confirmation = "You are the last owner. Leaving now will permanently delete \(jid)."
+                .localizeString(
+                    id: "groupchat_delete_last_owner_confirm",
+                    arguments: [jid]
+                )
+        }
         YesNoPresenter().present(
             in: self,
             title: nil,
-            message: "Do you really want to leave groupchat \(jid)",
-            yesText: "Leave".localizeString(id: "groupchat_bar_leave", arguments: []),
+            message: confirmation,
+            yesText: exitMode.deletesGroup
+                ? "Delete".localizeString(id: "delete", arguments: [])
+                : "Leave".localizeString(id: "groupchat_bar_leave", arguments: []),
             dangerYes: true,
             noText: "Cancel".localizeString(id: "cancel", arguments: []),
             animated: true) { value in
             if value {
-                AccountManager.shared.find(for: owner)?.action { user, stream in
-                    user.groupchats.leave(stream, groupchat: jid) { _ in
-                        DispatchQueue.main.async {
-                            self.runDatasetUpdateTask(force: true)
+                guard let account = AccountManager.shared.find(for: owner) else {
+                    ToastPresenter().presentError(
+                        message: CanonicalGroupMembershipLifecycle.localizedErrorMessage(
+                            GroupchatServiceError.notPrepared
+                        )
+                    )
+                    return
+                }
+                Task { @MainActor [weak self, weak account] in
+                    guard let self, let account else { return }
+                    do {
+                        let currentExitMode = try CanonicalGroupMembershipLifecycle
+                            .exitMode(owner: owner, groupJID: jid)
+                        switch currentExitMode {
+                        case .leave:
+                            try await CanonicalGroupMembershipLifecycle.leave(
+                                account: account,
+                                groupJID: jid
+                            )
+                        case .deletePeerToPeer, .deleteLastOwner:
+                            try await CanonicalGroupMembershipLifecycle.delete(
+                                account: account,
+                                groupJID: jid
+                            )
                         }
-                    }
-                    user.groupchats.afterLeave(groupchat: jid)
-                    DispatchQueue.main.async {
                         self.runDatasetUpdateTask(force: true)
+                    } catch {
+                        ToastPresenter().presentError(
+                            message: CanonicalGroupMembershipLifecycle
+                                .localizedErrorMessage(error)
+                        )
                     }
                 }
             }
@@ -179,7 +233,11 @@ extension ContactsViewController {
         
     }
     
-    private func cancelInvite(jid: String, owner: String) {
+    private func cancelInvite(
+        jid: String,
+        owner: String,
+        blockInviter: Bool = false
+    ) {
         YesNoPresenter().present(
             in: self,
             title: nil,
@@ -189,23 +247,35 @@ extension ContactsViewController {
             noText: "Cancel".localizeString(id: "cancel", arguments: []),
             animated: true) { value in
             if value {
-                AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                    user.groupchats.decline(stream, groupchat: jid) { error in
-                        do {
-                            let realm = try WRealm.safe()
-                            let invites = realm.objects(GroupchatInvitesStorageItem.self).filter("groupchat == %@ AND owner == %@", jid, owner)
-                            try realm.write {
-                                invites.forEach { realm.delete($0) }
+                guard let account = AccountManager.shared.find(for: owner) else {
+                    ToastPresenter().presentError(
+                        message: CanonicalGroupMembershipLifecycle.localizedErrorMessage(
+                            GroupchatServiceError.notPrepared
+                        )
+                    )
+                    return
+                }
+                Task { @MainActor [weak self, weak account] in
+                    guard let self, let account else { return }
+                    do {
+                        let invite = try GroupRepository(
+                            realm: WRealm.safe()
+                        ).incomingInvite(owner: owner, groupJID: jid)
+                        try await account.groupchatService.declineInvite(
+                            groupJID: jid
+                        )
+                        account.removeCanonicalGroupInvite(jid)
+                        if blockInviter, let inviterJID = invite?.inviter?.jid {
+                            account.action { user, stream in
+                                user.blocked.blockContact(stream, jid: inviterJID)
                             }
-                        } catch {
-                            DDLogDebug("ContactsViewController: \(#function). \(error.localizedDescription)")
                         }
-                        DispatchQueue.main.async {
-                            if error != nil {
-                                ToastPresenter().presentError(message: "Unexpected error".localizeString(id: "unexpected_error", arguments: []))
-                            }
-                            self.runDatasetUpdateTask(force: true)
-                        }
+                        self.runDatasetUpdateTask(force: true)
+                    } catch {
+                        ToastPresenter().presentError(
+                            message: CanonicalGroupMembershipLifecycle
+                                .localizedErrorMessage(error)
+                        )
                     }
                 }
             }

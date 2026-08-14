@@ -1554,6 +1554,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     
     internal var bag: DisposeBag = DisposeBag()
     internal var datasetBag: DisposeBag = DisposeBag()
+    internal var dismissedCanonicalInviteBannerPrimaries: Set<String> = []
     internal var chatsObserver: Results<LastChatsStorageItem>? = nil
     internal var filter: BehaviorRelay<Filter> = BehaviorRelay(value: .chats)
     internal var isEmptyViewShowed: BehaviorRelay<Bool> = BehaviorRelay(value: false)
@@ -2879,9 +2880,6 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             
             
             let jids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
-            let invites = realm
-                .objects(GroupchatInvitesStorageItem.self)
-                .filter("owner IN %@ AND isRead == %@", jids, false)
             
             let requests = realm
                 .objects(UINotificationStorageItem.self)
@@ -2895,13 +2893,20 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 }
                 .disposed(by: self.datasetBag)
 
-            Observable
-                .collection(from: invites)
+            let incomingInvites = PublishSubject<[GroupInviteRecord]>()
+            incomingInvites
                 .debounce(.milliseconds(900), scheduler: MainScheduler.asyncInstance)
-                .subscribe { _ in
-                    self.runDatasetUpdateTask()
-                }
+                .subscribe(onNext: { [weak self] _ in
+                    self?.runDatasetUpdateTask()
+                })
                 .disposed(by: self.datasetBag)
+            let inviteObservation = GroupRepository(realm: realm).observeIncomingInvites(
+                owners: jids
+            ) { invites in
+                incomingInvites.onNext(invites)
+            }
+            Disposables.create { inviteObservation.invalidate() }
+                .disposed(by: datasetBag)
             
             Observable
                 .collection(from: chatsObserver!)
@@ -3398,7 +3403,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     }
     
     private final func mapDataset(
-        showsSpecialMessageBanners: Bool
+        showsSpecialMessageBanners: Bool,
+        dismissedInvitePrimaries: Set<String>
     ) -> [Datasource] {
         if self.showSkeleton.value {
             let skeletonItemsCount = self.skeletonItemsCount
@@ -3571,10 +3577,12 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             let jids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
             
             let invites = showsSpecialMessageBanners
-                ? realm
-                    .objects(GroupchatInvitesStorageItem.self)
-                    .filter("owner IN %@ AND isRead == %@", jids, false)
-                    .toArray()
+                ? ((try? CanonicalGroupInviteUIQuery.incoming(
+                    in: realm,
+                    owners: jids
+                )) ?? []).filter {
+                    !dismissedInvitePrimaries.contains($0.primary)
+                }
                 : []
 
             let requests = showsSpecialMessageBanners
@@ -3622,22 +3630,22 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 }
             }
             if invites.isNotEmpty {
-                let senderRosterItems = invites.compactMap {
-                    realm.object(
-                        ofType: RosterStorageItem.self,
-                        forPrimaryKey: RosterStorageItem.genPrimary(jid: $0.sender.isNotEmpty ? $0.sender : $0.jid, owner: $0.owner)
+                let presentations = invites.map(CanonicalGroupInvitePresentation.init)
+                let avatars = presentations.prefix(3).map {
+                    AvatarStructItem(
+                        jid: $0.groupJID,
+                        owner: $0.owner,
+                        name: $0.title,
+                        url: $0.avatarURL,
+                        isGroup: true,
+                        uuid: $0.primary
                     )
                 }
-                let avatars = senderRosterItems.prefix(3).compactMap { AvatarStructItem(jid: $0.jid, owner: $0.owner, name: $0.displayName, url: $0.avatarUrl, isGroup: false, uuid: "")}
-                if let firstInvite = invites.first {
-                    let groupInstance = realm.object(
-                        ofType: GroupChatStorageItem.self,
-                        forPrimaryKey: GroupChatStorageItem.genPrimary(jid: firstInvite.groupchat, owner: firstInvite.owner)
-                    )
+                if let firstInvite = presentations.first {
                     out.append(Datasource(
-                        jid: firstInvite.groupchat,
+                        jid: firstInvite.groupJID,
                         owner: firstInvite.owner,
-                        username: groupInstance?.name.isNotEmpty == true ? groupInstance!.name : firstInvite.groupchat,
+                        username: firstInvite.title,
                         attributedUsername: nil,
                         message: "",
                         date: nil,
@@ -4105,6 +4113,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 filter: filter.value,
                 isSearchActive: bottomSearchHostView.isExpanded
             )
+        let dismissedInvitePrimaries = dismissedCanonicalInviteBannerPrimaries
         let pressureActive = self.hasVisibleDatasetUpdatePressureInProgress
         let requestedAnimate = LeftMenuFirstPresentationPolicy.shouldAnimate(
             requested: self.isFirstLayout && !self.shouldSuppressNextDatasetAnimation,
@@ -4119,7 +4128,8 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         let renderStartedAt = Date()
         self.updateQueue.async {
             let newDataset = self.mapDataset(
-                showsSpecialMessageBanners: showsSpecialMessageBanners
+                showsSpecialMessageBanners: showsSpecialMessageBanners,
+                dismissedInvitePrimaries: dismissedInvitePrimaries
             )
             let newSections = Self.makeDatasourceSections(
                 from: newDataset,

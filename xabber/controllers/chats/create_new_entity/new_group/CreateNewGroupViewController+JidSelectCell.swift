@@ -77,16 +77,22 @@ extension CreateNewGroupViewController {
 //            textField.heightAnchor.constraint(equalToConstant: 36).isActive = true
         }
         
-        open func configure(_ itemId: String, localpart: String?, placeholder: String, server: String) {
+        open func configure(_ itemId: String, localpart: String?, placeholder: String, server: String?) {
             self.itemId = itemId
 //            textField.placeholder = placeholder
 //            textField.text = localpart
-            if let localpart = localpart {
+            if let server, let localpart = localpart {
                 label.text = "\(localpart)@\(server)"
-            } else {
+            } else if let server {
                 label.text = "\(server)"
+            } else {
+                label.text = "Group service unavailable".localizeString(
+                    id: "groupchats_service_unavailable",
+                    arguments: []
+                )
             }
-            
+            label.textColor = server == nil ? .secondaryLabel : .tintColor
+            accessoryType = server == nil ? .none : .disclosureIndicator
         }
         
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {

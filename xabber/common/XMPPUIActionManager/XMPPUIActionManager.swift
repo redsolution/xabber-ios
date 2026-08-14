@@ -294,7 +294,6 @@ class XMPPUIActionManager: NSObject {
     ] = [:]
 #endif
 
-    var groupchat: GroupchatManager? = nil
     var avatarUploader: AvatarUploadManager? = nil
     var chatMarkers: ChatMarkersManager? = nil
     var deliveryManager: ReliableMessageDeliveryManager? = nil
@@ -738,7 +737,6 @@ class XMPPUIActionManager: NSObject {
         self.stream = preparedStream
         preparedStream.addDelegate(self, delegateQueue: self.queue)
 
-        self.groupchat = GroupchatManager(withOwner: owner)
         self.avatarUploader = AvatarUploadManager(withOwner: owner)
         self.chatMarkers = ChatMarkersManager(withOwner: owner, withoutAfterburnTimer: true)
         self.deliveryManager = ReliableMessageDeliveryManager(withOwner: owner)
@@ -911,7 +909,6 @@ class XMPPUIActionManager: NSObject {
     private func clearFeatureManagers() {
         self.reconnect?.stop()
         self.reconnect = nil
-        self.groupchat = nil
         self.avatarUploader = nil
         self.chatMarkers = nil
         self.deliveryManager = nil

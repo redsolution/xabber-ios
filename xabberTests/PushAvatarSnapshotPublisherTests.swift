@@ -819,7 +819,7 @@ final class PushAvatarSnapshotPublisherTests: XCTestCase {
         }
     }
 
-    func testManagedEntityDeletionSitesInvalidateSharedPushAvatars() throws {
+    func testRosterDeletionInvalidatesSharedPushAvatars() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -828,25 +828,9 @@ final class PushAvatarSnapshotPublisherTests: XCTestCase {
                 "xabber/xmpp/roster/RosterManager.swift"
             )
         )
-        let groupSource = try String(
-            contentsOf: repositoryRoot.appendingPathComponent(
-                "xabber/xmpp/groupchat/GroupchatManager.swift"
-            )
-        )
-
         XCTAssertTrue(
             rosterSource.contains("CommonContactsMetadataManager.shared.remove")
         )
-        XCTAssertTrue(
-            groupSource.contains("invalidatePushAvatarSnapshots")
-        )
-        XCTAssertTrue(groupSource.contains(".delete,"))
-        XCTAssertTrue(groupSource.contains("value: groupchat"))
-        let deleteRoute = try XCTUnwrap(groupSource.range(of: "case onDelete(iq)"))
-        let genericSuccessRoute = try XCTUnwrap(
-            groupSource.range(of: "case onSuccess(iq)")
-        )
-        XCTAssertLessThan(deleteRoute.lowerBound, genericSuccessRoute.lowerBound)
     }
 
     private func makePublisher(

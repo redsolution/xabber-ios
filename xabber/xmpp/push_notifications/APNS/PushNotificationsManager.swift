@@ -115,7 +115,6 @@ class PushNotificationsManager: AbstractXMPPManager {
     
     internal func isAvailable(_ host: String) -> Bool {
         return true
-//        return ["xmppdev01.xabber.com", "xmpp.protostation.ru", "redsolution.com"].contains(host)//
     }
     
     func configure(node: String, service: String) {

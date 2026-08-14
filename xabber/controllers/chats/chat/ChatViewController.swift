@@ -2392,6 +2392,9 @@ class ChatViewController: MessagesViewController {
     private var navigationTitleHeightConstraint: NSLayoutConstraint? = nil
 
 // Pin message bar
+    internal var groupProjectionObserver: ChatGroupProjectionObserver? = nil
+    internal var canonicalGroupProjectionState: ChatGroupProjectionState? = nil
+    internal var canonicalGroupChatPresenceState: GroupChatPresenceState? = nil
     internal var pinnedMessageId: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     internal var canUnpinMessage: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     internal var currentPinnedMessageId: String? = nil
@@ -6536,6 +6539,9 @@ class ChatViewController: MessagesViewController {
         self.xabberInputView.mentionCandidatesProvider = { [weak self] query in
             self?.mentionCandidates(for: query) ?? []
         }
+        self.xabberInputView.mentionAllCandidateProvider = { [weak self] query in
+            self?.mentionAllCandidate(for: query)
+        }
         self.xabberInputView.mentionMembersCountProvider = { [weak self] in
             self?.currentMentionMembersCount() ?? 0
         }
@@ -6561,23 +6567,34 @@ class ChatViewController: MessagesViewController {
         self.xabberInputView.searchPanel.onCalendarCallback = nil
         self.xabberInputView.searchPanel.onCancelCallback = nil
         self.xabberInputView.mentionCandidatesProvider = nil
+        self.xabberInputView.mentionAllCandidateProvider = nil
         self.xabberInputView.mentionMembersCountProvider = nil
         self.xabberInputView.mentionUsersReloadHandler = nil
+        self.xabberInputView.groupMentionSenderRole = nil
+        self.xabberInputView.groupMentionAllCapabilityGranted = false
+    }
+
+    internal func mentionAllCandidate(for query: String) -> ComposerMentionCandidate? {
+        guard conversationType == .group else { return nil }
+        let normalizedQuery = normalizeMentionSearchValue(query)
+        guard "all".hasPrefix(normalizedQuery) else { return nil }
+        return ComposerMentionCandidate.mentionAll(groupJID: self.jid)
     }
 
     internal func mentionCandidates(for query: String) -> [ComposerMentionCandidate] {
         guard self.conversationType == .group else { return [] }
         do {
-            let realm = try WRealm.safe()
-            let items = self.mentionUsersResults(in: realm)
+            let items = try self.canonicalMentionMembers()
 
             let normalizedQuery = self.normalizeMentionSearchValue(query)
             let filtered = items.filter { item in
-                guard item.userId.isNotEmpty else { return false }
+                guard item.id.isNotEmpty else { return false }
                 if normalizedQuery.isEmpty { return true }
-                let nickname = self.normalizeMentionSearchValue(item.nickname)
-                let jid = self.normalizeMentionSearchValue(item.jid)
-                let username = self.normalizeMentionSearchValue(item.jid.split(separator: "@").first.map(String.init) ?? "")
+                let nickname = self.normalizeMentionSearchValue(item.nickname ?? "")
+                let jid = self.normalizeMentionSearchValue(item.jid ?? "")
+                let username = self.normalizeMentionSearchValue(
+                    item.jid?.split(separator: "@").first.map(String.init) ?? ""
+                )
                 return nickname.contains(normalizedQuery) || jid.contains(normalizedQuery) || username.contains(normalizedQuery)
             }
 
@@ -6585,23 +6602,25 @@ class ChatViewController: MessagesViewController {
 
             return filtered
                 .map { item in
-                    let nickname = item.nickname.isEmpty
-                        ? (item.jid.split(separator: "@").first.map(String.init) ?? item.userId)
-                        : item.nickname
-                    guard nickname.isNotEmpty || item.jid.isNotEmpty else {
+                    let jid = item.jid ?? ""
+                    let storedNickname = item.nickname ?? ""
+                    let nickname = storedNickname.isEmpty
+                        ? (jid.split(separator: "@").first.map(String.init) ?? item.id)
+                        : storedNickname
+                    guard nickname.isNotEmpty || jid.isNotEmpty else {
                         return nil
                     }
-                    guard seenMemberIds.insert(item.userId).inserted else {
+                    guard seenMemberIds.insert(item.id).inserted else {
                         return nil
                     }
-                    let uri = "xmpp:\(self.jid)?members;id=\(item.userId)"
+                    let uri = "xmpp:\(self.jid)?members;id=\(item.id)"
                     return ComposerMentionCandidate(
-                        memberId: item.userId,
+                        memberId: item.id,
                         nickname: nickname,
                         uri: uri,
-                        node: "https://xabber.com/protocol/groupchat",
-                        jid: item.jid.isEmpty ? nil : item.jid,
-                        secondaryText: item.jid.isEmpty ? item.userId : item.jid
+                        node: nil,
+                        jid: jid.isEmpty ? nil : jid,
+                        secondaryText: jid.isEmpty ? item.id : jid
                     )
                 }
                 .compactMap { $0 }
@@ -6622,31 +6641,41 @@ class ChatViewController: MessagesViewController {
     internal func currentMentionMembersCount() -> Int {
         guard self.conversationType == .group else { return 0 }
         do {
-            let realm = try WRealm.safe()
-            return self.mentionUsersResults(in: realm).count
+            return try self.canonicalMentionMembers().count
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             return 0
         }
     }
 
-    internal func mentionUsersResults(in realm: Realm) -> Results<GroupchatUserStorageItem> {
-        let groupchatId = [self.jid, self.owner].prp()
-        return realm.objects(GroupchatUserStorageItem.self)
-            .filter(
-                "groupchatId == %@ AND isBlocked == false AND isKicked == false AND isHidden == false",
-                groupchatId
-            )
+    internal func canonicalMentionMembers() throws -> [GroupMember] {
+        try GroupRepository(realm: WRealm.safe())
+            .projection(owner: owner, groupJID: jid)
+            .state
+            .members
     }
 
     internal func requestMentionUsersIfNeeded() {
-        guard self.conversationType == .group, !self.hasRequestedMentionUsersRefresh else { return }
-        self.hasRequestedMentionUsersRefresh = true
-        XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-            session.groupchat?.requestUsers(stream, groupchat: self.jid)
-        } fail: {
-            AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                user.groupchats.requestUsers(stream, groupchat: self.jid)
+        guard conversationType == .group,
+              !hasRequestedMentionUsersRefresh,
+              let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+        hasRequestedMentionUsersRefresh = true
+        Task { [weak self, weak account] in
+            guard let self, let account else { return }
+            do {
+                let members = try await account.groupchatService.refreshMembers(
+                    groupJID: self.jid
+                )
+                try GroupRepository(realm: WRealm.safe()).replaceMembers(
+                    members,
+                    owner: self.owner,
+                    groupJID: self.jid
+                )
+            } catch {
+                self.hasRequestedMentionUsersRefresh = false
+                DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
             }
         }
     }
@@ -6840,6 +6869,10 @@ class ChatViewController: MessagesViewController {
     
     private func unsubscribe() {
         NotifyManager.shared.currentDialog = nil
+        self.groupProjectionObserver?.invalidate()
+        self.groupProjectionObserver = nil
+        self.canonicalGroupProjectionState = nil
+        self.canonicalGroupChatPresenceState = nil
         self.cancelPendingArchiveObserverRefresh(reason: "unsubscribe")
         self.endAllChatHistoryLoadActivities(reason: "unsubscribe")
         self.bag = DisposeBag()
@@ -7642,6 +7675,7 @@ class ChatViewController: MessagesViewController {
         self.clearPendingLocalHistoryPagingPreparation()
         self.flushPendingVisibleReadTarget()
         self.saveCurrentVisibleMessagePositionIfNeeded(reason: .viewWillDisappear)
+        self.sendCanonicalGroupChatPresence(.gone)
         self.performTerminalChatResourceTeardown()
 
         XMPPUIActionManager.shared.mam?.endLoadHistory(jid: self.jid, conversationType: conversationType)
@@ -7747,6 +7781,7 @@ class ChatViewController: MessagesViewController {
         // deferred through that transition.
         self.setInitialFramePresentationLifecycleEligible(true)
         self.resumeInitialBootstrapAutomaticRetryIfNeeded()
+        self.sendCanonicalGroupChatPresence(.active)
         DispatchQueue.main.async { [weak self] in
             guard let self else {
                 return
@@ -7845,6 +7880,7 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func handleApplicationDidEnterBackground() {
+        self.sendCanonicalGroupChatPresence(.inactive)
         self.setInitialFramePresentationLifecycleEligible(false)
         self.suspendInitialBootstrapAutomaticRetry()
         self.composerFirstFocusRecoveryState.noteEditingEnded()
@@ -8233,6 +8269,7 @@ class ChatViewController: MessagesViewController {
         self.setFloatingDateVisible(false)
         self.pinnedDateView.hide(withoutAnimation: true)
         self.addObservers()
+        self.sendCanonicalGroupChatPresence(.active)
         self.recordChatOpenTimingFirstMessagesVisibleIfPossible(
             reason: "viewDidAppear",
             modeDescription: "appearance"
@@ -8294,6 +8331,28 @@ class ChatViewController: MessagesViewController {
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
         self.handleChatMemoryPressure()
+    }
+
+    internal func sendCanonicalGroupChatPresence(
+        _ state: GroupChatPresenceState
+    ) {
+        guard ChatCanonicalGroupPresencePolicy.shouldSend(
+            state,
+            conversationIsGroup: conversationType == .group,
+            projection: canonicalGroupProjectionState,
+            lastSent: canonicalGroupChatPresenceState
+        ), let account = AccountManager.shared.find(for: owner) else {
+            return
+        }
+        do {
+            try account.groupchatService.sendChatPresence(
+                groupJID: jid,
+                state: state
+            )
+            canonicalGroupChatPresenceState = state
+        } catch {
+            DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
     }
 
     /// Clears recomputable values and speculative work only. Timeline identity,

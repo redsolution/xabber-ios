@@ -611,6 +611,23 @@ extension ChatViewController {
 
         do {
             let realm = try WRealm.safe()
+            if conversationType == .group {
+                let observation = try GroupRepository(realm: realm).observeProjection(
+                    owner: owner,
+                    groupJID: jid
+                ) { [weak self] _ in
+                    DispatchQueue.main.async {
+                        guard let self, self.isTopVisibleChatController else {
+                            return
+                        }
+                        self.refreshNavigationAvatarImage()
+                    }
+                }
+                Disposables.create { observation.invalidate() }
+                    .disposed(by: navigationAvatarBag)
+                return
+            }
+
             Observable
                 .collection(from: realm
                     .objects(RosterStorageItem.self)
@@ -799,6 +816,9 @@ extension ChatViewController {
     private func currentNavigationAvatarURL() -> String? {
         do {
             let realm = try WRealm.safe()
+            if conversationType == .group {
+                return activeGroupSnapshot(in: realm)?.info?.avatar?.url
+            }
             let rosterItem = realm.object(
                 ofType: RosterStorageItem.self,
                 forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)
@@ -813,6 +833,19 @@ extension ChatViewController {
     private func currentNavigationAvatarSourceRevision() -> String {
         do {
             let realm = try WRealm.safe()
+            if conversationType == .group {
+                guard let avatar = activeGroupSnapshot(in: realm)?.info?.avatar else {
+                    return "-1"
+                }
+                return [
+                    avatar.id ?? "",
+                    avatar.url ?? "",
+                    avatar.mediaType ?? "",
+                    avatar.bytes.map { String($0) } ?? "",
+                    avatar.width.map { String($0) } ?? "",
+                    avatar.height.map { String($0) } ?? ""
+                ].joined(separator: "|")
+            }
             let rosterItem = realm.object(
                 ofType: RosterStorageItem.self,
                 forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)
@@ -827,12 +860,8 @@ extension ChatViewController {
     private func currentNavigationAvatarDisplayName() -> String {
         do {
             let realm = try WRealm.safe()
-            if conversationType == .group,
-               let group = realm.object(
-                ofType: GroupChatStorageItem.self,
-                forPrimaryKey: GroupChatStorageItem.genPrimary(jid: jid, owner: owner)
-               ) {
-                return group.name
+            if conversationType == .group {
+                return activeGroupSnapshot(in: realm)?.info?.name ?? jid
             }
 
             if let rosterItem = realm.object(
@@ -846,5 +875,15 @@ extension ChatViewController {
         }
 
         return jid
+    }
+
+    private func activeGroupSnapshot(in realm: Realm) -> GroupSnapshot? {
+        guard let projection = try? GroupRepository(realm: realm).projection(
+            owner: owner,
+            groupJID: jid
+        ), projection.state.isActive else {
+            return nil
+        }
+        return projection.state.snapshot
     }
 }

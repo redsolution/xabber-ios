@@ -35,7 +35,6 @@ open class SettingManager: NSObject {
     }
 
     public enum KeyScope: String {
-        case globalIndex = "gc"
         case httpUploader = "http_upl"
         case reliableMessageDelivery = "rel_msg_del"
         case messageDeleteRewrite = "trust_cert_policy"

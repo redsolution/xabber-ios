@@ -130,15 +130,21 @@ final class ChatGroupMessageChromePolicyTests: XCTestCase {
         message.state = outgoing ? .sended : .read
         message.isRead = true
 
-        let card = GroupchatUserStorageItem()
-        card.primary = "\(primary)-card"
-        card.owner = owner
-        card.groupchatId = groupJid
-        card.userId = userId
-        card.jid = outgoing ? owner : "\(userId)@example.com"
-        card.nickname = nickname
-        card.avatarURI = "https://avatars.example.com/\(userId).png"
-        message.groupchatCard = card
+        let author = MessageReferenceStorageItem()
+        author.primary = "\(primary)-author"
+        author.owner = owner
+        author.jid = groupJid
+        author.messageId = primary
+        author.kind = .groupchat
+        author.metadata = [
+            "id": userId,
+            "jid": outgoing ? owner : "\(userId)@example.com",
+            "nickname": nickname,
+            "role": "member",
+            "badge": "",
+            "avatar_uri": "https://avatars.example.com/\(userId).png"
+        ]
+        message.references.append(author)
 
         return message
     }

@@ -3380,8 +3380,32 @@ final class Account: NSObject {
     var chatStates: ChatStatesManager
     var chatMarkers: ChatMarkersManager
     var attention: AttentionManger
-    var globalIndex: GlobalIndexManager
-    var groupchats: GroupchatManager
+    let groupchatService: GroupchatService
+    lazy var canonicalGroupTransportBinding = CanonicalGroupTransportBinding(
+        service: groupchatService
+    )
+    let groupActivationSyncGate = GroupActivationSyncGate()
+    lazy var groupEventProcessor = GroupEventProcessor(
+        owner: self.jid,
+        repository: {
+            GroupRepository(realm: try WRealm.safe())
+        },
+        sendPresenceReply: { [weak self] groupJID, reply in
+            guard let self else {
+                throw GroupchatServiceError.notPrepared
+            }
+            try self.groupchatService.sendPresenceReply(
+                groupJID: groupJID,
+                reply: reply
+            )
+        },
+        onActivated: { [weak self] groupJID in
+            self?.groupMembershipDidActivate(groupJID)
+        },
+        onDeactivated: { [weak self] groupJID in
+            self?.groupMembershipDidDeactivate(groupJID)
+        }
+    )
     var deliveryManager: ReliableMessageDeliveryManager
     var msgDeleteManager: MessageDeleteManager
     var messageSchedule: XMPPMessageScheduleManager
@@ -3483,8 +3507,7 @@ final class Account: NSObject {
         self.xTokens = XTokenManager(withOwner: self.jid)
         self.devices = XMPPDeviceManager(withOwner: self.jid)
         self.reconnect = XMPPReconnect(dispatchQueue: queue)
-        self.globalIndex = GlobalIndexManager(withOwner: self.jid)
-        self.groupchats = GroupchatManager(withOwner: self.jid)
+        self.groupchatService = GroupchatService()
         self.deliveryManager = ReliableMessageDeliveryManager(withOwner: self.jid)
         self.msgDeleteManager = MessageDeleteManager(withOwner: self.jid)
         self.messageSchedule = XMPPMessageScheduleManager(withOwner: self.jid)
@@ -3528,7 +3551,6 @@ final class Account: NSObject {
         self.registerModules()
         self.startConnectionResilienceMonitoring()
         self.lastChats.resetSyncedStatus()
-        self.groupchats.reset()
         self.load()
 //        xuploads.confi-gure()
 //        self.asyncConnect()
@@ -3894,6 +3916,8 @@ final class Account: NSObject {
     
     func resetStream() {
         self.logConnectionDiagnostics(event: "reset_stream_requested")
+        self.disconnectCanonicalGroupTransport()
+        self.groupActivationSyncGate.invalidateAll()
         self.notifications.invalidateNotificationSyncSession()
         self.disco.cancelCloudDiscoveryForDisconnect()
         self.cloudStorage.markAvailabilityRetryableFailure(stage: .disconnected)
@@ -4054,8 +4078,6 @@ final class Account: NSObject {
             self.chatStates,
             self.chatMarkers,
             self.attention,
-            self.globalIndex,
-            self.groupchats,
             self.deliveryManager,
             self.msgDeleteManager,
             self.messageSchedule,
@@ -4070,6 +4092,7 @@ final class Account: NSObject {
             [unowned self] module in
             module.onStreamPrepared(self.xmppStream)
         }
+        self.prepareCanonicalGroupTransport()
     }
     
 /**
@@ -4901,7 +4924,6 @@ final class Account: NSObject {
         self.presences.didResetState()
         self.msgDeleteManager.clearSession()
         self.devices.clearSession()
-        self.groupchats.reset()
         self.roster.clearInitialRosterSession()
         self.syncManager.suspendInitialPresenceUntilAuthenticatedStream()
         self.syncManager.reset()

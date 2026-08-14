@@ -8,16 +8,14 @@
 
 import Foundation
 import UIKit
-import RealmSwift
 import RxSwift
-import RxRealm
 import RxCocoa
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
 import Kingfisher
 
 class GroupchatJoinViewController: BaseViewController {
-    
+
 //    internal var jid: String = ""
 //    internal var owner: String = ""
     
@@ -30,7 +28,8 @@ class GroupchatJoinViewController: BaseViewController {
     
     static let avatarSize: CGFloat = 160
     
-    internal var isPrivateGroup: Bool = false
+    internal var isIncognitoGroup: Bool = false
+    internal var isPeerToPeer: Bool = false
     
     internal let stack: UIStackView = {
         let stack = UIStackView()
@@ -137,30 +136,6 @@ class GroupchatJoinViewController: BaseViewController {
     
     internal func subscribe() {
         bag = DisposeBag()
-        do {
-            let realm = try Realm()
-            Observable
-                .collection(from: realm
-                                    .objects(vCardStorageItem.self)
-                                    .filter("jid == %@", jid))
-                .subscribe(onNext: { (results) in
-                    if let instance = results.first {
-                        if instance.generatedNickname.isNotEmpty {
-                            self.username.accept(instance.generatedNickname)
-                        } else if let localpart = self.jid.split(separator: "@").first {
-                            self.username.accept("\(localpart)")
-                        } else {
-                            self.username.accept(self.jid)
-                        }
-                        self.avatarKey.accept(self.jid)
-                    }
-                })
-                .disposed(by: bag)
-            
-        } catch {
-            DDLogDebug("GroupchatJoinViewController: \(#function). \(error.localizedDescription)")
-        }
-        
         username
             .asObservable()
             .subscribe(onNext: { (value) in
@@ -187,8 +162,10 @@ class GroupchatJoinViewController: BaseViewController {
         avatarKey
             .asObservable()
             .subscribe(onNext: { (value) in
-                if value.isNotEmpty {
-                    self.avatarView.kf.setImage(with: ImageResource(downloadURL: URL(string: value)!, cacheKey: value))
+                if value.isNotEmpty, let url = URL(string: value) {
+                    self.avatarView.kf.setImage(
+                        with: ImageResource(downloadURL: url, cacheKey: value)
+                    )
                 }
             })
             .disposed(by: bag)
@@ -197,10 +174,7 @@ class GroupchatJoinViewController: BaseViewController {
             .rx
             .tap
             .subscribe(onNext: { (_) in
-                self.inJoinMode.accept(false)
-                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                    user.groupchats.join(stream, uiConnection: false, groupchat: self.jid, callback: self.onJoinCallback)
-                })
+                self.onJoin()
             })
             .disposed(by: bag)
         
@@ -220,57 +194,105 @@ class GroupchatJoinViewController: BaseViewController {
             })
             .disposed(by: bag)
     }
+
+    internal func onJoin() {
+        guard let account = AccountManager.shared.find(for: owner) else {
+            presentLifecycleError(GroupchatServiceError.notPrepared)
+            return
+        }
+        inJoinMode.accept(true)
+        Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            do {
+                try await CanonicalGroupMembershipLifecycle.join(
+                    account: account,
+                    groupJID: self.jid
+                )
+                account.removeCanonicalGroupInvite(self.jid)
+                self.inJoinMode.accept(false)
+                self.onJoinSucceeded()
+            } catch {
+                self.inJoinMode.accept(false)
+                self.presentLifecycleError(error)
+            }
+        }
+    }
     
     internal func onDecline() {
-        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-            user.groupchats.blockInvite(groupchat: self.jid)
-        })
-        self.navigationController?.popViewController(animated: true)
+        guard let account = AccountManager.shared.find(for: owner) else {
+            presentLifecycleError(GroupchatServiceError.notPrepared)
+            return
+        }
+        inJoinMode.accept(true)
+        Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            do {
+                try await account.groupchatService.declineInvite(groupJID: self.jid)
+                account.removeCanonicalGroupInvite(self.jid)
+                self.inJoinMode.accept(false)
+                self.navigationController?.popViewController(animated: true)
+            } catch {
+                self.inJoinMode.accept(false)
+                self.presentLifecycleError(error)
+            }
+        }
     }
     
     internal func onBlock() {
-        AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-            user.groupchats.blockInvite(groupchat: self.jid, withContact: true)
-        })
-        self.navigationController?.popViewController(animated: true)
-    }
-    
-    internal func onJoinCallback(_ error: String?) {
-        inJoinMode.accept(false)
-        if let error = error {
-            var message: String = ""
-            switch error {
-            case "error":
-                message = "Invite was revoked"
-                AccountManager.shared.find(for: owner)?.action({ (user, stream) in
-                    user.groupchats.blockInvite(groupchat: self.jid)
-                })
-            case "fail":
-                message = "Connection failed"
-            default:
-                message = "Internal server error"
-            }
-            DispatchQueue.main.async {
-                ErrorMessagePresenter().present(in: self,
-                                                message: message,
-                                                animated: true,
-                                                completion: nil)
-            }
-        } else {
-            DispatchQueue.main.async {
-                let vc = ChatViewController()
-                vc.jid = self.jid
-                vc.owner = self.owner
-                vc.entity = self.isPrivateGroup ? .privateChat : .groupchat
-                vc.conversationType = .group
-                var vcs = self.navigationController?.viewControllers ?? []
-                if let index = vcs.firstIndex(of: self) {
-                    vcs.remove(at: index)
+        guard let account = AccountManager.shared.find(for: owner) else {
+            presentLifecycleError(GroupchatServiceError.notPrepared)
+            return
+        }
+        inJoinMode.accept(true)
+        Task { @MainActor [weak self, weak account] in
+            guard let self, let account else { return }
+            do {
+                let invite = try GroupRepository(
+                    realm: WRealm.safe()
+                ).incomingInvite(owner: self.owner, groupJID: self.jid)
+                try await account.groupchatService.declineInvite(groupJID: self.jid)
+                account.removeCanonicalGroupInvite(self.jid)
+                if let inviterJID = invite?.inviter?.jid {
+                    account.action { user, stream in
+                        user.blocked.blockContact(stream, jid: inviterJID)
+                    }
                 }
-                vcs.append(vc)
-                self.navigationController?.setViewControllers(vcs, animated: true)
+                self.inJoinMode.accept(false)
+                self.navigationController?.popViewController(animated: true)
+            } catch {
+                self.inJoinMode.accept(false)
+                self.presentLifecycleError(error)
             }
         }
+    }
+
+    private func onJoinSucceeded() {
+        let vc = ChatViewController()
+        vc.jid = jid
+        vc.owner = owner
+        if isPeerToPeer {
+            vc.entity = .privateChat
+        } else if isIncognitoGroup {
+            vc.entity = .incognitoChat
+        } else {
+            vc.entity = .groupchat
+        }
+        vc.conversationType = .group
+        var controllers = navigationController?.viewControllers ?? []
+        if let index = controllers.firstIndex(of: self) {
+            controllers.remove(at: index)
+        }
+        controllers.append(vc)
+        navigationController?.setViewControllers(controllers, animated: true)
+    }
+
+    private func presentLifecycleError(_ error: Error) {
+        ErrorMessagePresenter().present(
+            in: self,
+            message: CanonicalGroupMembershipLifecycle.localizedErrorMessage(error),
+            animated: true,
+            completion: nil
+        )
     }
     
     internal func unsubscribe() {
@@ -307,17 +329,24 @@ class GroupchatJoinViewController: BaseViewController {
         stack.addArrangedSubview(UIStackView())
         
         do {
-            let realm = try Realm()
-            self.isPrivateGroup = realm
-                .objects(GroupchatInvitesStorageItem.self)
-                .filter("owner == %@ AND groupchat == %@", owner, jid)
-                .first?
-                .isAnonymous ?? false
+            let invite = try GroupRepository(
+                realm: WRealm.safe()
+            ).incomingInvite(owner: owner, groupJID: jid)
+            let preview = invite?.preview
+            self.isIncognitoGroup = preview?.privacy == .incognito
+            self.isPeerToPeer = preview?.parentJID != nil
+            self.username.accept(
+                preview?.info?.name
+                    ?? preview?.localpart
+                    ?? GroupStorageKey.bareJID(jid)
+            )
+            self.avatarKey.accept(preview?.info?.avatar?.url ?? "")
+            self.blockButton.isHidden = invite?.inviter?.jid == nil
         } catch {
             DDLogDebug("GroupchatJoinViewController: \(#function). \(error.localizedDescription)")
         }
         
-        if self.isPrivateGroup {
+        if self.isIncognitoGroup {
             subtitleLabel.text = "You are invited to group chat. If you accept, your XMPP Id shall not be visible to group members"
         } else {
             subtitleLabel.text = "You are invited to group chat. If you accept, \(owner) username shall be visible to group members"

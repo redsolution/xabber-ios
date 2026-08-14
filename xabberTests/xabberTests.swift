@@ -11628,27 +11628,26 @@ final class NotificationsFeatureTests: XCTestCase {
         chat.jid = groupchatJid
         chat.conversationType = .group
         chat.primary = LastChatsStorageItem.genPrimary(jid: groupchatJid, owner: owner, conversationType: .group)
-        chat.groupchatMyId = currentMemberId
 
         try realm.write {
             realm.add(chat, update: .modified)
         }
+        try GroupRepository(realm: realm).setSelfMembership(
+            .both,
+            memberID: currentMemberId,
+            owner: owner,
+            groupJID: groupchatJid
+        )
     }
 
-    private func insertGroupchatMemberContext(userId: String? = nil) throws {
+    private func insertCanonicalSelfMembership(userId: String? = nil) throws {
         let realm = try WRealm.safe()
-        let member = GroupchatUserStorageItem()
-        member.owner = owner
-        member.userId = userId ?? currentMemberId
-        member.jid = owner
-        member.groupchatId = [groupchatJid, owner].prp()
-        member.primary = GroupchatUserStorageItem.genPrimary(id: member.userId, groupchat: groupchatJid, owner: owner)
-        member.isMe = true
-        member.isHidden = false
-
-        try realm.write {
-            realm.add(member, update: .modified)
-        }
+        try GroupRepository(realm: realm).setSelfMembership(
+            .both,
+            memberID: userId ?? currentMemberId,
+            owner: owner,
+            groupJID: groupchatJid
+        )
     }
 
     private func makeMentionNotificationMessage(
@@ -12526,8 +12525,8 @@ final class NotificationsFeatureTests: XCTestCase {
         XCTAssertEqual(payload?.metadata?["mentionTargetUserId"] as? String, currentMemberId)
     }
 
-    func testParsePayloadForMentionBackfillsTargetUserFromCanonicalGroupMemberStorage() throws {
-        try insertGroupchatMemberContext()
+    func testParsePayloadForMentionBackfillsTargetUserFromCanonicalSelfMembership() throws {
+        try insertCanonicalSelfMembership()
         let message = try makeMentionNotificationMessage(wrapperId: "notif-mention-from-groupcard")
 
         let payload = XMPPNotificationsManager.parsePayload(from: message, owner: owner)
@@ -14903,7 +14902,6 @@ final class MentionOpenRoutingTests: XCTestCase {
         chat.owner = owner
         chat.jid = jid
         chat.conversationType = .group
-        chat.groupchatMyId = currentMemberId
         chat.mentionId = mentionId
         return chat
     }
@@ -15320,15 +15318,23 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
         let realm = try WRealm.safe()
         try realm.write {
             realm.deleteAll()
-            let group = GroupChatStorageItem()
-            group.primary = GroupChatStorageItem.genPrimary(jid: groupJid, owner: owner)
-            group.owner = owner
-            group.jid = groupJid
-            group.name = "Secret Room"
-            group.privacy_ = GroupChatStorageItem.Privacy.incognito.rawValue
-            group.peerToPeer = false
-            realm.add(group)
         }
+        let repository = GroupRepository(realm: realm)
+        try repository.setSelfMembership(
+            .both,
+            memberID: "self-member",
+            owner: owner,
+            groupJID: groupJid
+        )
+        try repository.applySnapshot(
+            GroupSnapshot(
+                jid: groupJid,
+                privacy: .incognito,
+                info: GroupInfo(name: "Secret Room")
+            ),
+            owner: owner,
+            groupJID: groupJid
+        )
 
         let reference = MessageReferenceStorageItem()
         reference.primary = "legacy-group-reference"
@@ -35739,36 +35745,6 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         XCTAssertEqual(page?.isFinalPage, false)
     }
 
-    func testDuplicateInviteIsIgnored() throws {
-        let realm = try WRealm.safe()
-        try realm.write {
-            let account = AccountStorageItem()
-            account.jid = owner
-            account.username = "igor.boldin"
-            account.enabled = true
-            realm.add(account, update: .modified)
-        }
-
-        let manager = GroupchatManager(withOwner: owner)
-        let inviteMessage = try makeMessage(xml: """
-        <message from='romeo@xmppdev01.xabber.com' to='\(owner)' id='invite-1'>
-          <invite xmlns='https://xabber.com/protocol/groups' jid='group@conference.xabber.com'>
-            <reason>Join us</reason>
-          </invite>
-          <group xmlns='https://xabber.com/protocol/groups' privacy='public'/>
-        </message>
-        """)
-        let inviteDate = ISO8601DateFormatter().date(from: "2026-03-24T12:34:56Z")!
-
-        XCTAssertTrue(manager.readInvite(in: inviteMessage, date: inviteDate, isRead: false))
-        XCTAssertTrue(manager.readInvite(in: inviteMessage, date: inviteDate, isRead: false))
-
-        let storedInvites = try WRealm.safe()
-            .objects(GroupchatInvitesStorageItem.self)
-            .filter("owner == %@", owner)
-        XCTAssertEqual(storedInvites.count, 1)
-    }
-
     func testReadPushUpdatesPinnedWithoutStatus() throws {
         let manager = ClientSynchronizationManager(withOwner: owner)
         let groupchat = "group@example.com"
@@ -36698,43 +36674,13 @@ final class ClientSynchronizationManagerTests: XCTestCase {
 
         XCTAssertTrue(manager.read(withIQ: iq))
 
-        let invites = try WRealm.safe()
-            .objects(GroupchatInvitesStorageItem.self)
-            .filter("owner == %@ AND groupchat == %@", owner, "group@conference.xabber.com")
-        XCTAssertEqual(invites.count, 1)
-    }
-
-    func testReadPushUpdatesGroupParticipantCardMetadata() throws {
-        try prepareManagedAccount()
-        let manager = ClientSynchronizationManager(withOwner: owner)
-
-        let iq = try makeIQ(xml: """
-        <iq type='set' id='push-user-card'>
-          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1711283296000004'>
-            <conversation jid='group@example.com' type='https://xabber.com/protocol/groups' stamp='1711283296000004' status='active'>
-              <metadata node='https://xabber.com/protocol/synchronization'>
-                <unread count='0' after='0'/>
-              </metadata>
-              <metadata node='https://xabber.com/protocol/groups'>
-                <user xmlns='https://xabber.com/protocol/groups' id='user-1'>
-                  <nickname>Romeo</nickname>
-                  <role>member</role>
-                </user>
-              </metadata>
-            </conversation>
-          </query>
-        </iq>
-        """)
-
-        XCTAssertTrue(manager.read(withIQ: iq))
-
-        let realm = try WRealm.safe()
-        let user = realm.object(
-            ofType: GroupchatUserStorageItem.self,
-            forPrimaryKey: GroupchatUserStorageItem.genPrimary(id: "user-1", groupchat: "group@example.com", owner: owner)
+        let invite = try GroupRepository(realm: WRealm.safe()).incomingInvite(
+            owner: owner,
+            groupJID: "group@conference.xabber.com"
         )
-        XCTAssertEqual(user?.nickname, "Romeo")
-        XCTAssertEqual(user?.role, .member)
+        XCTAssertEqual(invite?.direction, .incoming)
+        XCTAssertEqual(invite?.reason, "Join us")
+        XCTAssertEqual(invite?.preview?.privacy, .publicGroup)
     }
 
     func testReadPushDeletesConversationAndMessages() throws {
@@ -41081,230 +41027,6 @@ final class ListEmptyStateTests: XCTestCase {
     }
 }
 
-final class GroupchatRequestSchedulerTests: XCTestCase {
-
-    func testCancelPreventsScheduledTimeoutCallback() {
-        let scheduler = GroupchatRequestScheduler()
-        let invertedExpectation = expectation(description: "timeout should be cancelled")
-        invertedExpectation.isInverted = true
-
-        scheduler.schedule(elementId: "timeout-1", timeout: 0.05) {
-            invertedExpectation.fulfill()
-        }
-        scheduler.cancel(elementId: "timeout-1")
-
-        wait(for: [invertedExpectation], timeout: 0.15)
-    }
-}
-
-final class GroupchatProtocolRegressionTests: XCTestCase {
-
-    private let owner = "igor.boldin@xmppdev01.xabber.com"
-
-    override func setUp() {
-        super.setUp()
-        Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "GroupchatProtocolRegressionTests-\(name)")
-        AccountManager.shared.users.removeAll()
-        AccountManager.shared.activeUsers.accept(Set<String>())
-        AccountManager.shared.connectingUsers.accept(Set<String>())
-        AccountManager.shared.authenticatedUsers.accept(Set<String>())
-        let realm = try! WRealm.safe()
-        try! realm.write {
-            realm.deleteAll()
-        }
-    }
-
-    private func makeElement(xml: String) throws -> DDXMLElement {
-        let document = try DDXMLDocument(xmlString: xml, options: 0)
-        guard let root = document.rootElement() else {
-            throw NSError(domain: "GroupchatProtocolRegressionTests", code: 1)
-        }
-        return root
-    }
-
-    private func makeIQ(xml: String) throws -> XMPPIQ {
-        XMPPIQ(from: try makeElement(xml: xml))
-    }
-
-    private func makeUserCard(xml: String) throws -> DDXMLElement {
-        try makeElement(xml: xml)
-    }
-
-    private func queueItemCount(in manager: GroupchatManager) -> Int {
-        let mirror = Mirror(reflecting: manager)
-        guard let value = mirror.children.first(where: { $0.label == "queueItems" })?.value as? SynchronizedArray<GroupchatManager.QueueItem> else {
-            XCTFail("queueItems should be reflectable")
-            return -1
-        }
-        return value.count
-    }
-
-    func testBlockListRefreshClearsUsersMissingFromServerResponse() throws {
-        let realm = try WRealm.safe()
-        let groupchat = "group@example.com"
-        let staleUser = GroupchatUserStorageItem()
-        staleUser.owner = owner
-        staleUser.userId = "stale@example.com"
-        staleUser.groupchatId = [groupchat, owner].prp()
-        staleUser.primary = GroupchatUserStorageItem.genPrimary(id: staleUser.userId, groupchat: groupchat, owner: owner)
-        staleUser.isBlocked = true
-
-        let currentUser = GroupchatUserStorageItem()
-        currentUser.owner = owner
-        currentUser.userId = "current@example.com"
-        currentUser.groupchatId = [groupchat, owner].prp()
-        currentUser.primary = GroupchatUserStorageItem.genPrimary(id: currentUser.userId, groupchat: groupchat, owner: owner)
-        currentUser.isBlocked = false
-
-        try realm.write {
-            realm.add(staleUser, update: .modified)
-            realm.add(currentUser, update: .modified)
-        }
-
-        let manager = GroupchatManager(withOwner: owner)
-        let stream = XMPPStream()
-        manager.blockList(stream, groupchat: groupchat)
-        let elementId = manager.queryIds.last ?? ""
-
-        let iq = try makeIQ(xml: """
-        <iq type='result' from='\(groupchat)' id='\(elementId)'>
-          <block xmlns='https://xabber.com/protocol/groups'>
-            <jid>current@example.com</jid>
-          </block>
-        </iq>
-        """)
-
-        XCTAssertTrue(manager.read(stream, withIQ: iq))
-
-        let stale = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: staleUser.primary)
-        let current = realm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: currentUser.primary)
-        XCTAssertEqual(stale?.isBlocked, false)
-        XCTAssertEqual(current?.isBlocked, true)
-        XCTAssertEqual(manager.queryIds.count, 0)
-    }
-
-    func testUpdateUserCardWithoutPresentKeepsExistingPresence() throws {
-        let manager = GroupchatManager(withOwner: owner)
-        let initial = try makeUserCard(xml: """
-        <user xmlns='https://xabber.com/protocol/groups' id='user-1'>
-          <nickname>Romeo</nickname>
-          <present>now</present>
-        </user>
-        """)
-        let update = try makeUserCard(xml: """
-        <user xmlns='https://xabber.com/protocol/groups' id='user-1'>
-          <nickname>Romeo+</nickname>
-        </user>
-        """)
-
-        _ = manager.updateUserCard(
-            initial,
-            groupchat: "group@example.com",
-            trustedSource: true,
-            messageAction: nil,
-            commitTransaction: true,
-            cardDate: Date(timeIntervalSince1970: 10)
-        )
-
-        let before = try WRealm.safe().object(
-            ofType: GroupchatUserStorageItem.self,
-            forPrimaryKey: GroupchatUserStorageItem.genPrimary(id: "user-1", groupchat: "group@example.com", owner: owner)
-        )
-        let beforeLastSeen = before?.lastSeen
-
-        _ = manager.updateUserCard(
-            update,
-            groupchat: "group@example.com",
-            trustedSource: true,
-            messageAction: nil,
-            commitTransaction: true,
-            cardDate: Date(timeIntervalSince1970: 20)
-        )
-
-        let user = try WRealm.safe().object(
-            ofType: GroupchatUserStorageItem.self,
-            forPrimaryKey: GroupchatUserStorageItem.genPrimary(id: "user-1", groupchat: "group@example.com", owner: owner)
-        )
-        XCTAssertEqual(user?.nickname, "Romeo+")
-        XCTAssertEqual(user?.isOnline, true)
-        XCTAssertEqual(user?.lastSeen, beforeLastSeen)
-    }
-
-    func testUpdateUserCardWithoutOuterWriteTransactionPersistsSafely() throws {
-        let manager = GroupchatManager(withOwner: owner)
-        let card = try makeUserCard(xml: """
-        <user xmlns='https://xabber.com/protocol/groups' id='user-2'>
-          <jid>member@example.com</jid>
-          <nickname>Member</nickname>
-        </user>
-        """)
-
-        _ = manager.updateUserCard(
-            card,
-            groupchat: "group@example.com",
-            trustedSource: false,
-            messageAction: nil,
-            commitTransaction: false,
-            cardDate: Date(timeIntervalSince1970: 10)
-        )
-
-        let user = try WRealm.safe().object(
-            ofType: GroupchatUserStorageItem.self,
-            forPrimaryKey: GroupchatUserStorageItem.genPrimary(id: "user-2", groupchat: "group@example.com", owner: owner)
-        )
-        XCTAssertEqual(user?.nickname, "Member")
-        XCTAssertEqual(user?.jid, "member@example.com")
-    }
-
-    func testSuccessfulUnblockClearsRequestTracking() throws {
-        let manager = GroupchatManager(withOwner: owner)
-        let stream = XMPPStream()
-        manager.unblockUser(stream, groupchat: "group@example.com", jids: ["user@example.com"]) { _ in }
-        let elementId = manager.queryIds.last ?? ""
-
-        let iq = try makeIQ(xml: """
-        <iq type='result' from='group@example.com' id='\(elementId)'/>
-        """)
-
-        XCTAssertTrue(manager.read(stream, withIQ: iq))
-        XCTAssertEqual(manager.queryIds.count, 0)
-        XCTAssertEqual(queueItemCount(in: manager), 0)
-    }
-
-    func testSuccessfulInviteListReadClearsQueryTracking() throws {
-        let manager = GroupchatManager(withOwner: owner)
-        let stream = XMPPStream()
-        manager.requestInvitedUsers(stream, groupchat: "group@example.com")
-        let elementId = manager.queryIds.last ?? ""
-
-        let iq = try makeIQ(xml: """
-        <iq type='result' from='group@example.com' id='\(elementId)'>
-          <invites xmlns='https://xabber.com/protocol/groups'>
-            <jid>user@example.com</jid>
-          </invites>
-        </iq>
-        """)
-
-        XCTAssertTrue(manager.read(stream, withIQ: iq))
-        XCTAssertEqual(manager.queryIds.count, 0)
-    }
-
-    func testSuccessfulDeclineClearsRequestTracking() throws {
-        let manager = GroupchatManager(withOwner: owner)
-        let stream = XMPPStream()
-        manager.decline(stream, groupchat: "group@example.com") { _ in }
-        let elementId = manager.queryIds.last ?? ""
-
-        let iq = try makeIQ(xml: """
-        <iq type='result' from='group@example.com' id='\(elementId)'/>
-        """)
-
-        XCTAssertTrue(manager.read(stream, withIQ: iq))
-        XCTAssertEqual(manager.queryIds.count, 0)
-        XCTAssertEqual(queueItemCount(in: manager), 0)
-    }
-}
-
 final class MessageRoutingRegressionTests: XCTestCase {
 
     func testGroupOutboundDestinationJIDUsesBareJID() {
@@ -41566,7 +41288,7 @@ final class GroupchatNicknamePresentationRegressionTests: XCTestCase {
         XCTAssertEqual(user.element(forName: "nickname")?.stringValue, "Ivan")
     }
 
-    func testGroupchatUserElementSupportsWrappedLegacyUserReference() throws {
+    func testGroupchatUserElementRejectsWrappedLegacyUserReference() throws {
         let message = try makeMessage(xml: """
         <message type='chat' from='group@example.com/Group' to='owner@example.com'>
           <x xmlns='https://xabber.com/protocol/groups'>
@@ -41581,9 +41303,7 @@ final class GroupchatNicknamePresentationRegressionTests: XCTestCase {
         </message>
         """)
 
-        let user = try XCTUnwrap(groupchatUserElement(from: message))
-        XCTAssertEqual(user.attributeStringValue(forName: "id"), "user-1")
-        XCTAssertEqual(user.element(forName: "nickname")?.stringValue, "Ivan")
+        XCTAssertNil(groupchatUserElement(from: message))
     }
 
     func testConfigureIncomingMessageStripsDirectUserFallbackPrefix() throws {
@@ -41640,6 +41360,69 @@ final class GroupchatNicknamePresentationRegressionTests: XCTestCase {
         XCTAssertEqual(item.body, "Petr:\nhello")
         XCTAssertEqual(item.legacyBody, "Petr:\nhello")
         XCTAssertEqual(item.groupchatAuthorNickname, "Ivan")
+    }
+
+    func testConfigureIncomingMessageDoesNotTrimBeforeExactNicknamePrefixCheck() throws {
+        let message = try makeMessage(xml: """
+        <message type='chat' from='group@example.com/Group' to='owner@example.com'>
+          <x xmlns='https://xabber.com/protocol/groups'>
+            <user id='user-1'>
+              <nickname>Ivan</nickname>
+            </user>
+          </x>
+          <body>&#32;Ivan:
+        body&#32;</body>
+        </message>
+        """)
+        let item = MessageStorageItem()
+
+        item.configureIncomingMessage(
+            message,
+            owner: "owner@example.com",
+            opponent: "group@example.com",
+            outgoing: false,
+            isRead: false,
+            date: Date(timeIntervalSince1970: 10)
+        )
+
+        XCTAssertEqual(item.body, " Ivan:\nbody ")
+    }
+
+    func testMessageAuthorSnapshotIsSelfContainedAndImmutable() throws {
+        let message = try makeMessage(xml: """
+        <message type='chat' from='group@example.com/Group' to='owner@example.com'>
+          <x xmlns='https://xabber.com/protocol/groups'>
+            <user id='snapshot-id'>
+              <nickname>Snapshot nickname</nickname>
+              <role>member</role>
+              <badge>snapshot-badge</badge>
+            </user>
+          </x>
+          <body>Snapshot nickname:
+        hello</body>
+        </message>
+        """)
+        let item = MessageStorageItem()
+        item.configureIncomingMessage(
+            message,
+            owner: "owner@example.com",
+            opponent: "group@example.com",
+            outgoing: false,
+            isRead: false,
+            date: Date(timeIntervalSince1970: 10)
+        )
+        XCTAssertEqual(item.groupchatAuthorId, "snapshot-id")
+        XCTAssertEqual(item.groupchatAuthorNickname, "Snapshot nickname")
+        XCTAssertEqual(item.groupchatAuthorBadge, "snapshot-badge")
+
+        var mutableMember = GroupMember(id: "snapshot-id")
+        mutableMember.nickname = "Changed later"
+        mutableMember.badge = "changed-later"
+
+        XCTAssertEqual(mutableMember.nickname, "Changed later")
+        XCTAssertEqual(mutableMember.badge, "changed-later")
+        XCTAssertEqual(item.groupchatAuthorNickname, "Snapshot nickname")
+        XCTAssertEqual(item.groupchatAuthorBadge, "snapshot-badge")
     }
 
     func testConfigureIncomingMessageElidesAnonymousMutableFallbackRangeAndShiftsMentionOffsets() throws {
@@ -41715,6 +41498,90 @@ final class GroupchatNicknamePresentationRegressionTests: XCTestCase {
         )
 
         XCTAssertEqual(item.body, "hello")
+    }
+}
+
+final class GroupMessageAuthorPersistenceTests: XCTestCase {
+    private let owner = "owner@example.com"
+    private let group = "group@example.com"
+    private var previousRealmConfiguration: Realm.Configuration!
+
+    override func setUp() {
+        super.setUp()
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "GroupMessageAuthorPersistenceTests-\(name)-\(UUID().uuidString)"
+        )
+        AccountManager.shared.users.removeAll { $0.jid == owner }
+        AccountManager.shared.users.append(Account(jid: owner, queue: .main))
+        let realm = try! WRealm.safe()
+        try! realm.write { realm.deleteAll() }
+    }
+
+    override func tearDown() {
+        AccountManager.shared.users.removeAll { $0.jid == owner }
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        previousRealmConfiguration = nil
+        super.tearDown()
+    }
+
+    func testSavingMessageDoesNotUpdateOrLinkAuthoritativeMember() throws {
+        let realm = try WRealm.safe()
+        let repository = GroupRepository(realm: realm)
+        try repository.setSelfMembership(
+            .both,
+            memberID: "self-member",
+            owner: owner,
+            groupJID: group
+        )
+        try repository.applySnapshot(
+            GroupSnapshot(jid: group),
+            owner: owner,
+            groupJID: group
+        )
+        try repository.replaceMembers(
+            [
+                GroupMember(
+                    id: "member-7",
+                    nickname: "Authoritative current nickname"
+                )
+            ],
+            owner: owner,
+            groupJID: group
+        )
+
+        let document = try DDXMLDocument(xmlString: """
+        <message type='chat' from='group@example.com/Group' to='owner@example.com' id='message-1'>
+          <stanza-id xmlns='urn:xmpp:sid:0' by='group@example.com' id='stanza-1'/>
+          <x xmlns='https://xabber.com/protocol/groups'>
+            <user id='member-7'><nickname>Historical nickname</nickname></user>
+          </x>
+          <body>Historical nickname:
+        hello</body>
+        </message>
+        """, options: 0)
+        let message = XMPPMessage(from: try XCTUnwrap(document.rootElement()))
+        let item = MessageStorageItem()
+        item.configureIncomingMessage(
+            message,
+            owner: owner,
+            opponent: group,
+            outgoing: false,
+            isRead: true,
+            date: Date(timeIntervalSince1970: 10)
+        )
+
+        XCTAssertTrue(item.save(commitTransaction: true, silentNotifications: true))
+        realm.refresh()
+
+        let current = try XCTUnwrap(
+            repository.projection(owner: owner, groupJID: group)
+                .state
+                .member(id: "member-7")
+        )
+        let stored = try XCTUnwrap(realm.objects(MessageStorageItem.self).first)
+        XCTAssertEqual(current.nickname, "Authoritative current nickname")
+        XCTAssertEqual(stored.groupchatAuthorNickname, "Historical nickname")
     }
 }
 
@@ -41834,20 +41701,14 @@ final class FavoritesFeatureTests: XCTestCase {
             innerId: "inner-group-1",
             innerChildren: """
             <x xmlns='https://xabber.com/protocol/groups'>
-              <reference xmlns='https://xabber.com/protocol/references'>
-                <user id='user-1'>
-                  <jid>\(contactJid)</jid>
-                  <nickname>Alexey Boldin</nickname>
-                  <role>member</role>
-                </user>
-              </reference>
+              <user id='user-1'>
+                <jid>\(contactJid)</jid>
+                <nickname>Alexey Boldin</nickname>
+                <role>member</role>
+              </user>
             </x>
             """
         )
-    }
-
-    private func savedForwardAuthorCardPrimary(authorJid: String) -> String {
-        [GroupChatStorageItem.genPrimary(jid: authorJid, owner: owner), "saved-forwarded"].prp()
     }
 
     private func geolocReferenceXML(body: String, text: String = "Yekaterinburg") -> String {
@@ -42198,12 +42059,8 @@ final class FavoritesFeatureTests: XCTestCase {
         message.state = .read
         message.isRead = true
 
-        let card = GroupchatUserStorageItem()
-        card.primary = "\(message.primary)_saved-forwarded"
-        card.jid = authorJid
-        card.nickname = authorName ?? ""
-        card.userId = authorId ?? ""
-        message.groupchatCard = card
+        message.isSavedForward = true
+        message.savedForwardAuthorJid = authorJid
 
         if authorName != nil || authorId != nil || authorAvatarUrl != nil {
             let reference = MessageReferenceStorageItem()
@@ -42589,7 +42446,6 @@ final class FavoritesFeatureTests: XCTestCase {
         let groupUser = try XCTUnwrap(
             payload
                 .element(forName: "x", xmlns: "https://xabber.com/protocol/groups")?
-                .element(forName: "reference")?
                 .element(forName: "user")
         )
 
@@ -43085,93 +42941,19 @@ final class FavoritesFeatureTests: XCTestCase {
         XCTAssertEqual(groupReference.metadata?["nickname"] as? String, "Alexey Boldin")
     }
 
-    func testSavedForwardedReceiveUsesTransactionLocalAuthorCardWhenRealmSnapshotIsStale() throws {
-        let cardPrimary = savedForwardAuthorCardPrimary(authorJid: contactJid)
-        let writerReady = DispatchSemaphore(value: 0)
-        let releaseWriter = DispatchSemaphore(value: 0)
-        let writerDone = DispatchSemaphore(value: 0)
-        let writerQueue = DispatchQueue(label: "FavoritesFeatureTests.realm-author-writer.\(UUID().uuidString)")
-        var writerResult: Result<Void, Error>?
+    func testSavedForwardedReceivePersistsImmutableAuthorWithoutGroupUserRows() throws {
+        let stored = try receiveSaved(try makeForwardedSavedMessage(
+            id: "saved-immutable-author-1",
+            innerId: "inner-immutable-author-1"
+        ))
 
-        writerQueue.async {
-            defer { writerDone.signal() }
-            writerResult = Result {
-                let writerRealm = try WRealm.safe()
-                writerRealm.beginWrite()
-
-                let card = GroupchatUserStorageItem()
-                card.owner = self.owner
-                card.jid = self.contactJid
-                card.nickname = "Preexisting saved author"
-                card.primary = cardPrimary
-                writerRealm.add(card, update: .modified)
-
-                writerReady.signal()
-                _ = releaseWriter.wait(timeout: .now() + 5)
-                try writerRealm.commitWrite()
-            }
-        }
-
-        guard writerReady.wait(timeout: .now() + 5) == .success else {
-            releaseWriter.signal()
-            XCTFail("Timed out waiting for concurrent author-card writer")
-            return
-        }
-
-        let receiverQueue = DispatchQueue(label: "FavoritesFeatureTests.realm-receiver.\(UUID().uuidString)")
-        let receiverStarted = DispatchSemaphore(value: 0)
-        let receiverDone = DispatchSemaphore(value: 0)
-        var result: Result<Void, Error>?
-
-        receiverQueue.async {
-            defer { receiverDone.signal() }
-            result = Result {
-                let receivingRealm = try WRealm.safe()
-                receivingRealm.autorefresh = false
-                XCTAssertNil(receivingRealm.object(ofType: GroupchatUserStorageItem.self, forPrimaryKey: cardPrimary))
-                receiverStarted.signal()
-
-                try self.favoritesManager().receiveSaved(
-                    message: try self.makeForwardedSavedMessage(
-                        id: "saved-stale-author-card-1",
-                        innerId: "inner-stale-author-card-1"
-                    ),
-                    realm: receivingRealm,
-                    commitTransaction: true
-                )
-
-                receivingRealm.refresh()
-                let stored = try XCTUnwrap(receivingRealm.object(
-                    ofType: MessageStorageItem.self,
-                    forPrimaryKey: MessageStorageItem.genPrimary(messageId: "saved-stale-author-card-1", owner: self.owner)
-                ))
-                self.assertStoredAsSavedServiceConversation(stored)
-                XCTAssertEqual(stored.groupchatCard?.primary, cardPrimary)
-                XCTAssertEqual(
-                    receivingRealm.objects(GroupchatUserStorageItem.self)
-                        .filter("primary == %@", cardPrimary)
-                        .count,
-                    1
-                )
-            }
-        }
-
-        guard receiverStarted.wait(timeout: .now() + 5) == .success else {
-            releaseWriter.signal()
-            _ = writerDone.wait(timeout: .now() + 5)
-            XCTFail("Timed out waiting for receiving Realm to observe stale snapshot")
-            return
-        }
-
-        Thread.sleep(forTimeInterval: 0.1)
-        releaseWriter.signal()
-        XCTAssertEqual(writerDone.wait(timeout: .now() + 5), .success)
-        XCTAssertEqual(receiverDone.wait(timeout: .now() + 5), .success)
-        try writerResult?.get()
-        try result?.get()
+        assertStoredAsSavedServiceConversation(stored)
+        XCTAssertTrue(stored.isSavedForward)
+        XCTAssertEqual(stored.savedForwardAuthorJid, contactJid)
+        XCTAssertTrue(try WRealm.safe().objects(GroupMemberStorageItem.self).isEmpty)
     }
 
-    func testSavedForwardedRepeatedReceiveReusesSavedForwardAuthorCard() throws {
+    func testSavedForwardedRepeatedReceiveKeepsImmutableAuthorWithoutSyntheticMember() throws {
         let message = try makeNestedForwardedSavedMessage()
         let manager = favoritesManager()
 
@@ -43179,19 +42961,14 @@ final class FavoritesFeatureTests: XCTestCase {
         manager.receiveSaved(message: message)
 
         let realm = try WRealm.safe()
-        let cardPrimary = savedForwardAuthorCardPrimary(authorJid: contactJid)
         let stored = try XCTUnwrap(realm.object(
             ofType: MessageStorageItem.self,
             forPrimaryKey: MessageStorageItem.genPrimary(messageId: "saved-nested-1", owner: owner)
         ))
         assertStoredAsSavedServiceConversation(stored)
-        XCTAssertEqual(stored.groupchatCard?.primary, cardPrimary)
-        XCTAssertEqual(
-            realm.objects(GroupchatUserStorageItem.self)
-                .filter("primary == %@", cardPrimary)
-                .count,
-            1
-        )
+        XCTAssertTrue(stored.isSavedForward)
+        XCTAssertEqual(stored.savedForwardAuthorJid, contactJid)
+        XCTAssertTrue(realm.objects(GroupMemberStorageItem.self).isEmpty)
     }
 
     func testSavedForwardedMessageDisplaysOriginalAuthor() throws {
@@ -46111,7 +45888,13 @@ final class ChatUnreadMentionsTests: XCTestCase {
             realm.objects(LastChatsStorageItem.self)
                 .filter("owner == %@", owner)
                 .forEach { realm.delete($0) }
-            realm.objects(GroupchatUserStorageItem.self)
+            realm.objects(GroupMemberStorageItem.self)
+                .filter("owner == %@", owner)
+                .forEach { realm.delete($0) }
+            realm.objects(GroupSnapshotStorageItem.self)
+                .filter("owner == %@", owner)
+                .forEach { realm.delete($0) }
+            realm.objects(GroupSelfMembershipStorageItem.self)
                 .filter("owner == %@", owner)
                 .forEach { realm.delete($0) }
         }
@@ -46134,39 +45917,35 @@ final class ChatUnreadMentionsTests: XCTestCase {
             owner: resolvedOwner,
             conversationType: conversationType
         )
-        chat.groupchatMyId = currentMemberId
 
         try realm.write {
             realm.add(chat, update: .modified)
         }
+        if conversationType == .group {
+            try GroupRepository(realm: realm).setSelfMembership(
+                .both,
+                memberID: currentMemberId,
+                owner: resolvedOwner,
+                groupJID: jid
+            )
+        }
     }
 
-    private func insertMyGroupUser(
+    private func insertCanonicalSelfMembership(
         jid: String? = nil,
         userId: String? = nil,
-        isHidden: Bool = false,
         fixtureOwner: String? = nil
     ) throws {
         let jid = jid ?? groupchatJid
         let userId = userId ?? currentMemberId
         let resolvedOwner = fixtureOwner ?? owner
         let realm = try WRealm.safe()
-        let member = GroupchatUserStorageItem()
-        member.owner = resolvedOwner
-        member.userId = userId
-        member.jid = resolvedOwner
-        member.groupchatId = [jid, resolvedOwner].prp()
-        member.primary = GroupchatUserStorageItem.genPrimary(
-            id: userId,
-            groupchat: jid,
-            owner: resolvedOwner
+        try GroupRepository(realm: realm).setSelfMembership(
+            .both,
+            memberID: userId,
+            owner: resolvedOwner,
+            groupJID: jid
         )
-        member.isMe = true
-        member.isHidden = isHidden
-
-        try realm.write {
-            realm.add(member, update: .modified)
-        }
     }
 
     private func makeReference(
@@ -46485,7 +46264,7 @@ final class ChatUnreadMentionsTests: XCTestCase {
             jid: fixtureGroupchatJid,
             fixtureOwner: fixtureOwner
         )
-        try insertMyGroupUser(
+        try insertCanonicalSelfMembership(
             jid: fixtureGroupchatJid,
             fixtureOwner: fixtureOwner
         )
@@ -46793,7 +46572,13 @@ final class ChatUnreadMentionsTests: XCTestCase {
                     cleanupRealm.objects(LastChatsStorageItem.self)
                         .filter("owner == %@", fixtureOwner)
                         .forEach { cleanupRealm.delete($0) }
-                    cleanupRealm.objects(GroupchatUserStorageItem.self)
+                    cleanupRealm.objects(GroupMemberStorageItem.self)
+                        .filter("owner == %@", fixtureOwner)
+                        .forEach { cleanupRealm.delete($0) }
+                    cleanupRealm.objects(GroupSnapshotStorageItem.self)
+                        .filter("owner == %@", fixtureOwner)
+                        .forEach { cleanupRealm.delete($0) }
+                    cleanupRealm.objects(GroupSelfMembershipStorageItem.self)
                         .filter("owner == %@", fixtureOwner)
                         .forEach { cleanupRealm.delete($0) }
                     cleanupRealm.objects(RegularChatArchiveSyncStateStorageItem.self)
@@ -47379,8 +47164,8 @@ final class ChatUnreadMentionsTests: XCTestCase {
         )
     }
 
-    func testCurrentGroupMemberIdUsesCompositeGroupchatStorageKey() throws {
-        try insertMyGroupUser()
+    func testCurrentGroupMemberIdUsesCanonicalSelfMembershipKey() throws {
+        try insertCanonicalSelfMembership()
         let realm = try WRealm.safe()
 
         XCTAssertEqual(
@@ -47394,7 +47179,7 @@ final class ChatUnreadMentionsTests: XCTestCase {
     }
 
     func testUnreadMentionMatcherUsesCanonicalCurrentMemberIdWhenNotificationTargetIsMissing() throws {
-        try insertMyGroupUser()
+        try insertCanonicalSelfMembership()
         let message = makeMessage(
             primary: "m1",
             archivedId: "a1",
@@ -48686,7 +48471,13 @@ final class ChatUnreadMentionsTests: XCTestCase {
                     cleanupRealm.objects(LastChatsStorageItem.self)
                         .filter("owner == %@", owner)
                         .forEach { cleanupRealm.delete($0) }
-                    cleanupRealm.objects(GroupchatUserStorageItem.self)
+                    cleanupRealm.objects(GroupMemberStorageItem.self)
+                        .filter("owner == %@", owner)
+                        .forEach { cleanupRealm.delete($0) }
+                    cleanupRealm.objects(GroupSnapshotStorageItem.self)
+                        .filter("owner == %@", owner)
+                        .forEach { cleanupRealm.delete($0) }
+                    cleanupRealm.objects(GroupSelfMembershipStorageItem.self)
                         .filter("owner == %@", owner)
                         .forEach { cleanupRealm.delete($0) }
                     cleanupRealm.objects(RegularChatArchiveSyncStateStorageItem.self)
@@ -48779,7 +48570,7 @@ final class ChatUnreadMentionsTests: XCTestCase {
         notification.shouldShow = true
 
         try insertLastChat(fixtureOwner: owner)
-        try insertMyGroupUser(fixtureOwner: owner)
+        try insertCanonicalSelfMembership(fixtureOwner: owner)
         let seedRealm = try WRealm.safe()
         let chatPrimary = LastChatsStorageItem.genPrimary(
             jid: groupchatJid,
@@ -52108,7 +51899,7 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         let manager = AvatarUploadManager(withOwner: owner)
         var queued = false
 
-        manager.setGrpoupAvatar(groupchat: "room@conference.xabber.com", image: testImage(), successCallback: {
+        manager.setGroupAvatar(groupchat: "room@conference.xabber.com", image: testImage(), successCallback: {
             XCTFail("Queued group upload should not retain success UI callbacks")
         }, failureCallback: { status, error in
             XCTFail("Queued group upload should not fail immediately: \(status) \(error)")

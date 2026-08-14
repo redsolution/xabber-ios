@@ -25,6 +25,28 @@ import RxSwift
 import RxCocoa
 import MaterialComponents.MDCPalettes
 import CocoaLumberjack
+import XMPPFramework.XMPPJID
+
+enum GroupCreationServiceAvailability: Equatable {
+    case available(serviceJID: String)
+    case unavailable
+
+    init(discoveredJID: String?) {
+        guard let discoveredJID,
+              !discoveredJID.isEmpty,
+              let serviceJID = XMPPJID(string: discoveredJID)?.bare,
+              !serviceJID.isEmpty else {
+            self = .unavailable
+            return
+        }
+        self = .available(serviceJID: serviceJID)
+    }
+
+    var serviceJID: String? {
+        guard case let .available(serviceJID) = self else { return nil }
+        return serviceJID
+    }
+}
 
 class CreateNewGroupViewController: BaseViewController {
     
@@ -56,14 +78,13 @@ class CreateNewGroupViewController: BaseViewController {
     internal var account: [String: String] = [:]
     internal var localpart: String? = nil
     internal var canGenerateLocalpart: Bool = true
-    internal var selectedServer: String = CreateNewGroupSelectJIDViewController.servers[0]
-    internal var server: [String: String] = ["type": "default", "label": "xmppdev01.xabber.com", "value": "xmppdev01.xabber.com"]
+    internal var groupServiceAvailability: GroupCreationServiceAvailability = .unavailable
+    internal var selectedServer: String? { groupServiceAvailability.serviceJID }
     internal var privacy: [String: String] = ["type": "default", "label": "Public", "value": "public"]
     internal var index: [String: String] = ["type": "default", "label": "Local", "value": "local"]
     internal var membership: [String: String] = ["type": "default", "label": "Open", "value": "open"]
     internal var descr: String = ""
     
-//    internal var creatingGroupJid: String? = nil
     internal var creatingOwnerJid: String? = nil
     
     internal var datasource: [[CellKind]] = []
@@ -88,7 +109,6 @@ class CreateNewGroupViewController: BaseViewController {
     }()
     
     internal let tableView: UITableView = {
-//        let view = UITableView(frame: .zero, style: .grouped)
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(DescriptionCell.self, forCellReuseIdentifier: DescriptionCell.cellName)
@@ -104,19 +124,7 @@ class CreateNewGroupViewController: BaseViewController {
         name
             .asObservable()
             .subscribe(onNext: { (value) in
-                if value != nil {
-                    if !self.saveButton.isEnabled {
-                        UIView.animate(withDuration: 0.33) {
-                            self.saveButton.isEnabled = true
-                        }
-                    }
-                } else {
-                    if self.saveButton.isEnabled {
-                        UIView.animate(withDuration: 0.33) {
-                            self.saveButton.isEnabled = false
-                        }
-                    }
-                }
+                self.updateSaveButtonState(animated: true)
                 if self.canGenerateLocalpart {
                     if AccountManager.shared.users.count > 1 {
                         self.tableView.reloadRows(at: [IndexPath(row: 0, section: 2)], with: .none)
@@ -124,6 +132,17 @@ class CreateNewGroupViewController: BaseViewController {
                         self.tableView.reloadRows(at: [IndexPath(row: 0, section: 1)], with: .none)
                     }
                 }
+            })
+            .disposed(by: bag)
+
+        NotificationCenter.default.rx.notification(.groupServiceDiscoveryDidChange)
+            .observe(on: MainScheduler.instance)
+            .filter { [weak self] notification in
+                guard let self else { return false }
+                return notification.userInfo?["owner"] as? String == self.account["value"]
+            }
+            .subscribe(onNext: { [weak self] _ in
+                self?.refreshGroupServiceSelection()
             })
             .disposed(by: bag)
         
@@ -134,13 +153,6 @@ class CreateNewGroupViewController: BaseViewController {
                 self.onSave()
             })
             .disposed(by: bag)
-        
-//        inSaveMode
-//            .asObservable()
-////            .debounce(.milliseconds(5), scheduler: MainScheduler.asyncInstance)
-//            .subscribe(onNext: { (value) in
-//
-//            }).disposed(by: bag)
     }
     
     internal func unsubscribe() {
@@ -158,6 +170,7 @@ class CreateNewGroupViewController: BaseViewController {
     
     internal func configureDatasource() {
         account = ["type": "default", "label": AccountManager.shared.users.first?.jid ?? "", "value": AccountManager.shared.users.first?.jid ?? ""]
+        refreshGroupServiceSelection(reloadTable: false)
         if AccountManager.shared.users.count > 1 {
             account = ["type": "default", "label": AccountManager.shared.users.first?.jid ?? "", "value": AccountManager.shared.users.first?.jid ?? ""]
             sectionHeaders = [
@@ -171,8 +184,8 @@ class CreateNewGroupViewController: BaseViewController {
                     .localizeString(id: "groupchats_group_chat_will_be_created", arguments: []),
                 "For example: Developer`s chat"
                     .localizeString(id: "groupchats_example_chat_name", arguments: []),
-                "You can select custom server, which support groups."
-                    .localizeString(id: "groupchats_select_custom_server_hint", arguments: [])
+                "The group service is discovered from the selected XMPP server."
+                    .localizeString(id: "groupchats_discovered_service_hint", arguments: [])
             ]
             
             datasource = [[.account],
@@ -187,8 +200,8 @@ class CreateNewGroupViewController: BaseViewController {
             sectionFooter = [
                 "For example: Developer`s chat"
                     .localizeString(id: "groupchats_example_chat_name", arguments: []),
-                "You can select custom server, which support groups."
-                    .localizeString(id: "groupchats_select_custom_server_hint", arguments: []),
+                "The group service is discovered from your XMPP server."
+                    .localizeString(id: "groupchats_discovered_service_hint", arguments: []),
             ]
             
             datasource = [[.common],
@@ -206,6 +219,39 @@ class CreateNewGroupViewController: BaseViewController {
         configureDatasource()
         
     }
+
+    internal func refreshGroupServiceSelection(reloadTable: Bool = true) {
+        let discoveredJID = account["value"].flatMap {
+            AccountManager.shared.find(for: $0)?.disco.groupServiceJID
+        }
+        groupServiceAvailability = GroupCreationServiceAvailability(discoveredJID: discoveredJID)
+        updateSaveButtonState(animated: false)
+
+        guard reloadTable,
+              isViewLoaded,
+              let indexPath = groupServiceIndexPath() else { return }
+        tableView.reloadRows(at: [indexPath], with: .none)
+    }
+
+    private func updateSaveButtonState(animated: Bool) {
+        let shouldEnable = name.value != nil && selectedServer != nil
+        guard saveButton.isEnabled != shouldEnable else { return }
+        let update = { self.saveButton.isEnabled = shouldEnable }
+        if animated {
+            UIView.animate(withDuration: 0.33, animations: update)
+        } else {
+            update()
+        }
+    }
+
+    internal func groupServiceIndexPath() -> IndexPath? {
+        for (section, rows) in datasource.enumerated() {
+            if let row = rows.firstIndex(of: .server) {
+                return IndexPath(row: row, section: section)
+            }
+        }
+        return nil
+    }
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -214,6 +260,7 @@ class CreateNewGroupViewController: BaseViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        refreshGroupServiceSelection()
         subscribe()
     }
     

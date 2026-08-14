@@ -710,44 +710,6 @@ class MessageManager: AbstractXMPPManager {
         }
     }
     
-    internal func getForwardedAuthorNicknameGroupchat(_ references: [DDXMLElement]) -> String? {
-        if let user = references.first(where: { ($0.attributeStringValue(forName: "type") ?? "none") == MessageReferenceStorageItem.Kind.groupchat.rawValue && $0.element(forName: "user") != nil })?.element(forName: "user") {
-            return user.element(forName: "nickname")?.stringValue
-        }
-        return nil
-    }
-    
-    internal func getMessageAuthorGroupchat(_ references: [DDXMLElement], jid: String) -> String? {
-        return MessageManager.getMessageAuthorGroupchatStatic(references, jid: jid, owner: self.owner)
-    }
-    
-    static func getMessageAuthorGroupchatStatic(_ references: [DDXMLElement], jid: String, owner: String) -> String? {
-        guard let groupchatRef = references.first(where: { $0.element(forName: "user",
-                                                                      xmlns: "https://xabber.com/protocol/groups") != nil }),
-            let user = groupchatRef.element(forName: "user", xmlns: "https://xabber.com/protocol/groups") else {
-                return nil
-            }
-        if let jid = user.element(forName: "jid")?.stringValue {
-            return jid
-        } else {
-            if let id = user.attributeStringValue(forName: "id") {
-                do {
-                    let realm = try  WRealm.safe()
-                    if let instance = realm.object(ofType: GroupchatUserStorageItem.self,
-                                                   forPrimaryKey: GroupchatUserStorageItem
-                                                    .genPrimary(id: id,
-                                                                groupchat: jid,
-                                                                owner: owner)) {
-                        return instance.jid
-                    }
-                } catch {
-                    DDLogDebug("MessageManager: \(#function). \(error.localizedDescription)")
-                }
-            }
-        }
-        return nil
-    }
-    
     public final func fail(message: XMPPMessage) {
         guard let elementId = message.elementID,
             let opponent = message.to?.bare,

@@ -656,7 +656,8 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         <conversation jid='\(groupchat)' type='https://xabber.com/protocol/groups' stamp='1776840442469439' status='active'>
           <metadata node='https://xabber.com/protocol/synchronization'>
             <last-message>
-              <message from='\(groupchat)/Group' to='\(owner)' id='sync-invite'>
+              <message type='chat' from='\(groupchat)/Group' to='\(owner)' id='sync-invite'>
+                <body>You have been invited to the group chat.</body>
                 <invite xmlns='https://xabber.com/protocol/groups' jid='\(groupchat)'/>
               </message>
             </last-message>
@@ -674,14 +675,137 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         )))
 
         try waitUntil("invite stored") {
-            try WRealm.safe()
-                .objects(GroupchatInvitesStorageItem.self)
-                .filter("owner == %@ AND groupchat == %@", self.owner, groupchat)
-                .count == 1
+            try GroupRepository(realm: WRealm.safe()).incomingInvite(
+                owner: self.owner,
+                groupJID: groupchat
+            ) != nil
         }
         XCTAssertNil(try WRealm.safe().object(
             ofType: LastChatsStorageItem.self,
             forPrimaryKey: LastChatsStorageItem.genPrimary(jid: groupchat, owner: owner, conversationType: .group)
         ))
+    }
+
+    func testCanonicalGroupSynchronizationSignalsDistinguishActiveInviteAndDeleted() throws {
+        let active = try makeElement("""
+        <conversation jid='Stage@Groups.Example.com/Group'
+                      type='https://xabber.com/protocol/groups'
+                      status='active'/>
+        """)
+        let invite = try makeElement("""
+        <conversation jid='stage@groups.example.com'
+                      type='https://xabber.com/protocol/groups'
+                      status='active'>
+          <metadata node='https://xabber.com/protocol/synchronization'>
+            <last-message>
+              <message type='chat' from='stage@groups.example.com/Group' to='\(owner)'>
+                <body>You have been invited to the group chat.</body>
+                <invite xmlns='https://xabber.com/protocol/groups'
+                        jid='stage@groups.example.com'/>
+              </message>
+            </last-message>
+          </metadata>
+        </conversation>
+        """)
+        let deleted = try makeElement("""
+        <conversation jid='stage@groups.example.com'
+                      type='https://xabber.com/protocol/groups'
+                      status='deleted'/>
+        """)
+
+        XCTAssertEqual(
+            ClientSynchronizationManager.canonicalGroupSynchronizationSignal(from: active),
+            .active(groupJID: "stage@groups.example.com")
+        )
+        XCTAssertEqual(
+            ClientSynchronizationManager.canonicalGroupSynchronizationSignal(from: invite),
+            .pendingInvite(groupJID: "stage@groups.example.com")
+        )
+        XCTAssertEqual(
+            ClientSynchronizationManager.canonicalGroupSynchronizationSignal(from: deleted),
+            .deleted(groupJID: "stage@groups.example.com")
+        )
+    }
+
+    func testGenericSynchronizationApplierDoesNotCreateGroupProjectionWithoutBothMembership() throws {
+        let realm = try WRealm.safe()
+        let conversation = try makeElement("""
+        <conversation jid='stage@groups.example.com'
+                      type='https://xabber.com/protocol/groups'
+                      status='active'>
+          <metadata node='https://xabber.com/protocol/synchronization'>
+            <unread count='4'/>
+          </metadata>
+        </conversation>
+        """)
+        var genericCallbacks: [String] = []
+
+        let result = try ClientSyncPageApplier.apply(
+            owner: owner,
+            realm: realm,
+            conversations: [conversation],
+            accountCreateDate: nil,
+            applyConversationState: { _, _ in
+                genericCallbacks.append("metadata")
+                return true
+            },
+            readInvites: { _, _ in
+                genericCallbacks.append("invite")
+                return false
+            },
+            readConversation: { _, _, _ in
+                genericCallbacks.append("conversation")
+                return nil
+            },
+            readMarkers: { _, _ in genericCallbacks.append("markers") },
+            readPresence: { _, _ in genericCallbacks.append("presence") }
+        )
+
+        XCTAssertTrue(genericCallbacks.isEmpty)
+        XCTAssertEqual(result.summary.skippedConversationCount, 1)
+        XCTAssertTrue(realm.objects(LastChatsStorageItem.self).isEmpty)
+        XCTAssertTrue(realm.objects(RosterStorageItem.self).filter("owner == %@", owner).isEmpty)
+        XCTAssertTrue(realm.objects(ResourceStorageItem.self).filter("owner == %@", owner).isEmpty)
+    }
+
+    func testGenericSynchronizationApplierMayProjectGroupOnlyAfterBothMembership() throws {
+        let realm = try WRealm.safe()
+        let group = "stage@groups.example.com"
+        try GroupRepository(realm: realm).admitSnapshot(
+            GroupSnapshot(jid: group),
+            membership: .both,
+            memberID: "member-self",
+            owner: owner,
+            groupJID: group
+        )
+        let conversation = try makeElement("""
+        <conversation jid='\(group)'
+                      type='https://xabber.com/protocol/groups'
+                      status='active'/>
+        """)
+        var genericCallbacks: [String] = []
+
+        _ = try ClientSyncPageApplier.apply(
+            owner: owner,
+            realm: realm,
+            conversations: [conversation],
+            accountCreateDate: nil,
+            applyConversationState: { _, _ in
+                genericCallbacks.append("metadata")
+                return true
+            },
+            readInvites: { _, _ in false },
+            readConversation: { _, _, _ in
+                genericCallbacks.append("conversation")
+                return nil
+            },
+            readMarkers: { _, _ in genericCallbacks.append("markers") },
+            readPresence: { _, _ in genericCallbacks.append("presence") }
+        )
+
+        XCTAssertEqual(
+            genericCallbacks,
+            ["metadata", "conversation", "markers", "presence"]
+        )
     }
 }

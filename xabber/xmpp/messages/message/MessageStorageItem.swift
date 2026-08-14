@@ -27,6 +27,219 @@ import MaterialComponents.MDCPalettes
 import CryptoSwift
 import CryptoKit
 
+enum GroupMessageMentionIntent: Equatable, Sendable {
+    case absent
+    case members([String])
+    case all
+    case invalid
+}
+
+enum GroupMessageMentionsCodec {
+    private static let groupsNamespace = "https://xabber.com/protocol/groups"
+
+    static func decode(from message: DDXMLElement) -> GroupMessageMentionIntent {
+        let namedContainers = directChildren(of: message).filter { $0.name == "mentions" }
+        let containers = namedContainers.filter { effectiveNamespace(of: $0) == groupsNamespace }
+        guard namedContainers.count == containers.count else { return .invalid }
+        guard !containers.isEmpty else { return .absent }
+        guard message.attributeStringValue(forName: "type") == "chat",
+              containers.count == 1,
+              let mentions = containers.first,
+              (mentions.attributes ?? []).isEmpty,
+              normalizedText(mentions.stringValue) == nil else {
+            return .invalid
+        }
+
+        let users = directChildren(of: mentions)
+        guard users.allSatisfy({
+            $0.name == "user" && effectiveNamespace(of: $0) == groupsNamespace
+        }) else {
+            return .invalid
+        }
+        if users.isEmpty {
+            return .all
+        }
+
+        var memberIDs: [String] = []
+        var seenMemberIDs: Set<String> = []
+        for user in users {
+            let attributes = user.attributes ?? []
+            guard attributes.count == 1,
+                  attributes.first?.name == "id",
+                  directChildren(of: user).isEmpty,
+                  normalizedText(user.stringValue) == nil,
+                  let memberID = canonicalMemberID(user.attributeStringValue(forName: "id")),
+                  seenMemberIDs.insert(memberID).inserted else {
+                return .invalid
+            }
+            memberIDs.append(memberID)
+        }
+        return .members(memberIDs)
+    }
+
+    static func encode(
+        _ intent: GroupMessageMentionIntent,
+        capabilityGranted _: Bool,
+        senderRole: GroupMemberRole?
+    ) -> DDXMLElement? {
+        switch intent {
+        case .absent, .invalid:
+            return nil
+        case .all:
+            guard senderRole == .admin || senderRole == .owner else {
+                return nil
+            }
+            return DDXMLElement(name: "mentions", xmlns: groupsNamespace)
+        case let .members(rawMemberIDs):
+            var memberIDs: [String] = []
+            var seenMemberIDs: Set<String> = []
+            for rawMemberID in rawMemberIDs {
+                guard let memberID = canonicalMemberID(rawMemberID) else { return nil }
+                if seenMemberIDs.insert(memberID).inserted {
+                    memberIDs.append(memberID)
+                }
+            }
+            guard !memberIDs.isEmpty else { return nil }
+
+            let mentions = DDXMLElement(name: "mentions", xmlns: groupsNamespace)
+            memberIDs.forEach { memberID in
+                let user = DDXMLElement(name: "user")
+                user.addAttribute(withName: "id", stringValue: memberID)
+                mentions.addChild(user)
+            }
+            return mentions
+        }
+    }
+
+    static func storageValue(for intent: GroupMessageMentionIntent?) -> String? {
+        guard let intent else { return nil }
+        switch intent {
+        case .absent:
+            return "absent"
+        case .all:
+            return "all"
+        case .invalid:
+            return "invalid"
+        case let .members(memberIDs):
+            guard let data = try? JSONSerialization.data(withJSONObject: memberIDs),
+                  let json = String(data: data, encoding: .utf8) else {
+                return "invalid"
+            }
+            return "members:\(json)"
+        }
+    }
+
+    static func intent(fromStorageValue value: String?) -> GroupMessageMentionIntent? {
+        guard let value else { return nil }
+        switch value {
+        case "absent":
+            return .absent
+        case "all":
+            return .all
+        case "invalid":
+            return .invalid
+        default:
+            let prefix = "members:"
+            guard value.hasPrefix(prefix),
+                  let data = String(value.dropFirst(prefix.count)).data(using: .utf8),
+                  let memberIDs = try? JSONSerialization.jsonObject(with: data) as? [String] else {
+                return .invalid
+            }
+            return .members(memberIDs)
+        }
+    }
+
+    static func memberIDs<S: Sequence>(from references: S) -> [String]
+    where S.Element == MessageReferenceStorageItem {
+        var memberIDs: [String] = []
+        var seenMemberIDs: Set<String> = []
+        for reference in references where reference.kind == .mention {
+            guard let memberID = memberID(from: reference),
+                  seenMemberIDs.insert(memberID).inserted else {
+                continue
+            }
+            memberIDs.append(memberID)
+        }
+        return memberIDs
+    }
+
+    static func memberID(from reference: MessageReferenceStorageItem) -> String? {
+        let uri = reference.metadata?["uri"] as? String ?? reference.url
+        let uriMemberID: String?
+        if let uri {
+            guard let canonicalURIValue = canonicalMentionMemberID(from: uri) else { return nil }
+            uriMemberID = canonicalURIValue
+        } else {
+            uriMemberID = nil
+        }
+        if let rawMemberID = reference.metadata?["memberId"] as? String {
+            guard let memberID = canonicalMemberID(rawMemberID) else { return nil }
+            guard uriMemberID == nil || uriMemberID == memberID else { return nil }
+            return memberID
+        }
+        return uriMemberID
+    }
+
+    private static func canonicalMentionMemberID(from uri: String) -> String? {
+        guard uri.hasPrefix("xmpp:") else { return nil }
+        let addressAndQuery = uri.dropFirst("xmpp:".count)
+        let parts = addressAndQuery.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        let groupJID = parts.first.map(String.init) ?? ""
+        guard parts.count == 2,
+              !groupJID.isEmpty,
+              !groupJID.contains(where: { $0.isWhitespace }),
+              let parsedGroupJID = XMPPJID(string: groupJID),
+              parsedGroupJID.resource == nil,
+              parsedGroupJID.bare == groupJID else {
+            return nil
+        }
+        let queryParts = parts[1].split(separator: ";", omittingEmptySubsequences: false)
+        guard queryParts.count == 2,
+              queryParts[0] == "members",
+              queryParts[1].hasPrefix("id=") else {
+            return nil
+        }
+        let memberID = String(queryParts[1].dropFirst("id=".count))
+        guard !memberID.contains("&"),
+              !memberID.contains("#") else {
+            return nil
+        }
+        return canonicalMemberID(memberID)
+    }
+
+    private static func canonicalMemberID(_ rawValue: String?) -> String? {
+        guard let rawValue else { return nil }
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed == rawValue,
+              !rawValue.contains(where: { $0.isWhitespace }) else {
+            return nil
+        }
+        return rawValue
+    }
+
+    private static func normalizedText(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func directChildren(of element: DDXMLElement) -> [DDXMLElement] {
+        element.children?.compactMap { $0 as? DDXMLElement } ?? []
+    }
+
+    private static func effectiveNamespace(of element: DDXMLElement) -> String? {
+        var current: DDXMLElement? = element
+        while let candidate = current {
+            if let namespace = candidate.xmlns() {
+                return namespace
+            }
+            current = candidate.parent as? DDXMLElement
+        }
+        return nil
+    }
+}
+
 struct MessageHistoryOrderKey: Comparable, Equatable {
     let date: Date
     let cursorId: String
@@ -293,7 +506,10 @@ class MessageStorageItem: Object {
     @objc dynamic var isDeleted: Bool = false
     @objc dynamic var state_: Int = 0
     
-    @objc dynamic var groupchatCard: GroupchatUserStorageItem? = nil
+    /// Immutable saved-message envelope facts. Group authorship itself lives
+    /// exclusively in the message's canonical group reference snapshot.
+    @objc dynamic var isSavedForward: Bool = false
+    @objc dynamic var savedForwardAuthorJid: String = ""
     
     @objc dynamic var envelopeContainer: String? = nil
     @objc dynamic var afterburnInterval: Double = -1
@@ -307,6 +523,9 @@ class MessageStorageItem: Object {
     
     @objc dynamic var errorMetadata_: String? = nil
     @objc dynamic var systemMetadata_: String? = nil
+    @objc dynamic var groupMentionIntent_: String? = nil
+    @objc dynamic var groupMentionSenderRole_: String? = nil
+    @objc dynamic var groupMentionAllCapabilityGranted: Bool = false
     @objc dynamic var isLocallyHiddenByReport: Bool = false
     @objc dynamic var localReportState: String? = nil
     @objc dynamic var lastReportedAt: Date? = nil
@@ -366,27 +585,32 @@ class MessageStorageItem: Object {
     final var groupchatAuthorId: String? {
         get {
             if displayAs == .system { return nil }
-            return groupchatCard?.userId ?? groupchatMetadata?["id"] as? String
+            return Self.nonEmptyGroupAuthorValue(groupchatMetadata?["id"])
         }
     }
     
     final var groupchatAuthorNickname: String? {
         get {
             if displayAs == .system { return nil }
-            return groupchatCard?.nickname ?? groupchatMetadata?["nickname"] as? String ?? groupchatMetadata?["jid"] as? String
+            return Self.nonEmptyGroupAuthorValue(groupchatMetadata?["nickname"])
+                ?? Self.nonEmptyGroupAuthorValue(groupchatMetadata?["jid"])
         }
     }
     
     final var groupchatAuthorBadge: String? {
         get {
-            let role = groupchatCard?.role.localized ??  (groupchatMetadata?["role"] as? String)
-            let badge = groupchatCard?.badge ?? groupchatMetadata?["badge"] as? String ?? ""
+            let role = Self.nonEmptyGroupAuthorValue(groupchatMetadata?["role"])
+            let badge = Self.nonEmptyGroupAuthorValue(groupchatMetadata?["badge"])
             if role?.lowercased() == "member" {
                 return badge
             } else {
-                return badge.isNotEmpty ? badge : role?.capitalized
+                return badge ?? role?.capitalized
             }
         }
+    }
+
+    final var groupchatAuthorAvatarURL: String? {
+        Self.nonEmptyGroupAuthorValue(groupchatMetadata?["avatar_uri"])
     }
     
     final var groupchatDisplayedNickname: String? {
@@ -401,12 +625,17 @@ class MessageStorageItem: Object {
     
     final var groupchatUserAvatarPath: String? {
         get {
-//            print(groupchatMetadata)
-            if let avatarId = groupchatMetadata?["avatar_uri"] as? String {
-                return [avatarId, opponent].prp()
-            }
+            guard let avatarURL = groupchatAuthorAvatarURL else { return nil }
+            return [avatarURL, opponent].prp()
+        }
+    }
+
+    private static func nonEmptyGroupAuthorValue(_ value: Any?) -> String? {
+        guard let value = value as? String,
+              value.isNotEmpty else {
             return nil
         }
+        return value
     }
     
     var errorMetadata: [String: Any]? {
@@ -463,9 +692,25 @@ class MessageStorageItem: Object {
     var isInvite: Bool = false
     var shouldPersistArchiveQueryId: Bool = false
     var countsAsRuntimeUnread: Bool = false
+    var groupMentionIntent: GroupMessageMentionIntent? {
+        get { GroupMessageMentionsCodec.intent(fromStorageValue: groupMentionIntent_) }
+        set { groupMentionIntent_ = GroupMessageMentionsCodec.storageValue(for: newValue) }
+    }
+    var groupMentionSenderRole: GroupMemberRole? {
+        get { groupMentionSenderRole_.flatMap(GroupMemberRole.init(rawValue:)) }
+        set { groupMentionSenderRole_ = newValue?.rawValue }
+    }
 
     override static func ignoredProperties() -> [String] {
-        return ["originalStanza", "forceUnreadState", "isInvite", "shouldPersistArchiveQueryId", "countsAsRuntimeUnread"]
+        return [
+            "originalStanza",
+            "forceUnreadState",
+            "isInvite",
+            "shouldPersistArchiveQueryId",
+            "countsAsRuntimeUnread",
+            "groupMentionIntent",
+            "groupMentionSenderRole"
+        ]
     }
     
     var originalStanza: XMPPMessage? = nil
@@ -1068,7 +1313,13 @@ class MessageStorageItem: Object {
 //        self.updatePrimary()
 //    }
     
-    func configureSystemMessage(_ messageContainer: XMPPMessage, owner: String, opponent: String, date: Date) {
+    func configureSystemMessage(
+        _ messageContainer: XMPPMessage,
+        owner: String,
+        opponent: String,
+        date: Date,
+        source: GroupSystemMessageSource = .live
+    ) {
         self.owner = owner
         self.opponent = opponent
         self.displayAs = .system
@@ -1079,7 +1330,7 @@ class MessageStorageItem: Object {
         self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: opponent, owner: owner))
         self.legacyBody = messageContainer.body ?? ""
         self.body = messageContainer.body ?? ""
-        self.systemMetadata = parseSystemMessageMetadata(messageContainer)
+        self.systemMetadata = parseSystemMessageMetadata(messageContainer, source: source)
         self.date = date
         self.sentDate = date
         self.outgoing = false
@@ -1089,6 +1340,7 @@ class MessageStorageItem: Object {
     func editMessage(_ messageContainer: XMPPMessage, editDate: Date) {
         self.references.removeAll()
         self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: opponent, owner: owner))
+        self.groupMentionIntent = GroupMessageMentionsCodec.decode(from: messageContainer)
         self.body = normalizedIncomingTextBody(from: messageContainer)
         if messageContainer.from == nil {
             messageContainer.addAttribute(withName: "from", stringValue: outgoing ? owner : opponent)
@@ -1112,6 +1364,7 @@ class MessageStorageItem: Object {
         self.previousId = getPreviousId(messageContainer)
         updatePrimary()
         self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: opponent, owner: owner))
+        self.groupMentionIntent = GroupMessageMentionsCodec.decode(from: messageContainer)
         self.body = normalizedIncomingTextBody(from: messageContainer)
         if messageContainer.from == nil {
             messageContainer.addAttribute(withName: "from", stringValue: outgoing ? owner : opponent)
@@ -1144,13 +1397,6 @@ class MessageStorageItem: Object {
 //        if self.displayAs == .text && self.createRefBody([:]).string.isEmpty {
 //            self.isDeleted = true
 //        }
-        if !outgoing { return }
-        do {
-            let realm = try  WRealm.safe()
-            self.groupchatCard = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isMe == true", [self.opponent, self.owner].prp()).first
-        } catch {
-            DDLogDebug("MessageStorageItem: \(#function). \(error.localizedDescription)")
-        }
     }
     
     func configureOutgoingMessage(_ body: String, legacy: String, messageId: String, owner: String, opponent: String, references: [MessageReferenceStorageItem], inlineForwards: [MessageForwardsInlineStorageItem]) {
@@ -1201,13 +1447,6 @@ class MessageStorageItem: Object {
             }
         }
         
-        do {
-            let realm = try WRealm.safe()
-            self.groupchatCard = realm.objects(GroupchatUserStorageItem.self).filter("groupchatId == %@ AND isMe == true", [self.opponent, self.owner].prp()).first
-            
-        } catch {
-            DDLogDebug("MessageStorageItem: \(#function). \(error.localizedDescription)")
-        }
     }
     
     
@@ -1375,20 +1614,6 @@ class MessageStorageItem: Object {
         if CommonConfigManager.shared.config.auto_delete_messages_interval > 0 {
             if self.date < Date(timeIntervalSince1970: Date().timeIntervalSince1970 - Double(CommonConfigManager.shared.config.auto_delete_messages_interval)) {
                 return nil
-            }
-        }
-        if let stanza = self.originalStanza {
-            if let userCard = groupchatUserElement(from: stanza) {
-                self.groupchatCard = AccountManager
-                    .shared
-                    .find(for: owner)?
-                    .groupchats
-                    .updateUserCard(userCard,
-                                    groupchat: opponent,
-                                    trustedSource: false,
-                                    messageAction: nil,
-                                    commitTransaction: false,
-                                    cardDate: date)
             }
         }
         self.updatePrimary()
@@ -1635,27 +1860,26 @@ class MessageStorageItem: Object {
             .xmlEscaping(reverse: false)
             .excludeFromBody(
                 messageContainer.elements(forName: "reference"),
-                groupchat: groupchatReferenceElement(from: messageContainer)
+                groupchat: nil
             ) ?? ""
-        let normalizedBody = strippedBody.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard conversationTypeByMessage(messageContainer) == .group else {
-            return normalizedBody
+            return strippedBody.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         guard let authorName = resolvedGroupchatAuthorDisplayName(
             userElement: groupchatUserElement(from: messageContainer),
             references: references.toArray()
         ) else {
-            return normalizedBody
+            return strippedBody
         }
 
         let prefix = "\(authorName):\n"
-        guard normalizedBody.hasPrefix(prefix) else {
-            return normalizedBody
+        guard strippedBody.hasPrefix(prefix) else {
+            return strippedBody
         }
 
-        return String(normalizedBody.dropFirst(prefix.count))
+        return String(strippedBody.dropFirst(prefix.count))
     }
 
     public final func save(commitTransaction: Bool, silentNotifications: Bool = false) -> Bool {
@@ -1902,9 +2126,8 @@ class MessageStorageItem: Object {
                     break
                 case .mention:
                     if let uri = reference.metadata?["uri"] as? String ?? reference.url {
-                        let node = reference.metadata?["node"] as? String
-                        let memberId = (reference.metadata?["memberId"] as? String) ?? Self.parseMentionMemberId(from: uri)
-                        let isGroupMention = node == "https://xabber.com/protocol/groupchat" || (memberId?.isNotEmpty ?? false)
+                        let memberId = GroupMessageMentionsCodec.memberID(from: reference)
+                        let isGroupMention = memberId?.isNotEmpty ?? false
 
                         if isGroupMention {
                             let link = DDXMLElement(name: "link", xmlns: "https://xabber.com/protocol/markup")
@@ -1912,6 +2135,7 @@ class MessageStorageItem: Object {
                             referenceElement.addChild(link)
                         } else {
                             let mention = DDXMLElement(name: "mention", xmlns: "https://xabber.com/protocol/markup")
+                            let node = reference.metadata?["node"] as? String
                             if let node, node.isNotEmpty {
                                 mention.addAttribute(withName: "node", stringValue: node)
                             }
@@ -1935,35 +2159,14 @@ class MessageStorageItem: Object {
     }
 
     func createMentionsElement() -> DDXMLElement? {
-        let mentions = DDXMLElement(name: "mentions", xmlns: "https://xabber.com/protocol/groups")
-        var seenMemberIds: Set<String> = []
-
-        references.forEach { reference in
-            guard reference.kind == .mention else { return }
-            let uri = reference.metadata?["uri"] as? String ?? reference.url
-            let memberId = (reference.metadata?["memberId"] as? String) ?? uri.flatMap(Self.parseMentionMemberId(from:))
-            guard let memberId, memberId.isNotEmpty else { return }
-            guard seenMemberIds.insert(memberId).inserted else { return }
-
-            let user = DDXMLElement(name: "user")
-            user.addAttribute(withName: "id", stringValue: memberId)
-            mentions.addChild(user)
-        }
-
-        return mentions.children?.isEmpty == false ? mentions : nil
-    }
-
-    private static func parseMentionMemberId(from uri: String) -> String? {
-        guard let query = uri.split(separator: "?", maxSplits: 1).dropFirst().first else { return nil }
-        let normalizedQuery = query.replacingOccurrences(of: ";", with: "&")
-        return normalizedQuery
-            .split(separator: "&")
-            .compactMap { component -> String? in
-                let parts = component.split(separator: "=", maxSplits: 1).map(String.init)
-                guard parts.count == 2, parts[0] == "id" else { return nil }
-                return parts[1]
-            }
-            .first
+        let intent = groupMentionIntent ?? .members(
+            GroupMessageMentionsCodec.memberIDs(from: references)
+        )
+        return GroupMessageMentionsCodec.encode(
+            intent,
+            capabilityGranted: groupMentionAllCapabilityGranted,
+            senderRole: groupMentionSenderRole
+        )
     }
     
     
@@ -2098,17 +2301,18 @@ class MessageStorageItem: Object {
     
     public static func getGroupchatAuthorNickname(_ references: [MessageReferenceStorageItem]) -> String? {
         let groupchatMetadata = references.first(where: { $0.kind == .groupchat })?.metadata
-        return groupchatMetadata?["nickname"] as? String ?? groupchatMetadata?["jid"] as? String
+        return nonEmptyGroupAuthorValue(groupchatMetadata?["nickname"])
+            ?? nonEmptyGroupAuthorValue(groupchatMetadata?["jid"])
     }
     
     public static func groupchatMessageAuthorJid(_ references: [MessageReferenceStorageItem]) -> String? {
         let groupchatMetadata = references.first(where: { $0.kind == .groupchat })?.metadata
-        return groupchatMetadata?["jid"] as? String
+        return nonEmptyGroupAuthorValue(groupchatMetadata?["jid"])
     }
     
     public static func groupchatMessageAuthorId(_ references: [MessageReferenceStorageItem]) -> String? {
         let groupchatMetadata = references.first(where: { $0.kind == .groupchat })?.metadata
-        return groupchatMetadata?["id"] as? String
+        return nonEmptyGroupAuthorValue(groupchatMetadata?["id"])
     }
 }
 

@@ -707,6 +707,14 @@ class PresenceManager: AbstractXMPPManager {
     }
 
     internal func parse(contact presence: XMPPPresence, realm: Realm) {
+        // Canonical group membership/presence is repository-owned and must not
+        // create roster resources or contact membership as a side effect.
+        guard presence.element(
+            forName: "group",
+            xmlns: GroupProtocolNamespace.groups
+        ) == nil else {
+            return
+        }
         guard let fromJid = presence.from,
             fromJid.bare != owner,
             let resource = fromJid.resource else {
@@ -718,7 +726,7 @@ class PresenceManager: AbstractXMPPManager {
             return
         }
 
-        if PresenceManager.parseStatusValue(from: presence) == .offline && presence.element(forName: "x", xmlns: GroupchatManager.staticGetNamespace()) == nil {
+        if PresenceManager.parseStatusValue(from: presence) == .offline {
             if let instance = realm.object(ofType: ResourceStorageItem.self,
                                            forPrimaryKey: [fromJid.bare,
                                                            resource,
@@ -753,7 +761,10 @@ class PresenceManager: AbstractXMPPManager {
                 realm.add(instance, update: .modified)
             }
             realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [fromJid.bare, owner].prp())?.notes = " "
-            realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [fromJid.bare, owner].prp())?.isContact = presence.element(forName: "x", xmlns: GroupchatManager.staticGetNamespace()) == nil
+            realm.object(
+                ofType: RosterStorageItem.self,
+                forPrimaryKey: [fromJid.bare, owner].prp()
+            )?.isContact = true
         }
     }
     
@@ -921,10 +932,6 @@ class PresenceManager: AbstractXMPPManager {
                     realm.add(instance)
                 }
                 resolvedDisplayName = instance.displayName.isEmpty ? resolvedDisplayName : instance.displayName
-            }
-            
-            if realm.object(ofType: GroupChatStorageItem.self, forPrimaryKey: [jid, owner].prp()) != nil {
-                return true
             }
             
             AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, _ in
