@@ -983,10 +983,13 @@ final class CallsVisualStyleTests: XCTestCase {
 
     func testCallsLastRowRemainsAboveBottomSearchAtMaximumOffset() {
         let controller = LastCallsViewController()
-        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = controller
+        window.isHidden = false
+        defer { window.isHidden = true }
         controller.loadViewIfNeeded()
         controller.reloadCallDatasource()
-        controller.view.layoutIfNeeded()
+        window.layoutIfNeeded()
         controller.tableView.contentSize = CGSize(width: 393, height: 1_600)
         controller.updateTableInsetsForBottomSearch()
         let maximumOffsetY = max(
