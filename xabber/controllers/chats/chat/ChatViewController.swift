@@ -6209,7 +6209,7 @@ class ChatViewController: MessagesViewController {
         let leftReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
         let rightReserved: CGFloat = UIDevice.current.userInterfaceIdiom == .pad ? 120 : 88
         let sideReserve = max(leftReserved, rightReserved)
-        let targetWidth = min(140, max(0, navBarWidth - sideReserve * 2))
+        let targetWidth = max(0, navBarWidth - sideReserve * 2)
         if abs(navigationTitleWidthConstraint.constant - targetWidth) > 0.5 {
             navigationTitleWidthConstraint.constant = targetWidth
         }

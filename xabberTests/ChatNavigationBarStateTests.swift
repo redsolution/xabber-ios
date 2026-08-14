@@ -680,7 +680,7 @@ final class ChatNavigationBarStateTests: XCTestCase {
             XCTAssertTrue(
                 visibleTexts(
                     in: navigationBar,
-                    horizontalRegion: 0...120
+                    horizontalRegion: backFrame.minX...backFrame.maxX
                 ).isEmpty,
                 "the native Back affordance must render only the chevron, without a visible source title"
             )
@@ -764,11 +764,37 @@ final class ChatNavigationBarStateTests: XCTestCase {
         XCTAssertEqual(finalWidthConstraint.constant, initialConstant, accuracy: 0.001)
     }
 
-    func testChatTitleKeepsInitialWidthCapUntilNavigationGeometryIsAvailable() throws {
+    func testRegularWidthChatTitleUsesAvailableSpaceBetweenNavigationItems() throws {
+        let rootViewController = UIViewController()
+        let chat = ChatViewController()
+        let navigationController = UINavigationController(rootViewController: rootViewController)
+        navigationController.pushViewController(chat, animated: false)
+        navigationController.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        chat.loadViewIfNeeded()
+        chat.configureNavbar()
+        navigationController.view.layoutIfNeeded()
+        navigationController.navigationBar.layoutIfNeeded()
+        chat.viewDidLayoutSubviews()
+
+        let widthConstraint = try XCTUnwrap(
+            chat.titleButton.constraints.first(where: {
+                $0.firstItem === chat.titleButton && $0.firstAttribute == .width
+            })
+        )
+        let expectedSafeCenterWidth = navigationController.navigationBar.bounds.width - 176
+
+        XCTAssertEqual(widthConstraint.relation, .lessThanOrEqual)
+        XCTAssertEqual(widthConstraint.constant, expectedSafeCenterWidth, accuracy: 0.5)
+        XCTAssertGreaterThan(
+            widthConstraint.constant,
+            140,
+            "a regular-width chat title should not keep the legacy fixed cap when navbar space is free"
+        )
+    }
+
+    func testChatTitleKeepsLastWidthCapWhenNavigationGeometryIsUnavailable() throws {
         let chat = ChatViewController()
         chat.loadViewIfNeeded()
-        chat.view.frame = .zero
-
         chat.configureNavbar()
 
         let widthConstraint = try XCTUnwrap(
@@ -776,13 +802,18 @@ final class ChatNavigationBarStateTests: XCTestCase {
                 $0.firstItem === chat.titleButton && $0.firstAttribute == .width
             })
         )
-        XCTAssertEqual(widthConstraint.relation, .lessThanOrEqual)
+        let establishedWidth = widthConstraint.constant
+
+        chat.view.frame = .zero
+        chat.viewDidLayoutSubviews()
+
         XCTAssertEqual(
             widthConstraint.constant,
-            140,
+            establishedWidth,
             accuracy: 0.001,
-            "pre-push preparation must not collapse the title before UIKit supplies navigation geometry"
+            "a transient zero-width layout must not collapse the last safe title width"
         )
+        XCTAssertGreaterThan(establishedWidth, 0)
     }
 
     func testCancelledInteractivePopKeepsChatChromeAndHiddenLastChatsFrozen() throws {
