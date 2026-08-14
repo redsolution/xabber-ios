@@ -4308,20 +4308,9 @@ class ModernXabberInputView: UIView {
         self.recordButton.configuration = configuration
     }
     
+    /// Unified transport and conversation-policy readiness. A false value
+    /// disables record/send actions without preventing text or draft input.
     public var isSendButtonEnabled: Bool = false
-
-    /// Gates only message-composition controls. Alternate input-bar modes,
-    /// including chat search, must remain interactive when group permissions
-    /// temporarily or permanently prevent sending.
-    public var isComposerInteractionEnabled: Bool = true {
-        didSet {
-            guard oldValue != isComposerInteractionEnabled else { return }
-            if !isComposerInteractionEnabled {
-                textField.resignFirstResponder()
-            }
-            updateComposerActionReadiness()
-        }
-    }
 
     final func changeComposerActionMode(to mode: ComposerActionMode, animated: Bool = false) {
         let previousMode = self.currentComposerActionMode
@@ -4411,12 +4400,7 @@ class ModernXabberInputView: UIView {
     }
 
     private func updateComposerActionColors() {
-        let canCompose = self.isComposerInteractionEnabled
-        let canSend = canCompose && self.isSendButtonEnabled
-        self.textField.isEditable = canCompose
-        self.textField.isUserInteractionEnabled = canCompose
-        self.attachButton.isEnabled = canCompose
-        self.timerButton.isEnabled = canCompose
+        let canSend = self.isSendButtonEnabled
         self.recordButton.isEnabled = canSend
         self.sendButton.isEnabled = canSend
         self.sendButton.tintColor = canSend ? self.accountPalette.tint600 : .secondaryLabel

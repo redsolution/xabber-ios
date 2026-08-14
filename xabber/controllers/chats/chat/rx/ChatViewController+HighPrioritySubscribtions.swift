@@ -4020,7 +4020,6 @@ extension ChatViewController {
                         pinnedMessageId: state.lastPinnedMessageID,
                         canUnpin: state.canUnpinLastMessage
                     )
-                    self.xabberInputView.isComposerInteractionEnabled = state.isComposerActive
                     do {
                         let realm = try WRealm.safe()
                         self.applyBaseSendButtonReadiness(
