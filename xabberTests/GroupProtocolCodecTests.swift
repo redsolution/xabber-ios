@@ -177,9 +177,26 @@ final class GroupProtocolCodecTests: XCTestCase {
         XCTAssertNil(members[1].jid)
     }
 
-    func testFullMembersRejectVersionRSMAndMissingStableID() throws {
+    func testFullMembersAcceptNumericResponseVersionAsFullSnapshotMetadata() throws {
+        let members = try GroupProtocolCodec.decodeFullMembers(element("""
+        <members xmlns='https://xabber.com/protocol/groups' version='1786706642'>
+          <user id='j5q0ssu8tt0a7u5p'>
+            <role>owner</role>
+            <nickname>igor.boldin@redsolution.com</nickname>
+            <jid>igor.boldin@redsolution.com</jid>
+          </user>
+        </members>
+        """))
+
+        XCTAssertEqual(members.count, 1)
+        XCTAssertEqual(members[0].id, "j5q0ssu8tt0a7u5p")
+        XCTAssertEqual(members[0].role, .owner)
+        XCTAssertEqual(members[0].jid, "igor.boldin@redsolution.com")
+    }
+
+    func testFullMembersRejectMalformedVersionRSMAndMissingStableID() throws {
         XCTAssertThrowsError(try GroupProtocolCodec.decodeFullMembers(element("""
-        <members xmlns='https://xabber.com/protocol/groups' version='7'/>
+        <members xmlns='https://xabber.com/protocol/groups' version='not-a-number'/>
         """)))
         XCTAssertThrowsError(try GroupProtocolCodec.decodeFullMembers(element("""
         <members xmlns='https://xabber.com/protocol/groups'>

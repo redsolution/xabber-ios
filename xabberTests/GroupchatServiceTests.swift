@@ -156,10 +156,22 @@ final class GroupchatServiceTests: XCTestCase {
                 )
             case "members":
                 XCTAssertNil(child.attribute(forName: "version"))
-                payload = try! GroupProtocolCodec.encodeFullMembers([
-                    GroupMember(id: "member-1", nickname: "Romeo"),
+                let membersPayload = try! GroupProtocolCodec.encodeFullMembers([
+                    GroupMember(
+                        id: "member-1",
+                        jid: "romeo@example.com",
+                        role: .owner,
+                        nickname: "Romeo"
+                    ),
                     GroupMember(id: "member-2", nickname: "Juliet")
                 ])
+                membersPayload.addAttribute(
+                    DDXMLNode.attribute(
+                        withName: "version",
+                        stringValue: "1786706642"
+                    ) as! DDXMLNode
+                )
+                payload = membersPayload
             default:
                 return XCTFail("Unexpected command \(child.name ?? "nil")")
             }
@@ -173,6 +185,8 @@ final class GroupchatServiceTests: XCTestCase {
         XCTAssertEqual(sentNames, ["query", "members"])
         XCTAssertEqual(snapshot.info?.name, "Stage")
         XCTAssertEqual(members.map(\.id), ["member-1", "member-2"])
+        XCTAssertEqual(members.first?.role, .owner)
+        XCTAssertEqual(members.first?.jid, "romeo@example.com")
     }
 
     func testMutationCommandsUseCanonicalSETShapesAndBareDestinations() async throws {

@@ -95,11 +95,11 @@ enum GroupProtocolCodec {
 
     static func decodeFullMembers(_ element: DDXMLElement) throws -> [GroupMember] {
         try requireRoot(element, name: "members", namespace: GroupProtocolNamespace.groups)
-        if let version = attribute(element, "version") {
-            throw GroupProtocolCodecError.invalidAttribute(
-                element: "members", attribute: "version", value: version
-            )
-        }
+        // A full response may carry the server's current list version even
+        // though the client deliberately sends an unversioned full request.
+        // Validate it as opaque snapshot metadata; do not turn this response
+        // into a delta or persist a client-side cursor.
+        _ = try optionalUInt64Attribute(element, "version")
         if let id = attribute(element, "id") {
             throw GroupProtocolCodecError.invalidAttribute(element: "members", attribute: "id", value: id)
         }
