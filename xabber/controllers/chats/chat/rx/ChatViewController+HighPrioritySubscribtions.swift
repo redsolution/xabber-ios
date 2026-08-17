@@ -1060,6 +1060,28 @@ final class ChatInitialBootstrapRequestCoordinator {
         return lease
     }
 
+    /// Active transport work and its joined controller share one opaque
+    /// chat-open generation. A committed receipt has a different lifetime: it
+    /// may be reused after the originating controller is gone, while the fresh
+    /// route must emit its own UI generation.
+    func requiresControllerPerformanceTraceContextMatch(
+        key: ChatInitialBootstrapRequestKey,
+        queryId: String
+    ) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let attempt = attemptsByKey[key],
+              attempt.lease.queryId == queryId else {
+            return false
+        }
+        switch attempt.phase {
+        case .queued, .transport, .persistence:
+            return true
+        case .committed, .failed:
+            return false
+        }
+    }
+
     func attachSchedulerCompletion(
         key: ChatInitialBootstrapRequestKey,
         queryId: String,
@@ -3509,10 +3531,14 @@ extension ChatViewController {
         if lease.targetFingerprint.target == requestedTargetFingerprint.target,
            lease.performanceSemanticTargetFingerprint ==
             requestedPerformanceSemanticTargetFingerprint,
+           coordinator.requiresControllerPerformanceTraceContextMatch(
+            key: key,
+            queryId: lease.queryId
+           ),
            let controllerContext = self.chatOpenPerformanceTraceContext {
             assert(
                 lease.performanceTraceContext == controllerContext,
-                "A same-target bootstrap lease must retain the accepted open context"
+                "An active same-target bootstrap lease must retain the accepted open context"
             )
         }
         self.initialBootstrapTargetFingerprint = lease.targetFingerprint

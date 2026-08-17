@@ -813,6 +813,91 @@ final class ChatArchivePerformanceTraceTests: XCTestCase {
         XCTAssertTrue(coordinator.complete(key: key, queryId: lease.queryId))
     }
 
+    func testReopenedSameTargetCommittedReceiptAllowsFreshUIContext() throws {
+        let coordinator = ChatInitialBootstrapRequestCoordinator(
+            automaticallySchedulesTimeouts: false,
+            performanceTraceRegistry: registry
+        )
+        let key = ChatInitialBootstrapRequestKey(
+            owner: "committed-reopen-owner@example.com",
+            jid: "committed-reopen-peer@example.com",
+            conversationType: .regular
+        )
+        let target = MessageArchiveManager.ChatBootstrapTargetFingerprint(
+            target: .latest,
+            boundary: nil
+        )
+        let retiredTransportContext = try makeContext(
+            traceID: 3181,
+            generation: 281
+        )
+        guard case .start(let originalLease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "committed-reopen-original",
+            timeout: 45,
+            targetFingerprint: target,
+            performanceTraceContext: retiredTransportContext,
+            performanceSemanticTargetFingerprint: .latest,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("the original route must start the bootstrap lease")
+        }
+        XCTAssertTrue(coordinator.requiresControllerPerformanceTraceContextMatch(
+            key: key,
+            queryId: originalLease.queryId
+        ))
+
+        coordinator.recordCommittedPageForTesting(
+            key: key,
+            queryId: originalLease.queryId,
+            hasDurableCoverage: true,
+            resultCount: 1,
+            persistedRowsForQuery: 1,
+            visibleRowsForConversation: 1,
+            hasPresentationMaterialization: true
+        )
+        XCTAssertNil(
+            coordinator.activePerformanceTraceAdoption(
+                for: key,
+                targetFingerprint: target,
+                semanticTargetFingerprint: .latest
+            ),
+            "a terminal receipt must not suppress the fresh route's open generation"
+        )
+
+        let freshUIContext = try makeContext(traceID: 3182, generation: 282)
+        guard case .joined(let reopenedLease) = coordinator.acquireOrJoin(
+            key: key,
+            proposedQueryId: "committed-reopen-fresh-route",
+            timeout: 45,
+            targetFingerprint: target,
+            performanceTraceContext: freshUIContext,
+            performanceSemanticTargetFingerprint: .latest,
+            observer: { _, _, _ in }
+        ) else {
+            return XCTFail("the fresh route must reuse the retained committed receipt")
+        }
+
+        XCTAssertEqual(reopenedLease.queryId, originalLease.queryId)
+        XCTAssertEqual(
+            reopenedLease.performanceTraceContext,
+            retiredTransportContext,
+            "the retained transport receipt keeps its immutable original context"
+        )
+        XCTAssertNotEqual(reopenedLease.performanceTraceContext, freshUIContext)
+        XCTAssertFalse(
+            coordinator.requiresControllerPerformanceTraceContextMatch(
+                key: key,
+                queryId: reopenedLease.queryId
+            ),
+            "committed receipt reuse must not compare a retired transport context with a fresh UI generation"
+        )
+        XCTAssertTrue(coordinator.releaseInteractiveCommittedJoinReservation(
+            key: key,
+            queryId: reopenedLease.queryId
+        ))
+    }
+
     func testReopenedMismatchedTargetCannotAdoptOldLeaseContextOrPublishLateUIReceipt() throws {
         let coordinator = ChatInitialBootstrapRequestCoordinator(
             automaticallySchedulesTimeouts: false,

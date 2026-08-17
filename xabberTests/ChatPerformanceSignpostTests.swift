@@ -805,6 +805,9 @@ final class ChatPerformanceSignpostTests: XCTestCase {
             "performanceSemanticTargetFingerprint:"
         ))
         XCTAssertTrue(highPrioritySource.contains(
+            "coordinator.requiresControllerPerformanceTraceContextMatch("
+        ))
+        XCTAssertTrue(highPrioritySource.contains(
             "self.performanceFixtureArchiveTransportExecutor"
         ))
         let searchSource = try productionSource(
