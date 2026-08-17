@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import UIKit
 
 struct ChatComposerKeyboardLayoutMetrics: Equatable {
     let visualHeight: CGFloat
@@ -55,6 +56,32 @@ struct ChatKeyboardLayoutUpdatePolicy {
     }
 }
 
+enum ChatKeyboardViewportOffsetPolicy {
+    static func targetContentOffsetY(
+        previousContentOffsetY: CGFloat,
+        previousBottomInset: CGFloat,
+        contentHeight: CGFloat,
+        viewportHeight: CGFloat,
+        newContentInsets: UIEdgeInsets
+    ) -> CGFloat {
+        let minimumOffsetY = -newContentInsets.top
+        guard viewportHeight > 0 else {
+            return minimumOffsetY
+        }
+
+        let maximumOffsetY = max(
+            minimumOffsetY,
+            max(0, contentHeight) - viewportHeight + newContentInsets.bottom
+        )
+        let bottomInsetDelta = newContentInsets.bottom - previousBottomInset
+        guard abs(bottomInsetDelta) > 0.001 else {
+            return previousContentOffsetY
+        }
+        let requestedOffsetY = previousContentOffsetY + bottomInsetDelta
+        return min(max(requestedOffsetY, minimumOffsetY), maximumOffsetY)
+    }
+}
+
 enum ChatKeyboardFrameViewportPolicy {
     static func shouldCaptureVisibleAnchor(wasNearBottom: Bool) -> Bool {
         false
@@ -92,6 +119,7 @@ enum ChatComposerFrameUpdateAction: Equatable {
     case invalidateLayout
     case reloadData
     case layoutIfNeeded
+    case preserveViewportForInsetChange
     case scrollToBottom
     case alignBottomToCurrentInsets
     case restoreVisibleAnchor
@@ -117,6 +145,12 @@ struct ChatComposerFrameUpdatePlanner {
         if shouldForceLayout {
             actions.append(.layoutIfNeeded)
             actions.append(.updateInsets(request.inputHeight))
+        }
+
+        if request.source == .keyboardFrame,
+           request.hasMessages,
+           request.anchorRestoration == .none {
+            actions.append(.preserveViewportForInsetChange)
         }
 
         switch request.anchorRestoration {

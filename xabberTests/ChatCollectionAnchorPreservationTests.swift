@@ -1033,9 +1033,9 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
             primary: anchorPrimary,
             viewportRelativeMinY: viewportRelativeMinY
         )
-        var composerFrame = controller.xabberInputView.frame
-        composerFrame.size.height += 220
-        controller.xabberInputView.frame = composerFrame
+        _ = controller.updateChatInputViewForCurrentKeyboardLayout(
+            visibleKeyboardHeight: 220
+        )
         var result: ChatViewportTransactionResult?
 
         controller.applyChatDatasource(
@@ -1058,6 +1058,80 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
         XCTAssertLessThanOrEqual(diagnostics.programmaticOffsetMutationCount, 1)
         XCTAssertEqual(diagnostics.nextRunLoopCorrectionCount, 0)
         XCTAssertGreaterThan(diagnostics.insetDelta.bottom, 100)
+    }
+
+    func testKeyboardOpenAndHidePreserveReadingViewportByInsetDelta() throws {
+        let controller = makeController()
+        let initialItems = (0..<40).map { makeDatasource(primary: "keyboard-m\($0)") }
+        controller.applyChatDatasource(
+            initialItems,
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
+        controller.messagesCollectionView.scrollToItem(
+            at: IndexPath(item: 0, section: 10),
+            at: .top,
+            animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let anchorPrimary = initialItems[10].primary
+        let initialViewportY = try viewportY(for: anchorPrimary, in: controller)
+        let initialOffsetY = controller.messagesCollectionView.contentOffset.y
+        let initialBottomInset = controller.messagesCollectionView.contentInset.bottom
+
+        controller.keyboardWillChangeFrameNotification(Notification(
+            name: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil,
+            userInfo: [
+                UIResponder.keyboardFrameEndUserInfoKey: NSValue(
+                    cgRect: CGRect(x: 0, y: 544, width: 390, height: 300)
+                ),
+                UIResponder.keyboardAnimationDurationUserInfoKey: NSNumber(value: 0)
+            ]
+        ))
+
+        let openedBottomInset = controller.messagesCollectionView.contentInset.bottom
+        let openingInsetDelta = openedBottomInset - initialBottomInset
+        XCTAssertEqual(openingInsetDelta, 300, accuracy: 0.001)
+        XCTAssertEqual(
+            controller.messagesCollectionView.contentOffset.y - initialOffsetY,
+            openingInsetDelta,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            try viewportY(for: anchorPrimary, in: controller),
+            initialViewportY - openingInsetDelta,
+            accuracy: 0.001
+        )
+
+        controller.keyboardWillChangeFrameNotification(Notification(
+            name: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil,
+            userInfo: [
+                UIResponder.keyboardFrameEndUserInfoKey: NSValue(
+                    cgRect: CGRect(x: 0, y: 844, width: 390, height: 300)
+                ),
+                UIResponder.keyboardAnimationDurationUserInfoKey: NSNumber(value: 0)
+            ]
+        ))
+
+        XCTAssertEqual(
+            controller.messagesCollectionView.contentInset.bottom,
+            initialBottomInset,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            controller.messagesCollectionView.contentOffset.y,
+            initialOffsetY,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            try viewportY(for: anchorPrimary, in: controller),
+            initialViewportY,
+            accuracy: 0.001
+        )
     }
 
     func testWidthTransitionCommitWaitsForActualCollectionViewport() {

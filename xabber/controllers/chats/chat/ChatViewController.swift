@@ -6810,6 +6810,8 @@ class ChatViewController: MessagesViewController {
             defer {
                 layoutSignpost.end()
             }
+            let previousContentOffsetY = self.messagesCollectionView.contentOffset.y
+            let previousBottomInset = self.messagesCollectionView.contentInset.bottom
             let anchorRestoration: ChatComposerFrameAnchorRestoration
             if source == .containerBounds,
                self.activeWidthTransitionLayoutTargetSize != nil {
@@ -6842,7 +6844,9 @@ class ChatViewController: MessagesViewController {
                 self.performChatComposerFrameUpdateAction(
                     action,
                     source: source,
-                    visibleAnchor: visibleAnchor
+                    visibleAnchor: visibleAnchor,
+                    previousContentOffsetY: previousContentOffsetY,
+                    previousBottomInset: previousBottomInset
                 )
             }
         }
@@ -6856,7 +6860,9 @@ class ChatViewController: MessagesViewController {
     private func performChatComposerFrameUpdateAction(
         _ action: ChatComposerFrameUpdateAction,
         source: ChatComposerFrameUpdateSource,
-        visibleAnchor: ChatHistoryPageAnchor?
+        visibleAnchor: ChatHistoryPageAnchor?,
+        previousContentOffsetY: CGFloat,
+        previousBottomInset: CGFloat
     ) {
         switch action {
         case .updateInsets(let inputHeight):
@@ -6878,6 +6884,11 @@ class ChatViewController: MessagesViewController {
             } else {
                 self.messagesCollectionView.layoutIfNeeded()
             }
+        case .preserveViewportForInsetChange:
+            self.preserveChatViewportForKeyboardInsetChange(
+                previousContentOffsetY: previousContentOffsetY,
+                previousBottomInset: previousBottomInset
+            )
         case .scrollToBottom:
             self.scrollToBottom(animated: false)
         case .alignBottomToCurrentInsets:
@@ -6887,6 +6898,31 @@ class ChatViewController: MessagesViewController {
                 self.restorePagingAnchor(visibleAnchor)
             }
         }
+    }
+
+    private func preserveChatViewportForKeyboardInsetChange(
+        previousContentOffsetY: CGFloat,
+        previousBottomInset: CGFloat
+    ) {
+        guard self.datasource.isNotEmpty else {
+            return
+        }
+
+        let targetOffsetY = ChatKeyboardViewportOffsetPolicy.targetContentOffsetY(
+            previousContentOffsetY: previousContentOffsetY,
+            previousBottomInset: previousBottomInset,
+            contentHeight: self.messagesCollectionView.contentSize.height,
+            viewportHeight: self.messagesCollectionView.bounds.height,
+            newContentInsets: self.messagesCollectionView.contentInset
+        )
+        guard abs(self.messagesCollectionView.contentOffset.y - targetOffsetY) > 0.001 else {
+            return
+        }
+
+        self.messagesCollectionView.setContentOffset(
+            CGPoint(x: self.messagesCollectionView.contentOffset.x, y: targetOffsetY),
+            animated: false
+        )
     }
 
     private func alignChatBottomToCurrentInsets(targetMaxY: CGFloat? = nil) {
