@@ -67,6 +67,28 @@ struct GroupBlockMemberResult: Equatable, Sendable {
     let members: [GroupMember]
 }
 
+/// The one delivery decision for outgoing group invitations.
+/// Public groups let the inviting client address the user directly, while an
+/// incognito group delegates delivery to the server to avoid exposing the
+/// inviter's real JID.
+enum GroupInviteDeliveryMode: Equatable, Sendable {
+    case clientDirect
+    case serverMediated
+
+    init(privacy: GroupPrivacy) {
+        switch privacy {
+        case .publicGroup:
+            self = .clientDirect
+        case .incognito:
+            self = .serverMediated
+        }
+    }
+
+    var serverShouldSend: Bool {
+        self == .serverMediated
+    }
+}
+
 /// Builds the complete direct-permission mutation required before removing an
 /// administrator. Response-only metadata is never echoed back to the server.
 enum CanonicalAdminDemotionMutation {
@@ -618,13 +640,25 @@ final class GroupchatService {
     func invite(
         groupJID: String,
         targetJID: String,
-        send: Bool? = nil,
+        privacy: GroupPrivacy,
         reason: String? = nil
     ) async throws -> [String] {
+        let delivery = GroupInviteDeliveryMode(privacy: privacy)
         try await emptyMutation(
-            .invite(targetJID: targetJID, send: send, reason: reason),
+            .invite(
+                targetJID: targetJID,
+                send: delivery.serverShouldSend,
+                reason: reason
+            ),
             groupJID: groupJID
         )
+        if delivery == .clientDirect {
+            try sendDirectInviteMessage(
+                groupJID: groupJID,
+                targetJID: targetJID,
+                reason: reason
+            )
+        }
         return try await refreshInvites(groupJID: groupJID)
     }
 
@@ -918,6 +952,23 @@ private final class GroupchatTaskCancellationState {
 }
 
 private extension GroupchatService {
+    func sendDirectInviteMessage(
+        groupJID: String,
+        targetJID: String,
+        reason: String?
+    ) throws {
+        let invite = try GroupProtocolCodec.encodeInvite(
+            .message(groupJID: groupJID, reason: reason, inviter: nil)
+        )
+        try send(
+            XMPPMessage(
+                messageType: .chat,
+                to: try groupDestination(targetJID),
+                child: invite
+            )
+        )
+    }
+
     func moderationFailure(
         failedStage: GroupModerationStage,
         completedStages: [GroupModerationStage],

@@ -91,15 +91,30 @@ extension GroupchatInviteViewController {
         let targets = selectedJids.value.sorted()
         Task { @MainActor [weak self, weak account] in
             guard let self, let account else { return }
+            let repository: GroupRepository
+            let privacy: GroupPrivacy
+            do {
+                repository = try GroupRepository(realm: WRealm.safe())
+                // Missing legacy privacy fails closed into server-mediated
+                // delivery so the inviter's real JID is never leaked.
+                privacy = try repository.projection(
+                    owner: self.owner,
+                    groupJID: self.jid
+                ).state.snapshot.privacy ?? .incognito
+            } catch {
+                self.inviteErrorMessage = "Internal server error"
+                    .localizeString(id: "error_internal_server", arguments: [])
+                self.finishInviting()
+                return
+            }
             for target in targets {
                 do {
                     let authoritativeTargets = try await account.groupchatService.invite(
                         groupJID: self.jid,
-                        targetJID: target
+                        targetJID: target,
+                        privacy: privacy
                     )
-                    _ = try GroupRepository(
-                        realm: WRealm.safe()
-                    ).replaceOutgoingInvites(
+                    _ = try repository.replaceOutgoingInvites(
                         owner: self.owner,
                         groupJID: self.jid,
                         targets: authoritativeTargets

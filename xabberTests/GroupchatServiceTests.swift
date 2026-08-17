@@ -242,7 +242,7 @@ final class GroupchatServiceTests: XCTestCase {
         _ = try await service.invite(
             groupJID: groupJID,
             targetJID: "Juliet@Example.com/Balcony",
-            send: true,
+            privacy: .incognito,
             reason: "Join"
         )
         try await service.declineInvite(groupJID: groupJID)
@@ -283,6 +283,148 @@ final class GroupchatServiceTests: XCTestCase {
                 .element(forName: "jid")?.stringValue,
             "juliet@example.com"
         )
+    }
+
+    func testPublicInviteWaitsForIQResultThenSendsDirectInviteMessageBeforeRefresh() async throws {
+        let setSent = expectation(description: "public invite SET sent")
+        let messageSent = expectation(description: "direct invite message sent")
+        let refreshSent = expectation(description: "invite refresh sent")
+        var requestIDs = ["invite-set", "invite-refresh"].makeIterator()
+        let transport = ServiceRecordingTransport()
+        let service = GroupchatService(requestIDProvider: { requestIDs.next()! })
+        service.prepare(transport.send)
+        transport.onElementSend = { element in
+            if element is XMPPMessage {
+                messageSent.fulfill()
+            }
+        }
+        transport.onSend = { iq in
+            if iq.type == "set" {
+                setSent.fulfill()
+                return
+            }
+            refreshSent.fulfill()
+            let invites = DDXMLElement(
+                name: "invites",
+                xmlns: GroupProtocolNamespace.groups
+            )
+            invites.addChild(DDXMLElement(name: "jid", stringValue: "juliet@example.com"))
+            self.assertReceive(
+                XMPPIQ(iqType: .result, elementID: iq.elementID, child: invites),
+                by: service
+            )
+        }
+
+        let task = Task {
+            try await service.invite(
+                groupJID: groupJID,
+                targetJID: "Juliet@Example.com/Balcony",
+                privacy: .publicGroup,
+                reason: "Join"
+            )
+        }
+
+        await fulfillment(of: [setSent], timeout: 1)
+        XCTAssertEqual(transport.elementSnapshot.count, 1)
+        let setIQ = try XCTUnwrap(transport.elementSnapshot.first as? XMPPIQ)
+        let request = try XCTUnwrap(setIQ.childElement as? DDXMLElement)
+        XCTAssertEqual(request.name, "invite")
+        XCTAssertEqual(request.element(forName: "jid")?.stringValue, "juliet@example.com")
+        XCTAssertEqual(request.element(forName: "send")?.stringValue, "false")
+
+        XCTAssertTrue(try service.receive(
+            XMPPIQ(iqType: .result, elementID: setIQ.elementID)
+        ))
+        await fulfillment(of: [messageSent, refreshSent], timeout: 1, enforceOrder: true)
+
+        let invited = try await task.value
+        XCTAssertEqual(invited, ["juliet@example.com"])
+        let elements = transport.elementSnapshot
+        XCTAssertEqual(elements.count, 3)
+        XCTAssertTrue(elements[0] is XMPPIQ)
+        let message = try XCTUnwrap(elements[1] as? XMPPMessage)
+        XCTAssertEqual(message.type, "chat")
+        XCTAssertEqual(message.to?.bare, "juliet@example.com")
+        let payload = try XCTUnwrap(
+            message.element(
+                forName: "invite",
+                xmlns: GroupProtocolNamespace.groups
+            )
+        )
+        XCTAssertEqual(payload.attributeStringValue(forName: "jid"), groupJID)
+        XCTAssertEqual(payload.element(forName: "reason")?.stringValue, "Join")
+        XCTAssertNil(message.element(forName: "body"))
+        XCTAssertEqual((elements[2] as? XMPPIQ)?.childElement?.name, "invites")
+    }
+
+    func testIncognitoInviteRequestsServerDeliveryAndSendsNoDirectMessage() async throws {
+        var requestIDs = ["invite-set", "invite-refresh"].makeIterator()
+        let transport = ServiceRecordingTransport()
+        let service = GroupchatService(requestIDProvider: { requestIDs.next()! })
+        service.prepare(transport.send)
+        transport.onSend = { iq in
+            if iq.type == "set" {
+                self.assertReceive(
+                    XMPPIQ(iqType: .result, elementID: iq.elementID),
+                    by: service
+                )
+            } else {
+                self.assertReceive(
+                    XMPPIQ(
+                        iqType: .result,
+                        elementID: iq.elementID,
+                        child: DDXMLElement(
+                            name: "invites",
+                            xmlns: GroupProtocolNamespace.groups
+                        )
+                    ),
+                    by: service
+                )
+            }
+        }
+
+        _ = try await service.invite(
+            groupJID: groupJID,
+            targetJID: "Juliet@Example.com/Balcony",
+            privacy: .incognito
+        )
+
+        let elements = transport.elementSnapshot
+        XCTAssertEqual(elements.count, 2)
+        XCTAssertFalse(elements.contains { $0 is XMPPMessage })
+        let request = try XCTUnwrap((elements[0] as? XMPPIQ)?.childElement as? DDXMLElement)
+        XCTAssertEqual(request.element(forName: "send")?.stringValue, "true")
+        XCTAssertEqual((elements[1] as? XMPPIQ)?.childElement?.name, "invites")
+    }
+
+    func testPublicInviteIQErrorSendsNeitherMessageNorRefresh() async throws {
+        let transport = ServiceRecordingTransport()
+        let service = GroupchatService(requestIDProvider: { "invite-set" })
+        service.prepare(transport.send)
+        transport.onSend = { iq in
+            let response = try! self.iq("""
+            <iq type='error' id='invite-set'>
+              <error type='cancel'>
+                <forbidden xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>
+              </error>
+            </iq>
+            """)
+            self.assertReceive(response, by: service)
+        }
+
+        do {
+            _ = try await service.invite(
+                groupJID: groupJID,
+                targetJID: "juliet@example.com",
+                privacy: .publicGroup
+            )
+            XCTFail("Expected typed IQ error")
+        } catch let GroupchatServiceError.iq(error) {
+            XCTAssertEqual(error.condition, "forbidden")
+        }
+
+        XCTAssertEqual(transport.elementSnapshot.count, 1)
+        XCTAssertFalse(transport.elementSnapshot.contains { $0 is XMPPMessage })
     }
 
     func testSetPermissionsWaitsForSETResultThenRefreshesWithGET() async throws {
@@ -1468,6 +1610,7 @@ private final class ServiceRecordingTransport {
     private let lock = NSLock()
     private var elements: [XMPPElement] = []
     var onSend: ((XMPPIQ) -> Void)?
+    var onElementSend: ((XMPPElement) -> Void)?
 
     var elementSnapshot: [XMPPElement] {
         lock.lock()
@@ -1483,6 +1626,7 @@ private final class ServiceRecordingTransport {
         lock.lock()
         elements.append(element)
         lock.unlock()
+        onElementSend?(element)
         if let iq = element as? XMPPIQ {
             onSend?(iq)
         }

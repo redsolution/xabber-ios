@@ -60,4 +60,20 @@ final class GroupOutgoingInvitesUICutoverTests: XCTestCase {
             "not-allowed"
         )
     }
+
+    func testInviteScreenPassesCanonicalPrivacyAndCannotChooseRawSendFlag() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent(
+                "xabber/controllers/chats/groupchats/invite/GroupchatInviteViewController+Flow.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("repository.projection("))
+        XCTAssertTrue(source.contains("privacy: privacy"))
+        XCTAssertFalse(source.contains("send:"))
+    }
 }

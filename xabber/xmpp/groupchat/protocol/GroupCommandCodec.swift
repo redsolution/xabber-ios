@@ -16,7 +16,7 @@ enum GroupCommand: Equatable, Sendable {
     case updateSettings(GroupSettings)
     case updateMember(GroupMemberUpdate)
     case setOwner(memberID: String)
-    case invite(targetJID: String, send: Bool?, reason: String?)
+    case invite(targetJID: String, send: Bool, reason: String?)
     case block(targets: [String])
     case kick(targetJID: String)
     case pin(groupStanzaID: String)
