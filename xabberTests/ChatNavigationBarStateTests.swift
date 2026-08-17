@@ -40,6 +40,78 @@ final class ChatNavigationBarStateTests: XCTestCase {
         super.tearDown()
     }
 
+    func testGroupNavbarStatusUsesMemberCountAndRejectsResourcePresence() {
+        XCTAssertFalse(
+            ChatGroupNavbarStatusPolicy.allowsResourcePresence(
+                conversationType: .group
+            )
+        )
+        XCTAssertTrue(
+            ChatGroupNavbarStatusPolicy.allowsResourcePresence(
+                conversationType: .regular
+            )
+        )
+
+        var localizationRequests: [(fallback: String, id: String, arguments: [String])] = []
+        let localize: (String, String, [String]) -> String = { fallback, id, arguments in
+            localizationRequests.append((fallback, id, arguments))
+            if id == "groupchats_some_members", let count = arguments.first {
+                return "\(count) members"
+            }
+            return fallback
+        }
+
+        XCTAssertEqual(
+            ChatGroupNavbarStatusPolicy.localizedText(
+                memberCount: 0,
+                localize: localize
+            ),
+            "No members"
+        )
+        XCTAssertEqual(
+            ChatGroupNavbarStatusPolicy.localizedText(
+                memberCount: 1,
+                localize: localize
+            ),
+            "1 member"
+        )
+        XCTAssertEqual(
+            ChatGroupNavbarStatusPolicy.localizedText(
+                memberCount: 5,
+                localize: localize
+            ),
+            "5 members"
+        )
+        XCTAssertEqual(localizationRequests.map(\.id), [
+            "groupchats_no_members",
+            "groupchats_one_member",
+            "groupchats_some_members"
+        ])
+        XCTAssertEqual(localizationRequests.last?.arguments, ["5"])
+    }
+
+    func testGroupInitStatusReplacesContactPresenceFallbackWithCanonicalMemberCount() {
+        let chat = ChatViewController()
+        chat.conversationType = .group
+        chat.contactStatus = "last seen recently"
+        chat.canonicalGroupProjectionState = ChatGroupProjectionState(
+            pinnedMessageIDs: nil,
+            selfMemberID: "self-1",
+            members: [GroupMember(id: "self-1")],
+            memberCount: 5,
+            capabilities: GroupCapabilities.derive(role: nil, permissionSet: nil),
+            isActive: true,
+            isDeleted: false
+        )
+
+        chat.initStatus()
+
+        let expected = ChatGroupNavbarStatusPolicy.localizedText(memberCount: 5)
+        XCTAssertEqual(chat.contactStatus, expected)
+        XCTAssertEqual(chat.statusTextObserver.value, expected)
+        XCTAssertFalse(chat.shouldShowNormalStatus)
+    }
+
     func testReplacingStaleRightItemsLeavesOnlyRequestedItem() {
         let navigationItem = UINavigationItem()
         let staleSingle = makeBarButtonItem(identifier: "stale-single")

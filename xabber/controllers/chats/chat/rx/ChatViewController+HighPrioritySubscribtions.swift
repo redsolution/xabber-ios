@@ -3192,7 +3192,11 @@ extension ChatViewController {
             .observe(on: MainScheduler.asyncInstance)
             .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (results) in
-                let nickname = self.opponentSender.displayName
+                guard ChatGroupNavbarStatusPolicy.allowsResourcePresence(
+                    conversationType: self.conversationType
+                ) else {
+                    return
+                }
                 let offlineStatus = "last seen recently".localizeString(id: "last_seen_recently", arguments: [])
                 let status = (results.first?.statusMessage.isEmpty ?? true) ? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus) : results.first?.statusMessage ?? RosterUtils.shared.convertStatus(results.first?.status ?? .offline, customOfflineStatus: offlineStatus)
                 let statusStr = self.connectionAwareStatusText(fallbackStatus: status)
@@ -4025,6 +4029,7 @@ extension ChatViewController {
                     guard let self else { return }
                     let previousState = self.canonicalGroupProjectionState
                     self.canonicalGroupProjectionState = state
+                    self.applyCanonicalGroupNavbarStatus(state)
                     self.xabberInputView.groupMentionSenderRole = state.selfMember?.role
                     self.xabberInputView.groupMentionAllCapabilityGranted = false
                     if previousState?.members != state.members {

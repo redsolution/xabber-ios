@@ -4015,6 +4015,18 @@ class ChatViewController: MessagesViewController {
         }
     }
 
+    internal func applyCanonicalGroupNavbarStatus(
+        _ state: ChatGroupProjectionState
+    ) {
+        guard self.conversationType == .group else { return }
+        let status = ChatGroupNavbarStatusPolicy.localizedText(
+            memberCount: state.memberCount
+        )
+        self.shouldShowNormalStatus = false
+        self.contactStatus = status
+        self.updateStatusText()
+    }
+
     internal func setTopPanelState(_ state: TopPanelState) {
         self.performOnMain {
             self.topPanelState.accept(state)
@@ -4076,6 +4088,11 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func applyNormalPresenceStatus(realm: Realm) {
+        guard ChatGroupNavbarStatusPolicy.allowsResourcePresence(
+            conversationType: self.conversationType
+        ) else {
+            return
+        }
         let results = realm
             .objects(ResourceStorageItem.self)
             .filter("owner == %@ AND jid == %@", self.owner, self.jid)
@@ -5498,7 +5515,12 @@ class ChatViewController: MessagesViewController {
     }
     
     func initStatus() {
-        if conversationType == .saved {
+        if conversationType == .group {
+            if let state = self.canonicalGroupProjectionState {
+                self.applyCanonicalGroupNavbarStatus(state)
+            }
+            return
+        } else if conversationType == .saved {
             let usersCount = AccountManager.shared.users.count
             
             if usersCount > 1 {

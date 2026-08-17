@@ -9,6 +9,7 @@ struct ChatGroupProjectionState: Equatable, Sendable {
     let pinnedMessageIDs: [String]?
     let selfMemberID: String?
     let members: [GroupMember]
+    let memberCount: Int
     let capabilities: GroupCapabilities
     let isActive: Bool
     let isDeleted: Bool
@@ -43,6 +44,10 @@ enum ChatGroupProjectionAdapter {
             pinnedMessageIDs: projection.state.snapshot.pinnedMessageIDs,
             selfMemberID: projection.selfMemberID,
             members: projection.state.members,
+            memberCount: max(
+                projection.state.snapshot.memberCount ?? 0,
+                projection.state.members.count
+            ),
             capabilities: projection.capabilities,
             isActive: projection.state.isActive,
             isDeleted: projection.state.isDeleted
@@ -57,6 +62,39 @@ enum ChatGroupProjectionAdapter {
         guard baseEnabled else { return false }
         guard isGroupConversation else { return true }
         return state?.isComposerActive == true
+    }
+}
+
+enum ChatGroupNavbarStatusPolicy {
+    static func allowsResourcePresence(
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> Bool {
+        conversationType != .group
+    }
+
+    static func localizedText(memberCount: Int) -> String {
+        localizedText(memberCount: memberCount) { fallback, id, arguments in
+            fallback.localizeString(id: id, arguments: arguments)
+        }
+    }
+
+    static func localizedText(
+        memberCount: Int,
+        localize: (_ fallback: String, _ id: String, _ arguments: [String]) -> String
+    ) -> String {
+        let normalizedCount = max(0, memberCount)
+        switch normalizedCount {
+        case 0:
+            return localize("No members", "groupchats_no_members", [])
+        case 1:
+            return localize("1 member", "groupchats_one_member", [])
+        default:
+            return localize(
+                "%@ members",
+                "groupchats_some_members",
+                [String(normalizedCount)]
+            )
+        }
     }
 }
 

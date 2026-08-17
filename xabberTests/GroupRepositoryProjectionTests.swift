@@ -502,11 +502,62 @@ final class GroupRepositoryProjectionTests: XCTestCase {
         )
     }
 
+    func testChatProjectionResolvesNavbarMemberCountForPublicAndIncognitoGroups() {
+        for privacy in [GroupPrivacy.publicGroup, .incognito] {
+            let projection = GroupRepositoryProjection(
+                state: GroupViewState(
+                    snapshot: GroupSnapshot(
+                        jid: group,
+                        privacy: privacy,
+                        memberCount: 5
+                    ),
+                    members: [
+                        GroupMember(id: "self-1", role: .member),
+                        GroupMember(id: "member-2", role: .member)
+                    ],
+                    selfSubscription: .both
+                ),
+                selfMemberID: "self-1",
+                capabilities: GroupCapabilities.derive(role: nil, permissionSet: nil)
+            )
+
+            XCTAssertEqual(
+                ChatGroupProjectionAdapter.map(projection).memberCount,
+                5,
+                "privacy=\(privacy)"
+            )
+        }
+    }
+
+    func testChatProjectionMemberCountFallsBackToAndNeverUndercountsLoadedMembers() {
+        for snapshotCount in [Int?.none, 1] {
+            let projection = GroupRepositoryProjection(
+                state: GroupViewState(
+                    snapshot: GroupSnapshot(
+                        jid: group,
+                        memberCount: snapshotCount
+                    ),
+                    members: [
+                        GroupMember(id: "self-1"),
+                        GroupMember(id: "member-2"),
+                        GroupMember(id: "member-3")
+                    ],
+                    selfSubscription: .both
+                ),
+                selfMemberID: "self-1",
+                capabilities: GroupCapabilities.derive(role: nil, permissionSet: nil)
+            )
+
+            XCTAssertEqual(ChatGroupProjectionAdapter.map(projection).memberCount, 3)
+        }
+    }
+
     func testCanonicalGroupChatPresenceRequiresActiveGroupAndDeduplicatesState() {
         let active = ChatGroupProjectionState(
             pinnedMessageIDs: nil,
             selfMemberID: "self-1",
             members: [GroupMember(id: "self-1", role: .member)],
+            memberCount: 1,
             capabilities: GroupCapabilities(
                 sendMessages: true,
                 sendMedia: true,
@@ -528,6 +579,7 @@ final class GroupRepositoryProjectionTests: XCTestCase {
             pinnedMessageIDs: nil,
             selfMemberID: "self-1",
             members: [],
+            memberCount: 0,
             capabilities: active.capabilities,
             isActive: false,
             isDeleted: false
@@ -794,6 +846,7 @@ final class GroupRepositoryProjectionTests: XCTestCase {
             pinnedMessageIDs: [],
             selfMemberID: "self-1",
             members: [GroupMember(id: "self-1", role: .admin)],
+            memberCount: 1,
             capabilities: GroupCapabilities(
                 sendMessages: true,
                 sendMedia: true,
