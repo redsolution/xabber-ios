@@ -3571,7 +3571,21 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             }
             
             var out: [Datasource] = []
-            let collectionItems = collection.toArray()
+            let storedCollectionItems = collection.toArray()
+            let collectionOwners = Array(Set(storedCollectionItems.map(\.owner)))
+            let activeGroupPrimaries = CanonicalGroupRegularShadowPolicy
+                .activeGroupPrimaries(
+                    in: realm,
+                    owners: collectionOwners
+                )
+            let collectionItems = storedCollectionItems.filter {
+                !CanonicalGroupRegularShadowPolicy.shouldSuppress(
+                    owner: $0.owner,
+                    jid: $0.jid,
+                    conversationType: $0.conversationType,
+                    activeGroupPrimaries: activeGroupPrimaries
+                )
+            }
             let enabledAccountCount = max(enabledAccounts.value.count, AccountManager.shared.users.count)
             
             let jids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }

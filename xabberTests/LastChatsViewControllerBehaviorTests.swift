@@ -945,6 +945,39 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         )
     }
 
+    func testActiveCanonicalGroupSuppressesOnlyItsRegularLastChatsShadow() {
+        let owner = "owner@example.com"
+        let group = "stage@example.com"
+        let activeGroupPrimaries: Set<String> = [
+            GroupStorageKey.groupPrimary(owner: owner, groupJID: group)
+        ]
+
+        XCTAssertTrue(
+            CanonicalGroupRegularShadowPolicy.shouldSuppress(
+                owner: owner,
+                jid: group,
+                conversationType: .regular,
+                activeGroupPrimaries: activeGroupPrimaries
+            )
+        )
+        XCTAssertFalse(
+            CanonicalGroupRegularShadowPolicy.shouldSuppress(
+                owner: owner,
+                jid: group,
+                conversationType: .group,
+                activeGroupPrimaries: activeGroupPrimaries
+            )
+        )
+        XCTAssertFalse(
+            CanonicalGroupRegularShadowPolicy.shouldSuppress(
+                owner: owner,
+                jid: "juliet@example.com",
+                conversationType: .regular,
+                activeGroupPrimaries: activeGroupPrimaries
+            )
+        )
+    }
+
     private func withInterfaceType(_ interfaceType: CommonConfigManager.InterfaceType, useYubikey: Bool, block: () -> Void) {
         let previousInterfaceType = CommonConfigManager.shared.config.interface_type
         let previousUseYubikey = CommonConfigManager.shared.config.use_yubikey

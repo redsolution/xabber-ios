@@ -132,6 +132,7 @@ struct ClientSyncPageApplier {
         realm: Realm,
         conversations: [DDXMLElement],
         accountCreateDate: Date?,
+        activeCanonicalGroupPrimaries: Set<String> = [],
         applyConversationState: (DDXMLElement, Realm) -> Bool,
         readInvites: (DDXMLElement, Realm) -> Bool,
         readConversation: (DDXMLElement, Realm, Date?) -> MessageManager.MessageQueueItem?,
@@ -147,6 +148,18 @@ struct ClientSyncPageApplier {
         conversations.forEach { sourceConversation in
             let conversation = (sourceConversation.copy() as? DDXMLElement) ?? sourceConversation
             let identity = Self.identity(from: conversation, owner: owner)
+            if let identity,
+               CanonicalGroupRegularShadowPolicy.shouldSuppress(
+                    owner: owner,
+                    jid: identity.jid,
+                    conversationType: identity.conversationType,
+                    activeGroupPrimaries: activeCanonicalGroupPrimaries
+               ) {
+                // Ignore the entire generic projection. In particular, do not
+                // leak a canonical group into roster/presence contact state.
+                skippedConversationCount += 1
+                return
+            }
             // For a not-yet-admitted Xabber Group, XEP-SYNC is only a discovery
             // signal. Existing `.both` memberships may still consume ordinary
             // unread/pin/mute projection metadata, but generic sync cannot
@@ -799,11 +812,14 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             snapshotRepairTargets.append(target)
         }
         let realm = try WRealm.safe()
+        let activeGroupPrimaries = CanonicalGroupRegularShadowPolicy
+            .activeGroupPrimaries(in: realm, owners: [self.owner])
         let result = try ClientSyncPageApplier.apply(
             owner: owner,
             realm: realm,
             conversations: conversations,
             accountCreateDate: accountCreateDate,
+            activeCanonicalGroupPrimaries: activeGroupPrimaries,
             applyConversationState: self.readConversationMetadata(_:realm:),
             readInvites: self.readInvites(_:realm:),
             readConversation: { conversation, realm, accountCreateDate in
@@ -811,6 +827,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                     conversation,
                     realm: realm,
                     accountCreateDate: accountCreateDate,
+                    activeGroupPrimaries: activeGroupPrimaries,
                     recordSnapshotRepairTarget: recordSnapshotRepairTarget
                 )
             },
@@ -2088,6 +2105,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         _ conversation: DDXMLElement,
         realm: Realm,
         accountCreateDate: Date? = nil,
+        activeGroupPrimaries: Set<String>? = nil,
         recordSnapshotRepairTarget: ((MessageArchiveManager.SnapshotRepairTarget) -> Void)? = nil
     ) -> MessageManager.MessageQueueItem? {
         guard let jid = conversation.attributeStringValue(forName: "jid"),
@@ -2109,6 +2127,23 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
         
         if jid == AccountManager.shared.find(for: self.owner)?.notifications.node {
+            return nil
+        }
+
+        let activeGroupPrimaries = activeGroupPrimaries ??
+            CanonicalGroupRegularShadowPolicy.activeGroupPrimaries(
+                in: realm,
+                owners: [self.owner]
+            )
+        if CanonicalGroupRegularShadowPolicy.shouldSuppress(
+            owner: self.owner,
+            jid: jid,
+            conversationType: conversationType,
+            activeGroupPrimaries: activeGroupPrimaries
+        ) {
+            // XEP-SYNC may expose the sender-side account archive copy of a
+            // group message as `urn:xabber:chat`. Canonical group projection,
+            // membership, and archive routing remain authoritative.
             return nil
         }
 

@@ -8281,6 +8281,13 @@ enum ChatLocalFirstFrameAvailabilityPolicy {
         if allowsStaleLocalHistory || allowsBootstrapFailureFallback {
             return .prepareLocal
         }
+        // `.content` is the reducer's terminal proof that a real local frame
+        // exists. Rejecting it after the one-shot materialization probe makes
+        // the terminal invariant resolve skeleton back to content and then
+        // synchronously retry this same gate forever.
+        if liveLoadingState == .content {
+            return .prepareLocal
+        }
         if liveLoadingState?.showsSkeleton == true {
             return .blockForArchiveBootstrap
         }

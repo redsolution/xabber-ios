@@ -22677,6 +22677,17 @@ final class MessageArchivePagingRequestTests: XCTestCase {
         XCTAssertEqual(target, "available@example.com")
     }
 
+    func testIdleBackfillTargetSkipsActiveCanonicalGroupShadow() {
+        let target = RegularIdleBackfillTargetPolicy.targetJid(
+            from: ["stage@example.com", "juliet@example.com"],
+            activeRegularJids: [],
+            ignoredServiceJids: [],
+            activeCanonicalGroupJids: ["stage@example.com"]
+        )
+
+        XCTAssertEqual(target, "juliet@example.com")
+    }
+
     func testIdleBackfillTargetIsNilWhenOnlyServiceJidsRemain() {
         let target = RegularIdleBackfillTargetPolicy.targetJid(
             from: ["notifications.example.com", "favorites.example.com"],
@@ -36527,6 +36538,91 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         XCTAssertTrue(manager.read(withIQ: iq))
 
         XCTAssertTrue(observed.isEmpty)
+    }
+
+    func testRegularSyncProjectionIsIgnoredForActiveCanonicalGroupJid() throws {
+        try prepareManagedAccount()
+        let group = "stage@xmppdev01.xabber.com"
+        let memberID = "creator-owner"
+        let realm = try WRealm.safe()
+        let creator = GroupMember(
+            id: memberID,
+            jid: owner,
+            role: .owner,
+            nickname: "Igor"
+        )
+        try GroupRepository(realm: realm).admitCreatedOwner(
+            GroupSnapshot(
+                jid: group,
+                info: GroupInfo(name: "Stage"),
+                settings: GroupSettings(state: .active)
+            ),
+            creator: creator,
+            owner: owner,
+            groupJID: group
+        )
+        XCTAssertNil(
+            realm.object(
+                ofType: GroupSelfMembershipStorageItem.self,
+                forPrimaryKey: GroupStorageKey.groupPrimary(owner: owner, groupJID: group)
+            )
+        )
+        try GroupConversationProjectionStore.activate(
+            owner: owner,
+            groupJID: group,
+            in: realm
+        )
+        var repairs: [MessageArchiveManager.SnapshotRepairTarget] = []
+        AccountManager.shared.find(for: owner)?.mam.snapshotRepairEnqueueObserver = {
+            target, _, _ in repairs.append(target)
+        }
+        let manager = ClientSynchronizationManager(withOwner: owner)
+        let iq = try makeIQ(xml: """
+        <iq type='set' id='regular-shadow-for-active-group'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1776840442469439'>
+            <conversation jid='\(group)' type='urn:xabber:chat' stamp='1776840442469439' status='active'>
+              <metadata node='https://xabber.com/protocol/synchronization'>
+                <unread count='0'/>
+                <last-message>
+                  <message from='\(owner)' to='\(group)' type='chat' id='shadow-message'>
+                    <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='1776840442467416'/>
+                    <body>Test</body>
+                  </message>
+                </last-message>
+              </metadata>
+            </conversation>
+          </query>
+        </iq>
+        """)
+
+        XCTAssertTrue(manager.read(withIQ: iq))
+        XCTAssertNil(
+            realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: group,
+                    owner: owner,
+                    conversationType: .regular
+                )
+            )
+        )
+        XCTAssertNotNil(
+            realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: group,
+                    owner: owner,
+                    conversationType: .group
+                )
+            )
+        )
+        XCTAssertNil(
+            realm.object(
+                ofType: RosterStorageItem.self,
+                forPrimaryKey: RosterStorageItem.genPrimary(jid: group, owner: owner)
+            )
+        )
+        XCTAssertTrue(repairs.isEmpty)
     }
 
     func testNotificationSnapshotUnreadStatePersistsUnreadBoundaryAndKeepsExistingNode() throws {

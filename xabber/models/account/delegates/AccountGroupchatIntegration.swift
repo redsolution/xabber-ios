@@ -598,6 +598,76 @@ final class GroupActivationSyncGate {
     }
 }
 
+/// Active canonical groups own their owner/JID conversation namespace.
+/// Account-side archived copies may omit the Groups extension and look like
+/// regular messages, but they must never create a second contact conversation.
+enum CanonicalGroupRegularShadowPolicy {
+    static func shouldSuppress(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        activeGroupPrimaries: Set<String>
+    ) -> Bool {
+        guard conversationType == .regular else {
+            return false
+        }
+        return activeGroupPrimaries.contains(
+            GroupStorageKey.groupPrimary(owner: owner, groupJID: jid)
+        )
+    }
+
+    static func activeGroupPrimaries(
+        in realm: Realm,
+        owners: [String]
+    ) -> Set<String> {
+        let normalizedOwners = Array(Set(owners.map(GroupStorageKey.bareJID)))
+            .filter { !$0.isEmpty }
+        guard !normalizedOwners.isEmpty else {
+            return []
+        }
+        let memberships = Dictionary(
+            uniqueKeysWithValues: realm
+                .objects(GroupSelfMembershipStorageItem.self)
+                .filter("owner IN %@", normalizedOwners)
+                .map { ($0.primary, $0.memberID) }
+        )
+        let membersByGroup = Dictionary(
+            grouping: realm
+                .objects(GroupMemberStorageItem.self)
+                .filter("owner IN %@", normalizedOwners),
+            by: \.groupPrimary
+        )
+
+        return Set(
+            realm.objects(GroupSnapshotStorageItem.self)
+                .filter("owner IN %@", normalizedOwners)
+                .compactMap { snapshot -> String? in
+                    guard snapshot.lifecycleStateRaw != GroupLifecycleState.inactive.rawValue else {
+                        return nil
+                    }
+                    let storedMembers = membersByGroup[snapshot.primary] ?? []
+                    let members = storedMembers.map {
+                        GroupMember(
+                            id: $0.memberID,
+                            jid: $0.jid,
+                            role: $0.roleRaw.flatMap(GroupMemberRole.init(rawValue:))
+                        )
+                    }
+                    guard let selfMemberID = CanonicalGroupSelfIdentity.resolve(
+                        existingMemberID: memberships[snapshot.primary] ?? nil,
+                        ownerJID: snapshot.owner,
+                        members: members
+                    ),
+                    let selfRole = members.first(where: { $0.id == selfMemberID })?.role,
+                    selfRole != .none else {
+                        return nil
+                    }
+                    return snapshot.primary
+                }
+        )
+    }
+}
+
 enum GroupConversationProjectionStore {
     static func deactivationTargets(
         owner: String,

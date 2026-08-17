@@ -975,7 +975,8 @@ enum RegularIdleBackfillTargetPolicy {
     static func targetJid<Candidates: Sequence>(
         from orderedCandidateJids: Candidates,
         activeRegularJids: Set<String>,
-        ignoredServiceJids: Set<String>
+        ignoredServiceJids: Set<String>,
+        activeCanonicalGroupJids: Set<String> = []
     ) -> String? where Candidates.Element == String {
         orderedCandidateJids.first { jid in
             guard let parsedJid = XMPPJID(string: jid),
@@ -983,7 +984,8 @@ enum RegularIdleBackfillTargetPolicy {
                 return false
             }
             return !activeRegularJids.contains(jid) &&
-                !ignoredServiceJids.contains(jid)
+                !ignoredServiceJids.contains(jid) &&
+                !activeCanonicalGroupJids.contains(GroupStorageKey.bareJID(jid))
         }
     }
 }
@@ -6244,11 +6246,26 @@ class MessageArchiveManager: AbstractXMPPManager {
             return
         }
 
+        let activeGroupPrimaries: Set<String>
+        do {
+            activeGroupPrimaries = CanonicalGroupRegularShadowPolicy
+                .activeGroupPrimaries(in: try WRealm.safe(), owners: [self.owner])
+        } catch {
+            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
+            activeGroupPrimaries = []
+        }
+
         var seen = Set<SnapshotRepairTarget>()
         var acceptedTargets: [(target: SnapshotRepairTarget, hasPredecessor: Bool, pendingCount: Int)] = []
         snapshotRepairPumpLock.lock()
         targets.forEach { target in
             guard target.conversationType.supportsSnapshotArchiveRepair,
+                  !CanonicalGroupRegularShadowPolicy.shouldSuppress(
+                    owner: self.owner,
+                    jid: target.jid,
+                    conversationType: target.conversationType,
+                    activeGroupPrimaries: activeGroupPrimaries
+                  ),
                   seen.insert(target).inserted else {
                 return
             }
@@ -6783,6 +6800,10 @@ class MessageArchiveManager: AbstractXMPPManager {
                     accountJids: [self.owner]
                 )
             )
+            let activeCanonicalGroupJids = Set(
+                ((try? GroupRepository(realm: realm).activeGroups(owners: [self.owner])) ?? [])
+                    .map(\.groupJID)
+            )
             let orderedCandidateJids = realm.objects(LastChatsStorageItem.self)
                 .filter("owner == %@ AND conversationType_ == %@ AND isSynced == false", self.owner, ClientSynchronizationManager.ConversationType.regular.rawValue)
                 .sorted(byKeyPath: "messageDate", ascending: false)
@@ -6791,7 +6812,8 @@ class MessageArchiveManager: AbstractXMPPManager {
             target = RegularIdleBackfillTargetPolicy.targetJid(
                 from: orderedCandidateJids,
                 activeRegularJids: activeRegularJids,
-                ignoredServiceJids: ignoredServiceJids
+                ignoredServiceJids: ignoredServiceJids,
+                activeCanonicalGroupJids: activeCanonicalGroupJids
             )
         } catch {
             DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
