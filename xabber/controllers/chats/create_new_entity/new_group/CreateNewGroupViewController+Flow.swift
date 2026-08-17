@@ -69,15 +69,10 @@ extension CreateNewGroupViewController {
                     throw GroupRepositoryError.invalidGroupJID
                 }
                 let repository = GroupRepository(realm: try WRealm.safe())
-                _ = try await CanonicalCreatedGroupOwnerAdmission.admit(
+                _ = try CanonicalCreatedGroupOwnerAdmission.admit(
                     snapshot: snapshot,
                     owner: owner,
-                    repository: repository,
-                    refreshMembers: { groupJID in
-                        try await account.groupchatService.refreshMembers(
-                            groupJID: groupJID
-                        )
-                    }
+                    repository: repository
                 )
                 account.groupMembershipDidActivate(groupJID)
                 await MainActor.run {

@@ -129,6 +129,47 @@ final class GroupRepository {
         }
     }
 
+    /// Persists the server-confirmed normal-create result with an eager local
+    /// creator owner. Roster subscription state is intentionally untouched:
+    /// group authorization derives from this member role.
+    func admitCreatedOwner(
+        _ snapshot: GroupSnapshot,
+        creator: GroupMember,
+        owner: String,
+        groupJID: String
+    ) throws {
+        let context = try makeContext(owner: owner, groupJID: groupJID)
+        try validate(snapshotJID: snapshot.jid, context: context)
+        try validateMembers([creator])
+        guard creator.role == .owner,
+              creator.jid.map(GroupStorageKey.bareJID) == context.owner else {
+            throw GroupRepositoryError.unknownSelfMemberID(creator.id)
+        }
+        let replacement = makeMember(creator, context: context)
+
+        try write {
+            self.deleteGroupState(context)
+            if let legacySubscription = self.realm.object(
+                ofType: GroupSelfMembershipStorageItem.self,
+                forPrimaryKey: context.groupPrimary
+            ) {
+                self.realm.delete(legacySubscription)
+            }
+            self.realm.delete(
+                self.realm.objects(GroupInviteStorageItem.self)
+                    .filter("groupPrimary == %@", context.groupPrimary)
+            )
+
+            let item = GroupSnapshotStorageItem()
+            item.primary = context.groupPrimary
+            item.owner = context.owner
+            item.groupJID = context.groupJID
+            self.replaceSnapshot(item, with: snapshot)
+            self.realm.add(item, update: .error)
+            self.realm.add(replacement, update: .error)
+        }
+    }
+
     /// Admits a server-returned group snapshot and its self membership as one
     /// coherent Realm transition. A fresh `wait` admission clears stale
     /// authoritative state, while an already-active `both` membership keeps
@@ -612,7 +653,7 @@ final class GroupRepository {
         ) else {
             return true
         }
-        return membership.stateRaw == GroupSelfMembershipState.both.rawValue
+        return membership.stateRaw != GroupSelfMembershipState.none.rawValue
     }
 
     private func deleteGroupState(_ context: Context) {
@@ -1258,11 +1299,12 @@ extension GroupRepository {
             forPrimaryKey: context.groupPrimary
         )
         let selfSubscription = subscription(from: membershipItem?.stateRaw)
+        let snapshotItem = realm.object(
+            ofType: GroupSnapshotStorageItem.self,
+            forPrimaryKey: context.groupPrimary
+        )
         let snapshot = makeSnapshot(
-            realm.object(
-                ofType: GroupSnapshotStorageItem.self,
-                forPrimaryKey: context.groupPrimary
-            ),
+            snapshotItem,
             fallbackJID: context.groupJID
         )
         let members = realm.objects(GroupMemberStorageItem.self)
@@ -1270,7 +1312,11 @@ extension GroupRepository {
             .sorted(byKeyPath: "memberID", ascending: true)
             .map(makeMember)
         let permissionSets = makePermissionSets(context: context)
-        let selfMemberID = membershipItem?.memberID
+        let selfMemberID = CanonicalGroupSelfIdentity.resolve(
+            existingMemberID: membershipItem?.memberID,
+            ownerJID: context.owner,
+            members: Array(members)
+        )
         let selfMember = selfMemberID.flatMap { id in
             members.first { $0.id == id }
         }
@@ -1286,7 +1332,7 @@ extension GroupRepository {
                 members: Array(members),
                 permissionSets: permissionSets,
                 selfSubscription: selfSubscription,
-                isDeleted: selfSubscription == .none
+                isDeleted: snapshotItem == nil
             ),
             selfMemberID: selfMemberID,
             capabilities: GroupCapabilities.derive(
@@ -1339,18 +1385,15 @@ extension GroupRepository {
         groupJID: String
     ) throws -> GroupRepositoryListRecord? {
         let context = try makeContext(owner: owner, groupJID: groupJID)
-        guard let membership = realm.object(
-            ofType: GroupSelfMembershipStorageItem.self,
+        guard realm.object(
+            ofType: GroupSnapshotStorageItem.self,
             forPrimaryKey: context.groupPrimary
-        ), membership.stateRaw == GroupSelfMembershipState.both.rawValue,
-              realm.object(
-                ofType: GroupSnapshotStorageItem.self,
-                forPrimaryKey: context.groupPrimary
-              ) != nil else {
+        ) != nil else {
             return nil
         }
         let projection = try projection(owner: context.owner, groupJID: context.groupJID)
-        guard projection.state.isActive else { return nil }
+        guard projection.state.isActive,
+              isParticipating(projection) else { return nil }
         return GroupRepositoryListRecord(
             primary: context.groupPrimary,
             owner: context.owner,
@@ -1364,34 +1407,30 @@ extension GroupRepository {
         if owners != nil, normalizedOwners?.isEmpty == true {
             return []
         }
-        var memberships = realm.objects(GroupSelfMembershipStorageItem.self)
-            .filter("stateRaw == %@", GroupSelfMembershipState.both.rawValue)
+        var snapshots = realm.objects(GroupSnapshotStorageItem.self)
         if let normalizedOwners {
-            memberships = memberships.filter("owner IN %@", normalizedOwners)
+            snapshots = snapshots.filter("owner IN %@", normalizedOwners)
         }
 
-        return memberships
-            .compactMap { membership in
+        return snapshots
+            .compactMap { snapshot in
                 let primary = GroupStorageKey.groupPrimary(
-                    owner: membership.owner,
-                    groupJID: membership.groupJID
+                    owner: snapshot.owner,
+                    groupJID: snapshot.groupJID
                 )
-                guard membership.primary == primary,
-                      self.realm.object(
-                        ofType: GroupSnapshotStorageItem.self,
-                        forPrimaryKey: primary
-                      ) != nil,
+                guard snapshot.primary == primary,
                       let projection = try? self.projection(
-                        owner: membership.owner,
-                        groupJID: membership.groupJID
+                        owner: snapshot.owner,
+                        groupJID: snapshot.groupJID
                       ),
-                      projection.state.isActive else {
+                      projection.state.isActive,
+                      self.isParticipating(projection) else {
                     return nil
                 }
                 return GroupRepositoryListRecord(
                     primary: primary,
-                    owner: membership.owner,
-                    groupJID: membership.groupJID,
+                    owner: snapshot.owner,
+                    groupJID: snapshot.groupJID,
                     projection: projection
                 )
             }
@@ -1502,6 +1541,14 @@ extension GroupRepository {
 }
 
 private extension GroupRepository {
+    func isParticipating(_ projection: GroupRepositoryProjection) -> Bool {
+        guard let selfMemberID = projection.selfMemberID,
+              let role = projection.state.member(id: selfMemberID)?.role else {
+            return false
+        }
+        return role != .none
+    }
+
     func normalizedListOwners(_ owners: [String]?) -> [String]? {
         owners.map {
             Array(Set($0.map(GroupStorageKey.bareJID)))

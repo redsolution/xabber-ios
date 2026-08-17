@@ -150,7 +150,7 @@ final class GroupEventProcessorTests: XCTestCase {
         )
     }
 
-    func testTrailingCanonicalMessageCannotPersistWithoutBothMembership() throws {
+    func testTrailingCanonicalMessageRequiresActiveSelfMemberNotRosterSubscription() throws {
         let realm = try makeRealm()
         let repository = GroupRepository(realm: realm)
 
@@ -187,6 +187,19 @@ final class GroupEventProcessorTests: XCTestCase {
         )
         try activeRepository.applySnapshot(
             GroupSnapshot(jid: group),
+            owner: owner,
+            groupJID: group
+        )
+        XCTAssertFalse(
+            CanonicalGroupMessageAdmission.allowsPersistence(
+                owner: owner,
+                groupJID: group,
+                repository: activeRepository
+            ),
+            "A roster subscription and cached self ID do not prove group membership"
+        )
+        try activeRepository.replaceMembers(
+            [GroupMember(id: "self", jid: owner, role: .member)],
             owner: owner,
             groupJID: group
         )

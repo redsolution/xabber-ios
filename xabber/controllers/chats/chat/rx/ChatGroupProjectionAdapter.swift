@@ -7,22 +7,18 @@ import Foundation
 /// server snapshot.
 struct ChatGroupProjectionState: Equatable, Sendable {
     let pinnedMessageIDs: [String]?
-    let selfSubscription: GroupSelfSubscription
     let selfMemberID: String?
     let members: [GroupMember]
     let capabilities: GroupCapabilities
+    let isActive: Bool
     let isDeleted: Bool
 
     var lastPinnedMessageID: String? {
         pinnedMessageIDs?.first
     }
 
-    var isMembershipActive: Bool {
-        selfSubscription == .both && !isDeleted
-    }
-
     var isComposerActive: Bool {
-        isMembershipActive && capabilities.sendMessages
+        isActive && capabilities.sendMessages
     }
 
     var selfMember: GroupMember? {
@@ -35,7 +31,7 @@ struct ChatGroupProjectionState: Equatable, Sendable {
     }
 
     var canPinMessages: Bool {
-        isMembershipActive && capabilities.pinMessages
+        isActive && capabilities.pinMessages
     }
 }
 
@@ -45,10 +41,10 @@ enum ChatGroupProjectionAdapter {
     ) -> ChatGroupProjectionState {
         ChatGroupProjectionState(
             pinnedMessageIDs: projection.state.snapshot.pinnedMessageIDs,
-            selfSubscription: projection.state.selfSubscription,
             selfMemberID: projection.selfMemberID,
             members: projection.state.members,
             capabilities: projection.capabilities,
+            isActive: projection.state.isActive,
             isDeleted: projection.state.isDeleted
         )
     }
@@ -72,7 +68,7 @@ enum ChatCanonicalGroupPresencePolicy {
         lastSent: GroupChatPresenceState?
     ) -> Bool {
         guard conversationIsGroup,
-              projection?.isMembershipActive == true else {
+              projection?.isActive == true else {
             return false
         }
         return state != lastSent

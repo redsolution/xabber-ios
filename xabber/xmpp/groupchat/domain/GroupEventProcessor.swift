@@ -95,12 +95,6 @@ private extension GroupEventProcessor {
     ) throws {
         switch event {
         case let .created(snapshot):
-            try repository.setSelfMembership(
-                .both,
-                memberID: currentMemberID(repository, groupJID: groupJID),
-                owner: owner,
-                groupJID: groupJID
-            )
             try repository.applySnapshot(snapshot, owner: owner, groupJID: groupJID)
             activationHandler(GroupStorageKey.bareJID(groupJID))
 
@@ -120,17 +114,16 @@ private extension GroupEventProcessor {
                 ownerJID: owner,
                 members: members
             )
-            try repository.replaceMembers(members, owner: owner, groupJID: groupJID)
-            if projection.state.selfSubscription == .both,
-               let resolvedSelfMemberID,
-               resolvedSelfMemberID != projection.selfMemberID {
-                try repository.setSelfMembership(
-                    .both,
-                    memberID: resolvedSelfMemberID,
-                    owner: owner,
-                    groupJID: groupJID
-                )
-            }
+            let reconciledMembers = CanonicalGroupSelfIdentity.attachingOwnerJID(
+                to: members,
+                selfMemberID: resolvedSelfMemberID,
+                ownerJID: owner
+            )
+            try repository.replaceMembers(
+                reconciledMembers,
+                owner: owner,
+                groupJID: groupJID
+            )
 
         case .member:
             // Message/system author cards are historical snapshots. The full,

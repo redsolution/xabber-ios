@@ -93,22 +93,16 @@ enum CanonicalGroupFullAuthenticationRecovery {
     }
 }
 
-enum CanonicalCreatedGroupOwnerAdmissionError: Error, Equatable {
-    case missingSelfMemberID
-    case creatorIsNotOwner
-}
-
-/// Completes the server-side create contract before UIKit presents the room.
-/// A successful normal create already admits the creator as owner, so this is
-/// identity hydration and one atomic local admission, not a join handshake.
+/// Materializes the create contract before UIKit presents the room. Successful
+/// normal creation guarantees that the creator is owner; authoritative members
+/// later replace this provisional local identity without gating presentation.
 @MainActor
 enum CanonicalCreatedGroupOwnerAdmission {
     static func admit(
         snapshot: GroupSnapshot,
         owner: String,
-        repository: GroupRepository,
-        refreshMembers: (String) async throws -> [GroupMember]
-    ) async throws -> GroupRepositoryProjection {
+        repository: GroupRepository
+    ) throws -> GroupRepositoryProjection {
         guard let rawGroupJID = snapshot.jid else {
             throw GroupRepositoryError.invalidGroupJID
         }
@@ -117,29 +111,14 @@ enum CanonicalCreatedGroupOwnerAdmission {
             throw GroupRepositoryError.invalidGroupJID
         }
 
-        let members = try await refreshMembers(groupJID)
-        let existingSelfMemberID = try? repository.projection(
+        let creator = CanonicalGroupSelfIdentity.provisionalCreatedOwner(
+            ownerJID: owner
+        )
+        try repository.admitCreatedOwner(
+            snapshot,
+            creator: creator,
             owner: owner,
             groupJID: groupJID
-        ).selfMemberID
-        guard let selfMemberID = CanonicalGroupSelfIdentity.resolve(
-            existingMemberID: existingSelfMemberID,
-            ownerJID: owner,
-            members: members
-        ) else {
-            throw CanonicalCreatedGroupOwnerAdmissionError.missingSelfMemberID
-        }
-        guard members.first(where: { $0.id == selfMemberID })?.role == .owner else {
-            throw CanonicalCreatedGroupOwnerAdmissionError.creatorIsNotOwner
-        }
-
-        try repository.admitSnapshot(
-            snapshot,
-            membership: .both,
-            memberID: selfMemberID,
-            owner: owner,
-            groupJID: groupJID,
-            members: members
         )
         return try repository.projection(owner: owner, groupJID: groupJID)
     }
@@ -154,9 +133,8 @@ enum CanonicalGroupFreshAuthenticationRecoveryError: Error, Equatable {
     case missingSelfMemberID
 }
 
-/// Converts a XEP-SYNC group candidate into canonical membership only after
-/// current-server IQ authorization proves that the account is still a member.
-/// The repository commit is atomic, so LastChat/MAM can never precede `.both`.
+/// Converts a XEP-SYNC group candidate into canonical state only after the
+/// members IQ proves that the current account is an active group member.
 @MainActor
 enum CanonicalGroupFreshAuthenticationRecovery {
     static func recover(
@@ -215,11 +193,12 @@ enum CanonicalGroupMessageAdmission {
         guard let projection = try? repository.projection(
             owner: owner,
             groupJID: groupJID
-        ) else {
+        ), projection.state.isActive,
+           let selfMemberID = projection.selfMemberID,
+           let role = projection.state.member(id: selfMemberID)?.role else {
             return false
         }
-        return projection.state.selfSubscription == .both &&
-            !projection.state.isDeleted
+        return role != .none
     }
 }
 
@@ -1012,19 +991,18 @@ extension Account {
                     owner: self.jid,
                     groupJID: groupJID
                 ).selfMemberID
-                try repository.replaceMembers(
-                    members,
-                    owner: self.jid,
-                    groupJID: groupJID
-                )
                 let selfMemberID = CanonicalGroupSelfIdentity.resolve(
                     existingMemberID: existingSelfMemberID,
                     ownerJID: self.jid,
                     members: members
                 )
-                try repository.setSelfMembership(
-                    .both,
-                    memberID: selfMemberID,
+                let reconciledMembers = CanonicalGroupSelfIdentity.attachingOwnerJID(
+                    to: members,
+                    selfMemberID: selfMemberID,
+                    ownerJID: self.jid
+                )
+                try repository.replaceMembers(
+                    reconciledMembers,
                     owner: self.jid,
                     groupJID: groupJID
                 )

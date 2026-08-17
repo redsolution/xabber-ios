@@ -123,21 +123,34 @@ final class GroupDomainReducerTests: XCTestCase {
         XCTAssertNotNil(afterLeave.member(id: "joined"))
     }
 
-    func testWaitAndNoneAreInactiveAndOnlyBothIsActive() {
-        let initial = GroupViewState(selfSubscription: .wait)
-        let active = GroupDomainReducer.reduce(
-            initial,
+    func testRosterSubscriptionDoesNotDetermineGroupLifecycle() {
+        let active = GroupViewState(
+            snapshot: makeSnapshot(name: "Active"),
+            selfSubscription: .wait
+        )
+        let withBothRosterSubscription = GroupDomainReducer.reduce(
+            active,
             event: .selfSubscription(.both)
         )
-        let left = GroupDomainReducer.reduce(
-            active,
+        let withNoRosterSubscription = GroupDomainReducer.reduce(
+            withBothRosterSubscription,
             event: .selfSubscription(.none)
         )
+        let inactive = GroupDomainReducer.reduce(
+            GroupViewState(
+                snapshot: GroupSnapshot(
+                    jid: "group@example.com",
+                    settings: GroupSettings(state: .inactive)
+                )
+            ),
+            event: .selfSubscription(.both)
+        )
 
-        XCTAssertFalse(initial.isActive)
         XCTAssertTrue(active.isActive)
-        XCTAssertFalse(left.isActive)
-        XCTAssertTrue(left.isTombstoned)
+        XCTAssertTrue(withBothRosterSubscription.isActive)
+        XCTAssertTrue(withNoRosterSubscription.isActive)
+        XCTAssertFalse(withNoRosterSubscription.isTombstoned)
+        XCTAssertFalse(inactive.isActive)
     }
 
     func testDeleteAndNoneTombstonesAggregateAndTrailingEventsCannotResurrect() {
@@ -196,14 +209,14 @@ final class GroupDomainReducerTests: XCTestCase {
         XCTAssertTrue(recreated.isActive)
         XCTAssertFalse(recreated.isDeleted)
         XCTAssertFalse(recreated.isTombstoned)
-        XCTAssertEqual(recreated.selfSubscription, .both)
+        XCTAssertEqual(recreated.selfSubscription, .wait)
         XCTAssertEqual(recreated.snapshot.info?.name, "Created")
         XCTAssertTrue(recreated.members.isEmpty)
         XCTAssertTrue(recreated.permissionSets.isEmpty)
         XCTAssertNil(recreated.lastSystemEvent)
     }
 
-    func testExplicitBothActivationCanAdmitAfterNoneAndDeleteTombstones() {
+    func testRosterBothCannotAdmitAfterGroupDeletion() {
         let tombstoned = GroupViewState(
             selfSubscription: .none,
             isDeleted: true
@@ -214,9 +227,9 @@ final class GroupDomainReducerTests: XCTestCase {
             event: .selfSubscription(.both)
         )
 
-        XCTAssertTrue(activated.isActive)
-        XCTAssertFalse(activated.isDeleted)
-        XCTAssertFalse(activated.isTombstoned)
+        XCTAssertFalse(activated.isActive)
+        XCTAssertTrue(activated.isDeleted)
+        XCTAssertTrue(activated.isTombstoned)
         XCTAssertEqual(activated.selfSubscription, .both)
     }
 

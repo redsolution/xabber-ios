@@ -63,7 +63,10 @@ final class GroupchatSettingsCanonicalCutoverTests: XCTestCase {
     func testInactiveProjectionNeverRequestsPermissionsOrEnablesMutations() {
         let projection = GroupRepositoryProjection(
             state: GroupViewState(
-                snapshot: GroupSnapshot(jid: "group@example.org"),
+                snapshot: GroupSnapshot(
+                    jid: "group@example.org",
+                    settings: GroupSettings(state: .inactive)
+                ),
                 selfSubscription: .wait
             ),
             selfMemberID: nil,

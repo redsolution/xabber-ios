@@ -6,7 +6,7 @@ final class CreatedGroupOwnerAdmissionTests: XCTestCase {
     private let owner = "owner@example.com/ios"
     private let groupJID = "new-room@groups.example.com"
 
-    func testCreateFlowCompletesOwnerAdmissionBeforeOpeningChat() throws {
+    func testCreateFlowCompletesEagerOwnerAdmissionBeforeOpeningChat() throws {
         let source = try applicationSource(
             "xabber/controllers/chats/create_new_entity/new_group/CreateNewGroupViewController+Flow.swift"
         )
@@ -18,7 +18,7 @@ final class CreatedGroupOwnerAdmissionTests: XCTestCase {
         )
 
         XCTAssertLessThan(admission.lowerBound, presentation.lowerBound)
-        XCTAssertTrue(source.contains("groupchatService.refreshMembers"))
+        XCTAssertFalse(source.contains("groupchatService.refreshMembers"))
         XCTAssertFalse(source.contains("repository.setSelfMembership"))
     }
 
@@ -42,129 +42,65 @@ final class CreatedGroupOwnerAdmissionTests: XCTestCase {
     }
 
     @MainActor
-    func testAdmissionPersistsOwnerReadyProjectionBeforePresentation() async throws {
+    func testCreateSuccessPersistsOwnerAndEveryCapabilityWithoutRosterSubscription() throws {
         let realm = try makeRealm()
         let repository = GroupRepository(realm: realm)
         let snapshot = GroupSnapshot(
             jid: "NEW-ROOM@GROUPS.EXAMPLE.COM/Service",
             privacy: .publicGroup,
-            info: GroupInfo(name: "New room")
+            info: GroupInfo(name: "New room"),
+            settings: GroupSettings(
+                membership: .open,
+                index: .local,
+                state: .active
+            )
         )
-        var refreshedGroupJIDs: [String] = []
 
-        let projection = try await CanonicalCreatedGroupOwnerAdmission.admit(
+        let projection = try CanonicalCreatedGroupOwnerAdmission.admit(
             snapshot: snapshot,
             owner: owner,
-            repository: repository,
-            refreshMembers: { groupJID in
-                refreshedGroupJIDs.append(groupJID)
-                return [
-                    GroupMember(
-                        id: "owner-member",
-                        jid: "owner@example.com/Desktop",
-                        role: .owner
-                    ),
-                    GroupMember(
-                        id: "member-2",
-                        jid: "juliet@example.com",
-                        role: .member
-                    )
-                ]
-            }
+            repository: repository
         )
 
-        XCTAssertEqual(refreshedGroupJIDs, [groupJID])
-        XCTAssertEqual(projection.state.selfSubscription, .both)
-        XCTAssertEqual(projection.selfMemberID, "owner-member")
+        XCTAssertTrue(realm.objects(GroupSelfMembershipStorageItem.self).isEmpty)
+        let selfMemberID = try XCTUnwrap(projection.selfMemberID)
+        XCTAssertTrue(selfMemberID.hasPrefix("local-created-owner:"))
+        XCTAssertEqual(projection.state.members.map(\.id), [selfMemberID])
         XCTAssertEqual(
-            Set(projection.state.members.map(\.id)),
-            Set(["owner-member", "member-2"])
+            projection.state.members.first(where: { $0.id == selfMemberID })?.role,
+            .owner
         )
         XCTAssertEqual(
-            projection.state.members.first(where: { $0.id == "owner-member" })?.role,
-            .owner
+            projection.state.members.first(where: { $0.id == selfMemberID })?.jid,
+            "owner@example.com"
         )
         XCTAssertTrue(projection.capabilities.allEnabled)
         XCTAssertTrue(ChatGroupProjectionAdapter.map(projection).isComposerActive)
-    }
-
-    @MainActor
-    func testAdmissionRejectsMemberListWithoutCurrentAccountAndPersistsNothing() async throws {
-        let realm = try makeRealm()
-        let repository = GroupRepository(realm: realm)
-
-        await XCTAssertThrowsErrorAsync(
-            try await CanonicalCreatedGroupOwnerAdmission.admit(
-                snapshot: GroupSnapshot(jid: groupJID),
-                owner: owner,
-                repository: repository,
-                refreshMembers: { _ in
-                    [
-                        GroupMember(
-                            id: "another-owner",
-                            jid: "juliet@example.com",
-                            role: .owner
-                        )
-                    ]
-                }
-            )
-        ) { error in
-            XCTAssertEqual(
-                error as? CanonicalCreatedGroupOwnerAdmissionError,
-                .missingSelfMemberID
-            )
-        }
-
-        XCTAssertTrue(realm.objects(GroupSnapshotStorageItem.self).isEmpty)
-        XCTAssertTrue(realm.objects(GroupSelfMembershipStorageItem.self).isEmpty)
-        XCTAssertTrue(realm.objects(GroupMemberStorageItem.self).isEmpty)
-    }
-
-    @MainActor
-    func testAdmissionRejectsNonOwnerCreatorAndPersistsNothing() async throws {
-        let realm = try makeRealm()
-        let repository = GroupRepository(realm: realm)
-
-        await XCTAssertThrowsErrorAsync(
-            try await CanonicalCreatedGroupOwnerAdmission.admit(
-                snapshot: GroupSnapshot(jid: groupJID),
-                owner: owner,
-                repository: repository,
-                refreshMembers: { _ in
-                    [
-                        GroupMember(
-                            id: "self-member",
-                            jid: "owner@example.com",
-                            role: .member
-                        )
-                    ]
-                }
-            )
-        ) { error in
-            XCTAssertEqual(
-                error as? CanonicalCreatedGroupOwnerAdmissionError,
-                .creatorIsNotOwner
-            )
-        }
-
-        XCTAssertTrue(realm.objects(GroupSnapshotStorageItem.self).isEmpty)
-        XCTAssertTrue(realm.objects(GroupSelfMembershipStorageItem.self).isEmpty)
-        XCTAssertTrue(realm.objects(GroupMemberStorageItem.self).isEmpty)
-    }
-
-    func testAuthoritativeMembersEventRepairsActiveProjectionWithMissingSelfID() throws {
-        let realm = try makeRealm()
-        let repository = GroupRepository(realm: realm)
-        try repository.setSelfMembership(
-            .both,
-            memberID: nil,
-            owner: owner,
-            groupJID: groupJID
+        let model = GroupchatSettingsCanonicalModel(
+            projection: projection,
+            outgoingInviteCount: 0,
+            blockedCount: 0
         )
-        try repository.applySnapshot(
-            GroupSnapshot(jid: groupJID),
+        XCTAssertTrue(model.canEditInfo)
+        XCTAssertTrue(model.canEditSettings)
+        XCTAssertTrue(model.canEditDefaultPermissions)
+        XCTAssertTrue(model.canManageAdmins)
+        XCTAssertTrue(model.canInvite)
+        XCTAssertTrue(model.canBlock)
+        XCTAssertTrue(model.canDelete)
+    }
+
+    @MainActor
+    func testAuthoritativeMembersReplaceProvisionalOwnerIDWithoutRosterSubscription() throws {
+        let realm = try makeRealm()
+        let repository = GroupRepository(realm: realm)
+        _ = try CanonicalCreatedGroupOwnerAdmission.admit(
+            snapshot: GroupSnapshot(
+                jid: groupJID,
+                settings: GroupSettings(state: .active)
+            ),
             owner: owner,
-            groupJID: groupJID
+            repository: repository
         )
         let processor = GroupEventProcessor(
             owner: owner,
@@ -191,8 +127,55 @@ final class CreatedGroupOwnerAdmissionTests: XCTestCase {
             groupJID: groupJID
         )
         XCTAssertEqual(projection.selfMemberID, "owner-member")
+        XCTAssertTrue(realm.objects(GroupSelfMembershipStorageItem.self).isEmpty)
         XCTAssertTrue(projection.capabilities.allEnabled)
         XCTAssertTrue(ChatGroupProjectionAdapter.map(projection).isComposerActive)
+    }
+
+    func testRosterSubscriptionDoesNotGateOwnerSendOrManagement() {
+        for subscription in [
+            GroupSelfSubscription.none,
+            .wait,
+            .both
+        ] {
+            let projection = GroupRepositoryProjection(
+                state: GroupViewState(
+                    snapshot: GroupSnapshot(
+                        jid: groupJID,
+                        settings: GroupSettings(state: .active)
+                    ),
+                    members: [
+                        GroupMember(
+                            id: "self-owner",
+                            jid: owner,
+                            role: .owner
+                        )
+                    ],
+                    selfSubscription: subscription,
+                    isDeleted: false
+                ),
+                selfMemberID: "self-owner",
+                capabilities: GroupCapabilities.derive(
+                    role: .owner,
+                    permissionSet: nil
+                )
+            )
+
+            XCTAssertTrue(ChatGroupProjectionAdapter.map(projection).isComposerActive)
+            let model = GroupchatSettingsCanonicalModel(
+                projection: projection,
+                outgoingInviteCount: 0,
+                blockedCount: 0
+            )
+            XCTAssertTrue(model.isActive)
+            XCTAssertTrue(model.canEditInfo)
+            XCTAssertTrue(model.canEditSettings)
+            XCTAssertTrue(model.canEditDefaultPermissions)
+            XCTAssertTrue(model.canManageAdmins)
+            XCTAssertTrue(model.canInvite)
+            XCTAssertTrue(model.canBlock)
+            XCTAssertTrue(model.canDelete)
+        }
     }
 
     private func makeRealm() throws -> Realm {
@@ -220,17 +203,4 @@ final class CreatedGroupOwnerAdmissionTests: XCTestCase {
         )
     }
 
-    private func XCTAssertThrowsErrorAsync<T>(
-        _ expression: @autoclosure () async throws -> T,
-        _ errorHandler: (Error) -> Void,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) async {
-        do {
-            _ = try await expression()
-            XCTFail("Expected expression to throw", file: file, line: line)
-        } catch {
-            errorHandler(error)
-        }
-    }
 }

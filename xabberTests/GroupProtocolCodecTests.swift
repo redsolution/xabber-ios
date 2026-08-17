@@ -194,6 +194,27 @@ final class GroupProtocolCodecTests: XCTestCase {
         XCTAssertEqual(members[0].jid, "igor.boldin@redsolution.com")
     }
 
+    func testFullMembersDecodeCurrentServerLastSeenStampAttribute() throws {
+        let members = try GroupProtocolCodec.decodeFullMembers(element("""
+        <members xmlns='https://xabber.com/protocol/groups' version='1786960975'>
+          <user id='4lcwuqeijkru8uvp'>
+            <role>owner</role>
+            <nickname>igor.boldin@redsolution.com</nickname>
+            <jid>igor.boldin@redsolution.com</jid>
+            <last stamp='2026-08-17T10:02:55Z'/>
+          </user>
+        </members>
+        """))
+
+        XCTAssertEqual(members.count, 1)
+        XCTAssertEqual(members[0].id, "4lcwuqeijkru8uvp")
+        XCTAssertEqual(
+            try XCTUnwrap(members[0].lastSeen).timeIntervalSince1970,
+            1_786_960_975,
+            accuracy: 0.001
+        )
+    }
+
     func testFullMembersRejectMalformedVersionRSMAndMissingStableID() throws {
         XCTAssertThrowsError(try GroupProtocolCodec.decodeFullMembers(element("""
         <members xmlns='https://xabber.com/protocol/groups' version='not-a-number'/>

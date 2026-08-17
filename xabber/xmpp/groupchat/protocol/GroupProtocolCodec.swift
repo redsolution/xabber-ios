@@ -509,7 +509,7 @@ enum GroupProtocolCodec {
             nickname: try optionalUniqueChild(element, "nickname").map(text),
             badge: try optionalUniqueChild(element, "badge").map(text),
             avatar: try optionalUniqueChild(element, "avatar").map(decodeAvatar),
-            lastSeen: try optionalUniqueChild(element, "last").map { try timestamp(text($0), element: "last") },
+            lastSeen: try optionalUniqueChild(element, "last").map(decodeMemberLastSeen),
             allowsPeerToPeer: try optionalUniqueChild(element, "allow-p2p") != nil
         )
     }
@@ -894,6 +894,13 @@ enum GroupProtocolCodec {
     ) throws -> Date? {
         guard let raw = attribute(element, name) else { return nil }
         return try timestamp(raw, element: element.name ?? "")
+    }
+
+    private static func decodeMemberLastSeen(_ element: DDXMLElement) throws -> Date {
+        if let stamp = attribute(element, "stamp") {
+            return try timestamp(stamp, element: "last")
+        }
+        return try timestamp(text(element), element: "last")
     }
 
     private static func enumText<T: RawRepresentable>(

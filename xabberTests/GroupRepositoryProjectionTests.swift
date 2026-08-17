@@ -173,6 +173,11 @@ final class GroupRepositoryProjectionTests: XCTestCase {
             owner: owner,
             groupJID: group
         )
+        try repository.replaceMembers(
+            [GroupMember(id: "self-1", jid: owner, role: .owner)],
+            owner: owner,
+            groupJID: group
+        )
         let updated = expectation(description: "updated projection")
         var observedNames: [String] = []
         let observation = try repository.observeProjection(owner: owner, groupJID: group) { projection in
@@ -265,6 +270,11 @@ final class GroupRepositoryProjectionTests: XCTestCase {
             owner: owner,
             groupJID: group
         )
+        try repository.replaceMembers(
+            [GroupMember(id: "self-1", jid: owner, role: .owner)],
+            owner: owner,
+            groupJID: group
+        )
         try repository.storeInvite(
             GroupInviteRecord(
                 groupJID: "invite@example.com",
@@ -289,6 +299,11 @@ final class GroupRepositoryProjectionTests: XCTestCase {
         )
         try repository.applySnapshot(
             GroupSnapshot(jid: "other-group@example.com", info: GroupInfo(name: "Other")),
+            owner: "other@example.com",
+            groupJID: "other-group@example.com"
+        )
+        try repository.replaceMembers(
+            [GroupMember(id: "other-self", jid: "other@example.com", role: .owner)],
             owner: "other@example.com",
             groupJID: "other-group@example.com"
         )
@@ -338,6 +353,11 @@ final class GroupRepositoryProjectionTests: XCTestCase {
         )
         try repository.applySnapshot(
             GroupSnapshot(jid: group, info: GroupInfo(name: "Stage")),
+            owner: owner,
+            groupJID: group
+        )
+        try repository.replaceMembers(
+            [GroupMember(id: "self-1", jid: owner, role: .owner)],
             owner: owner,
             groupJID: group
         )
@@ -469,7 +489,7 @@ final class GroupRepositoryProjectionTests: XCTestCase {
         XCTAssertEqual(state.selfMemberID, "self-1")
         XCTAssertEqual(state.selfMember?.nickname, "Romeo")
         XCTAssertEqual(state.members.map(\.id), ["member-2", "self-1"])
-        XCTAssertTrue(state.isMembershipActive)
+        XCTAssertTrue(state.isActive)
         XCTAssertTrue(state.isComposerActive)
         XCTAssertTrue(state.canPinMessages)
         XCTAssertTrue(state.canUnpinLastMessage)
@@ -482,10 +502,9 @@ final class GroupRepositoryProjectionTests: XCTestCase {
         )
     }
 
-    func testCanonicalGroupChatPresenceRequiresActiveMembershipAndDeduplicatesState() {
+    func testCanonicalGroupChatPresenceRequiresActiveGroupAndDeduplicatesState() {
         let active = ChatGroupProjectionState(
             pinnedMessageIDs: nil,
-            selfSubscription: .both,
             selfMemberID: "self-1",
             members: [GroupMember(id: "self-1", role: .member)],
             capabilities: GroupCapabilities(
@@ -502,14 +521,15 @@ final class GroupRepositoryProjectionTests: XCTestCase {
                 blockUsers: false,
                 createAdmins: false
             ),
+            isActive: true,
             isDeleted: false
         )
         let waiting = ChatGroupProjectionState(
             pinnedMessageIDs: nil,
-            selfSubscription: .wait,
             selfMemberID: "self-1",
             members: [],
             capabilities: active.capabilities,
+            isActive: false,
             isDeleted: false
         )
 
@@ -595,7 +615,7 @@ final class GroupRepositoryProjectionTests: XCTestCase {
         XCTAssertFalse(source.contains("#not-present"))
     }
 
-    func testChatProjectionKeepsComposerAndPinMutationInactiveUntilMembershipIsBoth() {
+    func testChatProjectionKeepsComposerAndPinMutationInactiveForInactiveOrDeletedGroup() {
         let capabilities = GroupCapabilities(
             sendMessages: true,
             sendMedia: true,
@@ -610,10 +630,13 @@ final class GroupRepositoryProjectionTests: XCTestCase {
             blockUsers: true,
             createAdmins: true
         )
-        let waitProjection = GroupRepositoryProjection(
+        let inactiveProjection = GroupRepositoryProjection(
             state: GroupViewState(
-                snapshot: GroupSnapshot(jid: group, pinnedMessageIDs: ["group-stanza-1"]),
-                selfSubscription: .wait
+                snapshot: GroupSnapshot(
+                    jid: group,
+                    settings: GroupSettings(state: .inactive),
+                    pinnedMessageIDs: ["group-stanza-1"]
+                )
             ),
             selfMemberID: "self-1",
             capabilities: capabilities
@@ -621,7 +644,6 @@ final class GroupRepositoryProjectionTests: XCTestCase {
         let deletedProjection = GroupRepositoryProjection(
             state: GroupViewState(
                 snapshot: GroupSnapshot(jid: group, pinnedMessageIDs: ["group-stanza-1"]),
-                selfSubscription: .both,
                 isDeleted: true
             ),
             selfMemberID: "self-1",
@@ -629,10 +651,10 @@ final class GroupRepositoryProjectionTests: XCTestCase {
         )
 
         for state in [
-            ChatGroupProjectionAdapter.map(waitProjection),
+            ChatGroupProjectionAdapter.map(inactiveProjection),
             ChatGroupProjectionAdapter.map(deletedProjection)
         ] {
-            XCTAssertFalse(state.isMembershipActive)
+            XCTAssertFalse(state.isActive)
             XCTAssertFalse(state.isComposerActive)
             XCTAssertFalse(state.canUnpinLastMessage)
             XCTAssertFalse(
@@ -672,7 +694,7 @@ final class GroupRepositoryProjectionTests: XCTestCase {
 
         XCTAssertNil(state.pinnedMessageIDs)
         XCTAssertNil(state.lastPinnedMessageID)
-        XCTAssertTrue(state.isMembershipActive)
+        XCTAssertTrue(state.isActive)
         XCTAssertFalse(state.isComposerActive)
         XCTAssertFalse(state.canUnpinLastMessage)
         XCTAssertFalse(
@@ -770,7 +792,6 @@ final class GroupRepositoryProjectionTests: XCTestCase {
     func testPinCapabilityDoesNotDependOnAnExistingPin() {
         let state = ChatGroupProjectionState(
             pinnedMessageIDs: [],
-            selfSubscription: .both,
             selfMemberID: "self-1",
             members: [GroupMember(id: "self-1", role: .admin)],
             capabilities: GroupCapabilities(
@@ -787,6 +808,7 @@ final class GroupRepositoryProjectionTests: XCTestCase {
                 blockUsers: false,
                 createAdmins: false
             ),
+            isActive: true,
             isDeleted: false
         )
 

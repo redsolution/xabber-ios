@@ -1,6 +1,18 @@
 import Foundation
 
 enum CanonicalGroupSelfIdentity {
+    private static let createdOwnerPrefix = "local-created-owner:"
+
+    static func provisionalCreatedOwner(ownerJID: String) -> GroupMember {
+        let owner = GroupStorageKey.bareJID(ownerJID)
+        return GroupMember(
+            id: createdOwnerPrefix + owner,
+            jid: owner,
+            role: .owner,
+            nickname: owner
+        )
+    }
+
     static func resolve(
         existingMemberID: String?,
         ownerJID: String,
@@ -12,9 +24,35 @@ enum CanonicalGroupSelfIdentity {
             return existingMemberID
         }
         let owner = GroupStorageKey.bareJID(ownerJID)
-        return members.first {
+        if let matchedByJID = members.first(where: {
             $0.jid.map(GroupStorageKey.bareJID) == owner
-        }?.id
+        }) {
+            return matchedByJID.id
+        }
+        if existingMemberID?.hasPrefix(createdOwnerPrefix) == true {
+            let owners = members.filter { $0.role == .owner }
+            if owners.count == 1 {
+                return owners[0].id
+            }
+        }
+        return nil
+    }
+
+    static func attachingOwnerJID(
+        to members: [GroupMember],
+        selfMemberID: String?,
+        ownerJID: String
+    ) -> [GroupMember] {
+        guard let selfMemberID else { return members }
+        let owner = GroupStorageKey.bareJID(ownerJID)
+        return members.map { member in
+            guard member.id == selfMemberID, member.jid == nil else {
+                return member
+            }
+            var result = member
+            result.jid = owner
+            return result
+        }
     }
 }
 

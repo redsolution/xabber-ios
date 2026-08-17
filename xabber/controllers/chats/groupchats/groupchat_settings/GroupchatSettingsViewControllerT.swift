@@ -930,7 +930,7 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
 
                 let activeProjection = try repository.projection(owner: self.owner, groupJID: self.jid)
                 self.apply(activeProjection, force: false)
-                guard activeProjection.state.selfSubscription == .both else { return }
+                guard activeProjection.state.isActive else { return }
 
                 async let defaultsRequest = account.groupchatService.getPermissions(
                     groupJID: self.jid,

@@ -31,11 +31,11 @@ struct GroupViewState: Equatable, Sendable {
     }
 
     var isActive: Bool {
-        selfSubscription == .both && !isDeleted
+        !isDeleted && snapshot.settings?.state != .inactive
     }
 
     var isTombstoned: Bool {
-        selfSubscription == .none || isDeleted
+        isDeleted
     }
 
     func member(id: String) -> GroupMember? {
@@ -66,7 +66,7 @@ enum GroupDomainReducer {
         case let .created(snapshot):
             return GroupViewState(
                 snapshot: snapshot,
-                selfSubscription: .both
+                isDeleted: false
             )
 
         case let .selfSubscription(subscription):
@@ -79,9 +79,8 @@ enum GroupDomainReducer {
             break
         }
 
-        // Delete and self-membership-none are aggregate tombstones. Only an
-        // explicit creation or authoritative `both` transition above may
-        // admit the group again; delayed transport events are inert.
+        // Deletion is the aggregate tombstone. Roster-style subscription
+        // transport state is deliberately not a group authorization source.
         guard !state.isTombstoned else {
             return state
         }
@@ -145,13 +144,7 @@ private extension GroupDomainReducer {
     ) -> GroupViewState {
         switch subscription {
         case .both:
-            // `both` is an authoritative admission transition and is one of
-            // the two events allowed to clear aggregate tombstones.
-            return replacing(
-                state,
-                selfSubscription: .both,
-                isDeleted: false
-            )
+            return replacing(state, selfSubscription: .both)
 
         case .none:
             return replacing(
@@ -160,9 +153,6 @@ private extension GroupDomainReducer {
             )
 
         case .wait:
-            guard !state.isTombstoned else {
-                return state
-            }
             return replacing(state, selfSubscription: .wait)
         }
     }
