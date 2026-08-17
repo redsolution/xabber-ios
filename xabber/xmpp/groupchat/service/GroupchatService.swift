@@ -960,13 +960,22 @@ private extension GroupchatService {
         let invite = try GroupProtocolCodec.encodeInvite(
             .message(groupJID: groupJID, reason: reason, inviter: nil)
         )
-        try send(
-            XMPPMessage(
-                messageType: .chat,
-                to: try groupDestination(targetJID),
-                child: invite
+        let canonicalGroupJID = try groupDestination(groupJID).bare
+        let messageID = UUID().uuidString
+        let message = XMPPMessage(
+            messageType: .chat,
+            to: try groupDestination(targetJID),
+            elementID: messageID,
+            child: invite
+        )
+        message.addBody(
+            "To join group add %@ to your contacts list".localizeString(
+                id: "groupchat_legacy_invitation_body",
+                arguments: [canonicalGroupJID]
             )
         )
+        message.addOriginId(messageID)
+        try send(message)
     }
 
     func moderationFailure(

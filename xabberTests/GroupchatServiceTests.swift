@@ -353,7 +353,15 @@ final class GroupchatServiceTests: XCTestCase {
         )
         XCTAssertEqual(payload.attributeStringValue(forName: "jid"), groupJID)
         XCTAssertEqual(payload.element(forName: "reason")?.stringValue, "Join")
-        XCTAssertNil(message.element(forName: "body"))
+        let fallbackBody = try XCTUnwrap(message.element(forName: "body")?.stringValue)
+        XCTAssertFalse(fallbackBody.isEmpty)
+        XCTAssertTrue(fallbackBody.contains(groupJID))
+        let messageID = try XCTUnwrap(message.elementID)
+        let originID = try XCTUnwrap(
+            message.element(forName: "origin-id", xmlns: "urn:xmpp:sid:0")
+        )
+        XCTAssertEqual(originID.attributeStringValue(forName: "id"), messageID)
+        XCTAssertNil(originID.attributeStringValue(forName: "by"))
         XCTAssertEqual((elements[2] as? XMPPIQ)?.childElement?.name, "invites")
     }
 
