@@ -111,7 +111,26 @@ private extension GroupEventProcessor {
             try repository.applyPatch(patch, owner: owner, groupJID: groupJID)
 
         case let .replaceMembers(members):
+            let projection = try repository.projection(
+                owner: owner,
+                groupJID: groupJID
+            )
+            let resolvedSelfMemberID = CanonicalGroupSelfIdentity.resolve(
+                existingMemberID: projection.selfMemberID,
+                ownerJID: owner,
+                members: members
+            )
             try repository.replaceMembers(members, owner: owner, groupJID: groupJID)
+            if projection.state.selfSubscription == .both,
+               let resolvedSelfMemberID,
+               resolvedSelfMemberID != projection.selfMemberID {
+                try repository.setSelfMembership(
+                    .both,
+                    memberID: resolvedSelfMemberID,
+                    owner: owner,
+                    groupJID: groupJID
+                )
+            }
 
         case .member:
             // Message/system author cards are historical snapshots. The full,

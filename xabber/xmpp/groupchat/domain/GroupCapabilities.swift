@@ -1,5 +1,23 @@
 import Foundation
 
+enum CanonicalGroupSelfIdentity {
+    static func resolve(
+        existingMemberID: String?,
+        ownerJID: String,
+        members: [GroupMember]
+    ) -> String? {
+        if let existingMemberID,
+           !existingMemberID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           members.contains(where: { $0.id == existingMemberID }) {
+            return existingMemberID
+        }
+        let owner = GroupStorageKey.bareJID(ownerJID)
+        return members.first {
+            $0.jid.map(GroupStorageKey.bareJID) == owner
+        }?.id
+    }
+}
+
 struct GroupCapabilities: Equatable, Sendable {
     let sendMessages: Bool
     let sendMedia: Bool

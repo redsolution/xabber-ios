@@ -93,20 +93,55 @@ enum CanonicalGroupFullAuthenticationRecovery {
     }
 }
 
-enum CanonicalGroupSelfIdentity {
-    static func resolve(
-        existingMemberID: String?,
-        ownerJID: String,
-        members: [GroupMember]
-    ) -> String? {
-        if let existingMemberID,
-           !existingMemberID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return existingMemberID
+enum CanonicalCreatedGroupOwnerAdmissionError: Error, Equatable {
+    case missingSelfMemberID
+    case creatorIsNotOwner
+}
+
+/// Completes the server-side create contract before UIKit presents the room.
+/// A successful normal create already admits the creator as owner, so this is
+/// identity hydration and one atomic local admission, not a join handshake.
+@MainActor
+enum CanonicalCreatedGroupOwnerAdmission {
+    static func admit(
+        snapshot: GroupSnapshot,
+        owner: String,
+        repository: GroupRepository,
+        refreshMembers: (String) async throws -> [GroupMember]
+    ) async throws -> GroupRepositoryProjection {
+        guard let rawGroupJID = snapshot.jid else {
+            throw GroupRepositoryError.invalidGroupJID
         }
-        let owner = GroupStorageKey.bareJID(ownerJID)
-        return members.first {
-            $0.jid.map(GroupStorageKey.bareJID) == owner
-        }?.id
+        let groupJID = GroupStorageKey.bareJID(rawGroupJID)
+        guard !groupJID.isEmpty else {
+            throw GroupRepositoryError.invalidGroupJID
+        }
+
+        let members = try await refreshMembers(groupJID)
+        let existingSelfMemberID = try? repository.projection(
+            owner: owner,
+            groupJID: groupJID
+        ).selfMemberID
+        guard let selfMemberID = CanonicalGroupSelfIdentity.resolve(
+            existingMemberID: existingSelfMemberID,
+            ownerJID: owner,
+            members: members
+        ) else {
+            throw CanonicalCreatedGroupOwnerAdmissionError.missingSelfMemberID
+        }
+        guard members.first(where: { $0.id == selfMemberID })?.role == .owner else {
+            throw CanonicalCreatedGroupOwnerAdmissionError.creatorIsNotOwner
+        }
+
+        try repository.admitSnapshot(
+            snapshot,
+            membership: .both,
+            memberID: selfMemberID,
+            owner: owner,
+            groupJID: groupJID,
+            members: members
+        )
+        return try repository.projection(owner: owner, groupJID: groupJID)
     }
 }
 

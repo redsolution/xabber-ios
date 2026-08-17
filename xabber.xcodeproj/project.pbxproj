@@ -36,6 +36,7 @@
 		B4FD07B12C7040C3BD324C1C /* GroupchatServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0FE92CBB1D4DD8A6A40CC5 /* GroupchatServiceTests.swift */; };
 		7CF8BC4C1ACC4E93BA877D4D /* GroupRepositoryProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E79D4771A39347299B548908 /* GroupRepositoryProjectionTests.swift */; };
 		AA110001AA110001AA110001 /* GroupCreationContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA110002AA110002AA110002 /* GroupCreationContractTests.swift */; };
+		AC170001AC170001AC170001 /* CreatedGroupOwnerAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC170002AC170002AC170002 /* CreatedGroupOwnerAdmissionTests.swift */; };
 		AB140001AB140001AB140001 /* NewlyCreatedGroupChatPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB140002AB140002AB140002 /* NewlyCreatedGroupChatPresentationTests.swift */; };
 		AA110003AA110003AA110003 /* GroupLegacyXMLHardCutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA110004AA110004AA110004 /* GroupLegacyXMLHardCutTests.swift */; };
 		A1B2C3D4321200000ABC0002 /* LastChatsPremiumPromotionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4321200000ABC0001 /* LastChatsPremiumPromotionTests.swift */; };
@@ -1085,6 +1086,7 @@
 		7A0FE92CBB1D4DD8A6A40CC5 /* GroupchatServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupchatServiceTests.swift; sourceTree = "<group>"; };
 		E79D4771A39347299B548908 /* GroupRepositoryProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupRepositoryProjectionTests.swift; sourceTree = "<group>"; };
 		AA110002AA110002AA110002 /* GroupCreationContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupCreationContractTests.swift; sourceTree = "<group>"; };
+		AC170002AC170002AC170002 /* CreatedGroupOwnerAdmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreatedGroupOwnerAdmissionTests.swift; sourceTree = "<group>"; };
 		AB140002AB140002AB140002 /* NewlyCreatedGroupChatPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewlyCreatedGroupChatPresentationTests.swift; sourceTree = "<group>"; };
 		AA110004AA110004AA110004 /* GroupLegacyXMLHardCutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupLegacyXMLHardCutTests.swift; sourceTree = "<group>"; };
 		A1B2C3D4321200000ABC0001 /* LastChatsPremiumPromotionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastChatsPremiumPromotionTests.swift; sourceTree = "<group>"; };
@@ -4382,6 +4384,7 @@
 					7A0FE92CBB1D4DD8A6A40CC5 /* GroupchatServiceTests.swift */,
 					E79D4771A39347299B548908 /* GroupRepositoryProjectionTests.swift */,
 					AA110002AA110002AA110002 /* GroupCreationContractTests.swift */,
+					AC170002AC170002AC170002 /* CreatedGroupOwnerAdmissionTests.swift */,
 					AB140002AB140002AB140002 /* NewlyCreatedGroupChatPresentationTests.swift */,
 					AA110004AA110004AA110004 /* GroupLegacyXMLHardCutTests.swift */,
 					AA120004AA120004AA120004 /* GroupEventProcessorTests.swift */,
@@ -6622,6 +6625,7 @@
 					B4FD07B12C7040C3BD324C1C /* GroupchatServiceTests.swift in Sources */,
 					7CF8BC4C1ACC4E93BA877D4D /* GroupRepositoryProjectionTests.swift in Sources */,
 					AA110001AA110001AA110001 /* GroupCreationContractTests.swift in Sources */,
+					AC170001AC170001AC170001 /* CreatedGroupOwnerAdmissionTests.swift in Sources */,
 					AB140001AB140001AB140001 /* NewlyCreatedGroupChatPresentationTests.swift in Sources */,
 					AA110003AA110003AA110003 /* GroupLegacyXMLHardCutTests.swift in Sources */,
 					AA120003AA120003AA120003 /* GroupEventProcessorTests.swift in Sources */,
