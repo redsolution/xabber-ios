@@ -8,8 +8,15 @@
 
 /* Begin PBXBuildFile section */
 		CA180014CA180014CA180014 /* ArchiveCoverageStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180013CA180013CA180013 /* ArchiveCoverageStorage.swift */; };
+		CA180031CA180031CA180031 /* ArchiveTransportTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180030CA180030CA180030 /* ArchiveTransportTypes.swift */; };
+		CA180033CA180033CA180033 /* AccountArchiveEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180032CA180032CA180032 /* AccountArchiveEngine.swift */; };
+		CA180051CA180051CA180051 /* RealmArchiveCoverageRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180050CA180050CA180050 /* RealmArchiveCoverageRepository.swift */; };
+		CA180053CA180053CA180053 /* MessageArchiveTransportAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180052CA180052CA180052 /* MessageArchiveTransportAdapter.swift */; };
 		CA180012CA180012CA180012 /* ArchiveDomain.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180011CA180011CA180011 /* ArchiveDomain.swift */; };
 		CA180002CA180002CA180002 /* ArchiveCoverageReducerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180001CA180001CA180001 /* ArchiveCoverageReducerTests.swift */; };
+		CA180021CA180021CA180021 /* ArchiveTransportReceiptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180020CA180020CA180020 /* ArchiveTransportReceiptTests.swift */; };
+		CA180023CA180023CA180023 /* AccountArchiveEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180022CA180022CA180022 /* AccountArchiveEngineTests.swift */; };
+		CA180041CA180041CA180041 /* ArchiveCoverageRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180040CA180040CA180040 /* ArchiveCoverageRepositoryTests.swift */; };
 		1D841EAF9E5A1E5B2401697F /* GroupProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4520421A00BF82093FE32906 /* GroupProtocolModels.swift */; };
 		B6688E4B9C5A5515099F53E2 /* GroupProtocolCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 891B483D9E2599E30877E9B1 /* GroupProtocolCodec.swift */; };
 		FB5C7A83B95D432B9E00147D /* GroupCommandCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DAE838DB42A439591B69AD6 /* GroupCommandCodec.swift */; };
@@ -1061,8 +1068,15 @@
 
 /* Begin PBXFileReference section */
 		CA180013CA180013CA180013 /* ArchiveCoverageStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveCoverageStorage.swift; sourceTree = "<group>"; };
+		CA180030CA180030CA180030 /* ArchiveTransportTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveTransportTypes.swift; sourceTree = "<group>"; };
+		CA180032CA180032CA180032 /* AccountArchiveEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountArchiveEngine.swift; sourceTree = "<group>"; };
+		CA180050CA180050CA180050 /* RealmArchiveCoverageRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealmArchiveCoverageRepository.swift; sourceTree = "<group>"; };
+		CA180052CA180052CA180052 /* MessageArchiveTransportAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageArchiveTransportAdapter.swift; sourceTree = "<group>"; };
 		CA180011CA180011CA180011 /* ArchiveDomain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveDomain.swift; sourceTree = "<group>"; };
 		CA180001CA180001CA180001 /* ArchiveCoverageReducerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveCoverageReducerTests.swift; sourceTree = "<group>"; };
+		CA180020CA180020CA180020 /* ArchiveTransportReceiptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveTransportReceiptTests.swift; sourceTree = "<group>"; };
+		CA180022CA180022CA180022 /* AccountArchiveEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountArchiveEngineTests.swift; sourceTree = "<group>"; };
+		CA180040CA180040CA180040 /* ArchiveCoverageRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveCoverageRepositoryTests.swift; sourceTree = "<group>"; };
 		4520421A00BF82093FE32906 /* GroupProtocolModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupProtocolModels.swift; sourceTree = "<group>"; };
 		891B483D9E2599E30877E9B1 /* GroupProtocolCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupProtocolCodec.swift; sourceTree = "<group>"; };
 		5DAE838DB42A439591B69AD6 /* GroupCommandCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupCommandCodec.swift; sourceTree = "<group>"; };
@@ -2347,6 +2361,10 @@
 			children = (
 				CA180011CA180011CA180011 /* ArchiveDomain.swift */,
 				CA180013CA180013CA180013 /* ArchiveCoverageStorage.swift */,
+				CA180030CA180030CA180030 /* ArchiveTransportTypes.swift */,
+				CA180032CA180032CA180032 /* AccountArchiveEngine.swift */,
+				CA180050CA180050CA180050 /* RealmArchiveCoverageRepository.swift */,
+				CA180052CA180052CA180052 /* MessageArchiveTransportAdapter.swift */,
 			);
 			path = engine;
 			sourceTree = "<group>";
@@ -4342,6 +4360,9 @@
 					4E9300012FF300000ABC001 /* ChatCursorNativeHistoryProviderTests.swift */,
 					4E9300032FF300000ABC001 /* ChatHistoryRealmMigrationTests.swift */,
 					CA180001CA180001CA180001 /* ArchiveCoverageReducerTests.swift */,
+					CA180020CA180020CA180020 /* ArchiveTransportReceiptTests.swift */,
+					CA180022CA180022CA180022 /* AccountArchiveEngineTests.swift */,
+					CA180040CA180040CA180040 /* ArchiveCoverageRepositoryTests.swift */,
 					4E9400012FF400000ABC001 /* ChatTimelineSessionTests.swift */,
 					4E9500012FF500000ABC001 /* ChatAsyncLocalPagingTests.swift */,
 					4E9600012FF600000ABC001 /* ChatRemoteMAMPersistenceCoordinatorTests.swift */,
@@ -5908,6 +5929,10 @@
 				6608562D2071F80A003E0122 /* RealmMigrations.swift in Sources */,
 				CA180012CA180012CA180012 /* ArchiveDomain.swift in Sources */,
 				CA180014CA180014CA180014 /* ArchiveCoverageStorage.swift in Sources */,
+				CA180031CA180031CA180031 /* ArchiveTransportTypes.swift in Sources */,
+				CA180033CA180033CA180033 /* AccountArchiveEngine.swift in Sources */,
+				CA180051CA180051CA180051 /* RealmArchiveCoverageRepository.swift in Sources */,
+				CA180053CA180053CA180053 /* MessageArchiveTransportAdapter.swift in Sources */,
 				66999CBC27DA1D370046CED3 /* ButtonTableViewCell.swift.swift in Sources */,
 				6643F33221C2650E00333229 /* MessagesDataSource.swift in Sources */,
 				6642D71E2D88418300762865 /* TimeMarkerView.swift in Sources */,
@@ -6587,6 +6612,9 @@
 					4E9300022FF300000ABC001 /* ChatCursorNativeHistoryProviderTests.swift in Sources */,
 					4E9300042FF300000ABC001 /* ChatHistoryRealmMigrationTests.swift in Sources */,
 					CA180002CA180002CA180002 /* ArchiveCoverageReducerTests.swift in Sources */,
+					CA180021CA180021CA180021 /* ArchiveTransportReceiptTests.swift in Sources */,
+					CA180023CA180023CA180023 /* AccountArchiveEngineTests.swift in Sources */,
+					CA180041CA180041CA180041 /* ArchiveCoverageRepositoryTests.swift in Sources */,
 					4E9400022FF400000ABC001 /* ChatTimelineSessionTests.swift in Sources */,
 					4E9500022FF500000ABC001 /* ChatAsyncLocalPagingTests.swift in Sources */,
 					4E9600022FF600000ABC001 /* ChatRemoteMAMPersistenceCoordinatorTests.swift in Sources */,

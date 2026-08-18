@@ -127,8 +127,13 @@ enum ArchiveFreshnessToken: Hashable, Codable, Sendable {
         switch self {
         case .xepSync(let fingerprint):
             return fingerprint
-        case .sessionMAM(let generation, let queryID):
-            return "session:\(generation):\(queryID)"
+        case .sessionMAM(let generation, _):
+            // Query identity remains part of the token so stale terminal
+            // receipts can be rejected, while coverage from multiple pages
+            // in one authenticated session can still merge. The generation
+            // changes on every reconnect, so this proof is never reusable by
+            // a later session.
+            return "session:\(generation)"
         }
     }
 }

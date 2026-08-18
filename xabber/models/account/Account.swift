@@ -3367,6 +3367,19 @@ final class Account: NSObject {
             }
         }
     }
+    lazy var archiveCoverageRepository = RealmArchiveCoverageRepository()
+    lazy var archiveTransportAdapter = MessageArchiveTransportAdapter(
+        account: self,
+        materializationResolver: archiveCoverageRepository
+    )
+    lazy var archiveEngine = AccountArchiveEngine(
+        owner: jid,
+        repository: archiveCoverageRepository,
+        transport: archiveTransportAdapter
+    )
+    private let archiveEngineConnectionLock = NSLock()
+    private var archiveEngineConnectionGeneration: UInt64 = 0
+    private var isArchiveEngineConnectionReady = false
     var carbons: CarbonsManager
     var lastChats: LastChats
     var csi: ClientStateIndicateManager
@@ -3542,6 +3555,7 @@ final class Account: NSObject {
                 self.flushPendingPresenceSends()
                 self.sendCoordinator.accountDidBecomeSendReady()
             }
+            self.updateArchiveEngineConnection(for: snapshot)
             self.xmppTaskScheduler.streamReadinessDidChange()
         }
         self.messages.archiveQueryIdPersistenceResolver = { [weak self] queryId in
@@ -3554,6 +3568,59 @@ final class Account: NSObject {
         self.load()
 //        xuploads.confi-gure()
 //        self.asyncConnect()
+    }
+
+    private func updateArchiveEngineConnection(
+        for snapshot: AccountSendReadinessSnapshot
+    ) {
+        archiveEngineConnectionLock.lock()
+        if snapshot.canFlushApplicationStanzas {
+            guard !isArchiveEngineConnectionReady else {
+                archiveEngineConnectionLock.unlock()
+                return
+            }
+            isArchiveEngineConnectionReady = true
+            archiveEngineConnectionGeneration &+= 1
+            let generation = archiveEngineConnectionGeneration
+            let waitsForXEPSYNC = syncManager.isAvailable
+            archiveEngineConnectionLock.unlock()
+            Task { [archiveEngine] in
+                await archiveEngine.connectionDidBecomeReady(
+                    generation: generation,
+                    completedXEPSYNCFingerprint: nil,
+                    waitsForXEPSYNC: waitsForXEPSYNC
+                )
+            }
+            return
+        }
+
+        guard isArchiveEngineConnectionReady else {
+            archiveEngineConnectionLock.unlock()
+            return
+        }
+        isArchiveEngineConnectionReady = false
+        archiveEngineConnectionLock.unlock()
+        Task { [archiveEngine] in
+            await archiveEngine.connectionDidDisconnect()
+        }
+    }
+
+    func archiveXEPSYNCSnapshotDidComplete(fingerprint: String) {
+        let fingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard fingerprint.isNotEmpty else { return }
+        archiveEngineConnectionLock.lock()
+        guard isArchiveEngineConnectionReady else {
+            archiveEngineConnectionLock.unlock()
+            return
+        }
+        let generation = archiveEngineConnectionGeneration
+        archiveEngineConnectionLock.unlock()
+        Task { [archiveEngine] in
+            await archiveEngine.connectionDidBecomeReady(
+                generation: generation,
+                completedXEPSYNCFingerprint: fingerprint
+            )
+        }
     }
 
     @discardableResult

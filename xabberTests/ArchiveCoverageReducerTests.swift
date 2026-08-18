@@ -14,6 +14,25 @@ final class ArchiveCoverageReducerTests: XCTestCase {
         XCTAssertEqual(cursor?.numericValue, 42)
     }
 
+    func testSessionMAMProofMergesWithinGenerationButChangesAfterReconnect() {
+        let firstPage = ArchiveFreshnessToken.sessionMAM(
+            connectionGeneration: 7,
+            queryID: "page-a"
+        )
+        let secondPage = ArchiveFreshnessToken.sessionMAM(
+            connectionGeneration: 7,
+            queryID: "page-b"
+        )
+        let reconnected = ArchiveFreshnessToken.sessionMAM(
+            connectionGeneration: 8,
+            queryID: "page-a"
+        )
+
+        XCTAssertEqual(firstPage.fingerprint, secondPage.fingerprint)
+        XCTAssertNotEqual(firstPage.fingerprint, reconnected.fingerprint)
+        XCTAssertNotEqual(firstPage, secondPage)
+    }
+
     func testOlderPageMergesOnlyThroughExplicitExistingBoundary() throws {
         let current = try segment("100", "200", fingerprint: "sync-a", verified: true)
         let older = try segment("20", "99", fingerprint: "sync-a", verified: true)

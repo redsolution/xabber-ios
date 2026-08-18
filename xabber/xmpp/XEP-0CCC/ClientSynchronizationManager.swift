@@ -1896,6 +1896,10 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         ])
                         return
                     }
+                    AccountManager.shared.find(for: self.owner)?
+                        .archiveXEPSYNCSnapshotDidComplete(
+                            fingerprint: page.stamp
+                        )
                     AccountManager.shared.changeNewUserState(for: self.owner, to: .dataLoaded)
                     self.logSyncTrace("snapshotComplete", [
                         ("snapshotStamp", page.stamp),

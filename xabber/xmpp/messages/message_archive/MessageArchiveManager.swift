@@ -31,17 +31,27 @@ struct MessageArchivePageEndState: Equatable {
     let archiveEnded: Bool
     let persistedMessageCount: Int
     let requestCursorId: String?
+    /// Raw MAM `<fin complete='…'>`; unlike `queryExhausted`, this is never
+    /// inferred from a zero-sized page.
+    let rawComplete: Bool
+    /// Server RSM `<count>` as received. On Xabber Server this is the cheap
+    /// page count unless the caller explicitly requested `rsm-counter=1`.
+    let serverResultCount: Int?
 
     init(
         queryExhausted: Bool,
         archiveEnded: Bool,
         persistedMessageCount: Int,
-        requestCursorId: String? = nil
+        requestCursorId: String? = nil,
+        rawComplete: Bool = false,
+        serverResultCount: Int? = nil
     ) {
         self.queryExhausted = queryExhausted
         self.archiveEnded = archiveEnded
         self.persistedMessageCount = persistedMessageCount
         self.requestCursorId = requestCursorId
+        self.rawComplete = rawComplete
+        self.serverResultCount = serverResultCount
     }
 }
 
@@ -2885,7 +2895,9 @@ class MessageArchiveManager: AbstractXMPPManager {
     private func makePageEndState(
         for task: MAMRequestItem,
         queryId: String,
-        queryExhausted: Bool
+        queryExhausted: Bool,
+        rawComplete: Bool = false,
+        serverResultCount: Int? = nil
     ) -> MessageArchivePageEndState {
         let persistedMessageCount = self.persistedMessageCountsByQueryId.removeValue(forKey: queryId) ?? 0
         let canReachOlderArchiveEnd: Bool
@@ -2915,7 +2927,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                 task.archiveEndEligibility &&
                 (canReachOlderArchiveEnd || consumerManagedLatestCanReportEnd),
             persistedMessageCount: persistedMessageCount,
-            requestCursorId: task.messageId
+            requestCursorId: task.messageId,
+            rawComplete: rawComplete,
+            serverResultCount: serverResultCount
         )
     }
 
@@ -2952,7 +2966,9 @@ class MessageArchiveManager: AbstractXMPPManager {
         let persistedState = makePageEndState(
             for: item.task,
             queryId: queryId,
-            queryExhausted: complete || resultCount == 0
+            queryExhausted: complete || resultCount == 0,
+            rawComplete: complete,
+            serverResultCount: resultCount
         )
         searchArchiveStateLock.lock()
         guard var session = searchArchiveSessionsByQueryId[queryId],
@@ -3633,7 +3649,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                             let pageEndState = self.makePageEndState(
                                 for: item.task,
                                 queryId: queryId,
-                                queryExhausted: pageDisposition.queryExhausted
+                                queryExhausted: pageDisposition.queryExhausted,
+                                rawComplete: complete,
+                                serverResultCount: serverResultCount
                             )
                             self.applyOwnedConversationArchivePageResultIfNeeded(
                                 task: item.task,
@@ -3731,7 +3749,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                             let pageEndState = self.makePageEndState(
                                 for: item.task,
                                 queryId: queryId,
-                                queryExhausted: count == 0 || complete
+                                queryExhausted: count == 0 || complete,
+                                rawComplete: complete,
+                                serverResultCount: serverResultCount
                             )
                             self.applyOwnedConversationArchivePageResultIfNeeded(
                                 task: item.task,
@@ -4345,6 +4365,37 @@ class MessageArchiveManager: AbstractXMPPManager {
             )
         }
         return persistenceIngressExpectationsByQueryId[queryId]
+    }
+
+    /// Immutable query-scoped wire ledger for the client archive engine.
+    /// Realm/XMPP objects deliberately do not cross the engine actor boundary.
+    struct ArchiveTransportAccountingSnapshot: Equatable {
+        let resultArchiveIDs: [String]
+        let deliveredResultCount: Int
+        let intentionallyConsumedResultCount: Int
+    }
+
+    internal func archiveTransportAccountingSnapshot(
+        queryId: String
+    ) -> ArchiveTransportAccountingSnapshot? {
+        guard queryId.isNotEmpty else { return nil }
+        deferredArchiveCommitLock.lock()
+        defer { deferredArchiveCommitLock.unlock() }
+        let proof = deferredArchiveCommitsByQueryId[queryId]?.transportProof ??
+            deferredArchiveTransportProofsByQueryId[queryId]
+        guard let proof else { return nil }
+        var archiveIDs = Array(proof.deliveredResultIds)
+        archiveIDs.append(
+            contentsOf: Array(
+                repeating: "",
+                count: proof.deliveredResultsWithoutId
+            )
+        )
+        return ArchiveTransportAccountingSnapshot(
+            resultArchiveIDs: archiveIDs,
+            deliveredResultCount: proof.deliveredResultCount,
+            intentionallyConsumedResultCount: proof.intentionallyConsumedResultCount
+        )
     }
 
     internal func discardPersistenceIngressExpectation(queryId: String) {
@@ -5223,12 +5274,10 @@ class MessageArchiveManager: AbstractXMPPManager {
 
     internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, ids: [String]? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, coverageUpdateKind: RegularArchiveCoverageUpdateKind = .none, consumerManagesArchiveEnd: Bool = false, consumerManagesHistoryCursor: Bool = false, deferCoverageCommitUntilConsumerProof: Bool = false, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) {
         let isGroupchat = [.group, .channel].contains(conversationType)
-        // Xabber Server returns the real result-set cardinality only when the
-        // data form requests `rsm-counter=1`; otherwise `<count>` is merely
-        // the number of rows selected for the current page. Every initial
-        // chat bootstrap needs the authoritative value so count=0 can be a
-        // durable terminal for every conversation type.
-        let requestsAuthoritativeCounter = withCounter || purpose == .bootstrap
+        // `rsm-counter=1` performs a full SQL COUNT on Xabber Server. Normal
+        // archive orchestration only needs the cheap page count and must never
+        // request the expensive counter implicitly.
+        let requestsAuthoritativeCounter = withCounter
         let elementId = queryId ?? "MAM: \(NanoID.new(8))"
         let dateConstraint = self.archiveDateConstraint(
             conversationType: conversationType,
