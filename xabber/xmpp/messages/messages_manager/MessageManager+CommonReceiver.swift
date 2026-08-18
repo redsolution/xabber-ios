@@ -102,6 +102,7 @@ extension MessageManager {
 
     private struct ArchivePersistenceOutcomeItem {
         let queryIds: [String]
+        let primaryID: String
         let owner: String
         let opponent: String
         let conversationType: ClientSynchronizationManager.ConversationType
@@ -166,6 +167,26 @@ extension MessageManager {
                         }
                     }
                 }
+            }
+        }
+        guard let account = AccountManager.shared.find(for: owner) else { return }
+        let liveRows = outcomes.filter {
+            $0.queryIds.isEmpty &&
+                ($0.outcome == .savedNew || $0.outcome == .updatedExisting) &&
+                !$0.isDeleted &&
+                ArchiveCursor(rawValue: $0.archivedId) != nil
+        }
+        liveRows.forEach { row in
+            let conversation = ArchiveConversationKey(
+                owner: row.owner,
+                jid: row.opponent,
+                conversationType: row.conversationType
+            )
+            Task { [archiveEngine = account.archiveEngine] in
+                await archiveEngine.liveMessageDidPersist(
+                    conversation: conversation,
+                    primaryID: row.primaryID
+                )
             }
         }
     }
@@ -1855,6 +1876,7 @@ extension MessageManager {
         return (
             ArchivePersistenceOutcomeItem(
                 queryIds: queryIds,
+                primaryID: message.primary,
                 owner: message.owner,
                 opponent: message.opponent,
                 conversationType: message.conversationType,
@@ -1869,6 +1891,7 @@ extension MessageManager {
     private func failedOutcome(for message: MessageStorageItem, runtimeQueryIds: [String]?) -> ArchivePersistenceOutcomeItem {
         ArchivePersistenceOutcomeItem(
             queryIds: self.archiveQueryIds(for: message, runtimeQueryIds: runtimeQueryIds),
+            primaryID: message.primary,
             owner: message.owner,
             opponent: message.opponent,
             conversationType: message.conversationType,

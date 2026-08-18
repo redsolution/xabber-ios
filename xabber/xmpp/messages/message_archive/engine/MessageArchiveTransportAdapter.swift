@@ -396,7 +396,7 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
             return .pageOlder(cursorArchiveId: cursor.rawValue)
         case .newer(let cursor), .firstUnread(.some(let cursor)):
             return .pageNewer(cursorArchiveId: cursor.rawValue)
-        case .gap(let older, let newer):
+        case .gap(_, let newer):
             return .gapRepairOlder(cursorArchiveId: newer.rawValue)
         case .archiveID, .timestamp:
             return .disjointWindow

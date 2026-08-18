@@ -275,6 +275,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     
     func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
         collectionPrefetchCoordinator.prefetchItems(at: indexPaths)
+        prefetchArchiveEngineWindowIfNeeded(indexPaths: indexPaths)
     }
 
     func collectionView(_ collectionView: UICollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {

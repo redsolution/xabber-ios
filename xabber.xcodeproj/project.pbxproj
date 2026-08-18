@@ -17,6 +17,8 @@
 		CA180021CA180021CA180021 /* ArchiveTransportReceiptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180020CA180020CA180020 /* ArchiveTransportReceiptTests.swift */; };
 		CA180023CA180023CA180023 /* AccountArchiveEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180022CA180022CA180022 /* AccountArchiveEngineTests.swift */; };
 		CA180041CA180041CA180041 /* ArchiveCoverageRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180040CA180040CA180040 /* ArchiveCoverageRepositoryTests.swift */; };
+		CA180061CA180061CA180061 /* ChatViewController+ArchiveEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180060CA180060CA180060 /* ChatViewController+ArchiveEngine.swift */; };
+		CA180063CA180063CA180063 /* ChatArchiveEnginePresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180062CA180062CA180062 /* ChatArchiveEnginePresentationTests.swift */; };
 		1D841EAF9E5A1E5B2401697F /* GroupProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4520421A00BF82093FE32906 /* GroupProtocolModels.swift */; };
 		B6688E4B9C5A5515099F53E2 /* GroupProtocolCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 891B483D9E2599E30877E9B1 /* GroupProtocolCodec.swift */; };
 		FB5C7A83B95D432B9E00147D /* GroupCommandCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DAE838DB42A439591B69AD6 /* GroupCommandCodec.swift */; };
@@ -1077,6 +1079,8 @@
 		CA180020CA180020CA180020 /* ArchiveTransportReceiptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveTransportReceiptTests.swift; sourceTree = "<group>"; };
 		CA180022CA180022CA180022 /* AccountArchiveEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountArchiveEngineTests.swift; sourceTree = "<group>"; };
 		CA180040CA180040CA180040 /* ArchiveCoverageRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveCoverageRepositoryTests.swift; sourceTree = "<group>"; };
+		CA180060CA180060CA180060 /* ChatViewController+ArchiveEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatViewController+ArchiveEngine.swift"; sourceTree = "<group>"; };
+		CA180062CA180062CA180062 /* ChatArchiveEnginePresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatArchiveEnginePresentationTests.swift; sourceTree = "<group>"; };
 		4520421A00BF82093FE32906 /* GroupProtocolModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupProtocolModels.swift; sourceTree = "<group>"; };
 		891B483D9E2599E30877E9B1 /* GroupProtocolCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupProtocolCodec.swift; sourceTree = "<group>"; };
 		5DAE838DB42A439591B69AD6 /* GroupCommandCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupCommandCodec.swift; sourceTree = "<group>"; };
@@ -3570,6 +3574,7 @@
 				66F9F35023E9A6860035061B /* ChatViewController+MessagesPanel.swift */,
 				66B10A2A247CF03300B0796D /* ChatViewController+SubscribtionBar.swift */,
 				668409E226035C15001BB80B /* ChatViewController+Dataset.swift */,
+				CA180060CA180060CA180060 /* ChatViewController+ArchiveEngine.swift */,
 				6648841B26EA068F00323013 /* ChatViewController+SearchBar.swift */,
 				663ACA88283FA8E2005553BE /* ChatViewController+DigitalSignature.swift */,
 				66D1E7ED28683380006C58A7 /* ChatViewController+TrustedDevies.swift */,
@@ -4363,6 +4368,7 @@
 					CA180020CA180020CA180020 /* ArchiveTransportReceiptTests.swift */,
 					CA180022CA180022CA180022 /* AccountArchiveEngineTests.swift */,
 					CA180040CA180040CA180040 /* ArchiveCoverageRepositoryTests.swift */,
+					CA180062CA180062CA180062 /* ChatArchiveEnginePresentationTests.swift */,
 					4E9400012FF400000ABC001 /* ChatTimelineSessionTests.swift */,
 					4E9500012FF500000ABC001 /* ChatAsyncLocalPagingTests.swift */,
 					4E9600012FF600000ABC001 /* ChatRemoteMAMPersistenceCoordinatorTests.swift */,
@@ -6182,6 +6188,7 @@
 				4EAF0008300000000ABC001 /* ChatAvatarPipeline.swift in Sources */,
 				4E6D00042FAC00000ABC001 /* ChatComposerFrameUpdatePlanner.swift in Sources */,
 				4E9400042FF400000ABC001 /* ChatTimelineSession.swift in Sources */,
+				CA180061CA180061CA180061 /* ChatViewController+ArchiveEngine.swift in Sources */,
 				66B7992022E08167001589A5 /* SearchResultsViewController+UITableViewDatasource.swift in Sources */,
 				1A999D8627DF497A0093A011 /* CloudStorageViewController.swift in Sources */,
 				669F92EE27FC40C00035658C /* CommonConfigManager.swift in Sources */,
@@ -6615,6 +6622,7 @@
 					CA180021CA180021CA180021 /* ArchiveTransportReceiptTests.swift in Sources */,
 					CA180023CA180023CA180023 /* AccountArchiveEngineTests.swift in Sources */,
 					CA180041CA180041CA180041 /* ArchiveCoverageRepositoryTests.swift in Sources */,
+					CA180063CA180063CA180063 /* ChatArchiveEnginePresentationTests.swift in Sources */,
 					4E9400022FF400000ABC001 /* ChatTimelineSessionTests.swift in Sources */,
 					4E9500022FF500000ABC001 /* ChatAsyncLocalPagingTests.swift in Sources */,
 					4E9600022FF600000ABC001 /* ChatRemoteMAMPersistenceCoordinatorTests.swift in Sources */,

@@ -150,6 +150,45 @@ actor AccountArchiveEngine {
         startOrJoin(intent, skeletonReason: .loadingTarget)
     }
 
+    func liveMessageDidPersist(
+        conversation: ArchiveConversationKey,
+        primaryID: String
+    ) async {
+        let hasVisibleProof: Bool
+        switch states[conversation] {
+        case .verified, .authoritativeEmpty:
+            hasVisibleProof = true
+        case .skeleton, .retryableFailure, .none:
+            hasVisibleProof = false
+        }
+        guard conversation.owner == owner,
+              let connection,
+              !connection.waitsForXEPSYNC,
+              let intent = latestIntentByConversation[conversation],
+              hasVisibleProof else {
+            return
+        }
+        let freshnessToken: ArchiveFreshnessToken = connection.completedXEPSYNCFingerprint.map {
+            .xepSync(fingerprint: $0)
+        } ?? .sessionMAM(
+            connectionGeneration: connection.generation,
+            queryID: "archive.engine.live.\(primaryID)"
+        )
+        do {
+            if let snapshot = try await repository.extendLiveEdge(
+                for: intent,
+                primaryID: primaryID,
+                freshnessToken: freshnessToken
+            ), self.connection?.generation == connection.generation {
+                publish(.verified(snapshot), for: conversation)
+            }
+        } catch {
+            // A live-edge projection is opportunistic. The existing verified
+            // window remains valid; a later interactive newest request repairs
+            // any failure without exposing an unproved row.
+        }
+    }
+
     private func startOrJoin(
         _ intent: ArchiveWindowIntent,
         skeletonReason: ArchiveSkeletonReason
@@ -157,15 +196,26 @@ actor AccountArchiveEngine {
         let descriptor = intent.semanticDescriptor
         if var active = activeByDescriptor[descriptor] {
             guard intent.priority > active.intent.priority else { return }
+            let previousPriority = active.intent.priority
             active.intent = intent
             activeByDescriptor[descriptor] = active
+            if intent.priority >= .target ||
+                (intent.priority == .visibleIntegrity &&
+                    previousPriority == .nearEdgePrefetch) {
+                publish(
+                    .skeleton(reason: .boundaryGap, target: intent.locator),
+                    for: intent.conversation
+                )
+            }
             Task { await transport.promote(descriptor: descriptor, to: intent.priority) }
             return
         }
-        publish(
-            .skeleton(reason: skeletonReason, target: intent.locator),
-            for: intent.conversation
-        )
+        if !preservesVerifiedPresentation(for: intent) {
+            publish(
+                .skeleton(reason: skeletonReason, target: intent.locator),
+                for: intent.conversation
+            )
+        }
         let execution = ActiveExecution(id: UUID(), intent: intent)
         activeByDescriptor[descriptor] = execution
         Task { [weak self] in
@@ -269,10 +319,21 @@ actor AccountArchiveEngine {
                         for: intent.conversation
                     )
                 case .materializedWithoutCoverage:
-                    publish(
-                        .skeleton(reason: .loadingTarget, target: intent.locator),
-                        for: intent.conversation
+                    let snapshot = try await verifyMaterializedTargetWindow(
+                        intent: intent,
+                        exactPage: page,
+                        connection: connection,
+                        proofFingerprint: proofFingerprint,
+                        freshnessToken: freshnessToken,
+                        executionID: executionID,
+                        descriptor: descriptor
                     )
+                    guard isCurrent(
+                        executionID,
+                        descriptor: descriptor,
+                        generation: connection.generation
+                    ) else { return }
+                    publish(.verified(snapshot), for: intent.conversation)
                 }
                 finish(executionID, descriptor: descriptor)
                 return
@@ -285,17 +346,19 @@ actor AccountArchiveEngine {
                         descriptor: descriptor,
                         generation: connection.generation
                     ) {
-                        publish(
-                            .retryableFailure(
-                                ArchiveRetryableFailure(
-                                    message: String(describing: error),
-                                    retryCount: failureCount,
-                                    canRetry: retryable
+                        if !preservesVerifiedPresentation(for: intent) {
+                            publish(
+                                .retryableFailure(
+                                    ArchiveRetryableFailure(
+                                        message: String(describing: error),
+                                        retryCount: failureCount,
+                                        canRetry: retryable
+                                    ),
+                                    target: intent.locator
                                 ),
-                                target: intent.locator
-                            ),
-                            for: intent.conversation
-                        )
+                                for: intent.conversation
+                            )
+                        }
                         finish(executionID, descriptor: descriptor)
                     }
                     return
@@ -306,26 +369,118 @@ actor AccountArchiveEngine {
         }
     }
 
+    private func verifyMaterializedTargetWindow(
+        intent: ArchiveWindowIntent,
+        exactPage: ValidatedArchiveTransportPage,
+        connection: ConnectionState,
+        proofFingerprint: String,
+        freshnessToken: ArchiveFreshnessToken,
+        executionID: UUID,
+        descriptor: ArchiveIntentDescriptor
+    ) async throws -> ArchiveWindowSnapshot {
+        guard let anchor = try await repository.materializedAnchor(
+            conversation: intent.conversation,
+            locator: intent.locator,
+            candidateArchiveIDs: exactPage.chronologicalArchiveIDs
+        ) else {
+            throw ArchiveTransportError.malformedCursor
+        }
+        let olderRequest = ArchiveTransportRequest(
+            queryID: "archive.engine.anchor.older.\(UUID().uuidString)",
+            conversation: intent.conversation,
+            locator: .older(before: anchor.cursor),
+            connectionGeneration: connection.generation,
+            pageSize: max(1, intent.contextBefore),
+            contextBefore: intent.contextBefore,
+            contextAfter: 0,
+            proofFingerprint: proofFingerprint,
+            isUnfiltered: true,
+            producesContinuousCoverage: true
+        )
+        let olderReceipt = try await transport.request(
+            olderRequest,
+            priority: activeByDescriptor[descriptor]?.intent.priority ?? intent.priority
+        )
+        guard isCurrent(
+            executionID,
+            descriptor: descriptor,
+            generation: connection.generation
+        ) else {
+            throw ArchiveTransportError.disconnected
+        }
+        let olderPage = try ArchiveTransportReceiptValidator.validate(
+            olderReceipt,
+            for: olderRequest
+        )
+
+        let newerRequest = ArchiveTransportRequest(
+            queryID: "archive.engine.anchor.newer.\(UUID().uuidString)",
+            conversation: intent.conversation,
+            locator: .newer(after: anchor.cursor),
+            connectionGeneration: connection.generation,
+            pageSize: max(1, intent.contextAfter),
+            contextBefore: 0,
+            contextAfter: intent.contextAfter,
+            proofFingerprint: proofFingerprint,
+            isUnfiltered: true,
+            producesContinuousCoverage: true
+        )
+        let newerReceipt = try await transport.request(
+            newerRequest,
+            priority: activeByDescriptor[descriptor]?.intent.priority ?? intent.priority
+        )
+        guard isCurrent(
+            executionID,
+            descriptor: descriptor,
+            generation: connection.generation
+        ) else {
+            throw ArchiveTransportError.disconnected
+        }
+        let newerPage = try ArchiveTransportReceiptValidator.validate(
+            newerReceipt,
+            for: newerRequest
+        )
+        return try await repository.commitAnchorWindow(
+            intent: intent,
+            anchor: anchor,
+            exactPage: exactPage,
+            olderPage: olderPage,
+            newerPage: newerPage,
+            freshnessToken: freshnessToken
+        )
+    }
+
     private func makeRequest(
         intent: ArchiveWindowIntent,
         queryID: String,
         generation: UInt64,
         proofFingerprint: String
     ) -> ArchiveTransportRequest {
+        let requestLocator: ArchiveWindowLocator
         let pageSize: Int
         switch intent.locator {
         case .latest:
+            requestLocator = intent.locator
             pageSize = ArchivePageSizing.initial
         case .archiveID, .timestamp:
+            requestLocator = intent.locator
             pageSize = max(1, intent.contextBefore + intent.contextAfter)
-        case .firstUnread, .older, .newer, .gap:
+        case .firstUnread(.some(let boundary)):
+            // `after` is strict on the server, so it cannot prove that the
+            // unread boundary itself joins the newer page. Materialize the
+            // exact row first, then use the same two-sided anchor proof as a
+            // search jump. This prevents a one-row discontinuity.
+            requestLocator = .archiveID(boundary)
+            pageSize = 1
+        case .firstUnread(.none), .older, .newer, .gap:
+            requestLocator = intent.locator
             pageSize = ArchivePageSizing.history
         }
-        let continuous = intent.locator.isContinuousArchiveWindow
+        let continuous = requestLocator.isContinuousArchiveWindow
         return ArchiveTransportRequest(
             queryID: queryID,
             conversation: intent.conversation,
-            locator: intent.locator,
+            locator: requestLocator,
             connectionGeneration: generation,
             pageSize: pageSize,
             contextBefore: intent.contextBefore,
@@ -341,6 +496,14 @@ actor AccountArchiveEngine {
             return transportError.isRetryable
         }
         if error is ArchiveTransportValidationError {
+            return false
+        }
+        return true
+    }
+
+    private func preservesVerifiedPresentation(for intent: ArchiveWindowIntent) -> Bool {
+        guard intent.priority == .nearEdgePrefetch,
+              case .verified = states[intent.conversation] else {
             return false
         }
         return true

@@ -259,6 +259,235 @@ final class RealmArchiveCoverageRepository:
         }
     }
 
+    func materializedAnchor(
+        conversation: ArchiveConversationKey,
+        locator: ArchiveWindowLocator,
+        candidateArchiveIDs: [String]
+    ) async throws -> ArchiveMaterializedAnchor? {
+        let candidates = Set(candidateArchiveIDs.compactMap { ArchiveCursor(rawValue: $0)?.rawValue })
+        guard candidates.isNotEmpty else { return nil }
+        return try await perform { realm in
+            let messages = Self.messageIdentities(
+                realm: realm,
+                conversation: conversation
+            ).filter { candidates.contains($0.cursor.rawValue) }
+            let selected: MessageIdentity?
+            switch locator {
+            case .archiveID(let requested):
+                selected = messages.first(where: { $0.cursor == requested })
+            case .firstUnread(.some(let requested)):
+                selected = messages.first(where: { $0.cursor == requested })
+            case .timestamp(let date):
+                selected = messages.min {
+                    abs($0.date.timeIntervalSince(date)) <
+                        abs($1.date.timeIntervalSince(date))
+                }
+            default:
+                selected = nil
+            }
+            return selected.map {
+                ArchiveMaterializedAnchor(cursor: $0.cursor, primaryID: $0.primary)
+            }
+        }
+    }
+
+    func commitAnchorWindow(
+        intent: ArchiveWindowIntent,
+        anchor: ArchiveMaterializedAnchor,
+        exactPage: ValidatedArchiveTransportPage,
+        olderPage: ValidatedArchiveTransportPage,
+        newerPage: ValidatedArchiveTransportPage,
+        freshnessToken: ArchiveFreshnessToken
+    ) async throws -> ArchiveWindowSnapshot {
+        try await perform { realm in
+            for page in [exactPage, olderPage, newerPage] {
+                let allowedArchiveIDs = Set(page.chronologicalArchiveIDs)
+                let rows = realm.objects(MessageStorageItem.self)
+                    .filter("primary IN %@", page.messagePrimaryIDs)
+                guard rows.count == Set(page.messagePrimaryIDs).count else {
+                    throw ArchiveCoverageRepositoryError.missingPersistedMessages
+                }
+                for row in rows {
+                    guard row.owner == intent.conversation.owner,
+                          row.opponent == intent.conversation.jid,
+                          row.conversationType == intent.conversation.conversationType else {
+                        throw ArchiveCoverageRepositoryError.persistedMessageIdentityMismatch
+                    }
+                    guard let archiveID = ArchiveCursor(rawValue: row.archivedId),
+                          allowedArchiveIDs.contains(archiveID.rawValue) else {
+                        throw ArchiveCoverageRepositoryError.malformedPersistedArchiveID
+                    }
+                }
+            }
+            guard exactPage.chronologicalArchiveIDs.contains(anchor.cursor.rawValue),
+                  exactPage.messagePrimaryIDs.contains(anchor.primaryID),
+                  let exactMessage = realm.object(
+                    ofType: MessageStorageItem.self,
+                    forPrimaryKey: anchor.primaryID
+                  ),
+                  exactMessage.owner == intent.conversation.owner,
+                  exactMessage.opponent == intent.conversation.jid,
+                  exactMessage.conversationType == intent.conversation.conversationType,
+                  ArchiveCursor(rawValue: exactMessage.archivedId) == anchor.cursor else {
+                throw ArchiveCoverageRepositoryError.missingPersistedMessages
+            }
+            if let older = olderPage.segment, older.newest >= anchor.cursor {
+                throw ArchiveCoverageRepositoryError.malformedPersistedArchiveID
+            }
+            if let newer = newerPage.segment, newer.oldest <= anchor.cursor {
+                throw ArchiveCoverageRepositoryError.malformedPersistedArchiveID
+            }
+            guard olderPage.segment != nil || olderPage.deliveredResultCount == 0,
+                  newerPage.segment != nil || newerPage.deliveredResultCount == 0 else {
+                throw ArchiveCoverageRepositoryError.storageFailure
+            }
+            let oldest = olderPage.segment?.oldest ?? anchor.cursor
+            let newest = newerPage.segment?.newest ?? anchor.cursor
+            guard let compoundSegment = ArchiveCoverageSegment(
+                oldest: oldest,
+                newest: newest,
+                reachesArchiveStart:
+                    olderPage.segment?.reachesArchiveStart ?? olderPage.requestComplete,
+                reachesLiveEdge:
+                    newerPage.segment?.reachesLiveEdge ?? newerPage.requestComplete,
+                fingerprint: freshnessToken.fingerprint,
+                isVerified: true
+            ) else {
+                throw ArchiveCoverageRepositoryError.storageFailure
+            }
+            let generation: UInt64 = try realm.write {
+                let storage = ConversationArchiveCoverageStorageItem.ensure(
+                    key: intent.conversation,
+                    in: realm
+                )
+                storage.segments = ArchiveCoverageReducer.adding(
+                    compoundSegment,
+                    to: storage.segments,
+                    adjacency: nil
+                )
+                storage.lastObservedXEPSYNCFingerprint = freshnessToken.fingerprint
+                storage.coverageGeneration += 1
+                storage.updatedAt = Date()
+                storage.projectCompatibility(in: realm)
+                return UInt64(max(0, storage.coverageGeneration))
+            }
+            let primaryIDs = Self.messagePrimaryIDs(
+                for: intent,
+                segment: compoundSegment,
+                realm: realm
+            )
+            guard primaryIDs.contains(anchor.primaryID) else {
+                throw ArchiveCoverageRepositoryError.missingPersistedMessages
+            }
+            return ArchiveWindowSnapshot(
+                messagePrimaryIDs: primaryIDs,
+                target: intent.locator,
+                verifiedSegment: compoundSegment,
+                coverageGeneration: generation,
+                freshnessToken: freshnessToken
+            )
+        }
+    }
+
+    func extendLiveEdge(
+        for intent: ArchiveWindowIntent,
+        primaryID: String,
+        freshnessToken: ArchiveFreshnessToken
+    ) async throws -> ArchiveWindowSnapshot? {
+        try await perform { realm in
+            guard let message = realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: primaryID
+            ), message.owner == intent.conversation.owner,
+               message.opponent == intent.conversation.jid,
+               message.conversationType == intent.conversation.conversationType,
+               !message.isDeleted,
+               !message.isLocallyHiddenByReport,
+               let cursor = ArchiveCursor(rawValue: message.archivedId),
+               let storage = realm.object(
+                   ofType: ConversationArchiveCoverageStorageItem.self,
+                   forPrimaryKey: ConversationArchiveCoverageStorageItem.genPrimary(
+                       owner: intent.conversation.owner,
+                       jid: intent.conversation.jid,
+                       conversationType: intent.conversation.conversationType
+                   )
+               ),
+               storage.lastObservedXEPSYNCFingerprint == freshnessToken.fingerprint else {
+                return nil
+            }
+
+            let verifiedSegments = storage.segments.filter {
+                $0.isVerified && $0.fingerprint == freshnessToken.fingerprint
+            }
+            let currentLiveEdge = verifiedSegments.last(where: { $0.reachesLiveEdge })
+            let expanded: ArchiveCoverageSegment
+            if let currentLiveEdge {
+                guard cursor >= currentLiveEdge.oldest else { return nil }
+                guard let value = ArchiveCoverageSegment(
+                    oldest: currentLiveEdge.oldest,
+                    newest: max(currentLiveEdge.newest, cursor),
+                    reachesArchiveStart: currentLiveEdge.reachesArchiveStart,
+                    reachesLiveEdge: true,
+                    fingerprint: freshnessToken.fingerprint,
+                    isVerified: true
+                ) else {
+                    throw ArchiveCoverageRepositoryError.storageFailure
+                }
+                expanded = value
+            } else {
+                // A durable authoritative-empty proof may be followed by the
+                // first live stanza in the same authenticated session.
+                guard verifiedSegments.isEmpty, storage.coverageGeneration > 0,
+                      let value = ArchiveCoverageSegment(
+                          oldest: cursor,
+                          newest: cursor,
+                          reachesArchiveStart: true,
+                          reachesLiveEdge: true,
+                          fingerprint: freshnessToken.fingerprint,
+                          isVerified: true
+                      ) else {
+                    return nil
+                }
+                expanded = value
+            }
+
+            let generation: UInt64 = try realm.write {
+                storage.segments = ArchiveCoverageReducer.adding(
+                    expanded,
+                    to: storage.segments,
+                    adjacency: nil
+                )
+                storage.coverageGeneration += 1
+                storage.updatedAt = Date()
+                storage.projectCompatibility(in: realm)
+                return UInt64(max(0, storage.coverageGeneration))
+            }
+            guard let admitted = Self.admittingSegment(
+                for: intent.locator,
+                segments: storage.segments.filter {
+                    $0.isVerified && $0.fingerprint == freshnessToken.fingerprint
+                },
+                realm: realm,
+                conversation: intent.conversation
+            ) else {
+                return nil
+            }
+            let primaryIDs = Self.messagePrimaryIDs(
+                for: intent,
+                segment: admitted,
+                realm: realm
+            )
+            guard primaryIDs.isNotEmpty else { return nil }
+            return ArchiveWindowSnapshot(
+                messagePrimaryIDs: primaryIDs,
+                target: intent.locator,
+                verifiedSegment: admitted,
+                coverageGeneration: generation,
+                freshnessToken: freshnessToken
+            )
+        }
+    }
+
     private func perform<T>(_ body: @escaping (Realm) throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {

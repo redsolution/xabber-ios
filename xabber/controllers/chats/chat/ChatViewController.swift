@@ -2255,6 +2255,12 @@ class ChatViewController: MessagesViewController {
     
 // datasource
     var timelineSession: ChatTimelineSession?
+    var archiveEnginePresentationActive = false
+    var archiveWindowStateTask: Task<Void, Never>?
+    var archiveWindowState: ArchiveWindowState?
+    var archiveWindowIntent: ArchiveWindowIntent?
+    var archiveWindowApplyGeneration: UInt64 = 0
+    var archiveWindowCommittedCoverageGeneration: UInt64?
     var datasource: [Datasource] = [] {
         didSet {
             rebuildScrollResidentMetadata()
@@ -2882,6 +2888,16 @@ class ChatViewController: MessagesViewController {
 
     internal func setSkeletonVisible(_ isVisible: Bool) {
         self.performOnMain {
+            if !isVisible,
+               self.archiveEnginePresentationActive,
+               let state = self.archiveWindowState,
+               ChatArchiveWindowPresentationPolicy.shouldShowFullSkeleton(
+                    for: state,
+                    committedCoverageGeneration:
+                        self.archiveWindowCommittedCoverageGeneration
+               ) {
+                return
+            }
             self.showSkeletonObserver.accept(isVisible)
         }
     }
@@ -7767,6 +7783,7 @@ class ChatViewController: MessagesViewController {
         self.didRunNavigationDisappearanceCleanup = true
         self.didScheduleNavigationDisappearanceCleanup = false
         self.didCancelNavigationDisappearanceTransition = false
+        self.stopArchiveEnginePresentationSubscription()
         self.flushPendingScrollWork()
         self.releaseNavigationAvatarItemAfterConfirmedRemoval()
         self.teardownChatSearchLifecycle(reason: .navigationAway)
@@ -8235,6 +8252,7 @@ class ChatViewController: MessagesViewController {
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
+        self.startArchiveEnginePresentationIfNeeded()
         self.shouldChangeFrame()
         self.reconcileChatCollectionInsetsForCurrentSafeArea()
 

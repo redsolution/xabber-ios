@@ -3348,6 +3348,8 @@ extension ChatViewController {
     }
 
     internal func requestInitialBootstrapArchive(showFailureIfUnavailable: Bool = false) {
+        self.startArchiveEnginePresentationIfNeeded()
+        guard !self.archiveEnginePresentationActive else { return }
         if let performanceTraceContext = self.chatOpenPerformanceTraceContext,
            self.appliedBootstrapLoadingState?.showsSkeleton == true,
            !self.chatOpenPerformanceTraceLifecycle

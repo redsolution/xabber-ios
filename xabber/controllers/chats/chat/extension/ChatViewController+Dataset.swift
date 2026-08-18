@@ -19946,6 +19946,11 @@ extension ChatViewController {
         performPendingOpenMessageRequest: Bool = true,
         completion: (() -> Void)? = nil
     ) {
+        if self.archiveEnginePresentationActive {
+            self.startArchiveEnginePresentationIfNeeded()
+            completion?()
+            return
+        }
         self.recordChatOpenTimingInitialDatasourceLoadStarted(
             performPendingOpenMessageRequest: performPendingOpenMessageRequest
         )
@@ -21545,6 +21550,12 @@ extension ChatViewController {
         preparation: ChatInteractiveHistoryPagingPreparation,
         callback: @escaping ((ChatTimelineSnapshot?) -> Void)
     ) {
+        if self.archiveEnginePresentationActive {
+            self.submitArchiveEnginePage(direction: preparation.direction)
+            self.timelineInteractionState.unlock()
+            callback(nil)
+            return
+        }
         guard let residentSnapshot = self.timelineSession?.snapshot,
               residentSnapshot.generation == preparation.preparedPage.baseGeneration,
               preparation.preparedPage.conversationKey == self.chatTimelineConversationKey else {
@@ -21999,6 +22010,9 @@ extension ChatViewController {
 
     
     func didReceiveChangeset() {
+        if self.archiveEnginePresentationActive {
+            return
+        }
         if ChatInitialFrameObserverRefreshBarrierPolicy.shouldDefer(
             phase: self.initialLocalFirstFramePhase,
             hasCommittedTimelinePresentation:

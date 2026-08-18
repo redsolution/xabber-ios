@@ -2224,6 +2224,65 @@ final class ChatTimelineSession {
         }
     }
 
+    @discardableResult
+    func installArchiveEngineVerifiedWindow(
+        primaryIDs: [String],
+        segment: ArchiveCoverageSegment
+    ) -> ChatTimelineSessionSnapshot? {
+        operationLock.withLock {
+            let items = store.items(primaryKeys: primaryIDs)
+            guard let candidate = ChatArchiveVerifiedTimelineStateFactory.make(
+                items: items,
+                expectedPrimaryIDs: primaryIDs,
+                segment: segment,
+                conversationKey: conversationKey
+            ) else {
+                return nil
+            }
+            let base = snapshot
+            return publish(
+                items: candidate.items,
+                state: candidate.state,
+                loadingState: .none,
+                loadDecision: nil,
+                anchorRestore: nil,
+                localOlderCandidateCount: nil,
+                shortLocalRemainderRemoteFirst: false,
+                readBoundary: base.readBoundary,
+                unreadMetadata: base.unreadMetadata
+            )
+        }
+    }
+
+    @discardableResult
+    func installArchiveEngineAuthoritativeEmpty() -> ChatTimelineSessionSnapshot {
+        operationLock.withLock {
+            let base = snapshot
+            let state = ChatVirtualTimelineState(
+                conversationKey: conversationKey,
+                segments: [.liveTail],
+                oldest: nil,
+                newest: nil,
+                residentPrimaryKeys: [],
+                residentArchivedIds: [],
+                activeRemoteLoad: nil,
+                activePlaceholder: nil,
+                isResidentAtLiveTail: true
+            )
+            return publish(
+                items: [],
+                state: state,
+                loadingState: .none,
+                loadDecision: .endReached,
+                anchorRestore: nil,
+                localOlderCandidateCount: 0,
+                shortLocalRemainderRemoteFirst: false,
+                readBoundary: base.readBoundary,
+                unreadMetadata: base.unreadMetadata
+            )
+        }
+    }
+
     /// Re-publishes the snapshot whose mapped datasource has won the UI apply race.
     ///
     /// Anchor mapping happens off the main thread. Another command may mutate the

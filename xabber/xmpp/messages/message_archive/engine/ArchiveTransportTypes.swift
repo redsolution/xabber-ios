@@ -49,6 +49,12 @@ struct ValidatedArchiveTransportPage: Hashable, Sendable {
     let isAuthoritativeEmpty: Bool
     let cheapPageCount: Int
     let deliveredResultCount: Int
+    let requestComplete: Bool
+}
+
+struct ArchiveMaterializedAnchor: Hashable, Sendable {
+    let cursor: ArchiveCursor
+    let primaryID: String
 }
 
 enum ArchiveTransportReceiptValidator {
@@ -115,7 +121,8 @@ enum ArchiveTransportReceiptValidator {
                 adjacency: nil,
                 isAuthoritativeEmpty: authoritativeEmpty,
                 cheapPageCount: max(0, receipt.cheapPageCount),
-                deliveredResultCount: delivered
+                deliveredResultCount: delivered,
+                requestComplete: receipt.complete
             )
         }
 
@@ -153,7 +160,12 @@ enum ArchiveTransportReceiptValidator {
             guard oldest > olderBoundary, newest < newerBoundary else {
                 throw ArchiveTransportValidationError.invalidDirection
             }
-            adjacency = nil
+            adjacency = receipt.complete
+                ? .gap(
+                    olderBoundary: olderBoundary,
+                    newerBoundary: newerBoundary
+                )
+                : nil
         case .firstUnread(.none):
             reachesLiveEdge = true
             reachesArchiveStart = receipt.complete
@@ -183,7 +195,8 @@ enum ArchiveTransportReceiptValidator {
             adjacency: segment == nil ? nil : adjacency,
             isAuthoritativeEmpty: false,
             cheapPageCount: max(0, receipt.cheapPageCount),
-            deliveredResultCount: delivered
+            deliveredResultCount: delivered,
+            requestComplete: receipt.complete
         )
     }
 }
@@ -221,6 +234,24 @@ protocol ArchiveCoverageRepository: Sendable {
         request: ArchiveTransportRequest,
         freshnessToken: ArchiveFreshnessToken
     ) async throws -> ArchiveRepositoryCommit
+    func commitAnchorWindow(
+        intent: ArchiveWindowIntent,
+        anchor: ArchiveMaterializedAnchor,
+        exactPage: ValidatedArchiveTransportPage,
+        olderPage: ValidatedArchiveTransportPage,
+        newerPage: ValidatedArchiveTransportPage,
+        freshnessToken: ArchiveFreshnessToken
+    ) async throws -> ArchiveWindowSnapshot
+    func materializedAnchor(
+        conversation: ArchiveConversationKey,
+        locator: ArchiveWindowLocator,
+        candidateArchiveIDs: [String]
+    ) async throws -> ArchiveMaterializedAnchor?
+    func extendLiveEdge(
+        for intent: ArchiveWindowIntent,
+        primaryID: String,
+        freshnessToken: ArchiveFreshnessToken
+    ) async throws -> ArchiveWindowSnapshot?
 }
 
 protocol ArchiveMessageMaterializationResolving: Sendable {

@@ -175,6 +175,41 @@ final class AccountArchiveEngineTests: XCTestCase {
         XCTAssertEqual(requestCount, 1)
     }
 
+    func testNearEdgePrefetchKeepsCurrentlyVerifiedWindowVisibleWhileRequestRuns() async throws {
+        let repository = ArchiveEngineRepositorySpy()
+        await repository.setSnapshot(makeSnapshot(fingerprint: "sync-prefetch"))
+        let transport = ArchiveEngineTransportSpy()
+        let engine = AccountArchiveEngine(
+            owner: conversation.owner,
+            repository: repository,
+            transport: transport,
+            retryClock: .immediate
+        )
+        await engine.connectionDidBecomeReady(
+            generation: 12,
+            completedXEPSYNCFingerprint: "sync-prefetch"
+        )
+        await engine.submit(latestIntent(priority: .visibleIntegrity))
+        await engine.waitUntilIdleForTesting()
+        guard case .verified(let current) = await engine.currentState(for: conversation) else {
+            return XCTFail("Expected verified initial window")
+        }
+        await repository.setSnapshot(nil)
+        await transport.suspendRequests()
+
+        let prefetch = ArchiveWindowIntent(
+            conversation: conversation,
+            locator: .older(before: current.verifiedSegment.oldest),
+            contextBefore: ArchivePageSizing.history,
+            contextAfter: ArchivePageSizing.initial,
+            priority: .nearEdgePrefetch
+        )
+        await engine.submit(prefetch)
+
+        let stateWhilePrefetchRuns = await engine.currentState(for: conversation)
+        XCTAssertEqual(stateWhilePrefetchRuns, .verified(current))
+    }
+
     private func latestIntent(priority: ArchiveIntentPriority) -> ArchiveWindowIntent {
         ArchiveWindowIntent(
             conversation: conversation,
@@ -260,6 +295,33 @@ private actor ArchiveEngineRepositorySpy: ArchiveCoverageRepository {
         )
         snapshot = value
         return .verified(value)
+    }
+
+    func materializedAnchor(
+        conversation: ArchiveConversationKey,
+        locator: ArchiveWindowLocator,
+        candidateArchiveIDs: [String]
+    ) async throws -> ArchiveMaterializedAnchor? {
+        nil
+    }
+
+    func commitAnchorWindow(
+        intent: ArchiveWindowIntent,
+        anchor: ArchiveMaterializedAnchor,
+        exactPage: ValidatedArchiveTransportPage,
+        olderPage: ValidatedArchiveTransportPage,
+        newerPage: ValidatedArchiveTransportPage,
+        freshnessToken: ArchiveFreshnessToken
+    ) async throws -> ArchiveWindowSnapshot {
+        throw ArchiveTransportError.protocolViolation
+    }
+
+    func extendLiveEdge(
+        for intent: ArchiveWindowIntent,
+        primaryID: String,
+        freshnessToken: ArchiveFreshnessToken
+    ) async throws -> ArchiveWindowSnapshot? {
+        nil
     }
 }
 

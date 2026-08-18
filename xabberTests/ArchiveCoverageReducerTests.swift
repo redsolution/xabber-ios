@@ -65,6 +65,42 @@ final class ArchiveCoverageReducerTests: XCTestCase {
         XCTAssertEqual(result, [older, newer])
     }
 
+    func testCompletedBoundedGapProofBridgesBothVerifiedSegments() throws {
+        let older = try segment("1", "10", fingerprint: "sync-a", verified: true)
+        let newer = try segment("30", "40", fingerprint: "sync-a", verified: true)
+        let materializedGap = try segment("11", "29", fingerprint: "sync-a", verified: true)
+
+        let result = ArchiveCoverageReducer.adding(
+            materializedGap,
+            to: [older, newer],
+            adjacency: .gap(
+                olderBoundary: try cursor("10"),
+                newerBoundary: try cursor("30")
+            )
+        )
+
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result[0].oldest, try cursor("1"))
+        XCTAssertEqual(result[0].newest, try cursor("40"))
+    }
+
+    func testBoundedGapProofDoesNotBridgeMissingOrMismatchedBoundary() throws {
+        let older = try segment("1", "9", fingerprint: "sync-a", verified: true)
+        let newer = try segment("31", "40", fingerprint: "sync-a", verified: true)
+        let materializedGap = try segment("11", "29", fingerprint: "sync-a", verified: true)
+
+        let result = ArchiveCoverageReducer.adding(
+            materializedGap,
+            to: [older, newer],
+            adjacency: .gap(
+                olderBoundary: try cursor("10"),
+                newerBoundary: try cursor("30")
+            )
+        )
+
+        XCTAssertEqual(result.count, 3)
+    }
+
     func testGapsAreDerivedAndNotStoredSeparately() throws {
         let segments = [
             try segment("1", "10", fingerprint: "sync", verified: true),

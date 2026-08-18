@@ -177,6 +177,154 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         XCTAssertTrue(snapshot.verifiedSegment.reachesLiveEdge)
     }
 
+    func testExactTargetBecomesCoverageOnlyAfterOlderAndNewerProofs() async throws {
+        for archivedID in ["80", "90", "100", "110", "120"] {
+            try persistMessage(primary: "p\(archivedID)", archivedID: archivedID)
+        }
+        let target = try XCTUnwrap(ArchiveCursor(rawValue: "100"))
+        let intent = ArchiveWindowIntent(
+            conversation: conversation,
+            locator: .archiveID(target),
+            contextBefore: 30,
+            contextAfter: 30,
+            priority: .target
+        )
+        let exactRequest = ArchiveTransportRequest(
+            queryID: "q-exact",
+            conversation: conversation,
+            locator: intent.locator,
+            connectionGeneration: 1,
+            pageSize: 60,
+            contextBefore: 30,
+            contextAfter: 30,
+            proofFingerprint: "sync-anchor",
+            isUnfiltered: false,
+            producesContinuousCoverage: false
+        )
+        let exactPage = try ArchiveTransportReceiptValidator.validate(
+            receipt(
+                request: exactRequest,
+                archiveIDs: ["100"],
+                primaryIDs: ["p100"],
+                complete: true
+            ),
+            for: exactRequest
+        )
+        let repository = makeRepository()
+        let materialized = try await repository.commit(
+            exactPage,
+            request: exactRequest,
+            freshnessToken: .xepSync(fingerprint: "sync-anchor")
+        )
+        XCTAssertEqual(materialized, .materializedWithoutCoverage)
+
+        let olderRequest = directionalRequest(
+            queryID: "q-anchor-older",
+            locator: .older(before: target),
+            fingerprint: "sync-anchor"
+        )
+        let newerRequest = directionalRequest(
+            queryID: "q-anchor-newer",
+            locator: .newer(after: target),
+            fingerprint: "sync-anchor"
+        )
+        let olderPage = try ArchiveTransportReceiptValidator.validate(
+            receipt(
+                request: olderRequest,
+                archiveIDs: ["90", "80"],
+                primaryIDs: ["p90", "p80"],
+                complete: true
+            ),
+            for: olderRequest
+        )
+        let newerPage = try ArchiveTransportReceiptValidator.validate(
+            receipt(
+                request: newerRequest,
+                archiveIDs: ["120", "110"],
+                primaryIDs: ["p120", "p110"],
+                complete: true
+            ),
+            for: newerRequest
+        )
+        let anchor = try await repository.materializedAnchor(
+            conversation: conversation,
+            locator: intent.locator,
+            candidateArchiveIDs: exactPage.chronologicalArchiveIDs
+        )
+
+        let snapshot = try await repository.commitAnchorWindow(
+            intent: intent,
+            anchor: try XCTUnwrap(anchor),
+            exactPage: exactPage,
+            olderPage: olderPage,
+            newerPage: newerPage,
+            freshnessToken: .xepSync(fingerprint: "sync-anchor")
+        )
+
+        XCTAssertEqual(snapshot.messagePrimaryIDs, ["p80", "p90", "p100", "p110", "p120"])
+        XCTAssertEqual(snapshot.verifiedSegment.oldest.rawValue, "80")
+        XCTAssertEqual(snapshot.verifiedSegment.newest.rawValue, "120")
+        XCTAssertTrue(snapshot.verifiedSegment.reachesArchiveStart)
+        XCTAssertTrue(snapshot.verifiedSegment.reachesLiveEdge)
+    }
+
+    func testPersistedLiveMessageExtendsOnlyCurrentVerifiedLiveEdge() async throws {
+        try persistMessage(primary: "p10", archivedID: "10")
+        try persistMessage(primary: "p20", archivedID: "20")
+        let repository = makeRepository()
+        let request = makeRequest(queryID: "q-live-base")
+        _ = try await repository.commit(
+            validatedPage(request: request, primaryIDs: ["p20", "p10"]),
+            request: request,
+            freshnessToken: .xepSync(fingerprint: "sync-1")
+        )
+        try persistMessage(primary: "p30", archivedID: "30")
+        let intent = ArchiveWindowIntent(
+            conversation: conversation,
+            locator: .latest,
+            contextBefore: 80,
+            contextAfter: 0,
+            priority: .visibleIntegrity
+        )
+
+        let snapshot = try await repository.extendLiveEdge(
+            for: intent,
+            primaryID: "p30",
+            freshnessToken: .xepSync(fingerprint: "sync-1")
+        )
+
+        XCTAssertEqual(snapshot?.messagePrimaryIDs, ["p10", "p20", "p30"])
+        XCTAssertEqual(snapshot?.verifiedSegment.newest.rawValue, "30")
+        XCTAssertTrue(snapshot?.verifiedSegment.reachesLiveEdge == true)
+    }
+
+    func testLiveMessageCannotExtendCoverageWithStaleFingerprint() async throws {
+        try persistMessage(primary: "p10", archivedID: "10")
+        try persistMessage(primary: "p20", archivedID: "20")
+        let repository = makeRepository()
+        let request = makeRequest(queryID: "q-live-stale")
+        _ = try await repository.commit(
+            validatedPage(request: request, primaryIDs: ["p20", "p10"]),
+            request: request,
+            freshnessToken: .xepSync(fingerprint: "sync-1")
+        )
+        try persistMessage(primary: "p30", archivedID: "30")
+
+        let snapshot = try await repository.extendLiveEdge(
+            for: ArchiveWindowIntent(
+                conversation: conversation,
+                locator: .latest,
+                contextBefore: 80,
+                contextAfter: 0,
+                priority: .visibleIntegrity
+            ),
+            primaryID: "p30",
+            freshnessToken: .xepSync(fingerprint: "sync-2")
+        )
+
+        XCTAssertNil(snapshot)
+    }
+
     func testAuthoritativeEmptyIsDurableForMatchingFingerprintOnly() async throws {
         let repository = makeRepository()
         let request = makeRequest(queryID: "q-empty")
@@ -325,6 +473,48 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
                 finalReceived: true
             ),
             for: request
+        )
+    }
+
+    private func directionalRequest(
+        queryID: String,
+        locator: ArchiveWindowLocator,
+        fingerprint: String
+    ) -> ArchiveTransportRequest {
+        ArchiveTransportRequest(
+            queryID: queryID,
+            conversation: conversation,
+            locator: locator,
+            connectionGeneration: 1,
+            pageSize: 30,
+            contextBefore: 30,
+            contextAfter: 30,
+            proofFingerprint: fingerprint,
+            isUnfiltered: true,
+            producesContinuousCoverage: true
+        )
+    }
+
+    private func receipt(
+        request: ArchiveTransportRequest,
+        archiveIDs: [String],
+        primaryIDs: [String],
+        complete: Bool
+    ) -> ArchiveTransportReceipt {
+        ArchiveTransportReceipt(
+            queryID: request.queryID,
+            connectionGeneration: request.connectionGeneration,
+            resultArchiveIDs: archiveIDs,
+            messagePrimaryIDs: primaryIDs,
+            first: archiveIDs.first ?? "",
+            last: archiveIDs.last ?? "",
+            complete: complete,
+            cheapPageCount: archiveIDs.count,
+            deliveredResultCount: archiveIDs.count,
+            persistedResultCount: primaryIDs.count,
+            intentionallyConsumedResultCount: 0,
+            failedPersistenceCount: 0,
+            finalReceived: true
         )
     }
 

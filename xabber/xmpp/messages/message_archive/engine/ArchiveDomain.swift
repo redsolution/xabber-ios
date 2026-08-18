@@ -244,6 +244,7 @@ struct ArchiveCoverageGap: Hashable, Codable, Sendable {
 enum ArchiveCoverageAdjacency: Hashable, Codable, Sendable {
     case older(before: ArchiveCursor)
     case newer(after: ArchiveCursor)
+    case gap(olderBoundary: ArchiveCursor, newerBoundary: ArchiveCursor)
 }
 
 enum ArchiveCoverageReducer {
@@ -253,6 +254,39 @@ enum ArchiveCoverageReducer {
         adjacency: ArchiveCoverageAdjacency?
     ) -> [ArchiveCoverageSegment] {
         var segments = normalized(existing)
+        if case .gap(let olderBoundary, let newerBoundary) = adjacency,
+           let olderIndex = segments.firstIndex(where: {
+               $0.newest == olderBoundary &&
+                   $0.fingerprint == incoming.fingerprint &&
+                   $0.isVerified == incoming.isVerified
+           }),
+           let newerIndex = segments.firstIndex(where: {
+               $0.oldest == newerBoundary &&
+                   $0.fingerprint == incoming.fingerprint &&
+                   $0.isVerified == incoming.isVerified
+           }),
+           olderIndex != newerIndex {
+            let older = segments[olderIndex]
+            let newer = segments[newerIndex]
+            for index in [olderIndex, newerIndex].sorted(by: >) {
+                segments.remove(at: index)
+            }
+            if let bridge = ArchiveCoverageSegment(
+                oldest: olderBoundary,
+                newest: newerBoundary,
+                reachesArchiveStart: false,
+                reachesLiveEdge: false,
+                fingerprint: incoming.fingerprint,
+                isVerified: incoming.isVerified
+            ), let mergedOlder = union(older, bridge),
+               let mergedGap = union(mergedOlder, incoming),
+               let merged = union(mergedGap, newer) {
+                segments.append(merged)
+                return normalized(segments)
+            }
+            segments.append(contentsOf: [older, newer, incoming])
+            return normalized(segments)
+        }
         if let index = adjacentSegmentIndex(
             for: incoming,
             in: segments,
@@ -353,6 +387,8 @@ enum ArchiveCoverageReducer {
                 return segment.oldest == boundary && incoming.newest < boundary
             case .newer(let boundary):
                 return segment.newest == boundary && incoming.oldest > boundary
+            case .gap:
+                return false
             }
         }
     }
