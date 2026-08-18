@@ -22,11 +22,10 @@ import Foundation
 import RealmSwift
 
 enum XabberRealmSchema {
-    /// Schema 18 persists canonical group mention intent and the authorization
-    /// snapshot required to reproduce @all exactly on an outgoing retry.
-    /// Legacy group rows are not converted: development installations use a
-    /// fresh Realm by contract.
-    static let current: UInt64 = 18
+    /// Schema 19 introduces proof-bearing conversation archive coverage.
+    /// Schema 18 ranges are imported as provisional and cannot authorize UI
+    /// until a matching completed XEP-SYNC snapshot verifies them.
+    static let current: UInt64 = 19
 }
 
 
@@ -245,6 +244,76 @@ func makeRealmMigrationConfiguration(
                 // Existing messages have no durable @all send intent. The new
                 // fields keep their nil/false defaults; only newly composed
                 // messages can be retried with an empty canonical <mentions/>.
+            }
+            if oldSchemaVersion < 19 {
+                struct LegacyChatBoundary {
+                    let snapshotArchiveID: String?
+                    let lastMessageID: String?
+                    let unreadAfterID: String?
+                    let unreadCount: Int
+                }
+
+                var chatBoundaries: [String: LegacyChatBoundary] = [:]
+                migration.enumerateObjects(ofType: LastChatsStorageItem.className()) { oldObject, _ in
+                    guard let primary = oldObject?["primary"] as? String,
+                          primary.isNotEmpty else {
+                        return
+                    }
+                    chatBoundaries[primary] = LegacyChatBoundary(
+                        snapshotArchiveID: oldObject?["syncSnapshotLastArchiveId"] as? String,
+                        lastMessageID: oldObject?["lastMessageId"] as? String,
+                        unreadAfterID: oldObject?["syncUnreadAfterId"] as? String,
+                        unreadCount: oldObject?["syncUnreadCount"] as? Int ?? 0
+                    )
+                }
+
+                migration.enumerateObjects(
+                    ofType: RegularChatArchiveSyncStateStorageItem.className()
+                ) { oldObject, _ in
+                    guard let primary = oldObject?["primary"] as? String,
+                          let owner = oldObject?["owner"] as? String,
+                          let jid = oldObject?["jid"] as? String,
+                          primary.isNotEmpty,
+                          owner.isNotEmpty,
+                          jid.isNotEmpty else {
+                        return
+                    }
+                    let conversationTypeRaw = oldObject?["conversationType_"] as? String
+                        ?? ClientSynchronizationManager.ConversationType.regular.rawValue
+                    let chatBoundary = chatBoundaries[primary]
+                    let fingerprint = ArchiveSyncFingerprint(
+                        completedSnapshotStamp: ClientSynchronizationManager.completedSnapshotStamp(
+                            for: owner
+                        ),
+                        lastArchiveID: oldObject?["lastSnapshotArchiveId"] as? String
+                            ?? chatBoundary?.snapshotArchiveID,
+                        lastMessageID: oldObject?["lastSnapshotMessageId"] as? String
+                            ?? chatBoundary?.lastMessageID,
+                        unreadAfterID: chatBoundary?.unreadAfterID,
+                        unreadCount: chatBoundary?.unreadCount ?? 0
+                    ).stableValue
+                    let segmentsJSON = ConversationArchiveCoverageStorageItem.provisionalSegmentsJSON(
+                        legacyRangesJSON: oldObject?["loadedRangesJSON"] as? String ?? "[]",
+                        reachesArchiveStart: oldObject?["olderArchiveEndReached"] as? Bool ?? false,
+                        reachesLiveEdge: oldObject?["newerLiveEdgeReached"] as? Bool ?? false,
+                        fingerprint: fingerprint
+                    )
+                    let now = Date()
+                    migration.create(
+                        ConversationArchiveCoverageStorageItem.className(),
+                        value: [
+                            "primary": primary,
+                            "owner": owner,
+                            "jid": jid,
+                            "conversationType_": conversationTypeRaw,
+                            "segmentsJSON": segmentsJSON,
+                            "coverageGeneration": Int64(0),
+                            "lastObservedXEPSYNCFingerprint": fingerprint,
+                            "createdAt": now,
+                            "updatedAt": now,
+                        ]
+                    )
+                }
             }
         },
         deleteRealmIfMigrationNeeded: false) { total, used in

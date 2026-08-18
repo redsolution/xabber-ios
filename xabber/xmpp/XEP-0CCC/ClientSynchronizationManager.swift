@@ -494,6 +494,16 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
     }
 
+    static func completedSnapshotStamp(for owner: String) -> String? {
+        normalizedSyncString(
+            SettingManager.shared.getKey(
+                for: owner,
+                scope: .clientSynchronization,
+                key: lastCompletedSnapshotStampKey
+            )
+        )
+    }
+
     private func updateStoredVersion(_ stamp: String) {
         version = stamp
         SettingManager.shared.saveItem(for: owner, scope: .clientSynchronization, key: "version", value: stamp)
