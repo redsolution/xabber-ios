@@ -18864,7 +18864,11 @@ extension ChatViewController {
             self.setShouldShowInitialMessage(false)
             self.messagesCollectionView.isUserInteractionEnabled = true
             self.timelineInteractionState.unlock()
-            if state == .content,
+            if ChatArchiveWindowPresentationPolicy.shouldRunLegacyBootstrapRematerialization(
+                    isArchiveEnginePresentationActive:
+                        archiveEnginePresentationActive
+               ),
+               state == .content,
                !self.datasource.contains(where: { !$0.isFakeMessage }) {
                 self.reloadInitialWindowAfterBootstrapIfNeeded(
                     force: true,

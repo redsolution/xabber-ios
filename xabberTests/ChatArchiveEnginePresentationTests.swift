@@ -177,6 +177,19 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
         )
     }
 
+    func testHardCutRejectsLegacyBootstrapRematerializationWhileEngineOwnsPresentation() {
+        XCTAssertFalse(
+            ChatArchiveWindowPresentationPolicy.shouldRunLegacyBootstrapRematerialization(
+                isArchiveEnginePresentationActive: true
+            )
+        )
+        XCTAssertTrue(
+            ChatArchiveWindowPresentationPolicy.shouldRunLegacyBootstrapRematerialization(
+                isArchiveEnginePresentationActive: false
+            )
+        )
+    }
+
     func testVerifiedPrefetchCanKeepAlreadyCommittedWindowVisibleDuringAtomicApply() throws {
         let current = try makeSnapshot(generation: 7)
         let incoming = try makeSnapshot(

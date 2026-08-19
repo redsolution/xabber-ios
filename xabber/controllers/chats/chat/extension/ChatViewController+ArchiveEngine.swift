@@ -2,6 +2,12 @@ import Foundation
 import UIKit
 
 enum ChatArchiveWindowPresentationPolicy {
+    static func shouldRunLegacyBootstrapRematerialization(
+        isArchiveEnginePresentationActive: Bool
+    ) -> Bool {
+        !isArchiveEnginePresentationActive
+    }
+
     static func shouldResetForStart(
         isPresentationActive: Bool,
         currentIntent: ArchiveWindowIntent?,
