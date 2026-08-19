@@ -229,6 +229,32 @@ final class ChatSearchLocalProviderTests: XCTestCase {
         XCTAssertEqual(batches.map(\.count), [50, 25])
     }
 
+    func testLocalProviderDoesNotBufferTheCompleteEncryptedResultSet() throws {
+        try add((0..<275).map { index in
+            makeMessage(
+                primary: "bounded-\(index)",
+                archivedId: "\(index)",
+                body: "test \(index)",
+                date: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        })
+        let provider = makeProvider(batchSize: ArchivePageSizing.search)
+        let firstPage = expectation(description: "bounded first page")
+
+        provider.search(makeRequest(queryId: "bounded")) { event in
+            if case .batch = event.phase {
+                firstPage.fulfill()
+            }
+        }
+
+        wait(for: [firstPage], timeout: 2)
+        XCTAssertLessThanOrEqual(
+            provider.residentBufferedResultCount(queryId: "bounded", generation: 1),
+            ArchivePageSizing.search * 3
+        )
+        XCTAssertTrue(provider.hasPendingPage(queryId: "bounded", generation: 1))
+    }
+
     func testQueryReplacementSuppressesQueuedBatchesAndCompletionFromOldRequest() throws {
         try add((0..<300).map { index in
             makeMessage(

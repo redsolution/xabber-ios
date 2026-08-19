@@ -60,11 +60,38 @@ final class ChatSearchLocalProvider {
         let queryId: String
     }
 
+    private struct Cursor: Equatable {
+        let ordinal: Int64
+        let kind: Int
+        let high: Int64
+        let low: Int64
+        let discriminator: Int64
+    }
+
     private struct ActiveRequest {
         let identity: Identity
+        let request: Request
+        let normalizedQuery: String
         let onEvent: EventHandler
-        var pendingPages: [[ChatSearchResult]] = []
-        var totalResultCount: Int = 0
+        var nextCursor: Cursor?
+        var recentlyDeliveredIDs: Set<ChatSearchResult.ID> = []
+        var deliveredResultCount = 0
+        var canLoadNextPage = true
+        var isLoading = false
+    }
+
+    private struct PageLoadContext {
+        let identity: Identity
+        let request: Request
+        let normalizedQuery: String
+        let cursor: Cursor?
+        let excludedIDs: Set<ChatSearchResult.ID>
+    }
+
+    private struct LoadedPage {
+        let results: [ChatSearchResult]
+        let nextCursor: Cursor?
+        let hasMore: Bool
     }
 
     private let realmConfiguration: Realm.Configuration
@@ -99,8 +126,14 @@ final class ChatSearchLocalProvider {
             generation: request.generation,
             queryId: request.queryId
         )
+        let normalizedQuery = request.query.trimmingCharacters(in: .whitespacesAndNewlines)
         if let replaced = replaceActiveRequest(
-            with: ActiveRequest(identity: identity, onEvent: onEvent)
+            with: ActiveRequest(
+                identity: identity,
+                request: request,
+                normalizedQuery: normalizedQuery,
+                onEvent: onEvent
+            )
         ) {
             deliverCancellation(replaced)
         }
@@ -125,7 +158,6 @@ final class ChatSearchLocalProvider {
             return
         }
 
-        let normalizedQuery = request.query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedQuery.isNotEmpty else {
             emit(
                 Event(
@@ -139,66 +171,10 @@ final class ChatSearchLocalProvider {
             )
             return
         }
-
-        workQueue.async { [weak self] in
-            guard let self,
-                  self.isActive(identity) else {
-                return
-            }
-            autoreleasepool {
-                do {
-                    let realm = try self.realmFactory(self.realmConfiguration)
-                    let scope = request.mappingContext.scope
-                    let storedResults = realm
-                        .objects(MessageStorageItem.self)
-                        .filter(
-                            "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND isDeleted == false AND isLocallyHiddenByReport == false AND messageType != %@ AND body CONTAINS[cd] %@",
-                            scope.owner,
-                            scope.jid,
-                            scope.conversationTypeRawValue,
-                            MessageStorageItem.MessageDisplayType.system.rawValue,
-                            normalizedQuery
-                        )
-
-                    var detachedResults: [ChatSearchResult] = []
-                    detachedResults.reserveCapacity(storedResults.count)
-                    for item in storedResults {
-                        guard self.isActive(identity) else {
-                            return
-                        }
-                        if let result = ChatSearchResultMapper.map(
-                            item,
-                            context: request.mappingContext
-                        ) {
-                            detachedResults.append(result)
-                        }
-                    }
-
-                    let orderedResults = ChatSearchResultCollection.orderedAndDeduplicated(
-                        detachedResults
-                    )
-                    self.installPages(
-                        for: identity,
-                        orderedResults: orderedResults
-                    )
-                    _ = self.requestNextPage(
-                        queryId: request.queryId,
-                        generation: request.generation
-                    )
-                } catch {
-                    self.emit(
-                        Event(
-                            generation: request.generation,
-                            queryId: request.queryId,
-                            phase: .failed(.realm(error.localizedDescription))
-                        ),
-                        identity: identity,
-                        terminal: true,
-                        onEvent: onEvent
-                    )
-                }
-            }
-        }
+        _ = requestNextPage(
+            queryId: request.queryId,
+            generation: request.generation
+        )
     }
 
     @discardableResult
@@ -221,7 +197,16 @@ final class ChatSearchLocalProvider {
         stateLock.lock()
         defer { stateLock.unlock() }
         return activeRequest?.identity == identity &&
-            activeRequest?.pendingPages.isNotEmpty == true
+            activeRequest?.canLoadNextPage == true &&
+            activeRequest?.isLoading == false
+    }
+
+    func residentBufferedResultCount(queryId: String, generation: UInt64) -> Int {
+        let identity = Identity(generation: generation, queryId: queryId)
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard activeRequest?.identity == identity else { return 0 }
+        return activeRequest?.recentlyDeliveredIDs.count ?? 0
     }
 
     @discardableResult
@@ -229,40 +214,27 @@ final class ChatSearchLocalProvider {
         let identity = Identity(generation: generation, queryId: queryId)
         stateLock.lock()
         guard var activeRequest,
-              activeRequest.identity == identity else {
+              activeRequest.identity == identity,
+              activeRequest.canLoadNextPage,
+              !activeRequest.isLoading else {
             stateLock.unlock()
             return false
         }
-        let total = activeRequest.totalResultCount
-        let page = activeRequest.pendingPages.isEmpty
-            ? nil
-            : activeRequest.pendingPages.removeFirst()
-        let isTerminal = activeRequest.pendingPages.isEmpty
+        activeRequest.isLoading = true
+        let context = PageLoadContext(
+            identity: identity,
+            request: activeRequest.request,
+            normalizedQuery: activeRequest.normalizedQuery,
+            cursor: activeRequest.nextCursor,
+            excludedIDs: activeRequest.recentlyDeliveredIDs
+        )
         self.activeRequest = activeRequest
         stateLock.unlock()
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.isActive(identity) else { return }
-            if let page {
-                activeRequest.onEvent(
-                    Event(
-                        generation: generation,
-                        queryId: queryId,
-                        phase: .batch(page)
-                    )
-                )
-            }
-            guard isTerminal, self.isActive(identity) else { return }
-            activeRequest.onEvent(
-                Event(
-                    generation: generation,
-                    queryId: queryId,
-                    phase: .completed(total: total)
-                )
-            )
-            self.finish(identity)
+        workQueue.async { [weak self] in
+            self?.loadPage(context)
         }
-        return page != nil || isTerminal
+        return true
     }
 
     @discardableResult
@@ -286,31 +258,177 @@ final class ChatSearchLocalProvider {
         return replaced
     }
 
-    private func installPages(
-        for identity: Identity,
-        orderedResults: [ChatSearchResult]
+    private func loadPage(_ context: PageLoadContext) {
+        guard isActive(context.identity) else { return }
+        autoreleasepool {
+            do {
+                let realm = try realmFactory(realmConfiguration)
+                let loadedPage = makePage(context, realm: realm)
+                completePage(loadedPage, context: context)
+            } catch {
+                guard let onEvent = eventHandler(for: context.identity) else {
+                    return
+                }
+                emit(
+                    Event(
+                        generation: context.identity.generation,
+                        queryId: context.identity.queryId,
+                        phase: .failed(.realm(error.localizedDescription))
+                    ),
+                    identity: context.identity,
+                    terminal: true,
+                    onEvent: onEvent
+                )
+            }
+        }
+    }
+
+    private func makePage(
+        _ context: PageLoadContext,
+        realm: Realm
+    ) -> LoadedPage {
+        let scope = context.request.mappingContext.scope
+        var storedResults = realm
+            .objects(MessageStorageItem.self)
+            .filter(
+                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND isDeleted == false AND isLocallyHiddenByReport == false AND messageType != %@ AND body CONTAINS[cd] %@",
+                scope.owner,
+                scope.jid,
+                scope.conversationTypeRawValue,
+                MessageStorageItem.MessageDisplayType.system.rawValue,
+                context.normalizedQuery
+            )
+            .sorted(by: [
+                SortDescriptor(keyPath: "historyPositionOrdinal", ascending: false),
+                SortDescriptor(keyPath: "historyPositionKind", ascending: false),
+                SortDescriptor(keyPath: "historyPositionHigh", ascending: false),
+                SortDescriptor(keyPath: "historyPositionLow", ascending: false),
+                SortDescriptor(keyPath: "historyPositionDiscriminator", ascending: false)
+            ])
+        if let cursor = context.cursor {
+            storedResults = storedResults.filter(
+                "historyPositionOrdinal < %@ OR "
+                    + "(historyPositionOrdinal == %@ AND historyPositionKind < %@) OR "
+                    + "(historyPositionOrdinal == %@ AND historyPositionKind == %@ AND historyPositionHigh < %@) OR "
+                    + "(historyPositionOrdinal == %@ AND historyPositionKind == %@ AND historyPositionHigh == %@ AND historyPositionLow < %@) OR "
+                    + "(historyPositionOrdinal == %@ AND historyPositionKind == %@ AND historyPositionHigh == %@ AND historyPositionLow == %@ AND historyPositionDiscriminator < %@)",
+                cursor.ordinal,
+                cursor.ordinal,
+                cursor.kind,
+                cursor.ordinal,
+                cursor.kind,
+                cursor.high,
+                cursor.ordinal,
+                cursor.kind,
+                cursor.high,
+                cursor.low,
+                cursor.ordinal,
+                cursor.kind,
+                cursor.high,
+                cursor.low,
+                cursor.discriminator
+            )
+        }
+
+        var candidates: [(result: ChatSearchResult, cursor: Cursor)] = []
+        var indexByID: [ChatSearchResult.ID: Int] = [:]
+        candidates.reserveCapacity(batchSize + 1)
+        for item in storedResults {
+            guard isActive(context.identity) else { break }
+            guard let result = ChatSearchResultMapper.map(
+                item,
+                context: context.request.mappingContext
+            ), !context.excludedIDs.contains(result.id) else {
+                continue
+            }
+            let itemCursor = Self.cursor(for: item)
+            if let index = indexByID[result.id] {
+                candidates[index] = (
+                    ChatSearchResultCollection.preferred(candidates[index].result, result),
+                    itemCursor
+                )
+                continue
+            }
+            indexByID[result.id] = candidates.count
+            candidates.append((result, itemCursor))
+            if candidates.count > batchSize {
+                break
+            }
+        }
+
+        let hasMore = candidates.count > batchSize
+        let included = Array(candidates.prefix(batchSize))
+        return LoadedPage(
+            results: included.map(\.result),
+            nextCursor: hasMore ? included.last?.cursor : nil,
+            hasMore: hasMore
+        )
+    }
+
+    private func completePage(
+        _ page: LoadedPage,
+        context: PageLoadContext
     ) {
-        let pages: [[ChatSearchResult]] = stride(
-            from: 0,
-            to: orderedResults.count,
-            by: batchSize
-        ).map { startIndex in
-            let endIndex = min(startIndex + batchSize, orderedResults.count)
-            return Array(orderedResults[startIndex..<endIndex])
-        }
         stateLock.lock()
-        if var activeRequest, activeRequest.identity == identity {
-            activeRequest.pendingPages = pages
-            activeRequest.totalResultCount = orderedResults.count
-            self.activeRequest = activeRequest
+        guard var activeRequest,
+              activeRequest.identity == context.identity else {
+            stateLock.unlock()
+            return
         }
+        activeRequest.isLoading = false
+        activeRequest.canLoadNextPage = page.hasMore
+        activeRequest.nextCursor = page.nextCursor
+        activeRequest.recentlyDeliveredIDs = Set(page.results.map(\.id))
+        activeRequest.deliveredResultCount += page.results.count
+        let deliveredResultCount = activeRequest.deliveredResultCount
+        let onEvent = activeRequest.onEvent
+        self.activeRequest = activeRequest
         stateLock.unlock()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isActive(context.identity) else { return }
+            if page.results.isNotEmpty {
+                onEvent(
+                    Event(
+                        generation: context.identity.generation,
+                        queryId: context.identity.queryId,
+                        phase: .batch(page.results)
+                    )
+                )
+            }
+            guard !page.hasMore, self.isActive(context.identity) else { return }
+            onEvent(
+                Event(
+                    generation: context.identity.generation,
+                    queryId: context.identity.queryId,
+                    phase: .completed(total: deliveredResultCount)
+                )
+            )
+            self.finish(context.identity)
+        }
+    }
+
+    private static func cursor(for item: MessageStorageItem) -> Cursor {
+        Cursor(
+            ordinal: item.historyPositionOrdinal,
+            kind: item.historyPositionKind,
+            high: item.historyPositionHigh,
+            low: item.historyPositionLow,
+            discriminator: item.historyPositionDiscriminator
+        )
     }
 
     private func isActive(_ identity: Identity) -> Bool {
         stateLock.lock()
         defer { stateLock.unlock() }
         return activeRequest?.identity == identity
+    }
+
+    private func eventHandler(for identity: Identity) -> EventHandler? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard activeRequest?.identity == identity else { return nil }
+        return activeRequest?.onEvent
     }
 
     private func finish(_ identity: Identity) {
