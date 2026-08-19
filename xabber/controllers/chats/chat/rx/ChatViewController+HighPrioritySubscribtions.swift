@@ -2827,6 +2827,19 @@ extension ChatViewController {
                         results,
                         queryId: context.queryId
                     )
+                    if self.searchLocalProvider.hasPendingPage(
+                        queryId: context.queryId,
+                        generation: request.generation
+                    ) {
+                        self.offerOlderSearchResultsCursor(
+                            "local:\(self.searchMessagesQueue.count)",
+                            queryId: context.queryId,
+                            generation: request.generation
+                        )
+                    }
+                    self.consumePendingOlderSearchResultNavigationIfReady(
+                        queryId: context.queryId
+                    )
                 case .completed:
                     _ = self.finishInChatSearchQueryIfCurrent(
                         queryId: context.queryId,
@@ -2888,28 +2901,7 @@ extension ChatViewController {
                     }
                 }
             )
-            XMPPUIActionManager.shared.performRequest(owner: self.owner) { [weak self] stream, session in
-                guard let self,
-                      self.searchSession.isCurrentRequest(request),
-                      self.isCurrentInChatSearchQuery(queryId: context.queryId) else {
-                    return
-                }
-                guard let mam = session.mam else {
-                    self.handleInChatSearchQueryFailure(queryId: context.queryId)
-                    return
-                }
-                let queryId = mam.searchText(
-                    stream,
-                    jid: context.jid,
-                    conversationType: context.conversationType,
-                    text: context.text,
-                    queryId: context.queryId,
-                    generation: request.generation,
-                    requestCallbacks: requestCallbacks
-                )
-                self.searchArchiveManagersByQueryId[queryId] = mam
-                self.registerRemoteHistoryPersistenceSource(session.messages, queryId: queryId)
-            } fail: { [weak self] in
+            let startRemotePage: () -> Void = { [weak self] in
                 guard let self,
                       self.searchSession.isCurrentRequest(request),
                       self.isCurrentInChatSearchQuery(queryId: context.queryId) else {
@@ -2919,24 +2911,59 @@ extension ChatViewController {
                     self.handleInChatSearchQueryFailure(queryId: context.queryId)
                     return
                 }
-                account.action({ [weak self] user, stream in
-                    guard let self,
-                          self.searchSession.isCurrentRequest(request),
-                          self.isCurrentInChatSearchQuery(queryId: context.queryId) else {
-                        return
-                    }
-                    let queryId = user.mam.searchText(
-                        stream,
-                        jid: context.jid,
-                        conversationType: context.conversationType,
-                        text: context.text,
-                        queryId: context.queryId,
-                        generation: request.generation,
-                        requestCallbacks: requestCallbacks
+                let queryId = account.mam.scheduleSearchText(
+                    jid: context.jid,
+                    conversationType: context.conversationType,
+                    text: context.text,
+                    max: ArchivePageSizing.search,
+                    loadFull: false,
+                    queryId: context.queryId,
+                    generation: request.generation,
+                    requestCallbacks: requestCallbacks
+                )
+                self.searchArchiveManagersByQueryId[queryId] = account.mam
+                self.registerRemoteHistoryPersistenceSource(
+                    account.messages,
+                    queryId: queryId
+                )
+            }
+            var didStartRemotePage = false
+            let startRemotePageOnce: () -> Void = {
+                guard !didStartRemotePage else { return }
+                didStartRemotePage = true
+                startRemotePage()
+            }
+            let localRequest = ChatSearchLocalProvider.Request(
+                generation: request.generation,
+                queryId: context.queryId,
+                query: normalizedValue,
+                mappingContext: inChatSearchResultMappingContext
+            )
+            searchLocalProvider.search(localRequest) { [weak self] event in
+                guard let self,
+                      event.generation == request.generation,
+                      event.queryId == context.queryId,
+                      self.searchSession.isCurrentRequest(request),
+                      self.isCurrentInChatSearchQuery(queryId: context.queryId) else {
+                    return
+                }
+                switch event.phase {
+                case .batch(let results):
+                    _ = self.appendDetachedInChatSearchResultsIfCurrent(
+                        results,
+                        queryId: context.queryId
                     )
-                    self.searchArchiveManagersByQueryId[queryId] = user.mam
-                    self.registerRemoteHistoryPersistenceSource(user.messages, queryId: queryId)
-                })
+                    self.applySearchResults(emptyList: false)
+                    startRemotePageOnce()
+                    _ = self.searchLocalProvider.cancel(
+                        queryId: context.queryId,
+                        generation: request.generation
+                    )
+                case .completed, .failed:
+                    startRemotePageOnce()
+                case .cancelled:
+                    break
+                }
             }
         }
     }

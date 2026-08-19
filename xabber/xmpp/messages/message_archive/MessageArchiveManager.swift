@@ -2066,13 +2066,32 @@ class MessageArchiveManager: AbstractXMPPManager {
 
     private struct PendingSearchContinuation {
         let id: UUID
-        let workItem: DispatchWorkItem
+        let cursor: String
+        let start: (XMPPStream, @escaping () -> Void) -> Void
+    }
+
+    private final class SchedulerCompletionGate {
+        private let lock = NSLock()
+        private var completion: (() -> Void)?
+
+        init(_ completion: @escaping () -> Void) {
+            self.completion = completion
+        }
+
+        func finish() {
+            lock.lock()
+            let completion = self.completion
+            self.completion = nil
+            lock.unlock()
+            completion?()
+        }
     }
 
     private let searchArchiveStateLock = NSRecursiveLock()
     private var searchArchiveSessionsByQueryId: [String: ChatSearchArchiveSession] = [:]
     private var searchArchiveCallbacksByQueryId: [String: RequestCallbacks] = [:]
     private var pendingSearchContinuationsByQueryId: [String: PendingSearchContinuation] = [:]
+    private var searchPageSchedulerCompletionsByQueryId: [String: () -> Void] = [:]
     
     open var temporaryMessageReceiverDelegate: TemporaryMessageReceiverProtocol? = nil
     private var persistedMessageCountsByQueryId: [String: Int] = [:]
@@ -2204,6 +2223,12 @@ class MessageArchiveManager: AbstractXMPPManager {
         return searchArchiveSessionsByQueryId[queryId]?.isActive == true
     }
 
+    private func hasSearchArchiveSession(queryId: String) -> Bool {
+        searchArchiveStateLock.lock()
+        defer { searchArchiveStateLock.unlock() }
+        return searchArchiveSessionsByQueryId[queryId] != nil
+    }
+
     internal func hasPendingSearchContinuation(queryId: String) -> Bool {
         searchArchiveStateLock.lock()
         defer { searchArchiveStateLock.unlock() }
@@ -2219,7 +2244,17 @@ class MessageArchiveManager: AbstractXMPPManager {
             return false
         }
         searchArchiveStateLock.unlock()
-        DispatchQueue.global().async(execute: continuation.workItem)
+        guard let account = AccountManager.shared.find(for: owner) else {
+            return false
+        }
+        account.xmppTaskScheduler.enqueueAccountTask(
+            priority: .foreground,
+            resource: .mamArchive,
+            deduplicationKey: "archive.search.\(owner).\(queryId).\(continuation.cursor)",
+            requiresAuthenticatedStream: true
+        ) { _, stream, finish in
+            continuation.start(stream, finish)
+        }
         return true
     }
 
@@ -2231,7 +2266,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     ) {
         searchArchiveStateLock.lock()
         defer { searchArchiveStateLock.unlock() }
-        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)?.workItem.cancel()
+        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)
         searchArchiveSessionsByQueryId[queryId] = ChatSearchArchiveSession(
             generation: generation,
             queryId: queryId,
@@ -2244,6 +2279,40 @@ class MessageArchiveManager: AbstractXMPPManager {
         searchArchiveStateLock.lock()
         defer { searchArchiveStateLock.unlock() }
         return searchArchiveCallbacksByQueryId[queryId]
+    }
+
+    private func isSearchArchiveSessionActive(
+        queryId: String,
+        generation: UInt64
+    ) -> Bool {
+        searchArchiveStateLock.lock()
+        defer { searchArchiveStateLock.unlock() }
+        guard let session = searchArchiveSessionsByQueryId[queryId] else {
+            return false
+        }
+        return session.generation == generation && session.isActive
+    }
+
+    private func installSearchPageSchedulerCompletion(
+        queryId: String,
+        completion: @escaping () -> Void
+    ) {
+        searchArchiveStateLock.lock()
+        let replaced = searchPageSchedulerCompletionsByQueryId.updateValue(
+            completion,
+            forKey: queryId
+        )
+        searchArchiveStateLock.unlock()
+        replaced?()
+    }
+
+    private func finishSearchPageSchedulerSlot(queryId: String) {
+        searchArchiveStateLock.lock()
+        let completion = searchPageSchedulerCompletionsByQueryId.removeValue(
+            forKey: queryId
+        )
+        searchArchiveStateLock.unlock()
+        completion?()
     }
 
     private func acceptSearchArchiveResult(
@@ -2323,10 +2392,14 @@ class MessageArchiveManager: AbstractXMPPManager {
 
     private func cleanupSearchArchiveState(queryId: String) {
         searchArchiveStateLock.lock()
-        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)?.workItem.cancel()
+        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)
+        let schedulerCompletion = searchPageSchedulerCompletionsByQueryId.removeValue(
+            forKey: queryId
+        )
         searchArchiveSessionsByQueryId.removeValue(forKey: queryId)
         searchArchiveCallbacksByQueryId.removeValue(forKey: queryId)
         searchArchiveStateLock.unlock()
+        schedulerCompletion?()
         searchResultsQueries.remove(queryId)
     }
 
@@ -2341,16 +2414,22 @@ class MessageArchiveManager: AbstractXMPPManager {
         let callbacks = searchArchiveCallbacksByQueryId[queryId] ?? .none
         let terminal = session.cancel()
         searchArchiveSessionsByQueryId[queryId] = session
-        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)?.workItem.cancel()
+        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)
         searchArchiveStateLock.unlock()
 
-        if let item = firstCallbackQueueItem(where: { $0.elementId == queryId }) {
-            removeCallbackQueueItem(item)
+        // A queued request can be discarded immediately. Once it is on the
+        // wire, however, the server SQL is not cancellable: retain both the
+        // callback identity and the scheduler lease until its final/failure.
+        // The cancelled session rejects all late rows and presentation.
+        let isOnWire = firstCallbackQueueItem(where: {
+            $0.elementId == queryId && $0.task.purpose == .search
+        }) != nil
+        if !isOnWire {
+            queryIds.remove(queryId)
+            persistedMessageCountsByQueryId.removeValue(forKey: queryId)
+            unregisterFallbackEndPageCallbacks(queryId: queryId)
+            cleanupSearchArchiveState(queryId: queryId)
         }
-        queryIds.remove(queryId)
-        persistedMessageCountsByQueryId.removeValue(forKey: queryId)
-        unregisterFallbackEndPageCallbacks(queryId: queryId)
-        cleanupSearchArchiveState(queryId: queryId)
         notifySearchArchiveTerminal(
             callbacks: callbacks,
             queryId: queryId,
@@ -2986,13 +3065,18 @@ class MessageArchiveManager: AbstractXMPPManager {
                   persistedMessageCount: persistedState.persistedMessageCount
               ) else {
             searchArchiveStateLock.unlock()
+            finishSearchPageSchedulerSlot(queryId: queryId)
             removeCallbackQueueItem(item)
             queryIds.remove(item.elementId)
+            unregisterFallbackEndPageCallbacks(queryId: queryId)
+            cleanupSearchArchiveState(queryId: queryId)
             return true
         }
         searchArchiveSessionsByQueryId[queryId] = session
         let callbacks = searchArchiveCallbacksByQueryId[queryId] ?? item.requestCallbacks
         searchArchiveStateLock.unlock()
+
+        finishSearchPageSchedulerSlot(queryId: queryId)
 
         removeCallbackQueueItem(item)
         queryIds.remove(item.elementId)
@@ -3045,20 +3129,26 @@ class MessageArchiveManager: AbstractXMPPManager {
         cursor: String
     ) {
         let continuationId = UUID()
-        let workItem = DispatchWorkItem { [weak self, weak stream] in
-            guard let self,
-                  let stream else {
+        let start: (XMPPStream, @escaping () -> Void) -> Void = { [weak self] stream, schedulerFinish in
+            guard let self else {
+                schedulerFinish()
                 return
             }
             self.searchArchiveStateLock.lock()
             guard self.pendingSearchContinuationsByQueryId[queryId]?.id == continuationId,
                   self.searchArchiveSessionsByQueryId[queryId]?.isActive == true else {
                 self.searchArchiveStateLock.unlock()
+                schedulerFinish()
                 return
             }
             self.pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)
             let callbacks = self.searchArchiveCallbacksByQueryId[queryId] ?? .none
             self.searchArchiveStateLock.unlock()
+
+            self.installSearchPageSchedulerCompletion(
+                queryId: queryId,
+                completion: schedulerFinish
+            )
 
             callbacks.onSearchContinuationStarted?(queryId, cursor)
 
@@ -3084,16 +3174,13 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
 
         searchArchiveStateLock.lock()
-        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)?.workItem.cancel()
+        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)
         pendingSearchContinuationsByQueryId[queryId] = PendingSearchContinuation(
             id: continuationId,
-            workItem: workItem
+            cursor: cursor,
+            start: start
         )
         searchArchiveStateLock.unlock()
-        DispatchQueue.global().asyncAfter(
-            deadline: .now() + searchContinuationDelay,
-            execute: workItem
-        )
     }
 
     private func shouldCommitOwnedArchiveEnd(
@@ -3876,6 +3963,117 @@ class MessageArchiveManager: AbstractXMPPManager {
         )
     }
     
+    @discardableResult
+    public func scheduleSearchText(
+        jid: String? = nil,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        text: String,
+        max: Int = ArchivePageSizing.search,
+        loadFull: Bool = false,
+        queryId: String? = nil,
+        pageCursor: String? = nil,
+        generation: UInt64 = 0,
+        maximumPageCount: Int? = 1_000,
+        maximumResultCount: Int? = nil,
+        requestCallbacks: RequestCallbacks = .none
+    ) -> String {
+        let queryId = queryId ?? "MAM search: \(NanoID.new(8))"
+        ArchiveEngineObservability.event(
+            .searchPage,
+            value: max,
+            auxiliary: pageCursor == nil ? 1 : 2
+        )
+        guard let account = AccountManager.shared.find(for: owner) else {
+            let event = MessageArchiveRequestFailureEvent(
+                owner: owner,
+                queryId: queryId,
+                streamKind: .primary,
+                reason: .requestStartFailed,
+                errorDescription: "Archive search account is unavailable",
+                pendingQueryCount: 1
+            )
+            DispatchQueue.main.async {
+                requestCallbacks.onFailure?(event)
+                requestCallbacks.onSearchTerminal?(
+                    queryId,
+                    .failed(
+                        reason: .requestStart(description: event.errorDescription),
+                        resultCount: 0,
+                        pageCount: 0
+                    )
+                )
+            }
+            return queryId
+        }
+        registerSearchArchiveSession(
+            queryId: queryId,
+            generation: generation,
+            configuration: .init(
+                maximumPageCount: maximumPageCount,
+                maximumResultCount: maximumResultCount
+            ),
+            callbacks: requestCallbacks
+        )
+        let unavailable = { [weak self] in
+            let event = MessageArchiveRequestFailureEvent(
+                owner: self?.owner ?? account.jid,
+                queryId: queryId,
+                streamKind: .primary,
+                reason: .requestStartFailed,
+                errorDescription: "Archive search transport is unavailable",
+                pendingQueryCount: 1
+            )
+            DispatchQueue.main.async {
+                guard self?.isSearchArchiveSessionActive(
+                    queryId: queryId,
+                    generation: generation
+                ) == true else {
+                    return
+                }
+                _ = self?.failSearchArchiveSession(
+                    queryId: queryId,
+                    reason: .requestStart(description: event.errorDescription),
+                    event: event
+                )
+                self?.cleanupSearchArchiveState(queryId: queryId)
+            }
+        }
+        account.xmppTaskScheduler.enqueueAccountTask(
+            priority: .foreground,
+            resource: .mamArchive,
+            deduplicationKey: "archive.search.\(owner).\(queryId).\(pageCursor ?? "latest")",
+            requiresAuthenticatedStream: true,
+            unavailable: unavailable
+        ) { user, stream, finish in
+            guard user.mam.isSearchArchiveSessionActive(
+                queryId: queryId,
+                generation: generation
+            ) else {
+                finish()
+                return
+            }
+            user.mam.installSearchPageSchedulerCompletion(
+                queryId: queryId,
+                completion: finish
+            )
+            _ = user.mam.searchText(
+                stream,
+                jid: jid,
+                conversationType: conversationType,
+                text: text,
+                max: max,
+                loadFull: loadFull,
+                queryId: queryId,
+                pageCursor: pageCursor,
+                generation: generation,
+                maximumPageCount: maximumPageCount,
+                maximumResultCount: maximumResultCount,
+                requestCallbacks: requestCallbacks
+            )
+        }
+        return queryId
+    }
+
     public func searchText(
         _ stream: XMPPStream,
         jid: String? = nil,
@@ -3902,19 +4100,24 @@ class MessageArchiveManager: AbstractXMPPManager {
             }
         }
         let queryId = queryId ?? "MAM search: \(NanoID.new(8))"
-        self.registerSearchArchiveSession(
+        if !isSearchArchiveSessionActive(
             queryId: queryId,
-            generation: generation,
-            configuration: .init(
-                maximumPageCount: loadFull ? maximumPageCount : 1,
-                maximumResultCount: maximumResultCount
-            ),
-            callbacks: requestCallbacks
-        )
+            generation: generation
+        ) {
+            self.registerSearchArchiveSession(
+                queryId: queryId,
+                generation: generation,
+                configuration: .init(
+                    maximumPageCount: maximumPageCount,
+                    maximumResultCount: maximumResultCount
+                ),
+                callbacks: requestCallbacks
+            )
+        }
         self.requestArchive(
             stream,
             jid: jid,
-            isContinues: loadFull,
+            isContinues: false,
             conversationType: conversationType,
             purpose: .search,
             queryId: queryId,
@@ -3984,7 +4187,61 @@ class MessageArchiveManager: AbstractXMPPManager {
         return true
     }
     
-    public func getMedia(_ stream: XMPPStream, jid: String?, conversationType: ClientSynchronizationManager.ConversationType, media: [MessageMediaAttachmentStorageItem.Kind], after lastMessageId: String?, requestCallbacks: RequestCallbacks = .none) {
+    @discardableResult
+    public func scheduleMedia(
+        jid: String?,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        media: [MessageMediaAttachmentStorageItem.Kind],
+        after lastMessageId: String?,
+        requestCallbacks: RequestCallbacks = .none
+    ) -> String? {
+        guard let account = AccountManager.shared.find(for: owner) else { return nil }
+        let queryId = "MAM attach: \(NanoID.new(8))"
+        account.xmppTaskScheduler.enqueueAccountTask(
+            priority: .background,
+            resource: .mamArchive,
+            deduplicationKey: "archive.media.\(owner).\(jid ?? "global").\(lastMessageId ?? "latest")",
+            requiresAuthenticatedStream: true,
+            unavailable: {
+                requestCallbacks.onFailure?(
+                    MessageArchiveRequestFailureEvent(
+                        owner: account.jid,
+                        queryId: queryId,
+                        streamKind: .primary,
+                        reason: .requestStartFailed,
+                        errorDescription: "Media archive transport is unavailable",
+                        pendingQueryCount: 1
+                    )
+                )
+            }
+        ) { user, stream, finish in
+            let gate = SchedulerCompletionGate(finish)
+            let callbacks = RequestCallbacks(
+                onMessage: requestCallbacks.onMessage,
+                onEndPage: { queryId, state, first, last, count in
+                    gate.finish()
+                    requestCallbacks.onEndPage?(queryId, state, first, last, count)
+                },
+                onFailure: { event in
+                    gate.finish()
+                    requestCallbacks.onFailure?(event)
+                }
+            )
+            _ = user.mam.getMedia(
+                stream,
+                jid: jid,
+                conversationType: conversationType,
+                media: media,
+                after: lastMessageId,
+                queryId: queryId,
+                requestCallbacks: callbacks
+            )
+        }
+        return queryId
+    }
+
+    @discardableResult
+    public func getMedia(_ stream: XMPPStream, jid: String?, conversationType: ClientSynchronizationManager.ConversationType, media: [MessageMediaAttachmentStorageItem.Kind], after lastMessageId: String?, queryId: String? = nil, requestCallbacks: RequestCallbacks = .none) -> String {
         let taskId = ["media", jid ?? "global", conversationType.rawValue].prp()
         if let continuesTaskID = continuesTaskID {
             if taskId != continuesTaskID {
@@ -3996,7 +4253,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 }
             }
         }
-        let queryId = "MAM attach: \(NanoID.new(8))"
+        let queryId = queryId ?? "MAM attach: \(NanoID.new(8))"
         let tags: [Tags] = media.compactMap { return Tags(rawValue: $0.rawValue) }
         self.requestArchive(
             stream,
@@ -4014,6 +4271,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         )
         self.searchResultsQueries.insert(queryId)
         self.continuesTaskID = taskId
+        return queryId
     }
 
     private static func regularRequestKey(for plan: RegularChatArchiveRequestPlan) -> RegularChatArchiveRequestKey {
@@ -4512,10 +4770,9 @@ class MessageArchiveManager: AbstractXMPPManager {
             }
             if descriptor.task.coverageUpdateKind == .bootstrapNewest,
                descriptor.serverResultCount != 0 {
-                // Initial bootstrap always requests `rsm-counter=1`. An empty
-                // timeline is authoritative only when that server counter is
-                // present and exactly zero. Cursor queries may legitimately
-                // deliver no envelopes while the whole result set is nonempty.
+                // A newest-page empty terminal is authoritative only when its
+                // cheap page count is also zero. Cursor queries may deliver no
+                // envelopes while the full archive is nonempty.
                 let rejection = DeferredArchiveCommitRejection.missingPersistenceProof
                 traceDeferredArchiveCommitRejection(
                     descriptor: descriptor,
@@ -5612,11 +5869,46 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
 
     @discardableResult
-    public final func requestInviteRecovery(_ stream: XMPPStream, max: Int = 100) -> String? {
-        guard isExtendedArchiveAvailable else {
+    public final func scheduleInviteRecovery(max: Int = 100) -> String? {
+        guard isExtendedArchiveAvailable,
+              let account = AccountManager.shared.find(for: owner) else {
             return nil
         }
         let queryId = "MAM invite recovery: \(NanoID.new(8))"
+        account.xmppTaskScheduler.enqueueAccountTask(
+            priority: .background,
+            resource: .mamArchive,
+            deduplicationKey: "archive.invite-recovery.\(owner)",
+            requiresAuthenticatedStream: true
+        ) { user, stream, finish in
+            let gate = SchedulerCompletionGate(finish)
+            let started = user.mam.requestInviteRecovery(
+                stream,
+                max: max,
+                queryId: queryId,
+                requestCallbacks: RequestCallbacks(
+                    onEndPage: { _, _, _, _, _ in gate.finish() },
+                    onFailure: { _ in gate.finish() }
+                )
+            )
+            if started == nil {
+                gate.finish()
+            }
+        }
+        return queryId
+    }
+
+    @discardableResult
+    public final func requestInviteRecovery(
+        _ stream: XMPPStream,
+        max: Int = 100,
+        queryId: String? = nil,
+        requestCallbacks: RequestCallbacks = .none
+    ) -> String? {
+        guard isExtendedArchiveAvailable else {
+            return nil
+        }
+        let queryId = queryId ?? "MAM invite recovery: \(NanoID.new(8))"
         requestArchive(
             stream,
             jid: nil,
@@ -5629,7 +5921,8 @@ class MessageArchiveManager: AbstractXMPPManager {
             max: max,
             tags: [.invite],
             consumerManagesArchiveEnd: true,
-            consumerManagesHistoryCursor: true
+            consumerManagesHistoryCursor: true,
+            requestCallbacks: requestCallbacks
         )
         return queryId
     }
@@ -6230,7 +6523,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             let searchResultId: ChatSearchResult.ID? = instance.archivedId.isNotEmpty
                 ? .archived(instance.archivedId)
                 : (instance.primary.isNotEmpty ? .primary(instance.primary) : nil)
-            if self.hasActiveSearchArchiveSession(queryId: queryId) {
+            if self.hasSearchArchiveSession(queryId: queryId) {
                 guard let searchResultId,
                       let searchAccepted = self.acceptSearchArchiveResult(
                           queryId: queryId,

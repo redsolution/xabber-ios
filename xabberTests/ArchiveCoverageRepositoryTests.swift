@@ -416,6 +416,7 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         )
 
         let verifiedRealm = try await Realm(configuration: configuration)
+        verifiedRealm.refresh()
         let storage = try XCTUnwrap(
             verifiedRealm.object(
                 ofType: ConversationArchiveCoverageStorageItem.self,

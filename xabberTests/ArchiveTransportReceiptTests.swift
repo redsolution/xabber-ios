@@ -245,4 +245,42 @@ final class ArchiveTransportReceiptTests: XCTestCase {
         XCTAssertNil(validated.segment)
         XCTAssertFalse(validated.isAuthoritativeEmpty)
     }
+
+    func testIncompleteGapPageJoinsTheKnownNewerSegmentForNextCursorAdvance() throws {
+        let older = try XCTUnwrap(ArchiveCursor(rawValue: "100"))
+        let newer = try XCTUnwrap(ArchiveCursor(rawValue: "300"))
+        let request = ArchiveTransportRequest(
+            queryID: "q-gap-page",
+            conversation: conversation,
+            locator: .gap(olderBoundary: older, newerBoundary: newer),
+            connectionGeneration: 11,
+            pageSize: ArchivePageSizing.history,
+            contextBefore: ArchivePageSizing.history,
+            contextAfter: ArchivePageSizing.history,
+            proofFingerprint: "sync-gap",
+            isUnfiltered: true,
+            producesContinuousCoverage: true
+        )
+        let receipt = ArchiveTransportReceipt(
+            queryID: request.queryID,
+            connectionGeneration: request.connectionGeneration,
+            resultArchiveIDs: ["299", "250", "201"],
+            messagePrimaryIDs: ["p299", "p250", "p201"],
+            first: "299",
+            last: "201",
+            complete: false,
+            cheapPageCount: 3,
+            deliveredResultCount: 3,
+            persistedResultCount: 3,
+            intentionallyConsumedResultCount: 0,
+            failedPersistenceCount: 0,
+            finalReceived: true
+        )
+
+        let page = try ArchiveTransportReceiptValidator.validate(receipt, for: request)
+
+        XCTAssertEqual(page.segment?.oldest, ArchiveCursor(rawValue: "201"))
+        XCTAssertEqual(page.adjacency, .older(before: newer))
+        XCTAssertFalse(page.requestComplete)
+    }
 }

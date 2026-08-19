@@ -126,6 +126,9 @@ final class ChatSearchLocalProviderTests: XCTestCase {
             switch event.phase {
             case .batch(let batch):
                 results.append(contentsOf: batch)
+                if provider.hasPendingPage(queryId: "ordering", generation: 1) {
+                    XCTAssertTrue(provider.requestNextPage(queryId: "ordering", generation: 1))
+                }
             case .completed(let total):
                 XCTAssertEqual(total, 4)
                 completed.fulfill()
@@ -171,6 +174,9 @@ final class ChatSearchLocalProviderTests: XCTestCase {
             case .batch(let batch):
                 XCTAssertLessThanOrEqual(batch.count, 32)
                 batches.append(batch)
+                if provider.hasPendingPage(queryId: "large", generation: 1) {
+                    XCTAssertTrue(provider.requestNextPage(queryId: "large", generation: 1))
+                }
             case .completed(let total):
                 XCTAssertEqual(total, 275)
                 completed.fulfill()
@@ -186,6 +192,41 @@ final class ChatSearchLocalProviderTests: XCTestCase {
         XCTAssertGreaterThan(batches.count, 1)
         XCTAssertEqual(batches.flatMap { $0 }.count, 275)
         XCTAssertEqual(batches.first?.first?.anchor.primary, "message-274")
+    }
+
+    func testLocalProviderWaitsForExplicitNavigationBeforeSecondPage() throws {
+        try add((0..<75).map { index in
+            makeMessage(
+                primary: "paged-\(index)",
+                body: "test \(index)",
+                date: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        })
+        let provider = makeProvider(batchSize: ArchivePageSizing.search)
+        let firstPage = expectation(description: "first local page")
+        let completed = expectation(description: "second page completes")
+        var batches: [[ChatSearchResult]] = []
+
+        provider.search(makeRequest(queryId: "paged")) { event in
+            switch event.phase {
+            case .batch(let batch):
+                batches.append(batch)
+                if batches.count == 1 { firstPage.fulfill() }
+            case .completed:
+                completed.fulfill()
+            case .failed(let failure):
+                XCTFail("Unexpected failure: \(failure)")
+            case .cancelled:
+                XCTFail("Unexpected cancellation")
+            }
+        }
+
+        wait(for: [firstPage], timeout: 1)
+        XCTAssertEqual(batches.map(\.count), [50])
+        XCTAssertTrue(provider.hasPendingPage(queryId: "paged", generation: 1))
+        XCTAssertTrue(provider.requestNextPage(queryId: "paged", generation: 1))
+        wait(for: [completed], timeout: 1)
+        XCTAssertEqual(batches.map(\.count), [50, 25])
     }
 
     func testQueryReplacementSuppressesQueuedBatchesAndCompletionFromOldRequest() throws {
@@ -299,38 +340,37 @@ final class ChatSearchLocalProviderTests: XCTestCase {
         XCTAssertEqual(realmOpenCount.value, 0)
     }
 
-    func testRegularScopeIsRejectedWithoutOpeningRealmOrRemoteMAM() {
-        let realmOpenCount = LockedBox(0)
+    func testRegularScopeUsesTheSameLocalFirstProvider() throws {
+        try add([
+            makeMessage(
+                primary: "regular-local",
+                conversationType: .regular,
+                body: "test local"
+            )
+        ])
         let provider = ChatSearchLocalProvider(
             realmConfiguration: testConfiguration,
-            batchSize: 32,
-            realmFactory: { configuration in
-                realmOpenCount.withValue { $0 += 1 }
-                return try Realm(configuration: configuration)
-            }
+            batchSize: 32
         )
-        let failed = expectation(description: "regular scope rejected")
+        let completed = expectation(description: "regular local-first completed")
         let request = makeRequest(queryId: "regular", conversationType: .regular)
+        var results: [ChatSearchResult] = []
 
         provider.search(request) { event in
             switch event.phase {
-            case .batch, .completed:
-                XCTFail("Regular scope must not use the local provider")
+            case .batch(let batch):
+                results.append(contentsOf: batch)
+            case .completed:
+                completed.fulfill()
             case .failed(let failure):
-                XCTAssertEqual(
-                    failure,
-                    .unsupportedConversationType(
-                        ClientSynchronizationManager.ConversationType.regular.rawValue
-                    )
-                )
-                failed.fulfill()
+                XCTFail("Unexpected local-first failure: \(failure)")
             case .cancelled:
                 XCTFail("Unexpected cancellation")
             }
         }
 
-        wait(for: [failed], timeout: 1)
-        XCTAssertEqual(realmOpenCount.value, 0)
+        wait(for: [completed], timeout: 1)
+        XCTAssertEqual(results.map(\.anchor.primary), ["regular-local"])
         XCTAssertEqual(ChatSearchLocalProvider.backend, .localRealm)
     }
 

@@ -63,6 +63,8 @@ final class ChatSearchLocalProvider {
     private struct ActiveRequest {
         let identity: Identity
         let onEvent: EventHandler
+        var pendingPages: [[ChatSearchResult]] = []
+        var totalResultCount: Int = 0
     }
 
     private let realmConfiguration: Realm.Configuration
@@ -74,7 +76,7 @@ final class ChatSearchLocalProvider {
 
     init(
         realmConfiguration: Realm.Configuration = Realm.Configuration.defaultConfiguration,
-        batchSize: Int = 64,
+        batchSize: Int = ArchivePageSizing.search,
         workQueue: DispatchQueue = DispatchQueue(
             label: "com.xabber.chat-search.local-provider",
             qos: .userInitiated
@@ -103,9 +105,9 @@ final class ChatSearchLocalProvider {
             deliverCancellation(replaced)
         }
 
-        guard let conversationType = ClientSynchronizationManager.ConversationType(
+        guard ClientSynchronizationManager.ConversationType(
             rawValue: request.mappingContext.scope.conversationTypeRawValue
-        ), conversationType.isEncrypted else {
+        ) != nil else {
             emit(
                 Event(
                     generation: request.generation,
@@ -175,33 +177,13 @@ final class ChatSearchLocalProvider {
                     let orderedResults = ChatSearchResultCollection.orderedAndDeduplicated(
                         detachedResults
                     )
-                    var startIndex = 0
-                    while startIndex < orderedResults.count {
-                        guard self.isActive(identity) else {
-                            return
-                        }
-                        let endIndex = min(startIndex + self.batchSize, orderedResults.count)
-                        self.emit(
-                            Event(
-                                generation: request.generation,
-                                queryId: request.queryId,
-                                phase: .batch(Array(orderedResults[startIndex..<endIndex]))
-                            ),
-                            identity: identity,
-                            terminal: false,
-                            onEvent: onEvent
-                        )
-                        startIndex = endIndex
-                    }
-                    self.emit(
-                        Event(
-                            generation: request.generation,
-                            queryId: request.queryId,
-                            phase: .completed(total: orderedResults.count)
-                        ),
-                        identity: identity,
-                        terminal: true,
-                        onEvent: onEvent
+                    self.installPages(
+                        for: identity,
+                        orderedResults: orderedResults
+                    )
+                    _ = self.requestNextPage(
+                        queryId: request.queryId,
+                        generation: request.generation
                     )
                 } catch {
                     self.emit(
@@ -234,6 +216,55 @@ final class ChatSearchLocalProvider {
         return true
     }
 
+    func hasPendingPage(queryId: String, generation: UInt64) -> Bool {
+        let identity = Identity(generation: generation, queryId: queryId)
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return activeRequest?.identity == identity &&
+            activeRequest?.pendingPages.isNotEmpty == true
+    }
+
+    @discardableResult
+    func requestNextPage(queryId: String, generation: UInt64) -> Bool {
+        let identity = Identity(generation: generation, queryId: queryId)
+        stateLock.lock()
+        guard var activeRequest,
+              activeRequest.identity == identity else {
+            stateLock.unlock()
+            return false
+        }
+        let total = activeRequest.totalResultCount
+        let page = activeRequest.pendingPages.isEmpty
+            ? nil
+            : activeRequest.pendingPages.removeFirst()
+        let isTerminal = activeRequest.pendingPages.isEmpty
+        self.activeRequest = activeRequest
+        stateLock.unlock()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isActive(identity) else { return }
+            if let page {
+                activeRequest.onEvent(
+                    Event(
+                        generation: generation,
+                        queryId: queryId,
+                        phase: .batch(page)
+                    )
+                )
+            }
+            guard isTerminal, self.isActive(identity) else { return }
+            activeRequest.onEvent(
+                Event(
+                    generation: generation,
+                    queryId: queryId,
+                    phase: .completed(total: total)
+                )
+            )
+            self.finish(identity)
+        }
+        return page != nil || isTerminal
+    }
+
     @discardableResult
     func cancelAll() -> Bool {
         stateLock.lock()
@@ -253,6 +284,27 @@ final class ChatSearchLocalProvider {
         activeRequest = request
         stateLock.unlock()
         return replaced
+    }
+
+    private func installPages(
+        for identity: Identity,
+        orderedResults: [ChatSearchResult]
+    ) {
+        let pages: [[ChatSearchResult]] = stride(
+            from: 0,
+            to: orderedResults.count,
+            by: batchSize
+        ).map { startIndex in
+            let endIndex = min(startIndex + batchSize, orderedResults.count)
+            return Array(orderedResults[startIndex..<endIndex])
+        }
+        stateLock.lock()
+        if var activeRequest, activeRequest.identity == identity {
+            activeRequest.pendingPages = pages
+            activeRequest.totalResultCount = orderedResults.count
+            self.activeRequest = activeRequest
+        }
+        stateLock.unlock()
     }
 
     private func isActive(_ identity: Identity) -> Bool {

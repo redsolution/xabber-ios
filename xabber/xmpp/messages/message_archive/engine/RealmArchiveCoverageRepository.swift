@@ -195,6 +195,11 @@ final class RealmArchiveCoverageRepository:
             ) else {
                 throw ArchiveCoverageRepositoryError.storageFailure
             }
+            if case .gap = request.locator,
+               !page.requestComplete,
+               let nextBoundary = page.segment?.oldest {
+                return .coverageAdvanced(nextGapBoundary: nextBoundary)
+            }
             let intent = ArchiveWindowIntent(
                 conversation: request.conversation,
                 locator: request.locator,

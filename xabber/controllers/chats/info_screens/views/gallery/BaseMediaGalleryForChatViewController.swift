@@ -295,27 +295,13 @@ extension BaseMediaGalleryForChatViewController: UICollectionViewDataSourcePrefe
                     self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
                 }
             )
-            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                session.mam?.getMedia(
-                    stream,
-                    jid: self.jid,
-                    conversationType: self.conversationType,
-                    media: [self.kind],
-                    after: self.datasource.last?.messageId,
-                    requestCallbacks: requestCallbacks
-                )
-            } fail: {
-                AccountManager.shared.find(for: self.owner)?.action { user, stream in
-                    user.mam.getMedia(
-                        stream,
-                        jid: self.jid,
-                        conversationType: self.conversationType,
-                        media: [self.kind],
-                        after: self.datasource.last?.messageId,
-                        requestCallbacks: requestCallbacks
-                    )
-                }
-            }
+            _ = AccountManager.shared.find(for: self.owner)?.mam.scheduleMedia(
+                jid: self.jid,
+                conversationType: self.conversationType,
+                media: [self.kind],
+                after: self.datasource.last?.messageId,
+                requestCallbacks: requestCallbacks
+            )
 
         }
     }

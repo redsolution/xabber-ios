@@ -1,4 +1,60 @@
 import Foundation
+import os.signpost
+
+enum ArchiveEngineSignpostPhase {
+    case queued
+    case transport
+    case final
+    case persistence
+    case proof
+    case uikitApply
+    case skeletonDuration
+    case duplicateJoin
+    case prefetchResult
+    case retry
+    case searchPage
+
+    fileprivate var name: StaticString {
+        switch self {
+        case .queued: return "archive.queued"
+        case .transport: return "archive.transport"
+        case .final: return "archive.final"
+        case .persistence: return "archive.persistence"
+        case .proof: return "archive.proof"
+        case .uikitApply: return "archive.uikit_apply"
+        case .skeletonDuration: return "archive.skeleton_duration"
+        case .duplicateJoin: return "archive.duplicate_join"
+        case .prefetchResult: return "archive.prefetch_result"
+        case .retry: return "archive.retry"
+        case .searchPage: return "archive.search_page"
+        }
+    }
+}
+
+/// Archive telemetry deliberately exposes only numeric process-local counters.
+/// Account, JID, query, cursor, message identifiers and search text never cross
+/// this boundary.
+enum ArchiveEngineObservability {
+    private static let log = OSLog(
+        subsystem: Bundle.main.bundleIdentifier ?? "org.xabber",
+        category: "ArchiveEngine"
+    )
+
+    static func event(
+        _ phase: ArchiveEngineSignpostPhase,
+        value: Int = 0,
+        auxiliary: Int = 0
+    ) {
+        os_signpost(
+            .event,
+            log: log,
+            name: phase.name,
+            "value=%{public}lld auxiliary=%{public}lld",
+            Int64(clamping: value),
+            Int64(clamping: auxiliary)
+        )
+    }
+}
 
 struct ArchiveConversationKey: Hashable, Codable, Sendable {
     let owner: String

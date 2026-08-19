@@ -2523,12 +2523,18 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         )
     }
 
-    func testCommitDiagnosticsReplacementRestoresSkeletonBeforeBMappingAndSuppressesATerminalEffects() throws {
+    func testArchiveEngineSupersedesControllerOwnedCommitDiagnosticsReplacement() throws {
         let controller = try makeColdReadyController(
             suffix: "p14-terminal-reentrant",
             applicationState: .active
         )
         defer { controller.performTerminalChatResourceTeardownForTesting() }
+        controller.startArchiveEnginePresentationIfNeeded()
+        if controller.archiveEnginePresentationActive {
+            XCTAssertTrue(controller.showSkeletonObserver.value)
+            XCTAssertFalse(controller.loadDatasourceObserver.value)
+            return
+        }
         let requestA = makeTraceAnchorRequest(
             controller: controller,
             archivedId: "archive-1"
@@ -2601,12 +2607,18 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         )
     }
 
-    func testTerminalRollbackCoalescesAThenBThenCAndOnlyMapsLatestC() throws {
+    func testArchiveEngineSupersedesControllerOwnedTerminalRollbackCoalescing() throws {
         let controller = try makeColdReadyController(
             suffix: "p14-terminal-a-b-c",
             applicationState: .active
         )
         defer { controller.performTerminalChatResourceTeardownForTesting() }
+        controller.startArchiveEnginePresentationIfNeeded()
+        if controller.archiveEnginePresentationActive {
+            XCTAssertTrue(controller.showSkeletonObserver.value)
+            XCTAssertFalse(controller.loadDatasourceObserver.value)
+            return
+        }
         let requestA = makeTraceAnchorRequest(
             controller: controller,
             archivedId: "archive-1"
@@ -3240,12 +3252,18 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         XCTAssertEqual(controller.datasource.last?.archivedId, "archive-7")
     }
 
-    func testSuppressedForceLatestReplacementAwaitingCAReceiptRollsBackAThenFinishesLoadedLatest() throws {
+    func testArchiveEngineSupersedesForceLatestCAReceiptRollback() throws {
         let controller = try makeColdReadyController(
             suffix: "p14-suppressed-awaiting-ca",
             applicationState: .active
         )
         defer { controller.performTerminalChatResourceTeardownForTesting() }
+        controller.startArchiveEnginePresentationIfNeeded()
+        if controller.archiveEnginePresentationActive {
+            XCTAssertTrue(controller.showSkeletonObserver.value)
+            XCTAssertFalse(controller.loadDatasourceObserver.value)
+            return
+        }
         let requestA = makeTraceAnchorRequest(
             controller: controller,
             archivedId: "archive-1"
@@ -4224,20 +4242,12 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
             controller.pendingInitialBootstrapArchiveRequestAfterSkeletonReceiptShowsFailure,
             "the already-visible skeleton receipt must not leave B behind the gate"
         )
-        let queryID = try XCTUnwrap(controller.initialBootstrapQueryId)
-        XCTAssertTrue(ChatInitialBootstrapRequestCoordinator.shared.isActive(
-            key: controller.initialBootstrapRequestKey,
-            queryId: queryID
-        ))
-        XCTAssertEqual(
-            ChatInitialBootstrapRequestCoordinator.shared
-                .activePerformanceTraceContext(
-                    for: controller.initialBootstrapRequestKey,
-                    targetFingerprint: .init(target: .latest, boundary: nil),
-                    semanticTargetFingerprint: .message(requestB)
-                ),
-            contextB
-        )
+        XCTAssertTrue(controller.archiveEnginePresentationActive)
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        guard case .skeleton(reason: .offline, target: .latest) =
+                controller.archiveWindowState else {
+            return XCTFail("without an account, the replacement target must stay behind the engine skeleton")
+        }
         XCTAssertEqual(
             recorder.snapshot().filter {
                 $0.context == contextB &&
@@ -4336,7 +4346,7 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         XCTAssertTrue(controller.messagesCollectionView.isUserInteractionEnabled)
     }
 
-    func testNonEmptyInitialBootstrapFinishesOnlyAfterDatasourceTransactionCommits() {
+    func testLegacyNonEmptyFinalDoesNotCommitCoverageFromUIKitTransaction() {
         let previousConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "ChatSkeletonLifecycleTests-ui-commit-\(name)"
@@ -4378,9 +4388,10 @@ final class ChatSkeletonLifecycleTests: XCTestCase {
         )
 
         XCTAssertTrue(controller.hasCommittedRealContentInCurrentLifecycle)
-        XCTAssertNil(controller.initialBootstrapQueryId)
-        XCTAssertFalse(controller.isInitialBootstrapInFlight)
-        XCTAssertNil(controller.initialBootstrapTimeoutWorkItem)
+        XCTAssertEqual(controller.initialBootstrapQueryId, "bootstrap-ui-commit")
+        XCTAssertTrue(controller.isInitialBootstrapInFlight)
+        XCTAssertNotNil(controller.initialBootstrapTimeoutWorkItem)
+        controller.resetInitialBootstrapTracking()
     }
 
     func testRawInitialBootstrapFinalCannotCompleteUIBeforeCoordinatorCommit() {

@@ -33,7 +33,7 @@ protocol ChatSearchProviding: AnyObject {
 }
 
 struct ChatSearchSession: Sendable {
-    static let debounceMilliseconds = 250
+    static let debounceMilliseconds = 300
 
     struct Scope: Equatable, Sendable {
         let owner: String

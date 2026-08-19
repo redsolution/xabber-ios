@@ -175,6 +175,58 @@ final class AccountArchiveEngineTests: XCTestCase {
         XCTAssertEqual(requestCount, 1)
     }
 
+    func testTransientFailureUsesSevenBackoffRetriesThenExposesRetryAction() async throws {
+        let transport = FailingArchiveEngineTransport(error: .timeout)
+        let engine = AccountArchiveEngine(
+            owner: conversation.owner,
+            repository: ArchiveEngineRepositorySpy(),
+            transport: transport,
+            retryClock: .immediate
+        )
+        await engine.connectionDidBecomeReady(
+            generation: 11,
+            completedXEPSYNCFingerprint: "sync-retry"
+        )
+
+        await engine.submit(latestIntent(priority: .visibleIntegrity))
+        await engine.waitUntilIdleForTesting()
+
+        let requestCount = await transport.requestCount
+        XCTAssertEqual(requestCount, 8)
+        guard case .retryableFailure(let failure, target: .latest) =
+                await engine.currentState(for: conversation) else {
+            return XCTFail("Expected retryable failure after bounded retries")
+        }
+        XCTAssertEqual(failure.retryCount, 8)
+        XCTAssertTrue(failure.canRetry)
+    }
+
+    func testPermanentProtocolFailureDoesNotRetryAutomatically() async throws {
+        let transport = FailingArchiveEngineTransport(error: .protocolViolation)
+        let engine = AccountArchiveEngine(
+            owner: conversation.owner,
+            repository: ArchiveEngineRepositorySpy(),
+            transport: transport,
+            retryClock: .immediate
+        )
+        await engine.connectionDidBecomeReady(
+            generation: 12,
+            completedXEPSYNCFingerprint: "sync-permanent"
+        )
+
+        await engine.submit(latestIntent(priority: .visibleIntegrity))
+        await engine.waitUntilIdleForTesting()
+
+        let requestCount = await transport.requestCount
+        XCTAssertEqual(requestCount, 1)
+        guard case .retryableFailure(let failure, target: .latest) =
+                await engine.currentState(for: conversation) else {
+            return XCTFail("Expected terminal protocol failure")
+        }
+        XCTAssertEqual(failure.retryCount, 1)
+        XCTAssertFalse(failure.canRetry)
+    }
+
     func testNearEdgePrefetchKeepsCurrentlyVerifiedWindowVisibleWhileRequestRuns() async throws {
         let repository = ArchiveEngineRepositorySpy()
         await repository.setSnapshot(makeSnapshot(fingerprint: "sync-prefetch"))
@@ -210,6 +262,98 @@ final class AccountArchiveEngineTests: XCTestCase {
         XCTAssertEqual(stateWhilePrefetchRuns, .verified(current))
     }
 
+    func testGapLargerThanOnePageAdvancesCursorUntilContinuousProofCompletes() async throws {
+        let repository = PagingGapArchiveRepositorySpy()
+        let transport = PagingGapArchiveTransportSpy()
+        let engine = AccountArchiveEngine(
+            owner: conversation.owner,
+            repository: repository,
+            transport: transport,
+            retryClock: .immediate
+        )
+        let older = ArchiveCursor(rawValue: "100")!
+        let newer = ArchiveCursor(rawValue: "300")!
+        let intent = ArchiveWindowIntent(
+            conversation: conversation,
+            locator: .gap(olderBoundary: older, newerBoundary: newer),
+            contextBefore: ArchivePageSizing.history,
+            contextAfter: ArchivePageSizing.history,
+            priority: .visibleIntegrity
+        )
+
+        await engine.connectionDidBecomeReady(
+            generation: 13,
+            completedXEPSYNCFingerprint: "sync-gap"
+        )
+        await engine.submit(intent)
+        await engine.waitUntilIdleForTesting()
+
+        let locators = await transport.requestLocators
+        XCTAssertEqual(
+            locators,
+            [
+                .gap(olderBoundary: older, newerBoundary: newer),
+                .gap(
+                    olderBoundary: older,
+                    newerBoundary: ArchiveCursor(rawValue: "201")!
+                ),
+            ]
+        )
+        guard case .verified(let snapshot) = await engine.currentState(for: conversation) else {
+            return XCTFail("Expected a verified continuous window")
+        }
+        XCTAssertEqual(snapshot.target, intent.locator)
+        XCTAssertEqual(snapshot.verifiedSegment.oldest, older)
+        XCTAssertEqual(snapshot.verifiedSegment.newest, newer)
+    }
+
+    func testHardCutBootstrapUsesEngineForEveryTimelineConversationType() async throws {
+        let supportedTypes: [ClientSynchronizationManager.ConversationType] = [
+            .regular,
+            .group,
+            .channel,
+            .omemo,
+            .omemo1,
+            .axolotl,
+            .saved,
+        ]
+
+        for (offset, conversationType) in supportedTypes.enumerated() {
+            let key = ArchiveConversationKey(
+                owner: conversation.owner,
+                jid: "timeline-\(offset)@example.org",
+                conversationType: conversationType
+            )
+            let transport = ArchiveEngineTransportSpy()
+            let engine = AccountArchiveEngine(
+                owner: key.owner,
+                repository: ArchiveEngineRepositorySpy(),
+                transport: transport,
+                retryClock: .immediate
+            )
+            await engine.connectionDidBecomeReady(
+                generation: UInt64(20 + offset),
+                completedXEPSYNCFingerprint: "sync-\(offset)"
+            )
+            await engine.submit(
+                ArchiveWindowIntent(
+                    conversation: key,
+                    locator: .latest,
+                    contextBefore: ArchivePageSizing.initial,
+                    contextAfter: 0,
+                    priority: .visibleIntegrity
+                )
+            )
+            await engine.waitUntilIdleForTesting()
+
+            let requestedTypes = await transport.requestedConversationTypes
+            XCTAssertEqual(requestedTypes, [conversationType])
+            guard case .authoritativeEmpty = await engine.currentState(for: key) else {
+                return XCTFail("Expected engine-owned terminal for \(conversationType.rawValue)")
+            }
+        }
+    }
+
     private func latestIntent(priority: ArchiveIntentPriority) -> ArchiveWindowIntent {
         ArchiveWindowIntent(
             conversation: conversation,
@@ -239,6 +383,140 @@ final class AccountArchiveEngineTests: XCTestCase {
             freshnessToken: .xepSync(fingerprint: fingerprint)
         )
     }
+}
+
+private actor PagingGapArchiveRepositorySpy: ArchiveCoverageRepository {
+    func verifyProvisionalCoverage(owner: String, fingerprint: String) async throws {}
+
+    func verifiedAdmission(
+        for intent: ArchiveWindowIntent,
+        freshnessToken: ArchiveFreshnessToken
+    ) async throws -> ArchiveRepositoryAdmission? {
+        nil
+    }
+
+    func commit(
+        _ page: ValidatedArchiveTransportPage,
+        request: ArchiveTransportRequest,
+        freshnessToken: ArchiveFreshnessToken
+    ) async throws -> ArchiveRepositoryCommit {
+        guard case .gap(let older, let newer) = request.locator,
+              let pageSegment = page.segment else {
+            throw ArchiveTransportError.protocolViolation
+        }
+        if !page.requestComplete {
+            return .coverageAdvanced(nextGapBoundary: pageSegment.oldest)
+        }
+        let originalNewer = ArchiveCursor(rawValue: "300")!
+        guard newer == ArchiveCursor(rawValue: "201")!,
+              let segment = ArchiveCoverageSegment(
+                  oldest: older,
+                  newest: originalNewer,
+                  reachesArchiveStart: false,
+                  reachesLiveEdge: false,
+                  fingerprint: freshnessToken.fingerprint,
+                  isVerified: true
+              ) else {
+            throw ArchiveTransportError.protocolViolation
+        }
+        return .verified(
+            ArchiveWindowSnapshot(
+                messagePrimaryIDs: ["p101", "p200", "p201", "p299"],
+                target: request.locator,
+                verifiedSegment: segment,
+                coverageGeneration: 2,
+                freshnessToken: freshnessToken
+            )
+        )
+    }
+
+    func materializedAnchor(
+        conversation: ArchiveConversationKey,
+        locator: ArchiveWindowLocator,
+        candidateArchiveIDs: [String]
+    ) async throws -> ArchiveMaterializedAnchor? { nil }
+
+    func commitAnchorWindow(
+        intent: ArchiveWindowIntent,
+        anchor: ArchiveMaterializedAnchor,
+        exactPage: ValidatedArchiveTransportPage,
+        olderPage: ValidatedArchiveTransportPage,
+        newerPage: ValidatedArchiveTransportPage,
+        freshnessToken: ArchiveFreshnessToken
+    ) async throws -> ArchiveWindowSnapshot {
+        throw ArchiveTransportError.protocolViolation
+    }
+
+    func extendLiveEdge(
+        for intent: ArchiveWindowIntent,
+        primaryID: String,
+        freshnessToken: ArchiveFreshnessToken
+    ) async throws -> ArchiveWindowSnapshot? { nil }
+}
+
+private actor PagingGapArchiveTransportSpy: ArchiveTransport {
+    private(set) var requestLocators: [ArchiveWindowLocator] = []
+
+    func request(
+        _ request: ArchiveTransportRequest,
+        priority: ArchiveIntentPriority
+    ) async throws -> ArchiveTransportReceipt {
+        requestLocators.append(request.locator)
+        let archiveIDs: [String]
+        let complete: Bool
+        switch request.locator {
+        case .gap(_, let newer) where newer == ArchiveCursor(rawValue: "300")!:
+            archiveIDs = ["299", "201"]
+            complete = false
+        case .gap(_, let newer) where newer == ArchiveCursor(rawValue: "201")!:
+            archiveIDs = ["200", "101"]
+            complete = true
+        default:
+            throw ArchiveTransportError.protocolViolation
+        }
+        return ArchiveTransportReceipt(
+            queryID: request.queryID,
+            connectionGeneration: request.connectionGeneration,
+            resultArchiveIDs: archiveIDs,
+            messagePrimaryIDs: archiveIDs.map { "p\($0)" },
+            first: archiveIDs.first!,
+            last: archiveIDs.last!,
+            complete: complete,
+            cheapPageCount: archiveIDs.count,
+            deliveredResultCount: archiveIDs.count,
+            persistedResultCount: archiveIDs.count,
+            intentionallyConsumedResultCount: 0,
+            failedPersistenceCount: 0,
+            finalReceived: true
+        )
+    }
+
+    func promote(
+        descriptor: ArchiveIntentDescriptor,
+        to priority: ArchiveIntentPriority
+    ) async {}
+}
+
+private actor FailingArchiveEngineTransport: ArchiveTransport {
+    private(set) var requestCount = 0
+    private let error: ArchiveTransportError
+
+    init(error: ArchiveTransportError) {
+        self.error = error
+    }
+
+    func request(
+        _ request: ArchiveTransportRequest,
+        priority: ArchiveIntentPriority
+    ) async throws -> ArchiveTransportReceipt {
+        requestCount += 1
+        throw error
+    }
+
+    func promote(
+        descriptor: ArchiveIntentDescriptor,
+        to priority: ArchiveIntentPriority
+    ) async {}
 }
 
 private actor ArchiveEngineRepositorySpy: ArchiveCoverageRepository {
@@ -328,6 +606,8 @@ private actor ArchiveEngineRepositorySpy: ArchiveCoverageRepository {
 private actor ArchiveEngineTransportSpy: ArchiveTransport {
     private(set) var requestCount = 0
     private(set) var promotedPriorities: [ArchiveIntentPriority] = []
+    private(set) var requestedConversationTypes:
+        [ClientSynchronizationManager.ConversationType] = []
     private var isSuspended = false
     private var continuation: CheckedContinuation<ArchiveTransportReceipt, Error>?
     private var immediateReceipt: ArchiveTransportReceipt?
@@ -348,6 +628,7 @@ private actor ArchiveEngineTransportSpy: ArchiveTransport {
 
     func request(_ request: ArchiveTransportRequest, priority: ArchiveIntentPriority) async throws -> ArchiveTransportReceipt {
         requestCount += 1
+        requestedConversationTypes.append(request.conversation.conversationType)
         if let immediateReceipt {
             return immediateReceipt.replacingIdentity(from: request)
         }

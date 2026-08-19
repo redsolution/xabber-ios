@@ -8962,6 +8962,68 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
         wait(for: [secondStarted], timeout: 1)
     }
 
+    func testBootstrapSearchMediaAndNotificationsShareOneMamLane() {
+        let scheduler = AccountXMPPTaskScheduler(
+            configuration: .test(defaultCooldown: 0),
+            startsImmediately: false
+        )
+        let bootstrapStarted = expectation(description: "bootstrap started")
+        let searchStarted = expectation(description: "search started")
+        let mediaStarted = expectation(description: "media started")
+        let notificationsStarted = expectation(description: "notifications started")
+        let lock = NSLock()
+        var runningCount = 0
+        var maximumRunningCount = 0
+        var order: [String] = []
+        var completions: [String: () -> Void] = [:]
+
+        func enqueue(
+            _ label: String,
+            priority: AccountXMPPTaskScheduler.Priority,
+            expectation: XCTestExpectation
+        ) {
+            scheduler.enqueue(
+                priority: priority,
+                resource: .mamArchive,
+                deduplicationKey: "archive-consumer.\(label)"
+            ) { finish in
+                lock.lock()
+                runningCount += 1
+                maximumRunningCount = max(maximumRunningCount, runningCount)
+                order.append(label)
+                completions[label] = finish
+                lock.unlock()
+                expectation.fulfill()
+            }
+        }
+
+        func finish(_ label: String) {
+            lock.lock()
+            runningCount -= 1
+            let completion = completions.removeValue(forKey: label)
+            lock.unlock()
+            completion?()
+        }
+
+        enqueue("notifications", priority: .idle, expectation: notificationsStarted)
+        enqueue("media", priority: .background, expectation: mediaStarted)
+        enqueue("search", priority: .foreground, expectation: searchStarted)
+        enqueue("bootstrap", priority: .interactive, expectation: bootstrapStarted)
+        scheduler.resume()
+
+        wait(for: [bootstrapStarted], timeout: 1)
+        finish("bootstrap")
+        wait(for: [searchStarted], timeout: 1)
+        finish("search")
+        wait(for: [mediaStarted], timeout: 1)
+        finish("media")
+        wait(for: [notificationsStarted], timeout: 1)
+        finish("notifications")
+
+        XCTAssertEqual(maximumRunningCount, 1)
+        XCTAssertEqual(order, ["bootstrap", "search", "media", "notifications"])
+    }
+
     func testCooldownDelaysNextTaskForSameResource() {
         let scheduler = AccountXMPPTaskScheduler(
             configuration: .test(defaultCooldown: 0, cooldowns: [.vcard: 0.15])

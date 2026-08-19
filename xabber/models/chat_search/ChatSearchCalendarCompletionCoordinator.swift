@@ -245,6 +245,7 @@ final class ChatSearchTimestampMAMTransport {
     private let stateLock = NSRecursiveLock()
     private var activeQueryIDs: Set<String> = []
     private var managersByQueryID: [String: MessageArchiveManager] = [:]
+    private var schedulerCompletionsByQueryID: [String: () -> Void] = [:]
 
     @discardableResult
     func start(
@@ -266,38 +267,35 @@ final class ChatSearchTimestampMAMTransport {
         activeQueryIDs.insert(plan.queryId)
         stateLock.unlock()
 
-        let fallback: () -> Void = { [weak self] in
-            guard let self else { return }
-            guard let account = AccountManager.shared.find(for: plan.scope.owner) else {
-                self.failStart(plan: plan, callbacks: callbacks, streamKind: .unknown)
-                return
-            }
-            account.action { [weak self] user, stream in
-                self?.send(
+        guard let account = AccountManager.shared.find(for: plan.scope.owner) else {
+            failStart(plan: plan, callbacks: callbacks, streamKind: .unknown)
+            return false
+        }
+        account.xmppTaskScheduler.enqueueAccountTask(
+            priority: .foreground,
+            resource: .mamArchive,
+            deduplicationKey: "archive.timestamp.\(plan.scope.owner).\(plan.queryId)",
+            requiresAuthenticatedStream: true,
+            unavailable: { [weak self] in
+                self?.failStart(
                     plan: plan,
                     callbacks: callbacks,
-                    stream: stream,
-                    manager: user.mam,
                     streamKind: .primary
                 )
             }
-        }
-
-        XMPPUIActionManager.shared.performRequest(owner: plan.scope.owner) { [weak self] stream, session in
-            guard let self else { return }
-            guard let manager = session.mam else {
-                fallback()
+        ) { [weak self] user, stream, finish in
+            guard let self else {
+                finish()
                 return
             }
             self.send(
                 plan: plan,
                 callbacks: callbacks,
                 stream: stream,
-                manager: manager,
-                streamKind: .uiAction
+                manager: user.mam,
+                streamKind: .primary,
+                schedulerCompletion: finish
             )
-        } fail: {
-            fallback()
         }
         return true
     }
@@ -305,9 +303,15 @@ final class ChatSearchTimestampMAMTransport {
     func cancel(queryID: String) {
         stateLock.lock()
         activeQueryIDs.remove(queryID)
-        let manager = managersByQueryID.removeValue(forKey: queryID)
+        let isOnWire = managersByQueryID[queryID] != nil
+        let schedulerCompletion = isOnWire
+            ? nil
+            : schedulerCompletionsByQueryID.removeValue(forKey: queryID)
         stateLock.unlock()
-        _ = manager?.cancelTimestampLookup(queryId: queryID)
+        // An on-wire SQL query is not cancellable. Keep its scheduler lease
+        // until the matching final/failure callback, while the resolver's
+        // generation gate ignores its late result.
+        schedulerCompletion?()
     }
 
     private func send(
@@ -315,14 +319,17 @@ final class ChatSearchTimestampMAMTransport {
         callbacks: MessageArchiveManager.RequestCallbacks,
         stream: XMPPStream,
         manager: MessageArchiveManager,
-        streamKind: MessageArchiveEndPageEvent.StreamKind
+        streamKind: MessageArchiveEndPageEvent.StreamKind,
+        schedulerCompletion: @escaping () -> Void
     ) {
         stateLock.lock()
         guard activeQueryIDs.contains(plan.queryId) else {
             stateLock.unlock()
+            schedulerCompletion()
             return
         }
         managersByQueryID[plan.queryId] = manager
+        schedulerCompletionsByQueryID[plan.queryId] = schedulerCompletion
         stateLock.unlock()
 
         let wrappedCallbacks = MessageArchiveManager.RequestCallbacks(
@@ -354,7 +361,11 @@ final class ChatSearchTimestampMAMTransport {
         stateLock.lock()
         let wasActive = activeQueryIDs.remove(plan.queryId) != nil
         managersByQueryID.removeValue(forKey: plan.queryId)
+        let schedulerCompletion = schedulerCompletionsByQueryID.removeValue(
+            forKey: plan.queryId
+        )
         stateLock.unlock()
+        schedulerCompletion?()
         guard wasActive else { return }
         callbacks.onFailure?(
             MessageArchiveRequestFailureEvent(
@@ -372,6 +383,10 @@ final class ChatSearchTimestampMAMTransport {
         stateLock.lock()
         activeQueryIDs.remove(queryID)
         managersByQueryID.removeValue(forKey: queryID)
+        let schedulerCompletion = schedulerCompletionsByQueryID.removeValue(
+            forKey: queryID
+        )
         stateLock.unlock()
+        schedulerCompletion?()
     }
 }

@@ -599,7 +599,8 @@ class XMPPFavoritesManager: AbstractXMPPManager {
     }
     
     func updateArchive(_ stream: XMPPStream) {
-        guard let node = self.node else {
+        guard let node = self.node,
+              let account = AccountManager.shared.find(for: self.owner) else {
             return
         }
         
@@ -616,14 +617,23 @@ class XMPPFavoritesManager: AbstractXMPPManager {
             DDLogDebug("XMPPFavoritesManager: \(#function). \(error.localizedDescription)")
         }
         
-        AccountManager.shared.find(for: self.owner)?.mam.requestArchive(
-            stream,
-            jid: node,
-            isContinues: true,
-            conversationType: .saved,
-            purpose: .jump,
-            start: lastArchivedMessageDate
-        )
+        account.xmppTaskScheduler.enqueueAccountTask(
+            priority: .background,
+            resource: .mamArchive,
+            deduplicationKey: "archive.saved-refresh.\(self.owner).\(node)",
+            requiresAuthenticatedStream: true
+        ) { user, scheduledStream, finish in
+            user.mam.requestArchive(
+                scheduledStream,
+                jid: node,
+                isContinues: true,
+                conversationType: .saved,
+                purpose: .jump,
+                start: lastArchivedMessageDate,
+                callback: finish,
+                requestCallbacks: .init(onFailure: { _ in finish() })
+            )
+        }
     }
     
     static func remove(for owner: String, commitTransaction: Bool) {

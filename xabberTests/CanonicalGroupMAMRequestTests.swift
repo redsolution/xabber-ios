@@ -63,7 +63,7 @@ final class CanonicalGroupMAMRequestTests: XCTestCase {
         XCTAssertEqual(dataFormFieldValues(in: iq, named: "conversation-type"), [])
     }
 
-    func testCanonicalGroupHistoryUsesNewestAuthoritativeBootstrapPage() throws {
+    func testCanonicalGroupHistoryUsesNewestCheapBootstrapPageWithoutFullCounter() throws {
         let manager = MessageArchiveManager(withOwner: owner)
         let stream = CanonicalGroupMAMCapturingStream()
 
@@ -79,7 +79,7 @@ final class CanonicalGroupMAMRequestTests: XCTestCase {
         let rsm = try XCTUnwrap(query.element(forName: "set", xmlns: "http://jabber.org/protocol/rsm"))
         XCTAssertEqual(rsm.element(forName: "max")?.stringValue, "25")
         XCTAssertNotNil(rsm.element(forName: "before"))
-        XCTAssertEqual(dataFormFieldValues(in: iq, named: "rsm-counter"), ["1"])
+        XCTAssertEqual(dataFormFieldValues(in: iq, named: "rsm-counter"), [])
 
         let task = try XCTUnwrap(
             manager.callbacksQueue.first(where: { $0.elementId == "canonical-group-history-bootstrap" })?.task

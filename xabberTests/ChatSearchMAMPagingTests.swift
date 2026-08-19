@@ -372,7 +372,7 @@ final class ChatSearchMAMPagingTests: XCTestCase {
         XCTAssertTrue(session.orderedResults.isEmpty)
     }
 
-    func testManagerSearchRequestKeepsWithTextShapeAndRegistersTypedSession() throws {
+    func testManagerSearchRequestUsesOneFiftyResultPageAndRegistersTypedSession() throws {
         let manager = MessageArchiveManager(withOwner: "owner@example.com")
         let stream = ChatSearchCapturingXMPPStream()
 
@@ -381,8 +381,8 @@ final class ChatSearchMAMPagingTests: XCTestCase {
             jid: "romeo@example.com",
             conversationType: .regular,
             text: "test",
-            max: 250,
-            loadFull: true,
+            max: ArchivePageSizing.search,
+            loadFull: false,
             queryId: queryId,
             generation: generation
         )
@@ -400,23 +400,17 @@ final class ChatSearchMAMPagingTests: XCTestCase {
         let set = try XCTUnwrap(query.element(forName: "set"))
         XCTAssertNotNil(set.element(forName: "before"))
         XCTAssertEqual(set.element(forName: "before")?.stringValue ?? "", "")
+        XCTAssertEqual(set.element(forName: "max")?.stringValue, "50")
 
         manager.cancelSearch(queryId: queryId)
     }
 
-    func testManagerIncompleteFinalRequestsNextPageFromFirstWithoutPrematureCompletion() throws {
+    func testManagerIncompleteFinalOffersContinuationWithoutStartingItAutomatically() throws {
         let manager = MessageArchiveManager(withOwner: "owner@example.com")
-        manager.searchContinuationDelay = 0.01
         let stream = ChatSearchCapturingXMPPStream()
-        let nextRequest = expectation(description: "next search page")
         let prematureEnd = expectation(description: "no premature end page")
         prematureEnd.isInverted = true
         let cancelled = expectation(description: "cancelled terminal")
-        stream.onSendElement = { _ in
-            if stream.sentElements.count == 2 {
-                nextRequest.fulfill()
-            }
-        }
 
         _ = manager.searchText(
             stream,
@@ -442,13 +436,14 @@ final class ChatSearchMAMPagingTests: XCTestCase {
             count: 251
         )))
 
-        wait(for: [nextRequest], timeout: 1.0)
-        let secondQuery = try XCTUnwrap(stream.sentElements.last?.element(forName: "query"))
-        XCTAssertEqual(
-            secondQuery.element(forName: "set")?.element(forName: "before")?.stringValue,
-            "oldest-on-page"
-        )
+        let noAutomaticContinuation = expectation(description: "no automatic continuation")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            noAutomaticContinuation.fulfill()
+        }
+        wait(for: [noAutomaticContinuation], timeout: 1.0)
+        XCTAssertEqual(stream.sentElements.count, 1)
         XCTAssertTrue(manager.hasActiveSearchArchiveSession(queryId: queryId))
+        XCTAssertTrue(manager.hasPendingSearchContinuation(queryId: queryId))
         manager.cancelSearch(queryId: queryId)
         wait(for: [cancelled, prematureEnd], timeout: 0.2)
     }
@@ -600,6 +595,48 @@ final class ChatSearchMAMPagingTests: XCTestCase {
         XCTAssertTrue(manager.readMessage(message))
         wait(for: [incremental], timeout: 1.0)
         manager.cancelSearch(queryId: queryId)
+    }
+
+    func testManagerCancelKeepsOnWireQueryOwnedUntilFinalAndDropsLateRows() throws {
+        let manager = MessageArchiveManager(withOwner: "owner@example.com")
+        let stream = ChatSearchCapturingXMPPStream()
+        let cancelled = expectation(description: "cancelled terminal")
+        let lateRow = expectation(description: "late row is not presented")
+        lateRow.isInverted = true
+
+        _ = manager.searchText(
+            stream,
+            jid: "romeo@example.com",
+            conversationType: .regular,
+            text: "test",
+            queryId: queryId,
+            generation: generation,
+            requestCallbacks: .init(
+                onMessage: { _, _ in lateRow.fulfill() },
+                onSearchTerminal: { _, terminal in
+                    if case .cancelled = terminal {
+                        cancelled.fulfill()
+                    }
+                }
+            )
+        )
+
+        XCTAssertTrue(manager.cancelSearch(queryId: queryId))
+        wait(for: [cancelled], timeout: 1.0)
+        XCTAssertFalse(manager.hasActiveSearchArchiveSession(queryId: queryId))
+        XCTAssertTrue(manager.queryIds.contains(queryId))
+
+        XCTAssertTrue(manager.readMessage(try resultMessage(archivedId: "late")))
+        wait(for: [lateRow], timeout: 0.1)
+        XCTAssertTrue(manager.read(stream, withIQ: try finalIQ(
+            complete: true,
+            first: "late",
+            last: "late",
+            count: 1
+        )))
+
+        XCTAssertFalse(manager.queryIds.contains(queryId))
+        XCTAssertFalse(manager.hasPendingSearchContinuation(queryId: queryId))
     }
 
     func testManagerCancelInvalidatesScheduledContinuationAndCleansState() throws {

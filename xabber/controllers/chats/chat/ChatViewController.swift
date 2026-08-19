@@ -2261,6 +2261,7 @@ class ChatViewController: MessagesViewController {
     var archiveWindowIntent: ArchiveWindowIntent?
     var archiveWindowApplyGeneration: UInt64 = 0
     var archiveWindowCommittedCoverageGeneration: UInt64?
+    var archiveSkeletonBeganAt: Date?
     var datasource: [Datasource] = [] {
         didSet {
             rebuildScrollResidentMetadata()

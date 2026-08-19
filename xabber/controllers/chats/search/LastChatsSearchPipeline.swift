@@ -354,7 +354,7 @@ struct LastChatsSearchPipeline {
 
         init(
             pageSize: Int = 50,
-            maximumResidentPagesPerProvider: Int = 4,
+            maximumResidentPagesPerProvider: Int = 3,
             maximumResidentItems: Int = 400
         ) {
             self.pageSize = max(1, pageSize)

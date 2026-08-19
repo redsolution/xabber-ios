@@ -185,6 +185,10 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
             queryId: request.queryID,
             priority: Self.persistencePriority(request)
         )
+        ArchiveEngineObservability.event(
+            .transport,
+            value: request.pageSize
+        )
         preparationToken = MessageArchiveRequestFailurePreparationDispatcher.register(
             owner: request.conversation.owner,
             queryId: request.queryID
@@ -250,6 +254,11 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
             finish(.failure(ArchiveTransportError.protocolViolation))
             return
         }
+        ArchiveEngineObservability.event(
+            .final,
+            value: accounting.deliveredResultCount,
+            auxiliary: state.rawComplete ? 1 : 0
+        )
 
         guard persistenceGate.arm(onTimeout: { [weak self] in
             guard let self else { return }
@@ -273,6 +282,11 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
             }
             Task {
                 do {
+                    ArchiveEngineObservability.event(
+                        .persistence,
+                        value: summary.persistedRows,
+                        auxiliary: summary.failed + summary.skipped
+                    )
                     let primaryIDs = try await self.materializationResolver
                         .materializedMessagePrimaryIDs(
                             conversation: self.request.conversation,
@@ -333,6 +347,11 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
                 return
             }
             acknowledgement?()
+            ArchiveEngineObservability.event(
+                .persistence,
+                value: 0,
+                auxiliary: 1
+            )
             self.finish(.failure(Self.transportError(for: event)))
         }
     }

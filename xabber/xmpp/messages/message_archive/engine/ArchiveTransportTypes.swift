@@ -165,7 +165,7 @@ enum ArchiveTransportReceiptValidator {
                     olderBoundary: olderBoundary,
                     newerBoundary: newerBoundary
                 )
-                : nil
+                : .older(before: newerBoundary)
         case .firstUnread(.none):
             reachesLiveEdge = true
             reachesArchiveStart = receipt.complete
@@ -216,6 +216,7 @@ enum ArchiveRepositoryCommit: Hashable, Sendable {
     case verified(ArchiveWindowSnapshot)
     case authoritativeEmpty
     case materializedWithoutCoverage
+    case coverageAdvanced(nextGapBoundary: ArchiveCursor)
 }
 
 enum ArchiveRepositoryAdmission: Hashable, Sendable {

@@ -274,59 +274,26 @@ class SearchResultsViewController: SimpleBaseViewController {
                     item in
                     self.messagesQueue.append(item)
             }
-            if withUIStream {
-                let requestCallbacks = MessageArchiveManager.RequestCallbacks(
-                    onMessage: { [weak self] item, queryId in
-                        self?.didReceiveMessage(item, queryId: queryId)
-                    },
-                    onEndPage: { [weak self] queryId, state, first, last, count in
-                        self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
-                    }
-                )
-                XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
-                    let queryId = session.mam?.searchText(
-                        stream,
-                        conversationType: .regular,
-                        text: text,
-                        max: 100,
-                        loadFull: false,
-                        requestCallbacks: requestCallbacks
-                    ) ?? ""
-                    self.registerSearchRequest(owner: owner, queryId: queryId)
-                } fail: {
-                    AccountManager.shared.find(for: owner)?.action({ user, stream in
-                        let queryId = user.mam.searchText(
-                            stream,
-                            conversationType: .regular,
-                            text: text,
-                            max: 100,
-                            loadFull: false,
-                            requestCallbacks: requestCallbacks
-                        )
-                        self.registerSearchRequest(owner: owner, queryId: queryId)
-                    })
+            let requestCallbacks = MessageArchiveManager.RequestCallbacks(
+                onMessage: { [weak self] item, queryId in
+                    self?.didReceiveMessage(item, queryId: queryId)
+                },
+                onEndPage: { [weak self] queryId, state, first, last, count in
+                    self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
                 }
-            } else {
-                let requestCallbacks = MessageArchiveManager.RequestCallbacks(
-                    onMessage: { [weak self] item, queryId in
-                        self?.didReceiveMessage(item, queryId: queryId)
-                    },
-                    onEndPage: { [weak self] queryId, state, first, last, count in
-                        self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
-                    }
-                )
-                AccountManager.shared.find(for: owner)?.action({ user, stream in
-                    let queryId = user.mam.searchText(
-                        stream,
-                        conversationType: .regular,
-                        text: text,
-                        max: 100,
-                        loadFull: false,
-                        requestCallbacks: requestCallbacks
-                    )
-                    self.registerSearchRequest(owner: owner, queryId: queryId)
-                })
+            )
+            guard let manager = AccountManager.shared.find(for: owner)?.mam else {
+                return
             }
+            let queryId = manager.scheduleSearchText(
+                conversationType: .regular,
+                text: text,
+                max: ArchivePageSizing.search,
+                loadFull: false,
+                maximumPageCount: 1,
+                requestCallbacks: requestCallbacks
+            )
+            self.registerSearchRequest(owner: owner, queryId: queryId)
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
         }
@@ -1459,15 +1426,15 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
             }
         )
 
-        let register: (MessageArchiveManager, XMPPStream) -> Void = { [weak self] manager, stream in
+        let register: (MessageArchiveManager) -> Void = { [weak self] manager in
             guard let self else { return }
-            let queryId = manager.searchText(
-                stream,
+            let queryId = manager.scheduleSearchText(
                 conversationType: conversationType,
                 text: request.query,
                 max: request.limit,
                 loadFull: false,
                 pageCursor: request.cursor?.opaque,
+                maximumPageCount: 1,
                 requestCallbacks: callbacks
             )
             let registration = {
@@ -1484,25 +1451,13 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
             }
         }
 
-        XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in
-            guard let manager = session.mam else {
-                DispatchQueue.main.async { [weak self] in
-                    self?.receive(.failed(request, reason: .providerUnavailable))
-                }
-                return
+        guard let manager = AccountManager.shared.find(for: owner)?.mam else {
+            DispatchQueue.main.async { [weak self] in
+                self?.receive(.failed(request, reason: .providerUnavailable))
             }
-            register(manager, stream)
-        } fail: { [weak self] in
-            guard let account = AccountManager.shared.find(for: owner) else {
-                DispatchQueue.main.async {
-                    self?.receive(.failed(request, reason: .providerUnavailable))
-                }
-                return
-            }
-            account.action { user, stream in
-                register(user.mam, stream)
-            }
+            return
         }
+        register(manager)
     }
 
     internal final func replaceMessageStorageItemsForTesting(

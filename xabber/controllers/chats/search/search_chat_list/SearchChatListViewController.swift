@@ -456,25 +456,18 @@ class SearchChatListViewController: SimpleBaseViewController {
                                     self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
                                 }
                             )
-                            XMPPUIActionManager.shared.performRequest(owner: self.owner) { stream, session in
-                                self.currentQueryId = session.mam?.searchText(
-                                    stream,
+                            self.currentQueryId = AccountManager.shared
+                                .find(for: self.owner)?
+                                .mam
+                                .scheduleSearchText(
                                     jid: self.jid,
                                     conversationType: self.conversationType,
                                     text: value,
+                                    max: ArchivePageSizing.search,
+                                    loadFull: false,
+                                    maximumPageCount: 1,
                                     requestCallbacks: requestCallbacks
                                 )
-                            } fail: {
-                                AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                                    self.currentQueryId = user.mam.searchText(
-                                        stream,
-                                        jid: self.jid,
-                                        conversationType: self.conversationType,
-                                        text: value,
-                                        requestCallbacks: requestCallbacks
-                                    )
-                                })
-                            }
                         } else {
                             self.messagesQueue = []
                         }

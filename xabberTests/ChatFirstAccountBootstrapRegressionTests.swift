@@ -157,7 +157,7 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
         )
     }
 
-    func testEveryInitialChatBootstrapRequestsTheAuthoritativeServerCounter() throws {
+    func testEveryInitialChatBootstrapAvoidsTheExpensiveServerCounter() throws {
         let conversationTypes: [ClientSynchronizationManager.ConversationType] = [
             .regular,
             .group,
@@ -195,8 +195,8 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
                 .compactMap(\.stringValue)
             XCTAssertEqual(
                 counterValues,
-                ["1"],
-                "bootstrap must request an authoritative count for \(conversationType.rawValue)"
+                nil,
+                "bootstrap must rely on cheap page proof for \(conversationType.rawValue)"
             )
         }
     }
@@ -395,7 +395,7 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
     }
 
     @MainActor
-    func testFreshSavedMessagesEmptyBootstrapCommitTransitionsSkeletonToEmpty() throws {
+    func testLegacySavedMessagesEmptyReceiptCannotDismissEngineSkeleton() throws {
         let controller = ChatViewController()
         controller.owner = "fresh-saved-owner@dxs.xabber.com"
         controller.jid = "favorites.dxs.xabber.com"
@@ -465,11 +465,6 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
             archiveManager: archiveManager,
             cancelTransport: {}
         )
-        controller.beginInitialBootstrapTracking(
-            queryId: lease.queryId,
-            timeout: nil
-        )
-
         XCTAssertTrue(archiveManager.read(
             XMPPStream(),
             withIQ: try makeArchiveFinalIQ(
@@ -479,14 +474,12 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
             )
         ))
         XCTAssertTrue(waitUntil {
-            controller.appliedBootstrapLoadingState == .empty &&
-                controller.datasource.isEmpty &&
-                !controller.showSkeletonObserver.value
+            coordinator.readiness(for: key)?.phase == .committed
         })
 
-        XCTAssertEqual(controller.appliedBootstrapLoadingState, .empty)
-        XCTAssertTrue(controller.datasource.isEmpty)
-        XCTAssertFalse(controller.showSkeletonObserver.value)
+        XCTAssertEqual(controller.appliedBootstrapLoadingState, .blockingArchive)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
+        XCTAssertTrue(controller.showSkeletonObserver.value)
         XCTAssertFalse(controller.isInitialBootstrapInFlight)
         XCTAssertNil(controller.initialBootstrapQueryId)
         XCTAssertEqual(coordinator.readiness(for: key)?.phase, .committed)
@@ -649,7 +642,7 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
     }
 
     @MainActor
-    func testJoinedCommittedSavedReceiptDoesNotReinstallLoadingOrTransport() throws {
+    func testJoinedLegacySavedReceiptDoesNotBypassEngineProofGate() throws {
         let controller = try makeFreshSavedController(
             owner: "joined-saved-owner@dxs.xabber.com"
         )
@@ -683,7 +676,9 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
 
         controller.requestInitialBootstrapArchive()
 
-        XCTAssertEqual(controller.appliedBootstrapLoadingState, .empty)
+        XCTAssertEqual(controller.appliedBootstrapLoadingState, .blockingArchive)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.allSatisfy(\.isFakeMessage))
         XCTAssertFalse(controller.isInitialBootstrapInFlight)
         XCTAssertNil(controller.initialBootstrapQueryId)
         XCTAssertNil(controller.initialBootstrapTimeoutWorkItem)
@@ -1611,8 +1606,8 @@ final class ChatFirstAccountBootstrapRegressionTests: XCTestCase {
             leaseSurvivedReopen,
             "raw Realm readiness flags must not discard an archive transaction still persisting"
         )
-        XCTAssertEqual(controller.initialBootstrapQueryId, lease.queryId)
-        XCTAssertTrue(controller.isInitialBootstrapInFlight)
+        XCTAssertNil(controller.initialBootstrapQueryId)
+        XCTAssertFalse(controller.isInitialBootstrapInFlight)
 
         let persistenceCommitted = expectation(
             description: "raw final persistence committed after reopen"

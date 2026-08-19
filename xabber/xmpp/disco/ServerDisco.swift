@@ -474,9 +474,8 @@ class ServerDiscoManager: AbstractXMPPManager {
                         }
                         if AccountManager.shared.find(for: self.owner)?.mam.isExtendedArchiveAvailable != true {
                             AccountManager.shared.find(for: self.owner)?.mam.isExtendedArchiveAvailable = true
-                            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                                user.mam.requestInviteRecovery(stream)
-                            })
+                            AccountManager.shared.find(for: self.owner)?.mam
+                                .scheduleInviteRecovery()
                         }
                     default: break
                     }

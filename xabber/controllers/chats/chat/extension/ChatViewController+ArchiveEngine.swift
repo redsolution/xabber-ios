@@ -125,6 +125,7 @@ extension ChatViewController {
         assert(Thread.isMainThread)
         archiveEnginePresentationActive = true
         archiveWindowCommittedCoverageGeneration = nil
+        archiveSkeletonBeganAt = archiveSkeletonBeganAt ?? Date()
         setSkeletonVisible(true)
         setDatasourceLoadingEnabled(false)
 
@@ -167,6 +168,40 @@ extension ChatViewController {
         setSkeletonVisible(true)
         setDatasourceLoadingEnabled(false)
         Task { await account.archiveEngine.retry(conversation: archiveEngineConversationKey) }
+    }
+
+    @discardableResult
+    internal func submitArchiveEngineTarget(_ request: ChatOpenMessageRequest) -> Bool {
+        guard archiveEnginePresentationActive,
+              request.owner == owner,
+              request.chatJid == jid,
+              request.conversationType == conversationType,
+              let account = AccountManager.shared.find(for: owner) else {
+            return false
+        }
+        let locator: ArchiveWindowLocator
+        if let rawArchiveID = request.anchor.archivedId,
+           let cursor = ArchiveCursor(rawValue: rawArchiveID) {
+            locator = .archiveID(cursor)
+        } else if let date = request.anchor.sourceDate {
+            locator = .timestamp(date)
+        } else {
+            return false
+        }
+        let intent = ArchiveWindowIntent(
+            conversation: archiveEngineConversationKey,
+            locator: locator,
+            contextBefore: ArchivePageSizing.anchorBefore,
+            contextAfter: ArchivePageSizing.anchorAfter,
+            priority: .target
+        )
+        archiveWindowIntent = intent
+        archiveWindowCommittedCoverageGeneration = nil
+        archiveWindowState = .skeleton(reason: .loadingTarget, target: locator)
+        setSkeletonVisible(true)
+        setDatasourceLoadingEnabled(false)
+        Task { await account.archiveEngine.submit(intent) }
+        return true
     }
 
     internal func submitArchiveEnginePage(
@@ -305,6 +340,7 @@ extension ChatViewController {
         switch state {
         case .skeleton, .retryableFailure:
             archiveWindowCommittedCoverageGeneration = nil
+            archiveSkeletonBeganAt = archiveSkeletonBeganAt ?? Date()
             cancelDatasetMappingJobs()
             setSkeletonVisible(true)
             setDatasourceLoadingEnabled(false)
@@ -397,6 +433,11 @@ extension ChatViewController {
                         }
                         self.archiveWindowCommittedCoverageGeneration =
                             snapshot.coverageGeneration
+                        self.recordArchiveSkeletonTerminalIfNeeded()
+                        ArchiveEngineObservability.event(
+                            .uikitApply,
+                            value: snapshot.messagePrimaryIDs.count
+                        )
                         self.setSkeletonVisible(false)
                         self.setDatasourceLoadingEnabled(true)
                         if self.pendingOpenMessageRequest != nil {
@@ -446,11 +487,22 @@ extension ChatViewController {
                             return
                         }
                         self.archiveWindowCommittedCoverageGeneration = 0
+                        self.recordArchiveSkeletonTerminalIfNeeded()
+                        ArchiveEngineObservability.event(.uikitApply)
                         self.setSkeletonVisible(false)
                         self.setDatasourceLoadingEnabled(true)
                     }
                 )
             }
         }
+    }
+
+    private func recordArchiveSkeletonTerminalIfNeeded() {
+        guard let beganAt = archiveSkeletonBeganAt else { return }
+        archiveSkeletonBeganAt = nil
+        ArchiveEngineObservability.event(
+            .skeletonDuration,
+            value: max(0, Int(Date().timeIntervalSince(beganAt) * 1_000))
+        )
     }
 }

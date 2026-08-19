@@ -2867,7 +2867,8 @@ extension ChatViewController {
         reduceSearchPresentationState(
             .failed(generation: searchPresentationState.generation)
         )
-        clearInChatSearchQuery(clearResults: true, panelState: .emptyResults)
+        applySearchResults(emptyList: searchResultPresentations.isEmpty)
+        setLoadingIndicatorVisible(false)
         postChatSearchAccessibilityAnnouncement(
             .searchFailure,
             generation: searchPresentationState.generation
@@ -3324,13 +3325,21 @@ extension ChatViewController {
     private func requestOlderSearchResultsIfAvailable() {
         let generation = searchOlderPageNavigationGate.generation
         guard let request = searchOlderPageNavigationGate.requestNavigation(generation: generation),
-              let queryId = currentSearchQueryId,
-              let manager = searchArchiveManagersByQueryId[queryId] else {
+              let queryId = currentSearchQueryId else {
             searchOlderPageNavigationGate.markTerminal(generation: generation)
             renderSearchNavigationButtons(animated: true)
             return
         }
-        guard manager.requestPendingSearchContinuation(queryId: queryId) else {
+        let didStartPage: Bool
+        if let manager = searchArchiveManagersByQueryId[queryId] {
+            didStartPage = manager.requestPendingSearchContinuation(queryId: queryId)
+        } else {
+            didStartPage = searchLocalProvider.requestNextPage(
+                queryId: queryId,
+                generation: generation
+            )
+        }
+        guard didStartPage else {
             searchOlderPageNavigationGate.markTerminal(generation: generation)
             renderSearchNavigationButtons(animated: true)
             return
@@ -3342,7 +3351,7 @@ extension ChatViewController {
         renderSearchNavigationButtons(animated: true)
     }
 
-    private func consumePendingOlderSearchResultNavigationIfReady(queryId: String) {
+    internal func consumePendingOlderSearchResultNavigationIfReady(queryId: String) {
         guard let generation = searchSessionGenerationByQueryId[queryId],
               let target = searchOlderPageNavigationGate.consumePendingNavigationTarget(
                   resultCount: searchMessagesQueue.count,
@@ -3490,6 +3499,9 @@ extension ChatViewController {
         self.pendingOpenMessageRequest = request
         self.activeAnchorExecutionHooks = hooks
         self.syncAnchorExecutionFlags()
+        if self.submitArchiveEngineTarget(request) {
+            return
+        }
         self.performPendingOpenMessageRequestIfNeeded(trigger: .manual)
     }
 
@@ -4461,6 +4473,9 @@ extension ChatViewController {
         plan: ChatAnchorRemoteFetchPlan,
         for request: ChatOpenMessageRequest
     ) -> String? {
+        if self.submitArchiveEngineTarget(request) {
+            return self.archiveWindowIntent?.id.uuidString
+        }
         let queryId: String
         switch plan {
         case .exactArchivedId:
@@ -5523,6 +5538,12 @@ extension ChatViewController {
         around target: ResolvedJumpTarget,
         request: ChatOpenMessageRequest
     ) -> Bool {
+        // The archive engine's verified target window already owns the complete
+        // 30/30 context. Starting the legacy context probes here would bypass
+        // coverage admission and the single account MAM lane.
+        guard !self.archiveEnginePresentationActive else {
+            return false
+        }
         guard var executionState = self.activeAnchorExecutionState else {
             return false
         }
@@ -5733,6 +5754,11 @@ extension ChatViewController {
         around target: ResolvedJumpTarget,
         request: ChatOpenMessageRequest
     ) {
+        // Verified archive-engine windows are the only source of presentable
+        // context after the hard cut; never materialize detached legacy pages.
+        guard !self.archiveEnginePresentationActive else {
+            return
+        }
         let residentSnapshot = self.timelineSession?.snapshot
         let residentArchivedIds = residentSnapshot?.items.map(\.archivedId) ?? []
         let observerIndex = residentSnapshot?.residentIndex.index(primary: target.primary)

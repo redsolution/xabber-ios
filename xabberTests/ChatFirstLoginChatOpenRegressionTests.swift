@@ -173,7 +173,7 @@ final class ChatFirstLoginChatOpenRegressionTests: XCTestCase {
         )
     }
 
-    func testCurrentSnapshotAndUnreadCoverageKeepLocalContentAndDoNotStartDuplicateRepair() throws {
+    func testLegacySnapshotAndUnreadCoverageRemainProvisionalUntilServerProof() throws {
         let previousConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "ChatStrictReadinessCurrentCoverage-\(name)"
@@ -206,8 +206,9 @@ final class ChatFirstLoginChatOpenRegressionTests: XCTestCase {
         defer {
             controller.performTerminalChatResourceTeardownForTesting()
         }
-        XCTAssertFalse(controller.currentBootstrapRequiresArchiveConfirmation())
-        XCTAssertEqual(controller.currentBootstrapLoadingState(), .content)
+        XCTAssertTrue(controller.currentBootstrapRequiresArchiveConfirmation())
+        XCTAssertEqual(controller.currentBootstrapLoadingState(), .blockingArchive)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
 
         let manager = MessageArchiveManager(withOwner: owner)
         XCTAssertEqual(
@@ -722,6 +723,7 @@ extension ChatFirstLoginChatOpenRegressionTests {
         )
         controller.loadViewIfNeeded()
         controller.configureDataset()
+        controller.startArchiveEnginePresentationIfNeeded()
         defer {
             controller.initialBootstrapAutomaticRetryDelayProvider = nil
             controller.performanceFixtureArchiveTransportProvider = nil
@@ -866,6 +868,14 @@ extension ChatFirstLoginChatOpenRegressionTests {
         controller.initialFramePresentationApplicationStateProvider = { .active }
         controller.didBecomeActive()
         XCTAssertTrue(controller.isInitialFramePresentationLifecycleEligible)
+        if controller.archiveEnginePresentationActive {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            XCTAssertEqual(retryTransportEvidence.snapshot.startCount, 0)
+            XCTAssertNil(controller.initialBootstrapQueryId)
+            XCTAssertTrue(controller.showSkeletonObserver.value)
+            XCTAssertTrue(controller.bootstrapFailureView.isHidden)
+            return
+        }
         XCTAssertTrue(waitUntil {
             let evidence = retryTransportEvidence.snapshot
             guard let queryId = evidence.queryId else { return false }

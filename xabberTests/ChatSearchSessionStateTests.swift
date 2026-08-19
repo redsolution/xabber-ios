@@ -47,13 +47,13 @@ final class ChatSearchSessionStateTests: XCTestCase {
         XCTAssertEqual(session.normalizedQuery, "test")
     }
 
-    func testDebounceStartsOnlyLatestGenerationAfter250Milliseconds() throws {
+    func testDebounceStartsOnlyLatestGenerationAfter300Milliseconds() throws {
         var session = ChatSearchSession()
         let first = try XCTUnwrap(scheduledRequest(in: session.accept(query: "tes", scope: regularScope)))
         let latestEffects = session.accept(query: "test", scope: regularScope)
         let latest = try XCTUnwrap(scheduledRequest(in: latestEffects))
 
-        XCTAssertEqual(scheduledDelay(in: latestEffects), 250)
+        XCTAssertEqual(scheduledDelay(in: latestEffects), 300)
         XCTAssertTrue(session.debounceElapsed(generation: first.generation).isEmpty)
         XCTAssertEqual(
             session.debounceElapsed(generation: latest.generation),

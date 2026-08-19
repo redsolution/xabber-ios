@@ -75,6 +75,10 @@ actor AccountArchiveEngine {
 
     func submit(_ intent: ArchiveWindowIntent) {
         guard intent.conversation.owner == owner else { return }
+        ArchiveEngineObservability.event(
+            .queued,
+            value: intent.priority.rawValue
+        )
         if let current = latestIntentByConversation[intent.conversation],
            current.semanticDescriptor == intent.semanticDescriptor,
            current.priority > intent.priority {
@@ -195,6 +199,7 @@ actor AccountArchiveEngine {
     ) {
         let descriptor = intent.semanticDescriptor
         if var active = activeByDescriptor[descriptor] {
+            ArchiveEngineObservability.event(.duplicateJoin)
             guard intent.priority > active.intent.priority else { return }
             let previousPriority = active.intent.priority
             active.intent = intent
@@ -270,12 +275,30 @@ actor AccountArchiveEngine {
         }
 
         var failureCount = 0
+        var nextGapBoundary: ArchiveCursor?
         while isCurrent(executionID, descriptor: descriptor, generation: connection.generation) {
             let queryID = "archive.engine.\(UUID().uuidString)"
             let proofFingerprint = connection.completedXEPSYNCFingerprint ??
                 "session:\(connection.generation)"
+            let requestIntent: ArchiveWindowIntent
+            if case .gap(let olderBoundary, let originalNewerBoundary) = intent.locator,
+               let nextGapBoundary {
+                requestIntent = ArchiveWindowIntent(
+                    id: intent.id,
+                    conversation: intent.conversation,
+                    locator: .gap(
+                        olderBoundary: olderBoundary,
+                        newerBoundary: min(nextGapBoundary, originalNewerBoundary)
+                    ),
+                    contextBefore: intent.contextBefore,
+                    contextAfter: intent.contextAfter,
+                    priority: intent.priority
+                )
+            } else {
+                requestIntent = intent
+            }
             let request = makeRequest(
-                intent: intent,
+                intent: requestIntent,
                 queryID: queryID,
                 generation: connection.generation,
                 proofFingerprint: proofFingerprint
@@ -302,6 +325,10 @@ actor AccountArchiveEngine {
                     request: request,
                     freshnessToken: freshnessToken
                 )
+                ArchiveEngineObservability.event(
+                    .proof,
+                    value: page.messagePrimaryIDs.count
+                )
                 guard isCurrent(
                     executionID,
                     descriptor: descriptor,
@@ -309,7 +336,13 @@ actor AccountArchiveEngine {
                 ) else { return }
                 switch commit {
                 case .verified(let snapshot):
-                    publish(.verified(snapshot), for: intent.conversation)
+                    publish(
+                        .verified(retarget(snapshot, to: intent.locator)),
+                        for: intent.conversation
+                    )
+                    if intent.priority == .nearEdgePrefetch {
+                        ArchiveEngineObservability.event(.prefetchResult, value: 1)
+                    }
                 case .authoritativeEmpty:
                     publish(
                         .authoritativeEmpty(
@@ -334,12 +367,26 @@ actor AccountArchiveEngine {
                         generation: connection.generation
                     ) else { return }
                     publish(.verified(snapshot), for: intent.conversation)
+                case .coverageAdvanced(let boundary):
+                    guard case .gap(let olderBoundary, let newerBoundary) = request.locator,
+                          boundary > olderBoundary,
+                          boundary < newerBoundary else {
+                        throw ArchiveTransportError.malformedCursor
+                    }
+                    nextGapBoundary = boundary
+                    failureCount = 0
+                    continue
                 }
                 finish(executionID, descriptor: descriptor)
                 return
             } catch {
                 failureCount += 1
                 let retryable = isRetryable(error)
+                ArchiveEngineObservability.event(
+                    .retry,
+                    value: failureCount,
+                    auxiliary: retryable ? 1 : 0
+                )
                 guard retryable, failureCount <= retryDelays.count else {
                     if isCurrent(
                         executionID,
@@ -358,6 +405,9 @@ actor AccountArchiveEngine {
                                 ),
                                 for: intent.conversation
                             )
+                        }
+                        if intent.priority == .nearEdgePrefetch {
+                            ArchiveEngineObservability.event(.prefetchResult, value: 0)
                         }
                         finish(executionID, descriptor: descriptor)
                     }
@@ -447,6 +497,20 @@ actor AccountArchiveEngine {
             olderPage: olderPage,
             newerPage: newerPage,
             freshnessToken: freshnessToken
+        )
+    }
+
+    private func retarget(
+        _ snapshot: ArchiveWindowSnapshot,
+        to locator: ArchiveWindowLocator
+    ) -> ArchiveWindowSnapshot {
+        guard snapshot.target != locator else { return snapshot }
+        return ArchiveWindowSnapshot(
+            messagePrimaryIDs: snapshot.messagePrimaryIDs,
+            target: locator,
+            verifiedSegment: snapshot.verifiedSegment,
+            coverageGeneration: snapshot.coverageGeneration,
+            freshnessToken: snapshot.freshnessToken
         )
     }
 
