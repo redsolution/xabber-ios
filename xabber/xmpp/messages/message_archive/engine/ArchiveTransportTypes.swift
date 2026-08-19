@@ -35,7 +35,13 @@ enum ArchiveTransportValidationError: Error, Equatable, Sendable {
     case staleConnectionGeneration
     case malformedArchiveID
     case malformedBoundary
-    case incompletePersistenceAccounting
+    case incompletePersistenceAccounting(
+        delivered: Int,
+        persisted: Int,
+        consumed: Int,
+        resultArchiveIDs: Int,
+        messagePrimaryIDs: Int
+    )
     case persistenceFailure
     case nonAdvancingCursor
     case invalidDirection
@@ -49,11 +55,17 @@ struct ValidatedArchiveTransportPage: Hashable, Sendable {
     let isAuthoritativeEmpty: Bool
     let cheapPageCount: Int
     let deliveredResultCount: Int
+    let intentionallyConsumedResultCount: Int
     let requestComplete: Bool
 }
 
 struct ArchiveMaterializedAnchor: Hashable, Sendable {
     let cursor: ArchiveCursor
+    let primaryID: String
+}
+
+struct ArchiveMaterializedMessageIdentity: Hashable, Sendable {
+    let archiveID: String
     let primaryID: String
 }
 
@@ -80,7 +92,13 @@ enum ArchiveTransportReceiptValidator {
         guard delivered == receipt.resultArchiveIDs.count,
               persisted == receipt.messagePrimaryIDs.count,
               delivered == persisted + consumed else {
-            throw ArchiveTransportValidationError.incompletePersistenceAccounting
+            throw ArchiveTransportValidationError.incompletePersistenceAccounting(
+                delivered: delivered,
+                persisted: persisted,
+                consumed: consumed,
+                resultArchiveIDs: receipt.resultArchiveIDs.count,
+                messagePrimaryIDs: receipt.messagePrimaryIDs.count
+            )
         }
 
         let cursors: [ArchiveCursor]
@@ -122,6 +140,7 @@ enum ArchiveTransportReceiptValidator {
                 isAuthoritativeEmpty: authoritativeEmpty,
                 cheapPageCount: max(0, receipt.cheapPageCount),
                 deliveredResultCount: delivered,
+                intentionallyConsumedResultCount: consumed,
                 requestComplete: receipt.complete
             )
         }
@@ -196,6 +215,7 @@ enum ArchiveTransportReceiptValidator {
             isAuthoritativeEmpty: false,
             cheapPageCount: max(0, receipt.cheapPageCount),
             deliveredResultCount: delivered,
+            intentionallyConsumedResultCount: consumed,
             requestComplete: receipt.complete
         )
     }
@@ -256,10 +276,10 @@ protocol ArchiveCoverageRepository: Sendable {
 }
 
 protocol ArchiveMessageMaterializationResolving: Sendable {
-    func materializedMessagePrimaryIDs(
+    func materializedMessages(
         conversation: ArchiveConversationKey,
         archiveIDs: [String]
-    ) async throws -> [String]
+    ) async throws -> [ArchiveMaterializedMessageIdentity]
 }
 
 protocol ArchiveTransport: Sendable {

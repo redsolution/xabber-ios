@@ -2261,6 +2261,9 @@ class ChatViewController: MessagesViewController {
     var archiveWindowIntent: ArchiveWindowIntent?
     var archiveWindowApplyGeneration: UInt64 = 0
     var archiveWindowCommittedCoverageGeneration: UInt64?
+    var archiveWindowPendingSnapshot: ArchiveWindowSnapshot?
+    var archiveWindowAtomicApplyRetryCount = 0
+    var archiveWindowAtomicApplyRetryWorkItem: DispatchWorkItem?
     var archiveSkeletonBeganAt: Date?
     var datasource: [Datasource] = [] {
         didSet {

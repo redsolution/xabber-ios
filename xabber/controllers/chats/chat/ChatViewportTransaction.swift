@@ -150,6 +150,46 @@ enum ChatViewportTransactionTargetPolicy {
     }
 }
 
+/// Fail-safe viewport restoration for a pure history prepend.
+///
+/// A large prepend can move the captured row outside the collection view's
+/// prepared rect. UIKit then legitimately returns no layout attributes for
+/// that row even though it is present in the datasource. When the complete old
+/// snapshot is an exact suffix of the new snapshot, the content-height delta
+/// is the row's displacement and can restore the viewport without guessing a
+/// missing frame.
+enum ChatPrependViewportFallbackPolicy {
+    static func isEligible(
+        previousPrimaryIDs: [String],
+        nextPrimaryIDs: [String],
+        anchorPrimary: String
+    ) -> Bool {
+        guard !previousPrimaryIDs.isEmpty,
+              nextPrimaryIDs.count > previousPrimaryIDs.count,
+              previousPrimaryIDs.contains(anchorPrimary) else {
+            return false
+        }
+        return nextPrimaryIDs.suffix(previousPrimaryIDs.count)
+            .elementsEqual(previousPrimaryIDs)
+    }
+
+    static func targetContentOffsetY(
+        previousContentOffsetY: CGFloat,
+        previousContentHeight: CGFloat,
+        nextContentHeight: CGFloat,
+        minimumContentOffsetY: CGFloat,
+        maximumContentOffsetY: CGFloat
+    ) -> CGFloat {
+        let requestedOffsetY = previousContentOffsetY +
+            (nextContentHeight - previousContentHeight)
+        return ChatViewportTransactionTargetPolicy.preservedContentOffsetDecision(
+            requestedOffsetY: requestedOffsetY,
+            minimumContentOffsetY: minimumContentOffsetY,
+            maximumContentOffsetY: maximumContentOffsetY
+        ).targetOffsetY
+    }
+}
+
 /// Owns one datasource/layout/viewport commit. UIKit may perform internal layout
 /// work, but app-issued forced layouts and programmatic offset mutations are
 /// deliberately bounded and exposed through diagnostics.

@@ -396,21 +396,18 @@ final class AccountXMPPTaskScheduler {
     func reset() {
         queue.async {
             self.generation &+= 1
-            let unavailableCallbacks = self.pendingTasks.compactMap(\.unavailable)
+            let unavailableCallbacks =
+                self.pendingTasks.compactMap(\.unavailable) +
+                self.runningTasksByID.values.compactMap(\.unavailable)
             self.pendingTasks.removeAll()
             self.delayedResources.removeAll()
-
-            // A running MAM task owns query-scoped persistence after raw <fin>
-            // or disconnect. Keep only that lane occupied until its terminal
-            // callback; other stream-bound work cannot reliably complete after
-            // disconnect and must not deadlock the next session.
-            self.runningTasksByID = self.runningTasksByID.filter {
-                $0.value.resource == .mamArchive
-            }
+            // A scheduler generation is bound to one stream lifecycle. Realm
+            // persistence may outlive that stream, but it must not keep the
+            // new session's wire lane occupied: a lost disconnect/final
+            // callback would otherwise strand every later MAM consumer.
+            // Late completions are generation-checked by `complete(_:)`.
+            self.runningTasksByID.removeAll()
             self.runningCountByResource.removeAll()
-            self.runningTasksByID.values.forEach {
-                self.runningCountByResource[$0.resource, default: 0] += 1
-            }
             #if DEBUG
             self.resetObserverForTests?()
             #endif

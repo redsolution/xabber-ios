@@ -328,10 +328,14 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
         var didRouteArchiveResultToPersistence = false
         var didIntentionallyConsumeArchiveResult = false
         defer {
-            if didObserveArchiveResult,
-               didIntentionallyConsumeArchiveResult,
-               !didRouteArchiveResultToPersistence {
-                _ = self.mam.recordDeferredArchiveControlConsumption(message)
+            if didObserveArchiveResult {
+                if didRouteArchiveResultToPersistence {
+                    _ = self.mam
+                        .recordDeferredArchivePersistenceRouting(message)
+                } else if didIntentionallyConsumeArchiveResult {
+                    _ = self.mam
+                        .recordDeferredArchiveControlConsumption(message)
+                }
             }
         }
         let canonicalGroupRouting = CanonicalAuxiliaryGroupMessageRouter.route(

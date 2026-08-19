@@ -942,7 +942,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
 
     private func scheduleSnapshotRepairTargetsImmediately(_ targets: [MessageArchiveManager.SnapshotRepairTarget]) {
         guard targets.isNotEmpty else { return }
-        AccountManager.shared.find(for: self.owner)?.mam.scheduleSnapshotArchiveRepairs(targets)
+        // The archive engine verifies only the window a user requests. A
+        // completed account snapshot may mark many conversations stale, but
+        // eagerly issuing one MAM repair per conversation creates a long
+        // head-of-line queue in front of chat open, paging, and search while
+        // also amplifying server work. Keep the stale metadata as admission
+        // input and repair it on demand through AccountArchiveEngine.
     }
 
     private func shouldDeferBootstrapWorkLocked() -> Bool {
@@ -1575,7 +1580,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             } else {
                 scheduleSnapshotRepairTargetsImmediately(applyResult.snapshotRepairTargets)
                 markLastRecognizedEventStamp(stamp)
-                AccountManager.shared.find(for: owner)?.mam.scheduleRegularIdleBackfillIfNeeded()
             }
         } catch {
             DDLogDebug("ClientSynchronizationManager: \(#function). \(error.localizedDescription)")
@@ -1926,7 +1930,6 @@ class ClientSynchronizationManager: AbstractXMPPManager {
                         user.csi.active(stream, by: .synchronization)
                     })
                     guard self.isCurrentSyncSessionGeneration(expectedGeneration) else { return }
-                    AccountManager.shared.find(for: self.owner)?.mam.scheduleRegularIdleBackfillIfNeeded()
                     return
                 }
 

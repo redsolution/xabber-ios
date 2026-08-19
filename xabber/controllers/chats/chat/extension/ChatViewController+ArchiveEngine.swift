@@ -2,6 +2,93 @@ import Foundation
 import UIKit
 
 enum ChatArchiveWindowPresentationPolicy {
+    static func shouldResetForStart(
+        isPresentationActive: Bool,
+        currentIntent: ArchiveWindowIntent?,
+        incomingIntent: ArchiveWindowIntent
+    ) -> Bool {
+        _ = currentIntent
+        _ = incomingIntent
+        return !isPresentationActive
+    }
+
+    static func shouldCoalesceVerifiedState(
+        currentState: ArchiveWindowState?,
+        committedCoverageGeneration: UInt64?,
+        pendingSnapshot: ArchiveWindowSnapshot?,
+        incoming: ArchiveWindowSnapshot
+    ) -> Bool {
+        if pendingSnapshot == incoming {
+            return true
+        }
+        guard committedCoverageGeneration == incoming.coverageGeneration,
+              case .verified(let current) = currentState else {
+            return false
+        }
+        return current == incoming
+    }
+
+    static func canPrefetch(
+        snapshot: ArchiveWindowSnapshot,
+        committedCoverageGeneration: UInt64?,
+        isShowingSkeleton: Bool
+    ) -> Bool {
+        !isShowingSkeleton &&
+            committedCoverageGeneration == snapshot.coverageGeneration
+    }
+
+    static func shouldDeferOpenMessageRequest(
+        isPresentationActive: Bool,
+        state: ArchiveWindowState?,
+        committedCoverageGeneration: UInt64?,
+        pendingSnapshot: ArchiveWindowSnapshot?,
+        isShowingSkeleton: Bool
+    ) -> Bool {
+        guard isPresentationActive else { return false }
+        guard case .verified(let snapshot) = state,
+              committedCoverageGeneration == snapshot.coverageGeneration,
+              pendingSnapshot == nil,
+              !isShowingSkeleton else {
+            return true
+        }
+        return false
+    }
+
+    static func shouldCapturePagingAnchor(
+        for locator: ArchiveWindowLocator
+    ) -> Bool {
+        switch locator {
+        case .older, .newer, .gap:
+            return true
+        case .latest, .firstUnread, .archiveID, .timestamp:
+            return false
+        }
+    }
+
+    static func forceBottomAlignmentTarget(
+        for locator: ArchiveWindowLocator,
+        itemCount: Int
+    ) -> ChatBottomAlignmentTarget? {
+        guard itemCount > 0,
+              case .latest = locator else {
+            return nil
+        }
+        return .newestRealMessage
+    }
+
+    static func shouldRetryAtomicApply(
+        failure: ChatViewportTransactionFailure,
+        completedRetryCount: Int
+    ) -> Bool {
+        guard completedRetryCount < 2 else { return false }
+        switch failure {
+        case .targetMissing, .alignmentUnresolved:
+            return true
+        case .superseded:
+            return false
+        }
+    }
+
     static func shouldShowFullSkeleton(
         for state: ArchiveWindowState,
         committedCoverageGeneration: UInt64?
@@ -47,7 +134,6 @@ enum ChatArchiveVerifiedTimelineStateFactory {
         conversationKey: ChatTimelineConversationKey
     ) -> ChatTimelineSnapshot? {
         guard segment.isVerified,
-              expectedPrimaryIDs.isNotEmpty,
               Set(items.map(\.primary)) == Set(expectedPrimaryIDs),
               items.count == Set(expectedPrimaryIDs).count else {
             return nil
@@ -79,8 +165,8 @@ enum ChatArchiveVerifiedTimelineStateFactory {
         }
         segments.append(
             .loadedRange(
-                oldestArchiveId: oldest?.archivedId,
-                newestArchiveId: newest?.archivedId
+                oldestArchiveId: oldest?.archivedId ?? segment.oldest.rawValue,
+                newestArchiveId: newest?.archivedId ?? segment.newest.rawValue
             )
         )
         if segment.reachesLiveEdge {
@@ -123,14 +209,28 @@ extension ChatViewController {
 
     internal func startArchiveEnginePresentationIfNeeded() {
         assert(Thread.isMainThread)
+        let intent = makeInitialArchiveWindowIntent()
+        let shouldResetPresentation =
+            ChatArchiveWindowPresentationPolicy.shouldResetForStart(
+                isPresentationActive: archiveEnginePresentationActive,
+                currentIntent: archiveWindowIntent,
+                incomingIntent: intent
+            )
+        guard shouldResetPresentation else { return }
         archiveEnginePresentationActive = true
+        archiveWindowIntent = intent
         archiveWindowCommittedCoverageGeneration = nil
+        archiveWindowPendingSnapshot = nil
         archiveSkeletonBeganAt = archiveSkeletonBeganAt ?? Date()
+        archiveWindowState = .skeleton(reason: .opening, target: intent.locator)
         setSkeletonVisible(true)
         setDatasourceLoadingEnabled(false)
 
         guard let account = AccountManager.shared.find(for: owner) else {
+            archiveWindowCommittedCoverageGeneration = nil
             archiveWindowState = .skeleton(reason: .offline, target: .latest)
+            setSkeletonVisible(true)
+            setDatasourceLoadingEnabled(false)
             return
         }
         if archiveWindowStateTask == nil {
@@ -145,13 +245,6 @@ extension ChatViewController {
             }
         }
 
-        let intent = makeInitialArchiveWindowIntent()
-        if archiveWindowIntent?.semanticDescriptor != intent.semanticDescriptor {
-            archiveWindowIntent = intent
-            archiveWindowState = .skeleton(reason: .opening, target: intent.locator)
-        } else if archiveWindowIntent == nil {
-            archiveWindowIntent = intent
-        }
         Task { await account.archiveEngine.submit(intent) }
     }
 
@@ -159,6 +252,10 @@ extension ChatViewController {
         archiveWindowStateTask?.cancel()
         archiveWindowStateTask = nil
         archiveEnginePresentationActive = false
+        archiveWindowPendingSnapshot = nil
+        archiveWindowAtomicApplyRetryWorkItem?.cancel()
+        archiveWindowAtomicApplyRetryWorkItem = nil
+        archiveWindowAtomicApplyRetryCount = 0
         archiveWindowApplyGeneration &+= 1
         cancelDatasetMappingJobs()
     }
@@ -197,6 +294,7 @@ extension ChatViewController {
         )
         archiveWindowIntent = intent
         archiveWindowCommittedCoverageGeneration = nil
+        archiveWindowPendingSnapshot = nil
         archiveWindowState = .skeleton(reason: .loadingTarget, target: locator)
         setSkeletonVisible(true)
         setDatasourceLoadingEnabled(false)
@@ -235,6 +333,7 @@ extension ChatViewController {
         archiveWindowIntent = intent
         if priority >= .target {
             archiveWindowCommittedCoverageGeneration = nil
+            archiveWindowPendingSnapshot = nil
             setSkeletonVisible(true)
             setDatasourceLoadingEnabled(false)
         }
@@ -244,6 +343,11 @@ extension ChatViewController {
     internal func prefetchArchiveEngineWindowIfNeeded(indexPaths: [IndexPath]) {
         guard archiveEnginePresentationActive,
               case .verified(let snapshot) = archiveWindowState,
+              ChatArchiveWindowPresentationPolicy.canPrefetch(
+                snapshot: snapshot,
+                committedCoverageGeneration: archiveWindowCommittedCoverageGeneration,
+                isShowingSkeleton: showSkeletonObserver.value
+              ),
               indexPaths.isNotEmpty,
               datasource.isNotEmpty else {
             return
@@ -323,6 +427,18 @@ extension ChatViewController {
     private func receiveArchiveWindowState(_ state: ArchiveWindowState) {
         assert(Thread.isMainThread)
         guard archiveEnginePresentationActive else { return }
+        if case .verified(let incoming) = state,
+           ChatArchiveWindowPresentationPolicy.shouldCoalesceVerifiedState(
+                currentState: archiveWindowState,
+                committedCoverageGeneration: archiveWindowCommittedCoverageGeneration,
+                pendingSnapshot: archiveWindowPendingSnapshot,
+                incoming: incoming
+           ) {
+            return
+        }
+        archiveWindowAtomicApplyRetryWorkItem?.cancel()
+        archiveWindowAtomicApplyRetryWorkItem = nil
+        archiveWindowAtomicApplyRetryCount = 0
         let preservesCommittedContent: Bool
         if case .verified(let incoming) = state {
             preservesCommittedContent =
@@ -340,11 +456,13 @@ extension ChatViewController {
         switch state {
         case .skeleton, .retryableFailure:
             archiveWindowCommittedCoverageGeneration = nil
+            archiveWindowPendingSnapshot = nil
             archiveSkeletonBeganAt = archiveSkeletonBeganAt ?? Date()
             cancelDatasetMappingJobs()
             setSkeletonVisible(true)
             setDatasourceLoadingEnabled(false)
         case .verified(let snapshot):
+            archiveWindowPendingSnapshot = snapshot
             if !preservesCommittedContent {
                 archiveWindowCommittedCoverageGeneration = nil
                 setSkeletonVisible(true)
@@ -356,6 +474,7 @@ extension ChatViewController {
             )
         case .authoritativeEmpty:
             archiveWindowCommittedCoverageGeneration = nil
+            archiveWindowPendingSnapshot = nil
             setSkeletonVisible(true)
             setDatasourceLoadingEnabled(false)
             applyArchiveEngineAuthoritativeEmpty(applyGeneration: applyGeneration)
@@ -373,7 +492,12 @@ extension ChatViewController {
             if case .newer = snapshot.target { return .newer }
             return .older
         }()
-        let restoreAnchor = capturePagingAnchorIfNeeded(direction: restoreDirection)
+        let restoreAnchor =
+            ChatArchiveWindowPresentationPolicy.shouldCapturePagingAnchor(
+                for: snapshot.target
+            )
+            ? capturePagingAnchorIfNeeded(direction: restoreDirection)
+            : nil
 
         datasetMappingQueue.async { [weak self, weak session] in
             guard let self, let session,
@@ -408,10 +532,11 @@ extension ChatViewController {
                         maxIndex: committed.items.count
                     )
                 )
-                let forceBottom: ChatBottomAlignmentTarget? = {
-                    if case .latest = snapshot.target { return .newestRealMessage }
-                    return nil
-                }()
+                let forceBottom =
+                    ChatArchiveWindowPresentationPolicy.forceBottomAlignmentTarget(
+                        for: snapshot.target,
+                        itemCount: committed.items.count
+                    )
                 self.applyChatDatasource(
                     mappingResult.datasource,
                     mode: .fullReload(keepOffset: restoreAnchor != nil),
@@ -424,6 +549,13 @@ extension ChatViewController {
                     anchorPrimary: restoreAnchor?.primary,
                     restoreAnchor: restoreAnchor,
                     presentationCommitMode: .atomicInitialFrame,
+                    transactionCompletion: { [weak self] result in
+                        self?.handleArchiveEngineAtomicApplyResult(
+                            result,
+                            snapshot: snapshot,
+                            applyGeneration: applyGeneration
+                        )
+                    },
                     completion: { [weak self] in
                         guard let self,
                               self.archiveWindowApplyGeneration == applyGeneration,
@@ -433,6 +565,10 @@ extension ChatViewController {
                         }
                         self.archiveWindowCommittedCoverageGeneration =
                             snapshot.coverageGeneration
+                        self.archiveWindowPendingSnapshot = nil
+                        self.archiveWindowAtomicApplyRetryWorkItem?.cancel()
+                        self.archiveWindowAtomicApplyRetryWorkItem = nil
+                        self.archiveWindowAtomicApplyRetryCount = 0
                         self.recordArchiveSkeletonTerminalIfNeeded()
                         ArchiveEngineObservability.event(
                             .uikitApply,
@@ -447,6 +583,68 @@ extension ChatViewController {
                 )
             }
         }
+    }
+
+    private func handleArchiveEngineAtomicApplyResult(
+        _ result: ChatViewportTransactionResult,
+        snapshot: ArchiveWindowSnapshot,
+        applyGeneration: UInt64
+    ) {
+        guard case .failed(let failure, _) = result,
+              archiveEnginePresentationActive,
+              archiveWindowApplyGeneration == applyGeneration,
+              archiveWindowPendingSnapshot == snapshot,
+              case .verified(let current) = archiveWindowState,
+              current == snapshot,
+              ChatArchiveWindowPresentationPolicy.shouldRetryAtomicApply(
+                failure: failure,
+                completedRetryCount: archiveWindowAtomicApplyRetryCount
+              ) else {
+            return
+        }
+        archiveWindowAtomicApplyRetryCount += 1
+        scheduleArchiveEngineAtomicApplyRetry(
+            snapshot: snapshot,
+            applyGeneration: applyGeneration,
+            remainingMotionChecks: 20
+        )
+    }
+
+    private func scheduleArchiveEngineAtomicApplyRetry(
+        snapshot: ArchiveWindowSnapshot,
+        applyGeneration: UInt64,
+        remainingMotionChecks: Int
+    ) {
+        archiveWindowAtomicApplyRetryWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.archiveEnginePresentationActive,
+                  self.archiveWindowApplyGeneration == applyGeneration,
+                  self.archiveWindowPendingSnapshot == snapshot,
+                  case .verified(let current) = self.archiveWindowState,
+                  current == snapshot else {
+                return
+            }
+            if self.currentScrollMotionState() != .resting,
+               remainingMotionChecks > 0 {
+                self.scheduleArchiveEngineAtomicApplyRetry(
+                    snapshot: snapshot,
+                    applyGeneration: applyGeneration,
+                    remainingMotionChecks: remainingMotionChecks - 1
+                )
+                return
+            }
+            self.archiveWindowAtomicApplyRetryWorkItem = nil
+            self.applyArchiveEngineVerifiedSnapshot(
+                snapshot,
+                applyGeneration: applyGeneration
+            )
+        }
+        archiveWindowAtomicApplyRetryWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + 0.15,
+            execute: workItem
+        )
     }
 
     private func applyArchiveEngineAuthoritativeEmpty(applyGeneration: UInt64) {
@@ -487,6 +685,7 @@ extension ChatViewController {
                             return
                         }
                         self.archiveWindowCommittedCoverageGeneration = 0
+                        self.archiveWindowPendingSnapshot = nil
                         self.recordArchiveSkeletonTerminalIfNeeded()
                         ArchiveEngineObservability.event(.uikitApply)
                         self.setSkeletonVisible(false)

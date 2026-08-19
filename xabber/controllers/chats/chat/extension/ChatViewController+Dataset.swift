@@ -11903,6 +11903,7 @@ extension ChatViewController {
             var alignmentTargetDescription = "none"
             var forcedBottomAlignmentApplied = false
             var resolvedBottomTargetIndexPath: IndexPath?
+            var usedPrependViewportFallback = false
             switch anchorStrategy {
             case .message(let anchor):
                 alignmentTargetDescription = "anchor"
@@ -11911,11 +11912,6 @@ extension ChatViewController {
                     break
                 }
                 let indexPath = IndexPath(item: 0, section: section)
-                guard let frame = self.messagesCollectionView.layoutAttributesForItem(at: indexPath)?.frame
-                    ?? self.messagesCollectionView.cellForItem(at: indexPath)?.frame else {
-                    transactionFailure = .targetMissing(primary: anchor.primary)
-                    break
-                }
                 let minOffsetY = -self.messagesCollectionView.adjustedContentInset.top
                 let maxOffsetY = max(
                     minOffsetY,
@@ -11923,12 +11919,33 @@ extension ChatViewController {
                         self.messagesCollectionView.bounds.height +
                         self.messagesCollectionView.adjustedContentInset.bottom
                 )
-                let targetOffsetY = ChatViewportTransactionTargetPolicy.targetContentOffsetY(
-                    anchor: anchor,
-                    resolvedAnchorMinY: frame.minY,
-                    minimumContentOffsetY: minOffsetY,
-                    maximumContentOffsetY: maxOffsetY
-                )
+                let frame = self.messagesCollectionView.layoutAttributesForItem(at: indexPath)?.frame
+                    ?? self.messagesCollectionView.cellForItem(at: indexPath)?.frame
+                let targetOffsetY: CGFloat
+                if let frame {
+                    targetOffsetY = ChatViewportTransactionTargetPolicy.targetContentOffsetY(
+                        anchor: anchor,
+                        resolvedAnchorMinY: frame.minY,
+                        minimumContentOffsetY: minOffsetY,
+                        maximumContentOffsetY: maxOffsetY
+                    )
+                } else if ChatPrependViewportFallbackPolicy.isEligible(
+                    previousPrimaryIDs: previousSnapshot.items.map(\.primary),
+                    nextPrimaryIDs: newSnapshot.items.map(\.primary),
+                    anchorPrimary: anchor.primary
+                ) {
+                    usedPrependViewportFallback = true
+                    targetOffsetY = ChatPrependViewportFallbackPolicy.targetContentOffsetY(
+                        previousContentOffsetY: oldContentOffset.y,
+                        previousContentHeight: oldContentSize.height,
+                        nextContentHeight: self.messagesCollectionView.contentSize.height,
+                        minimumContentOffsetY: minOffsetY,
+                        maximumContentOffsetY: maxOffsetY
+                    )
+                } else {
+                    transactionFailure = .targetMissing(primary: anchor.primary)
+                    break
+                }
                 _ = viewportTransaction.performProgrammaticOffsetMutation(
                     currentOffsetY: self.messagesCollectionView.contentOffset.y,
                     targetOffsetY: targetOffsetY,
@@ -11939,11 +11956,17 @@ extension ChatViewController {
                         animated: false
                     )
                 }
-                anchorError = abs(
-                    frame.minY -
-                        self.messagesCollectionView.contentOffset.y -
-                        anchor.viewportRelativeMinY
-                )
+                if let frame {
+                    anchorError = abs(
+                        frame.minY -
+                            self.messagesCollectionView.contentOffset.y -
+                            anchor.viewportRelativeMinY
+                    )
+                } else {
+                    anchorError = abs(
+                        self.messagesCollectionView.contentOffset.y - targetOffsetY
+                    )
+                }
             case .preserveContentOffset(let requestedOffsetY):
                 alignmentTargetDescription = "preservedOffset"
                 let minOffsetY = -self.messagesCollectionView.adjustedContentInset.top
@@ -12038,6 +12061,51 @@ extension ChatViewController {
                transactionFailure == nil {
                 switch anchorStrategy {
                 case .message(let anchor):
+                    if usedPrependViewportFallback {
+                        let minOffsetY =
+                            -self.messagesCollectionView.adjustedContentInset.top
+                        let maxOffsetY = max(
+                            minOffsetY,
+                            self.messagesCollectionView.contentSize.height -
+                                self.messagesCollectionView.bounds.height +
+                                self.messagesCollectionView.adjustedContentInset.bottom
+                        )
+                        let finalTargetOffsetY =
+                            ChatPrependViewportFallbackPolicy.targetContentOffsetY(
+                                previousContentOffsetY: oldContentOffset.y,
+                                previousContentHeight: oldContentSize.height,
+                                nextContentHeight: self.messagesCollectionView.contentSize.height,
+                                minimumContentOffsetY: minOffsetY,
+                                maximumContentOffsetY: maxOffsetY
+                            )
+                        let didCorrect = viewportTransaction.performFinalAlignmentCorrection(
+                            currentOffsetY: self.messagesCollectionView.contentOffset.y,
+                            targetOffsetY: finalTargetOffsetY,
+                            tolerance: 1
+                        ) { targetOffsetY in
+                            self.messagesCollectionView.setContentOffset(
+                                CGPoint(
+                                    x: self.messagesCollectionView.contentOffset.x,
+                                    y: targetOffsetY
+                                ),
+                                animated: false
+                            )
+                        }
+                        if didCorrect {
+                            self.messagesCollectionView.setNeedsLayout()
+                            self.messagesCollectionView.layoutIfNeeded()
+                        }
+                        anchorError = abs(
+                            self.messagesCollectionView.contentOffset.y - finalTargetOffsetY
+                        )
+                        if let anchorError, anchorError > 1 {
+                            transactionFailure = .alignmentUnresolved(
+                                target: "anchor",
+                                error: anchorError
+                            )
+                        }
+                        break
+                    }
                     let resolveAnchorTargetOffsetY: () -> CGFloat? = {
                         guard let section = self.datasourceSnapshot.primaryIndex[anchor.primary] else {
                             return nil

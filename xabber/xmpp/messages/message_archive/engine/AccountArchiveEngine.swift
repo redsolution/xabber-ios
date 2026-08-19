@@ -92,13 +92,6 @@ actor AccountArchiveEngine {
             )
             return
         }
-        guard !connection.waitsForXEPSYNC else {
-            publish(
-                .skeleton(reason: .unverifiedCoverage, target: intent.locator),
-                for: intent.conversation
-            )
-            return
-        }
         startOrJoin(intent, skeletonReason: .unverifiedCoverage)
     }
 
@@ -128,9 +121,7 @@ actor AccountArchiveEngine {
                     ? .staleFingerprint
                     : .unverifiedCoverage
             publish(.skeleton(reason: reason, target: intent.locator), for: intent.conversation)
-            if !waitsForXEPSYNC {
-                startOrJoin(intent, skeletonReason: reason)
-            }
+            startOrJoin(intent, skeletonReason: reason)
         }
     }
 
@@ -147,7 +138,7 @@ actor AccountArchiveEngine {
 
     func retry(conversation: ArchiveConversationKey) {
         guard let intent = latestIntentByConversation[conversation],
-              connection?.waitsForXEPSYNC == false else {
+              connection != nil else {
             return
         }
         activeByDescriptor.removeValue(forKey: intent.semanticDescriptor)
@@ -167,7 +158,6 @@ actor AccountArchiveEngine {
         }
         guard conversation.owner == owner,
               let connection,
-              !connection.waitsForXEPSYNC,
               let intent = latestIntentByConversation[conversation],
               hasVisibleProof else {
             return

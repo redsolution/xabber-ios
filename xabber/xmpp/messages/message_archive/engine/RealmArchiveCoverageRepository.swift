@@ -148,24 +148,29 @@ final class RealmArchiveCoverageRepository:
             guard let segment = page.segment else {
                 return .materializedWithoutCoverage
             }
-            guard page.messagePrimaryIDs.isNotEmpty else {
+            let isConsumedOnlyPage = page.messagePrimaryIDs.isEmpty &&
+                page.deliveredResultCount > 0 &&
+                page.intentionallyConsumedResultCount == page.deliveredResultCount
+            guard page.messagePrimaryIDs.isNotEmpty || isConsumedOnlyPage else {
                 throw ArchiveCoverageRepositoryError.missingPersistedMessages
             }
-            let persistedRows = realm.objects(MessageStorageItem.self)
-                .filter("primary IN %@", page.messagePrimaryIDs)
-            guard persistedRows.count == Set(page.messagePrimaryIDs).count else {
-                throw ArchiveCoverageRepositoryError.missingPersistedMessages
-            }
-            for message in persistedRows {
-                guard message.owner == request.conversation.owner,
-                      message.opponent == request.conversation.jid,
-                      message.conversationType == request.conversation.conversationType else {
-                    throw ArchiveCoverageRepositoryError.persistedMessageIdentityMismatch
+            if page.messagePrimaryIDs.isNotEmpty {
+                let persistedRows = realm.objects(MessageStorageItem.self)
+                    .filter("primary IN %@", page.messagePrimaryIDs)
+                guard persistedRows.count == Set(page.messagePrimaryIDs).count else {
+                    throw ArchiveCoverageRepositoryError.missingPersistedMessages
                 }
-                guard let cursor = ArchiveCursor(rawValue: message.archivedId),
-                      cursor >= segment.oldest,
-                      cursor <= segment.newest else {
-                    throw ArchiveCoverageRepositoryError.malformedPersistedArchiveID
+                for message in persistedRows {
+                    guard message.owner == request.conversation.owner,
+                          message.opponent == request.conversation.jid,
+                          message.conversationType == request.conversation.conversationType else {
+                        throw ArchiveCoverageRepositoryError.persistedMessageIdentityMismatch
+                    }
+                    guard let cursor = ArchiveCursor(rawValue: message.archivedId),
+                          cursor >= segment.oldest,
+                          cursor <= segment.newest else {
+                        throw ArchiveCoverageRepositoryError.malformedPersistedArchiveID
+                    }
                 }
             }
 
@@ -223,7 +228,7 @@ final class RealmArchiveCoverageRepository:
                 segment: admittedSegment,
                 realm: realm
             )
-            guard orderedPrimaryIDs.isNotEmpty else {
+            guard orderedPrimaryIDs.isNotEmpty || isConsumedOnlyPage else {
                 throw ArchiveCoverageRepositoryError.missingPersistedMessages
             }
             return .verified(
@@ -238,10 +243,10 @@ final class RealmArchiveCoverageRepository:
         }
     }
 
-    func materializedMessagePrimaryIDs(
+    func materializedMessages(
         conversation: ArchiveConversationKey,
         archiveIDs: [String]
-    ) async throws -> [String] {
+    ) async throws -> [ArchiveMaterializedMessageIdentity] {
         let requested = Set(archiveIDs.filter(\.isNotEmpty))
         guard requested.isNotEmpty else { return [] }
         return try await perform { realm in
@@ -253,11 +258,17 @@ final class RealmArchiveCoverageRepository:
                     conversation.conversationType.rawValue,
                     Array(requested)
                 )
-                .compactMap { message -> (String, ArchiveCursor)? in
+                .compactMap { message -> (ArchiveMaterializedMessageIdentity, ArchiveCursor)? in
                     guard let cursor = ArchiveCursor(rawValue: message.archivedId) else {
                         return nil
                     }
-                    return (message.primary, cursor)
+                    return (
+                        ArchiveMaterializedMessageIdentity(
+                            archiveID: cursor.rawValue,
+                            primaryID: message.primary
+                        ),
+                        cursor
+                    )
                 }
                 .sorted { $0.1 < $1.1 }
                 .map(\.0)

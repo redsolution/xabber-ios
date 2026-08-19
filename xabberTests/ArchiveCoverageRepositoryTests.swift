@@ -59,6 +59,56 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         )
     }
 
+    func testCommitAdmitsVerifiedWindowWhenEveryArchiveResultWasIntentionallyConsumed() async throws {
+        let repository = makeRepository()
+        let request = makeRequest(queryID: "q-consumed-only")
+        let page = try ArchiveTransportReceiptValidator.validate(
+            ArchiveTransportReceipt(
+                queryID: request.queryID,
+                connectionGeneration: request.connectionGeneration,
+                resultArchiveIDs: ["20", "10"],
+                messagePrimaryIDs: [],
+                first: "20",
+                last: "10",
+                complete: true,
+                cheapPageCount: 2,
+                deliveredResultCount: 2,
+                persistedResultCount: 0,
+                intentionallyConsumedResultCount: 2,
+                failedPersistenceCount: 0,
+                finalReceived: true
+            ),
+            for: request
+        )
+
+        let result = try await repository.commit(
+            page,
+            request: request,
+            freshnessToken: .xepSync(fingerprint: "sync-1")
+        )
+
+        guard case .verified(let snapshot) = result else {
+            return XCTFail("Expected consumed-only archive proof to verify an empty visible window")
+        }
+        XCTAssertEqual(snapshot.messagePrimaryIDs, [])
+        XCTAssertTrue(snapshot.verifiedSegment.reachesArchiveStart)
+        XCTAssertTrue(snapshot.verifiedSegment.reachesLiveEdge)
+
+        let realm = try await Realm(configuration: configuration)
+        let storage = try XCTUnwrap(
+            realm.object(
+                ofType: ConversationArchiveCoverageStorageItem.self,
+                forPrimaryKey: ConversationArchiveCoverageStorageItem.genPrimary(
+                    owner: conversation.owner,
+                    jid: conversation.jid,
+                    conversationType: conversation.conversationType
+                )
+            )
+        )
+        XCTAssertEqual(storage.segments.count, 1)
+        XCTAssertTrue(storage.segments[0].isVerified)
+    }
+
     func testCommitPersistsCoverageAfterRowsAndProjectsLegacyOneWay() async throws {
         try persistMessage(primary: "p10", archivedID: "10")
         try persistMessage(primary: "p20", archivedID: "20")

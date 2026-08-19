@@ -233,6 +233,7 @@ class MessageManager: AbstractXMPPManager {
         var updatedExisting: Int = 0
         var skipped: Int = 0
         var failed: Int = 0
+        private(set) var skippedArchiveIds: Set<String> = []
         private var visibleRowsByConversationKey: [String: Int] = [:]
         private var persistedArchiveIdsByConversationKey: [String: Set<String>] = [:]
 
@@ -259,6 +260,7 @@ class MessageManager: AbstractXMPPManager {
             updatedExisting == 0 &&
             skipped == 0 &&
             failed == 0 &&
+            skippedArchiveIds.isEmpty &&
             visibleRowsByConversationKey.isEmpty &&
             persistedArchiveIdsByConversationKey.isEmpty
         }
@@ -270,12 +272,20 @@ class MessageManager: AbstractXMPPManager {
             updatedExisting += other.updatedExisting
             skipped += other.skipped
             failed += other.failed
+            skippedArchiveIds.formUnion(other.skippedArchiveIds)
             other.visibleRowsByConversationKey.forEach { key, value in
                 visibleRowsByConversationKey[key, default: 0] += value
             }
             other.persistedArchiveIdsByConversationKey.forEach { key, archiveIds in
                 persistedArchiveIdsByConversationKey[key, default: []].formUnion(archiveIds)
             }
+        }
+
+        mutating func recordSkippedArchiveId(_ archiveId: String) {
+            guard archiveId.isNotEmpty else {
+                return
+            }
+            skippedArchiveIds.insert(archiveId)
         }
 
         mutating func recordVisibleRow(
@@ -323,10 +333,22 @@ class MessageManager: AbstractXMPPManager {
             guard archiveIds.isNotEmpty else {
                 return false
             }
-            let persistedArchiveIds = persistedArchiveIdsByConversationKey[
+            let persistedArchiveIds = persistedArchiveIds(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType
+            )
+            return archiveIds.isSubset(of: persistedArchiveIds)
+        }
+
+        func persistedArchiveIds(
+            owner: String,
+            jid: String,
+            conversationType: ClientSynchronizationManager.ConversationType
+        ) -> Set<String> {
+            persistedArchiveIdsByConversationKey[
                 Self.conversationKey(owner: owner, jid: jid, conversationType: conversationType)
             ] ?? []
-            return archiveIds.isSubset(of: persistedArchiveIds)
         }
 
         func persistedArchiveIdCount(
@@ -334,13 +356,11 @@ class MessageManager: AbstractXMPPManager {
             jid: String,
             conversationType: ClientSynchronizationManager.ConversationType
         ) -> Int {
-            persistedArchiveIdsByConversationKey[
-                Self.conversationKey(
-                    owner: owner,
-                    jid: jid,
-                    conversationType: conversationType
-                )
-            ]?.count ?? 0
+            persistedArchiveIds(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType
+            ).count
         }
 
         func performanceSnapshot(

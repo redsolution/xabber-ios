@@ -56,7 +56,7 @@ final class AccountArchiveEngineTests: XCTestCase {
         XCTAssertEqual(verifiedFingerprints, ["sync-2"])
     }
 
-    func testXEPSYNCCapableSessionKeepsSkeletonAndDoesNotFallbackToMAMBeforeSnapshotProof() async throws {
+    func testVisibleIntentUsesSessionMAMProofWhileXEPSYNCSnapshotIsStillLoading() async throws {
         let repository = ArchiveEngineRepositorySpy()
         let transport = ArchiveEngineTransportSpy()
         let engine = AccountArchiveEngine(
@@ -74,13 +74,15 @@ final class AccountArchiveEngineTests: XCTestCase {
         await engine.submit(latestIntent(priority: .visibleIntegrity))
         await engine.waitUntilIdleForTesting()
 
-        let waitingRequestCount = await transport.requestCount
-        let waitingState = await engine.currentState(for: conversation)
-        XCTAssertEqual(waitingRequestCount, 0)
-        XCTAssertEqual(
-            waitingState,
-            .skeleton(reason: .unverifiedCoverage, target: .latest)
-        )
+        let requestCount = await transport.requestCount
+        XCTAssertEqual(requestCount, 1)
+        guard case .authoritativeEmpty(
+            target: .latest,
+            freshnessToken: .sessionMAM(let generation, _)
+        ) = await engine.currentState(for: conversation) else {
+            return XCTFail("Expected current-session MAM proof while XEP-SYNC is loading")
+        }
+        XCTAssertEqual(generation, 4)
 
         await engine.connectionDidBecomeReady(
             generation: 4,
@@ -88,7 +90,7 @@ final class AccountArchiveEngineTests: XCTestCase {
         )
         await engine.waitUntilIdleForTesting()
         let readyRequestCount = await transport.requestCount
-        XCTAssertEqual(readyRequestCount, 1)
+        XCTAssertEqual(readyRequestCount, 2)
     }
 
     func testDuplicateSemanticIntentsJoinOneTransportAndPromotePriority() async throws {

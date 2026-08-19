@@ -1926,12 +1926,14 @@ class MessageArchiveManager: AbstractXMPPManager {
         let transportProof: DeferredArchiveTransportProof
     }
 
-    private struct DeferredArchiveTransportProof {
+    struct DeferredArchiveTransportProof {
         var deliveredResultCount: Int = 0
         var deliveredResultIds: Set<String> = []
         var deliveredResultsWithoutId: Int = 0
         var intentionallyConsumedResultIds: Set<String> = []
         var intentionallyConsumedResultsWithoutId: Int = 0
+        var persistenceRoutedResultIds: Set<String> = []
+        var persistenceRoutedResultsWithoutId: Int = 0
 
         var intentionallyConsumedResultCount: Int {
             intentionallyConsumedResultIds.count +
@@ -1953,10 +1955,30 @@ class MessageArchiveManager: AbstractXMPPManager {
         mutating func recordIntentionalConsumption(resultId: String?) {
             guard let resultId,
                   resultId.isNotEmpty else {
+                guard persistenceRoutedResultsWithoutId == 0 else {
+                    return
+                }
                 intentionallyConsumedResultsWithoutId += 1
                 return
             }
+            guard !persistenceRoutedResultIds.contains(resultId) else {
+                return
+            }
             intentionallyConsumedResultIds.insert(resultId)
+        }
+
+        mutating func recordPersistenceRouting(resultId: String?) {
+            guard let resultId,
+                  resultId.isNotEmpty else {
+                persistenceRoutedResultsWithoutId += 1
+                intentionallyConsumedResultsWithoutId = max(
+                    0,
+                    intentionallyConsumedResultsWithoutId - 1
+                )
+                return
+            }
+            persistenceRoutedResultIds.insert(resultId)
+            intentionallyConsumedResultIds.remove(resultId)
         }
 
         var hasConsistentControlDisposition: Bool {
@@ -1964,6 +1986,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                 of: deliveredResultIds
             ) &&
                 intentionallyConsumedResultsWithoutId <=
+                    deliveredResultsWithoutId &&
+                persistenceRoutedResultIds.isSubset(of: deliveredResultIds) &&
+                persistenceRoutedResultsWithoutId <=
                     deliveredResultsWithoutId
         }
     }
@@ -4580,6 +4605,32 @@ class MessageArchiveManager: AbstractXMPPManager {
         return true
     }
 
+    /// Records that at least one stream delegate routed the archive envelope
+    /// into MessageManager. Persistence wins over a control-only disposition
+    /// from another delegate regardless of callback order.
+    @discardableResult
+    internal func recordDeferredArchivePersistenceRouting(
+        _ message: XMPPMessage
+    ) -> Bool {
+        guard let result = message.element(forName: "result"),
+              let queryId = result.attributeStringValue(forName: "queryid"),
+              queryId.isNotEmpty else {
+            return false
+        }
+
+        deferredArchiveCommitLock.lock()
+        guard var proof = deferredArchiveTransportProofsByQueryId[queryId] else {
+            deferredArchiveCommitLock.unlock()
+            return false
+        }
+        proof.recordPersistenceRouting(
+            resultId: result.attributeStringValue(forName: "id")
+        )
+        deferredArchiveTransportProofsByQueryId[queryId] = proof
+        deferredArchiveCommitLock.unlock()
+        return true
+    }
+
     private func takeArchiveTransportProof(
         queryId: String
     ) -> DeferredArchiveTransportProof? {
@@ -4631,6 +4682,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         let resultArchiveIDs: [String]
         let deliveredResultCount: Int
         let intentionallyConsumedResultCount: Int
+        let intentionallyConsumedArchiveIDs: Set<String>
     }
 
     internal func archiveTransportAccountingSnapshot(
@@ -4652,7 +4704,9 @@ class MessageArchiveManager: AbstractXMPPManager {
         return ArchiveTransportAccountingSnapshot(
             resultArchiveIDs: archiveIDs,
             deliveredResultCount: proof.deliveredResultCount,
-            intentionallyConsumedResultCount: proof.intentionallyConsumedResultCount
+            intentionallyConsumedResultCount: proof.intentionallyConsumedResultCount,
+            intentionallyConsumedArchiveIDs:
+                proof.intentionallyConsumedResultIds
         )
     }
 

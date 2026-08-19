@@ -6146,7 +6146,23 @@ extension ChatViewController {
             return
         }
 
+        if ChatArchiveWindowPresentationPolicy.shouldDeferOpenMessageRequest(
+            isPresentationActive: self.archiveEnginePresentationActive,
+            state: self.archiveWindowState,
+            committedCoverageGeneration:
+                self.archiveWindowCommittedCoverageGeneration,
+            pendingSnapshot: self.archiveWindowPendingSnapshot,
+            isShowingSkeleton: self.showSkeletonObserver.value
+        ) {
+            return
+        }
+
         if self.performLoadedOpenMessageRequestIfPossible(request) {
+            return
+        }
+
+        if self.archiveEnginePresentationActive {
+            _ = self.submitArchiveEngineTarget(request)
             return
         }
 

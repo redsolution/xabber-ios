@@ -2,6 +2,193 @@ import XCTest
 @testable import xabber
 
 final class ArchiveTransportReceiptTests: XCTestCase {
+    func testContinuationBoxRetainsTransactionUntilTerminalResume() {
+        final class LifetimeProbe {}
+
+        let continuationBox = ArchiveTransportContinuationBox()
+        var probe: LifetimeProbe? = LifetimeProbe()
+        weak var weakProbe = probe
+
+        continuationBox.retainUntilTerminal(probe!)
+        probe = nil
+
+        XCTAssertNotNil(weakProbe)
+
+        continuationBox.resume(throwing: ArchiveTransportError.timeout)
+
+        XCTAssertNil(weakProbe)
+    }
+
+    func testPersistenceAccountingAcceptsAlreadyMaterializedDuplicateRows() {
+        var summary = MessageManager.ArchivePersistenceSummary()
+        summary.received = 3
+        summary.skipped = 3
+
+        let accounting = ArchiveTransportPersistenceAccounting.make(
+            summary: summary,
+            deliveredArchiveIDs: ["10", "20", "30"],
+            explicitlyConsumedArchiveIDs: [],
+            materializedMessages: [
+                ArchiveMaterializedMessageIdentity(archiveID: "10", primaryID: "p10"),
+                ArchiveMaterializedMessageIdentity(archiveID: "20", primaryID: "p20"),
+                ArchiveMaterializedMessageIdentity(archiveID: "30", primaryID: "p30"),
+            ]
+        )
+
+        XCTAssertEqual(accounting.persistedResultCount, 3)
+        XCTAssertEqual(accounting.failedPersistenceCount, 0)
+    }
+
+    func testPersistenceAccountingStillReportsActualStorageFailure() {
+        var summary = MessageManager.ArchivePersistenceSummary()
+        summary.received = 3
+        summary.savedNew = 2
+        summary.failed = 1
+
+        let accounting = ArchiveTransportPersistenceAccounting.make(
+            summary: summary,
+            deliveredArchiveIDs: ["10", "20", "30"],
+            explicitlyConsumedArchiveIDs: [],
+            materializedMessages: [
+                ArchiveMaterializedMessageIdentity(archiveID: "10", primaryID: "p10"),
+                ArchiveMaterializedMessageIdentity(archiveID: "20", primaryID: "p20"),
+            ]
+        )
+
+        XCTAssertEqual(accounting.persistedResultCount, 2)
+        XCTAssertEqual(accounting.failedPersistenceCount, 1)
+    }
+
+    func testPersistenceAccountingAcceptsDurableIdentityAfterCurrentSaveFailure() {
+        var summary = MessageManager.ArchivePersistenceSummary()
+        summary.received = 1
+        summary.failed = 1
+
+        let accounting = ArchiveTransportPersistenceAccounting.make(
+            summary: summary,
+            deliveredArchiveIDs: ["10"],
+            explicitlyConsumedArchiveIDs: [],
+            materializedMessages: [
+                ArchiveMaterializedMessageIdentity(archiveID: "10", primaryID: "p10"),
+            ]
+        )
+
+        XCTAssertEqual(accounting.persistedResultCount, 1)
+        XCTAssertEqual(accounting.messagePrimaryIDs, ["p10"])
+        XCTAssertEqual(accounting.failedPersistenceCount, 0)
+    }
+
+    func testPersistenceAccountingCountsOnlyConsumedResultsWithoutDurableRows() {
+        var summary = MessageManager.ArchivePersistenceSummary()
+        summary.received = 3
+
+        let accounting = ArchiveTransportPersistenceAccounting.make(
+            summary: summary,
+            deliveredArchiveIDs: ["10", "20", "30"],
+            explicitlyConsumedArchiveIDs: ["10", "20"],
+            materializedMessages: [
+                ArchiveMaterializedMessageIdentity(archiveID: "10", primaryID: "p10"),
+                ArchiveMaterializedMessageIdentity(archiveID: "30", primaryID: "p30"),
+            ]
+        )
+
+        XCTAssertEqual(accounting.persistedResultCount, 2)
+        XCTAssertEqual(accounting.intentionallyConsumedResultCount, 1)
+        XCTAssertEqual(accounting.messagePrimaryIDs, ["p10", "p30"])
+        XCTAssertEqual(accounting.failedPersistenceCount, 0)
+    }
+
+    func testPersistenceAccountingTreatsQueryScopedSkippedArchiveIDsAsConsumed() {
+        var summary = MessageManager.ArchivePersistenceSummary()
+        summary.received = 2
+        summary.skipped = 2
+        summary.recordSkippedArchiveId("10")
+        summary.recordSkippedArchiveId("20")
+
+        let accounting = ArchiveTransportPersistenceAccounting.make(
+            summary: summary,
+            deliveredArchiveIDs: ["10", "20"],
+            explicitlyConsumedArchiveIDs: summary.skippedArchiveIds,
+            materializedMessages: []
+        )
+
+        XCTAssertEqual(accounting.persistedResultCount, 0)
+        XCTAssertEqual(accounting.intentionallyConsumedResultCount, 2)
+        XCTAssertEqual(accounting.messagePrimaryIDs, [])
+        XCTAssertEqual(accounting.failedPersistenceCount, 0)
+    }
+
+    func testCanonicalGroupRegularShadowRowsAreConsumedWithoutEnteringGroupTimeline() {
+        let group = ArchiveConversationKey(
+            owner: "romeo@example.org",
+            jid: "stage@example.org",
+            conversationType: .group
+        )
+        var summary = MessageManager.ArchivePersistenceSummary()
+        summary.received = 2
+        summary.updatedExisting = 2
+        summary.recordPersistedArchiveId(
+            "10",
+            owner: group.owner,
+            jid: group.jid,
+            conversationType: .regular
+        )
+        summary.recordPersistedArchiveId(
+            "20",
+            owner: group.owner,
+            jid: group.jid,
+            conversationType: .regular
+        )
+
+        let consumed = ArchiveTransportShadowConsumptionPolicy.archiveIDs(
+            summary: summary,
+            conversation: group
+        )
+        let accounting = ArchiveTransportPersistenceAccounting.make(
+            summary: summary,
+            deliveredArchiveIDs: ["10", "20"],
+            explicitlyConsumedArchiveIDs: consumed,
+            materializedMessages: []
+        )
+
+        XCTAssertEqual(consumed, ["10", "20"])
+        XCTAssertEqual(accounting.persistedResultCount, 0)
+        XCTAssertEqual(accounting.intentionallyConsumedResultCount, 2)
+        XCTAssertEqual(accounting.failedPersistenceCount, 0)
+    }
+
+    func testPersistenceAccountingRejectsMissingUnconsumedResult() {
+        let accounting = ArchiveTransportPersistenceAccounting.make(
+            summary: MessageManager.ArchivePersistenceSummary(),
+            deliveredArchiveIDs: ["10", "20"],
+            explicitlyConsumedArchiveIDs: ["10"],
+            materializedMessages: [
+                ArchiveMaterializedMessageIdentity(archiveID: "10", primaryID: "p10"),
+            ]
+        )
+
+        XCTAssertEqual(accounting.persistedResultCount, 1)
+        XCTAssertEqual(accounting.intentionallyConsumedResultCount, 0)
+        XCTAssertEqual(accounting.failedPersistenceCount, 1)
+    }
+
+    func testPersistenceRoutingOverridesConsumptionAcrossDelegates() {
+        var consumedFirst = MessageArchiveManager.DeferredArchiveTransportProof()
+        consumedFirst.record(resultId: "10")
+        consumedFirst.recordIntentionalConsumption(resultId: "10")
+        consumedFirst.recordPersistenceRouting(resultId: "10")
+
+        XCTAssertEqual(consumedFirst.intentionallyConsumedResultCount, 0)
+
+        var persistedFirst = MessageArchiveManager.DeferredArchiveTransportProof()
+        persistedFirst.record(resultId: "10")
+        persistedFirst.recordPersistenceRouting(resultId: "10")
+        persistedFirst.recordIntentionalConsumption(resultId: "10")
+
+        XCTAssertEqual(persistedFirst.intentionallyConsumedResultCount, 0)
+        XCTAssertTrue(persistedFirst.hasConsistentControlDisposition)
+    }
+
     private let conversation = ArchiveConversationKey(
         owner: "romeo@example.org",
         jid: "juliet@example.org",
@@ -160,7 +347,20 @@ final class ArchiveTransportReceiptTests: XCTestCase {
         receipt.finalReceived = true
         receipt.persistedResultCount = 0
         XCTAssertThrowsError(try ArchiveTransportReceiptValidator.validate(receipt, for: request)) {
-            XCTAssertEqual($0 as? ArchiveTransportValidationError, .incompletePersistenceAccounting)
+            guard case let .incompletePersistenceAccounting(
+                delivered,
+                persisted,
+                consumed,
+                resultArchiveIDs,
+                messagePrimaryIDs
+            ) = $0 as? ArchiveTransportValidationError else {
+                return XCTFail("Expected accounting diagnostics, got \($0)")
+            }
+            XCTAssertEqual(delivered, 1)
+            XCTAssertEqual(persisted, 0)
+            XCTAssertEqual(consumed, 0)
+            XCTAssertEqual(resultArchiveIDs, 1)
+            XCTAssertEqual(messagePrimaryIDs, 1)
         }
 
         receipt.persistedResultCount = 1

@@ -523,11 +523,14 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         var didRouteArchiveResultToPersistence = false
         var didIntentionallyConsumeArchiveResult = false
         defer {
-            if didObserveArchiveResult,
-               didIntentionallyConsumeArchiveResult,
-               !didRouteArchiveResultToPersistence {
-                _ = archiveManager?
-                    .recordDeferredArchiveControlConsumption(message)
+            if didObserveArchiveResult {
+                if didRouteArchiveResultToPersistence {
+                    _ = archiveManager?
+                        .recordDeferredArchivePersistenceRouting(message)
+                } else if didIntentionallyConsumeArchiveResult {
+                    _ = archiveManager?
+                        .recordDeferredArchiveControlConsumption(message)
+                }
             }
         }
         let canonicalGroupRouting = CanonicalAuxiliaryGroupMessageRouter.route(

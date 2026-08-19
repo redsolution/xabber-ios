@@ -1804,6 +1804,7 @@ extension MessageManager {
                 summary.updatedExisting += 1
             case .skipped:
                 summary.skipped += 1
+                summary.recordSkippedArchiveId(item.archivedId)
             case .failed:
                 summary.failed += 1
             }

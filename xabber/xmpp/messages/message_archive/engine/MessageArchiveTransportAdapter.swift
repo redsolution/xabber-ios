@@ -1,6 +1,69 @@
 import Foundation
 import XMPPFramework
 
+struct ArchiveTransportPersistenceAccounting: Equatable, Sendable {
+    let messagePrimaryIDs: [String]
+    let persistedResultCount: Int
+    let intentionallyConsumedResultCount: Int
+    let failedPersistenceCount: Int
+
+    static func make(
+        summary: MessageManager.ArchivePersistenceSummary,
+        deliveredArchiveIDs: [String],
+        explicitlyConsumedArchiveIDs: Set<String>,
+        materializedMessages: [ArchiveMaterializedMessageIdentity]
+    ) -> ArchiveTransportPersistenceAccounting {
+        var materializedByArchiveID: [String: String] = [:]
+        materializedMessages.forEach { identity in
+            materializedByArchiveID[identity.archiveID] = identity.primaryID
+        }
+        let deliveredIDs = Set(deliveredArchiveIDs.filter(\.isNotEmpty))
+        let materializedIDs = Set(materializedByArchiveID.keys)
+            .intersection(deliveredIDs)
+        let unresolvedIDs = deliveredIDs.subtracting(materializedIDs)
+        let consumedWithoutRows = unresolvedIDs.intersection(
+            explicitlyConsumedArchiveIDs
+        )
+        let unaccountedIDs = unresolvedIDs.subtracting(
+            explicitlyConsumedArchiveIDs
+        )
+        let orderedPrimaryIDs = deliveredArchiveIDs.compactMap {
+            materializedByArchiveID[$0]
+        }
+        return ArchiveTransportPersistenceAccounting(
+            messagePrimaryIDs: orderedPrimaryIDs,
+            persistedResultCount: materializedIDs.count,
+            intentionallyConsumedResultCount: consumedWithoutRows.count,
+            // The query-scoped barrier has completed before this resolver runs.
+            // A save attempt may report failure for a row that is already
+            // durable (notably repeated group/system archive rows). Coverage
+            // admission depends on durable identity accounting, not on whether
+            // this particular write call inserted or updated the row.
+            failedPersistenceCount: unaccountedIDs.count
+        )
+    }
+}
+
+enum ArchiveTransportShadowConsumptionPolicy {
+    static func archiveIDs(
+        summary: MessageManager.ArchivePersistenceSummary,
+        conversation: ArchiveConversationKey
+    ) -> Set<String> {
+        guard conversation.conversationType == .group else {
+            return []
+        }
+        // A canonical Xabber Group owns this owner/JID namespace. Older group
+        // archives can contain the account-side regular-chat shadow of the
+        // same events. Those rows may already exist durably as `.regular`, but
+        // must never enter the canonical `.group` timeline.
+        return summary.persistedArchiveIds(
+            owner: conversation.owner,
+            jid: conversation.jid,
+            conversationType: .regular
+        )
+    }
+}
+
 /// Bridges the callback-based MAM implementation to the archive engine's
 /// immutable async receipt. The scheduler slot remains owned until both raw
 /// `<fin/>` and query-scoped Realm persistence have reached a terminal.
@@ -46,6 +109,12 @@ final class MessageArchiveTransportAdapter: ArchiveTransport, @unchecked Sendabl
                     continuationBox: continuationBox,
                     finishSchedulerSlot: finishSchedulerSlot
                 )
+                // Every transport callback intentionally captures the transaction
+                // weakly to avoid a request/dispatcher retain cycle. Keep one
+                // explicit owner until the async continuation reaches exactly one
+                // terminal; otherwise the local transaction is released as soon
+                // as this scheduler closure returns and `<fin/>` becomes a no-op.
+                continuationBox.retainUntilTerminal(transaction)
                 transaction.start(on: stream)
             }
         }
@@ -105,10 +174,17 @@ final class MessageArchiveTransportAdapter: ArchiveTransport, @unchecked Sendabl
     }
 }
 
-private final class ArchiveTransportContinuationBox: @unchecked Sendable {
+final class ArchiveTransportContinuationBox: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<ArchiveTransportReceipt, Error>?
     private var pendingResult: Result<ArchiveTransportReceipt, Error>?
+    private var terminalRetention: AnyObject?
+
+    func retainUntilTerminal(_ object: AnyObject) {
+        lock.lock()
+        terminalRetention = object
+        lock.unlock()
+    }
 
     func install(_ continuation: CheckedContinuation<ArchiveTransportReceipt, Error>) {
         lock.lock()
@@ -132,6 +208,7 @@ private final class ArchiveTransportContinuationBox: @unchecked Sendable {
 
     private func resume(with result: Result<ArchiveTransportReceipt, Error>) {
         lock.lock()
+        terminalRetention = nil
         guard let continuation else {
             guard pendingResult == nil else {
                 lock.unlock()
@@ -287,24 +364,44 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
                         value: summary.persistedRows,
                         auxiliary: summary.failed + summary.skipped
                     )
-                    let primaryIDs = try await self.materializationResolver
-                        .materializedMessagePrimaryIDs(
+                    let materializedMessages = try await self.materializationResolver
+                        .materializedMessages(
                             conversation: self.request.conversation,
                             archiveIDs: accounting.resultArchiveIDs
+                        )
+                    let persistenceAccounting =
+                        ArchiveTransportPersistenceAccounting.make(
+                            summary: summary,
+                            deliveredArchiveIDs: accounting.resultArchiveIDs,
+                            explicitlyConsumedArchiveIDs:
+                                accounting.intentionallyConsumedArchiveIDs.union(
+                                    summary.skippedArchiveIds
+                                ).union(
+                                    ArchiveTransportShadowConsumptionPolicy.archiveIDs(
+                                        summary: summary,
+                                        conversation: self.request.conversation
+                                    )
+                                ),
+                            materializedMessages: materializedMessages
                         )
                     let receipt = ArchiveTransportReceipt(
                         queryID: queryID,
                         connectionGeneration: self.request.connectionGeneration,
                         resultArchiveIDs: accounting.resultArchiveIDs,
-                        messagePrimaryIDs: primaryIDs,
+                        messagePrimaryIDs:
+                            persistenceAccounting.messagePrimaryIDs,
                         first: first,
                         last: last,
                         complete: state.rawComplete,
                         cheapPageCount: state.serverResultCount ?? accounting.deliveredResultCount,
                         deliveredResultCount: accounting.deliveredResultCount,
-                        persistedResultCount: summary.persistedRows,
-                        intentionallyConsumedResultCount: accounting.intentionallyConsumedResultCount,
-                        failedPersistenceCount: summary.failed + summary.skipped,
+                        persistedResultCount:
+                            persistenceAccounting.persistedResultCount,
+                        intentionallyConsumedResultCount:
+                            persistenceAccounting
+                                .intentionallyConsumedResultCount,
+                        failedPersistenceCount:
+                            persistenceAccounting.failedPersistenceCount,
                         finalReceived: true
                     )
                     self.finish(.success(receipt))

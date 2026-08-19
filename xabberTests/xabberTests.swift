@@ -9106,14 +9106,10 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
         finishOldVCard?()
     }
 
-    func testResetPreservesRunningMamLeaseUntilTerminalWithoutReleasingReplacement() {
+    func testResetReleasesRunningMamLaneAndOldCompletionCannotReleaseReplacement() {
         let scheduler = AccountXMPPTaskScheduler(configuration: .test(defaultCooldown: 0))
         let oldStarted = expectation(description: "old task started")
-        let replacementDidNotStartBeforeOldTerminal = expectation(
-            description: "post-reset task waits for old MAM persistence terminal"
-        )
-        replacementDidNotStartBeforeOldTerminal.isInverted = true
-        let replacementStarted = expectation(description: "post-reset task started")
+        let replacementStarted = expectation(description: "post-reset task starts in the new generation")
         let queuedDidNotStartFromRepeatedOldCompletion = expectation(
             description: "repeated old completion cannot release replacement MAM lane"
         )
@@ -9123,7 +9119,6 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
         )
         var finishOld: (() -> Void)?
         var finishReplacement: (() -> Void)?
-        var isCheckingEarlyReplacement = true
         var isCheckingRepeatedOldCompletion = true
 
         scheduler.enqueue(
@@ -9142,16 +9137,10 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
             resource: .mamArchive,
             deduplicationKey: "shared-mam-key"
         ) { finish in
-            if isCheckingEarlyReplacement {
-                replacementDidNotStartBeforeOldTerminal.fulfill()
-            }
             finishReplacement = finish
             replacementStarted.fulfill()
         }
 
-        wait(for: [replacementDidNotStartBeforeOldTerminal], timeout: 0.1)
-        isCheckingEarlyReplacement = false
-        finishOld?()
         wait(for: [replacementStarted], timeout: 1)
 
         scheduler.enqueue(
@@ -9188,15 +9177,10 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
         let oldLeaseStarted = expectation(description: "old MAM lease started")
         let schedulerReset = expectation(description: "scheduler generation rotated")
         let persistenceStarted = expectation(description: "old persistence started")
-        let newTaskDidNotStartBeforeOldTerminal = expectation(
-            description: "new generation waits for old MAM persistence terminal"
-        )
-        newTaskDidNotStartBeforeOldTerminal.isInverted = true
-        let newTaskStarted = expectation(description: "new generation MAM task survived")
+        let newTaskStarted = expectation(description: "new generation MAM task starts after reset")
         let oldFailurePublished = expectation(description: "old failure published")
         var finishOldLease: (() -> Void)?
         var finishPersistence: (() -> Void)?
-        var isCheckingEarlyStart = true
 
         account.mam = manager
         account.xmppTaskScheduler.resetObserverForTests = {
@@ -9252,20 +9236,16 @@ final class AccountXMPPTaskSchedulerTests: XCTestCase {
             resource: .mamArchive,
             deduplicationKey: sharedDeduplicationKey
         ) { finish in
-            if isCheckingEarlyStart {
-                newTaskDidNotStartBeforeOldTerminal.fulfill()
-            }
             newTaskStarted.fulfill()
             finish()
         }
 
-        wait(for: [newTaskDidNotStartBeforeOldTerminal], timeout: 0.1)
+        wait(for: [newTaskStarted], timeout: 1)
         XCTAssertTrue(manager.queryIds.contains(oldQueryId))
         XCTAssertTrue(manager.queryIds.contains(newQueryId))
 
-        isCheckingEarlyStart = false
         finishPersistence?()
-        wait(for: [oldFailurePublished, newTaskStarted], timeout: 1)
+        wait(for: [oldFailurePublished], timeout: 1)
         waitForAccountQueueToDrain(account)
 
         XCTAssertFalse(manager.queryIds.contains(oldQueryId))
@@ -36223,7 +36203,7 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         XCTAssertFalse(archiveState.newerLiveEdgeReached)
     }
 
-    func testChangedUnreadDialogEnqueuesBackgroundSnapshotRepair() throws {
+    func testChangedUnreadDialogDefersArchiveRepairUntilWindowIsRequested() throws {
         try prepareManagedAccount()
         let jid = "romeo@xmppdev01.xabber.com"
         try insertLastChat(jid: jid, conversationType: .regular)
@@ -36263,10 +36243,7 @@ final class ClientSynchronizationManagerTests: XCTestCase {
 
         XCTAssertTrue(manager.read(withIQ: iq))
 
-        XCTAssertEqual(observed.count, 1)
-        XCTAssertEqual(observed.first?.0, .init(jid: jid, conversationType: .regular))
-        XCTAssertEqual(observed.first?.1, .background)
-        XCTAssertEqual(observed.first?.2, "conversation.archive.\(owner).\(jid).urn:xabber:chat")
+        XCTAssertTrue(observed.isEmpty)
         let chat = try XCTUnwrap(realm.object(
             ofType: LastChatsStorageItem.self,
             forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
@@ -36274,7 +36251,7 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         XCTAssertFalse(chat.isSynced)
     }
 
-    func testChangedLastMessageWithZeroUnreadEnqueuesSnapshotRepair() throws {
+    func testChangedLastMessageWithZeroUnreadDefersArchiveRepair() throws {
         try prepareManagedAccount()
         let jid = "romeo@xmppdev01.xabber.com"
         try insertLastChat(jid: jid, conversationType: .regular)
@@ -36316,7 +36293,7 @@ final class ClientSynchronizationManagerTests: XCTestCase {
 
         XCTAssertTrue(manager.read(withIQ: iq))
 
-        XCTAssertEqual(observed, [.init(jid: jid, conversationType: .regular)])
+        XCTAssertTrue(observed.isEmpty)
     }
 
     func testUnchangedDialogDoesNotEnqueueSnapshotRepair() throws {
@@ -36419,7 +36396,7 @@ final class ClientSynchronizationManagerTests: XCTestCase {
         XCTAssertTrue(observed.isEmpty)
     }
 
-    func testMissingArchiveStateEnqueuesSnapshotRepair() throws {
+    func testMissingArchiveStateDefersArchiveRepair() throws {
         try prepareManagedAccount()
         let jid = "romeo@xmppdev01.xabber.com"
         try insertLastChat(jid: jid, conversationType: .regular)
@@ -36460,10 +36437,10 @@ final class ClientSynchronizationManagerTests: XCTestCase {
 
         XCTAssertTrue(manager.read(withIQ: iq))
 
-        XCTAssertEqual(observed, [.init(jid: jid, conversationType: .regular)])
+        XCTAssertTrue(observed.isEmpty)
     }
 
-    func testSnapshotRepairIncludesGroupEncryptedAndSavedConversationTypes() throws {
+    func testChangedSupportedConversationTypesDeferArchiveRepair() throws {
         try prepareManagedAccount()
         let types: [ClientSynchronizationManager.ConversationType] = [
             .group,
@@ -36519,10 +36496,10 @@ final class ClientSynchronizationManagerTests: XCTestCase {
 
         XCTAssertTrue(manager.read(withIQ: iq))
 
-        XCTAssertEqual(observed.map(\.conversationType), types)
+        XCTAssertTrue(observed.isEmpty)
     }
 
-    func testSavedSnapshotRepairTargetsFavoritesServiceJid() throws {
+    func testChangedSavedConversationDefersArchiveRepair() throws {
         let favoritesJid = "favorites.xmppdev01.xabber.com"
         try configureFavoritesNode(favoritesJid)
         let realm = try WRealm.safe()
@@ -36561,10 +36538,7 @@ final class ClientSynchronizationManagerTests: XCTestCase {
 
         XCTAssertTrue(manager.read(withIQ: iq))
 
-        XCTAssertEqual(observed.count, 1)
-        XCTAssertEqual(observed.first?.0, .init(jid: favoritesJid, conversationType: .saved))
-        XCTAssertEqual(observed.first?.1, .background)
-        XCTAssertEqual(observed.first?.2, "conversation.archive.\(owner).\(favoritesJid).urn:xabber:favorites:0")
+        XCTAssertTrue(observed.isEmpty)
     }
 
     func testSnapshotRepairIgnoresChannelNotificationsAndServerRows() throws {

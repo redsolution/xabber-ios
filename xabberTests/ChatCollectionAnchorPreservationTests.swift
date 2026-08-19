@@ -833,6 +833,54 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
         XCTAssertEqual(controller.messagesCollectionView.contentOffset.y, committedOffsetY, accuracy: 0.001)
     }
 
+    func testControllerAtomicPrependCommitsWhenAnchorMovesOutsidePreparedViewport() throws {
+        let controller = makeController()
+        let initialItems = (67..<140).map { makeDatasource(primary: "m\($0)") }
+        let expandedItems = (0..<140).map { makeDatasource(primary: "m\($0)") }
+        controller.applyChatDatasource(
+            initialItems,
+            mode: .fullReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true
+        )
+        controller.messagesCollectionView.scrollToItem(
+            at: IndexPath(item: 0, section: 2),
+            at: .top,
+            animated: false
+        )
+        controller.messagesCollectionView.layoutIfNeeded()
+
+        let anchorPrimary = initialItems[2].primary
+        let viewportRelativeMinY = try viewportY(for: anchorPrimary, in: controller)
+        let anchor = ChatViewportAnchor(
+            primary: anchorPrimary,
+            viewportRelativeMinY: viewportRelativeMinY
+        )
+        var result: ChatViewportTransactionResult?
+
+        controller.applyChatDatasource(
+            expandedItems,
+            mode: .windowReload(),
+            animated: false,
+            suppressDefaultBottomScroll: true,
+            applyCategory: .olderAnchorReload,
+            anchorRestorePhase: .applyTransaction,
+            anchorPrimary: anchor.primary,
+            restoreAnchor: anchor,
+            presentationCommitMode: .atomicInitialFrame,
+            transactionCommitAuthorization: { true },
+            transactionCompletion: { result = $0 }
+        )
+
+        guard case .committed(let diagnostics) = result else {
+            return XCTFail("Expected atomic prepend transaction to commit")
+        }
+        XCTAssertEqual(try viewportY(for: anchorPrimary, in: controller), viewportRelativeMinY, accuracy: 1)
+        XCTAssertEqual(diagnostics.forcedLayoutCount, 1)
+        XCTAssertLessThanOrEqual(diagnostics.programmaticOffsetMutationCount, 1)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(diagnostics.anchorError), 1)
+    }
+
     func testControllerTargetDeletionReportsFailureWithoutLegacySuccessCompletion() throws {
         let controller = makeController()
         let initialItems = (0..<30).map { makeDatasource(primary: "m\($0)") }
