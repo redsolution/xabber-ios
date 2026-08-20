@@ -8753,6 +8753,11 @@ enum ChatDatasourcePresentationCommitMode: Equatable {
     case atomicInitialFrame
 }
 
+enum ChatDatasourcePresentationOwner: Equatable {
+    case legacy
+    case archiveEngine
+}
+
 enum ChatDatasourcePresentationTransactionContext {
     private static let tokenKey = "com.xabber.chat.initial-frame-visual-transaction"
 
@@ -11577,11 +11582,22 @@ extension ChatViewController {
         anchorRestorePhase: ChatHistoryPageAnchorRestorePhase = .none,
         anchorPrimary: String? = nil,
         restoreAnchor: ChatHistoryPageAnchor? = nil,
+        presentationOwner: ChatDatasourcePresentationOwner = .legacy,
         presentationCommitMode: ChatDatasourcePresentationCommitMode = .standard,
         transactionCommitAuthorization: (() -> Bool)? = nil,
         transactionCompletion: ((ChatViewportTransactionResult) -> Void)? = nil,
         completion: (() -> Void)? = nil
     ) {
+        guard ChatArchiveWindowPresentationPolicy.shouldAdmitDatasourceApply(
+            isArchiveEnginePresentationActive: archiveEnginePresentationActive,
+            owner: presentationOwner
+        ) else {
+            ChatArchiveDebugTrace.log("archiveEngineRejectedLegacyDatasourceApply", [
+                ("itemCount", items.count)
+            ])
+            completion?()
+            return
+        }
         var datasourceApplySignpost = ChatPerformanceSignposts.begin(.datasourceApply)
         let applyStartedAt = Date()
         let applyConversationKey = self.chatTimelineConversationKey
@@ -12791,6 +12807,12 @@ extension ChatViewController {
 
     internal func setArchiveLoading(_ isLoading: Bool) {
         self.performOnMain {
+            if isLoading {
+                self.messageLoadingActivityIndicator.startAnimating()
+                self.view.bringSubviewToFront(self.messageLoadingActivityIndicator)
+            } else {
+                self.messageLoadingActivityIndicator.stopAnimating()
+            }
             self.messageLoadingActivityIndicator.isHidden = !isLoading
         }
     }

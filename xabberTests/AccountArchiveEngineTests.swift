@@ -264,6 +264,204 @@ final class AccountArchiveEngineTests: XCTestCase {
         XCTAssertEqual(stateWhilePrefetchRuns, .verified(current))
     }
 
+    func testInteractiveBoundaryLoadKeepsVerifiedWindowAndPublishesActivityUntilDisconnect() async throws {
+        let repository = ArchiveEngineRepositorySpy()
+        await repository.setSnapshot(makeSnapshot(fingerprint: "sync-boundary"))
+        let transport = ArchiveEngineTransportSpy()
+        let engine = AccountArchiveEngine(
+            owner: conversation.owner,
+            repository: repository,
+            transport: transport,
+            retryClock: .immediate
+        )
+        await engine.connectionDidBecomeReady(
+            generation: 14,
+            completedXEPSYNCFingerprint: "sync-boundary"
+        )
+        await engine.submit(latestIntent(priority: .visibleIntegrity))
+        await engine.waitUntilIdleForTesting()
+        guard case .verified(let current) = await engine.currentState(for: conversation) else {
+            return XCTFail("Expected verified initial window")
+        }
+        await repository.setSnapshot(nil)
+        await transport.suspendRequests()
+
+        let boundaryIntent = ArchiveWindowIntent(
+            conversation: conversation,
+            locator: .older(before: current.verifiedSegment.oldest),
+            contextBefore: ArchivePageSizing.history,
+            contextAfter: ArchivePageSizing.initial,
+            priority: .visibleIntegrity
+        )
+        await engine.submit(boundaryIntent)
+
+        let stateWhileBoundaryLoads = await engine.currentState(for: conversation)
+        let activityWhileBoundaryLoads = await engine.currentActivity(for: conversation)
+        XCTAssertEqual(stateWhileBoundaryLoads, .verified(current))
+        XCTAssertEqual(
+            activityWhileBoundaryLoads,
+            ArchiveWindowActivity(activeBoundaryRequestCount: 1)
+        )
+
+        await engine.connectionDidDisconnect()
+
+        let disconnectedActivity = await engine.currentActivity(for: conversation)
+        let disconnectedState = await engine.currentState(for: conversation)
+        XCTAssertEqual(disconnectedActivity, .idle)
+        XCTAssertEqual(
+            disconnectedState,
+            .skeleton(reason: .offline, target: boundaryIntent.locator)
+        )
+    }
+
+    func testOlderBoundarySnapshotRetainsThePreviouslyVerifiedVisibleTail() throws {
+        let previous = try makeBoundarySnapshot(
+            ids: ["p200", "p250", "p300"],
+            target: .latest,
+            oldest: "200",
+            newest: "300",
+            generation: 1
+        )
+        let incoming = try makeBoundarySnapshot(
+            ids: ["p100", "p150", "p200", "p250"],
+            target: .older(before: XCTUnwrap(ArchiveCursor(rawValue: "200"))),
+            oldest: "100",
+            newest: "300",
+            generation: 2
+        )
+
+        let merged = ArchiveBoundarySnapshotMergePolicy.merge(
+            previousState: .verified(previous),
+            incoming: incoming
+        )
+
+        XCTAssertEqual(
+            merged.messagePrimaryIDs,
+            ["p100", "p150", "p200", "p250", "p300"]
+        )
+        XCTAssertEqual(merged.target, incoming.target)
+        XCTAssertEqual(merged.verifiedSegment, incoming.verifiedSegment)
+        XCTAssertEqual(merged.coverageGeneration, 2)
+    }
+
+    func testBoundarySnapshotDoesNotMergeAcrossFreshnessProofs() throws {
+        let previous = try makeBoundarySnapshot(
+            ids: ["old"],
+            target: .latest,
+            oldest: "200",
+            newest: "300",
+            generation: 1,
+            fingerprint: "sync-old"
+        )
+        let incoming = try makeBoundarySnapshot(
+            ids: ["new"],
+            target: .older(before: XCTUnwrap(ArchiveCursor(rawValue: "200"))),
+            oldest: "100",
+            newest: "300",
+            generation: 2,
+            fingerprint: "sync-new"
+        )
+
+        XCTAssertEqual(
+            ArchiveBoundarySnapshotMergePolicy.merge(
+                previousState: .verified(previous),
+                incoming: incoming
+            ),
+            incoming
+        )
+    }
+
+    func testRepeatedOlderBoundaryMergeKeepsAnchorSideAndBoundsPresentationWindow() throws {
+        let previous = try makeBoundarySnapshot(
+            ids: (200...499).map { "p\($0)" },
+            target: .latest,
+            oldest: "200",
+            newest: "500",
+            generation: 1
+        )
+        let incoming = try makeBoundarySnapshot(
+            ids: (100...249).map { "p\($0)" },
+            target: .older(before: XCTUnwrap(ArchiveCursor(rawValue: "200"))),
+            oldest: "100",
+            newest: "500",
+            generation: 2
+        )
+
+        let merged = ArchiveBoundarySnapshotMergePolicy.merge(
+            previousState: .verified(previous),
+            incoming: incoming
+        )
+
+        XCTAssertEqual(
+            merged.messagePrimaryIDs.count,
+            ArchiveBoundarySnapshotMergePolicy.maximumMessageCount
+        )
+        XCTAssertEqual(merged.messagePrimaryIDs.first, "p100")
+        XCTAssertTrue(merged.messagePrimaryIDs.contains("p200"))
+        XCTAssertFalse(merged.messagePrimaryIDs.contains("p499"))
+    }
+
+    func testTerminalBoundaryFailureClearsActivityWithoutDiscardingVerifiedWindow() async throws {
+        let repository = ArchiveEngineRepositorySpy()
+        await repository.setSnapshot(makeSnapshot(fingerprint: "sync-boundary-failure"))
+        let initialTransport = ArchiveEngineTransportSpy()
+        let engine = AccountArchiveEngine(
+            owner: conversation.owner,
+            repository: repository,
+            transport: initialTransport,
+            retryClock: .immediate
+        )
+        await engine.connectionDidBecomeReady(
+            generation: 15,
+            completedXEPSYNCFingerprint: "sync-boundary-failure"
+        )
+        await engine.submit(latestIntent(priority: .visibleIntegrity))
+        await engine.waitUntilIdleForTesting()
+        guard case .verified(let current) = await engine.currentState(for: conversation) else {
+            return XCTFail("Expected verified initial window")
+        }
+
+        // A separate engine keeps the failure transport immutable while
+        // reusing the repository's already verified admission proof.
+        let failureRepository = ArchiveEngineRepositorySpy()
+        await failureRepository.setSnapshot(current)
+        let failingTransport = FailingArchiveEngineTransport(error: .timeout)
+        let failureEngine = AccountArchiveEngine(
+            owner: conversation.owner,
+            repository: failureRepository,
+            transport: failingTransport,
+            retryClock: .immediate
+        )
+        await failureEngine.connectionDidBecomeReady(
+            generation: 15,
+            completedXEPSYNCFingerprint: "sync-boundary-failure"
+        )
+        await failureEngine.submit(latestIntent(priority: .visibleIntegrity))
+        await failureEngine.waitUntilIdleForTesting()
+        guard case .verified(let admitted) = await failureEngine.currentState(for: conversation) else {
+            return XCTFail("Expected verified admission")
+        }
+        await failureRepository.setSnapshot(nil)
+
+        await failureEngine.submit(
+            ArchiveWindowIntent(
+                conversation: conversation,
+                locator: .older(before: admitted.verifiedSegment.oldest),
+                contextBefore: ArchivePageSizing.history,
+                contextAfter: ArchivePageSizing.initial,
+                priority: .visibleIntegrity
+            )
+        )
+        await failureEngine.waitUntilIdleForTesting()
+
+        let terminalState = await failureEngine.currentState(for: conversation)
+        let terminalActivity = await failureEngine.currentActivity(for: conversation)
+        let terminalRequestCount = await failingTransport.requestCount
+        XCTAssertEqual(terminalState, .verified(admitted))
+        XCTAssertEqual(terminalActivity, .idle)
+        XCTAssertEqual(terminalRequestCount, 8)
+    }
+
     func testGapLargerThanOnePageAdvancesCursorUntilContinuousProofCompletes() async throws {
         let repository = PagingGapArchiveRepositorySpy()
         let transport = PagingGapArchiveTransportSpy()
@@ -382,6 +580,33 @@ final class AccountArchiveEngineTests: XCTestCase {
             target: .latest,
             verifiedSegment: segment,
             coverageGeneration: 1,
+            freshnessToken: .xepSync(fingerprint: fingerprint)
+        )
+    }
+
+    private func makeBoundarySnapshot(
+        ids: [String],
+        target: ArchiveWindowLocator,
+        oldest: String,
+        newest: String,
+        generation: UInt64,
+        fingerprint: String = "sync-boundary-merge"
+    ) throws -> ArchiveWindowSnapshot {
+        let segment = try XCTUnwrap(
+            ArchiveCoverageSegment(
+                oldest: XCTUnwrap(ArchiveCursor(rawValue: oldest)),
+                newest: XCTUnwrap(ArchiveCursor(rawValue: newest)),
+                reachesArchiveStart: false,
+                reachesLiveEdge: true,
+                fingerprint: fingerprint,
+                isVerified: true
+            )
+        )
+        return ArchiveWindowSnapshot(
+            messagePrimaryIDs: ids,
+            target: target,
+            verifiedSegment: segment,
+            coverageGeneration: generation,
             freshnessToken: .xepSync(fingerprint: fingerprint)
         )
     }

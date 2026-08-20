@@ -2,6 +2,42 @@ import XCTest
 @testable import xabber
 
 final class ArchiveTransportReceiptTests: XCTestCase {
+    func testTransportRegistersSynchronousRawFinalRouteBeforeMAMSendAndCleansItUp() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "xabber/xmpp/messages/message_archive/engine/MessageArchiveTransportAdapter.swift"
+            ),
+            encoding: .utf8
+        )
+        let transactionStart = try XCTUnwrap(
+            source.range(of: "func start(on stream: XMPPStream)")
+        )
+        let finalHandler = try XCTUnwrap(
+            source.range(
+                of: "private func handleFinal(",
+                range: transactionStart.upperBound..<source.endIndex
+            )
+        )
+        let startBody = String(
+            source[transactionStart.lowerBound..<finalHandler.lowerBound]
+        )
+
+        let registration = try XCTUnwrap(
+            startBody.range(
+                of: "MessageArchiveEndPageDispatcher.register("
+            )
+        )
+        let send = try XCTUnwrap(
+            startBody.range(of: "account.mam.requestArchive(")
+        )
+        XCTAssertLessThan(registration.lowerBound, send.lowerBound)
+        XCTAssertTrue(startBody.contains("delivery: .synchronous"))
+        XCTAssertTrue(source.contains("MessageArchiveEndPageDispatcher.unregister(token)"))
+    }
+
     func testContinuationBoxRetainsTransactionUntilTerminalResume() {
         final class LifetimeProbe {}
 

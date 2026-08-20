@@ -8,6 +8,102 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
         conversationType: .regular
     )
 
+    @MainActor
+    func testBoundaryLoadingIndicatorAnimatesAboveTimelineContent() {
+        let controller = ChatViewController()
+        let rootView = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        controller.view = rootView
+        rootView.addSubview(controller.messageLoadingActivityIndicator)
+        let timelineContent = UIView(frame: rootView.bounds)
+        rootView.addSubview(timelineContent)
+        controller.messageLoadingActivityIndicator.stopAnimating()
+        controller.messageLoadingActivityIndicator.isHidden = true
+
+        controller.setArchiveLoading(true)
+
+        XCTAssertFalse(controller.messageLoadingActivityIndicator.isHidden)
+        XCTAssertTrue(controller.messageLoadingActivityIndicator.isAnimating)
+        XCTAssertTrue(rootView.subviews.last === controller.messageLoadingActivityIndicator)
+
+        controller.setArchiveLoading(false)
+
+        XCTAssertTrue(controller.messageLoadingActivityIndicator.isHidden)
+        XCTAssertFalse(controller.messageLoadingActivityIndicator.isAnimating)
+    }
+
+    func testBoundarySpinnerFollowsEngineActivityWithoutCoveringFullSkeleton() {
+        XCTAssertFalse(
+            ChatArchiveWindowPresentationPolicy.shouldShowBoundaryLoadingIndicator(
+                activity: .idle,
+                isShowingFullSkeleton: false
+            )
+        )
+        XCTAssertTrue(
+            ChatArchiveWindowPresentationPolicy.shouldShowBoundaryLoadingIndicator(
+                activity: .idle,
+                pendingPresentationTarget: .older(
+                    before: ArchiveCursor(rawValue: "10")!
+                ),
+                isShowingFullSkeleton: false
+            )
+        )
+        XCTAssertTrue(
+            ChatArchiveWindowPresentationPolicy.shouldShowBoundaryLoadingIndicator(
+                activity: ArchiveWindowActivity(activeBoundaryRequestCount: 1),
+                isShowingFullSkeleton: false
+            )
+        )
+        XCTAssertFalse(
+            ChatArchiveWindowPresentationPolicy.shouldShowBoundaryLoadingIndicator(
+                activity: ArchiveWindowActivity(activeBoundaryRequestCount: 1),
+                isShowingFullSkeleton: true
+            )
+        )
+        XCTAssertFalse(
+            ChatArchiveWindowPresentationPolicy.shouldReplaceCommittedContentWithSkeleton(
+                for: .older(before: ArchiveCursor(rawValue: "10")!)
+            )
+        )
+        XCTAssertTrue(
+            ChatArchiveWindowPresentationPolicy.shouldReplaceCommittedContentWithSkeleton(
+                for: .archiveID(ArchiveCursor(rawValue: "10")!)
+            )
+        )
+    }
+
+    func testUserLatestJumpBuildsAnEngineTargetInsteadOfRematerializingLocalArchive() {
+        let intent = ChatArchiveWindowPresentationPolicy.latestTargetIntent(
+            conversation: conversation
+        )
+
+        XCTAssertEqual(intent.conversation, conversation)
+        XCTAssertEqual(intent.locator, .latest)
+        XCTAssertEqual(intent.contextBefore, ArchivePageSizing.initial)
+        XCTAssertEqual(intent.contextAfter, 0)
+        XCTAssertEqual(intent.priority, .target)
+    }
+
+    func testHardCutRejectsLegacyTimelineCommitsWhileArchiveEngineOwnsPresentation() {
+        XCTAssertFalse(
+            ChatArchiveWindowPresentationPolicy.shouldAdmitDatasourceApply(
+                isArchiveEnginePresentationActive: true,
+                owner: .legacy
+            )
+        )
+        XCTAssertTrue(
+            ChatArchiveWindowPresentationPolicy.shouldAdmitDatasourceApply(
+                isArchiveEnginePresentationActive: true,
+                owner: .archiveEngine
+            )
+        )
+        XCTAssertTrue(
+            ChatArchiveWindowPresentationPolicy.shouldAdmitDatasourceApply(
+                isArchiveEnginePresentationActive: false,
+                owner: .legacy
+            )
+        )
+    }
+
     func testSkeletonRemainsFullUntilMatchingUIKitGenerationCommits() throws {
         let snapshot = try makeSnapshot(generation: 7)
         let state = ArchiveWindowState.verified(snapshot)
@@ -385,6 +481,93 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
         XCTAssertFalse(
             ChatArchiveWindowPresentationPolicy.shouldCapturePagingAnchor(
                 for: .timestamp(Date())
+            )
+        )
+    }
+
+    func testOlderBoundaryApplyNeverDropsOffsetWhenLiveAnchorIsTemporarilyUnavailable() throws {
+        let cursor = try XCTUnwrap(ArchiveCursor(rawValue: "10"))
+        let retainedAnchor = ChatHistoryPageAnchor(
+            primary: "visible-message",
+            viewportRelativeMinY: 37
+        )
+
+        XCTAssertEqual(
+            ChatArchiveWindowPresentationPolicy.resolveBoundaryAnchor(
+                for: .older(before: cursor),
+                live: nil,
+                retained: retainedAnchor
+            ),
+            retainedAnchor
+        )
+
+        let retainedPlan = ChatArchiveWindowPresentationPolicy.boundaryApplyPlan(
+            for: .older(before: cursor),
+            hasCapturedAnchor: true
+        )
+        XCTAssertFalse(retainedPlan.keepOffset)
+        XCTAssertEqual(retainedPlan.restorePhase, .applyTransaction)
+
+        let offsetFallbackPlan = ChatArchiveWindowPresentationPolicy.boundaryApplyPlan(
+            for: .older(before: cursor),
+            hasCapturedAnchor: false
+        )
+        XCTAssertTrue(offsetFallbackPlan.keepOffset)
+        XCTAssertEqual(offsetFallbackPlan.restorePhase, .none)
+    }
+
+    func testCurrentBoundaryAnchorSupersedesAnchorCapturedAtRequestStart() throws {
+        let cursor = try XCTUnwrap(ArchiveCursor(rawValue: "10"))
+        let retainedAnchor = ChatHistoryPageAnchor(
+            primary: "request-start-message",
+            viewportRelativeMinY: 20
+        )
+        let liveAnchor = ChatHistoryPageAnchor(
+            primary: "current-visible-message",
+            viewportRelativeMinY: 44
+        )
+
+        XCTAssertEqual(
+            ChatArchiveWindowPresentationPolicy.resolveBoundaryAnchor(
+                for: .older(before: cursor),
+                live: liveAnchor,
+                retained: retainedAnchor
+            ),
+            liveAnchor
+        )
+        XCTAssertNil(
+            ChatArchiveWindowPresentationPolicy.resolveBoundaryAnchor(
+                for: .latest,
+                live: liveAnchor,
+                retained: retainedAnchor
+            )
+        )
+    }
+
+    func testMissingBoundaryAnchorFallsBackToSkeletonInsteadOfJumpingTheViewport() throws {
+        let locator = ArchiveWindowLocator.older(
+            before: try XCTUnwrap(ArchiveCursor(rawValue: "10"))
+        )
+
+        XCTAssertTrue(
+            ChatArchiveWindowPresentationPolicy.shouldShowBoundaryRecoverySkeleton(
+                for: locator,
+                hasUsableAnchor: false,
+                hasCommittedContent: true
+            )
+        )
+        XCTAssertFalse(
+            ChatArchiveWindowPresentationPolicy.shouldShowBoundaryRecoverySkeleton(
+                for: locator,
+                hasUsableAnchor: true,
+                hasCommittedContent: true
+            )
+        )
+        XCTAssertFalse(
+            ChatArchiveWindowPresentationPolicy.shouldShowBoundaryRecoverySkeleton(
+                for: .latest,
+                hasUsableAnchor: false,
+                hasCommittedContent: true
             )
         )
     }

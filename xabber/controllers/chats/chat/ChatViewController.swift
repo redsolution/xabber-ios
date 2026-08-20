@@ -2257,11 +2257,14 @@ class ChatViewController: MessagesViewController {
     var timelineSession: ChatTimelineSession?
     var archiveEnginePresentationActive = false
     var archiveWindowStateTask: Task<Void, Never>?
+    var archiveWindowActivityTask: Task<Void, Never>?
     var archiveWindowState: ArchiveWindowState?
+    var archiveWindowActivity: ArchiveWindowActivity = .idle
     var archiveWindowIntent: ArchiveWindowIntent?
     var archiveWindowApplyGeneration: UInt64 = 0
     var archiveWindowCommittedCoverageGeneration: UInt64?
     var archiveWindowPendingSnapshot: ArchiveWindowSnapshot?
+    var archiveWindowBoundaryPresentationAnchor: ChatArchiveBoundaryPresentationAnchor?
     var archiveWindowAtomicApplyRetryCount = 0
     var archiveWindowAtomicApplyRetryWorkItem: DispatchWorkItem?
     var archiveSkeletonBeganAt: Date?
@@ -5067,6 +5070,11 @@ class ChatViewController: MessagesViewController {
     }
 
     internal func scrollToLatestTimeline(animated: Bool) {
+        if self.submitArchiveEngineLatestTarget() {
+            self.pendingForceLatestOpen = false
+            self.pendingForceLatestOpenAnimated = false
+            return
+        }
         let isStabilizing = self.isInitialLatestOpenStabilizing
         self.mapAndApplyTimelineLatest(
             mode: .windowReload(),
@@ -8142,7 +8150,11 @@ class ChatViewController: MessagesViewController {
     
     internal let messageLoadingActivityIndicator: UIActivityIndicatorView = {
         let view = UIActivityIndicatorView(style: .medium)
-        
+        view.accessibilityIdentifier = "chat.archive.boundary-loading-indicator"
+        view.accessibilityLabel = NSLocalizedString(
+            "Loading earlier messages",
+            comment: "Accessibility label for chat history loading indicator"
+        )
         return view
     }()
     

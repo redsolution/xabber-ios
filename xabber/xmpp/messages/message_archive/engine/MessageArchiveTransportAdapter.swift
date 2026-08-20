@@ -236,6 +236,7 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
     private var didFinish = false
     private var failureToken: MessageArchiveRequestFailureDispatcher.Token?
     private var preparationToken: MessageArchiveRequestFailurePreparationDispatcher.Token?
+    private var endPageToken: MessageArchiveEndPageDispatcher.Token?
 
     init(
         request: ArchiveTransportRequest,
@@ -266,6 +267,18 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
             .transport,
             value: request.pageSize
         )
+        endPageToken = MessageArchiveEndPageDispatcher.register(
+            owner: request.conversation.owner,
+            queryId: request.queryID,
+            delivery: .synchronous
+        ) { [weak self] event in
+            self?.handleFinal(
+                queryID: event.queryId,
+                state: event.state,
+                first: event.first,
+                last: event.last
+            )
+        }
         preparationToken = MessageArchiveRequestFailurePreparationDispatcher.register(
             owner: request.conversation.owner,
             queryId: request.queryID
@@ -463,6 +476,7 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
 
     private func finish(_ result: Result<ArchiveTransportReceipt, Error>) {
         let tokens: (
+            MessageArchiveEndPageDispatcher.Token?,
             MessageArchiveRequestFailureDispatcher.Token?,
             MessageArchiveRequestFailurePreparationDispatcher.Token?
         )
@@ -472,15 +486,19 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
             return
         }
         didFinish = true
-        tokens = (failureToken, preparationToken)
+        tokens = (endPageToken, failureToken, preparationToken)
+        endPageToken = nil
         failureToken = nil
         preparationToken = nil
         lock.unlock()
 
         if let token = tokens.0 {
-            MessageArchiveRequestFailureDispatcher.unregister(token)
+            MessageArchiveEndPageDispatcher.unregister(token)
         }
         if let token = tokens.1 {
+            MessageArchiveRequestFailureDispatcher.unregister(token)
+        }
+        if let token = tokens.2 {
             MessageArchiveRequestFailurePreparationDispatcher.unregister(token)
         }
         account.mam.abortDeferredCommit(queryId: request.queryID)

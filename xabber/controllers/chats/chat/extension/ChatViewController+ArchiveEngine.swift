@@ -1,7 +1,62 @@
 import Foundation
 import UIKit
 
+struct ChatArchiveBoundaryPresentationAnchor {
+    let locator: ArchiveWindowLocator
+    let direction: ChatHistoryPageDirection
+    let anchor: ChatHistoryPageAnchor
+}
+
 enum ChatArchiveWindowPresentationPolicy {
+    static func shouldAdmitDatasourceApply(
+        isArchiveEnginePresentationActive: Bool,
+        owner: ChatDatasourcePresentationOwner
+    ) -> Bool {
+        !isArchiveEnginePresentationActive || owner == .archiveEngine
+    }
+
+    static func latestTargetIntent(
+        conversation: ArchiveConversationKey
+    ) -> ArchiveWindowIntent {
+        ArchiveWindowIntent(
+            conversation: conversation,
+            locator: .latest,
+            contextBefore: ArchivePageSizing.initial,
+            contextAfter: 0,
+            priority: .target
+        )
+    }
+
+    static func shouldShowBoundaryLoadingIndicator(
+        activity: ArchiveWindowActivity,
+        pendingPresentationTarget: ArchiveWindowLocator? = nil,
+        isShowingFullSkeleton: Bool
+    ) -> Bool {
+        guard !isShowingFullSkeleton else { return false }
+        return activity.isLoadingBoundary ||
+            pendingPresentationTarget.map(isBoundaryExpansion) == true
+    }
+
+    static func shouldReplaceCommittedContentWithSkeleton(
+        for locator: ArchiveWindowLocator
+    ) -> Bool {
+        switch locator {
+        case .older, .newer, .gap:
+            return false
+        case .latest, .firstUnread, .archiveID, .timestamp:
+            return true
+        }
+    }
+
+    private static func isBoundaryExpansion(_ locator: ArchiveWindowLocator) -> Bool {
+        switch locator {
+        case .older, .newer, .gap:
+            return true
+        case .latest, .firstUnread, .archiveID, .timestamp:
+            return false
+        }
+    }
+
     static func shouldRunLegacyBootstrapRematerialization(
         isArchiveEnginePresentationActive: Bool
     ) -> Bool {
@@ -69,6 +124,55 @@ enum ChatArchiveWindowPresentationPolicy {
         case .latest, .firstUnread, .archiveID, .timestamp:
             return false
         }
+    }
+
+    static func boundaryDirection(
+        for locator: ArchiveWindowLocator
+    ) -> ChatHistoryPageDirection? {
+        switch locator {
+        case .older, .gap:
+            return .older
+        case .newer:
+            return .newer
+        case .latest, .firstUnread, .archiveID, .timestamp:
+            return nil
+        }
+    }
+
+    static func resolveBoundaryAnchor(
+        for locator: ArchiveWindowLocator,
+        live: ChatHistoryPageAnchor?,
+        retained: ChatHistoryPageAnchor?
+    ) -> ChatHistoryPageAnchor? {
+        guard boundaryDirection(for: locator) != nil else { return nil }
+        return live ?? retained
+    }
+
+    static func boundaryApplyPlan(
+        for locator: ArchiveWindowLocator,
+        hasCapturedAnchor: Bool
+    ) -> ChatHistoryPageApplyPlan {
+        guard let direction = boundaryDirection(for: locator) else {
+            return ChatHistoryPageApplyPlan(
+                keepOffset: false,
+                restorePhase: .none,
+                applyCategory: .default
+            )
+        }
+        return ChatHistoryPageApplyPolicy.plan(
+            direction: direction,
+            hasCapturedAnchor: hasCapturedAnchor
+        )
+    }
+
+    static func shouldShowBoundaryRecoverySkeleton(
+        for locator: ArchiveWindowLocator,
+        hasUsableAnchor: Bool,
+        hasCommittedContent: Bool
+    ) -> Bool {
+        boundaryDirection(for: locator) != nil &&
+            hasCommittedContent &&
+            !hasUsableAnchor
     }
 
     static func forceBottomAlignmentTarget(
@@ -223,12 +327,18 @@ extension ChatViewController {
                 incomingIntent: intent
             )
         guard shouldResetPresentation else { return }
+        cancelDatasetMappingJobs()
+        cancelBootstrapSkeletonMappingJobs()
+        scrollWorkScheduler.cancel()
         archiveEnginePresentationActive = true
         archiveWindowIntent = intent
+        archiveWindowBoundaryPresentationAnchor = nil
         archiveWindowCommittedCoverageGeneration = nil
         archiveWindowPendingSnapshot = nil
         archiveSkeletonBeganAt = archiveSkeletonBeganAt ?? Date()
         archiveWindowState = .skeleton(reason: .opening, target: intent.locator)
+        archiveWindowActivity = .idle
+        setArchiveLoading(false)
         setSkeletonVisible(true)
         setDatasourceLoadingEnabled(false)
 
@@ -250,6 +360,17 @@ extension ChatViewController {
                 }
             }
         }
+        if archiveWindowActivityTask == nil {
+            let conversation = archiveEngineConversationKey
+            archiveWindowActivityTask = Task { @MainActor [weak self, weak account] in
+                guard let self, let account else { return }
+                let activities = await account.archiveEngine.activities(for: conversation)
+                for await activity in activities {
+                    guard !Task.isCancelled else { return }
+                    self.receiveArchiveWindowActivity(activity)
+                }
+            }
+        }
 
         Task { await account.archiveEngine.submit(intent) }
     }
@@ -257,8 +378,13 @@ extension ChatViewController {
     internal func stopArchiveEnginePresentationSubscription() {
         archiveWindowStateTask?.cancel()
         archiveWindowStateTask = nil
+        archiveWindowActivityTask?.cancel()
+        archiveWindowActivityTask = nil
+        archiveWindowActivity = .idle
+        setArchiveLoading(false)
         archiveEnginePresentationActive = false
         archiveWindowPendingSnapshot = nil
+        archiveWindowBoundaryPresentationAnchor = nil
         archiveWindowAtomicApplyRetryWorkItem?.cancel()
         archiveWindowAtomicApplyRetryWorkItem = nil
         archiveWindowAtomicApplyRetryCount = 0
@@ -271,6 +397,27 @@ extension ChatViewController {
         setSkeletonVisible(true)
         setDatasourceLoadingEnabled(false)
         Task { await account.archiveEngine.retry(conversation: archiveEngineConversationKey) }
+    }
+
+    @discardableResult
+    internal func submitArchiveEngineLatestTarget() -> Bool {
+        guard archiveEnginePresentationActive else { return false }
+        let intent = ChatArchiveWindowPresentationPolicy.latestTargetIntent(
+            conversation: archiveEngineConversationKey
+        )
+        archiveWindowIntent = intent
+        archiveWindowBoundaryPresentationAnchor = nil
+        archiveWindowCommittedCoverageGeneration = nil
+        archiveWindowPendingSnapshot = nil
+        archiveWindowState = .skeleton(reason: .loadingTarget, target: .latest)
+        archiveWindowActivity = .idle
+        setArchiveLoading(false)
+        setSkeletonVisible(true)
+        setDatasourceLoadingEnabled(false)
+        if let account = AccountManager.shared.find(for: owner) {
+            Task { await account.archiveEngine.submit(intent) }
+        }
+        return true
     }
 
     @discardableResult
@@ -299,6 +446,7 @@ extension ChatViewController {
             priority: .target
         )
         archiveWindowIntent = intent
+        archiveWindowBoundaryPresentationAnchor = nil
         archiveWindowCommittedCoverageGeneration = nil
         archiveWindowPendingSnapshot = nil
         archiveWindowState = .skeleton(reason: .loadingTarget, target: locator)
@@ -337,7 +485,17 @@ extension ChatViewController {
             priority: priority
         )
         archiveWindowIntent = intent
-        if priority >= .target {
+        if let anchor = captureArchiveEngineBoundaryAnchor(direction: direction) {
+            archiveWindowBoundaryPresentationAnchor = ChatArchiveBoundaryPresentationAnchor(
+                locator: locator,
+                direction: direction,
+                anchor: anchor
+            )
+        }
+        if priority >= .target,
+           ChatArchiveWindowPresentationPolicy.shouldReplaceCommittedContentWithSkeleton(
+                for: locator
+           ) {
             archiveWindowCommittedCoverageGeneration = nil
             archiveWindowPendingSnapshot = nil
             setSkeletonVisible(true)
@@ -467,6 +625,7 @@ extension ChatViewController {
             cancelDatasetMappingJobs()
             setSkeletonVisible(true)
             setDatasourceLoadingEnabled(false)
+            refreshArchiveBoundaryLoadingIndicator()
         case .verified(let snapshot):
             archiveWindowPendingSnapshot = snapshot
             if !preservesCommittedContent {
@@ -474,6 +633,7 @@ extension ChatViewController {
                 setSkeletonVisible(true)
                 setDatasourceLoadingEnabled(false)
             }
+            refreshArchiveBoundaryLoadingIndicator()
             applyArchiveEngineVerifiedSnapshot(
                 snapshot,
                 applyGeneration: applyGeneration
@@ -483,8 +643,26 @@ extension ChatViewController {
             archiveWindowPendingSnapshot = nil
             setSkeletonVisible(true)
             setDatasourceLoadingEnabled(false)
+            refreshArchiveBoundaryLoadingIndicator()
             applyArchiveEngineAuthoritativeEmpty(applyGeneration: applyGeneration)
         }
+    }
+
+    private func receiveArchiveWindowActivity(_ activity: ArchiveWindowActivity) {
+        assert(Thread.isMainThread)
+        guard archiveEnginePresentationActive else { return }
+        archiveWindowActivity = activity
+        refreshArchiveBoundaryLoadingIndicator()
+    }
+
+    private func refreshArchiveBoundaryLoadingIndicator() {
+        setArchiveLoading(
+            ChatArchiveWindowPresentationPolicy.shouldShowBoundaryLoadingIndicator(
+                activity: archiveWindowActivity,
+                pendingPresentationTarget: archiveWindowPendingSnapshot?.target,
+                isShowingFullSkeleton: showSkeletonObserver.value
+            )
+        )
     }
 
     private func applyArchiveEngineVerifiedSnapshot(
@@ -494,16 +672,6 @@ extension ChatViewController {
         guard let session = timelineSession else { return }
         let mappingJob = beginDatasetMappingJob()
         let mappingContext = captureDatasourceMappingContext()
-        let restoreDirection: ChatHistoryPageDirection = {
-            if case .newer = snapshot.target { return .newer }
-            return .older
-        }()
-        let restoreAnchor =
-            ChatArchiveWindowPresentationPolicy.shouldCapturePagingAnchor(
-                for: snapshot.target
-            )
-            ? capturePagingAnchorIfNeeded(direction: restoreDirection)
-            : nil
 
         datasetMappingQueue.async { [weak self, weak session] in
             guard let self, let session,
@@ -543,17 +711,77 @@ extension ChatViewController {
                         for: snapshot.target,
                         itemCount: committed.items.count
                     )
+                let boundaryDirection =
+                    ChatArchiveWindowPresentationPolicy.boundaryDirection(
+                        for: snapshot.target
+                    )
+                let mappedPrimaryIDs = Set(mappingResult.datasource.map(\.primary))
+                let liveAnchorCandidate = boundaryDirection.flatMap {
+                    self.captureArchiveEngineBoundaryAnchor(direction: $0)
+                }
+                let liveAnchor = liveAnchorCandidate.flatMap {
+                    mappedPrimaryIDs.contains($0.primary) ? $0 : nil
+                }
+                let retainedAnchorCandidate = self.archiveWindowBoundaryPresentationAnchor
+                    .flatMap { retained in
+                        retained.locator == snapshot.target &&
+                            retained.direction == boundaryDirection
+                            ? retained.anchor
+                            : nil
+                    }
+                let retainedAnchor = retainedAnchorCandidate.flatMap {
+                    mappedPrimaryIDs.contains($0.primary) ? $0 : nil
+                }
+                let restoreAnchor =
+                    ChatArchiveWindowPresentationPolicy.resolveBoundaryAnchor(
+                        for: snapshot.target,
+                        live: liveAnchor,
+                        retained: retainedAnchor
+                    )
+                let applyPlan =
+                    ChatArchiveWindowPresentationPolicy.boundaryApplyPlan(
+                        for: snapshot.target,
+                        hasCapturedAnchor: restoreAnchor != nil
+                    )
+                let usesBoundaryRecoverySkeleton =
+                    ChatArchiveWindowPresentationPolicy.shouldShowBoundaryRecoverySkeleton(
+                        for: snapshot.target,
+                        hasUsableAnchor: restoreAnchor != nil,
+                        hasCommittedContent: self.datasource.contains { !$0.isFakeMessage }
+                    )
+                let effectiveForceBottom = forceBottom ?? (
+                    usesBoundaryRecoverySkeleton ? .newestRealMessage : nil
+                )
+                if usesBoundaryRecoverySkeleton {
+                    self.setArchiveLoading(false)
+                    self.setSkeletonVisible(true)
+                    self.setDatasourceLoadingEnabled(false)
+                }
+                if boundaryDirection != nil {
+                    ChatArchiveDebugTrace.log("archiveEngineBoundaryApplyPlan", [
+                        ("hasLiveAnchorCandidate", liveAnchorCandidate != nil),
+                        ("hasRetainedAnchorCandidate", retainedAnchorCandidate != nil),
+                        ("hasLiveAnchor", liveAnchor != nil),
+                        ("hasRetainedAnchor", retainedAnchor != nil),
+                        ("hasResolvedAnchor", restoreAnchor != nil),
+                        ("keepOffset", applyPlan.keepOffset),
+                        ("recoverySkeleton", usesBoundaryRecoverySkeleton),
+                        ("itemCount", mappingResult.datasource.count)
+                    ])
+                }
                 self.applyChatDatasource(
                     mappingResult.datasource,
-                    mode: .fullReload(keepOffset: restoreAnchor != nil),
+                    mode: .fullReload(keepOffset: applyPlan.keepOffset),
                     animated: false,
                     invalidateLayout: false,
                     preparedLayouts: mappingResult.layoutSnapshot,
-                    suppressDefaultBottomScroll: forceBottom == nil,
-                    forceBottomAlignmentTarget: forceBottom,
-                    anchorRestorePhase: restoreAnchor == nil ? .none : .applyTransaction,
+                    suppressDefaultBottomScroll: effectiveForceBottom == nil,
+                    forceBottomAlignmentTarget: effectiveForceBottom,
+                    applyCategory: applyPlan.applyCategory,
+                    anchorRestorePhase: applyPlan.restorePhase,
                     anchorPrimary: restoreAnchor?.primary,
                     restoreAnchor: restoreAnchor,
+                    presentationOwner: .archiveEngine,
                     presentationCommitMode: .atomicInitialFrame,
                     transactionCompletion: { [weak self] result in
                         self?.handleArchiveEngineAtomicApplyResult(
@@ -572,6 +800,9 @@ extension ChatViewController {
                         self.archiveWindowCommittedCoverageGeneration =
                             snapshot.coverageGeneration
                         self.archiveWindowPendingSnapshot = nil
+                        if self.archiveWindowBoundaryPresentationAnchor?.locator == snapshot.target {
+                            self.archiveWindowBoundaryPresentationAnchor = nil
+                        }
                         self.archiveWindowAtomicApplyRetryWorkItem?.cancel()
                         self.archiveWindowAtomicApplyRetryWorkItem = nil
                         self.archiveWindowAtomicApplyRetryCount = 0
@@ -581,6 +812,7 @@ extension ChatViewController {
                             value: snapshot.messagePrimaryIDs.count
                         )
                         self.setSkeletonVisible(false)
+                        self.refreshArchiveBoundaryLoadingIndicator()
                         self.setDatasourceLoadingEnabled(true)
                         if self.pendingOpenMessageRequest != nil {
                             self.performPendingOpenMessageRequestIfNeeded(trigger: .manual)
@@ -589,6 +821,35 @@ extension ChatViewController {
                 )
             }
         }
+    }
+
+    private func captureArchiveEngineBoundaryAnchor(
+        direction: ChatHistoryPageDirection
+    ) -> ChatHistoryPageAnchor? {
+        if let visibleAnchor = capturePagingAnchorIfNeeded(direction: direction) {
+            return visibleAnchor
+        }
+
+        let realSections = datasource.indices.filter { !datasource[$0].isFakeMessage }
+        let boundarySection: Int?
+        switch direction {
+        case .older:
+            boundarySection = realSections.first
+        case .newer:
+            boundarySection = realSections.last
+        }
+        guard let boundarySection else { return nil }
+
+        messagesCollectionView.layoutIfNeeded()
+        let indexPath = IndexPath(item: 0, section: boundarySection)
+        let attributes = messagesCollectionView.layoutAttributesForItem(at: indexPath)
+        let frame = attributes?.frame ?? messagesCollectionView.cellForItem(at: indexPath)?.frame
+        guard let frame else { return nil }
+
+        return ChatHistoryPageAnchor(
+            primary: datasource[boundarySection].primary,
+            viewportRelativeMinY: frame.minY - messagesCollectionView.contentOffset.y
+        )
     }
 
     private func handleArchiveEngineAtomicApplyResult(
@@ -683,6 +944,7 @@ extension ChatViewController {
                     animated: false,
                     preparedLayouts: mappingResult.layoutSnapshot,
                     suppressDefaultBottomScroll: true,
+                    presentationOwner: .archiveEngine,
                     presentationCommitMode: .atomicInitialFrame,
                     completion: { [weak self] in
                         guard let self,
@@ -695,6 +957,7 @@ extension ChatViewController {
                         self.recordArchiveSkeletonTerminalIfNeeded()
                         ArchiveEngineObservability.event(.uikitApply)
                         self.setSkeletonVisible(false)
+                        self.refreshArchiveBoundaryLoadingIndicator()
                         self.setDatasourceLoadingEnabled(true)
                     }
                 )

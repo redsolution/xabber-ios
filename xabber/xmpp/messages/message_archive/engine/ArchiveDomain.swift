@@ -498,6 +498,20 @@ enum ArchiveWindowState: Hashable, Codable, Sendable {
     case retryableFailure(ArchiveRetryableFailure, target: ArchiveWindowLocator)
 }
 
+struct ArchiveWindowActivity: Hashable, Codable, Sendable {
+    let activeBoundaryRequestCount: Int
+
+    init(activeBoundaryRequestCount: Int) {
+        self.activeBoundaryRequestCount = max(0, activeBoundaryRequestCount)
+    }
+
+    static let idle = ArchiveWindowActivity(activeBoundaryRequestCount: 0)
+
+    var isLoadingBoundary: Bool {
+        activeBoundaryRequestCount > 0
+    }
+}
+
 enum ArchivePageSizing {
     static let initial = 80
     static let history = 100

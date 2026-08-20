@@ -1,5 +1,69 @@
 import Foundation
 
+enum ArchiveBoundarySnapshotMergePolicy {
+    /// Keep two full history pages plus the initial visible window. Boundary
+    /// requests retain the side containing the user's viewport anchor while
+    /// evicting the distant tail, so UIKit work stays bounded during a long
+    /// continuous scroll.
+    static let maximumMessageCount =
+        ArchivePageSizing.initial + (ArchivePageSizing.history * 2)
+
+    static func merge(
+        previousState: ArchiveWindowState?,
+        incoming: ArchiveWindowSnapshot
+    ) -> ArchiveWindowSnapshot {
+        guard case .verified(let previous) = previousState,
+              incoming.coverageGeneration >= previous.coverageGeneration,
+              incoming.freshnessToken.fingerprint == previous.freshnessToken.fingerprint,
+              incoming.verifiedSegment.oldest <= previous.verifiedSegment.oldest,
+              incoming.verifiedSegment.newest >= previous.verifiedSegment.newest else {
+            return incoming
+        }
+
+        let candidates: [String]
+        switch incoming.target {
+        case .older:
+            candidates = incoming.messagePrimaryIDs + previous.messagePrimaryIDs
+        case .newer:
+            candidates = previous.messagePrimaryIDs + incoming.messagePrimaryIDs
+        case .gap:
+            if incoming.verifiedSegment.oldest < previous.verifiedSegment.oldest {
+                candidates = incoming.messagePrimaryIDs + previous.messagePrimaryIDs
+            } else {
+                candidates = previous.messagePrimaryIDs + incoming.messagePrimaryIDs
+            }
+        case .latest, .firstUnread, .archiveID, .timestamp:
+            return incoming
+        }
+
+        var seen = Set<String>()
+        let mergedIDs = candidates.filter { seen.insert($0).inserted }
+        let boundedIDs: [String]
+        switch incoming.target {
+        case .older:
+            boundedIDs = Array(mergedIDs.prefix(maximumMessageCount))
+        case .newer:
+            boundedIDs = Array(mergedIDs.suffix(maximumMessageCount))
+        case .gap:
+            if incoming.verifiedSegment.oldest < previous.verifiedSegment.oldest {
+                boundedIDs = Array(mergedIDs.prefix(maximumMessageCount))
+            } else {
+                boundedIDs = Array(mergedIDs.suffix(maximumMessageCount))
+            }
+        case .latest, .firstUnread, .archiveID, .timestamp:
+            boundedIDs = mergedIDs
+        }
+        guard boundedIDs != incoming.messagePrimaryIDs else { return incoming }
+        return ArchiveWindowSnapshot(
+            messagePrimaryIDs: boundedIDs,
+            target: incoming.target,
+            verifiedSegment: incoming.verifiedSegment,
+            coverageGeneration: incoming.coverageGeneration,
+            freshnessToken: incoming.freshnessToken
+        )
+    }
+}
+
 struct ArchiveRetryClock: @unchecked Sendable {
     let sleep: @Sendable (TimeInterval) async -> Void
     let jitter: @Sendable (TimeInterval) -> TimeInterval
@@ -41,8 +105,10 @@ actor AccountArchiveEngine {
     private var connection: ConnectionState?
     private var latestIntentByConversation: [ArchiveConversationKey: ArchiveWindowIntent] = [:]
     private var states: [ArchiveConversationKey: ArchiveWindowState] = [:]
+    private var activities: [ArchiveConversationKey: ArchiveWindowActivity] = [:]
     private var activeByDescriptor: [ArchiveIntentDescriptor: ActiveExecution] = [:]
     private var continuations: [ArchiveConversationKey: [UUID: AsyncStream<ArchiveWindowState>.Continuation]] = [:]
+    private var activityContinuations: [ArchiveConversationKey: [UUID: AsyncStream<ArchiveWindowActivity>.Continuation]] = [:]
 
     init(
         owner: String,
@@ -73,6 +139,21 @@ actor AccountArchiveEngine {
         states[conversation]
     }
 
+    func activities(for conversation: ArchiveConversationKey) -> AsyncStream<ArchiveWindowActivity> {
+        let token = UUID()
+        return AsyncStream { continuation in
+            activityContinuations[conversation, default: [:]][token] = continuation
+            continuation.yield(activities[conversation] ?? .idle)
+            continuation.onTermination = { [weak self] _ in
+                Task { await self?.removeActivityContinuation(token, for: conversation) }
+            }
+        }
+    }
+
+    func currentActivity(for conversation: ArchiveConversationKey) -> ArchiveWindowActivity {
+        activities[conversation] ?? .idle
+    }
+
     func submit(_ intent: ArchiveWindowIntent) {
         guard intent.conversation.owner == owner else { return }
         ArchiveEngineObservability.event(
@@ -85,7 +166,7 @@ actor AccountArchiveEngine {
             return
         }
         latestIntentByConversation[intent.conversation] = intent
-        guard let connection else {
+        guard connection != nil else {
             publish(
                 .skeleton(reason: .offline, target: intent.locator),
                 for: intent.conversation
@@ -114,7 +195,11 @@ actor AccountArchiveEngine {
 
         // Running SQL cannot be cancelled reliably. Remove ownership so the
         // new generation can start; late receipts fail the generation check.
+        let formerlyActiveConversations = Set(
+            activeByDescriptor.values.map(\.intent.conversation)
+        )
         activeByDescriptor.removeAll(keepingCapacity: true)
+        formerlyActiveConversations.forEach { publishActivity(for: $0) }
         for intent in latestIntentByConversation.values {
             let reason: ArchiveSkeletonReason =
                 previous?.completedXEPSYNCFingerprint != fingerprint
@@ -127,7 +212,11 @@ actor AccountArchiveEngine {
 
     func connectionDidDisconnect() {
         connection = nil
+        let formerlyActiveConversations = Set(
+            activeByDescriptor.values.map(\.intent.conversation)
+        )
         activeByDescriptor.removeAll(keepingCapacity: true)
+        formerlyActiveConversations.forEach { publishActivity(for: $0) }
         for intent in latestIntentByConversation.values {
             publish(
                 .skeleton(reason: .offline, target: intent.locator),
@@ -196,7 +285,8 @@ actor AccountArchiveEngine {
             activeByDescriptor[descriptor] = active
             if intent.priority >= .target ||
                 (intent.priority == .visibleIntegrity &&
-                    previousPriority == .nearEdgePrefetch) {
+                    previousPriority == .nearEdgePrefetch),
+               !preservesVerifiedPresentation(for: intent) {
                 publish(
                     .skeleton(reason: .boundaryGap, target: intent.locator),
                     for: intent.conversation
@@ -213,6 +303,7 @@ actor AccountArchiveEngine {
         }
         let execution = ActiveExecution(id: UUID(), intent: intent)
         activeByDescriptor[descriptor] = execution
+        publishActivity(for: intent.conversation)
         Task { [weak self] in
             await self?.execute(
                 descriptor: descriptor,
@@ -245,7 +336,15 @@ actor AccountArchiveEngine {
                 ), isCurrent(executionID, descriptor: descriptor, generation: connection.generation) {
                     switch admission {
                     case .verified(let snapshot):
-                        publish(.verified(snapshot), for: intent.conversation)
+                        publish(
+                            .verified(
+                                ArchiveBoundarySnapshotMergePolicy.merge(
+                                    previousState: states[intent.conversation],
+                                    incoming: snapshot
+                                )
+                            ),
+                            for: intent.conversation
+                        )
                     case .authoritativeEmpty:
                         publish(
                             .authoritativeEmpty(
@@ -326,8 +425,14 @@ actor AccountArchiveEngine {
                 ) else { return }
                 switch commit {
                 case .verified(let snapshot):
+                    let retargeted = retarget(snapshot, to: intent.locator)
                     publish(
-                        .verified(retarget(snapshot, to: intent.locator)),
+                        .verified(
+                            ArchiveBoundarySnapshotMergePolicy.merge(
+                                previousState: states[intent.conversation],
+                                incoming: retargeted
+                            )
+                        ),
                         for: intent.conversation
                     )
                     if intent.priority == .nearEdgePrefetch {
@@ -556,11 +661,15 @@ actor AccountArchiveEngine {
     }
 
     private func preservesVerifiedPresentation(for intent: ArchiveWindowIntent) -> Bool {
-        guard intent.priority == .nearEdgePrefetch,
-              case .verified = states[intent.conversation] else {
+        guard case .verified = states[intent.conversation] else {
             return false
         }
-        return true
+        switch intent.locator {
+        case .older, .newer, .gap:
+            return true
+        case .latest, .firstUnread, .archiveID, .timestamp:
+            return false
+        }
     }
 
     private func isCurrent(
@@ -573,8 +682,10 @@ actor AccountArchiveEngine {
     }
 
     private func finish(_ executionID: UUID, descriptor: ArchiveIntentDescriptor) {
-        guard activeByDescriptor[descriptor]?.id == executionID else { return }
+        guard let execution = activeByDescriptor[descriptor],
+              execution.id == executionID else { return }
         activeByDescriptor.removeValue(forKey: descriptor)
+        publishActivity(for: execution.intent.conversation)
     }
 
     private func publish(
@@ -589,6 +700,31 @@ actor AccountArchiveEngine {
         continuations[conversation]?.removeValue(forKey: token)
         if continuations[conversation]?.isEmpty == true {
             continuations.removeValue(forKey: conversation)
+        }
+    }
+
+    private func publishActivity(for conversation: ArchiveConversationKey) {
+        let count = activeByDescriptor.values.reduce(into: 0) { count, execution in
+            guard execution.intent.conversation == conversation else { return }
+            switch execution.intent.locator {
+            case .older, .newer, .gap:
+                count += 1
+            case .latest, .firstUnread, .archiveID, .timestamp:
+                break
+            }
+        }
+        let activity = ArchiveWindowActivity(activeBoundaryRequestCount: count)
+        activities[conversation] = activity
+        activityContinuations[conversation]?.values.forEach { $0.yield(activity) }
+    }
+
+    private func removeActivityContinuation(
+        _ token: UUID,
+        for conversation: ArchiveConversationKey
+    ) {
+        activityContinuations[conversation]?.removeValue(forKey: token)
+        if activityContinuations[conversation]?.isEmpty == true {
+            activityContinuations.removeValue(forKey: conversation)
         }
     }
 
