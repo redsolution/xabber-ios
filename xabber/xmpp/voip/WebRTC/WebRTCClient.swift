@@ -78,6 +78,7 @@ class WebRTCClient: NSObject {
     private var pendingRemoteCandidateKeys: Set<RemoteCandidateKey> = []
     private var appliedRemoteCandidateKeys: Set<RemoteCandidateKey> = []
     private var remoteDescriptionWasApplied: Bool = false
+    private var didDisconnect: Bool = false
     
     private var isCaptureStart: Bool = false
         
@@ -118,67 +119,130 @@ class WebRTCClient: NSObject {
         self.addVideoTrack(enabled: false)
         self.peerConnection.delegate = self
     }
+
+    private func performOnMain(_ work: @escaping (WebRTCClient) -> Void) {
+        if Thread.isMainThread {
+            work(self)
+            return
+        }
+
+        let retainedClient = self
+        DispatchQueue.main.async {
+            work(retainedClient)
+        }
+    }
     
     func offer(completion: @escaping (_ sdp: RTCSessionDescription?, _ error: Error?) -> Void) {
+        guard Thread.isMainThread else {
+            let retainedClient = self
+            DispatchQueue.main.async {
+                retainedClient.offer(completion: completion)
+            }
+            return
+        }
+        guard !didDisconnect else { return }
+
         let constrains = RTCMediaConstraints(mandatoryConstraints: self.mediaConstrains,
                                              optionalConstraints: nil)
-        self.peerConnection.offer(for: constrains) { (sdp, error) in
-            if let error = error {
-                DDLogError([#function, error.localizedDescription].joined(separator: ". "))
-                completion(nil, error)
-                return
-            }
-            guard let sdp = sdp else {
-                completion(nil, WebRTCClientError.failedToCreateOffer)
-                return
-            }
-            self.peerConnection.setLocalDescription(sdp, completionHandler: { (error) in
+        self.peerConnection.offer(for: constrains) { [weak self] (sdp, error) in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.didDisconnect else { return }
                 if let error = error {
                     DDLogError([#function, error.localizedDescription].joined(separator: ". "))
                     completion(nil, error)
                     return
                 }
-                completion(sdp, nil)
-            })
+                guard let sdp = sdp else {
+                    completion(nil, WebRTCClientError.failedToCreateOffer)
+                    return
+                }
+                self.peerConnection.setLocalDescription(sdp, completionHandler: { [weak self] (error) in
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, !self.didDisconnect else { return }
+                        if let error = error {
+                            DDLogError([#function, error.localizedDescription].joined(separator: ". "))
+                            completion(nil, error)
+                            return
+                        }
+                        completion(sdp, nil)
+                    }
+                })
+            }
         }
     }
     
     func answer(completion: @escaping (_ sdp: RTCSessionDescription?, _ error: Error?) -> Void)  {
+        guard Thread.isMainThread else {
+            let retainedClient = self
+            DispatchQueue.main.async {
+                retainedClient.answer(completion: completion)
+            }
+            return
+        }
+        guard !didDisconnect else { return }
+
         let constrains = RTCMediaConstraints(mandatoryConstraints: self.mediaConstrains,
                                              optionalConstraints: nil)
-        self.peerConnection.answer(for: constrains) { (sdp, error) in
-            if let error = error {
-                DDLogError([#function, error.localizedDescription].joined(separator: ". "))
-                completion(nil, error)
-                return
-            }
-            guard let sdp = sdp else {
-                completion(nil, WebRTCClientError.failedToCreateAnswer)
-                return
-            }
-            self.peerConnection.setLocalDescription(sdp, completionHandler: { (error) in
+        self.peerConnection.answer(for: constrains) { [weak self] (sdp, error) in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.didDisconnect else { return }
                 if let error = error {
                     DDLogError([#function, error.localizedDescription].joined(separator: ". "))
                     completion(nil, error)
                     return
                 }
-                completion(sdp, nil)
-            })
+                guard let sdp = sdp else {
+                    completion(nil, WebRTCClientError.failedToCreateAnswer)
+                    return
+                }
+                self.peerConnection.setLocalDescription(sdp, completionHandler: { [weak self] (error) in
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, !self.didDisconnect else { return }
+                        if let error = error {
+                            DDLogError([#function, error.localizedDescription].joined(separator: ". "))
+                            completion(nil, error)
+                            return
+                        }
+                        completion(sdp, nil)
+                    }
+                })
+            }
         }
     }
     
     func set(remoteSdp: RTCSessionDescription, completion: @escaping (Error?) -> ()) {
-        print("receive remote sdp")
-        self.peerConnection.setRemoteDescription(remoteSdp) { error in
-            if error == nil {
-                self.remoteDescriptionWasApplied = true
-                self.flushPendingRemoteCandidates()
+        guard Thread.isMainThread else {
+            let retainedClient = self
+            DispatchQueue.main.async {
+                retainedClient.set(remoteSdp: remoteSdp, completion: completion)
             }
-            completion(error)
+            return
+        }
+        guard !didDisconnect else { return }
+
+        print("receive remote sdp")
+        self.peerConnection.setRemoteDescription(remoteSdp) { [weak self] error in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.didDisconnect else { return }
+                if error == nil {
+                    self.remoteDescriptionWasApplied = true
+                    self.flushPendingRemoteCandidates()
+                }
+                completion(error)
+            }
         }
     }
     
     func set(remoteCandidate: RTCIceCandidate) {
+        guard Thread.isMainThread else {
+            let retainedClient = self
+            DispatchQueue.main.async {
+                retainedClient.set(remoteCandidate: remoteCandidate)
+            }
+            return
+        }
+        guard !didDisconnect else { return }
+
         print(["receive", remoteCandidate.sdp].joined(separator: ": "))
         let key = RemoteCandidateKey(
             sdp: remoteCandidate.sdp,
@@ -212,11 +276,17 @@ class WebRTCClient: NSObject {
             return
         }
         capturer.stopCapture { [weak self] in
-            self?.localVideoRenderers.values.forEach { renderer in
-                self?.localVideoTrack?.remove(renderer)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.didDisconnect else {
+                    completionHandler?()
+                    return
+                }
+                self.localVideoRenderers.values.forEach { renderer in
+                    self.localVideoTrack?.remove(renderer)
+                }
+                self.localVideoRenderers.removeAll()
+                completionHandler?()
             }
-            self?.localVideoRenderers.removeAll()
-            completionHandler?()
         }
         isCaptureStart = false
     }
@@ -370,6 +440,16 @@ class WebRTCClient: NSObject {
     }
     
     open func disconnect() {
+        guard Thread.isMainThread else {
+            let retainedClient = self
+            DispatchQueue.main.async {
+                retainedClient.disconnect()
+            }
+            return
+        }
+        guard !didDisconnect else { return }
+        didDisconnect = true
+        peerConnection.delegate = nil
         pendingRemoteCandidates.removeAll()
         pendingRemoteCandidateKeys.removeAll()
         appliedRemoteCandidateKeys.removeAll()
@@ -380,7 +460,38 @@ class WebRTCClient: NSObject {
     }
     
     deinit {
-        peerConnection.close()
+        guard !Thread.isMainThread else { return }
+
+        // A missed owner path must not make synthesized ivar destruction the
+        // final release of native WebRTC resources on the signaling thread.
+        // Transfer fallback retirement to main without re-entering close here.
+        let retiredFactory = factory
+        let retiredPeerConnection = peerConnection
+        let retiredVideoCapturer = videoCapturer
+        let retiredRemoteStream = remoteStream
+        let retiredLocalVideoTrack = localVideoTrack
+        let retiredRemoteVideoTrack = remoteVideoTrack
+        let retiredLocalRenderers = localVideoRenderers
+        let retiredRemoteRenderers = remoteVideoRenderers
+        let retiredLocalCandidates = localCandidates
+        let retiredPendingCandidates = pendingRemoteCandidates
+        DispatchQueue.main.async {
+            retiredPeerConnection.delegate = nil
+            retiredPeerConnection.close()
+            withExtendedLifetime(
+                (
+                    retiredFactory,
+                    retiredVideoCapturer,
+                    retiredRemoteStream,
+                    retiredLocalVideoTrack,
+                    retiredRemoteVideoTrack,
+                    retiredLocalRenderers,
+                    retiredRemoteRenderers,
+                    retiredLocalCandidates,
+                    retiredPendingCandidates
+                )
+            ) {}
+        }
     }
 }
 
@@ -397,8 +508,10 @@ extension WebRTCClient: RTCPeerConnectionDelegate {
         guard self.appliedRemoteCandidateKeys.insert(key).inserted else {
             return
         }
-        self.peerConnection.add(candidate) { error in
-            if error != nil {
+        self.peerConnection.add(candidate) { [weak self] error in
+            guard error != nil else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.didDisconnect else { return }
                 self.delegate?.webRTCClient(self, didFail: WebRTCClientError.failedToAddRemoteCandidate)
             }
         }
@@ -414,55 +527,66 @@ extension WebRTCClient: RTCPeerConnectionDelegate {
     }
         
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {
-        //print("peerConnection new signaling state: \(stateChanged)")
+        self.performOnMain { _ in
+            // Keep the native callback's receiver alive until main owns its
+            // final release, even though this state is not currently consumed.
+        }
     }
     
     func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {
-        self.remoteStream = stream
-        self.remoteVideoTrack = stream.videoTracks.first
-        self.attachRemoteRenderers()
-        //print("peerConnection did add stream")
+        self.performOnMain { client in
+            guard !client.didDisconnect else { return }
+            client.remoteStream = stream
+            client.remoteVideoTrack = stream.videoTracks.first
+            client.attachRemoteRenderers()
+        }
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams mediaStreams: [RTCMediaStream]) {
-        if let videoTrack = rtpReceiver.track as? RTCVideoTrack {
-            self.remoteVideoTrack = videoTrack
-            self.attachRemoteRenderers()
+        self.performOnMain { client in
+            guard !client.didDisconnect else { return }
+            if let videoTrack = rtpReceiver.track as? RTCVideoTrack {
+                client.remoteVideoTrack = videoTrack
+                client.attachRemoteRenderers()
+            }
         }
     }
     
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {
-        //print("peerConnection did remote stream")
+        self.performOnMain { _ in }
     }
     
     func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {
-        //print("peerConnection should negotiate")
+        self.performOnMain { _ in }
     }
     
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
-        //print("peerConnection new connection state: \(newState)")
-        delegate?.webRTCClient(self, didUpdateState: newState)
+        self.performOnMain { client in
+            guard !client.didDisconnect else { return }
+            client.delegate?.webRTCClient(client, didUpdateState: newState)
+        }
     }
     
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {
-        //print(newState.description)
-        //print("peerConnection new gathering state: \(newState)")
+        self.performOnMain { _ in }
     }
     
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
-        //print(["generate", candidate.sdp].joined(separator: ": "))
-        guard candidate.sdpMLineIndex <= 0 else {
-            return
+        self.performOnMain { client in
+            guard !client.didDisconnect,
+                  candidate.sdpMLineIndex <= 0 else {
+                return
+            }
+            client.localCandidates.append(candidate)
+            client.delegate?.webRTCClient(client, didDiscoverLocalCandidate: candidate)
         }
-        self.localCandidates.append(candidate)
-        self.delegate?.webRTCClient(self, didDiscoverLocalCandidate: candidate)
     }
     
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {
-        //print("peerConnection did remove candidate")
+        self.performOnMain { _ in }
     }
     
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
-        //print("peerConnection did open data channel")
+        self.performOnMain { _ in }
     }
 }

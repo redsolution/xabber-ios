@@ -284,6 +284,14 @@ class VoIPManager: NSObject {
         provider.setDelegate(self, queue: DispatchQueue.main)
         addObservers()
     }
+
+    deinit {
+        // `disconnect()` transfers ownership to main when destruction ever
+        // arrives from another queue, so native WebRTC resources never take
+        // their final release on a signaling callback stack.
+        webRTC?.disconnect()
+        removeObservers()
+    }
    
     private func addObservers() {
         NotificationCenter.default.addObserver(self,
@@ -541,6 +549,14 @@ class VoIPManager: NSObject {
     }
 
     internal final func reset(keepPendingSignalingCalls: Bool) {
+        guard Thread.isMainThread else {
+            let retainedManager = self
+            DispatchQueue.main.async {
+                retainedManager.reset(keepPendingSignalingCalls: keepPendingSignalingCalls)
+            }
+            return
+        }
+
         sessionsByCallId.values.forEach {
             $0.clearPendingAnswerRequest(failAction: true)
             $0.cancelTimers()
@@ -555,7 +571,7 @@ class VoIPManager: NSObject {
         self.callOwner = nil
         self.callOpponent = nil
         self.update = nil
-        self.webRTC = nil
+        self.releaseWebRTC()
         self.inCallingProcess = false
         self.isCallAccepted = false
         self.currentCall = nil
@@ -570,6 +586,21 @@ class VoIPManager: NSObject {
             }
         }
         AccountManager.shared.load(true)
+    }
+
+    internal final func releaseWebRTC() {
+        guard Thread.isMainThread else {
+            let retainedManager = self
+            DispatchQueue.main.async {
+                retainedManager.releaseWebRTC()
+            }
+            return
+        }
+
+        guard let client = self.webRTC else { return }
+        client.delegate = nil
+        client.disconnect()
+        self.webRTC = nil
     }
 
     internal func finishCurrentCall(
@@ -658,9 +689,7 @@ class VoIPManager: NSObject {
         )
 
         context.phase = .ended
-        self.webRTC?.delegate = nil
-        self.webRTC?.disconnect()
-        self.webRTC = nil
+        self.releaseWebRTC()
 
         if shouldReportToCallKit {
             self.provider.reportCall(
@@ -714,6 +743,17 @@ class VoIPManager: NSObject {
         context: CallSessionContext,
         action: CXAnswerCallAction?
     ) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self, weak call, weak context] in
+                guard let self, let call, let context else {
+                    action?.fail()
+                    return
+                }
+                self.startConfirmedIncomingAnswer(call: call, context: context, action: action)
+            }
+            return
+        }
+
         context.clearPendingAnswerRequest(failAction: false)
         context.incomingTimeoutTask?.cancel()
         context.incomingTimeoutTask = nil
@@ -744,9 +784,15 @@ class VoIPManager: NSObject {
         context.phase = .creatingLocalOffer
         self.scheduleMediaSetupTimeout(for: context)
 
+        self.releaseWebRTC()
         self.webRTC = WebRTCClient()
         self.webRTC?.delegate = self
-        self.webRTC?.offer { sdp, error in
+        self.webRTC?.offer { [weak self, weak call, weak context] sdp, error in
+            guard let self, let call, let context,
+                  self.currentCall === call,
+                  self.currentSession === context else {
+                return
+            }
             if let error {
                 print(error.localizedDescription)
                 self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
@@ -765,6 +811,14 @@ class VoIPManager: NSObject {
     }
    
     private final func internalStartCall(owner: String, jid: String) {
+        guard Thread.isMainThread else {
+            let retainedManager = self
+            DispatchQueue.main.async {
+                retainedManager.internalStartCall(owner: owner, jid: jid)
+            }
+            return
+        }
+
         SoundManager.configureAudioSession()
        
         AccountManager.shared.users.forEach {
@@ -817,6 +871,7 @@ class VoIPManager: NSObject {
            
             self.provider.reportCall(with: callUUID, updated: self.update!)
            
+            self.releaseWebRTC()
             self.webRTC = WebRTCClient()
             self.webRTC?.delegate = self
             self.scheduleProposeSendTimeout(for: context)

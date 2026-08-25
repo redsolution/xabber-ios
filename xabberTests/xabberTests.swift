@@ -5727,6 +5727,22 @@ private final class CapturingVoIPTimeoutScheduler: VoIPCallTimeoutScheduling {
     }
 }
 
+private final class DisconnectSpyWebRTCClient: WebRTCClient {
+    private(set) var disconnectCount = 0
+
+    override func disconnect() {
+        disconnectCount += 1
+    }
+}
+
+private final class WebRTCClientOwnerBox {
+    var client: WebRTCClient?
+
+    init(client: WebRTCClient?) {
+        self.client = client
+    }
+}
+
 private final class CapturingXMPPStream: XMPPStream {
     private(set) var capturedConnectTimeout: TimeInterval?
     var onSendElement: ((DDXMLElement) -> Void)?
@@ -6855,6 +6871,61 @@ final class VoIPTerminationReasonTests: XCTestCase {
         XCTAssertEqual(reference.metadata?["callState"] as? String, MessageStorageItem.VoIPCallState.noanswer.rawValue)
         XCTAssertEqual(reference.metadata?["duration"] as? Double, 30)
         XCTAssertEqual(reference.metadata?["terminationReason"] as? String, CallTerminationReason.outgoingUnansweredTimeout.rawValue)
+    }
+
+    func testWebRTCClientNeverClosesPeerConnectionReentrantlyFromDeinit() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = repositoryRoot.appendingPathComponent(
+            "xabber/xmpp/voip/WebRTC/WebRTCClient.swift"
+        )
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(
+            source.contains("open func disconnect()"),
+            "normal call teardown must retain an explicit close owner"
+        )
+        XCTAssertFalse(
+            source.contains("deinit {\n        peerConnection.close()\n    }"),
+            "a WebRTC callback may release the final client reference on the signaling thread; deinit must not close that same peer connection reentrantly"
+        )
+    }
+
+    func testWebRTCOfferCompletionTransfersFinalOwnershipToMainThread() {
+        let completion = expectation(description: "offer completion")
+        let mainTurnAfterRelease = expectation(description: "main turn after owner release")
+        let owner = WebRTCClientOwnerBox(client: WebRTCClient())
+
+        owner.client?.offer { _, _ in
+            XCTAssertTrue(
+                Thread.isMainThread,
+                "WebRTC callbacks must hand ownership to main before the client can be released"
+            )
+            owner.client?.disconnect()
+            owner.client = nil
+            completion.fulfill()
+            DispatchQueue.main.async {
+                mainTurnAfterRelease.fulfill()
+            }
+        }
+
+        wait(for: [completion, mainTurnAfterRelease], timeout: 5)
+        XCTAssertNil(owner.client)
+    }
+
+    func testVoIPManagerReleaseWebRTCDisconnectsExactlyOnceBeforeDroppingOwnership() {
+        let manager = VoIPManager()
+        let client = DisconnectSpyWebRTCClient()
+        weak var releasedClient = client
+        manager.webRTC = client
+
+        manager.releaseWebRTC()
+        manager.releaseWebRTC()
+
+        XCTAssertEqual(client.disconnectCount, 1)
+        XCTAssertNil(manager.webRTC)
+        XCTAssertNotNil(releasedClient, "the test retains the spy while checking teardown order")
     }
 }
 

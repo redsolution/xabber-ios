@@ -200,15 +200,19 @@ extension VoIPManager: VoIPCallDelegate {
                 return
             }
             context.remoteOfferReceived = true
-            self.webRTC?.set(remoteSdp: sessionDescription) { error in
-                guard let activeContext = self.activeContext(for: call), activeContext === context else { return }
+            self.webRTC?.set(remoteSdp: sessionDescription) { [weak self, weak call, weak context] error in
+                guard let self, let call, let context,
+                      let activeContext = self.activeContext(for: call),
+                      activeContext === context else { return }
                 if let error {
                     DDLogDebug(error.localizedDescription)
                     self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
                     return
                 }
-                self.webRTC?.answer { sdp, answerError in
-                    guard let activeContext = self.activeContext(for: call), activeContext === context else { return }
+                self.webRTC?.answer { [weak self, weak call, weak context] sdp, answerError in
+                    guard let self, let call, let context,
+                          let activeContext = self.activeContext(for: call),
+                          activeContext === context else { return }
                     if let answerError {
                         DDLogDebug(answerError.localizedDescription)
                         self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
@@ -225,8 +229,9 @@ extension VoIPManager: VoIPCallDelegate {
             }
                
         case .prAnswer:
-            self.webRTC?.set(remoteSdp: sessionDescription) { error in
-                guard self.activeContext(for: call) != nil else { return }
+            self.webRTC?.set(remoteSdp: sessionDescription) { [weak self, weak call] error in
+                guard let self, let call,
+                      self.activeContext(for: call) != nil else { return }
                 if let error {
                     DDLogDebug(error.localizedDescription)
                     self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
@@ -238,8 +243,10 @@ extension VoIPManager: VoIPCallDelegate {
                 self.finishCurrentCall(reason: .signalingError, trigger: .confirmationFailure, shouldReportToCallKit: true)
                 return
             }
-            self.webRTC?.set(remoteSdp: sessionDescription) { error in
-                guard let activeContext = self.activeContext(for: call), activeContext === context else { return }
+            self.webRTC?.set(remoteSdp: sessionDescription) { [weak self, weak call, weak context] error in
+                guard let self, let call, let context,
+                      let activeContext = self.activeContext(for: call),
+                      activeContext === context else { return }
                 if let error {
                     DDLogDebug(error.localizedDescription)
                     self.finishCurrentCall(reason: .webRTCFailure, trigger: .mediaFailure, shouldReportToCallKit: true)
