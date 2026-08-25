@@ -1608,7 +1608,7 @@ class XabberUploadManager: AbstractXMPPManager {
         guard configuration.token(for: galleryType, baseURL: endpoint).isNotEmpty else {
             return
         }
-        finishAuthorization(identity: target.identity, generation: nil)
+        finishPendingAuthorizationIfTokenResolved(identity: target.identity)
         guard configuration.currentGalleryIdentity == target.identity else { return }
         publishAvailability(.ready(endpoint: endpoint))
     }
@@ -3890,12 +3890,10 @@ class XabberUploadManager: AbstractXMPPManager {
             && authorizationInFlightGeneration == generation
     }
 
-    private func finishAuthorization(identity: String, generation: Int?) {
+    private func finishPendingAuthorizationIfTokenResolved(identity: String) {
         authorizationLock.lock()
-        let identityMatches = authorizationInFlightIdentity == identity
-            || tokenExchangeInFlightIdentity == identity
-        let generationMatches = generation == nil || authorizationInFlightGeneration == generation
-        guard identityMatches, generationMatches else {
+        guard authorizationInFlightIdentity == identity,
+              tokenExchangeInFlightIdentity != identity else {
             authorizationLock.unlock()
             return
         }

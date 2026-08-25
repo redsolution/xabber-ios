@@ -661,6 +661,38 @@ final class CloudStorageAvailabilityTests: XCTestCase {
         XCTAssertEqual(account.cloudStorage.availabilityRelay.value, .ready(endpoint: endpoint))
     }
 
+    func testResolvedExistingTokenDoesNotCancelInFlightTokenRotation() throws {
+        let configuration = AccountGalleryConfiguration(owner: owner)
+        configuration.storeBasicGalleryURL(endpoint.absoluteString)
+        configuration.storeToken("old-token", galleryType: .basic, baseURL: endpoint)
+        let account = makeAccount()
+
+        XCTAssertEqual(
+            account.cloudStorage.availabilityRelay.value,
+            .ready(endpoint: endpoint)
+        )
+        XCTAssertTrue(
+            account.cloudStorage.read(
+                withIQ: try makeGalleryAuthorizationIQ(code: "rotation")
+            )
+        )
+        XCTAssertEqual(tokenClient.exchangeRequestCount, 1)
+
+        account.cloudStorage.noteTokenResolved(
+            galleryType: .basic,
+            endpoint: endpoint
+        )
+        tokenClient.completeExchangeRequest(
+            at: 0,
+            with: .response(statusCode: 200, value: ["token": "rotated-token"])
+        )
+
+        XCTAssertEqual(
+            configuration.token(for: .basic, baseURL: endpoint),
+            "rotated-token"
+        )
+    }
+
     func testPremiumSelectedBeforeAuthoritativeDiscoStartsPremiumAuthorizationAndRejectsStaleBasicSuccess() throws {
         let configuration = AccountGalleryConfiguration(owner: owner)
         configuration.reconcilePremiumGalleryAvailability(
