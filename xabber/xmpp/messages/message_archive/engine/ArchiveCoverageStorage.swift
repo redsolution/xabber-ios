@@ -16,6 +16,8 @@ final class ConversationArchiveCoverageStorageItem: Object {
     @objc dynamic var conversationType_: String = ClientSynchronizationManager.ConversationType.regular.rawValue
     @objc dynamic var segmentsJSON: String = "[]"
     @objc dynamic var coverageGeneration: Int64 = 0
+    /// Schema-19 column name retained for Realm compatibility. Runtime writes
+    /// store the current session-MAM fingerprint; XEP-SYNC never admits rows.
     @objc dynamic var lastObservedXEPSYNCFingerprint: String? = nil
     @objc dynamic var createdAt: Date = Date()
     @objc dynamic var updatedAt: Date = Date()
@@ -27,6 +29,12 @@ final class ConversationArchiveCoverageStorageItem: Object {
         set {
             conversationType_ = newValue.rawValue
         }
+    }
+
+    /// Runtime semantic alias for the legacy persisted column name.
+    var archiveFreshnessFingerprint: String? {
+        get { lastObservedXEPSYNCFingerprint }
+        set { lastObservedXEPSYNCFingerprint = newValue }
     }
 
     var segments: [ArchiveCoverageSegment] {

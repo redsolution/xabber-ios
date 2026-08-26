@@ -1284,10 +1284,7 @@ final class AppRootCoordinator: NSObject {
                 semanticTargetFingerprint:
                     vc.chatOpenPerformanceSemanticTargetFingerprint(
                         for: openMessageRequest
-                    ),
-                bootstrapTarget: vc.chatOpenPerformanceSemanticTarget(
-                    for: openMessageRequest
-                )
+                    )
             )
             configureCallback?(vc)
             if let openMessageRequest {
@@ -1331,10 +1328,7 @@ final class AppRootCoordinator: NSObject {
                     semanticTargetFingerprint:
                         vc.chatOpenPerformanceSemanticTargetFingerprint(
                             for: openMessageRequest
-                        ),
-                    bootstrapTarget: vc.chatOpenPerformanceSemanticTarget(
-                        for: openMessageRequest
-                    )
+                        )
                 )
                 configureCallback?(vc)
                 if let openMessageRequest {

@@ -438,11 +438,6 @@ extension ChatViewController {
 //            .skip(1)
             .observe(on: MainScheduler.asyncInstance)
             .subscribe { value in
-                if case .presenting = self.initialLocalFirstFramePhase {
-                    self.pendingArchiveObserverRefresh = true
-                    return
-                }
-                var didReloadInitialWindow = false
 //                self.runDatasetUpdateTask(shouldScrollToLastMessage: true)
                 if value {
                     self.applyBaseSendButtonReadiness(
@@ -465,31 +460,18 @@ extension ChatViewController {
                             isAccountConnecting: false,
                             hasPendingOrFailedMessage: self.pendingOrFailedMessageBlocksSend(in: realm)
                             )
-                        let chatInstance = realm.object(
-                            ofType: LastChatsStorageItem.self,
-                            forPrimaryKey: LastChatsStorageItem.genPrimary(
-                                jid: self.jid,
-                                owner: self.owner,
-                                conversationType: self.conversationType
-                            )
-                        )
                         self.setShouldShowInitialMessage(
                             self.timelineSession?.snapshot.items.isEmpty == true
-                                && self.bootstrapViewState(chatInstance: chatInstance) == .empty
+                                && {
+                                    if case .authoritativeEmpty = self.archiveWindowState {
+                                        return true
+                                    }
+                                    return false
+                                }()
                         )
 	                    } catch {
 	                        DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
 	                    }
-
-	                    if !self.isApplyingBootstrapAnchorWindow {
-	                        didReloadInitialWindow = self.reloadInitialWindowAfterBootstrapIfNeeded()
-	                    }
-	                }
-	                if !self.isApplyingBootstrapAnchorWindow &&
-	                    ChatInitialHistoryAppearancePolicy.shouldApplyFollowupChangesetAfterBootstrapReload(
-	                    didReloadInitialWindow: didReloadInitialWindow
-	                ) {
-	                    self.didReceiveChangeset()
 	                }
             } onError: { _ in
                 

@@ -541,6 +541,96 @@ class MessageStorageItem: Object {
     
     var inlineForwards: List<MessageForwardsInlineStorageItem> = List<MessageForwardsInlineStorageItem>()
 
+    /// Returns every reference owned by this persisted message graph together
+    /// with the primary of the container that owns it. Forward trees are
+    /// walked iteratively so malformed/cyclic Realm graphs cannot recurse the
+    /// call stack indefinitely.
+    internal func referencesIncludingInlineForwards() -> [
+        (reference: MessageReferenceStorageItem, containerPrimary: String)
+    ] {
+        var result = Array(references).map {
+            (reference: $0, containerPrimary: self.primary)
+        }
+        var pendingForwards = Array(inlineForwards.reversed())
+        var visitedForwards: Set<ObjectIdentifier> = []
+
+        while let forward = pendingForwards.popLast() {
+            guard visitedForwards.insert(ObjectIdentifier(forward)).inserted else {
+                continue
+            }
+            result.append(contentsOf: forward.references.map {
+                (reference: $0, containerPrimary: forward.primary)
+            })
+            pendingForwards.append(contentsOf: forward.subforwards.reversed())
+        }
+
+        return result
+    }
+
+    internal func pendingMediaAttachmentsIncludingInlineForwards() -> [
+        MessageMediaAttachmentStorageItem
+    ] {
+        var seenPrimaryKeys: Set<String> = []
+        return referencesIncludingInlineForwards().compactMap { entry in
+            guard let attachment = entry.reference.pendingMediaAttachment,
+                  attachment.primary.isNotEmpty,
+                  seenPrimaryKeys.insert(attachment.primary).inserted else {
+                return nil
+            }
+            return attachment
+        }
+    }
+
+    private func durableMediaAttachmentPrimaryKeys() -> Set<String> {
+        Set(referencesIncludingInlineForwards().compactMap { entry in
+            guard entry.reference.kind == .media,
+                  let url = entry.reference.url,
+                  url.isNotEmpty,
+                  entry.containerPrimary.isNotEmpty else {
+                return nil
+            }
+            return MessageMediaAttachmentStorageItem.genPrimary(
+                jid: entry.reference.jid,
+                owner: entry.reference.owner,
+                url: url,
+                messagePrimary: entry.containerPrimary
+            )
+        })
+    }
+
+    /// Persists parser-staged media rows only after their owning reference
+    /// graph is visible in the same Realm transaction. Existing rows are kept
+    /// intact so local download and sensitivity state is never overwritten by
+    /// a repeated stanza.
+    internal static func persistPendingMediaAttachments(
+        _ attachments: [MessageMediaAttachmentStorageItem],
+        forMessagePrimary messagePrimary: String,
+        in realm: Realm
+    ) {
+        guard attachments.isNotEmpty,
+              let storedMessage = realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: messagePrimary
+              ) else {
+            return
+        }
+        let durablePrimaryKeys = storedMessage.durableMediaAttachmentPrimaryKeys()
+        var seenPrimaryKeys: Set<String> = []
+
+        attachments.forEach { attachment in
+            guard attachment.primary.isNotEmpty,
+                  seenPrimaryKeys.insert(attachment.primary).inserted,
+                  durablePrimaryKeys.contains(attachment.primary),
+                  realm.object(
+                    ofType: MessageMediaAttachmentStorageItem.self,
+                    forPrimaryKey: attachment.primary
+                  ) == nil else {
+                return
+            }
+            realm.add(attachment)
+        }
+    }
+
     func refreshHistoryPositionComponents() {
         let components = MessageHistoryPositionComponents.make(
             primary: primary,
@@ -1143,7 +1233,7 @@ class MessageStorageItem: Object {
                     if inlineForwards.count == 1 {
                         resultBody += "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])
                     } else if inlineForwards.count > 1 {
-                        resultBody += "%@ forwarded messages".localizeString(id: "chat_message_some_forwarded_messages", arguments: ["\(files.count)"])
+                        resultBody += "%@ forwarded messages".localizeString(id: "chat_message_some_forwarded_messages", arguments: ["\(inlineForwards.count)"])
                     }
                 }
                 
@@ -1337,16 +1427,39 @@ class MessageStorageItem: Object {
         self.conversationType = .group
     }
     
-    func editMessage(_ messageContainer: XMPPMessage, editDate: Date) {
+    @discardableResult
+    func editMessage(
+        _ messageContainer: XMPPMessage,
+        editDate: Date
+    ) -> [MessageMediaAttachmentStorageItem] {
+        let parsedReferences = parseReferences(
+            messageContainer,
+            primary: self.primary,
+            jid: opponent,
+            owner: owner
+        )
+        let parsedInlineForwards = parseInlineMessages(
+            messageContainer,
+            parentId: primary,
+            jid: opponent,
+            owner: owner
+        )
+        let detachedParsedMessage = MessageStorageItem()
+        detachedParsedMessage.primary = primary
+        detachedParsedMessage.references.append(objectsIn: parsedReferences)
+        detachedParsedMessage.inlineForwards.append(objectsIn: parsedInlineForwards)
+        let pendingMediaAttachments =
+            detachedParsedMessage.pendingMediaAttachmentsIncludingInlineForwards()
+
         self.references.removeAll()
-        self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: opponent, owner: owner))
+        self.references.append(objectsIn: parsedReferences)
         self.groupMentionIntent = GroupMessageMentionsCodec.decode(from: messageContainer)
         self.body = normalizedIncomingTextBody(from: messageContainer)
         if messageContainer.from == nil {
             messageContainer.addAttribute(withName: "from", stringValue: outgoing ? owner : opponent)
         }
         self.inlineForwards.removeAll()
-        self.inlineForwards.append(objectsIn: parseInlineMessages(messageContainer, parentId: primary, jid: opponent, owner: owner))
+        self.inlineForwards.append(objectsIn: parsedInlineForwards)
         self.updateDisplayMode()
         self.editDate = editDate
         self.messageError = "Edit"
@@ -1354,6 +1467,7 @@ class MessageStorageItem: Object {
             self.archivedId = getStanzaId(messageContainer, owner: self.owner)
         }
         self.originalStanza = messageContainer
+        return pendingMediaAttachments
     }
     
     func configureIncomingMessage(_ messageContainer: XMPPMessage, owner: String, opponent: String, outgoing: Bool, isRead: Bool, date: Date, isEncrypted: Bool = false) {
@@ -1606,6 +1720,67 @@ class MessageStorageItem: Object {
         )
     }
 
+    private func reconcileRegularLastChatProjection(
+        from storedMessage: MessageStorageItem,
+        in realm: Realm
+    ) {
+        guard shouldPersistArchiveQueryId,
+              storedMessage.conversationType == .regular,
+              !ClientSyncRegularConversationDeletionStore.contains(
+                owner: storedMessage.owner,
+                jid: storedMessage.opponent
+              ) else {
+            return
+        }
+
+        let primary = LastChatsStorageItem.genPrimary(
+            jid: storedMessage.opponent,
+            owner: storedMessage.owner,
+            conversationType: .regular
+        )
+        if let chat = realm.object(
+            ofType: LastChatsStorageItem.self,
+            forPrimaryKey: primary
+        ) {
+            let currentDate = chat.lastMessage?.date ?? chat.messageDate
+            guard !chat.isArchived,
+                  currentDate <= storedMessage.date else {
+                return
+            }
+            chat.messageDate = storedMessage.sentDate
+            chat.lastMessage = storedMessage
+            chat.lastMessageId = storedMessage.messageId
+            if chat.rosterItem == nil {
+                chat.rosterItem = realm.object(
+                    ofType: RosterStorageItem.self,
+                    forPrimaryKey: RosterStorageItem.genPrimary(
+                        jid: storedMessage.opponent,
+                        owner: storedMessage.owner
+                    )
+                )
+            }
+            return
+        }
+
+        let chat = LastChatsStorageItem()
+        chat.jid = storedMessage.opponent
+        chat.conversationType = .regular
+        chat.setPrimary(withOwner: storedMessage.owner)
+        chat.messageDate = storedMessage.sentDate
+        chat.lastMessage = storedMessage
+        chat.lastMessageId = storedMessage.messageId
+        chat.isArchived = false
+        chat.isSynced = false
+        chat.rosterItem = realm.object(
+            ofType: RosterStorageItem.self,
+            forPrimaryKey: RosterStorageItem.genPrimary(
+                jid: storedMessage.opponent,
+                owner: storedMessage.owner
+            )
+        )
+        realm.add(chat, update: .modified)
+    }
+
     @discardableResult
     internal func applyMessagePersistence(in realm: Realm, silentNotifications: Bool = false) -> SaveSideEffects? {
         if self.opponent.isEmpty {
@@ -1636,8 +1811,26 @@ class MessageStorageItem: Object {
                     instance.queryIds = newQueryIds
                 }
             }
+            reconcileRegularLastChatProjection(
+                from: instance,
+                in: realm
+            )
             ChatLocalHistoryLinkedIndex.upsert(instance, in: realm)
             return nil
+        }
+
+        if shouldPersistArchiveQueryId,
+           conversationType == .regular,
+           ClientSyncRegularConversationDeletionStore.contains(
+                owner: owner,
+                jid: opponent
+           ) {
+            realm.add(self, update: .modified)
+            ChatLocalHistoryLinkedIndex.upsert(self, in: realm)
+            return SaveSideEffects(
+                shouldStoreStanza: true,
+                notification: nil
+            )
         }
 
         var shouldNotify: Bool = false
@@ -1887,6 +2080,7 @@ class MessageStorageItem: Object {
             let realm = try  WRealm.safe()
             var sideEffects: SaveSideEffects?
             let shouldCommitHere = commitTransaction || !realm.isInWriteTransaction
+            let pendingMediaAttachments = pendingMediaAttachmentsIncludingInlineForwards()
 
             if shouldCommitHere {
                 try realm.write {
@@ -1894,6 +2088,11 @@ class MessageStorageItem: Object {
                     if sideEffects?.shouldStoreStanza == true {
                         self.storeStanza(in: realm)
                     }
+                    MessageStorageItem.persistPendingMediaAttachments(
+                        pendingMediaAttachments,
+                        forMessagePrimary: self.primary,
+                        in: realm
+                    )
                 }
                 self.dispatch(sideEffects: sideEffects)
             } else {
@@ -1901,6 +2100,11 @@ class MessageStorageItem: Object {
                 if sideEffects?.shouldStoreStanza == true {
                     self.storeStanza(in: realm)
                 }
+                MessageStorageItem.persistPendingMediaAttachments(
+                    pendingMediaAttachments,
+                    forMessagePrimary: self.primary,
+                    in: realm
+                )
             }
 
             return sideEffects?.shouldStoreStanza ?? false

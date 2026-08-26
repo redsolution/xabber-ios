@@ -18,17 +18,21 @@
 import XCTest
 import UIKit
 import RealmSwift
+import XMPPFramework
 @testable import xabber
 
 @MainActor
 final class LastChatsViewControllerBehaviorTests: XCTestCase {
     private var previousRealmConfiguration: Realm.Configuration!
     private var previousConnectingAccounts: Set<String>!
+    private var previousLanguage: String?
 
     override func setUp() {
         super.setUp()
         previousRealmConfiguration = Realm.Configuration.defaultConfiguration
         previousConnectingAccounts = AccountManager.shared.connectingUsers.value
+        previousLanguage = TranslationsManager.shared.currentLang
+        TranslationsManager.shared.currentLang = "en"
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "LastChatsViewControllerBehaviorTests-\(name)-\(UUID().uuidString)"
         )
@@ -39,6 +43,8 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         ChatUIResponsivenessGate.shared.resetForTesting()
         AccountManager.shared.connectingUsers.accept(previousConnectingAccounts)
         previousConnectingAccounts = nil
+        TranslationsManager.shared.currentLang = previousLanguage
+        previousLanguage = nil
         Realm.Configuration.defaultConfiguration = previousRealmConfiguration
         previousRealmConfiguration = nil
         super.tearDown()
@@ -113,8 +119,13 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
 
     func testLastChatsUsesGeometryBasedBottomOverlayInsetCoordinator() {
         let controller = LastChatsViewController()
-        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
-        controller.loadViewIfNeeded()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = controller
+        window.isHidden = false
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
         controller.view.layoutIfNeeded()
 
         controller.updateTableInsetsForFloatingToolbar()
@@ -266,8 +277,13 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
 
     func testLastChatContentEndsAboveCollapsedSearchButtonAtMaximumOffset() {
         let controller = LastChatsViewController()
-        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
-        controller.loadViewIfNeeded()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = controller
+        window.isHidden = false
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
         controller.updateUnreadChatsCounter(count: 0)
         controller.view.layoutIfNeeded()
         controller.tableView.contentSize = CGSize(width: 393, height: 1_600)
@@ -842,6 +858,739 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         XCTAssertTrue(preview.isItalic)
     }
 
+    func testListOnlySynchronizationPreviewReplacesBlankChatListFallback() throws {
+        let projection = LastChatListSyncPreviewProjection(
+            owner: "owner@example.com",
+            conversationPrimary: "chat-primary",
+            lastMessageID: "sync-message-1",
+            text: "Preview received from synchronization"
+        )
+
+        let preview = LastChatMessagePreviewPolicy.preview(
+            for: nil,
+            synchronizedProjection: projection,
+            blankMessageText: "Start messaging here"
+        )
+
+        XCTAssertEqual(
+            preview.text,
+            "Preview received from synchronization"
+        )
+        XCTAssertFalse(preview.isItalic)
+    }
+
+    func testListOnlySynchronizationSystemEventRemainsItalic() {
+        let projection = LastChatListSyncPreviewProjection(
+            owner: "owner@example.com",
+            conversationPrimary: "chat-primary",
+            lastMessageID: "sync-system-message",
+            text: "System message",
+            isSystemMessage: true
+        )
+
+        let preview = LastChatMessagePreviewPolicy.preview(
+            for: nil,
+            synchronizedProjection: projection,
+            blankMessageText: "Start messaging here"
+        )
+
+        XCTAssertEqual(preview.text, "System message")
+        XCTAssertTrue(preview.isItalic)
+    }
+
+    func testMaterializedLastMessageTakesPrecedenceOverSynchronizationPreview() {
+        let message = MessageStorageItem()
+        message.body = "Materialized preview"
+        message.legacyBody = message.body
+        let projection = LastChatListSyncPreviewProjection(
+            owner: "owner@example.com",
+            conversationPrimary: "chat-primary",
+            lastMessageID: "sync-message-1",
+            text: "Synchronization preview"
+        )
+
+        let preview = LastChatMessagePreviewPolicy.preview(
+            for: message,
+            synchronizedProjection: projection,
+            blankMessageText: "Start messaging here"
+        )
+
+        XCTAssertEqual(preview.text, "Materialized preview")
+    }
+
+    func testListOnlyDirectForwardPreviewMatchesMaterializedForwardBeforeNestedMedia() throws {
+        let materialized = makeMaterializedForwardPreviewMessage(
+            nicknames: ["Alice"]
+        )
+        let materializedPreview = LastChatMessagePreviewPolicy.preview(
+            for: materialized,
+            blankMessageText: "Start messaging here"
+        )
+        let synchronizedPreview = try XCTUnwrap(
+            LastChatListSyncPreviewParser.projection(
+                owner: "owner@example.com",
+                conversationPrimary: "sync-forward",
+                lastMessageID: "sync-forward-message",
+                messageElement: makeSyncForwardPreviewMessageWithNestedPhoto()
+            )
+        )
+
+        XCTAssertEqual(
+            synchronizedPreview.text,
+            "Forwarded message".localizeString(
+                id: "chat_message_forwarded_message",
+                arguments: []
+            )
+        )
+        XCTAssertEqual(synchronizedPreview.text, materializedPreview.text)
+        XCTAssertFalse(
+            synchronizedPreview.isAttachment,
+            "Nested media belongs to the forwarded payload, not to the outer chat-list row."
+        )
+    }
+
+    func testMaterializedMultipleForwardPreviewUsesForwardCount() {
+        let message = makeMaterializedForwardPreviewMessage(
+            nicknames: ["Alice", "Bob", "Carol"]
+        )
+
+        let preview = LastChatMessagePreviewPolicy.preview(
+            for: message,
+            blankMessageText: "Start messaging here"
+        )
+
+        XCTAssertEqual(
+            preview.text,
+            "%@ forwarded messages".localizeString(
+                id: "chat_message_some_forwarded_messages",
+                arguments: ["3"]
+            )
+        )
+    }
+
+    func testMaterializedAttachmentPreviewsUseTypedSingularAndPluralLabels() {
+        let cases: [(LastChatsPreviewAttachmentKind, Int, String)] = [
+            (.photo, 1, "Photo"),
+            (.photo, 3, "3 Photos"),
+            (.video, 1, "Video"),
+            (.video, 3, "3 Videos"),
+            (.file, 1, "File"),
+            (.file, 3, "3 Files"),
+            (.voice, 1, "Voice message"),
+            (.voice, 3, "3 Voice messages")
+        ]
+
+        for (kind, count, expected) in cases {
+            let preview = LastChatMessagePreviewPolicy.preview(
+                for: makeMaterializedAttachmentPreviewMessage(
+                    kind: kind,
+                    count: count
+                ),
+                blankMessageText: "Start messaging here"
+            )
+
+            XCTAssertEqual(
+                preview.text,
+                expected,
+                "Unexpected materialized Last Chats preview for \(kind) x\(count)."
+            )
+            XCTAssertFalse(
+                preview.isItalic,
+                "An ordinary attachment sent by a participant is not a system event."
+            )
+        }
+    }
+
+    func testListOnlySyncAttachmentPreviewsUseTypedSingularAndPluralLabels() throws {
+        let cases: [(LastChatsPreviewAttachmentKind, Int, String)] = [
+            (.photo, 1, "Photo"),
+            (.photo, 3, "3 Photos"),
+            (.video, 1, "Video"),
+            (.video, 3, "3 Videos"),
+            (.file, 1, "File"),
+            (.file, 3, "3 Files"),
+            (.voice, 1, "Voice message"),
+            (.voice, 3, "3 Voice messages")
+        ]
+
+        for (kind, count, expected) in cases {
+            let projection = try XCTUnwrap(
+                LastChatListSyncPreviewParser.projection(
+                    owner: "owner@example.com",
+                    conversationPrimary: "sync-\(kind)-\(count)",
+                    lastMessageID: "sync-message-\(kind)-\(count)",
+                    messageElement: makeSyncAttachmentPreviewMessage(
+                        kind: kind,
+                        count: count
+                    )
+                )
+            )
+
+            XCTAssertEqual(
+                projection.text,
+                expected,
+                "The list-only projection must not surface the attachment fallback URL for \(kind) x\(count)."
+            )
+            XCTAssertTrue(projection.isAttachment)
+            XCTAssertFalse(
+                projection.isSystemMessage,
+                "An ordinary synchronized attachment is not a group/system event."
+            )
+        }
+    }
+
+    func testEnglishAttachmentPreviewKeepsSingularContractAndCountsTwentyOne() {
+        let cases: [(LastChatAttachmentPreviewKind, String, String)] = [
+            (.photo, "Photo", "21 Photos"),
+            (.video, "Video", "21 Videos"),
+            (.file, "File", "21 Files"),
+            (.voice, "Voice message", "21 Voice messages")
+        ]
+
+        for (kind, singular, counted) in cases {
+            XCTAssertEqual(
+                LastChatAttachmentPreviewFormatter.text(
+                    for: Array(repeating: kind, count: 1)
+                ),
+                singular
+            )
+            XCTAssertEqual(
+                LastChatAttachmentPreviewFormatter.text(
+                    for: Array(repeating: kind, count: 21)
+                ),
+                counted
+            )
+        }
+    }
+
+    func testRussianAttachmentPreviewIncludesCountForTwentyOneEndingForms() {
+        TranslationsManager.shared.currentLang =
+            TranslationsManager.Languages.ru.rawValue
+        let cases: [(LastChatAttachmentPreviewKind, String, String)] = [
+            (.photo, "Фото", "фото"),
+            (.video, "Видео", "видео"),
+            (.file, "Файл", "файл"),
+            (.voice, "Голосовое сообщение", "голосовое сообщение")
+        ]
+
+        for (kind, singular, countedNoun) in cases {
+            XCTAssertEqual(
+                LastChatAttachmentPreviewFormatter.text(
+                    for: Array(repeating: kind, count: 1)
+                ),
+                singular
+            )
+            for count in [21, 31, 101] {
+                XCTAssertEqual(
+                    LastChatAttachmentPreviewFormatter.text(
+                        for: Array(repeating: kind, count: count)
+                    ),
+                    "\(count) \(countedNoun)"
+                )
+            }
+        }
+    }
+
+    func testAttachmentCaptionWinsOverTypedLabelAndFallbackURLInBothPreviewPaths() throws {
+        let caption = "Trip caption"
+        let materialized = LastChatMessagePreviewPolicy.preview(
+            for: makeMaterializedAttachmentPreviewMessage(
+                kind: .photo,
+                count: 3,
+                caption: caption
+            ),
+            blankMessageText: "Start messaging here"
+        )
+        let synchronized = try XCTUnwrap(
+            LastChatListSyncPreviewParser.projection(
+                owner: "owner@example.com",
+                conversationPrimary: "sync-caption",
+                lastMessageID: "sync-caption-message",
+                messageElement: makeSyncAttachmentPreviewMessage(
+                    kind: .photo,
+                    count: 3,
+                    caption: caption
+                )
+            )
+        )
+
+        XCTAssertEqual(materialized.text, caption)
+        XCTAssertEqual(synchronized.text, caption)
+        XCTAssertFalse(synchronized.text.contains("https://"))
+        XCTAssertFalse(materialized.isItalic)
+        XCTAssertFalse(synchronized.isSystemMessage)
+    }
+
+    func testMaterializedAttachmentPreviewExcludesLocallyHiddenReferencesFromCount() {
+        let preview = LastChatMessagePreviewPolicy.preview(
+            for: makeMaterializedAttachmentPreviewMessage(
+                kind: .photo,
+                count: 4,
+                hiddenIndexes: [1]
+            ),
+            blankMessageText: "Start messaging here"
+        )
+
+        XCTAssertEqual(preview.text, "3 Photos")
+        XCTAssertFalse(preview.isItalic)
+    }
+
+    func testOrdinaryGroupAttachmentDatasourceDoesNotBecomeSystemPreview() throws {
+        let owner = "group-preview-owner@example.com"
+        let groupJID = "stage@example.com"
+        let message = makeMaterializedAttachmentPreviewMessage(
+            kind: .photo,
+            count: 1
+        )
+        message.primary = "group-preview-message"
+        message.messageId = "group-preview-message-id"
+        message.owner = owner
+        message.opponent = groupJID
+        message.conversationType = .group
+        message.date = Date(timeIntervalSince1970: 100)
+        let participant = MessageReferenceStorageItem()
+        participant.primary = "group-preview-participant"
+        participant.kind = .groupchat
+        participant.owner = owner
+        participant.jid = groupJID
+        participant.metadata = [
+            "id": "member-42",
+            "jid": "alice@example.com",
+            "nickname": "Alice"
+        ]
+        message.references.insert(participant, at: 0)
+
+        let chat = LastChatsStorageItem()
+        chat.primary = LastChatsStorageItem.genPrimary(
+            jid: groupJID,
+            owner: owner,
+            conversationType: .group
+        )
+        chat.owner = owner
+        chat.jid = groupJID
+        chat.conversationType = .group
+        chat.messageDate = message.date
+        chat.lastMessageId = message.messageId
+        chat.lastMessage = message
+
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.add(message, update: .modified)
+            realm.add(chat, update: .modified)
+        }
+
+        let controller = LastChatsViewController()
+        controller.enabledAccounts.accept([owner])
+        controller.showSkeleton.accept(false)
+        controller.runDatasetUpdateTask()
+
+        XCTAssertTrue(waitForLastChatsDataset(controller, containing: groupJID))
+        let datasource = try XCTUnwrap(
+            controller.datasource.first(where: { $0.jid == groupJID })
+        )
+        XCTAssertEqual(datasource.userNickname, "Alice")
+        XCTAssertEqual(datasource.userColorKey, "member-42")
+        XCTAssertFalse(
+            datasource.isSystemMessage,
+            "An attachment-only participant message must keep normal body typography."
+        )
+    }
+
+    func testMaterializedForwardDatasourcePreservesForwardNickname() throws {
+        let owner = "forward-preview-owner@example.com"
+        let groupJID = "forward-stage@example.com"
+        let message = makeMaterializedForwardPreviewMessage(
+            nicknames: ["Alice", "Bob"]
+        )
+        message.primary = "forward-preview-message"
+        message.messageId = "forward-preview-message-id"
+        message.owner = owner
+        message.opponent = groupJID
+        message.conversationType = .group
+        message.date = Date(timeIntervalSince1970: 100)
+        message.inlineForwards.forEach {
+            $0.owner = owner
+            $0.jid = groupJID
+            $0.opponent = groupJID
+        }
+
+        let chat = LastChatsStorageItem()
+        chat.primary = LastChatsStorageItem.genPrimary(
+            jid: groupJID,
+            owner: owner,
+            conversationType: .group
+        )
+        chat.owner = owner
+        chat.jid = groupJID
+        chat.conversationType = .group
+        chat.messageDate = message.date
+        chat.lastMessageId = message.messageId
+        chat.lastMessage = message
+
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.add(message, update: .modified)
+            realm.add(chat, update: .modified)
+        }
+
+        let controller = LastChatsViewController()
+        controller.enabledAccounts.accept([owner])
+        controller.showSkeleton.accept(false)
+        controller.runDatasetUpdateTask()
+
+        XCTAssertTrue(waitForLastChatsDataset(controller, containing: groupJID))
+        let datasource = try XCTUnwrap(
+            controller.datasource.first(where: { $0.jid == groupJID })
+        )
+        XCTAssertEqual(datasource.userNickname, "Alice")
+    }
+
+    func testListOnlyGroupProjectionSuppliesAuthorToLastChatsWithoutMaterializedMessage() throws {
+        let owner = "group-list-preview-owner@example.com"
+        let groupJID = "stage-list-only@example.com"
+        let primary = LastChatsStorageItem.genPrimary(
+            jid: groupJID,
+            owner: owner,
+            conversationType: .group
+        )
+        let chat = LastChatsStorageItem()
+        chat.primary = primary
+        chat.owner = owner
+        chat.jid = groupJID
+        chat.conversationType = .group
+        chat.messageDate = Date(timeIntervalSince1970: 100)
+        chat.lastMessageId = "group-list-message-1"
+
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.add(chat, update: .modified)
+        }
+        LastChatListSyncPreviewStore.shared.apply(
+            [
+                .upsert(
+                    LastChatListSyncPreviewProjection(
+                        owner: owner,
+                        conversationPrimary: primary,
+                        lastMessageID: chat.lastMessageId,
+                        text: "Photo",
+                        isAttachment: true,
+                        groupchatNickname: "Alice",
+                        groupchatAuthorColorKey: "member-42"
+                    )
+                )
+            ],
+            for: owner
+        )
+        defer {
+            LastChatListSyncPreviewStore.shared.removeAll(for: owner)
+        }
+
+        let controller = LastChatsViewController()
+        controller.enabledAccounts.accept([owner])
+        controller.showSkeleton.accept(false)
+        controller.runDatasetUpdateTask()
+
+        XCTAssertTrue(waitForLastChatsDataset(controller, containing: groupJID))
+        let datasource = try XCTUnwrap(
+            controller.datasource.first(where: { $0.jid == groupJID })
+        )
+        XCTAssertEqual(datasource.userNickname, "Alice")
+        XCTAssertEqual(datasource.userColorKey, "member-42")
+        XCTAssertFalse(datasource.isSystemMessage)
+
+        let cell = ChatListTableViewCell(
+            style: .default,
+            reuseIdentifier: ChatListTableViewCell.cellName
+        )
+        controller.configureChatCell(cell, with: datasource)
+        XCTAssertEqual(cell.subtitleLabel.text, "Alice")
+        XCTAssertTrue(
+            cell.subtitleLabel.textColor.isEqual(
+                ChatViewController.getUsernamePalette(for: "member-42").tint500
+            )
+        )
+        let body = try XCTUnwrap(cell.messageLabel.attributedText)
+        let attributes = body.attributes(at: 0, effectiveRange: nil)
+        let font = try XCTUnwrap(attributes[.font] as? UIFont)
+        XCTAssertFalse(
+            font.fontDescriptor.symbolicTraits.contains(.traitItalic)
+        )
+    }
+
+    func testGroupParticipantNicknameUsesParticipantColorWhileBodyKeepsNormalStyle() throws {
+        let cell = ChatListTableViewCell(
+            style: .default,
+            reuseIdentifier: ChatListTableViewCell.cellName
+        )
+        let participantNickname = "Alice"
+        let participantColorKey = "member-42"
+
+        cell.configure(
+            "stage@example.com",
+            owner: "owner@example.com",
+            username: "Stage",
+            attributedUsername: nil,
+            message: "Photo",
+            date: Date(timeIntervalSince1970: 100),
+            deliveryState: nil,
+            isMute: false,
+            isSynced: true,
+            isGroupchat: true,
+            status: .offline,
+            entity: .groupchat,
+            conversationType: .group,
+            unread: 0,
+            unreadString: nil,
+            hasUnreadMention: false,
+            indicator: .clear,
+            isDraft: false,
+            isAttachment: true,
+            groupchatNickname: participantNickname,
+            groupchatAuthorColorKey: participantColorKey,
+            isSystem: false,
+            isPinned: false,
+            subRequest: false,
+            avatarUrl: nil,
+            hasErrorInChat: false,
+            verAction: false
+        )
+
+        XCTAssertEqual(cell.subtitleLabel.text, participantNickname)
+        XCTAssertTrue(
+            cell.subtitleLabel.textColor.isEqual(
+                ChatViewController.getUsernamePalette(for: participantColorKey).tint500
+            )
+        )
+        XCTAssertFalse(try XCTUnwrap(cell.subtitleLabel.font).fontDescriptor.symbolicTraits.contains(.traitItalic))
+
+        let body = try XCTUnwrap(cell.messageLabel.attributedText)
+        let bodyAttributes = body.attributes(at: 0, effectiveRange: nil)
+        let bodyFont = try XCTUnwrap(bodyAttributes[.font] as? UIFont)
+        let bodyColor = (bodyAttributes[.foregroundColor] as? UIColor)
+            ?? cell.messageLabel.textColor
+        XCTAssertFalse(bodyFont.fontDescriptor.symbolicTraits.contains(.traitItalic))
+        XCTAssertTrue(bodyColor?.isEqual(UIColor.secondaryLabel) == true)
+    }
+
+    func testColdListPreviewResolverUsesExactDurableMessageWithoutRealmWrites() throws {
+        let owner = "cold-preview-owner@example.com"
+        let jid = "cold-preview-chat@example.com"
+        let expectedArchiveID = "1784280770721455"
+        let realm = try WRealm.safe()
+        try realm.write {
+            let chat = LastChatsStorageItem()
+            chat.owner = owner
+            chat.jid = jid
+            chat.conversationType = .regular
+            chat.setPrimary(withOwner: owner)
+            chat.lastMessageId = expectedArchiveID
+            realm.add(chat)
+
+            let exact = MessageStorageItem()
+            exact.primary = "cold-preview-exact"
+            exact.owner = owner
+            exact.opponent = jid
+            exact.conversationType = .regular
+            exact.messageId = "local-origin-id"
+            exact.archivedId = expectedArchiveID
+            exact.body = "Durable local preview"
+            exact.date = Date(timeIntervalSince1970: 200)
+            realm.add(exact)
+
+            let wrongConversation = MessageStorageItem()
+            wrongConversation.primary = "cold-preview-wrong-conversation"
+            wrongConversation.owner = owner
+            wrongConversation.opponent = "other-chat@example.com"
+            wrongConversation.conversationType = .regular
+            wrongConversation.messageId = "wrong-conversation-origin-id"
+            wrongConversation.archivedId = expectedArchiveID
+            wrongConversation.body = "Wrong conversation"
+            wrongConversation.date = Date(timeIntervalSince1970: 300)
+            realm.add(wrongConversation)
+
+            let wrongType = MessageStorageItem()
+            wrongType.primary = "cold-preview-wrong-type"
+            wrongType.owner = owner
+            wrongType.opponent = jid
+            wrongType.conversationType = .group
+            wrongType.messageId = "wrong-type-origin-id"
+            wrongType.archivedId = expectedArchiveID
+            wrongType.body = "Wrong type"
+            wrongType.date = Date(timeIntervalSince1970: 400)
+            realm.add(wrongType)
+        }
+
+        let chat = try XCTUnwrap(realm.objects(LastChatsStorageItem.self).first)
+        let messageCountBeforeResolution = realm.objects(MessageStorageItem.self).count
+
+        let resolved = LastChatMaterializedPreviewResolver.resolve(
+            in: realm,
+            for: [chat]
+        )
+
+        XCTAssertEqual(resolved[chat.primary]?.primary, "cold-preview-exact")
+        XCTAssertEqual(resolved[chat.primary]?.body, "Durable local preview")
+        XCTAssertNil(chat.lastMessage)
+        XCTAssertEqual(
+            realm.objects(MessageStorageItem.self).count,
+            messageCountBeforeResolution
+        )
+    }
+
+    func testColdListPreviewResolverMatchesMessageIDAndRejectsMissingIdentity() throws {
+        let owner = "cold-preview-message-id-owner@example.com"
+        let jid = "cold-preview-message-id-chat@example.com"
+        let realm = try WRealm.safe()
+        try realm.write {
+            let matchingChat = LastChatsStorageItem()
+            matchingChat.owner = owner
+            matchingChat.jid = jid
+            matchingChat.conversationType = .omemo
+            matchingChat.setPrimary(withOwner: owner)
+            matchingChat.lastMessageId = "local-message-id"
+            realm.add(matchingChat)
+
+            let missingChat = LastChatsStorageItem()
+            missingChat.owner = owner
+            missingChat.jid = "missing-preview@example.com"
+            missingChat.conversationType = .regular
+            missingChat.setPrimary(withOwner: owner)
+            missingChat.lastMessageId = "not-materialized"
+            realm.add(missingChat)
+
+            let message = MessageStorageItem()
+            message.primary = "cold-preview-message-id"
+            message.owner = owner
+            message.opponent = jid
+            message.conversationType = .omemo
+            message.messageId = "local-message-id"
+            message.archivedId = "different-archive-id"
+            message.body = "Matched by message ID"
+            message.date = Date(timeIntervalSince1970: 100)
+            realm.add(message)
+        }
+
+        let chats = realm.objects(LastChatsStorageItem.self).toArray()
+        let resolved = LastChatMaterializedPreviewResolver.resolve(
+            in: realm,
+            for: chats
+        )
+        let matchingPrimary = LastChatsStorageItem.genPrimary(
+            jid: jid,
+            owner: owner,
+            conversationType: .omemo
+        )
+        let missingPrimary = LastChatsStorageItem.genPrimary(
+            jid: "missing-preview@example.com",
+            owner: owner,
+            conversationType: .regular
+        )
+
+        XCTAssertEqual(
+            resolved[matchingPrimary]?.body,
+            "Matched by message ID"
+        )
+        XCTAssertNil(resolved[missingPrimary])
+    }
+
+    func testSyncOnlyIdentityUsesSuccessfulVCardTitleWithoutRoster() {
+        XCTAssertEqual(
+            LastChatsIdentityTitlePolicy.title(
+                rosterDisplayName: nil,
+                synchronizedVCardTitle: "Juliet Capulet",
+                jid: "juliet@example.com"
+            ),
+            "Juliet Capulet"
+        )
+        XCTAssertEqual(
+            LastChatsIdentityTitlePolicy.title(
+                rosterDisplayName: "Roster title",
+                synchronizedVCardTitle: "VCard title",
+                jid: "juliet@example.com"
+            ),
+            "Roster title"
+        )
+    }
+
+    func testLastChatsVCardHydrationIsVisibleRowsOnlyWithoutAppearanceBulkFanout() throws {
+        let testFile = URL(fileURLWithPath: #filePath)
+        let root = testFile.deletingLastPathComponent().deletingLastPathComponent()
+        let controller = try String(
+            contentsOf: root.appendingPathComponent(
+                "xabber/controllers/chats/last_chats_list/LastChatsViewController.swift"
+            ),
+            encoding: .utf8
+        )
+        let tableDelegate = try String(
+            contentsOf: root.appendingPathComponent(
+                "xabber/controllers/chats/last_chats_list/LastChatsViewController+UITableViewDatasource.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(controller.contains("scheduleBulkVCardHydration"))
+        XCTAssertFalse(controller.contains("lazyLoadMissedVCards"))
+        XCTAssertTrue(tableDelegate.contains("willDisplay cell"))
+        XCTAssertTrue(tableDelegate.contains("requestVisibleVCard"))
+    }
+
+    func testSynchronizationPreviewStoreIsAccountScopedIdentityCheckedAndObservable() {
+        let owner = "preview-owner@example.com"
+        let otherOwner = "preview-other@example.com"
+        let projection = LastChatListSyncPreviewProjection(
+            owner: owner,
+            conversationPrimary: "chat-primary",
+            lastMessageID: "sync-message-1",
+            text: "Observable preview"
+        )
+        let notification = expectation(
+            description: "preview projection change is observable"
+        )
+        let token = NotificationCenter.default.addObserver(
+            forName: LastChatListSyncPreviewStore.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { note in
+            if note.object as? String == owner {
+                notification.fulfill()
+            }
+        }
+        defer {
+            NotificationCenter.default.removeObserver(token)
+            LastChatListSyncPreviewStore.shared.removeAll(for: owner)
+            LastChatListSyncPreviewStore.shared.removeAll(for: otherOwner)
+        }
+
+        LastChatListSyncPreviewStore.shared.apply(
+            [.upsert(projection)],
+            for: owner
+        )
+        wait(for: [notification], timeout: 1)
+
+        XCTAssertEqual(
+            LastChatListSyncPreviewStore.shared.projection(
+                owner: owner,
+                conversationPrimary: "chat-primary",
+                expectedLastMessageID: "sync-message-1"
+            ),
+            projection
+        )
+        XCTAssertNil(
+            LastChatListSyncPreviewStore.shared.projection(
+                owner: otherOwner,
+                conversationPrimary: "chat-primary",
+                expectedLastMessageID: "sync-message-1"
+            )
+        )
+        XCTAssertNil(
+            LastChatListSyncPreviewStore.shared.projection(
+                owner: owner,
+                conversationPrimary: "chat-primary",
+                expectedLastMessageID: "stale-message"
+            )
+        )
+    }
+
     func testBootstrapDatasetUpdatePolicySuppressesExpensiveAnimatedWorkOnlyDuringBootstrap() {
         XCTAssertFalse(LastChatsBootstrapDatasetUpdatePolicy.shouldAnimateDatasetMutation(requestedAnimated: true, isBootstrapActive: true))
         XCTAssertTrue(LastChatsBootstrapDatasetUpdatePolicy.shouldAnimateDatasetMutation(requestedAnimated: true, isBootstrapActive: false))
@@ -852,6 +1601,70 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         XCTAssertTrue(LastChatsBootstrapDatasetUpdatePolicy.shouldCoalesceDatasetUpdate(isBootstrapActive: true, hasScheduledUpdate: false))
         XCTAssertFalse(LastChatsBootstrapDatasetUpdatePolicy.shouldCoalesceDatasetUpdate(isBootstrapActive: false, hasScheduledUpdate: false))
         XCTAssertFalse(LastChatsBootstrapDatasetUpdatePolicy.shouldCoalesceDatasetUpdate(isBootstrapActive: true, hasScheduledUpdate: true))
+    }
+
+    func testProjectionRefreshCoalescerBatchesRosterResourceAndVCardInvalidations() {
+        var coalescer = LastChatsProjectionRefreshCoalescer()
+
+        let first = coalescer.register(.roster)
+        let duplicateRoster = coalescer.register(.roster)
+        let resource = coalescer.register(.resource)
+        let vCard = coalescer.register(.vCard("romeo@example.com|owner@example.com"))
+        let duplicateVCard = coalescer.register(
+            .vCard("romeo@example.com|owner@example.com")
+        )
+
+        XCTAssertTrue(first.shouldScheduleDeadline)
+        XCTAssertFalse(duplicateRoster.shouldScheduleDeadline)
+        XCTAssertFalse(resource.shouldScheduleDeadline)
+        XCTAssertFalse(vCard.shouldScheduleDeadline)
+        XCTAssertFalse(duplicateVCard.shouldScheduleDeadline)
+        XCTAssertTrue(first.shouldRescheduleQuietFlush)
+        XCTAssertTrue(duplicateVCard.shouldRescheduleQuietFlush)
+        XCTAssertEqual(coalescer.pendingInvalidationCount, 3)
+    }
+
+    func testProjectionRefreshCoalescerFlushPreservesFinalStateAndStartsFreshWindow() {
+        var coalescer = LastChatsProjectionRefreshCoalescer()
+        _ = coalescer.register(.vCard("first@example.com|owner@example.com"))
+        _ = coalescer.register(.vCard("second@example.com|owner@example.com"))
+        _ = coalescer.register(.resource)
+
+        let flushed = coalescer.flush()
+        let next = coalescer.register(.roster)
+
+        XCTAssertEqual(
+            flushed,
+            Set([
+                .vCard("first@example.com|owner@example.com"),
+                .vCard("second@example.com|owner@example.com"),
+                .resource
+            ])
+        )
+        XCTAssertEqual(coalescer.pendingInvalidationCount, 1)
+        XCTAssertTrue(next.shouldScheduleDeadline)
+        XCTAssertTrue(next.shouldRescheduleQuietFlush)
+    }
+
+    func testFirstDatasetApplyAnimationOwnershipSurvivesDropAndEndsAfterCommit() {
+        XCTAssertTrue(
+            LastChatsFirstDatasetApplyOwnershipPolicy.pendingAfterCycle(
+                wasPending: true,
+                didCommitDatasetApply: false
+            )
+        )
+        XCTAssertFalse(
+            LastChatsFirstDatasetApplyOwnershipPolicy.pendingAfterCycle(
+                wasPending: true,
+                didCommitDatasetApply: true
+            )
+        )
+        XCTAssertFalse(
+            LastChatsFirstDatasetApplyOwnershipPolicy.pendingAfterCycle(
+                wasPending: false,
+                didCommitDatasetApply: true
+            )
+        )
     }
 
     func testBootstrapDatasetUpdatePolicyTreatsActiveChatHistoryLoadAsPressure() {
@@ -1005,6 +1818,239 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
             !controller.floatingBottomBarFilterButton.isHidden,
             !controller.markAllReadButton.isHidden
         ]
+    }
+
+    private enum LastChatsPreviewAttachmentKind: CustomStringConvertible {
+        case photo
+        case video
+        case file
+        case voice
+
+        var description: String {
+            switch self {
+            case .photo: return "photo"
+            case .video: return "video"
+            case .file: return "file"
+            case .voice: return "voice"
+            }
+        }
+
+        var mediaType: String {
+            switch self {
+            case .photo: return "image/jpeg"
+            case .video: return "video/mp4"
+            case .file: return "application/pdf"
+            case .voice: return "audio/ogg"
+            }
+        }
+
+        func filename(at index: Int) -> String {
+            switch self {
+            case .photo: return "photo-\(index).jpg"
+            case .video: return "video-\(index).mp4"
+            case .file: return "file-\(index).pdf"
+            case .voice: return "voice-\(index).ogg"
+            }
+        }
+    }
+
+    private func makeMaterializedAttachmentPreviewMessage(
+        kind: LastChatsPreviewAttachmentKind,
+        count: Int,
+        hiddenIndexes: Set<Int> = [],
+        caption: String? = nil
+    ) -> MessageStorageItem {
+        let message = MessageStorageItem()
+        message.primary = "materialized-preview-\(kind)-\(UUID().uuidString)"
+        message.messageId = message.primary
+        message.owner = "owner@example.com"
+        message.opponent = "juliet@example.com"
+        message.conversationType = .regular
+        message.body = caption ?? ""
+        message.legacyBody = message.body
+
+        (0..<count).forEach { index in
+            let filename = kind.filename(at: index)
+            let remoteURL = "https://gallery.example/files/token-\(index)/\(filename)"
+            let reference = MessageReferenceStorageItem()
+            reference.primary = "materialized-reference-\(kind)-\(index)-\(UUID().uuidString)"
+            reference.owner = message.owner
+            reference.jid = message.opponent
+            reference.messageId = message.messageId
+            reference.url = remoteURL
+            reference.isLocallyHiddenByReport = hiddenIndexes.contains(index)
+            if kind == .voice {
+                reference.kind = .voice
+                reference.mimeType = "audio"
+                reference.metadata = [
+                    "media-type": kind.mediaType,
+                    "name": filename,
+                    "duration": 3,
+                    "size": 1_024,
+                    "uri": remoteURL
+                ]
+            } else {
+                reference.kind = .media
+                reference.mimeType = MimeIcon(kind.mediaType).value.rawValue
+                reference.metadata = [
+                    "media-type": kind.mediaType,
+                    "name": filename,
+                    "size": 1_024,
+                    "uri": remoteURL
+                ]
+            }
+            message.references.append(reference)
+        }
+        return message
+    }
+
+    private func makeMaterializedForwardPreviewMessage(
+        nicknames: [String]
+    ) -> MessageStorageItem {
+        let message = MessageStorageItem()
+        message.primary = "materialized-forward-\(UUID().uuidString)"
+        message.messageId = message.primary
+        message.owner = "owner@example.com"
+        message.opponent = "juliet@example.com"
+        message.conversationType = .regular
+        message.body = ""
+        message.legacyBody = ""
+
+        nicknames.enumerated().forEach { index, nickname in
+            let forward = MessageForwardsInlineStorageItem()
+            forward.primary = "materialized-inline-forward-\(index)-\(UUID().uuidString)"
+            forward.messageId = forward.primary
+            forward.parentId = message.primary
+            forward.owner = message.owner
+            forward.jid = message.opponent
+            forward.opponent = "sender-\(index)@example.com"
+            forward.forwardJid = forward.opponent
+            forward.forwardNickname = nickname
+            forward.body = "Forwarded body \(index)"
+            message.inlineForwards.append(forward)
+        }
+        return message
+    }
+
+    private func makeSyncForwardPreviewMessageWithNestedPhoto() throws -> DDXMLElement {
+        let fallback = "Forwarded fallback"
+        let remoteURL = "https://gallery.example/files/photo.jpg"
+        let document = try DDXMLDocument(
+            xmlString: """
+            <message from='juliet@example.com/mobile'
+                     to='owner@example.com'
+                     type='chat'
+                     id='sync-forward-message'>
+              <body>\(fallback)</body>
+              <reference xmlns='https://xabber.com/protocol/references'
+                         type='mutable'
+                         begin='0'
+                         end='\(fallback.unicodeScalars.count)'>
+                <forwarded xmlns='urn:xmpp:forward:0'>
+                  <delay xmlns='urn:xmpp:delay' stamp='2026-08-26T10:00:00.000Z'/>
+                  <message from='alice@example.com/mobile'
+                           to='owner@example.com'
+                           type='chat'
+                           id='forwarded-photo-message'>
+                    <body>\(remoteURL)</body>
+                    <reference xmlns='https://xabber.com/protocol/references'
+                               type='mutable'
+                               begin='0'
+                               end='\(remoteURL.unicodeScalars.count)'>
+                      <file-sharing xmlns='https://xabber.com/protocol/files'>
+                        <file>
+                          <media-type>image/jpeg</media-type>
+                          <name>photo.jpg</name>
+                          <size>1024</size>
+                        </file>
+                        <sources><uri>\(remoteURL)</uri></sources>
+                      </file-sharing>
+                    </reference>
+                  </message>
+                </forwarded>
+              </reference>
+            </message>
+            """,
+            options: 0
+        )
+        return try XCTUnwrap(document.rootElement())
+    }
+
+    private func makeSyncAttachmentPreviewMessage(
+        kind: LastChatsPreviewAttachmentKind,
+        count: Int,
+        caption: String? = nil
+    ) throws -> DDXMLElement {
+        let filenames = (0..<count).map(kind.filename(at:))
+        let remoteURLs = filenames.enumerated().map { index, filename in
+            "https://gallery.example/files/token-\(index)/\(filename)"
+        }
+        let bodyComponents = ([caption].compactMap { $0 }) + remoteURLs
+        let body = bodyComponents.joined(separator: "\n")
+        var offset = caption.map {
+            $0.xmlEscaping(reverse: false).unicodeScalars.count + 1
+        } ?? 0
+        let referencesXML = zip(filenames, remoteURLs).map { filename, remoteURL -> String in
+            let begin = offset
+            let end = begin + remoteURL.xmlEscaping(reverse: false).unicodeScalars.count
+            offset = end + 1
+
+            let fileSharing = """
+            <file-sharing xmlns='https://xabber.com/protocol/files'>
+              <file>
+                <media-type>\(kind.mediaType)</media-type>
+                <name>\(filename)</name>
+                <size>1024</size>
+                \(kind == .voice ? "<duration>3</duration>" : "")
+              </file>
+              <sources>
+                <uri>\(remoteURL)</uri>
+              </sources>
+            </file-sharing>
+            """
+            let payload = kind == .voice
+                ? "<voice-message xmlns='https://xabber.com/protocol/voice-messages'>\(fileSharing)</voice-message>"
+                : fileSharing
+            return """
+            <reference xmlns='https://xabber.com/protocol/references'
+                       type='mutable'
+                       begin='\(begin)'
+                       end='\(end)'>
+              \(payload)
+            </reference>
+            """
+        }.joined(separator: "\n")
+        let document = try DDXMLDocument(
+            xmlString: """
+            <message from='juliet@example.com/mobile'
+                     to='owner@example.com'
+                     type='chat'
+                     id='sync-preview-message'>
+              <body>\(body)</body>
+              \(referencesXML)
+            </message>
+            """,
+            options: 0
+        )
+        return try XCTUnwrap(document.rootElement())
+    }
+
+    private func waitForLastChatsDataset(
+        _ controller: LastChatsViewController,
+        containing jid: String,
+        timeout: TimeInterval = 2
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if controller.datasource.contains(where: { $0.jid == jid }) {
+                return true
+            }
+            _ = RunLoop.current.run(
+                mode: .default,
+                before: Date().addingTimeInterval(0.01)
+            )
+        } while Date() < deadline
+        return controller.datasource.contains(where: { $0.jid == jid })
     }
 
     private func assertLargeTitle(

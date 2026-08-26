@@ -34,6 +34,73 @@ final class ServerDiscoCapabilityMergeTests: XCTestCase {
         super.tearDown()
     }
 
+    func testDeinitAfterDiscoveredGroupServicePublishesOwnerSnapshotWithoutRetainingManager() throws {
+        var manager: ServerDiscoManager? = ServerDiscoManager(withOwner: owner)
+
+        let itemsID = "group-items-\(UUID().uuidString)"
+        manager?.queryIds.insert(itemsID)
+        XCTAssertTrue(
+            manager?.read(
+                withIQ: try makeDiscoItemsResult(
+                    id: itemsID,
+                    serviceJID: "groups.example.com"
+                )
+            ) == true
+        )
+
+        let initialChange = expectation(description: "group service discovered")
+        let initialObserver = NotificationCenter.default.addObserver(
+            forName: .groupServiceDiscoveryDidChange,
+            object: nil,
+            queue: .main
+        ) { [owner] notification in
+            guard notification.userInfo?["owner"] as? String == owner else {
+                return
+            }
+            initialChange.fulfill()
+        }
+
+        let infoID = "group-info-\(UUID().uuidString)"
+        manager?.queryIds.insert(infoID)
+        XCTAssertTrue(
+            manager?.read(
+                withIQ: try makeDiscoResult(
+                    id: infoID,
+                    from: "groups.example.com",
+                    features: [GroupProtocolNamespace.groups]
+                )
+            ) == true
+        )
+        wait(for: [initialChange], timeout: 1)
+        NotificationCenter.default.removeObserver(initialObserver)
+        XCTAssertEqual(manager?.groupServiceJID, "groups.example.com")
+
+        let resetChange = expectation(description: "group service reset")
+        var resetNotificationObject: Any?
+        let resetObserver = NotificationCenter.default.addObserver(
+            forName: .groupServiceDiscoveryDidChange,
+            object: nil,
+            queue: .main
+        ) { [owner] notification in
+            guard notification.userInfo?["owner"] as? String == owner else {
+                return
+            }
+            resetNotificationObject = notification.object
+            resetChange.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(resetObserver) }
+
+        weak var weakManager = manager
+        manager = nil
+
+        wait(for: [resetChange], timeout: 1)
+        XCTAssertNil(weakManager)
+        XCTAssertNil(
+            resetNotificationObject,
+            "A teardown notification must carry immutable owner data without retaining the deallocating manager"
+        )
+    }
+
     func testBareJIDPushCapabilitiesMergeIntoRootCapabilitiesWithoutExtraWait() throws {
         let (account, stream) = makeAccountAndConfigureDiscovery()
         let bareQueryID = try XCTUnwrap(stream.discoInfoRequestID(to: owner))
@@ -428,6 +495,23 @@ final class ServerDiscoCapabilityMergeTests: XCTestCase {
             <iq type="result" id="\(id)" from="\(from)">
               <query xmlns="http://jabber.org/protocol/disco#info">
                 \(featureXML)
+              </query>
+            </iq>
+            """,
+            options: 0
+        )
+        return XMPPIQ(from: try XCTUnwrap(document.rootElement()))
+    }
+
+    private func makeDiscoItemsResult(
+        id: String,
+        serviceJID: String
+    ) throws -> XMPPIQ {
+        let document = try DDXMLDocument(
+            xmlString: """
+            <iq type="result" id="\(id)" from="example.com">
+              <query xmlns="http://jabber.org/protocol/disco#items">
+                <item jid="\(serviceJID)" />
               </query>
             </iq>
             """,

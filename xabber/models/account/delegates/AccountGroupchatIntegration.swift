@@ -48,48 +48,16 @@ final class CanonicalGroupTransportBinding {
     }
 }
 
-/// Rebinds canonical Groups to an authenticated stream-management generation
-/// and restarts authoritative refresh for memberships that remained active
-/// across the socket interruption.
+/// Rebinds canonical Groups to an authenticated stream-management generation.
+/// Persisted rooms are intentionally not enumerated here: authoritative
+/// admission is performed only for a group the user actually opens.
 enum CanonicalGroupStreamResumeRecovery {
     static func recover(
         binding: CanonicalGroupTransportBinding,
         stream: XMPPStream,
-        transport: @escaping GroupchatTransport,
-        invalidateCurrentActivations: () -> Void,
-        activeGroupJIDs: () throws -> [String],
-        activate: (String) throws -> Void
-    ) throws {
-        // Invalidate reducer-side work before replacing the transport. Any IQ
-        // issued by the old generation is then completed as disconnected by
-        // GroupchatService.prepare and cannot commit through an old ticket.
-        invalidateCurrentActivations()
+        transport: @escaping GroupchatTransport
+    ) {
         binding.prepare(stream: stream, transport: transport)
-
-        var seen = Set<String>()
-        for rawGroupJID in try activeGroupJIDs() {
-            let groupJID = GroupStorageKey.bareJID(rawGroupJID)
-            guard !groupJID.isEmpty, seen.insert(groupJID).inserted else {
-                continue
-            }
-            try activate(groupJID)
-        }
-    }
-}
-
-enum CanonicalGroupFullAuthenticationRecovery {
-    static func recover(
-        activeGroupJIDs: () throws -> [String],
-        activate: (String) throws -> Void
-    ) throws {
-        var seen = Set<String>()
-        for rawGroupJID in try activeGroupJIDs() {
-            let groupJID = GroupStorageKey.bareJID(rawGroupJID)
-            guard !groupJID.isEmpty, seen.insert(groupJID).inserted else {
-                continue
-            }
-            try activate(groupJID)
-        }
     }
 }
 
@@ -124,66 +92,6 @@ enum CanonicalCreatedGroupOwnerAdmission {
     }
 }
 
-enum CanonicalGroupFreshAuthenticationRecoveryResult: Equatable {
-    case admitted(memberID: String)
-    case ignoredTombstone
-}
-
-enum CanonicalGroupFreshAuthenticationRecoveryError: Error, Equatable {
-    case missingSelfMemberID
-}
-
-/// Converts a XEP-SYNC group candidate into canonical state only after the
-/// members IQ proves that the current account is an active group member.
-@MainActor
-enum CanonicalGroupFreshAuthenticationRecovery {
-    static func recover(
-        owner: String,
-        groupJID rawGroupJID: String,
-        repository: GroupRepository,
-        refreshGroup: () async throws -> GroupSnapshot,
-        refreshMembers: () async throws -> [GroupMember],
-        activateConversationAndHistory: (String) throws -> Void,
-        refreshPermissions: (String) async throws -> GroupPermissionSet
-    ) async throws -> CanonicalGroupFreshAuthenticationRecoveryResult {
-        let groupJID = GroupStorageKey.bareJID(rawGroupJID)
-        let snapshot = try await refreshGroup()
-        let members = try await refreshMembers()
-        let existingSelfMemberID = try? repository.projection(
-            owner: owner,
-            groupJID: groupJID
-        ).selfMemberID
-        guard let selfMemberID = CanonicalGroupSelfIdentity.resolve(
-            existingMemberID: existingSelfMemberID,
-            ownerJID: owner,
-            members: members
-        ) else {
-            throw CanonicalGroupFreshAuthenticationRecoveryError.missingSelfMemberID
-        }
-        let admission = try repository.admitSnapshot(
-            snapshot,
-            membership: .both,
-            memberID: selfMemberID,
-            owner: owner,
-            groupJID: groupJID,
-            members: members,
-            rejectingTombstone: true
-        )
-        guard admission == .admitted else {
-            return .ignoredTombstone
-        }
-
-        try activateConversationAndHistory(groupJID)
-        let permissions = try await refreshPermissions(selfMemberID)
-        try repository.replacePermissionSet(
-            permissions,
-            owner: owner,
-            groupJID: groupJID
-        )
-        return .admitted(memberID: selfMemberID)
-    }
-}
-
 enum CanonicalGroupMessageAdmission {
     static func allowsPersistence(
         owner: String,
@@ -199,6 +107,268 @@ enum CanonicalGroupMessageAdmission {
             return false
         }
         return role != .none
+    }
+}
+
+enum ArchiveConversationAdmissionResult: Equatable, Sendable {
+    case notRequired
+    case admitted
+}
+
+enum ArchiveConversationAdmissionError: Error, Equatable, Sendable {
+    case disconnected
+    case staleConnection
+    case ownerMismatch
+    case invalidGroupJID
+    case missingSelfMemberID
+    case inactiveSelfMembership
+    case tombstoned
+}
+
+/// ArchiveEngine preflight seam. Admission may materialize authorization
+/// required to persist a requested archive window, but it never sends MAM.
+protocol ArchiveConversationAdmissionProviding: Sendable {
+    func connectionDidBecomeReady(generation: UInt64) async
+    func connectionDidDisconnect() async
+    func admit(
+        _ conversation: ArchiveConversationKey,
+        connectionGeneration: UInt64
+    ) async throws -> ArchiveConversationAdmissionResult
+}
+
+/// The minimal canonical Groups surface needed before MAM. Permissions are
+/// deliberately absent: capability hydration is lazy and cannot delay history.
+protocol CanonicalGroupOpenAdmissionServicing: Sendable {
+    func hasDurableAdmission(owner: String, groupJID: String) -> Bool
+    func existingSelfMemberID(owner: String, groupJID: String) -> String?
+    func refreshGroup(groupJID: String) async throws -> GroupSnapshot
+    func refreshMembers(groupJID: String) async throws -> [GroupMember]
+    func commitAdmission(
+        snapshot: GroupSnapshot,
+        members: [GroupMember],
+        selfMemberID: String,
+        owner: String,
+        groupJID: String
+    ) throws -> GroupRepositoryAdmissionResult
+}
+
+/// One account-scoped owner of group-open authorization. The actor joins
+/// identical opens, rejects late stream generations, and commits membership,
+/// snapshot, and members only after both authoritative IQs have completed.
+actor CanonicalGroupOpenAdmissionCoordinator:
+    ArchiveConversationAdmissionProviding {
+    private struct RequestKey: Hashable {
+        let groupJID: String
+        let connectionGeneration: UInt64
+    }
+
+    private let owner: String
+    private let service: CanonicalGroupOpenAdmissionServicing
+    private var currentConnectionGeneration: UInt64?
+    private var activeAdmissions: [
+        RequestKey: Task<ArchiveConversationAdmissionResult, Error>
+    ] = [:]
+
+    init(
+        owner: String,
+        service: CanonicalGroupOpenAdmissionServicing
+    ) {
+        self.owner = GroupStorageKey.bareJID(owner)
+        self.service = service
+    }
+
+    func connectionDidBecomeReady(generation: UInt64) {
+        guard currentConnectionGeneration != generation else {
+            return
+        }
+        activeAdmissions.values.forEach { $0.cancel() }
+        activeAdmissions.removeAll()
+        currentConnectionGeneration = generation
+    }
+
+    func connectionDidDisconnect() {
+        currentConnectionGeneration = nil
+        activeAdmissions.values.forEach { $0.cancel() }
+        activeAdmissions.removeAll()
+    }
+
+    func admit(
+        _ conversation: ArchiveConversationKey,
+        connectionGeneration: UInt64
+    ) async throws -> ArchiveConversationAdmissionResult {
+        guard conversation.conversationType == .group else {
+            return .notRequired
+        }
+        guard GroupStorageKey.bareJID(conversation.owner) == owner else {
+            throw ArchiveConversationAdmissionError.ownerMismatch
+        }
+        try ensureCurrent(connectionGeneration)
+
+        let groupJID = GroupStorageKey.bareJID(conversation.jid)
+        guard groupJID.isNotEmpty else {
+            throw ArchiveConversationAdmissionError.invalidGroupJID
+        }
+        if service.hasDurableAdmission(owner: owner, groupJID: groupJID) {
+            return .admitted
+        }
+
+        let key = RequestKey(
+            groupJID: groupJID,
+            connectionGeneration: connectionGeneration
+        )
+        let admission: Task<ArchiveConversationAdmissionResult, Error>
+        if let active = activeAdmissions[key] {
+            admission = active
+        } else {
+            admission = Task { [weak self] in
+                guard let self else {
+                    throw ArchiveConversationAdmissionError.disconnected
+                }
+                return try await self.performAdmission(
+                    groupJID: groupJID,
+                    connectionGeneration: connectionGeneration
+                )
+            }
+            activeAdmissions[key] = admission
+        }
+
+        do {
+            let result = try await admission.value
+            activeAdmissions.removeValue(forKey: key)
+            return result
+        } catch {
+            activeAdmissions.removeValue(forKey: key)
+            if currentConnectionGeneration == nil {
+                throw ArchiveConversationAdmissionError.disconnected
+            }
+            if currentConnectionGeneration != connectionGeneration {
+                throw ArchiveConversationAdmissionError.staleConnection
+            }
+            throw error
+        }
+    }
+
+    private func performAdmission(
+        groupJID: String,
+        connectionGeneration: UInt64
+    ) async throws -> ArchiveConversationAdmissionResult {
+        try ensureCurrent(connectionGeneration)
+        let snapshot = try await service.refreshGroup(groupJID: groupJID)
+        try Task.checkCancellation()
+        try ensureCurrent(connectionGeneration)
+
+        let members = try await service.refreshMembers(groupJID: groupJID)
+        try Task.checkCancellation()
+        try ensureCurrent(connectionGeneration)
+
+        let existingSelfMemberID = service.existingSelfMemberID(
+            owner: owner,
+            groupJID: groupJID
+        )
+        guard let selfMemberID = CanonicalGroupSelfIdentity.resolve(
+            existingMemberID: existingSelfMemberID,
+            ownerJID: owner,
+            members: members
+        ) else {
+            throw ArchiveConversationAdmissionError.missingSelfMemberID
+        }
+        guard let selfRole = members.first(where: { $0.id == selfMemberID })?.role,
+              selfRole != GroupMemberRole.none else {
+            throw ArchiveConversationAdmissionError.inactiveSelfMembership
+        }
+        let reconciledMembers = CanonicalGroupSelfIdentity.attachingOwnerJID(
+            to: members,
+            selfMemberID: selfMemberID,
+            ownerJID: owner
+        )
+
+        try ensureCurrent(connectionGeneration)
+        let result = try service.commitAdmission(
+            snapshot: snapshot,
+            members: reconciledMembers,
+            selfMemberID: selfMemberID,
+            owner: owner,
+            groupJID: groupJID
+        )
+        guard result == .admitted else {
+            throw ArchiveConversationAdmissionError.tombstoned
+        }
+        return .admitted
+    }
+
+    private func ensureCurrent(_ generation: UInt64) throws {
+        guard let currentConnectionGeneration else {
+            throw ArchiveConversationAdmissionError.disconnected
+        }
+        guard currentConnectionGeneration == generation else {
+            throw ArchiveConversationAdmissionError.staleConnection
+        }
+    }
+}
+
+/// Realm/GroupchatService adapter used by Account when constructing its
+/// account-scoped admission coordinator. It performs no permissions request.
+final class LiveCanonicalGroupOpenAdmissionService:
+    CanonicalGroupOpenAdmissionServicing,
+    @unchecked Sendable {
+    private let groupchatService: GroupchatService
+
+    init(groupchatService: GroupchatService) {
+        self.groupchatService = groupchatService
+    }
+
+    func hasDurableAdmission(owner: String, groupJID: String) -> Bool {
+        guard let realm = try? WRealm.safe() else {
+            return false
+        }
+        return CanonicalGroupMessageAdmission.allowsPersistence(
+            owner: owner,
+            groupJID: groupJID,
+            repository: GroupRepository(realm: realm)
+        )
+    }
+
+    func existingSelfMemberID(owner: String, groupJID: String) -> String? {
+        guard let realm = try? WRealm.safe() else {
+            return nil
+        }
+        return try? GroupRepository(realm: realm)
+            .projection(owner: owner, groupJID: groupJID)
+            .selfMemberID
+    }
+
+    func refreshGroup(groupJID: String) async throws -> GroupSnapshot {
+        try await groupchatService.refreshGroup(groupJID: groupJID)
+    }
+
+    func refreshMembers(groupJID: String) async throws -> [GroupMember] {
+        try await groupchatService.refreshMembers(groupJID: groupJID)
+    }
+
+    func commitAdmission(
+        snapshot: GroupSnapshot,
+        members: [GroupMember],
+        selfMemberID: String,
+        owner: String,
+        groupJID: String
+    ) throws -> GroupRepositoryAdmissionResult {
+        let realm = try WRealm.safe()
+        return try GroupRepository(realm: realm).admitSnapshot(
+            snapshot,
+            membership: .both,
+            memberID: selfMemberID,
+            owner: owner,
+            groupJID: groupJID,
+            members: members,
+            rejectingTombstone: true,
+            additionalMutation: { transactionRealm in
+                try GroupConversationProjectionStore.activate(
+                    owner: owner,
+                    groupJID: groupJID,
+                    in: transactionRealm
+                )
+            }
+        )
     }
 }
 
@@ -551,53 +721,6 @@ enum CanonicalGroupMembershipLifecycle {
     }
 }
 
-final class GroupActivationSyncGate {
-    struct Ticket: Equatable {
-        fileprivate let groupJID: String
-        fileprivate let generation: UInt64
-    }
-
-    private let lock = NSLock()
-    private var nextGeneration: UInt64 = 0
-    private var active: [String: UInt64] = [:]
-
-    func begin(groupJID rawGroupJID: String) -> Ticket? {
-        let groupJID = GroupStorageKey.bareJID(rawGroupJID)
-        lock.lock()
-        defer { lock.unlock() }
-        guard active[groupJID] == nil else { return nil }
-        nextGeneration &+= 1
-        active[groupJID] = nextGeneration
-        return Ticket(groupJID: groupJID, generation: nextGeneration)
-    }
-
-    func end(_ ticket: Ticket) {
-        lock.lock()
-        if active[ticket.groupJID] == ticket.generation {
-            active.removeValue(forKey: ticket.groupJID)
-        }
-        lock.unlock()
-    }
-
-    func isCurrent(_ ticket: Ticket) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return active[ticket.groupJID] == ticket.generation
-    }
-
-    func invalidate(groupJID rawGroupJID: String) {
-        lock.lock()
-        active.removeValue(forKey: GroupStorageKey.bareJID(rawGroupJID))
-        lock.unlock()
-    }
-
-    func invalidateAll() {
-        lock.lock()
-        active.removeAll()
-        lock.unlock()
-    }
-}
-
 /// Active canonical groups own their owner/JID conversation namespace.
 /// Account-side archived copies may omit the Groups extension and look like
 /// regular messages, but they must never create a second contact conversation.
@@ -703,17 +826,25 @@ enum GroupConversationProjectionStore {
             owner: owner,
             conversationType: .group
         )
-        guard realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary) == nil else {
-            return
-        }
-        let item = LastChatsStorageItem()
-        item.primary = primary
-        item.owner = owner
-        item.jid = groupJID
-        item.conversationType = .group
-        item.messageDate = Date()
-        try realm.write {
+        let mutation = {
+            guard realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: primary
+            ) == nil else {
+                return
+            }
+            let item = LastChatsStorageItem()
+            item.primary = primary
+            item.owner = owner
+            item.jid = groupJID
+            item.conversationType = .group
+            item.messageDate = Date()
             realm.add(item, update: .error)
+        }
+        if realm.isInWriteTransaction {
+            mutation()
+        } else {
+            try realm.write(mutation)
         }
     }
 
@@ -872,116 +1003,21 @@ extension Account {
         canonicalGroupTransportBinding.disconnect()
     }
 
-    /// XEP-0198 resume skips the ordinary extension setup path. The stream
-    /// transport was intentionally cleared on disconnect, so it must be
-    /// rebound here before active groups request MAM, snapshots, members, and
-    /// direct permissions again.
+    /// XEP-0198 resume skips the ordinary extension setup path. Rebind the
+    /// transport generation without enumerating or hydrating persisted rooms.
     func recoverCanonicalGroupRuntimeAfterStreamManagementResume() {
-        do {
-            let stream = xmppStream
-            try CanonicalGroupStreamResumeRecovery.recover(
-                binding: canonicalGroupTransportBinding,
-                stream: stream,
-                transport: canonicalGroupTransport(for: stream),
-                invalidateCurrentActivations: {
-                    self.groupActivationSyncGate.invalidateAll()
-                },
-                activeGroupJIDs: {
-                    try GroupRepository(realm: WRealm.safe())
-                        .activeGroups(owners: [self.jid])
-                        .map(\.groupJID)
-                },
-                activate: { groupJID in
-                    self.groupMembershipDidActivate(groupJID)
-                }
-            )
-        } catch {
-            // The service transport is already prepared even when Realm lookup
-            // fails, so live membership signals can still recover the state.
-            DDLogError("Group resume recovery failed for \(jid): \(error)")
-        }
+        let stream = xmppStream
+        CanonicalGroupStreamResumeRecovery.recover(
+            binding: canonicalGroupTransportBinding,
+            stream: stream,
+            transport: canonicalGroupTransport(for: stream)
+        )
     }
 
-    /// Full SASL authentication prepares a fresh transport generation. Restore
-    /// persisted `.both` groups immediately even when XEP-SYNC is unavailable;
-    /// a clean Realm is populated later from verified synchronization candidates.
+    /// Full SASL authentication prepares only the typed transport. A room is
+    /// refreshed when the user opens it, never as account-startup fanout.
     func recoverCanonicalGroupRuntimeAfterFullAuthentication() {
         prepareCanonicalGroupTransport()
-        do {
-            try CanonicalGroupFullAuthenticationRecovery.recover(
-                activeGroupJIDs: {
-                    try GroupRepository(realm: WRealm.safe())
-                        .activeGroups(owners: [self.jid])
-                        .map(\.groupJID)
-                },
-                activate: { groupJID in
-                    self.groupMembershipDidActivate(groupJID)
-                }
-            )
-        } catch {
-            DDLogError("Group full-auth recovery failed for \(jid): \(error)")
-        }
-    }
-
-    /// A full authentication on a clean Realm has no canonical memberships to
-    /// resume. XEP-SYNC provides candidates; group+members IQ authorization is
-    /// the proof used to admit them without creating generic chat projections.
-    func recoverCanonicalGroupMembershipFromSynchronization(
-        _ rawGroupJID: String
-    ) {
-        let groupJID = GroupStorageKey.bareJID(rawGroupJID)
-        guard let syncTicket = groupActivationSyncGate.begin(groupJID: groupJID) else {
-            return
-        }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer { self.groupActivationSyncGate.end(syncTicket) }
-            do {
-                let repository = GroupRepository(realm: try WRealm.safe())
-                _ = try await CanonicalGroupFreshAuthenticationRecovery.recover(
-                    owner: self.jid,
-                    groupJID: groupJID,
-                    repository: repository,
-                    refreshGroup: {
-                        try await self.groupchatService.refreshGroup(groupJID: groupJID)
-                    },
-                    refreshMembers: {
-                        try await self.groupchatService.refreshMembers(groupJID: groupJID)
-                    },
-                    activateConversationAndHistory: { verifiedGroupJID in
-                        guard self.groupActivationSyncGate.isCurrent(syncTicket) else {
-                            throw CancellationError()
-                        }
-                        let realm = try WRealm.safe()
-                        try GroupConversationProjectionStore.activate(
-                            owner: self.jid,
-                            groupJID: verifiedGroupJID,
-                            in: realm
-                        )
-                        if let groupAddress = XMPPJID(string: verifiedGroupJID) {
-                            self.mam.requestCanonicalGroupHistory(
-                                self.xmppStream,
-                                groupJID: groupAddress
-                            )
-                        }
-                    },
-                    refreshPermissions: { selfMemberID in
-                        guard self.groupActivationSyncGate.isCurrent(syncTicket) else {
-                            throw CancellationError()
-                        }
-                        return try await self.groupchatService.getPermissions(
-                            groupJID: groupJID,
-                            scope: .direct,
-                            targetMemberID: selfMemberID
-                        )
-                    }
-                )
-            } catch is CancellationError {
-                return
-            } catch {
-                DDLogError("Fresh-auth group recovery failed for \(groupJID): \(error)")
-            }
-        }
     }
 
     func reconcileCanonicalGroupDeletionFromSynchronization(
@@ -1014,9 +1050,9 @@ extension Account {
 
     func groupMembershipDidActivate(_ rawGroupJID: String) {
         let groupJID = GroupStorageKey.bareJID(rawGroupJID)
-        guard let syncTicket = groupActivationSyncGate.begin(groupJID: groupJID) else {
-            return
-        }
+        // Membership events only update local projection. Authoritative group
+        // details and members are admitted immediately before the first MAM
+        // window; permissions stay lazy behind their explicit UI actions.
         do {
             try GroupConversationProjectionStore.activate(
                 owner: jid,
@@ -1024,85 +1060,12 @@ extension Account {
                 in: WRealm.safe()
             )
         } catch {
-            groupActivationSyncGate.end(syncTicket)
             DDLogError("Group conversation activation failed for \(groupJID): \(error)")
-            return
-        }
-        if let groupAddress = XMPPJID(string: groupJID) {
-            mam.requestCanonicalGroupHistory(
-                xmppStream,
-                groupJID: groupAddress
-            )
-        }
-        Task { [weak self] in
-            guard let self else { return }
-            defer { self.groupActivationSyncGate.end(syncTicket) }
-            do {
-                let snapshot = try await self.groupchatService.refreshGroup(
-                    groupJID: groupJID
-                )
-                guard self.groupActivationSyncGate.isCurrent(syncTicket) else {
-                    return
-                }
-                try GroupRepository(realm: WRealm.safe()).applySnapshot(
-                    snapshot,
-                    owner: self.jid,
-                    groupJID: groupJID
-                )
-
-                let members = try await self.groupchatService.refreshMembers(
-                    groupJID: groupJID
-                )
-                guard self.groupActivationSyncGate.isCurrent(syncTicket) else {
-                    return
-                }
-                let repository = GroupRepository(realm: try WRealm.safe())
-                let existingSelfMemberID = try? repository.projection(
-                    owner: self.jid,
-                    groupJID: groupJID
-                ).selfMemberID
-                let selfMemberID = CanonicalGroupSelfIdentity.resolve(
-                    existingMemberID: existingSelfMemberID,
-                    ownerJID: self.jid,
-                    members: members
-                )
-                let reconciledMembers = CanonicalGroupSelfIdentity.attachingOwnerJID(
-                    to: members,
-                    selfMemberID: selfMemberID,
-                    ownerJID: self.jid
-                )
-                try repository.replaceMembers(
-                    reconciledMembers,
-                    owner: self.jid,
-                    groupJID: groupJID
-                )
-
-                if let selfMemberID {
-                    let permissions = try await self.groupchatService.getPermissions(
-                        groupJID: groupJID,
-                        scope: .direct,
-                        targetMemberID: selfMemberID
-                    )
-                    guard self.groupActivationSyncGate.isCurrent(syncTicket) else {
-                        return
-                    }
-                    try GroupRepository(realm: WRealm.safe()).replacePermissionSet(
-                        permissions,
-                        owner: self.jid,
-                        groupJID: groupJID
-                    )
-                }
-            } catch is CancellationError {
-                return
-            } catch {
-                DDLogError("Group activation sync failed for \(groupJID): \(error)")
-            }
         }
     }
 
     func groupMembershipDidDeactivate(_ rawGroupJID: String) {
         let groupJID = GroupStorageKey.bareJID(rawGroupJID)
-        groupActivationSyncGate.invalidate(groupJID: groupJID)
         do {
             let realm = try WRealm.safe()
             let targets = GroupConversationProjectionStore.deactivationTargets(
@@ -1112,7 +1075,6 @@ extension Account {
             )
             var firstCleanupError: Error?
             for target in targets {
-                groupActivationSyncGate.invalidate(groupJID: target)
                 do {
                     try GroupConversationProjectionStore.deactivate(
                         owner: jid,

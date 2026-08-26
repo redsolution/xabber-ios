@@ -98,6 +98,87 @@ final class MessageBareJIDSendTests: XCTestCase {
         XCTAssertNil(stanza.to?.resource)
     }
 
+    func testSuccessfulLocalSavePublishesTypedOutgoingAdmissionBeforeSendProcessing() throws {
+        let owner = "owner@example.test"
+        let bareContactJID = "contact@example.test"
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+        defer {
+            manager.updateSendingMessagesTimer?.invalidate()
+            manager.updateSendingMessagesTimer = nil
+        }
+        var received: ChatTimelineLocalOutgoingAdmission?
+        var wasDurableAtPublication = false
+        manager.localOutgoingAdmissionPublisher = { admission in
+            received = admission
+            let realm = try? WRealm.safe()
+            let stored = realm?.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: admission.primaryID
+            )
+            wasDurableAtPublication = stored?.outgoing == true &&
+                stored?.owner == admission.conversation.owner &&
+                stored?.opponent == admission.conversation.jid
+        }
+
+        let originID = manager.sendSimpleMessage(
+            "Immediate",
+            to: bareContactJID,
+            forwarded: [],
+            conversationType: .regular
+        )
+
+        XCTAssertEqual(
+            received,
+            ChatTimelineLocalOutgoingAdmission(
+                conversation: ArchiveConversationKey(
+                    owner: owner,
+                    jid: bareContactJID,
+                    conversationType: .regular
+                ),
+                primaryID: MessageStorageItem.genPrimary(
+                    messageId: originID,
+                    owner: owner
+                )
+            )
+        )
+        XCTAssertTrue(wasDurableAtPublication)
+    }
+
+    func testMediaPreparationPublishesTypedOutgoingAdmissionAfterDurableSave() throws {
+        let owner = "owner@example.test"
+        let jid = "media@example.test"
+        let manager = MessageManager(withOwner: owner, activeStream: false)
+        defer {
+            manager.updateSendingMessagesTimer?.invalidate()
+            manager.updateSendingMessagesTimer = nil
+        }
+        var received: [ChatTimelineLocalOutgoingAdmission] = []
+        manager.localOutgoingAdmissionPublisher = { received.append($0) }
+        let reference = MessageReferenceStorageItem()
+        reference.kind = .media
+        reference.mimeType = "image/jpeg"
+        reference.metadata = [
+            "filename": "photo.jpg",
+            "media-type": "image/jpeg"
+        ]
+
+        let primary = try XCTUnwrap(manager.willSendMediaMessage(
+            [reference],
+            to: jid,
+            forwarded: [],
+            conversationType: .regular
+        ))
+
+        XCTAssertEqual(received.map(\.primaryID), [primary])
+        XCTAssertEqual(received.first?.conversation.jid, jid)
+        let stored = try WRealm.safe().object(
+            ofType: MessageStorageItem.self,
+            forPrimaryKey: primary
+        )
+        XCTAssertEqual(stored?.state, .uploading)
+        XCTAssertTrue(stored?.outgoing == true)
+    }
+
     func testRegularReplayCanonicalizesLegacyFullJIDQueueDestination() throws {
         let recorder = MessageBareJIDSendRecorder()
         let coordinator = AccountSendCoordinator(

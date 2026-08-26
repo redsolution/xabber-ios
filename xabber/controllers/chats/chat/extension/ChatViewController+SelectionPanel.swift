@@ -163,7 +163,8 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
             self.datasource,
             mode: .fullReload(keepOffset: true),
             animated: false,
-            suppressDefaultBottomScroll: true
+            suppressDefaultBottomScroll: true,
+            presentationOwner: .archiveEngine
         )
     }
     

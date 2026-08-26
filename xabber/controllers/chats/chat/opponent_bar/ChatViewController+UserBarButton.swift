@@ -407,6 +407,7 @@ extension ChatViewController {
 enum ChatNavigationAvatarItemFactory {
     static let accessibilityIdentifier = "chat_navigation_avatar_button"
     static let imageSize: CGFloat = 32
+    static let controlSize: CGFloat = 44
     private static let savedIconSize: CGFloat = 16
 
     static func makeItem(
@@ -414,16 +415,46 @@ enum ChatNavigationAvatarItemFactory {
         target: AnyObject?,
         action: Selector
     ) -> UIBarButtonItem {
-        let resolvedImage = image ?? fallbackImage()
-        let item = UIBarButtonItem(
-            image: resolvedImage.withRenderingMode(.alwaysOriginal),
-            style: .plain,
-            target: target,
-            action: action
+        let resolvedImage = (image ?? fallbackImage())
+            .withRenderingMode(.alwaysOriginal)
+        let button = RoundedAvatarButton(
+            frame: CGRect(square: controlSize),
+            avatarMaskResourceName: AccountMasksManager.shared.mask32pt
         )
+        button.setImage(resolvedImage, for: .normal)
+        button.imageView?.contentMode = .scaleAspectFill
+        button.addTarget(target, action: action, for: .touchUpInside)
+        button.accessibilityIdentifier = accessibilityIdentifier
+        button.accessibilityLabel = "Chat info".localizeString(
+            id: "chat_info",
+            arguments: []
+        )
+        let item = UIBarButtonItem(
+            customView: button
+        )
+        // Keep the semantic item properties populated for UIKit state
+        // restoration and existing callers. The concrete button owns the
+        // first-frame pixels so iOS does not wait for a push portal snapshot.
+        item.image = resolvedImage
+        item.target = target
+        item.action = action
         item.accessibilityIdentifier = accessibilityIdentifier
-        item.accessibilityLabel = "Chat info".localizeString(id: "chat_info", arguments: [])
+        item.accessibilityLabel = button.accessibilityLabel
         return item
+    }
+
+    static func updateImage(_ image: UIImage?, on item: UIBarButtonItem?) {
+        guard let item else { return }
+        let resolvedImage = (image ?? fallbackImage())
+            .withRenderingMode(.alwaysOriginal)
+        if item.image !== resolvedImage {
+            item.image = resolvedImage
+        }
+        guard let button = item.customView as? RoundedAvatarButton,
+              button.image(for: .normal) !== resolvedImage else {
+            return
+        }
+        button.setImage(resolvedImage, for: .normal)
     }
 
     static func fallbackImage() -> UIImage {
@@ -591,6 +622,14 @@ extension ChatViewController {
             return ChatNavigationAvatarItemFactory.savedMessagesImage(
                 backgroundColor: palette.tint100,
                 iconTintColor: palette.tint900
+            )
+        }
+
+        if let cachedAvatar = DefaultAvatarManager.shared.cachedAvatarImage(
+            url: currentNavigationAvatarURL()
+        ) {
+            return ChatNavigationAvatarItemFactory.avatarImage(
+                from: cachedAvatar
             )
         }
 
@@ -808,8 +847,10 @@ extension ChatViewController {
               navigationAvatarDisplayedContentKey != contentKey else {
             return
         }
-        navigationAvatarItem?.image = (image ?? ChatNavigationAvatarItemFactory.fallbackImage())
-            .withRenderingMode(.alwaysOriginal)
+        ChatNavigationAvatarItemFactory.updateImage(
+            image,
+            on: navigationAvatarItem
+        )
         navigationAvatarDisplayedContentKey = contentKey
     }
 

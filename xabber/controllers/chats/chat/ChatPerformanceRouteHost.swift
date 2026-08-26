@@ -552,7 +552,6 @@ final class ChatPerformanceLastChatsRouteHostViewController:
     private var p14RequestAdmissionCountBeforeTap = 0
     private var p14RowReadinessWorkItem: DispatchWorkItem?
     private var p14RowReadinessDeadline: Date?
-    private var p14DidShowObserved = false
     private var p13DidShowObserved = false
     private weak var p13SourceHost:
         ChatPerformanceMentionNotificationsRouteHostViewController?
@@ -581,13 +580,6 @@ final class ChatPerformanceLastChatsRouteHostViewController:
         self.destination = destination
         self.rootCoordinator = rootCoordinator
         super.init(nibName: nil, bundle: nil)
-
-        if scenario == .coldPushExact,
-           !destination.prepareOpenScenarioArchiveTransportForRouteAdmission() {
-            preconditionFailure(
-                "P04 requires isolated archive transport before intent delivery"
-            )
-        }
 
         compactChatDestinationFactory = { [weak destination] in
             guard let destination else {
@@ -777,9 +769,7 @@ final class ChatPerformanceLastChatsRouteHostViewController:
         if !didReleaseDestinationNavigationTransition {
             didReleaseDestinationNavigationTransition = true
             destination.completeNavigationTransitionDeferral(cancelled: false)
-            destination.performPendingOpenMessageRequestIfNeeded(
-                trigger: .manual
-            )
+            destination.performPendingOpenMessageRequestIfNeeded()
         }
         let backdrop = destination.chatDestinationBackdropInstallationReceipt
         let isAdmissible = ChatPerformanceNativePushBackdropPolicy.isAdmissible(
@@ -809,12 +799,6 @@ final class ChatPerformanceLastChatsRouteHostViewController:
         destination.performanceRouteHostDidCompleteNativePresentation(
             routeHostDiagnostics()
         )
-        if scenario == .lastChatsSeededMentionExact {
-            p14DidShowObserved = true
-            publishP14DidShowBoundaryIfReady(
-                navigationController: navigationController
-            )
-        }
     }
 
     /// The request admission callback is synchronous inside production
@@ -1045,30 +1029,6 @@ final class ChatPerformanceLastChatsRouteHostViewController:
         p14SourceRowTapCount = 1
         didAttemptRoute = true
         routeAttemptCount = 1
-    }
-
-    private func publishP14DidShowBoundaryIfReady(
-        navigationController: UINavigationController
-    ) {
-        guard scenario == .lastChatsSeededMentionExact,
-              p14DidShowObserved,
-              navigationController.topViewController === destination,
-              navigationController.visibleViewController === destination,
-              destination.viewIfLoaded?.window ===
-                navigationController.viewIfLoaded?.window else {
-            return
-        }
-        guard navigationController.transitionCoordinator == nil,
-              destination.transitionCoordinator == nil else {
-            DispatchQueue.main.async { [weak self, weak navigationController] in
-                guard let self, let navigationController else { return }
-                self.publishP14DidShowBoundaryIfReady(
-                    navigationController: navigationController
-                )
-            }
-            return
-        }
-        destination.performanceP14NativeDidShowPresentationReceiptIfReady()
     }
 
     private func recordColdStableVisibilityConsumption() {

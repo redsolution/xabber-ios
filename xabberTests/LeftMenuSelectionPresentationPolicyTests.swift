@@ -204,7 +204,6 @@ final class SavedMessagesEntryPointTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
         previousRealmConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "SavedMessagesEntryPointTests-\(name)-\(UUID().uuidString)"
@@ -217,10 +216,14 @@ final class SavedMessagesEntryPointTests: XCTestCase {
     }
 
     override func tearDown() {
-        retainedTraitWindows.forEach { $0.isHidden = true }
+        let windows = retainedTraitWindows
+        UIView.performWithoutAnimation {
+            windows.forEach { $0.isHidden = true }
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        windows.forEach { $0.rootViewController = nil }
         retainedTraitWindows.removeAll()
         AccountManager.shared.users.removeAll()
-        ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
         Realm.Configuration.defaultConfiguration = previousRealmConfiguration
         previousRealmConfiguration = nil
         super.tearDown()
@@ -1124,215 +1127,6 @@ final class SavedMessagesEntryPointTests: XCTestCase {
         })
     }
 
-    @MainActor
-    func testFreshEmptySavedDirectRouteConsumesFastTerminalAfterOffscreenPushInstallation() throws {
-        // XCTest repetition can let a prior UIKit transition finish after its
-        // test teardown. Use a unique account-scoped lease so that such a late
-        // callback cannot join the next iteration's bootstrap transaction.
-        let owner = "fresh-saved-route-\(UUID().uuidString)@example.com"
-        let favoritesJid = "favorites.example.com"
-        try seedAccount(owner)
-        try seedFavoritesService(owner: owner, node: favoritesJid)
-        try seedLastChat(
-            jid: favoritesJid,
-            owner: owner,
-            conversationType: .saved
-        )
-
-        let windowScene = try requireHostedForegroundWindowScene()
-        let previousKeyWindow = windowScene.windows.first(where: \.isKeyWindow)
-        let leftMenu = LeftMenuViewController()
-        let chatsController = LastChatsViewController()
-        let destination = SavedLifecycleChatViewController()
-        let previousSupplementary = UINavigationController(
-            rootViewController: LastChatsViewController()
-        )
-        let previousSecondary = UINavigationController(
-            rootViewController: EmptyChatViewController()
-        )
-        let splitViewController = UISplitViewController(style: .tripleColumn)
-        let accountIdentity = NSObject()
-        let stream = XMPPStream()
-        let archiveManager = MessageArchiveManager(withOwner: owner)
-        let messageManager = MessageManager(withOwner: owner, activeStream: false)
-        var hostedWindow: UIWindow?
-        messageManager.updateSendingMessagesTimer?.invalidate()
-        messageManager.updateSendingMessagesTimer = nil
-        messageManager.unsubscribeSender()
-        defer {
-            destination.performTerminalChatResourceTeardownForTesting()
-            messageManager.updateSendingMessagesTimer?.invalidate()
-            messageManager.updateSendingMessagesTimer = nil
-            messageManager.unsubscribeReceiver()
-            messageManager.unsubscribeSender()
-            chatsController.resetChatNavigationTransaction(cancelled: true)
-            hostedWindow?.isHidden = true
-            hostedWindow?.rootViewController = nil
-            previousKeyWindow?.makeKey()
-        }
-
-        destination.initialFramePresentationApplicationStateProvider = { .active }
-        var transportQueryId: String?
-        destination.performanceFixtureArchiveTransportProvider = { request in
-            guard request.kind == .initialBootstrap,
-                  let queryId = request.queryIds.first else {
-                return nil
-            }
-            transportQueryId = queryId
-            messageManager.archiveQueryIdPersistenceResolver = {
-                $0 == queryId
-            }
-            return ChatPerformanceFixtureArchiveTransportSession(
-                stream: stream,
-                archiveManager: archiveManager,
-                messageManager: messageManager
-            )
-        }
-        let transportLaunched = DispatchSemaphore(value: 0)
-        let backgroundTerminalCommitted = DispatchSemaphore(value: 0)
-        destination.performanceFixtureArchiveTransportExecutor = { work in
-            guard let queryId = transportQueryId else {
-                return XCTFail("expected a Saved bootstrap query")
-            }
-            DispatchQueue.global(qos: .userInitiated).async {
-                work()
-                transportLaunched.signal()
-                let document = try! DDXMLDocument(xmlString: """
-                <iq type='result' id='\(queryId)'>
-                  <fin xmlns='urn:xmpp:mam:2' complete='true' queryid='\(queryId)'>
-                    <set xmlns='http://jabber.org/protocol/rsm'>
-                      <count>0</count><first></first><last></last>
-                    </set>
-                  </fin>
-                </iq>
-                """, options: 0)
-                let deadline = Date().addingTimeInterval(2)
-                var accepted = false
-                repeat {
-                    accepted = archiveManager.read(
-                        stream,
-                        withIQ: XMPPIQ(from: document.rootElement()!)
-                    )
-                    if !accepted {
-                        Thread.sleep(forTimeInterval: 0.005)
-                    }
-                } while !accepted && Date() < deadline
-                while ChatInitialBootstrapRequestCoordinator.shared.readiness(
-                    for: destination.initialBootstrapRequestKey
-                )?.phase != .committed,
-                      Date() < deadline {
-                    Thread.sleep(forTimeInterval: 0.005)
-                }
-                backgroundTerminalCommitted.signal()
-            }
-        }
-
-        leftMenu.chatsVc = chatsController
-        leftMenu.chatNavigationRouteResolver = { _ in .currentNavigationPush }
-        chatsController.chatNavigationRouteResolver = {
-            _ in .currentNavigationPush
-        }
-        chatsController.chatNavigationAccountEpochResolver = { _ in
-            LastChatsChatNavigationAccountEpoch(
-                accountIdentifier: ObjectIdentifier(accountIdentity),
-                isPresent: true,
-                isEnabled: true
-            )
-        }
-        chatsController.compactChatDestinationFactory = { destination }
-        splitViewController.setViewController(leftMenu, for: .primary)
-        splitViewController.setViewController(
-            previousSupplementary,
-            for: .supplementary
-        )
-        splitViewController.setViewController(
-            previousSecondary,
-            for: .secondary
-        )
-
-        let window = TraitWindow(
-            windowScene: windowScene,
-            horizontalSizeClass: .compact
-        )
-        hostedWindow = window
-        retainedTraitWindows.append(window)
-        window.frame = windowScene.coordinateSpace.bounds
-        window.rootViewController = splitViewController
-        window.makeKeyAndVisible()
-        splitViewController.loadViewIfNeeded()
-        splitViewController.show(.primary)
-        leftMenu.loadViewIfNeeded()
-        splitViewController.view.layoutIfNeeded()
-        XCTAssertTrue(waitUntil(timeout: 1) {
-            splitViewController.transitionCoordinator == nil
-        })
-
-        leftMenu.didSelectRootScreenBy(key: "saved")
-
-        XCTAssertTrue(waitUntil(timeout: 3) {
-            transportLaunched.wait(timeout: .now()) == .success
-        })
-        XCTAssertTrue(waitUntil(timeout: 2) {
-            backgroundTerminalCommitted.wait(timeout: .now()) == .success
-        })
-        XCTAssertEqual(
-            ChatInitialBootstrapRequestCoordinator.shared.readiness(
-                for: destination.initialBootstrapRequestKey
-            )?.phase,
-            .committed
-        )
-        XCTAssertTrue(waitUntil(timeout: 2) {
-            guard let navigationController = splitViewController.viewController(
-                for: .supplementary
-            ) as? UINavigationController else {
-                return false
-            }
-            return navigationController.topViewController === destination &&
-                chatsController.chatNavigationSingleFlight.state?.phase ==
-                    .presented
-        })
-        let didReachEmptyPresentation = waitUntil(timeout: 2) {
-            destination.appliedBootstrapLoadingState == .empty &&
-                destination.datasource.isEmpty &&
-                !destination.showSkeletonObserver.value
-        }
-        let persistedChat = try WRealm.safe().object(
-            ofType: LastChatsStorageItem.self,
-            forPrimaryKey: LastChatsStorageItem.genPrimary(
-                jid: favoritesJid,
-                owner: owner,
-                conversationType: .saved
-            )
-        )
-        XCTAssertTrue(
-            didReachEmptyPresentation,
-            """
-            a durable zero-result Saved terminal must replace the off-screen push skeleton; \
-            loadingState=\(String(describing: destination.appliedBootstrapLoadingState)) \
-            datasourceCount=\(destination.datasource.count) \
-            skeleton=\(destination.showSkeletonObserver.value) \
-            inFlight=\(destination.isInitialBootstrapInFlight) \
-            query=\(destination.initialBootstrapQueryId ?? "nil") \
-            activityCount=\(destination.activeChatHistoryLoadActivityKeys.count) \
-            persistedSynced=\(persistedChat?.isSynced ?? false) \
-            persistedInitial=\(persistedChat?.isInitialArchiveLoaded ?? false)
-            """
-        )
-        XCTAssertFalse(destination.isInitialBootstrapInFlight)
-        XCTAssertNil(destination.initialBootstrapQueryId)
-        XCTAssertNil(destination.initialBootstrapTimeoutWorkItem)
-        XCTAssertTrue(destination.activeChatHistoryLoadActivityKeys.isEmpty)
-        XCTAssertTrue(destination.remoteHistoryEndPageDispatcherTokens.isEmpty)
-        XCTAssertEqual(
-            ChatInitialBootstrapRequestCoordinator.shared
-                .productionDiagnosticsSnapshot(
-                    for: destination.initialBootstrapRequestKey
-                ).transportStartCount,
-            1,
-            "the authoritative count=0 terminal must not start a second MAM request"
-        )
-        XCTAssertGreaterThanOrEqual(destination.viewWillAppearCount, 1)
-    }
 
     func testSavedAfterAnotherSectionDoesNotRevealStaleSavedNavigationColumn() throws {
         try seedAccount("owner@example.com")
@@ -1551,13 +1345,6 @@ final class SavedMessagesEntryPointTests: XCTestCase {
         )
 
         let controller = LeftMenuViewController()
-        let splitViewController = UISplitViewController(style: .tripleColumn)
-        splitViewController.viewControllers = [
-            controller,
-            UINavigationController(rootViewController: LastChatsViewController()),
-            UINavigationController(rootViewController: EmptyChatViewController())
-        ]
-        attachToTraitWindow(splitViewController, horizontalSizeClass: .compact)
         controller.loadViewIfNeeded()
 
         let savedRow = try XCTUnwrap(
@@ -2076,15 +1863,40 @@ final class SavedMessagesEntryPointTests: XCTestCase {
         retainedTraitWindows.append(window)
         window.frame = windowScene.coordinateSpace.bounds
         window.rootViewController = splitViewController
-        window.makeKeyAndVisible()
         splitViewController.loadViewIfNeeded()
-        splitViewController.show(.primary)
         leftMenu.loadViewIfNeeded()
-        splitViewController.view.layoutIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-        _ = waitUntil(timeout: 1) {
-            splitViewController.transitionCoordinator == nil
+        UIView.performWithoutAnimation {
+            splitViewController.show(.primary)
+            splitViewController.view.layoutIfNeeded()
         }
+        window.makeKeyAndVisible()
+        window.layoutIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        XCTAssertTrue(waitUntil(timeout: 1) {
+            let supplementary = splitViewController.viewController(
+                for: .supplementary
+            )
+            let supplementaryTop = (supplementary as? UINavigationController)?
+                .topViewController ?? supplementary
+            let secondary = splitViewController.viewController(for: .secondary)
+            let secondaryTop = (secondary as? UINavigationController)?
+                .topViewController ?? secondary
+            return UIApplication.shared.applicationState == .active &&
+                window.isKeyWindow &&
+                !window.isHidden &&
+                window.windowScene?.activationState == .foregroundActive &&
+                splitViewController.viewIfLoaded?.window === window &&
+                splitViewController.transitionCoordinator == nil &&
+                supplementary?.transitionCoordinator == nil &&
+                supplementaryTop?.transitionCoordinator == nil &&
+                secondary?.transitionCoordinator == nil &&
+                secondaryTop?.transitionCoordinator == nil &&
+                splitViewController.presentedViewController == nil &&
+                supplementary?.presentedViewController == nil &&
+                supplementaryTop?.presentedViewController == nil &&
+                secondary?.presentedViewController == nil &&
+                secondaryTop?.presentedViewController == nil
+        })
 
         return ForegroundCompactSavedRouteHost(
             window: window,

@@ -3301,6 +3301,15 @@ I don\'t need luck. I have ammo.";
 
 "plurals.recent_chat__last_message__locations.item_1" = "%d Locations";
 
+"plurals.last_chat_attachment_preview__photos.item_0" = "Photo";
+"plurals.last_chat_attachment_preview__photos.item_1" = "%@ Photos";
+"plurals.last_chat_attachment_preview__videos.item_0" = "Video";
+"plurals.last_chat_attachment_preview__videos.item_1" = "%@ Videos";
+"plurals.last_chat_attachment_preview__files.item_0" = "File";
+"plurals.last_chat_attachment_preview__files.item_1" = "%@ Files";
+"plurals.last_chat_attachment_preview__voice_messages.item_0" = "Voice message";
+"plurals.last_chat_attachment_preview__voice_messages.item_1" = "%@ Voice messages";
+
 
 "recent_chat__last_message__contact" = "Contact: %@";
 
@@ -6565,7 +6574,6 @@ What’s your name?";
 "chat_attachment_accessibility_selected_order" = "Selected %@";
 "chat_attachment_accessibility_selection_limit_reached" = "Selection limit reached";
 "chat_attachment_action_retry" = "Retry";
-"chat_bootstrap_history_failure" = "Couldn’t load message history";
 "chat_attachment_action_remove" = "Remove";
 "chat_attachment_action_cancel" = "Cancel";
 "chat_attachment_action_done" = "Done";
@@ -6640,6 +6648,8 @@ What’s your name?";
 "chat_attachment_file_no_files_selected" = "No files selected";
 "chat_attachment_file_loading_files" = "Loading files...";
 "chat_attachment_geolocation_allow_access_action" = "Allow Location Access";
+"chat_attachment_geolocation_search_placeholder" = "Search address";
+"chat_attachment_geolocation_snapshot_failed_message" = "Could not prepare the map preview.";
 "chat_attachment_geolocation_denied_message" = "Location access is denied.";
 "chat_attachment_geolocation_restricted_message" = "Location access is restricted.";
 "chat_attachment_geolocation_unavailable_message" = "Location is unavailable.";

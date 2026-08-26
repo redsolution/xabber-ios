@@ -386,6 +386,7 @@ class ChatListTableViewCell: UITableViewCell {
                                 isDraft: Bool,
                                 isAttachment: Bool,
                                 groupchatNickname: String?,
+                                groupchatAuthorColorKey: String? = nil,
                                 isSystem: Bool,
                                 isPinned: Bool = false,
                                 subRequest: Bool,
@@ -438,7 +439,7 @@ class ChatListTableViewCell: UITableViewCell {
             JidManager.shared.prepareJid(jid: message),
             isDraft: isDraft,
             groupchatNickname: groupchatNickname,
-            color: isAttachment ? AccountColorManager.shared.palette(for: owner).tint600 : nil,
+            color: nil,
             isSystem: isSystem
         )
         
@@ -451,6 +452,21 @@ class ChatListTableViewCell: UITableViewCell {
         usernameLabel.sizeToFit()
         
         subtitleLabel.text = groupchatNickname
+        subtitleLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+        if let groupchatNickname = groupchatNickname?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           groupchatNickname.isNotEmpty {
+            let colorKey = groupchatAuthorColorKey?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let stableColorKey = colorKey?.isNotEmpty == true
+                ? colorKey
+                : nil
+            subtitleLabel.textColor = ChatViewController
+                .getUsernamePalette(for: stableColorKey ?? groupchatNickname)
+                .tint500
+        } else {
+            subtitleLabel.textColor = MDCPalette.grey.tint800
+        }
                 
         if isPinned {
             self.pinnedIndicator.isHidden = false

@@ -44,9 +44,11 @@ extension Account {
         self.configureBase()
         let didResume = self.sm.didResume
         if didResume {
+            // Rebind Groups before send readiness can start an archive-engine
+            // group admission against this resumed stream generation.
+            self.recoverCanonicalGroupRuntimeAfterStreamManagementResume()
             self.sendReadiness.markStreamManagementResumeSucceeded()
             self.sendCoordinator.streamManagementResumeSucceeded()
-            self.recoverCanonicalGroupRuntimeAfterStreamManagementResume()
             self.syncManager.restoreAfterStreamManagementResume()
             self.roster.retryInitialRosterAfterResumeIfNeeded(self.xmppStream)
             AccountManager.shared.markAsConnected(jid: self.jid)
@@ -98,12 +100,7 @@ extension Account {
         }
         self.queue.asyncAfter(deadline: .now() + 1) {
             _ = self.syncManager.sync(self.xmppStream)
-            let requestDevices = {
-                self.devices.requestList(self.xmppStream)
-            }
-            if !self.syncManager.deferPostBootstrapWorkIfNeeded(requestDevices) {
-                requestDevices()
-            }
+            self.devices.requestList(self.xmppStream)
         }
     }
     
@@ -293,13 +290,8 @@ extension Account {
     
     public final func didReceiveRoster() {
         self.syncManager.sendInitialPresenceIfNeeded()
-        let finishRosterBootstrap = {
-            self.queue.asyncAfter(deadline: .now() + 1) {
-                self.updateExtensions()
-            }
-        }
-        if !self.syncManager.deferPostBootstrapWorkIfNeeded(finishRosterBootstrap) {
-            finishRosterBootstrap()
+        self.queue.asyncAfter(deadline: .now() + 1) {
+            self.updateExtensions()
         }
 //        if self.sm.canResumeStream() {
 //            return
@@ -322,17 +314,6 @@ extension Account {
             } else {
                 self.msgDeleteManager.enable(self.xmppStream)
             }
-            if self.xmppStream.myPresence == nil {
-                self.requestInitialMAM()
-            }
-            
-        }
-        let updatePostBootstrapArchives = {
-            self.notifications.update(self.xmppStream)
-            self.favorites.update(self.xmppStream)
-        }
-        if !self.syncManager.deferPostBootstrapWorkIfNeeded(updatePostBootstrapArchives) {
-            updatePostBootstrapArchives()
         }
     }
 }

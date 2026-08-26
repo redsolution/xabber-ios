@@ -94,6 +94,9 @@ class SearchChatListViewController: SimpleBaseViewController {
     internal var searchResultsObserver: BehaviorRelay<String?> = BehaviorRelay(value: nil)
     internal var currentQueryId: String? = nil
     internal var messagesQueue: [MessageStorageItem] = []
+    private var archiveSearchScope: ArchiveSearchScope?
+    private var archiveSearchSnapshot: ArchiveSearchSnapshot?
+    private var archiveSearchStateTask: Task<Void, Never>?
     
     internal var isEmptyViewShowed: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     
@@ -256,6 +259,11 @@ class SearchChatListViewController: SimpleBaseViewController {
     override func onAppear() {
         super.onAppear()
     }
+
+    public override func unsubscribe() {
+        cancelArchiveEngineSearch()
+        super.unsubscribe()
+    }
     
     internal func mapDatasource(_ results: Array<MessageStorageItem>) throws -> [Datasource] {
         return try results.sorted(by: { $0.date > $1.date }).compactMap { messageItem -> Datasource? in
@@ -406,8 +414,9 @@ class SearchChatListViewController: SimpleBaseViewController {
             .asObservable()
             .skip(1)
             .distinctUntilChanged()
-            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(300), scheduler: MainScheduler.asyncInstance)
             .subscribe(onNext: { (value) in
+                self.cancelArchiveEngineSearch()
                 if (value ?? "").isEmpty {
                     self.searchPanel.changeState(to: .empty)
                     self.datasource = []
@@ -448,26 +457,7 @@ class SearchChatListViewController: SimpleBaseViewController {
                     } else {
                         if let value = value {
                             self.messagesQueue = []
-                            let requestCallbacks = MessageArchiveManager.RequestCallbacks(
-                                onMessage: { [weak self] item, queryId in
-                                    self?.didReceiveMessage(item, queryId: queryId)
-                                },
-                                onEndPage: { [weak self] queryId, state, first, last, count in
-                                    self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
-                                }
-                            )
-                            self.currentQueryId = AccountManager.shared
-                                .find(for: self.owner)?
-                                .mam
-                                .scheduleSearchText(
-                                    jid: self.jid,
-                                    conversationType: self.conversationType,
-                                    text: value,
-                                    max: ArchivePageSizing.search,
-                                    loadFull: false,
-                                    maximumPageCount: 1,
-                                    requestCallbacks: requestCallbacks
-                                )
+                            self.startArchiveEngineSearch(value)
                         } else {
                             self.messagesQueue = []
                         }
@@ -514,13 +504,126 @@ class SearchChatListViewController: SimpleBaseViewController {
             return
         }
         var newIndex = index + 1
-        if newIndex > self.messagesQueue.count {
+        if newIndex >= self.messagesQueue.count {
             newIndex = 0
         }
         self.searchPanel.updateResults(current: newIndex, total: self.messagesQueue.count)
         self.selectedSearchResultId = self.messagesQueue[newIndex].archivedId
         self.tableView.deselectRow(at: IndexPath(row: index, section: 0), animated: true)
         self.tableView.selectRow(at: IndexPath(row: newIndex, section: 0), animated: true, scrollPosition: .top)
+        if newIndex >= max(0, self.messagesQueue.count - 8) {
+            requestNextArchiveSearchPage()
+        }
+    }
+
+    private func startArchiveEngineSearch(_ query: String) {
+        guard let account = AccountManager.shared.find(for: owner) else { return }
+        let scope = ArchiveSearchScope.conversation(
+            ArchiveConversationKey(
+                owner: owner,
+                jid: jid,
+                conversationType: conversationType
+            )
+        )
+        let clientQueryID = "global-chat-search:\(NanoID.new(8))"
+        archiveSearchScope = scope
+        currentQueryId = clientQueryID
+        archiveSearchStateTask = Task { [weak self, weak account] in
+            guard let account else { return }
+            let states = await account.archiveEngine.searchStates(for: scope)
+            _ = await account.archiveEngine.startSearch(
+                ArchiveSearchIntent(
+                    clientQueryID: clientQueryID,
+                    scope: scope,
+                    query: query
+                )
+            )
+            for await state in states {
+                guard !Task.isCancelled else { return }
+                self?.receiveArchiveEngineSearchState(
+                    state,
+                    clientQueryID: clientQueryID
+                )
+            }
+        }
+    }
+
+    private func receiveArchiveEngineSearchState(
+        _ state: ArchiveSearchState,
+        clientQueryID: String
+    ) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.receiveArchiveEngineSearchState(
+                    state,
+                    clientQueryID: clientQueryID
+                )
+            }
+            return
+        }
+        guard currentQueryId == clientQueryID else { return }
+        let snapshot: ArchiveSearchSnapshot
+        switch state {
+        case .loading(let loading):
+            guard loading.clientQueryID == clientQueryID else { return }
+            archiveSearchSnapshot = loading
+            return
+        case .results(let results):
+            snapshot = results
+        case .retryableFailure(let retained, _):
+            snapshot = retained
+        }
+        guard snapshot.clientQueryID == clientQueryID else { return }
+        archiveSearchSnapshot = snapshot
+        do {
+            let realm = try WRealm.safe()
+            messagesQueue = snapshot.residentMessages.compactMap {
+                realm.object(
+                    ofType: MessageStorageItem.self,
+                    forPrimaryKey: $0.primaryID
+                )
+            }
+            searchResultsObserver.accept(clientQueryID)
+        } catch {
+            DDLogDebug("SearchChatListViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+
+    private func requestNextArchiveSearchPage() {
+        guard let scope = archiveSearchScope,
+              let snapshot = archiveSearchSnapshot,
+              snapshot.canRequestNextPage,
+              let clientQueryID = currentQueryId,
+              let account = AccountManager.shared.find(for: scope.owner) else {
+            return
+        }
+        Task {
+            _ = await account.archiveEngine.requestNextSearchPage(
+                scope: scope,
+                clientQueryID: clientQueryID
+            )
+        }
+    }
+
+    private func cancelArchiveEngineSearch() {
+        archiveSearchStateTask?.cancel()
+        archiveSearchStateTask = nil
+        let scope = archiveSearchScope
+        let clientQueryID = currentQueryId
+        archiveSearchScope = nil
+        archiveSearchSnapshot = nil
+        currentQueryId = nil
+        guard let scope,
+              let clientQueryID,
+              let account = AccountManager.shared.find(for: scope.owner) else {
+            return
+        }
+        Task {
+            await account.archiveEngine.cancelSearch(
+                scope: scope,
+                clientQueryID: clientQueryID
+            )
+        }
     }
 }
 
@@ -547,17 +650,14 @@ extension SearchChatListViewController: UITableViewDelegate {
         }
         self.navigationController?.popViewController(animated: true)
     }
-}
 
-extension SearchChatListViewController: TemporaryMessageReceiverProtocol {
-    func didReceiveEndPage(queryId: String, state: MessageArchivePageEndState, first: String, last: String, count: Int) {
-        
-    }
-    
-    func didReceiveMessage(_ item: MessageStorageItem, queryId: String) {
-        if queryId == self.currentQueryId {
-            self.messagesQueue.append(item)
-            self.searchResultsObserver.accept(item.primary)
+    func tableView(
+        _ tableView: UITableView,
+        willDisplay cell: UITableViewCell,
+        forRowAt indexPath: IndexPath
+    ) {
+        if indexPath.row >= max(0, datasource.count - 8) {
+            requestNextArchiveSearchPage()
         }
     }
 }

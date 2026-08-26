@@ -138,76 +138,6 @@ final class ChatViewportReadBoundaryTests: XCTestCase {
         XCTAssertTrue(controller.flushPendingVisibleReadTarget())
     }
 
-    func testOrdinaryViewportReadWaitsForCommittedInitialFrameAndStructuralTransactionCompletion() throws {
-        let account = Account(
-            jid: owner,
-            queue: DispatchQueue(label: "ChatViewportReadBoundaryTests.initial-presentation")
-        )
-        AccountManager.shared.users.append(account)
-        try seedUnreadChat()
-        let controller = makeController()
-        _ = configureReadGeometry(
-            for: controller,
-            primary: "incoming-last",
-            frame: CGRect(x: 0, y: 20, width: 320, height: 80),
-            archivedId: "200",
-            sentDate: Date(timeIntervalSince1970: 200),
-            usesDetachedTimeline: false
-        )
-        let timelineSession = try openReadTargetInProductionTimelineSession(
-            for: controller,
-            primary: "incoming-last"
-        )
-        authorizeReadVisiblePresentation(controller)
-        let descriptor = ChatLocalFirstFrameDescriptor(
-            target: .latest,
-            request: nil
-        )
-
-        controller.initialLocalFirstFramePhase = .presenting(descriptor)
-        controller.isChatDatasourceStructuralTransactionActive = false
-        enqueueOrdinaryViewportRead(on: controller)
-        XCTAssertTrue(controller.messagesToReadObserver.value.isEmpty)
-        XCTAssertNil(currentViewportReadBoundaryIndex(for: controller))
-        try assertUnreadLastMessageRemainsUnchanged()
-
-        controller.initialLocalFirstFramePhase = .committed(descriptor)
-        controller.isChatDatasourceStructuralTransactionActive = true
-        enqueueOrdinaryViewportRead(on: controller)
-        XCTAssertTrue(controller.messagesToReadObserver.value.isEmpty)
-        XCTAssertNil(currentViewportReadBoundaryIndex(for: controller))
-        try assertUnreadLastMessageRemainsUnchanged()
-
-        controller.isChatDatasourceStructuralTransactionActive = false
-        enqueueOrdinaryViewportRead(on: controller)
-        XCTAssertEqual(controller.messagesToReadObserver.value, ["incoming-last"])
-        let orderedMessages = controller.orderedViewportReadMessages()
-        let incomingLastOrderIndex = try XCTUnwrap(
-            orderedMessages.first(where: { $0.primary == "incoming-last" })
-        ).orderIndex
-        XCTAssertEqual(
-            controller.currentViewportReadBoundaryIndex(in: orderedMessages),
-            incomingLastOrderIndex
-        )
-        XCTAssertEqual(
-            timelineSession.snapshot.readBoundary?.primary,
-            "incoming-last",
-            "ordinary viewport ingress must advance the production session boundary"
-        )
-        XCTAssertTrue(controller.flushPendingVisibleReadTarget())
-        XCTAssertTrue(controller.messagesToReadObserver.value.isEmpty)
-
-        let committedChat = try storedChat()
-        XCTAssertEqual(committedChat.lastReadId, "200")
-        XCTAssertEqual(committedChat.syncUnreadCount, 0)
-        XCTAssertEqual(committedChat.unread, 0)
-        XCTAssertNil(committedChat.displayedId)
-
-        enqueueOrdinaryViewportRead(on: controller)
-        XCTAssertFalse(controller.flushPendingVisibleReadTarget())
-        XCTAssertTrue(controller.messagesToReadObserver.value.isEmpty)
-    }
-
     func testOrdinaryViewportReadWaitsForActiveAnchorExecutionToFinish() throws {
         let account = Account(
             jid: owner,
@@ -229,9 +159,6 @@ final class ChatViewportReadBoundaryTests: XCTestCase {
             primary: "incoming-last"
         )
         authorizeReadVisiblePresentation(controller)
-        controller.initialLocalFirstFramePhase = .committed(
-            ChatLocalFirstFrameDescriptor(target: .latest, request: nil)
-        )
         let request = ChatOpenMessageRequest(
             chatJid: jid,
             owner: owner,
@@ -2228,6 +2155,7 @@ final class ChatViewportReadBoundaryTests: XCTestCase {
         controller.retryPendingVisibleUnreadMentionReconciliation()
 
         let realm = try WRealm.safe()
+        realm.refresh()
         let notification = try XCTUnwrap(
             realm.object(
                 ofType: NotificationStorageItem.self,
@@ -2436,11 +2364,6 @@ final class ChatViewportReadBoundaryTests: XCTestCase {
                 sentDate: sentDate
             )
         ]
-        controller.initialLocalFirstFramePhase = .committed(
-            ChatLocalFirstFrameDescriptor(target: .latest, request: nil)
-        )
-        controller.initialFirstContentApplyCount = 1
-        controller.appliedBootstrapLoadingState = .content
         controller.showSkeletonObserver.accept(false)
         controller.loadDatasourceObserver.accept(true)
         let indexPath = IndexPath(item: 0, section: 0)
@@ -2481,16 +2404,39 @@ final class ChatViewportReadBoundaryTests: XCTestCase {
 
     /// `loadViewIfNeeded()` configures the same real timeline session used by
     /// production. A fixture that publishes only `datasource` rows leaves that
-    /// session empty, so the production read-boundary branch correctly rejects
-    /// a target it does not own. Open the seeded Realm window through the
-    /// session itself and keep the visual/session identities in lockstep.
+    /// session empty, so install the same verified archive-engine window that
+    /// authorizes a production presentation and keep visual/session identities
+    /// in lockstep.
     @discardableResult
     private func openReadTargetInProductionTimelineSession(
         for controller: ChatViewController,
         primary: String
     ) throws -> ChatTimelineSession {
         let session = try XCTUnwrap(controller.timelineSession)
-        let snapshot = session.openLatest(limit: controller.datasourcePageSize)
+        let archivedID = try XCTUnwrap(storedMessage(primary: primary).archivedId)
+        let cursor = try XCTUnwrap(ArchiveCursor(rawValue: archivedID))
+        let segment = try XCTUnwrap(ArchiveCoverageSegment(
+            oldest: cursor,
+            newest: cursor,
+            reachesArchiveStart: true,
+            reachesLiveEdge: true,
+            fingerprint: "session:1",
+            isVerified: true
+        ))
+        let snapshot = try XCTUnwrap(
+            session.installArchiveEngineVerifiedWindow(
+                ArchiveWindowSnapshot(
+                    messagePrimaryIDs: [primary],
+                    target: .latest,
+                    verifiedSegment: segment,
+                    coverageGeneration: 1,
+                    freshnessToken: .sessionMAM(
+                        connectionGeneration: 1,
+                        queryID: "read-boundary-test"
+                    )
+                )
+            )
+        )
         let target = try XCTUnwrap(snapshot.item(primary: primary))
         let targetIndex = try XCTUnwrap(snapshot.residentIndex.index(primary: primary))
         let visible = try XCTUnwrap(

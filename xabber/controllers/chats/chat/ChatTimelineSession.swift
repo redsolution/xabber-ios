@@ -231,52 +231,28 @@ struct ChatTimelineStoreDiagnosticsSnapshot: Equatable {
     }
 }
 
-struct ChatTimelineInitialFrameReadinessProof: Equatable {
-    let conversationKey: ChatTimelineConversationKey
-    let baseGeneration: UInt64
-    let materializedLocalMessageCount: Int
-    let isSynced: Bool
-    let isInitialArchiveLoaded: Bool
-    let hasDurableArchiveReadiness: Bool
-    let archiveState: ChatArchiveStateSnapshot
-    let chatFullArchiveLoaded: Bool
-    let loadedRanges: [RegularChatArchiveIDRange]
-    let knownGaps: [RegularChatArchiveGap]
-    let archiveBoundaryFingerprint:
-        MessageArchiveManager.ConversationArchiveBoundaryFingerprint?
-    let hasKnownRemoteArchiveBoundary: Bool
-    /// Exact LastChats baseline captured with the initial-frame metadata.
-    /// The deferred observer compares its Realm `.initial` callback with this
-    /// value so a write between frame commit and registration is not lost.
-    let latestMessageFingerprint: ChatTimelineObservedMessageFingerprint?
-}
-
 struct ChatTimelineUnreadMetadata: Equatable {
     static let empty = ChatTimelineUnreadMetadata(
         unreadCount: 0,
         mentions: [],
         candidateCount: 0,
-        initialFrameReadinessProof: nil,
         latestUnreadMentionArchivedId: nil
     )
 
     let unreadCount: Int
     let mentions: [ChatUnreadMentionItem]
     let candidateCount: Int
-    let initialFrameReadinessProof: ChatTimelineInitialFrameReadinessProof?
     let latestUnreadMentionArchivedId: String?
 
     init(
         unreadCount: Int,
         mentions: [ChatUnreadMentionItem],
         candidateCount: Int,
-        initialFrameReadinessProof: ChatTimelineInitialFrameReadinessProof? = nil,
         latestUnreadMentionArchivedId: String? = nil
     ) {
         self.unreadCount = unreadCount
         self.mentions = mentions
         self.candidateCount = candidateCount
-        self.initialFrameReadinessProof = initialFrameReadinessProof
         self.latestUnreadMentionArchivedId =
             RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
                 latestUnreadMentionArchivedId
@@ -323,250 +299,20 @@ enum ChatTimelineUnreadMentionMetadataTransitionPolicy {
                 retainedMentions.count,
                 max(0, metadata.candidateCount - removedCount)
             ),
-            initialFrameReadinessProof:
-                metadata.initialFrameReadinessProof,
             latestUnreadMentionArchivedId: current
         ))
     }
 }
 
-struct ChatTimelineInitialFrameWindow {
-    let target: MessageStorageItem
-    let items: [MessageStorageItem]
-    let materializedCandidateCount: Int
-
-    init(
-        target: MessageStorageItem,
-        items: [MessageStorageItem],
-        materializedCandidateCount: Int? = nil
-    ) {
-        self.target = target
-        self.items = items
-        self.materializedCandidateCount = max(
-            items.count,
-            materializedCandidateCount ?? items.count
-        )
-    }
-
-    var resultCount: Int {
-        items.count
-    }
-}
-
-struct ChatTimelineInitialFrameLeaseMaterialization {
-    let preparedLatestItems: [MessageStorageItem]?
-    let preparedAroundWindow: ChatTimelineInitialFrameWindow?
-    let unreadMetadata: ChatTimelineUnreadMetadata
-    let searchResolutionProof: ChatTimelineSearchResolutionProof
-
-    var materializedMessageCount: Int {
-        preparedAroundWindow?.items.count ?? preparedLatestItems?.count ?? 0
-    }
-}
-
-enum ChatTimelineSearchResolutionProof: Equatable {
-    case notRequested
-    case found(primary: String)
-    case failed(ChatAnchorTransactionFailure)
-}
-
 protocol ChatTimelineSessionStore: ChatTimelinePageProviding, AnyObject {
     var diagnosticsSnapshot: ChatTimelineStoreDiagnosticsSnapshot { get }
 
-    func initialLatestWindow(limit: Int) -> [MessageStorageItem]
     func unreadMetadata(limit: Int) -> ChatTimelineUnreadMetadata
-    func initialFrameMetadata(
-        limit: Int,
-        materializedLocalMessageCount: Int,
-        conversationKey: ChatTimelineConversationKey,
-        baseGeneration: UInt64
-    ) -> ChatTimelineUnreadMetadata
-    func withInitialFrameMetadataConsistencyLease(
-        limit: Int,
-        materializedLocalMessageCount: Int,
-        conversationKey: ChatTimelineConversationKey,
-        baseGeneration: UInt64,
-        _ consume: (ChatTimelineUnreadMetadata) -> Void
-    )
-    func withPostBootstrapInitialFrameConsistencyLease(
-        target: ChatTimelineInitialFrameTarget,
-        searchAnchor: ChatMessageAnchorRef?,
-        limit: Int,
-        conversationKey: ChatTimelineConversationKey,
-        baseGeneration: UInt64,
-        _ consume: (ChatTimelineInitialFrameLeaseMaterialization?) -> Void
-    )
-    func messageWindow(
-        primary: String?,
-        archivedId: String?,
-        messageId: String?,
-        before: Int,
-        after: Int
-    ) -> ChatTimelineInitialFrameWindow?
     func firstIncoming(afterArchiveBoundaryId boundaryArchivedId: String) -> MessageStorageItem?
-    func firstIncomingWindow(
-        afterArchiveBoundaryId boundaryArchivedId: String,
-        before: Int,
-        after: Int
-    ) -> ChatTimelineInitialFrameWindow?
     func observe(
         baseline: ChatTimelineStoreObservationBaseline,
         onChange: @escaping (ChatTimelineStoreChange) -> Void
     ) -> ChatTimelineStoreObservation
-}
-
-extension ChatTimelineSessionStore {
-    func initialLatestWindow(limit: Int) -> [MessageStorageItem] {
-        latest(limit: limit)
-    }
-
-    func initialFrameMetadata(
-        limit: Int,
-        materializedLocalMessageCount: Int,
-        conversationKey: ChatTimelineConversationKey,
-        baseGeneration: UInt64
-    ) -> ChatTimelineUnreadMetadata {
-        unreadMetadata(limit: limit)
-    }
-
-    func withInitialFrameMetadataConsistencyLease(
-        limit: Int,
-        materializedLocalMessageCount: Int,
-        conversationKey: ChatTimelineConversationKey,
-        baseGeneration: UInt64,
-        _ consume: (ChatTimelineUnreadMetadata) -> Void
-    ) {
-        consume(
-            initialFrameMetadata(
-                limit: limit,
-                materializedLocalMessageCount: materializedLocalMessageCount,
-                conversationKey: conversationKey,
-                baseGeneration: baseGeneration
-            )
-        )
-    }
-
-    func withPostBootstrapInitialFrameConsistencyLease(
-        target: ChatTimelineInitialFrameTarget,
-        searchAnchor: ChatMessageAnchorRef?,
-        limit: Int,
-        conversationKey: ChatTimelineConversationKey,
-        baseGeneration: UInt64,
-        _ consume: (ChatTimelineInitialFrameLeaseMaterialization?) -> Void
-    ) {
-        let boundedLimit = max(1, limit)
-        let effectiveTarget: ChatTimelineInitialFrameTarget
-        let searchResolutionProof: ChatTimelineSearchResolutionProof
-        if let searchAnchor {
-            switch searchMessageResolution(anchor: searchAnchor) {
-            case .found(let message):
-                searchResolutionProof = .found(primary: message.primary)
-                effectiveTarget = .message(ChatTimelineAnchor(
-                    primary: message.primary,
-                    archivedId: nil,
-                    messageId: nil,
-                    date: message.date
-                ))
-            case .failed(let failure):
-                consume(ChatTimelineInitialFrameLeaseMaterialization(
-                    preparedLatestItems: nil,
-                    preparedAroundWindow: nil,
-                    unreadMetadata: .empty,
-                    searchResolutionProof: .failed(failure)
-                ))
-                return
-            }
-        } else {
-            searchResolutionProof = .notRequested
-            effectiveTarget = target
-        }
-        let preparedLatestItems: [MessageStorageItem]?
-        let preparedAroundWindow: ChatTimelineInitialFrameWindow?
-        switch effectiveTarget {
-        case .latest:
-            preparedLatestItems = initialLatestWindow(limit: boundedLimit)
-            preparedAroundWindow = nil
-        case .message(let anchor):
-            let before = boundedLimit / 2
-            preparedLatestItems = nil
-            preparedAroundWindow = messageWindow(
-                primary: anchor.primary,
-                archivedId: anchor.archivedId,
-                messageId: anchor.messageId,
-                before: before,
-                after: max(0, boundedLimit - before - 1)
-            )
-        case .firstIncomingAfterBoundary(let boundaryArchivedId):
-            let before = boundedLimit / 2
-            preparedLatestItems = nil
-            preparedAroundWindow = firstIncomingWindow(
-                afterArchiveBoundaryId: boundaryArchivedId,
-                before: before,
-                after: max(0, boundedLimit - before - 1)
-            )
-        }
-        guard effectiveTarget == .latest || preparedAroundWindow != nil else {
-            consume(nil)
-            return
-        }
-        let materializedMessageCount =
-            preparedAroundWindow?.items.count ?? preparedLatestItems?.count ?? 0
-        consume(ChatTimelineInitialFrameLeaseMaterialization(
-            preparedLatestItems: preparedLatestItems,
-            preparedAroundWindow: preparedAroundWindow,
-            unreadMetadata: initialFrameMetadata(
-                limit: boundedLimit,
-                materializedLocalMessageCount: materializedMessageCount,
-                conversationKey: conversationKey,
-                baseGeneration: baseGeneration
-            ),
-            searchResolutionProof: searchResolutionProof
-        ))
-    }
-
-    func messageWindow(
-        primary: String?,
-        archivedId: String?,
-        messageId: String?,
-        before: Int,
-        after: Int
-    ) -> ChatTimelineInitialFrameWindow? {
-        guard let target = message(
-            primary: primary,
-            archivedId: archivedId,
-            messageId: messageId
-        ) else {
-            return nil
-        }
-        let items = around(
-            anchor: target,
-            before: max(0, before),
-            after: max(0, after)
-        )
-        guard items.contains(where: { $0.primary == target.primary }) else {
-            return nil
-        }
-        return ChatTimelineInitialFrameWindow(target: target, items: items)
-    }
-
-    func firstIncomingWindow(
-        afterArchiveBoundaryId boundaryArchivedId: String,
-        before: Int,
-        after: Int
-    ) -> ChatTimelineInitialFrameWindow? {
-        guard let target = firstIncoming(afterArchiveBoundaryId: boundaryArchivedId) else {
-            return nil
-        }
-        let items = around(
-            anchor: target,
-            before: max(0, before),
-            after: max(0, after)
-        )
-        guard items.contains(where: { $0.primary == target.primary }) else {
-            return nil
-        }
-        return ChatTimelineInitialFrameWindow(target: target, items: items)
-    }
 }
 
 struct ChatTimelineResidentIndex {
@@ -637,6 +383,21 @@ struct ChatTimelineReadBoundary: Equatable {
 enum ChatTimelineSessionSnapshotCause: Equatable {
     case command
     case storeChange
+    case localOutgoingAdmission
+}
+
+struct ChatTimelineAuthoritativeEmptyLiveTailAuthority: Equatable, Sendable {
+    let connectionGeneration: UInt64
+    let freshnessFingerprint: String
+
+    init?(freshnessToken: ArchiveFreshnessToken) {
+        guard case .sessionMAM(let connectionGeneration, _) = freshnessToken,
+              freshnessToken.fingerprint.isNotEmpty else {
+            return nil
+        }
+        self.connectionGeneration = connectionGeneration
+        self.freshnessFingerprint = freshnessToken.fingerprint
+    }
 }
 
 struct ChatTimelineSessionSnapshot {
@@ -644,17 +405,49 @@ struct ChatTimelineSessionSnapshot {
     let cause: ChatTimelineSessionSnapshotCause
     let items: [MessageStorageItem]
     let state: ChatVirtualTimelineState
-    let loadingState: ChatTimelineLoadingState
-    let loadDecision: ChatHistoryPagingLoadDecision?
     let anchorRestore: ChatTimelineAnchorRestoreCommand?
-    let localOlderCandidateCount: Int?
     let pageSize: Int
-    let shortLocalRemainderRemoteFirst: Bool
     let residentIndex: ChatTimelineResidentIndex
     let readBoundary: ChatTimelineReadBoundary?
     let unreadMetadata: ChatTimelineUnreadMetadata
     let residentHardLimit: Int
     let residentChangeSet: ChatIncrementalResidentChangeSet?
+    let authoritativeEmptyLiveTailAuthority:
+        ChatTimelineAuthoritativeEmptyLiveTailAuthority?
+    let provisionalLocalOutgoingPrimaryIDs: Set<String>
+
+    init(
+        generation: UInt64,
+        cause: ChatTimelineSessionSnapshotCause,
+        items: [MessageStorageItem],
+        state: ChatVirtualTimelineState,
+        anchorRestore: ChatTimelineAnchorRestoreCommand?,
+        pageSize: Int,
+        residentIndex: ChatTimelineResidentIndex,
+        readBoundary: ChatTimelineReadBoundary?,
+        unreadMetadata: ChatTimelineUnreadMetadata,
+        residentHardLimit: Int,
+        residentChangeSet: ChatIncrementalResidentChangeSet?,
+        authoritativeEmptyLiveTailAuthority:
+            ChatTimelineAuthoritativeEmptyLiveTailAuthority? = nil,
+        provisionalLocalOutgoingPrimaryIDs: Set<String> = []
+    ) {
+        self.generation = generation
+        self.cause = cause
+        self.items = items
+        self.state = state
+        self.anchorRestore = anchorRestore
+        self.pageSize = pageSize
+        self.residentIndex = residentIndex
+        self.readBoundary = readBoundary
+        self.unreadMetadata = unreadMetadata
+        self.residentHardLimit = residentHardLimit
+        self.residentChangeSet = residentChangeSet
+        self.authoritativeEmptyLiveTailAuthority =
+            authoritativeEmptyLiveTailAuthority
+        self.provisionalLocalOutgoingPrimaryIDs =
+            provisionalLocalOutgoingPrimaryIDs
+    }
 
     var oldest: ChatTimelineBoundary? {
         state.oldest
@@ -672,12 +465,7 @@ struct ChatTimelineSessionSnapshot {
         ChatTimelineSnapshot(
             items: items,
             state: state,
-            loadingState: loadingState,
-            loadDecision: loadDecision,
-            anchorRestore: anchorRestore,
-            localOlderCandidateCount: localOlderCandidateCount,
-            pageSize: pageSize,
-            shortLocalRemainderRemoteFirst: shortLocalRemainderRemoteFirst
+            anchorRestore: anchorRestore
         )
     }
 
@@ -693,639 +481,226 @@ struct ChatTimelineSessionSnapshot {
     }
 }
 
-/// Value-only projection of every committed field that can affect the
-/// deferred store-observation baseline. Generation, publication cause, and
-/// read boundary are intentionally excluded: authority may cross exactly one
-/// kind of command publication, a metadata-neutral read-boundary advance.
-struct ChatTimelineStoreObservationAuthorityProjection: Equatable {
-    let residentFingerprints: [ChatTimelineObservedMessageFingerprint]
-    let state: ChatVirtualTimelineState
-    let loadingState: ChatTimelineLoadingState
-    let loadDecision: ChatHistoryPagingLoadDecision?
-    let anchorRestore: ChatTimelineAnchorRestoreCommand?
-    let localOlderCandidateCount: Int?
-    let pageSize: Int
-    let shortLocalRemainderRemoteFirst: Bool
-    let unreadMetadata: ChatTimelineUnreadMetadata
-    let residentHardLimit: Int
-    let residentChangeSet: ChatIncrementalResidentChangeSet?
-
-    static func capture(
-        _ snapshot: ChatTimelineSessionSnapshot
-    ) -> ChatTimelineStoreObservationAuthorityProjection {
-        ChatTimelineStoreObservationAuthorityProjection(
-            residentFingerprints: snapshot.items.map(
-                ChatTimelineObservedMessageFingerprint.init(message:)
-            ),
-            state: snapshot.state,
-            loadingState: snapshot.loadingState,
-            loadDecision: snapshot.loadDecision,
-            anchorRestore: snapshot.anchorRestore,
-            localOlderCandidateCount: snapshot.localOlderCandidateCount,
-            pageSize: snapshot.pageSize,
-            shortLocalRemainderRemoteFirst:
-                snapshot.shortLocalRemainderRemoteFirst,
-            unreadMetadata: snapshot.unreadMetadata,
-            residentHardLimit: snapshot.residentHardLimit,
-            residentChangeSet: snapshot.residentChangeSet
-        )
-    }
-}
-
-struct ChatTimelineStoreObservationAuthorityLineage: Equatable {
-    let conversationKey: ChatTimelineConversationKey
-    let proofBaseGeneration: UInt64
-    let currentGeneration: UInt64
-    let projection: ChatTimelineStoreObservationAuthorityProjection
-}
-
-enum ChatTimelineStoreObservationAuthorityPublication {
-    case invalidating
-    case initialFrameCommit
-    case readBoundaryOnly
-}
-
-/// Carries initial-frame observation authority across publications only when
-/// the complete baseline projection is unchanged and the sole mutation is a
-/// valid, strictly advancing resident read boundary.
-enum ChatTimelineStoreObservationAuthorityPolicy {
-    static func updatedLineage(
-        _ lineage: ChatTimelineStoreObservationAuthorityLineage?,
-        from previous: ChatTimelineSessionSnapshot,
-        to next: ChatTimelineSessionSnapshot,
-        conversationKey: ChatTimelineConversationKey,
-        publication: ChatTimelineStoreObservationAuthorityPublication
-    ) -> ChatTimelineStoreObservationAuthorityLineage? {
-        switch publication {
-        case .invalidating:
-            return nil
-
-        case .initialFrameCommit:
-            guard let proof = next.unreadMetadata.initialFrameReadinessProof,
-                  proof.conversationKey == conversationKey,
-                  proof.baseGeneration == previous.generation,
-                  next.generation == previous.generation &+ 1,
-                  next.generation == proof.baseGeneration &+ 1,
-                  next.cause == .command,
-                  next.readBoundary == previous.readBoundary else {
-                return nil
-            }
-            return ChatTimelineStoreObservationAuthorityLineage(
-                conversationKey: conversationKey,
-                proofBaseGeneration: proof.baseGeneration,
-                currentGeneration: next.generation,
-                projection: .capture(next)
-            )
-
-        case .readBoundaryOnly:
-            let previousProjection =
-                ChatTimelineStoreObservationAuthorityProjection.capture(previous)
-            let nextProjection =
-                ChatTimelineStoreObservationAuthorityProjection.capture(next)
-            guard let lineage,
-                  lineage.conversationKey == conversationKey,
-                  lineage.currentGeneration == previous.generation,
-                  lineage.projection == previousProjection,
-                  next.generation == previous.generation &+ 1,
-                  next.cause == .command,
-                  nextProjection == previousProjection,
-                  isStrictResidentReadBoundaryAdvance(
-                      from: previous,
-                      to: next
-                  ) else {
-                return nil
-            }
-            return ChatTimelineStoreObservationAuthorityLineage(
-                conversationKey: lineage.conversationKey,
-                proofBaseGeneration: lineage.proofBaseGeneration,
-                currentGeneration: next.generation,
-                projection: nextProjection
-            )
-        }
-    }
-
-    static func isAuthoritative(
-        _ lineage: ChatTimelineStoreObservationAuthorityLineage?,
-        for snapshot: ChatTimelineSessionSnapshot,
-        conversationKey: ChatTimelineConversationKey
-    ) -> Bool {
-        guard let lineage,
-              let proof = snapshot.unreadMetadata.initialFrameReadinessProof,
-              lineage.conversationKey == conversationKey,
-              proof.conversationKey == conversationKey,
-              lineage.proofBaseGeneration == proof.baseGeneration,
-              lineage.currentGeneration == snapshot.generation,
-              lineage.projection ==
-                ChatTimelineStoreObservationAuthorityProjection.capture(
-                    snapshot
-                ) else {
-            return false
-        }
-        return true
-    }
-
-    private static func isStrictResidentReadBoundaryAdvance(
-        from previous: ChatTimelineSessionSnapshot,
-        to next: ChatTimelineSessionSnapshot
-    ) -> Bool {
-        guard let nextBoundary = next.readBoundary,
-              next.readBoundary != previous.readBoundary,
-              previous.readBoundary.map({
-                  nextBoundary.position > $0.position
-              }) ?? true,
-              let item = next.item(primary: nextBoundary.primary),
-              !item.isDeleted,
-              ChatTimelinePositionKey(message: item) == nextBoundary.position else {
-            return false
-        }
-        return true
-    }
-}
-
-enum ChatTimelineLocalPageLoadDisposition: Equatable {
+enum ChatTimelineVerifiedBoundaryPreparationDisposition: Equatable {
     case started
     case coalesced
     case rejectedStale
 }
 
-enum ChatTimelineLocalPagePreparationResult {
-    case prepared(ChatTimelinePreparedLocalPage)
+enum ChatTimelineVerifiedBoundaryPreparationResult {
+    case prepared(ChatTimelinePreparedVerifiedBoundaryPage)
     case stale
 }
 
-struct ChatTimelineLocalPageArchiveContext {
-    let persisted: ChatArchiveStateSnapshot
-    let paging: ChatArchiveStateSnapshot
-}
-
-final class ChatTimelinePreparedLocalPage {
-    let id: String
-    let direction: ChatHistoryPageDirection
-    let conversationKey: ChatTimelineConversationKey
-    let baseGeneration: UInt64
-    let boundary: ChatTimelineBoundary
-    let archiveContext: ChatTimelineLocalPageArchiveContext
-    let snapshot: ChatTimelineSnapshot
-    let preparedOnMainThread: Bool
-
+final class ChatTimelinePreparedVerifiedBoundaryPage {
     fileprivate let sessionID: UUID
-    private let consumeLock = NSLock()
+    fileprivate let baseGeneration: UInt64
+    fileprivate let direction: ChatHistoryPageDirection
+    fileprivate let verifiedScope: ChatTimelineVerifiedScope
+    fileprivate let outcome:
+        ChatVirtualTimelineBoundaryOutcome<ChatTimelineSnapshot>
+
+    private let lock = NSLock()
     private var consumed = false
 
     fileprivate init(
-        id: String,
         sessionID: UUID,
-        direction: ChatHistoryPageDirection,
-        conversationKey: ChatTimelineConversationKey,
         baseGeneration: UInt64,
-        boundary: ChatTimelineBoundary,
-        archiveContext: ChatTimelineLocalPageArchiveContext,
-        snapshot: ChatTimelineSnapshot,
-        preparedOnMainThread: Bool
+        direction: ChatHistoryPageDirection,
+        verifiedScope: ChatTimelineVerifiedScope,
+        outcome: ChatVirtualTimelineBoundaryOutcome<ChatTimelineSnapshot>
     ) {
-        self.id = id
         self.sessionID = sessionID
-        self.direction = direction
-        self.conversationKey = conversationKey
         self.baseGeneration = baseGeneration
-        self.boundary = boundary
-        self.archiveContext = archiveContext
-        self.snapshot = snapshot
-        self.preparedOnMainThread = preparedOnMainThread
+        self.direction = direction
+        self.verifiedScope = verifiedScope
+        self.outcome = outcome
     }
 
-    fileprivate func consumeOnce() -> Bool {
-        consumeLock.withLock {
+    fileprivate func consume() -> Bool {
+        lock.withLock {
             guard !consumed else { return false }
             consumed = true
             return true
         }
     }
+
+    fileprivate var isAvailable: Bool {
+        lock.withLock { !consumed }
+    }
 }
 
-enum ChatTimelineInitialFrameTarget: Equatable {
-    case latest
-    case message(ChatTimelineAnchor)
-    case firstIncomingAfterBoundary(String)
-}
-
-enum ChatTimelineInitialFrameAlignment: Equatable {
-    case bottom
-    case anchor(primary: String, archivedId: String?)
-}
-
-enum ChatTimelineInitialFrameBlockingReason: Equatable {
-    case targetMissing(ChatTimelineInitialFrameTarget)
-    case searchResolutionFailed(ChatAnchorTransactionFailure)
-}
-
-struct ChatTimelineInitialFramePreparationMetrics: Equatable {
-    let storeQueryCount: Int
-    let mainThreadStoreQueryCount: Int
-    let fullScanCount: Int
-    let maxCandidateCount: Int
-    let preparedMessageCount: Int
-    let preparedOnMainThread: Bool
-}
-
-enum ChatTimelineInitialFrameLoadDisposition: Equatable {
+enum ChatTimelineVerifiedTargetPreparationDisposition: Equatable {
     case started
     case rejectedStale
 }
 
-enum ChatTimelineInitialFramePreparationResult {
-    case prepared(ChatTimelinePreparedInitialFrame)
-    case blocked(ChatTimelineInitialFrameBlockingReason)
+enum ChatTimelineVerifiedTargetPreparationResult {
+    case prepared(ChatTimelinePreparedVerifiedLocalTarget)
     case stale
 }
 
-enum ChatTimelineInitialFrameFinalizationCommitResult {
-    case committed(
-        frame: ChatTimelinePreparedInitialFrame,
-        snapshot: ChatTimelineSessionSnapshot
-    )
-    case rejected(ChatTimelinePreparedInitialFrame)
-    case stale
-}
-
-enum ChatTimelinePostBootstrapMappedCommitResult<MappedValue> {
-    case committed(
-        frame: ChatTimelinePreparedInitialFrame,
-        snapshot: ChatTimelineSessionSnapshot,
-        mapped: ChatFirstFrameMappedValue<MappedValue>
-    )
-    case blocked(ChatTimelineInitialFrameBlockingReason)
-    case rejected
-    case stale
-}
-
-final class ChatTimelinePreparedInitialFrame {
-    fileprivate typealias FinalizationCompletion =
-        (ChatTimelineInitialFrameFinalizationCommitResult) -> Void
-
-    /// Only the finalized delta is cached. In particular, this value never
-    /// retains the frame whose `finalizationState` owns it.
-    private struct FinalizedFramePayload {
-        let snapshot: ChatTimelineSnapshot
-        let alignment: ChatTimelineInitialFrameAlignment
-        let metrics: ChatTimelineInitialFramePreparationMetrics
-        let unreadMetadata: ChatTimelineUnreadMetadata
-        let searchResolutionProof: ChatTimelineSearchResolutionProof
-        let isMetadataFinalized: Bool
-
-        init(frame: ChatTimelinePreparedInitialFrame) {
-            snapshot = frame.snapshot
-            alignment = frame.alignment
-            metrics = frame.metrics
-            unreadMetadata = frame.unreadMetadata
-            searchResolutionProof = frame.searchResolutionProof
-            isMetadataFinalized = frame.isMetadataFinalized
-        }
-
-        func replayFrame(
-            from source: ChatTimelinePreparedInitialFrame,
-            terminalPayload: FinalizationTerminalPayload
-        ) -> ChatTimelinePreparedInitialFrame {
-            let replay = ChatTimelinePreparedInitialFrame(
-                sessionID: source.sessionID,
-                target: source.target,
-                conversationKey: source.conversationKey,
-                baseGeneration: source.baseGeneration,
-                snapshot: snapshot,
-                alignment: alignment,
-                metrics: metrics,
-                unreadMetadata: unreadMetadata,
-                searchResolutionProof: searchResolutionProof,
-                isMetadataFinalized: isMetadataFinalized,
-                preparationEpoch: source.preparationEpoch,
-                preparationLimit: source.preparationLimit,
-                baseSnapshot: source.baseSnapshot,
-                preparedLatestItems: source.preparedLatestItems,
-                preparedAroundWindow: source.preparedAroundWindow
-            )
-            replay.installResolvedTerminalPayload(terminalPayload)
-            return replay
-        }
-    }
-
-    private enum FinalizationTerminalPayload {
-        case committed(
-            frame: FinalizedFramePayload,
-            snapshot: ChatTimelineSessionSnapshot
-        )
-        case rejected(frame: FinalizedFramePayload)
-        case stale
-
-        init(result: ChatTimelineInitialFrameFinalizationCommitResult) {
-            switch result {
-            case .committed(let frame, let snapshot):
-                self = .committed(
-                    frame: FinalizedFramePayload(frame: frame),
-                    snapshot: snapshot
-                )
-            case .rejected(let frame):
-                self = .rejected(frame: FinalizedFramePayload(frame: frame))
-            case .stale:
-                self = .stale
-            }
-        }
-
-        func replayResult(
-            from source: ChatTimelinePreparedInitialFrame
-        ) -> ChatTimelineInitialFrameFinalizationCommitResult {
-            switch self {
-            case .committed(let frame, let snapshot):
-                return .committed(
-                    frame: frame.replayFrame(
-                        from: source,
-                        terminalPayload: self
-                    ),
-                    snapshot: snapshot
-                )
-            case .rejected(let frame):
-                return .rejected(
-                    frame.replayFrame(
-                        from: source,
-                        terminalPayload: self
-                    )
-                )
-            case .stale:
-                return .stale
-            }
-        }
-    }
-
-    private enum FinalizationState {
-        case available
-        case running
-        case resolved(FinalizationTerminalPayload)
-    }
-
-    fileprivate enum FinalizationEnqueueDisposition {
-        case start
-        case wait
-        case resolved(ChatTimelineInitialFrameFinalizationCommitResult)
-    }
-
-    let target: ChatTimelineInitialFrameTarget
-    let conversationKey: ChatTimelineConversationKey
-    let baseGeneration: UInt64
-    let snapshot: ChatTimelineSnapshot
-    let alignment: ChatTimelineInitialFrameAlignment
-    let metrics: ChatTimelineInitialFramePreparationMetrics
-    let unreadMetadata: ChatTimelineUnreadMetadata
-    let searchResolutionProof: ChatTimelineSearchResolutionProof
-    let isMetadataFinalized: Bool
-
+final class ChatTimelinePreparedVerifiedLocalTarget {
     fileprivate let sessionID: UUID
-    fileprivate let preparationEpoch: UInt64
-    fileprivate let preparationLimit: Int
-    fileprivate let baseSnapshot: ChatTimelineSessionSnapshot
-    fileprivate let preparedLatestItems: [MessageStorageItem]?
-    fileprivate let preparedAroundWindow: ChatTimelineInitialFrameWindow?
-    private let consumeLock = NSLock()
+    fileprivate let baseGeneration: UInt64
+    fileprivate let verifiedScope: ChatTimelineVerifiedScope
+    fileprivate let outcome:
+        ChatVirtualTimelineTargetOutcome<ChatTimelineSnapshot>
+
+    private let lock = NSLock()
     private var consumed = false
-    private let finalizationLock = NSLock()
-    private var finalizationState: FinalizationState = .available
-    private var finalizationWaiters: [FinalizationCompletion] = []
 
     fileprivate init(
         sessionID: UUID,
-        target: ChatTimelineInitialFrameTarget,
-        conversationKey: ChatTimelineConversationKey,
         baseGeneration: UInt64,
-        snapshot: ChatTimelineSnapshot,
-        alignment: ChatTimelineInitialFrameAlignment,
-        metrics: ChatTimelineInitialFramePreparationMetrics,
-        unreadMetadata: ChatTimelineUnreadMetadata,
-        searchResolutionProof: ChatTimelineSearchResolutionProof = .notRequested,
-        isMetadataFinalized: Bool,
-        preparationEpoch: UInt64,
-        preparationLimit: Int,
-        baseSnapshot: ChatTimelineSessionSnapshot,
-        preparedLatestItems: [MessageStorageItem]?,
-        preparedAroundWindow: ChatTimelineInitialFrameWindow?
+        verifiedScope: ChatTimelineVerifiedScope,
+        outcome: ChatVirtualTimelineTargetOutcome<ChatTimelineSnapshot>
     ) {
         self.sessionID = sessionID
-        self.target = target
-        self.conversationKey = conversationKey
         self.baseGeneration = baseGeneration
-        self.snapshot = snapshot
-        self.alignment = alignment
-        self.metrics = metrics
-        self.unreadMetadata = unreadMetadata
-        self.searchResolutionProof = searchResolutionProof
-        self.isMetadataFinalized = isMetadataFinalized
-        self.preparationEpoch = preparationEpoch
-        self.preparationLimit = preparationLimit
-        self.baseSnapshot = baseSnapshot
-        self.preparedLatestItems = preparedLatestItems
-        self.preparedAroundWindow = preparedAroundWindow
+        self.verifiedScope = verifiedScope
+        self.outcome = outcome
     }
 
-    fileprivate func consumeOnce() -> Bool {
-        consumeLock.withLock {
+    fileprivate var isAvailable: Bool {
+        lock.withLock { !consumed }
+    }
+
+    fileprivate func consume() -> Bool {
+        lock.withLock {
             guard !consumed else { return false }
             consumed = true
             return true
         }
     }
+}
 
-    fileprivate func enqueueFinalization(
-        _ completion: @escaping FinalizationCompletion
-    ) -> FinalizationEnqueueDisposition {
-        finalizationLock.withLock {
-            switch finalizationState {
-            case .available:
-                finalizationState = .running
-                finalizationWaiters = [completion]
-                return .start
-            case .running:
-                finalizationWaiters.append(completion)
-                return .wait
-            case .resolved(let terminalPayload):
-                return .resolved(terminalPayload.replayResult(from: self))
-            }
-        }
-    }
+final class ChatTimelinePreparedVerifiedWindow {
+    fileprivate let sessionID: UUID
+    fileprivate let baseGeneration: UInt64
+    fileprivate let previousScope: ChatTimelineVerifiedScope?
+    fileprivate let scope: ChatTimelineVerifiedScope
+    fileprivate let direction: ChatHistoryPageDirection?
+    fileprivate let candidate: ChatTimelineSnapshot
 
-    fileprivate func resolveFinalization(
-        _ result: ChatTimelineInitialFrameFinalizationCommitResult
-    ) -> [FinalizationCompletion] {
-        let terminalPayload = FinalizationTerminalPayload(result: result)
-        let resolvedFrame: ChatTimelinePreparedInitialFrame?
-        switch result {
-        case .committed(let frame, _), .rejected(let frame):
-            resolvedFrame = frame
-        case .stale:
-            resolvedFrame = nil
-        }
-        let waiters = finalizationLock.withLock { () -> [FinalizationCompletion] in
-            guard case .running = finalizationState else { return [] }
-            finalizationState = .resolved(terminalPayload)
-            let waiters = finalizationWaiters
-            finalizationWaiters.removeAll(keepingCapacity: false)
-            return waiters
-        }
-        if let resolvedFrame, resolvedFrame !== self {
-            resolvedFrame.installResolvedTerminalPayload(terminalPayload)
-        }
-        return waiters
-    }
+    private let lock = NSLock()
+    private var consumed = false
 
-    private func installResolvedTerminalPayload(
-        _ terminalPayload: FinalizationTerminalPayload
+    fileprivate init(
+        sessionID: UUID,
+        baseGeneration: UInt64,
+        previousScope: ChatTimelineVerifiedScope?,
+        scope: ChatTimelineVerifiedScope,
+        direction: ChatHistoryPageDirection?,
+        candidate: ChatTimelineSnapshot
     ) {
-        finalizationLock.withLock {
-            guard case .available = finalizationState else { return }
-            finalizationState = .resolved(terminalPayload)
+        self.sessionID = sessionID
+        self.baseGeneration = baseGeneration
+        self.previousScope = previousScope
+        self.scope = scope
+        self.direction = direction
+        self.candidate = candidate
+    }
+
+    fileprivate var isAvailable: Bool {
+        lock.withLock { !consumed }
+    }
+
+    fileprivate func consume() -> Bool {
+        lock.withLock {
+            guard !consumed else { return false }
+            consumed = true
+            return true
         }
     }
 }
 
-struct ChatFirstFrameMappedValue<Value> {
-    let value: Value
-    let mappedOnMainThread: Bool
+enum ChatTimelineLiveEdgeCommitMode: Equatable {
+    case residentNewer
+    case proofOnly
 }
 
-enum ChatFirstFrameDisplayMappingExecutor {
-    static func map<Input, Output>(
-        _ input: Input,
-        on queue: DispatchQueue,
-        transform: @escaping (Input) -> Output,
-        completion: @escaping (ChatFirstFrameMappedValue<Output>) -> Void
+struct ChatTimelinePreparedLiveEdgeCandidate {
+    let snapshot: ChatTimelineSnapshot
+    let mode: ChatTimelineLiveEdgeCommitMode
+    let shouldExposeNewMessageBadge: Bool
+}
+
+struct ChatTimelineCommittedLiveEdgeAdmission {
+    let snapshot: ChatTimelineSessionSnapshot
+    let mode: ChatTimelineLiveEdgeCommitMode
+    let shouldExposeNewMessageBadge: Bool
+}
+
+final class ChatTimelinePreparedLiveEdgeAdmission {
+    fileprivate let sessionID: UUID
+    fileprivate let baseGeneration: UInt64
+    fileprivate let baseState: ChatVirtualTimelineState
+    fileprivate let baseAnchorRestore: ChatTimelineAnchorRestoreCommand?
+    fileprivate let baseItemFingerprints: [ChatTimelineObservedMessageFingerprint]
+    fileprivate let previousScope: ChatTimelineVerifiedScope?
+    fileprivate let scope: ChatTimelineVerifiedScope
+    fileprivate let candidate: ChatTimelineSnapshot
+    fileprivate let mode: ChatTimelineLiveEdgeCommitMode
+    fileprivate let shouldExposeNewMessageBadge: Bool
+
+    private let lock = NSLock()
+    private var consumed = false
+
+    fileprivate init(
+        sessionID: UUID,
+        baseGeneration: UInt64,
+        baseState: ChatVirtualTimelineState,
+        baseAnchorRestore: ChatTimelineAnchorRestoreCommand?,
+        baseItemFingerprints: [ChatTimelineObservedMessageFingerprint],
+        previousScope: ChatTimelineVerifiedScope?,
+        scope: ChatTimelineVerifiedScope,
+        candidate: ChatTimelineSnapshot,
+        mode: ChatTimelineLiveEdgeCommitMode,
+        shouldExposeNewMessageBadge: Bool
     ) {
-        queue.async {
-            let mappedOnMainThread = Thread.isMainThread
-            let value = transform(input)
-            DispatchQueue.main.async {
-                completion(
-                    ChatFirstFrameMappedValue(
-                        value: value,
-                        mappedOnMainThread: mappedOnMainThread
-                    )
-                )
-            }
+        self.sessionID = sessionID
+        self.baseGeneration = baseGeneration
+        self.baseState = baseState
+        self.baseAnchorRestore = baseAnchorRestore
+        self.baseItemFingerprints = baseItemFingerprints
+        self.previousScope = previousScope
+        self.scope = scope
+        self.candidate = candidate
+        self.mode = mode
+        self.shouldExposeNewMessageBadge = shouldExposeNewMessageBadge
+    }
+
+    fileprivate var isAvailable: Bool {
+        lock.withLock { !consumed }
+    }
+
+    fileprivate func consume() -> Bool {
+        lock.withLock {
+            guard !consumed else { return false }
+            consumed = true
+            return true
         }
     }
 }
 
-private final class ChatTimelineLocalPagePreparationProvider: ChatTimelinePageProviding {
-    private let upstream: ChatTimelinePageProviding
-    private var itemsByPrimary: [String: MessageStorageItem]
-    private var preparedLatestItems: [MessageStorageItem]?
-    private var consumedPreparedLatestItems = false
-    private var preparedAroundWindow: ChatTimelineInitialFrameWindow?
-    private var consumedPreparedAroundWindowPrimary: String?
-
-    init(
-        upstream: ChatTimelinePageProviding,
-        residentItems: [MessageStorageItem],
-        preparedLatestItems: [MessageStorageItem]? = nil,
-        preparedAroundWindow: ChatTimelineInitialFrameWindow? = nil
-    ) {
-        self.upstream = upstream
-        self.preparedLatestItems = preparedLatestItems
-        self.preparedAroundWindow = preparedAroundWindow
-        self.itemsByPrimary = Dictionary(
-            (
-                residentItems +
-                (preparedLatestItems ?? []) +
-                (preparedAroundWindow?.items ?? [])
-            ).map { ($0.primary, $0) },
-            uniquingKeysWith: { _, newest in newest }
-        )
-    }
-
-    func latest(limit: Int) -> [MessageStorageItem] {
-        if let preparedLatestItems {
-            self.preparedLatestItems = nil
-            consumedPreparedLatestItems = true
-            return cache(Array(preparedLatestItems.suffix(max(0, limit))))
-        }
-        if consumedPreparedLatestItems {
-            return []
-        }
-        return cache(upstream.latest(limit: limit))
-    }
-
-    func older(before boundary: ChatTimelineBoundary, limit: Int) -> [MessageStorageItem] {
-        cache(upstream.older(before: boundary, limit: limit))
-    }
-
-    func newer(after boundary: ChatTimelineBoundary, limit: Int) -> [MessageStorageItem] {
-        cache(upstream.newer(after: boundary, limit: limit))
-    }
-
-    func around(anchor: MessageStorageItem, before: Int, after: Int) -> [MessageStorageItem] {
-        if let preparedAroundWindow,
-           preparedAroundWindow.target.primary == anchor.primary,
-           preparedAroundWindow.items.count <= max(0, before) + max(0, after) + 1,
-           preparedAroundWindow.items.contains(where: { $0.primary == anchor.primary }) {
-            self.preparedAroundWindow = nil
-            consumedPreparedAroundWindowPrimary = anchor.primary
-            return cache(preparedAroundWindow.items)
-        }
-        if consumedPreparedAroundWindowPrimary == anchor.primary {
-            return []
-        }
-        return cache(upstream.around(anchor: anchor, before: before, after: after))
-    }
-
-    func message(
-        primary: String?,
-        archivedId: String?,
-        messageId: String?
-    ) -> MessageStorageItem? {
-        if let primary, let item = itemsByPrimary[primary] {
-            return item
-        }
-        if let item = itemsByPrimary.values.first(where: {
-            (archivedId != nil && $0.archivedId == archivedId)
-                || (messageId != nil && $0.messageId == messageId)
-        }) {
-            return item
-        }
-        guard let item = upstream.message(
-            primary: primary,
-            archivedId: archivedId,
-            messageId: messageId
-        ) else {
-            return nil
-        }
-        itemsByPrimary[item.primary] = item
-        return item
-    }
-
-    func searchMessage(anchor: ChatMessageAnchorRef) -> MessageStorageItem? {
-        searchMessageResolution(anchor: anchor).message
-    }
-
-    func searchMessageResolution(
-        anchor: ChatMessageAnchorRef
-    ) -> ChatTimelineSearchMessageResolution {
-        if let primary = anchor.messagePrimary,
-           let item = itemsByPrimary[primary] {
-            return item.isDeleted ? .failed(.targetDeleted) : .found(item)
-        }
-        let resolution = upstream.searchMessageResolution(anchor: anchor)
-        if case .found(let item) = resolution {
-            itemsByPrimary[item.primary] = item
-        }
-        return resolution
-    }
-
-    func items(primaryKeys: [String]) -> [MessageStorageItem] {
-        primaryKeys.compactMap { itemsByPrimary[$0] }
-    }
-
-    private func cache(_ items: [MessageStorageItem]) -> [MessageStorageItem] {
-        for item in items {
-            itemsByPrimary[item.primary] = item
-        }
-        return items
-    }
+private struct ChatTimelineVerifiedBoundaryPreparationKey: Equatable {
+    let direction: ChatHistoryPageDirection
+    let boundaryPrimary: String?
+    let baseGeneration: UInt64
+    let verifiedScope: ChatTimelineVerifiedScope
 }
+
+private struct ChatTimelineActiveVerifiedBoundaryPreparation {
+    let key: ChatTimelineVerifiedBoundaryPreparationKey
+    var completions: [(ChatTimelineVerifiedBoundaryPreparationResult) -> Void]
+}
+
+private enum ChatTimelineVerifiedScopeMutation {
+    case unchanged
+    case replace(ChatTimelineVerifiedScope?)
+}
+
 
 final class ChatTimelineSession {
     typealias SnapshotHandler = (ChatTimelineSessionSnapshot) -> Void
@@ -1336,32 +711,37 @@ final class ChatTimelineSession {
     private let pageSize: Int
     private let conversationKey: ChatTimelineConversationKey
     private let sessionID = UUID()
-    private let localPagePreparationQueue: DispatchQueue
-    private let localPagePreparationLock = NSLock()
-    private var activeLocalPagePreparationKeys: Set<String> = []
-    private var localPagePreparationEpoch: UInt64 = 0
-    private let initialFramePreparationLock = NSLock()
-    private var initialFramePreparationEpoch: UInt64 = 0
-    private var activeInitialFramePreparationEpoch: UInt64?
-    private var archiveState: ChatArchiveStateSnapshot
+    private let verifiedBoundaryPreparationQueue = DispatchQueue(
+        label: "org.xabber.chat.timeline.verified-boundary",
+        qos: .userInitiated,
+        autoreleaseFrequency: .workItem
+    )
     private var storedSnapshot: ChatTimelineSessionSnapshot
-    private var storeObservationAuthorityLineage:
-        ChatTimelineStoreObservationAuthorityLineage?
+    private var storedVerifiedScope: ChatTimelineVerifiedScope?
+    private var activeVerifiedBoundaryPreparation:
+        ChatTimelineActiveVerifiedBoundaryPreparation?
     private var observation: ChatTimelineStoreObservation?
     private var isInstallingStoreObservation = false
     private var storeObservationEpoch: UInt64 = 0
     private var storedSnapshotHandler: SnapshotHandler?
     private var storeChangeDepth = 0
     private var incrementalResidentReducer = ChatIncrementalResidentReducer()
+    /// Typed optimistic rows live outside the verified virtual-engine state.
+    /// They are presented and observed, but never become archive boundaries.
+    private var provisionalLocalOutgoingPrimaryIDs = Set<String>()
+    private var storedAuthoritativeEmptyLiveTailAuthority:
+        ChatTimelineAuthoritativeEmptyLiveTailAuthority?
 
     var snapshot: ChatTimelineSessionSnapshot {
         lock.withLock { storedSnapshot }
     }
 
-    /// Route-total history diagnostics begin when the production session store
-    /// is installed, before controller admission and loading helpers run.
-    /// Initial-frame receipts use this absolute snapshot so an accidental
-    /// pre-preparation lookup cannot be hidden by a local measurement delta.
+    var verifiedScope: ChatTimelineVerifiedScope? {
+        lock.withLock { storedVerifiedScope }
+    }
+
+    /// Route-total diagnostics begin when the production session store is
+    /// installed and remain independent from archive-engine orchestration.
     var routeStoreDiagnosticsSnapshot: ChatTimelineStoreDiagnosticsSnapshot {
         store.diagnosticsSnapshot
     }
@@ -1379,17 +759,11 @@ final class ChatTimelineSession {
         store: ChatTimelineSessionStore,
         pageSize: Int,
         conversationKey: ChatTimelineConversationKey,
-        archiveState: ChatArchiveStateSnapshot,
         observesStoreImmediately: Bool = true
     ) {
         self.store = store
         self.pageSize = max(1, pageSize)
         self.conversationKey = conversationKey
-        self.localPagePreparationQueue = DispatchQueue(
-            label: "com.xabber.chat.timeline.local-page.\(UUID().uuidString)",
-            qos: .userInitiated
-        )
-        self.archiveState = archiveState
         let state = ChatVirtualTimelineState.empty(
             owner: conversationKey.owner,
             jid: conversationKey.jid,
@@ -1400,26 +774,21 @@ final class ChatTimelineSession {
             cause: .command,
             items: [],
             state: state,
-            loadingState: .none,
-            loadDecision: nil,
             anchorRestore: nil,
-            localOlderCandidateCount: nil,
             pageSize: self.pageSize,
-            shortLocalRemainderRemoteFirst: false,
             residentIndex: ChatTimelineResidentIndex(items: []),
             readBoundary: nil,
             unreadMetadata: .empty,
             residentHardLimit: ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: self.pageSize),
             residentChangeSet: nil
         )
+        self.storedVerifiedScope = nil
         if observesStoreImmediately {
             activateStoreObservation()
         }
     }
 
     deinit {
-        cancelInitialFramePreparations()
-        cancelLocalPagePreparations()
         observation?.invalidate()
     }
 
@@ -1439,21 +808,12 @@ final class ChatTimelineSession {
                 return storeObservationEpoch
             }
             guard let activationEpoch else { return }
-            let authorityState = lock.withLock {
-                (storedSnapshot, storeObservationAuthorityLineage)
-            }
-            let committed = authorityState.0
-            let proof = committed.unreadMetadata.initialFrameReadinessProof
-            let hasAuthoritativeBaseline =
-                ChatTimelineStoreObservationAuthorityPolicy.isAuthoritative(
-                    authorityState.1,
-                    for: committed,
-                    conversationKey: conversationKey
-                ) || (authoritativeEmptyBaseline && committed.items.isEmpty)
+            let committed = lock.withLock { storedSnapshot }
             let baseline = ChatTimelineStoreObservationBaseline(
-                isAuthoritative: hasAuthoritativeBaseline,
+                isAuthoritative:
+                    authoritativeEmptyBaseline && committed.items.isEmpty,
                 residentItems: committed.items,
-                latestMessageFingerprint: proof?.latestMessageFingerprint,
+                latestMessageFingerprint: nil,
                 unreadCount: committed.unreadMetadata.unreadCount,
                 unreadMetadataLimit: committed.residentHardLimit,
                 unreadMetadata: committed.unreadMetadata
@@ -1503,708 +863,52 @@ final class ChatTimelineSession {
         installed?.invalidate()
     }
 
-    @discardableResult
-    func openLatest(limit: Int? = nil) -> ChatTimelineSessionSnapshot {
-        mutateTimeline { engine in
-            engine.openLatest(
-                limit: min(
-                    max(1, limit ?? ChatBoundedTimelineWindowPolicy.targetLimit(pageSize: pageSize)),
-                    ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: pageSize)
+    /// Revokes every session-scoped archive proof without publishing cached
+    /// rows back to presentation. The generation bump makes all outstanding
+    /// prepared boundary, target and remote-window receipts fail closed.
+    func invalidateVerifiedScope() {
+        let invalidated = operationLock.withLock { () -> (
+            ChatTimelineStoreObservation?,
+            [(ChatTimelineVerifiedBoundaryPreparationResult) -> Void]
+        ) in
+            incrementalResidentReducer = ChatIncrementalResidentReducer()
+            provisionalLocalOutgoingPrimaryIDs.removeAll(keepingCapacity: false)
+            storedAuthoritativeEmptyLiveTailAuthority = nil
+            return lock.withLock {
+                let previous = storedSnapshot
+                let staleCompletions =
+                    activeVerifiedBoundaryPreparation?.completions ?? []
+                activeVerifiedBoundaryPreparation = nil
+                storedVerifiedScope = nil
+                let emptyState = ChatVirtualTimelineState.empty(
+                    owner: conversationKey.owner,
+                    jid: conversationKey.jid,
+                    conversationType: conversationKey.conversationType
                 )
-            )
-        }
-    }
-
-    @discardableResult
-    func scrollToLatest(limit: Int? = nil) -> ChatTimelineSessionSnapshot {
-        openLatest(limit: limit)
-    }
-
-    @discardableResult
-    func openAround(anchor: ChatTimelineAnchor) -> ChatTimelineSessionSnapshot {
-        mutateTimeline { engine in
-            engine.openAround(anchor: anchor)
-        }
-    }
-
-    @discardableResult
-    func pageOlder(queryId: String? = nil) -> ChatTimelineSessionSnapshot {
-        mutateTimeline { engine in
-            engine.pageOlder(queryId: queryId)
-        }
-    }
-
-    @discardableResult
-    func pageNewer(queryId: String? = nil) -> ChatTimelineSessionSnapshot {
-        mutateTimeline { engine in
-            engine.pageNewer(queryId: queryId)
-        }
-    }
-
-    @discardableResult
-    func loadOlder(
-        before boundary: ChatTimelineBoundary,
-        archiveState: ChatArchiveStateSnapshot,
-        expectedGeneration: UInt64,
-        completion: @escaping (ChatTimelineLocalPagePreparationResult) -> Void
-    ) -> ChatTimelineLocalPageLoadDisposition {
-        startLocalPagePreparation(
-            direction: .older,
-            boundary: boundary,
-            archiveContextProvider: {
-                ChatTimelineLocalPageArchiveContext(
-                    persisted: archiveState,
-                    paging: archiveState
+                storedSnapshot = ChatTimelineSessionSnapshot(
+                    generation: previous.generation &+ 1,
+                    cause: .command,
+                    items: [],
+                    state: emptyState,
+                    anchorRestore: nil,
+                    pageSize: previous.pageSize,
+                    residentIndex: ChatTimelineResidentIndex(items: []),
+                    readBoundary: previous.readBoundary,
+                    unreadMetadata: previous.unreadMetadata,
+                    residentHardLimit: previous.residentHardLimit,
+                    residentChangeSet: nil
                 )
-            },
-            expectedGeneration: expectedGeneration,
-            completion: completion
-        )
-    }
-
-    @discardableResult
-    func loadOlder(
-        before boundary: ChatTimelineBoundary,
-        archiveContextProvider: @escaping () -> ChatTimelineLocalPageArchiveContext,
-        expectedGeneration: UInt64,
-        completion: @escaping (ChatTimelineLocalPagePreparationResult) -> Void
-    ) -> ChatTimelineLocalPageLoadDisposition {
-        startLocalPagePreparation(
-            direction: .older,
-            boundary: boundary,
-            archiveContextProvider: archiveContextProvider,
-            expectedGeneration: expectedGeneration,
-            completion: completion
-        )
-    }
-
-    @discardableResult
-    func loadNewer(
-        after boundary: ChatTimelineBoundary,
-        archiveState: ChatArchiveStateSnapshot,
-        expectedGeneration: UInt64,
-        completion: @escaping (ChatTimelineLocalPagePreparationResult) -> Void
-    ) -> ChatTimelineLocalPageLoadDisposition {
-        startLocalPagePreparation(
-            direction: .newer,
-            boundary: boundary,
-            archiveContextProvider: {
-                ChatTimelineLocalPageArchiveContext(
-                    persisted: archiveState,
-                    paging: archiveState
-                )
-            },
-            expectedGeneration: expectedGeneration,
-            completion: completion
-        )
-    }
-
-    @discardableResult
-    func prepareInitialFrame(
-        target: ChatTimelineInitialFrameTarget,
-        limit: Int,
-        expectedGeneration: UInt64,
-        deferMetadataUntilFinalization: Bool = false,
-        performanceTraceContext: ChatOpenPerformanceTraceContext? = nil,
-        completion: @escaping (ChatTimelineInitialFramePreparationResult) -> Void
-    ) -> ChatTimelineInitialFrameLoadDisposition {
-        let base = snapshot
-        guard base.generation == expectedGeneration else {
-            return .rejectedStale
-        }
-
-        let epoch = initialFramePreparationLock.withLock { () -> UInt64 in
-            initialFramePreparationEpoch &+= 1
-            activeInitialFramePreparationEpoch = initialFramePreparationEpoch
-            return initialFramePreparationEpoch
-        }
-        let boundedLimit = min(
-            max(1, limit),
-            ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: pageSize)
-        )
-
-        localPagePreparationQueue.async { [weak self] in
-            guard let self else {
-                DispatchQueue.main.async {
-                    completion(.stale)
-                }
-                return
-            }
-            let prepareResult = {
-                self.prepareInitialFrameResult(
-                    target: target,
-                    limit: boundedLimit,
-                    base: base,
-                    preparationEpoch: epoch,
-                    includesMetadata: !deferMetadataUntilFinalization
-                )
-            }
-            let result: ChatTimelineInitialFramePreparationResult
-            if let performanceTraceContext {
-                result = ChatPerformanceSignposts.measure(
-                    .localHistoryQuery,
-                    context: performanceTraceContext,
-                    prepareResult
-                )
-            } else {
-                result = prepareResult()
-            }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                let isCurrent = self.lock.withLock {
-                    self.storedSnapshot.generation == expectedGeneration
-                }
-                let isActive = self.initialFramePreparationLock.withLock { () -> Bool in
-                    let isActive = self.initialFramePreparationEpoch == epoch &&
-                        self.activeInitialFramePreparationEpoch == epoch
-                    if self.activeInitialFramePreparationEpoch == epoch {
-                        self.activeInitialFramePreparationEpoch = nil
-                    }
-                    return isActive
-                }
-                completion(isCurrent && isActive ? result : .stale)
+                return (observation, staleCompletions)
             }
         }
-        return .started
-    }
-
-    func finalizeAndCommitPreparedInitialFrame(
-        _ preparedFrame: ChatTimelinePreparedInitialFrame,
-        shouldCommit: @escaping (ChatTimelinePreparedInitialFrame) -> Bool,
-        completion: @escaping (
-            ChatTimelineInitialFrameFinalizationCommitResult
-        ) -> Void
-    ) {
-        guard preparedFrame.sessionID == sessionID,
-              preparedFrame.conversationKey == conversationKey,
-              preparedFrame.baseGeneration == snapshot.generation else {
-            completion(.stale)
-            return
-        }
-
-        switch preparedFrame.enqueueFinalization(completion) {
-        case .wait:
-            return
-        case .resolved(let result):
-            completion(result)
-            return
-        case .start:
-            break
-        }
-
-        let deliver: (ChatTimelineInitialFrameFinalizationCommitResult) -> Void = {
-            result in
-            let waiters = preparedFrame.resolveFinalization(result)
-            waiters.forEach { $0(result) }
-        }
-
-        let expectedGeneration = preparedFrame.baseGeneration
-        let expectedEpoch = preparedFrame.preparationEpoch
-        if preparedFrame.isMetadataFinalized {
-            let result = self.atomicInitialFrameCommitResult(
-                frame: preparedFrame,
-                expectedGeneration: expectedGeneration,
-                expectedEpoch: expectedEpoch,
-                shouldCommit: shouldCommit
-            )
-            deliver(result)
-            return
-        }
-
-        localPagePreparationQueue.async { [weak self] in
-            guard let self else {
-                DispatchQueue.main.async {
-                    deliver(.stale)
-                }
-                return
-            }
-            let isStillCurrent = self.initialFramePreparationLock.withLock {
-                self.initialFramePreparationEpoch == expectedEpoch
-            }
-            guard isStillCurrent else {
-                DispatchQueue.main.async {
-                    deliver(.stale)
-                }
-                return
-            }
-
-            var atomicResult:
-                ChatTimelineInitialFrameFinalizationCommitResult = .stale
-            self.store.withInitialFrameMetadataConsistencyLease(
-                limit: ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: self.pageSize),
-                materializedLocalMessageCount: preparedFrame.snapshot.items.count,
-                conversationKey: preparedFrame.conversationKey,
-                baseGeneration: preparedFrame.baseGeneration
-            ) { unreadMetadata in
-                guard let readinessProof = unreadMetadata
-                        .initialFrameReadinessProof,
-                      readinessProof.conversationKey ==
-                        preparedFrame.conversationKey,
-                      readinessProof.baseGeneration ==
-                        preparedFrame.baseGeneration else {
-                    return
-                }
-                let archiveState = readinessProof.archiveState
-                guard let rebuilt = self.initialFrameSnapshot(
-                    target: preparedFrame.target,
-                    limit: preparedFrame.preparationLimit,
-                    base: preparedFrame.baseSnapshot,
-                    preparedLatestItems: preparedFrame.preparedLatestItems,
-                    preparedAroundWindow: preparedFrame.preparedAroundWindow,
-                    archiveState: archiveState
-                ) else {
-                    return
-                }
-                let diagnosticsAfter = self.store.diagnosticsSnapshot
-                let finalizedFrame = ChatTimelinePreparedInitialFrame(
-                    sessionID: self.sessionID,
-                    target: preparedFrame.target,
-                    conversationKey: preparedFrame.conversationKey,
-                    baseGeneration: preparedFrame.baseGeneration,
-                    snapshot: rebuilt.snapshot,
-                    alignment: rebuilt.alignment,
-                    metrics: ChatTimelineInitialFramePreparationMetrics(
-                        storeQueryCount: diagnosticsAfter.queryCount,
-                        mainThreadStoreQueryCount:
-                            diagnosticsAfter.mainThreadQueryCount,
-                        fullScanCount: diagnosticsAfter.fullScanCount,
-                        maxCandidateCount: diagnosticsAfter.maxCandidateCount,
-                        preparedMessageCount: rebuilt.snapshot.items.count,
-                        preparedOnMainThread:
-                            preparedFrame.metrics.preparedOnMainThread ||
-                            Thread.isMainThread
-                    ),
-                    unreadMetadata: unreadMetadata,
-                    searchResolutionProof:
-                        preparedFrame.searchResolutionProof,
-                    isMetadataFinalized: true,
-                    preparationEpoch: expectedEpoch,
-                    preparationLimit: preparedFrame.preparationLimit,
-                    baseSnapshot: preparedFrame.baseSnapshot,
-                    preparedLatestItems: preparedFrame.preparedLatestItems,
-                    preparedAroundWindow: preparedFrame.preparedAroundWindow
-                )
-
-                // The production store keeps its Realm consistency lease open
-                // through this session commit. No Realm writer can publish a
-                // newer coverage/gap boundary between proof capture and the
-                // generation-checked immutable snapshot commit. The caller's
-                // authorization closure must therefore be thread-safe and must
-                // never perform UI or Realm work.
-                atomicResult = self.atomicInitialFrameCommitResult(
-                    frame: finalizedFrame,
-                    expectedGeneration: expectedGeneration,
-                    expectedEpoch: expectedEpoch,
-                    shouldCommit: shouldCommit
-                )
-            }
-
+        invalidated.0?.replaceResidentItems([])
+        invalidated.1.forEach { completion in
             DispatchQueue.main.async {
-                deliver(atomicResult)
+                completion(.stale)
             }
         }
     }
 
-    /// Resumes a target that was absent during op1 after the trusted archive
-    /// page has persisted. Production resolves the now-present window, reads
-    /// immutable readiness metadata, performs the background display mapping,
-    /// and generation-checks the session commit while one op2 consistency
-    /// lease is still held.
-    func prepareMapAndCommitPostBootstrapInitialFrame<MappedValue>(
-        target: ChatTimelineInitialFrameTarget,
-        searchAnchor: ChatMessageAnchorRef? = nil,
-        limit: Int,
-        expectedGeneration: UInt64,
-        performanceTraceContext: ChatOpenPerformanceTraceContext? = nil,
-        map: @escaping (
-            ChatTimelinePreparedInitialFrame
-        ) -> ChatFirstFrameMappedValue<MappedValue>?,
-        shouldCommit: @escaping (
-            ChatTimelinePreparedInitialFrame,
-            ChatFirstFrameMappedValue<MappedValue>
-        ) -> Bool,
-        completion: @escaping (
-            ChatTimelinePostBootstrapMappedCommitResult<MappedValue>
-        ) -> Void
-    ) -> ChatTimelineInitialFrameLoadDisposition {
-        let base = snapshot
-        guard base.generation == expectedGeneration else {
-            ChatArchiveDebugTrace.log(
-                "postBootstrapInitialFrameLeaseTerminal",
-                [("stageCode", 0)]
-            )
-            return .rejectedStale
-        }
-        let epoch = initialFramePreparationLock.withLock { () -> UInt64 in
-            initialFramePreparationEpoch &+= 1
-            activeInitialFramePreparationEpoch = initialFramePreparationEpoch
-            return initialFramePreparationEpoch
-        }
-        let boundedLimit = min(
-            max(1, limit),
-            ChatInitialFirstFrameHistoryConfiguration.pageSize,
-            ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: pageSize)
-        )
-
-        localPagePreparationQueue.async { [weak self] in
-            guard let self else {
-                DispatchQueue.main.async { completion(.stale) }
-                return
-            }
-            var result: ChatTimelinePostBootstrapMappedCommitResult<MappedValue> =
-                .stale
-            var localQueryInterval = performanceTraceContext.map {
-                ChatPerformanceSignposts.begin(
-                    .localHistoryQuery,
-                    context: $0
-                )
-            }
-            self.store.withPostBootstrapInitialFrameConsistencyLease(
-                target: target,
-                searchAnchor: searchAnchor,
-                limit: boundedLimit,
-                conversationKey: self.conversationKey,
-                baseGeneration: base.generation
-            ) { materialization in
-                guard let materialization else {
-                    ChatArchiveDebugTrace.log(
-                        "postBootstrapInitialFrameLeaseTerminal",
-                        [("stageCode", 1)]
-                    )
-                    localQueryInterval?.end(terminal: .failed)
-                    result = .blocked(.targetMissing(target))
-                    return
-                }
-                if case .failed(let failure) =
-                    materialization.searchResolutionProof {
-                    ChatArchiveDebugTrace.log(
-                        "postBootstrapInitialFrameLeaseTerminal",
-                        [("stageCode", 9)]
-                    )
-                    localQueryInterval?.end(terminal: .failed)
-                    result = .blocked(.searchResolutionFailed(failure))
-                    return
-                }
-                if case .found(let provedPrimary) =
-                    materialization.searchResolutionProof,
-                   materialization.preparedAroundWindow?.target.primary !=
-                    provedPrimary {
-                    ChatArchiveDebugTrace.log(
-                        "postBootstrapInitialFrameLeaseTerminal",
-                        [("stageCode", 10)]
-                    )
-                    localQueryInterval?.end(terminal: .failed)
-                    result = .blocked(.targetMissing(target))
-                    return
-                }
-                let preparedLatestItems = materialization.preparedLatestItems?
-                    .map(Self.frozen)
-                let preparedAroundWindow = materialization.preparedAroundWindow.map {
-                    ChatTimelineInitialFrameWindow(
-                        target: Self.frozen($0.target),
-                        items: $0.items.map(Self.frozen),
-                        materializedCandidateCount: $0.materializedCandidateCount
-                    )
-                }
-                guard let readinessProof = materialization.unreadMetadata
-                        .initialFrameReadinessProof,
-                      readinessProof.conversationKey == self.conversationKey,
-                      readinessProof.baseGeneration == base.generation else {
-                    ChatArchiveDebugTrace.log(
-                        "postBootstrapInitialFrameLeaseTerminal",
-                        [("stageCode", 2)]
-                    )
-                    localQueryInterval?.end(terminal: .cancelled)
-                    result = .rejected
-                    return
-                }
-                let archiveState = readinessProof.archiveState
-                guard let prepared = self.initialFrameSnapshot(
-                    target: target,
-                    limit: boundedLimit,
-                    base: base,
-                    preparedLatestItems: preparedLatestItems,
-                    preparedAroundWindow: preparedAroundWindow,
-                    archiveState: archiveState
-                ) else {
-                    ChatArchiveDebugTrace.log(
-                        "postBootstrapInitialFrameLeaseTerminal",
-                        [("stageCode", 3)]
-                    )
-                    localQueryInterval?.end(terminal: .failed)
-                    result = .blocked(.targetMissing(target))
-                    return
-                }
-                if case .found(let provedPrimary) =
-                    materialization.searchResolutionProof,
-                   !prepared.snapshot.items.contains(where: {
-                       $0.primary == provedPrimary
-                   }) {
-                    ChatArchiveDebugTrace.log(
-                        "postBootstrapInitialFrameLeaseTerminal",
-                        [("stageCode", 11)]
-                    )
-                    localQueryInterval?.end(terminal: .failed)
-                    result = .blocked(.targetMissing(target))
-                    return
-                }
-                let diagnostics = self.store.diagnosticsSnapshot
-                let frame = ChatTimelinePreparedInitialFrame(
-                    sessionID: self.sessionID,
-                    target: target,
-                    conversationKey: self.conversationKey,
-                    baseGeneration: base.generation,
-                    snapshot: prepared.snapshot,
-                    alignment: prepared.alignment,
-                    metrics: ChatTimelineInitialFramePreparationMetrics(
-                        storeQueryCount: diagnostics.queryCount,
-                        mainThreadStoreQueryCount:
-                            diagnostics.mainThreadQueryCount,
-                        fullScanCount: diagnostics.fullScanCount,
-                        maxCandidateCount: diagnostics.maxCandidateCount,
-                        preparedMessageCount: prepared.snapshot.items.count,
-                        preparedOnMainThread: Thread.isMainThread
-                    ),
-                    unreadMetadata: materialization.unreadMetadata,
-                    searchResolutionProof:
-                        materialization.searchResolutionProof,
-                    isMetadataFinalized: true,
-                    preparationEpoch: epoch,
-                    preparationLimit: boundedLimit,
-                    baseSnapshot: base,
-                    preparedLatestItems: preparedLatestItems,
-                    preparedAroundWindow: preparedAroundWindow
-                )
-                localQueryInterval?.end(terminal: .committed)
-                guard let mapped = map(frame) else {
-                    ChatArchiveDebugTrace.log(
-                        "postBootstrapInitialFrameLeaseTerminal",
-                        [("stageCode", 4)]
-                    )
-                    result = .rejected
-                    return
-                }
-                switch self.atomicInitialFrameCommitResult(
-                    frame: frame,
-                    expectedGeneration: base.generation,
-                    expectedEpoch: epoch,
-                    shouldCommit: { candidate in
-                        shouldCommit(candidate, mapped)
-                    }
-                ) {
-                case .committed(let committedFrame, let snapshot):
-                    ChatArchiveDebugTrace.log(
-                        "postBootstrapInitialFrameLeaseTerminal",
-                        [("stageCode", 5)]
-                    )
-                    result = .committed(
-                        frame: committedFrame,
-                        snapshot: snapshot,
-                        mapped: mapped
-                    )
-                case .rejected:
-                    ChatArchiveDebugTrace.log(
-                        "postBootstrapInitialFrameLeaseTerminal",
-                        [("stageCode", 6)]
-                    )
-                    result = .rejected
-                case .stale:
-                    ChatArchiveDebugTrace.log(
-                        "postBootstrapInitialFrameLeaseTerminal",
-                        [("stageCode", 7)]
-                    )
-                    result = .stale
-                }
-            }
-            localQueryInterval?.end(terminal: .cancelled)
-
-            DispatchQueue.main.async { [weak self] in
-                guard let self else {
-                    completion(.stale)
-                    return
-                }
-                let isActive = self.initialFramePreparationLock.withLock {
-                    () -> Bool in
-                    let isActive = self.initialFramePreparationEpoch == epoch &&
-                        self.activeInitialFramePreparationEpoch == epoch
-                    if self.activeInitialFramePreparationEpoch == epoch {
-                        self.activeInitialFramePreparationEpoch = nil
-                    }
-                    return isActive
-                }
-                if !isActive {
-                    ChatArchiveDebugTrace.log(
-                        "postBootstrapInitialFrameLeaseTerminal",
-                        [("stageCode", 8)]
-                    )
-                }
-                completion(isActive ? result : .stale)
-            }
-        }
-        return .started
-    }
-
-    private func atomicInitialFrameCommitResult(
-        frame: ChatTimelinePreparedInitialFrame,
-        expectedGeneration: UInt64,
-        expectedEpoch: UInt64,
-        shouldCommit: (ChatTimelinePreparedInitialFrame) -> Bool
-    ) -> ChatTimelineInitialFrameFinalizationCommitResult {
-        let hasCurrentGeneration = lock.withLock {
-            storedSnapshot.generation == expectedGeneration
-        }
-        guard hasCurrentGeneration else {
-            return .stale
-        }
-
-        // Linearize query/token revocation against the final generation
-        // commit. Cancellation increments this epoch under the same lock, so
-        // a replacement that wins before authorization cannot slip into the
-        // tiny interval between an epoch check and `commitPreparedInitialFrame`.
-        return initialFramePreparationLock.withLock {
-            guard initialFramePreparationEpoch == expectedEpoch else {
-                return .stale
-            }
-            guard shouldCommit(frame) else {
-                return .rejected(frame)
-            }
-            guard let committedSnapshot = commitPreparedInitialFrame(frame) else {
-                return .stale
-            }
-            return .committed(frame: frame, snapshot: committedSnapshot)
-        }
-    }
-
-    @discardableResult
-    func commitPreparedInitialFrame(
-        _ preparedFrame: ChatTimelinePreparedInitialFrame
-    ) -> ChatTimelineSessionSnapshot? {
-        operationLock.withLock {
-            let current = snapshot
-            guard preparedFrame.sessionID == sessionID,
-                  preparedFrame.conversationKey == conversationKey,
-                  preparedFrame.baseGeneration == current.generation,
-                  preparedFrame.isMetadataFinalized,
-                  preparedFrame.consumeOnce() else {
-                return nil
-            }
-            if let readinessProof = preparedFrame.unreadMetadata
-                .initialFrameReadinessProof {
-                lock.withLock {
-                    archiveState = readinessProof.archiveState
-                }
-            }
-            let prepared = preparedFrame.snapshot
-            return publish(
-                items: prepared.items,
-                state: prepared.state,
-                loadingState: prepared.loadingState,
-                loadDecision: prepared.loadDecision,
-                anchorRestore: prepared.anchorRestore,
-                localOlderCandidateCount: prepared.localOlderCandidateCount,
-                shortLocalRemainderRemoteFirst: prepared.shortLocalRemainderRemoteFirst,
-                readBoundary: current.readBoundary,
-                unreadMetadata: preparedFrame.unreadMetadata,
-                authorityPublication: .initialFrameCommit
-            )
-        }
-    }
-
-    func cancelInitialFramePreparations() {
-        initialFramePreparationLock.withLock {
-            initialFramePreparationEpoch &+= 1
-            activeInitialFramePreparationEpoch = nil
-        }
-    }
-
-    @discardableResult
-    func loadNewer(
-        after boundary: ChatTimelineBoundary,
-        archiveContextProvider: @escaping () -> ChatTimelineLocalPageArchiveContext,
-        expectedGeneration: UInt64,
-        completion: @escaping (ChatTimelineLocalPagePreparationResult) -> Void
-    ) -> ChatTimelineLocalPageLoadDisposition {
-        startLocalPagePreparation(
-            direction: .newer,
-            boundary: boundary,
-            archiveContextProvider: archiveContextProvider,
-            expectedGeneration: expectedGeneration,
-            completion: completion
-        )
-    }
-
-    @discardableResult
-    func commitPreparedLocalPage(
-        _ preparedPage: ChatTimelinePreparedLocalPage
-    ) -> ChatTimelineSessionSnapshot? {
-        operationLock.withLock {
-            let current = snapshot
-            guard preparedPage.sessionID == sessionID,
-                  preparedPage.conversationKey == conversationKey,
-                  preparedPage.baseGeneration == current.generation,
-                  preparedPage.snapshot.loadDecision == .localOnly,
-                  preparedPage.consumeOnce() else {
-                return nil
-            }
-            let prepared = preparedPage.snapshot
-            return publish(
-                items: prepared.items,
-                state: prepared.state,
-                loadingState: prepared.loadingState,
-                loadDecision: prepared.loadDecision,
-                anchorRestore: prepared.anchorRestore,
-                localOlderCandidateCount: prepared.localOlderCandidateCount,
-                shortLocalRemainderRemoteFirst: prepared.shortLocalRemainderRemoteFirst,
-                readBoundary: current.readBoundary,
-                unreadMetadata: current.unreadMetadata
-            )
-        }
-    }
-
-    func cancelLocalPagePreparations() {
-        localPagePreparationLock.withLock {
-            localPagePreparationEpoch &+= 1
-            activeLocalPagePreparationKeys.removeAll(keepingCapacity: false)
-        }
-    }
-
-    var activePreparationCount: Int {
-        let initialCount = initialFramePreparationLock.withLock {
-            activeInitialFramePreparationEpoch == nil ? 0 : 1
-        }
-        let localCount = localPagePreparationLock.withLock {
-            activeLocalPagePreparationKeys.count
-        }
-        return initialCount + localCount
-    }
-
-    @discardableResult
-    func finishRemoteLoad(
-        queryId: String,
-        refetchDirection: ChatHistoryPageDirection? = nil,
-        refetchLimit: Int? = nil
-    ) -> ChatTimelineSessionSnapshot {
-        mutateTimeline { engine in
-            engine.finishRemoteLoad(
-                queryId: queryId,
-                refetchDirection: refetchDirection,
-                refetchLimit: refetchLimit
-            )
-        }
-    }
-
-    @discardableResult
-    func abortRemoteLoad(queryId: String) -> ChatTimelineSessionSnapshot {
-        operationLock.withLock {
-            let current = snapshot
-            guard current.state.activeRemoteLoad?.queryId == queryId else {
-                return current
-            }
-            return mutateTimeline { engine in
-                engine.abortRemoteLoad(queryId: queryId)
-            }
-        }
-    }
 
     @discardableResult
     func commit(_ snapshot: ChatTimelineSnapshot) -> ChatTimelineSessionSnapshot {
@@ -2213,11 +917,7 @@ final class ChatTimelineSession {
             return publish(
                 items: snapshot.items,
                 state: snapshot.state,
-                loadingState: snapshot.loadingState,
-                loadDecision: snapshot.loadDecision,
                 anchorRestore: snapshot.anchorRestore,
-                localOlderCandidateCount: snapshot.localOlderCandidateCount,
-                shortLocalRemainderRemoteFirst: snapshot.shortLocalRemainderRemoteFirst,
                 readBoundary: base.readBoundary,
                 unreadMetadata: base.unreadMetadata
             )
@@ -2226,38 +926,863 @@ final class ChatTimelineSession {
 
     @discardableResult
     func installArchiveEngineVerifiedWindow(
-        primaryIDs: [String],
-        segment: ArchiveCoverageSegment
+        _ window: ArchiveWindowSnapshot
     ) -> ChatTimelineSessionSnapshot? {
+        guard let prepared = prepareArchiveEngineVerifiedWindow(window) else {
+            return nil
+        }
+        return commitPreparedArchiveEngineVerifiedWindow(prepared)
+    }
+
+    func prepareArchiveEngineVerifiedWindow(
+        _ window: ArchiveWindowSnapshot
+    ) -> ChatTimelinePreparedVerifiedWindow? {
         operationLock.withLock {
-            let items = store.items(primaryKeys: primaryIDs)
-            guard let candidate = ChatArchiveVerifiedTimelineStateFactory.make(
-                items: items,
-                expectedPrimaryIDs: primaryIDs,
-                segment: segment,
-                conversationKey: conversationKey
+            guard let scope = ChatTimelineVerifiedScope(
+                conversationKey: conversationKey,
+                segment: window.verifiedSegment,
+                coverageGeneration: window.coverageGeneration,
+                freshnessToken: window.freshnessToken
             ) else {
                 return nil
             }
+            let currentScope = verifiedScope
+            guard currentScope.map({
+                scope.coverageGeneration >= $0.coverageGeneration
+            }) ?? true else {
+                return nil
+            }
+            var direction = Self.boundaryDirection(for: window.target)
+            if currentScope == nil ||
+                currentScope?.freshnessFingerprint != scope.freshnessFingerprint {
+                direction = nil
+            }
+            guard let candidate = prepareVerifiedWindowCandidate(
+                primaryIDs: window.messagePrimaryIDs,
+                scope: scope,
+                requestedDirection: direction
+            ) else {
+                return nil
+            }
+            return ChatTimelinePreparedVerifiedWindow(
+                sessionID: sessionID,
+                baseGeneration: snapshot.generation,
+                previousScope: currentScope,
+                scope: scope,
+                direction: direction,
+                candidate: candidate
+            )
+        }
+    }
+
+    func inspectPreparedArchiveEngineVerifiedWindow(
+        _ prepared: ChatTimelinePreparedVerifiedWindow
+    ) -> ChatTimelineSnapshot? {
+        operationLock.withLock {
+            guard prepared.isAvailable,
+                  prepared.sessionID == sessionID,
+                  snapshot.generation == prepared.baseGeneration,
+                  verifiedScope == prepared.previousScope else {
+                return nil
+            }
+            return prepared.candidate
+        }
+    }
+
+    func commitPreparedArchiveEngineVerifiedWindow(
+        _ prepared: ChatTimelinePreparedVerifiedWindow
+    ) -> ChatTimelineSessionSnapshot? {
+        operationLock.withLock {
+            guard prepared.consume(),
+                  prepared.sessionID == sessionID else {
+                return nil
+            }
             let base = snapshot
+            guard base.generation == prepared.baseGeneration,
+                  verifiedScope == prepared.previousScope else {
+                return nil
+            }
+            storedAuthoritativeEmptyLiveTailAuthority = nil
             return publish(
-                items: candidate.items,
-                state: candidate.state,
-                loadingState: .none,
-                loadDecision: nil,
-                anchorRestore: nil,
-                localOlderCandidateCount: nil,
-                shortLocalRemainderRemoteFirst: false,
+                items: prepared.candidate.items,
+                state: prepared.candidate.state,
+                anchorRestore: prepared.candidate.anchorRestore,
                 readBoundary: base.readBoundary,
-                unreadMetadata: base.unreadMetadata
+                unreadMetadata: base.unreadMetadata,
+                retentionDirection: prepared.direction,
+                verifiedScopeMutation: .replace(prepared.scope)
+            )
+        }
+    }
+
+    func prepareArchiveLiveEdgeAdmission(
+        _ admission: ArchiveLiveEdgeAdmission
+    ) -> ChatTimelinePreparedLiveEdgeAdmission? {
+        operationLock.withLock {
+            let window = admission.latestWindow
+            guard admission.conversation.owner == conversationKey.owner,
+                  admission.conversation.jid == conversationKey.jid,
+                  admission.conversation.conversationType ==
+                    conversationKey.conversationType,
+                  admission.presentationIntent.conversation ==
+                    admission.conversation,
+                  window.target == .latest,
+                  window.messagePrimaryIDs.contains(admission.primaryID),
+                  let scope = ChatTimelineVerifiedScope(
+                    conversationKey: conversationKey,
+                    segment: window.verifiedSegment,
+                    coverageGeneration: window.coverageGeneration,
+                    freshnessToken: window.freshnessToken
+                  ) else {
+                return nil
+            }
+
+            let base = snapshot
+            let previousScope = verifiedScope
+            if let previousScope {
+                guard previousScope.reachesLiveEdge,
+                      scope.connectionGeneration ==
+                        previousScope.connectionGeneration,
+                      scope.freshnessFingerprint ==
+                        previousScope.freshnessFingerprint,
+                      scope.coverageGeneration >
+                        previousScope.coverageGeneration,
+                      scope.newest >= previousScope.newest,
+                      scope.canExtend(previousScope, direction: .newer) else {
+                    return nil
+                }
+            } else {
+                let hasOnlyTypedProvisionalOutgoing =
+                    storedAuthoritativeEmptyLiveTailAuthority != nil &&
+                    base.items.allSatisfy {
+                        provisionalLocalOutgoingPrimaryIDs.contains($0.primary) &&
+                            $0.outgoing &&
+                            !$0.isDeleted &&
+                            !$0.isLocallyHiddenByReport
+                    }
+                guard (base.items.isEmpty || hasOnlyTypedProvisionalOutgoing),
+                      base.state.isResidentAtLiveTail,
+                      scope.reachesArchiveStart,
+                      scope.reachesLiveEdge else {
+                    return nil
+                }
+            }
+            let mode: ChatTimelineLiveEdgeCommitMode
+            let candidate: ChatTimelineSnapshot
+            let shouldExposeNewMessageBadge: Bool
+            if base.state.isResidentAtLiveTail {
+                guard let merged = prepareVerifiedWindowCandidate(
+                    primaryIDs: window.messagePrimaryIDs,
+                    scope: scope,
+                    requestedDirection: .newer
+                ) else {
+                    return nil
+                }
+                mode = .residentNewer
+                candidate = merged
+                shouldExposeNewMessageBadge = false
+            } else {
+                let expected = window.messagePrimaryIDs
+                let expectedSet = Set(expected)
+                let materialized = store.items(primaryKeys: expected)
+                guard expectedSet.count == expected.count,
+                      materialized.count == expected.count,
+                      Set(materialized.map(\.primary)) == expectedSet,
+                      materialized.allSatisfy({ scope.contains($0) }),
+                      let admittedLiveMessage = materialized.first(where: {
+                        $0.primary == admission.primaryID
+                      }) else {
+                    return nil
+                }
+                mode = .proofOnly
+                candidate = base.timelineSnapshot
+                shouldExposeNewMessageBadge = !admittedLiveMessage.outgoing
+            }
+            return ChatTimelinePreparedLiveEdgeAdmission(
+                sessionID: sessionID,
+                baseGeneration: base.generation,
+                baseState: base.state,
+                baseAnchorRestore: base.anchorRestore,
+                baseItemFingerprints: base.items.map {
+                    ChatTimelineObservedMessageFingerprint(message: $0)
+                },
+                previousScope: previousScope,
+                scope: scope,
+                candidate: candidate,
+                mode: mode,
+                shouldExposeNewMessageBadge: shouldExposeNewMessageBadge
+            )
+        }
+    }
+
+    func inspectPreparedArchiveLiveEdgeAdmission(
+        _ prepared: ChatTimelinePreparedLiveEdgeAdmission
+    ) -> ChatTimelinePreparedLiveEdgeCandidate? {
+        operationLock.withLock {
+            guard prepared.isAvailable,
+                  prepared.sessionID == sessionID,
+                  isStructurallyCurrent(prepared) else {
+                return nil
+            }
+            return ChatTimelinePreparedLiveEdgeCandidate(
+                snapshot: prepared.candidate,
+                mode: prepared.mode,
+                shouldExposeNewMessageBadge:
+                    prepared.shouldExposeNewMessageBadge
+            )
+        }
+    }
+
+    func commitPreparedArchiveLiveEdgeAdmission(
+        _ prepared: ChatTimelinePreparedLiveEdgeAdmission
+    ) -> ChatTimelineCommittedLiveEdgeAdmission? {
+        operationLock.withLock {
+            guard prepared.consume(),
+                  prepared.sessionID == sessionID else {
+                return nil
+            }
+            let base = snapshot
+            guard isStructurallyCurrent(prepared, snapshot: base) else {
+                return nil
+            }
+            let committed = publish(
+                items: prepared.candidate.items,
+                state: prepared.candidate.state,
+                anchorRestore: prepared.candidate.anchorRestore,
+                readBoundary: base.readBoundary,
+                unreadMetadata: base.unreadMetadata,
+                retentionDirection:
+                    prepared.mode == .residentNewer ? .newer : nil,
+                verifiedScopeMutation: .replace(prepared.scope)
+            )
+            return ChatTimelineCommittedLiveEdgeAdmission(
+                snapshot: committed,
+                mode: prepared.mode,
+                shouldExposeNewMessageBadge:
+                    prepared.shouldExposeNewMessageBadge
+            )
+        }
+    }
+
+    /// Generic Realm observation is allowed to publish unread/read metadata
+    /// while an XMPP-proved live primary is being mapped for UIKit. Such a
+    /// metadata-only publication advances the session generation, but must not
+    /// invalidate the proof. Any resident content, ordering, anchor, state or
+    /// verified-scope change still makes the preparation stale.
+    private func isStructurallyCurrent(
+        _ prepared: ChatTimelinePreparedLiveEdgeAdmission,
+        snapshot current: ChatTimelineSessionSnapshot? = nil
+    ) -> Bool {
+        let current = current ?? snapshot
+        guard verifiedScope == prepared.previousScope else {
+            return false
+        }
+        if current.generation == prepared.baseGeneration {
+            return true
+        }
+        return current.state == prepared.baseState &&
+            current.anchorRestore == prepared.baseAnchorRestore &&
+            current.items.map {
+                ChatTimelineObservedMessageFingerprint(message: $0)
+            } == prepared.baseItemFingerprints
+    }
+
+    /// Rebinds an in-flight local-outgoing presentation to the latest metadata
+    /// generation without accepting a newer structural timeline. Read-boundary
+    /// and unread commands may race off-main dataset mapping, but must not make
+    /// the typed provisional row disappear until another store event arrives.
+    func reprepareLocalOutgoingPresentation(
+        _ prepared: ChatTimelineSessionSnapshot
+    ) -> ChatTimelineSessionSnapshot? {
+        operationLock.withLock {
+            let current = snapshot
+            guard prepared.cause == .localOutgoingAdmission,
+                  current.cause == .command,
+                  current.generation > prepared.generation,
+                  !prepared.provisionalLocalOutgoingPrimaryIDs.isEmpty,
+                  prepared.provisionalLocalOutgoingPrimaryIDs.isSubset(
+                    of: current.provisionalLocalOutgoingPrimaryIDs
+                  ),
+                  current.state == prepared.state,
+                  current.anchorRestore == prepared.anchorRestore,
+                  current.items.map({
+                    ChatTimelineObservedMessageFingerprint(message: $0)
+                  }) == prepared.items.map({
+                    ChatTimelineObservedMessageFingerprint(message: $0)
+                  }) else {
+                return nil
+            }
+            return ChatTimelineSessionSnapshot(
+                generation: current.generation,
+                cause: .localOutgoingAdmission,
+                items: current.items,
+                state: current.state,
+                anchorRestore: current.anchorRestore,
+                pageSize: current.pageSize,
+                residentIndex: current.residentIndex,
+                readBoundary: current.readBoundary,
+                unreadMetadata: current.unreadMetadata,
+                residentHardLimit: current.residentHardLimit,
+                residentChangeSet: current.residentChangeSet,
+                authoritativeEmptyLiveTailAuthority:
+                    current.authoritativeEmptyLiveTailAuthority,
+                provisionalLocalOutgoingPrimaryIDs:
+                    current.provisionalLocalOutgoingPrimaryIDs
+            )
+        }
+    }
+
+    func loadVerifiedLocalBoundary(
+        _ direction: ChatHistoryPageDirection
+    ) -> ChatVirtualTimelineBoundaryOutcome<ChatTimelineSessionSnapshot> {
+        operationLock.withLock {
+            let base = snapshot
+            guard let scope = verifiedScope else {
+                return .invalidProof
+            }
+            var engine = ChatVirtualTimelineEngine(
+                provider: store,
+                pageSize: pageSize,
+                state: base.state,
+                verifiedScope: scope
+            )
+            return commitEngineBoundaryOutcome(
+                engine.page(direction),
+                direction: direction,
+                base: base
+            )
+        }
+    }
+
+    /// Admits exactly one locally-authored row after its initial durable save.
+    /// This is a presentation overlay: the archive proof remains unchanged
+    /// until the numeric delivery receipt extends the live-edge scope.
+    @discardableResult
+    func admitLocalOutgoing(
+        _ admission: ChatTimelineLocalOutgoingAdmission
+    ) -> ChatTimelineSessionSnapshot? {
+        operationLock.withLock {
+            guard admission.conversation.owner == conversationKey.owner,
+                  admission.conversation.jid == conversationKey.jid,
+                  admission.conversation.conversationType ==
+                    conversationKey.conversationType,
+                  let item = store.message(
+                    primary: admission.primaryID,
+                    archivedId: nil,
+                    messageId: nil
+                  ),
+                  item.primary == admission.primaryID,
+                  item.owner == conversationKey.owner,
+                  item.opponent == conversationKey.jid,
+                  item.conversationType == conversationKey.conversationType,
+                  item.outgoing,
+                  !item.isDeleted,
+                  !item.isLocallyHiddenByReport else {
+                return nil
+            }
+
+            let scope = verifiedScope
+            guard scope?.reachesLiveEdge == true ||
+                    (scope == nil &&
+                        storedAuthoritativeEmptyLiveTailAuthority != nil) else {
+                return nil
+            }
+
+            let base = snapshot
+            if base.item(primary: item.primary) != nil {
+                return base
+            }
+
+            let tailItems: [MessageStorageItem]
+            let tailState: ChatVirtualTimelineState
+            if base.state.isResidentAtLiveTail {
+                tailItems = base.items
+                tailState = base.state
+            } else {
+                guard let scope else { return nil }
+                var engine = ChatVirtualTimelineEngine(
+                    provider: store,
+                    pageSize: pageSize,
+                    state: base.state,
+                    verifiedScope: scope
+                )
+                guard case .local(let tail) = engine.openAround(
+                    primary: nil,
+                    archiveCursor: scope.newest,
+                    before: pageSize,
+                    after: 0
+                ), tail.state.isResidentAtLiveTail else {
+                    return nil
+                }
+                tailItems = tail.items
+                tailState = tail.state
+            }
+
+            provisionalLocalOutgoingPrimaryIDs.insert(item.primary)
+            let merged = presentationItemsByAttachingProvisionalOutgoing(
+                to: tailItems,
+                additionally: [item],
+                direction: .newer,
+                hardLimit: base.residentHardLimit
+            )
+            let bounded = merged.items
+            guard bounded.contains(where: { $0.primary == item.primary }) else {
+                provisionalLocalOutgoingPrimaryIDs.remove(item.primary)
+                return nil
+            }
+            let presentationState = stateByReplacingResidentItems(
+                merged.verifiedItems,
+                in: tailState,
+                retentionDirection: .newer
+            )
+            return publish(
+                items: bounded,
+                state: presentationState,
+                anchorRestore: nil,
+                readBoundary: base.readBoundary,
+                unreadMetadata: base.unreadMetadata,
+                residentChangeSet: ChatIncrementalResidentChangeSet(
+                    insertedPrimaries: [item.primary],
+                    updatedStablePrimaries: [],
+                    deletedPrimaries: [],
+                    trimmedPrimaries: merged.trimmedPrimaries,
+                    nonResidentIncomingPrimaries: []
+                ),
+                retentionDirection: .newer,
+                snapshotCause: .localOutgoingAdmission
             )
         }
     }
 
     @discardableResult
-    func installArchiveEngineAuthoritativeEmpty() -> ChatTimelineSessionSnapshot {
+    func prepareVerifiedLocalBoundary(
+        _ direction: ChatHistoryPageDirection,
+        expectedGeneration: UInt64,
+        completion: @escaping (
+            ChatTimelineVerifiedBoundaryPreparationResult
+        ) -> Void
+    ) -> ChatTimelineVerifiedBoundaryPreparationDisposition {
+        operationLock.withLock {
+            let captured = lock.withLock { () -> (
+                ChatTimelineSessionSnapshot,
+                ChatTimelineVerifiedScope,
+                ChatTimelineVerifiedBoundaryPreparationKey
+            )? in
+                guard storedSnapshot.generation == expectedGeneration,
+                      let scope = storedVerifiedScope else {
+                    return nil
+                }
+                let boundary = direction == .older
+                    ? storedSnapshot.state.oldest
+                    : storedSnapshot.state.newest
+                let key = ChatTimelineVerifiedBoundaryPreparationKey(
+                    direction: direction,
+                    boundaryPrimary: boundary?.primary,
+                    baseGeneration: expectedGeneration,
+                    verifiedScope: scope
+                )
+                if var active = activeVerifiedBoundaryPreparation {
+                    guard active.key == key else { return nil }
+                    active.completions.append(completion)
+                    activeVerifiedBoundaryPreparation = active
+                    return (storedSnapshot, scope, key)
+                }
+                activeVerifiedBoundaryPreparation =
+                    ChatTimelineActiveVerifiedBoundaryPreparation(
+                        key: key,
+                        completions: [completion]
+                    )
+                return (storedSnapshot, scope, key)
+            }
+            guard let captured else {
+                return .rejectedStale
+            }
+
+            let isJoined = lock.withLock {
+                activeVerifiedBoundaryPreparation?.completions.count ?? 0
+            } > 1
+            if isJoined {
+                return .coalesced
+            }
+
+            verifiedBoundaryPreparationQueue.async { [weak self] in
+                guard let self else { return }
+                var engine = ChatVirtualTimelineEngine(
+                    provider: self.store,
+                    pageSize: self.pageSize,
+                    state: captured.0.state,
+                    verifiedScope: captured.1
+                )
+                let outcome = engine.page(direction)
+                self.finishVerifiedBoundaryPreparation(
+                    key: captured.2,
+                    outcome: outcome
+                )
+            }
+            return .started
+        }
+    }
+
+    func commitPreparedVerifiedLocalBoundary(
+        _ prepared: ChatTimelinePreparedVerifiedBoundaryPage
+    ) -> ChatVirtualTimelineBoundaryOutcome<ChatTimelineSessionSnapshot> {
+        operationLock.withLock {
+            guard prepared.consume(),
+                  prepared.sessionID == sessionID else {
+                return .invalidProof
+            }
+            let base = snapshot
+            guard base.generation == prepared.baseGeneration,
+                  verifiedScope == prepared.verifiedScope else {
+                return .invalidProof
+            }
+            return commitEngineBoundaryOutcome(
+                prepared.outcome,
+                direction: prepared.direction,
+                base: base
+            )
+        }
+    }
+
+    /// Returns the immutable prepared candidate without advancing the session.
+    /// UIKit maps this value off-main, then consumes it only from the winning
+    /// atomic transaction authorization.
+    func inspectPreparedVerifiedLocalBoundary(
+        _ prepared: ChatTimelinePreparedVerifiedBoundaryPage
+    ) -> ChatVirtualTimelineBoundaryOutcome<ChatTimelineSnapshot> {
+        operationLock.withLock {
+            guard prepared.isAvailable,
+                  prepared.sessionID == sessionID else {
+                return .invalidProof
+            }
+            let base = snapshot
+            guard base.generation == prepared.baseGeneration,
+                  verifiedScope == prepared.verifiedScope else {
+                return .invalidProof
+            }
+            return prepared.outcome
+        }
+    }
+
+    @discardableResult
+    func prepareVerifiedLocalTarget(
+        primary: String?,
+        archiveCursor: ArchiveCursor,
+        contextBefore: Int = ArchivePageSizing.anchorBefore,
+        contextAfter: Int = ArchivePageSizing.anchorAfter,
+        expectedGeneration: UInt64,
+        completion: @escaping (ChatTimelineVerifiedTargetPreparationResult) -> Void
+    ) -> ChatTimelineVerifiedTargetPreparationDisposition {
+        let captured = operationLock.withLock { () -> (
+            ChatTimelineSessionSnapshot,
+            ChatTimelineVerifiedScope
+        )? in
+            let current = snapshot
+            guard current.generation == expectedGeneration,
+                  let scope = verifiedScope else {
+                return nil
+            }
+            return (current, scope)
+        }
+        guard let captured else { return .rejectedStale }
+
+        verifiedBoundaryPreparationQueue.async { [weak self] in
+            guard let self else { return }
+            var engine = ChatVirtualTimelineEngine(
+                provider: self.store,
+                pageSize: self.pageSize,
+                state: captured.0.state,
+                verifiedScope: captured.1
+            )
+            let outcome = engine.openAround(
+                primary: primary,
+                archiveCursor: archiveCursor,
+                before: contextBefore,
+                after: contextAfter
+            )
+            let isCurrent = self.operationLock.withLock {
+                self.snapshot.generation == captured.0.generation &&
+                    self.verifiedScope == captured.1
+            }
+            let result: ChatTimelineVerifiedTargetPreparationResult
+            if isCurrent {
+                result = .prepared(ChatTimelinePreparedVerifiedLocalTarget(
+                    sessionID: self.sessionID,
+                    baseGeneration: captured.0.generation,
+                    verifiedScope: captured.1,
+                    outcome: outcome
+                ))
+            } else {
+                result = .stale
+            }
+            DispatchQueue.main.async {
+                completion(result)
+            }
+        }
+        return .started
+    }
+
+    func inspectPreparedVerifiedLocalTarget(
+        _ prepared: ChatTimelinePreparedVerifiedLocalTarget
+    ) -> ChatVirtualTimelineTargetOutcome<ChatTimelineSnapshot> {
+        operationLock.withLock {
+            guard prepared.isAvailable,
+                  prepared.sessionID == sessionID,
+                  snapshot.generation == prepared.baseGeneration,
+                  verifiedScope == prepared.verifiedScope else {
+                return .invalidProof
+            }
+            return prepared.outcome
+        }
+    }
+
+    func commitPreparedVerifiedLocalTarget(
+        _ prepared: ChatTimelinePreparedVerifiedLocalTarget
+    ) -> ChatVirtualTimelineTargetOutcome<ChatTimelineSessionSnapshot> {
+        operationLock.withLock {
+            guard prepared.consume(),
+                  prepared.sessionID == sessionID else {
+                return .invalidProof
+            }
+            let base = snapshot
+            guard base.generation == prepared.baseGeneration,
+                  verifiedScope == prepared.verifiedScope else {
+                return .invalidProof
+            }
+            switch prepared.outcome {
+            case .local(let candidate):
+                return .local(publish(
+                    items: candidate.items,
+                    state: candidate.state,
+                    anchorRestore: candidate.anchorRestore,
+                    readBoundary: base.readBoundary,
+                    unreadMetadata: base.unreadMetadata
+                ))
+            case .needsArchiveTarget(let cursor):
+                return .needsArchiveTarget(cursor)
+            case .invalidProof:
+                return .invalidProof
+            }
+        }
+    }
+
+    private func prepareVerifiedWindowCandidate(
+        primaryIDs: [String],
+        scope: ChatTimelineVerifiedScope,
+        requestedDirection: ChatHistoryPageDirection?
+    ) -> ChatTimelineSnapshot? {
+        let base = snapshot
+        let currentScope = verifiedScope
+        guard currentScope.map({
+            scope.coverageGeneration >= $0.coverageGeneration
+        }) ?? true else {
+            return nil
+        }
+
+        let direction: ChatHistoryPageDirection?
+        if let requestedDirection,
+           let currentScope {
+            guard scope.canExtend(
+                currentScope,
+                direction: requestedDirection
+            ) else {
+                return nil
+            }
+            direction = requestedDirection
+        } else {
+            direction = nil
+        }
+        var engine = ChatVirtualTimelineEngine(
+            provider: store,
+            pageSize: pageSize,
+            state: base.state,
+            verifiedScope: currentScope ?? scope
+        )
+        let items = store.items(primaryKeys: primaryIDs)
+        guard let candidate = engine.installVerified(
+            items: items,
+            expectedPrimaryIDs: primaryIDs,
+            direction: direction,
+            scope: scope
+        ) else {
+            return nil
+        }
+        // The store may finish materializing the live proof after a generic
+        // resident observation has already published a newer frozen value.
+        // Preserve that session-linearized value for rows which were already
+        // verified. The one exception is a provisional outgoing row: its
+        // receipt-backed Realm value must replace the pre-receipt overlay.
+        let currentVerifiedByPrimary: [String: MessageStorageItem] = Dictionary(
+            uniqueKeysWithValues: base.items.compactMap { item in
+                guard !provisionalLocalOutgoingPrimaryIDs.contains(
+                    item.primary
+                ), currentScope?.contains(item) == true else {
+                    return nil
+                }
+                return (item.primary, item)
+            }
+        )
+        let verifiedCandidateItems = candidate.items.map {
+            currentVerifiedByPrimary[$0.primary] ?? $0
+        }
+        let provisional = base.items.filter {
+            provisionalLocalOutgoingPrimaryIDs.contains($0.primary)
+        }
+        let merged = presentationItemsByAttachingProvisionalOutgoing(
+            to: verifiedCandidateItems,
+            additionally: provisional,
+            direction: direction,
+            hardLimit: base.residentHardLimit,
+            promotingPrimaryIDs: Set(primaryIDs)
+        )
+        return ChatTimelineSnapshot(
+            items: merged.items,
+            state: stateByReplacingResidentItems(
+                merged.verifiedItems,
+                in: candidate.state,
+                retentionDirection: direction
+            ),
+            anchorRestore: candidate.anchorRestore
+        )
+    }
+
+    private func finishVerifiedBoundaryPreparation(
+        key: ChatTimelineVerifiedBoundaryPreparationKey,
+        outcome: ChatVirtualTimelineBoundaryOutcome<ChatTimelineSnapshot>
+    ) {
+        let result = lock.withLock { () -> (
+            [(ChatTimelineVerifiedBoundaryPreparationResult) -> Void],
+            Bool
+        )? in
+            guard let active = activeVerifiedBoundaryPreparation,
+                  active.key == key else {
+                return nil
+            }
+            activeVerifiedBoundaryPreparation = nil
+            let isCurrent = storedSnapshot.generation == key.baseGeneration &&
+                storedVerifiedScope == key.verifiedScope
+            return (active.completions, isCurrent)
+        }
+        guard let result else { return }
+
+        let preparedOutcome = operationLock.withLock {
+            boundaryOutcomeByAttachingProvisionalOutgoing(
+                outcome,
+                direction: key.direction,
+                base: snapshot
+            )
+        }
+
+        for completion in result.0 {
+            let preparationResult: ChatTimelineVerifiedBoundaryPreparationResult
+            if result.1 {
+                preparationResult = .prepared(
+                    ChatTimelinePreparedVerifiedBoundaryPage(
+                        sessionID: sessionID,
+                        baseGeneration: key.baseGeneration,
+                        direction: key.direction,
+                        verifiedScope: key.verifiedScope,
+                        outcome: preparedOutcome
+                    )
+                )
+            } else {
+                preparationResult = .stale
+            }
+            DispatchQueue.main.async {
+                completion(preparationResult)
+            }
+        }
+    }
+
+    private func commitEngineBoundaryOutcome(
+        _ outcome: ChatVirtualTimelineBoundaryOutcome<ChatTimelineSnapshot>,
+        direction: ChatHistoryPageDirection,
+        base: ChatTimelineSessionSnapshot
+    ) -> ChatVirtualTimelineBoundaryOutcome<ChatTimelineSessionSnapshot> {
+        switch outcome {
+        case .local(let candidate):
+            let provisional = base.items.filter {
+                provisionalLocalOutgoingPrimaryIDs.contains($0.primary)
+            }
+            let merged = presentationItemsByAttachingProvisionalOutgoing(
+                to: candidate.items,
+                additionally: provisional,
+                direction: direction,
+                hardLimit: base.residentHardLimit
+            )
+            let mergedState = stateByReplacingResidentItems(
+                merged.verifiedItems,
+                in: candidate.state,
+                retentionDirection: direction
+            )
+            let committed = publish(
+                items: merged.items,
+                state: mergedState,
+                anchorRestore: candidate.anchorRestore,
+                readBoundary: base.readBoundary,
+                unreadMetadata: base.unreadMetadata,
+                retentionDirection: direction
+            )
+            return .local(committed)
+        case .needsArchiveExpansion(let expansionDirection):
+            return .needsArchiveExpansion(expansionDirection)
+        case .endReached:
+            return .endReached(base)
+        case .invalidProof:
+            return .invalidProof
+        }
+    }
+
+    private func boundaryOutcomeByAttachingProvisionalOutgoing(
+        _ outcome: ChatVirtualTimelineBoundaryOutcome<ChatTimelineSnapshot>,
+        direction: ChatHistoryPageDirection,
+        base: ChatTimelineSessionSnapshot
+    ) -> ChatVirtualTimelineBoundaryOutcome<ChatTimelineSnapshot> {
+        guard case .local(let candidate) = outcome else { return outcome }
+        let provisional = base.items.filter {
+            provisionalLocalOutgoingPrimaryIDs.contains($0.primary)
+        }
+        let merged = presentationItemsByAttachingProvisionalOutgoing(
+            to: candidate.items,
+            additionally: provisional,
+            direction: direction,
+            hardLimit: base.residentHardLimit
+        )
+        return .local(ChatTimelineSnapshot(
+            items: merged.items,
+            state: stateByReplacingResidentItems(
+                merged.verifiedItems,
+                in: candidate.state,
+                retentionDirection: direction
+            ),
+            anchorRestore: candidate.anchorRestore
+        ))
+    }
+
+    private static func boundaryDirection(
+        for locator: ArchiveWindowLocator
+    ) -> ChatHistoryPageDirection? {
+        switch locator {
+        case .older, .gap:
+            return .older
+        case .newer:
+            return .newer
+        case .latest, .firstUnread, .archiveID, .timestamp:
+            return nil
+        }
+    }
+
+    @discardableResult
+    func installArchiveEngineAuthoritativeEmpty(
+        freshnessToken: ArchiveFreshnessToken? = nil
+    ) -> ChatTimelineSessionSnapshot {
         operationLock.withLock {
             let base = snapshot
+            storedAuthoritativeEmptyLiveTailAuthority = freshnessToken.flatMap {
+                ChatTimelineAuthoritativeEmptyLiveTailAuthority(
+                    freshnessToken: $0
+                )
+            }
             let state = ChatVirtualTimelineState(
                 conversationKey: conversationKey,
                 segments: [.liveTail],
@@ -2265,20 +1790,15 @@ final class ChatTimelineSession {
                 newest: nil,
                 residentPrimaryKeys: [],
                 residentArchivedIds: [],
-                activeRemoteLoad: nil,
-                activePlaceholder: nil,
                 isResidentAtLiveTail: true
             )
             return publish(
                 items: [],
                 state: state,
-                loadingState: .none,
-                loadDecision: .endReached,
                 anchorRestore: nil,
-                localOlderCandidateCount: 0,
-                shortLocalRemainderRemoteFirst: false,
                 readBoundary: base.readBoundary,
-                unreadMetadata: base.unreadMetadata
+                unreadMetadata: base.unreadMetadata,
+                verifiedScopeMutation: .replace(nil)
             )
         }
     }
@@ -2298,11 +1818,7 @@ final class ChatTimelineSession {
             return publish(
                 items: candidate.items,
                 state: candidate.state,
-                loadingState: candidate.loadingState,
-                loadDecision: candidate.loadDecision,
                 anchorRestore: candidate.anchorRestore,
-                localOlderCandidateCount: candidate.localOlderCandidateCount,
-                shortLocalRemainderRemoteFirst: candidate.shortLocalRemainderRemoteFirst,
                 readBoundary: current.readBoundary,
                 unreadMetadata: current.unreadMetadata
             )
@@ -2310,29 +1826,24 @@ final class ChatTimelineSession {
     }
 
     @discardableResult
-    func applyRuntimePlaceholder(
-        _ placeholder: ChatHistoryBoundaryPlaceholderPosition?
+    func restorePresentationSnapshot(
+        _ candidate: ChatTimelineSessionSnapshot,
+        verifiedScope: ChatTimelineVerifiedScope?
     ) -> ChatTimelineSessionSnapshot {
         operationLock.withLock {
-            let base = snapshot
+            let current = snapshot
+            storedAuthoritativeEmptyLiveTailAuthority =
+                candidate.authoritativeEmptyLiveTailAuthority
+            provisionalLocalOutgoingPrimaryIDs =
+                candidate.provisionalLocalOutgoingPrimaryIDs
             return publish(
-                items: base.items,
-                state: base.state.withRuntimePlaceholder(placeholder),
-                loadingState: placeholder.map { .edge($0) } ?? .none,
-                loadDecision: base.loadDecision,
-                anchorRestore: base.anchorRestore,
-                localOlderCandidateCount: base.localOlderCandidateCount,
-                shortLocalRemainderRemoteFirst: base.shortLocalRemainderRemoteFirst,
-                readBoundary: base.readBoundary,
-                unreadMetadata: base.unreadMetadata
+                items: candidate.items,
+                state: candidate.state,
+                anchorRestore: candidate.anchorRestore,
+                readBoundary: current.readBoundary,
+                unreadMetadata: current.unreadMetadata,
+                verifiedScopeMutation: .replace(verifiedScope)
             )
-        }
-    }
-
-    @discardableResult
-    func appendLiveMessage(_ message: MessageStorageItem) -> ChatTimelineSessionSnapshot {
-        mutateTimeline { engine in
-            engine.appendLiveMessage(message)
         }
     }
 
@@ -2419,15 +1930,13 @@ final class ChatTimelineSession {
     func refreshResidentItems() -> ChatTimelineSessionSnapshot {
         operationLock.withLock {
             let base = snapshot
-            let refreshedItems = store.items(primaryKeys: base.state.residentPrimaryKeys)
+            let refreshedItems = store.items(
+                primaryKeys: base.items.map(\.primary)
+            )
             return publish(
                 items: refreshedItems,
                 state: stateByReplacingResidentItems(refreshedItems, in: base.state),
-                loadingState: base.loadingState,
-                loadDecision: base.loadDecision,
                 anchorRestore: base.anchorRestore,
-                localOlderCandidateCount: base.localOlderCandidateCount,
-                shortLocalRemainderRemoteFirst: base.shortLocalRemainderRemoteFirst,
                 readBoundary: base.readBoundary,
                 unreadMetadata: base.unreadMetadata
             )
@@ -2444,18 +1953,13 @@ final class ChatTimelineSession {
                 unreadCount: max(0, metadata.unreadCount),
                 mentions: Array(metadata.mentions.prefix(hardLimit)),
                 candidateCount: min(max(0, metadata.candidateCount), hardLimit),
-                initialFrameReadinessProof: metadata.initialFrameReadinessProof,
                 latestUnreadMentionArchivedId:
                     metadata.latestUnreadMentionArchivedId
             )
             return publish(
                 items: base.items,
                 state: base.state,
-                loadingState: base.loadingState,
-                loadDecision: base.loadDecision,
                 anchorRestore: base.anchorRestore,
-                localOlderCandidateCount: base.localOlderCandidateCount,
-                shortLocalRemainderRemoteFirst: base.shortLocalRemainderRemoteFirst,
                 readBoundary: base.readBoundary,
                 unreadMetadata: boundedMetadata
             )
@@ -2481,436 +1985,83 @@ final class ChatTimelineSession {
             _ = publish(
                 items: base.items,
                 state: base.state,
-                loadingState: base.loadingState,
-                loadDecision: base.loadDecision,
                 anchorRestore: base.anchorRestore,
-                localOlderCandidateCount: base.localOlderCandidateCount,
-                shortLocalRemainderRemoteFirst: base.shortLocalRemainderRemoteFirst,
                 readBoundary: candidate,
-                unreadMetadata: base.unreadMetadata,
-                authorityPublication: .readBoundaryOnly
+                unreadMetadata: base.unreadMetadata
             )
             return true
         }
     }
 
-    func updateArchiveState(_ archiveState: ChatArchiveStateSnapshot) {
-        operationLock.withLock {
-            lock.withLock {
-                self.archiveState = archiveState
-            }
-        }
-    }
-
-    private func startLocalPagePreparation(
-        direction: ChatHistoryPageDirection,
-        boundary: ChatTimelineBoundary,
-        archiveContextProvider: @escaping () -> ChatTimelineLocalPageArchiveContext,
-        expectedGeneration: UInt64,
-        completion: @escaping (ChatTimelineLocalPagePreparationResult) -> Void
-    ) -> ChatTimelineLocalPageLoadDisposition {
-        let base = snapshot
-        guard base.generation == expectedGeneration,
-              boundaryMatchesSnapshotEdge(boundary, direction: direction, snapshot: base) else {
-            return .rejectedStale
-        }
-
-        let key = localPagePreparationKey(
-            direction: direction,
-            boundary: boundary,
-            generation: expectedGeneration
-        )
-        let epochAndStarted = localPagePreparationLock.withLock { () -> (UInt64, Bool) in
-            guard activeLocalPagePreparationKeys.insert(key).inserted else {
-                return (localPagePreparationEpoch, false)
-            }
-            return (localPagePreparationEpoch, true)
-        }
-        guard epochAndStarted.1 else {
-            return .coalesced
-        }
-
-        localPagePreparationQueue.async { [weak self] in
-            guard let self else { return }
-            let preparedOnMainThread = Thread.isMainThread
-            let archiveContext = archiveContextProvider()
-            let timelineSnapshot = self.prepareLocalPageSnapshot(
-                direction: direction,
-                base: base,
-                archiveState: archiveContext.paging
-            )
-            let prepared = ChatTimelinePreparedLocalPage(
-                id: "local-page-\(NanoID.new(6))",
-                sessionID: self.sessionID,
-                direction: direction,
-                conversationKey: self.conversationKey,
-                baseGeneration: expectedGeneration,
-                boundary: boundary,
-                archiveContext: archiveContext,
-                snapshot: timelineSnapshot,
-                preparedOnMainThread: preparedOnMainThread
-            )
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                let isCurrent = self.lock.withLock {
-                    self.storedSnapshot.generation == expectedGeneration
-                }
-                let isActive = self.localPagePreparationLock.withLock { () -> Bool in
-                    let epochMatches = self.localPagePreparationEpoch == epochAndStarted.0
-                    let keyWasActive = self.activeLocalPagePreparationKeys.remove(key) != nil
-                    return epochMatches && keyWasActive
-                }
-                completion(
-                    isCurrent && isActive
-                        ? .prepared(prepared)
-                        : .stale
-                )
-            }
-        }
-        return .started
-    }
-
-    private func prepareLocalPageSnapshot(
-        direction: ChatHistoryPageDirection,
-        base: ChatTimelineSessionSnapshot,
-        archiveState: ChatArchiveStateSnapshot
-    ) -> ChatTimelineSnapshot {
-        let preparationProvider = ChatTimelineLocalPagePreparationProvider(
-            upstream: store,
-            residentItems: base.items
-        )
-        var engine = ChatVirtualTimelineEngine(
-            provider: preparationProvider,
-            pageSize: pageSize,
-            state: base.state.normalized(
-                owner: conversationKey.owner,
-                jid: conversationKey.jid,
-                conversationType: conversationKey.conversationType
-            ),
-            archiveState: archiveState
-        )
-        let snapshot: ChatTimelineSnapshot
-        switch direction {
-        case .older:
-            snapshot = engine.pageOlder()
-        case .newer:
-            snapshot = engine.pageNewer()
-        }
-        return ChatTimelineSnapshot(
-            items: snapshot.items.map(Self.frozen),
-            state: snapshot.state,
-            loadingState: snapshot.loadingState,
-            loadDecision: snapshot.loadDecision,
-            anchorRestore: snapshot.anchorRestore,
-            localOlderCandidateCount: snapshot.localOlderCandidateCount,
-            pageSize: snapshot.pageSize,
-            shortLocalRemainderRemoteFirst: snapshot.shortLocalRemainderRemoteFirst
-        )
-    }
-
-    private func prepareInitialFrameResult(
-        target: ChatTimelineInitialFrameTarget,
-        limit: Int,
-        base: ChatTimelineSessionSnapshot,
-        preparationEpoch: UInt64,
-        includesMetadata: Bool
-    ) -> ChatTimelineInitialFramePreparationResult {
-        let preparedOnMainThread = Thread.isMainThread
-        let resolvedMessage: MessageStorageItem?
-        let preparedLatestItems: [MessageStorageItem]?
-        let preparedAroundWindow: ChatTimelineInitialFrameWindow?
-        switch target {
-        case .latest:
-            resolvedMessage = nil
-            preparedLatestItems = store.initialLatestWindow(limit: limit)
-            preparedAroundWindow = nil
-        case .message(let anchor):
-            let before = limit / 2
-            let after = max(0, limit - before - 1)
-            preparedAroundWindow = store.messageWindow(
-                primary: anchor.primary,
-                archivedId: anchor.archivedId,
-                messageId: anchor.messageId,
-                before: before,
-                after: after
-            )
-            resolvedMessage = preparedAroundWindow?.target
-            preparedLatestItems = nil
-        case .firstIncomingAfterBoundary(let boundaryArchivedId):
-            let before = limit / 2
-            let after = max(0, limit - before - 1)
-            preparedAroundWindow = store.firstIncomingWindow(
-                afterArchiveBoundaryId: boundaryArchivedId,
-                before: before,
-                after: after
-            )
-            resolvedMessage = preparedAroundWindow?.target
-            preparedLatestItems = nil
-        }
-
-        if target != .latest, resolvedMessage == nil {
-            return .blocked(.targetMissing(target))
-        }
-
-        let frozenPreparedLatestItems = preparedLatestItems?.map(Self.frozen)
-        let frozenPreparedAroundWindow = preparedAroundWindow.map {
-            ChatTimelineInitialFrameWindow(
-                target: Self.frozen($0.target),
-                items: $0.items.map(Self.frozen),
-                materializedCandidateCount: $0.materializedCandidateCount
-            )
-        }
-        guard let provisional = initialFrameSnapshot(
-            target: target,
-            limit: limit,
-            base: base,
-            preparedLatestItems: frozenPreparedLatestItems,
-            preparedAroundWindow: frozenPreparedAroundWindow,
-            archiveState: lock.withLock { archiveState }
-        ) else {
-            return .blocked(.targetMissing(target))
-        }
-        let unreadMetadata = includesMetadata
-            ? store.initialFrameMetadata(
-                limit: ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: pageSize),
-                materializedLocalMessageCount: provisional.snapshot.items.count,
-                conversationKey: conversationKey,
-                baseGeneration: base.generation
-            )
-            : .empty
-        let prepared: (
-            snapshot: ChatTimelineSnapshot,
-            alignment: ChatTimelineInitialFrameAlignment
-        )?
-        if let readinessProof = unreadMetadata.initialFrameReadinessProof {
-            prepared = initialFrameSnapshot(
-                target: target,
-                limit: limit,
-                base: base,
-                preparedLatestItems: frozenPreparedLatestItems,
-                preparedAroundWindow: frozenPreparedAroundWindow,
-                archiveState: readinessProof.archiveState
-            )
-        } else {
-            prepared = provisional
-        }
-        guard let prepared else {
-            return .blocked(.targetMissing(target))
-        }
-        let frozenSnapshot = prepared.snapshot
-        let alignment = prepared.alignment
-        let diagnosticsAfter = store.diagnosticsSnapshot
-        let metrics = ChatTimelineInitialFramePreparationMetrics(
-            storeQueryCount: diagnosticsAfter.queryCount,
-            mainThreadStoreQueryCount: diagnosticsAfter.mainThreadQueryCount,
-            fullScanCount: diagnosticsAfter.fullScanCount,
-            maxCandidateCount: diagnosticsAfter.maxCandidateCount,
-            preparedMessageCount: frozenSnapshot.items.count,
-            preparedOnMainThread: preparedOnMainThread
-        )
-
-        return .prepared(
-            ChatTimelinePreparedInitialFrame(
-                sessionID: sessionID,
-                target: target,
-                conversationKey: conversationKey,
-                baseGeneration: base.generation,
-                snapshot: frozenSnapshot,
-                alignment: alignment,
-                metrics: metrics,
-                unreadMetadata: unreadMetadata,
-                isMetadataFinalized: includesMetadata,
-                preparationEpoch: preparationEpoch,
-                preparationLimit: limit,
-                baseSnapshot: base,
-                preparedLatestItems: frozenPreparedLatestItems,
-                preparedAroundWindow: frozenPreparedAroundWindow
-            )
-        )
-    }
-
-    private func initialFrameSnapshot(
-        target: ChatTimelineInitialFrameTarget,
-        limit: Int,
-        base: ChatTimelineSessionSnapshot,
-        preparedLatestItems: [MessageStorageItem]?,
-        preparedAroundWindow: ChatTimelineInitialFrameWindow?,
-        archiveState: ChatArchiveStateSnapshot
-    ) -> (
-        snapshot: ChatTimelineSnapshot,
-        alignment: ChatTimelineInitialFrameAlignment
-    )? {
-        let resolvedMessage = preparedAroundWindow?.target
-        let seededItems = base.items + (resolvedMessage.map { [$0] } ?? [])
-        let preparationProvider = ChatTimelineLocalPagePreparationProvider(
-            upstream: store,
-            residentItems: seededItems,
-            preparedLatestItems: preparedLatestItems,
-            preparedAroundWindow: preparedAroundWindow
-        )
-        var engine = ChatVirtualTimelineEngine(
-            provider: preparationProvider,
-            pageSize: limit,
-            state: base.state.normalized(
-                owner: conversationKey.owner,
-                jid: conversationKey.jid,
-                conversationType: conversationKey.conversationType
-            ),
-            archiveState: archiveState
-        )
-
-        let snapshot: ChatTimelineSnapshot
-        let alignment: ChatTimelineInitialFrameAlignment
-        switch target {
-        case .latest:
-            snapshot = engine.openLatest(limit: limit)
-            alignment = .bottom
-        case .message, .firstIncomingAfterBoundary:
-            guard let resolvedMessage else { return nil }
-            snapshot = engine.openAround(
-                anchor: ChatTimelineAnchor(
-                    primary: resolvedMessage.primary,
-                    archivedId: resolvedMessage.archivedId,
-                    messageId: resolvedMessage.messageId,
-                    date: resolvedMessage.date
-                )
-            )
-            alignment = .anchor(
-                primary: resolvedMessage.primary,
-                archivedId: RegularChatArchiveSyncStateStorageItem
-                    .normalizedArchiveId(resolvedMessage.archivedId)
-            )
-        }
-
-        return (
-            ChatTimelineSnapshot(
-                items: snapshot.items.map(Self.frozen),
-                state: snapshot.state,
-                loadingState: snapshot.loadingState,
-                loadDecision: snapshot.loadDecision,
-                anchorRestore: snapshot.anchorRestore,
-                localOlderCandidateCount: snapshot.localOlderCandidateCount,
-                pageSize: snapshot.pageSize,
-                shortLocalRemainderRemoteFirst:
-                    snapshot.shortLocalRemainderRemoteFirst
-            ),
-            alignment
-        )
-    }
-
-    private func boundaryMatchesSnapshotEdge(
-        _ boundary: ChatTimelineBoundary,
-        direction: ChatHistoryPageDirection,
-        snapshot: ChatTimelineSessionSnapshot
-    ) -> Bool {
-        switch direction {
-        case .older:
-            return snapshot.oldest == boundary
-        case .newer:
-            return snapshot.newest == boundary
-        }
-    }
-
-    private func localPagePreparationKey(
-        direction: ChatHistoryPageDirection,
-        boundary: ChatTimelineBoundary,
-        generation: UInt64
-    ) -> String {
-        let directionKey = direction == .older ? "older" : "newer"
-        return [
-            conversationKey.owner,
-            conversationKey.jid,
-            conversationKey.conversationType.rawValue,
-            String(generation),
-            directionKey,
-            boundary.primary,
-            boundary.archivedId ?? "-",
-            boundary.messageId ?? "-",
-            String(boundary.date.timeIntervalSince1970)
-        ].map(String.init(describing:)).joined(separator: "|")
-    }
-
-    private func mutateTimeline(
-        _ mutation: (inout ChatVirtualTimelineEngine) -> ChatTimelineSnapshot
-    ) -> ChatTimelineSessionSnapshot {
-        operationLock.withLock {
-            let input = lock.withLock { (storedSnapshot, archiveState) }
-            var engine = ChatVirtualTimelineEngine(
-                provider: store,
-                pageSize: pageSize,
-                state: input.0.state.normalized(
-                    owner: conversationKey.owner,
-                    jid: conversationKey.jid,
-                    conversationType: conversationKey.conversationType
-                ),
-                archiveState: input.1
-            )
-            let next = mutation(&engine)
-            return publish(
-                items: next.items,
-                state: next.state,
-                loadingState: next.loadingState,
-                loadDecision: next.loadDecision,
-                anchorRestore: next.anchorRestore,
-                localOlderCandidateCount: next.localOlderCandidateCount,
-                shortLocalRemainderRemoteFirst: next.shortLocalRemainderRemoteFirst,
-                readBoundary: input.0.readBoundary,
-                unreadMetadata: input.0.unreadMetadata
-            )
-        }
-    }
 
     @discardableResult
     private func publish(
         items: [MessageStorageItem],
         state: ChatVirtualTimelineState,
-        loadingState: ChatTimelineLoadingState,
-        loadDecision: ChatHistoryPagingLoadDecision?,
         anchorRestore: ChatTimelineAnchorRestoreCommand?,
-        localOlderCandidateCount: Int?,
-        shortLocalRemainderRemoteFirst: Bool,
         readBoundary: ChatTimelineReadBoundary?,
         unreadMetadata: ChatTimelineUnreadMetadata,
         residentChangeSet: ChatIncrementalResidentChangeSet? = nil,
-        authorityPublication:
-            ChatTimelineStoreObservationAuthorityPublication = .invalidating
+        retentionDirection: ChatHistoryPageDirection? = nil,
+        verifiedScopeMutation: ChatTimelineVerifiedScopeMutation = .unchanged,
+        snapshotCause: ChatTimelineSessionSnapshotCause? = nil
     ) -> ChatTimelineSessionSnapshot {
         let hardLimit = ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: pageSize)
         let immutableItems = items.map(Self.frozen)
         let ordered = ChatTimelineOrdering.deduplicatedChronological(immutableItems)
-        let boundedItems = ordered.count > hardLimit ? Array(ordered.suffix(hardLimit)) : ordered
+        let boundedItems: [MessageStorageItem]
+        if ordered.count > hardLimit {
+            switch retentionDirection {
+            case .older:
+                boundedItems = Array(ordered.prefix(hardLimit))
+            case .newer, .none:
+                boundedItems = Array(ordered.suffix(hardLimit))
+            }
+        } else {
+            boundedItems = ordered
+        }
         let boundedState = boundedItems.count == ordered.count
             ? state
-            : stateByReplacingResidentItems(boundedItems, in: state)
+            : stateByReplacingResidentItems(
+                boundedItems,
+                in: state,
+                retentionDirection: retentionDirection
+            )
 
         let result: (ChatTimelineSessionSnapshot, SnapshotHandler?) = lock.withLock {
             let previous = storedSnapshot
+            provisionalLocalOutgoingPrimaryIDs.formIntersection(
+                Set(boundedItems.map(\.primary))
+            )
+            provisionalLocalOutgoingPrimaryIDs.subtract(
+                Set(boundedState.residentPrimaryKeys)
+            )
             let next = ChatTimelineSessionSnapshot(
                 generation: previous.generation &+ 1,
-                cause: storeChangeDepth > 0 ? .storeChange : .command,
+                cause: snapshotCause ?? (
+                    storeChangeDepth > 0 ? .storeChange : .command
+                ),
                 items: boundedItems,
                 state: boundedState,
-                loadingState: loadingState,
-                loadDecision: loadDecision,
                 anchorRestore: anchorRestore,
-                localOlderCandidateCount: localOlderCandidateCount,
                 pageSize: pageSize,
-                shortLocalRemainderRemoteFirst: shortLocalRemainderRemoteFirst,
                 residentIndex: ChatTimelineResidentIndex(items: boundedItems),
                 readBoundary: readBoundary,
                 unreadMetadata: unreadMetadata,
                 residentHardLimit: hardLimit,
-                residentChangeSet: residentChangeSet
+                residentChangeSet: residentChangeSet,
+                authoritativeEmptyLiveTailAuthority:
+                    storedAuthoritativeEmptyLiveTailAuthority,
+                provisionalLocalOutgoingPrimaryIDs:
+                    provisionalLocalOutgoingPrimaryIDs
             )
-            storeObservationAuthorityLineage =
-                ChatTimelineStoreObservationAuthorityPolicy.updatedLineage(
-                    storeObservationAuthorityLineage,
-                    from: previous,
-                    to: next,
-                    conversationKey: conversationKey,
-                    publication: authorityPublication
-                )
             storedSnapshot = next
+            switch verifiedScopeMutation {
+            case .unchanged:
+                break
+            case .replace(let scope):
+                storedVerifiedScope = scope
+            }
             return (next, storedSnapshotHandler)
         }
         let installedObservation = lock.withLock { observation }
@@ -2919,13 +2070,89 @@ final class ChatTimelineSession {
         return result.0
     }
 
+    private func presentationItemsByAttachingProvisionalOutgoing(
+        to verifiedAndResidentItems: [MessageStorageItem],
+        additionally: [MessageStorageItem] = [],
+        direction: ChatHistoryPageDirection?,
+        hardLimit: Int,
+        promotingPrimaryIDs: Set<String> = []
+    ) -> (
+        items: [MessageStorageItem],
+        verifiedItems: [MessageStorageItem],
+        trimmedPrimaries: [String]
+    ) {
+        // A verified-window candidate is rematerialized from Realm and must win
+        // over an older frozen provisional value for the same primary. This is
+        // important when the receipt proof arrives before Realm observation.
+        let candidatePromotionPrimaries = Set(
+            verifiedAndResidentItems.lazy
+                .filter { promotingPrimaryIDs.contains($0.primary) }
+                .map(\.primary)
+        )
+        let nonSupersededAdditionalItems = additionally.filter {
+            !candidatePromotionPrimaries.contains($0.primary)
+        }
+        let ordered = ChatTimelineOrdering.deduplicatedChronological(
+            verifiedAndResidentItems + nonSupersededAdditionalItems
+        )
+        let provisional = ordered.filter { item in
+            provisionalLocalOutgoingPrimaryIDs.contains(item.primary) &&
+                !candidatePromotionPrimaries.contains(item.primary)
+        }
+        let verified = ordered.filter { item in
+            !provisional.contains(where: { $0.primary == item.primary })
+        }
+        let boundedProvisional = provisional.count > hardLimit
+            ? Array(provisional.suffix(hardLimit))
+            : provisional
+        let verifiedLimit = max(0, hardLimit - boundedProvisional.count)
+        let boundedVerified: [MessageStorageItem]
+        if verified.count > verifiedLimit {
+            switch direction {
+            case .older:
+                boundedVerified = Array(verified.prefix(verifiedLimit))
+            case .newer, .none:
+                boundedVerified = Array(verified.suffix(verifiedLimit))
+            }
+        } else {
+            boundedVerified = verified
+        }
+        let items = ChatTimelineOrdering.deduplicatedChronological(
+            boundedVerified + boundedProvisional
+        )
+        let retained = Set(items.map(\.primary))
+        return (
+            items,
+            boundedVerified,
+            ordered.compactMap {
+                retained.contains($0.primary) ? nil : $0.primary
+            }
+        )
+    }
+
     private func stateByReplacingResidentItems(
         _ items: [MessageStorageItem],
-        in state: ChatVirtualTimelineState
+        in state: ChatVirtualTimelineState,
+        retentionDirection: ChatHistoryPageDirection? = nil
     ) -> ChatVirtualTimelineState {
+        let alreadyProvedResidentPrimaryIDs = Set(state.residentPrimaryKeys)
         let ordered = ChatTimelineOrdering.deduplicatedChronological(items)
+            .filter { item in
+                !provisionalLocalOutgoingPrimaryIDs.contains(item.primary) ||
+                    alreadyProvedResidentPrimaryIDs.contains(item.primary)
+            }
         let hardLimit = ChatBoundedTimelineWindowPolicy.hardLimit(pageSize: pageSize)
-        let bounded = ordered.count > hardLimit ? Array(ordered.suffix(hardLimit)) : ordered
+        let bounded: [MessageStorageItem]
+        if ordered.count > hardLimit {
+            switch retentionDirection {
+            case .older:
+                bounded = Array(ordered.prefix(hardLimit))
+            case .newer, .none:
+                bounded = Array(ordered.suffix(hardLimit))
+            }
+        } else {
+            bounded = ordered
+        }
         let oldest = bounded.first.map(ChatTimelineBoundary.init(message:))
         let newest = bounded.last.map(ChatTimelineBoundary.init(message:))
         let loadedRange = ChatVirtualSegment.loadedRange(
@@ -2958,8 +2185,6 @@ final class ChatTimelineSession {
             residentArchivedIds: bounded.compactMap {
                 RegularChatArchiveSyncStateStorageItem.normalizedArchiveId($0.archivedId)
             },
-            activeRemoteLoad: state.activeRemoteLoad,
-            activePlaceholder: state.activePlaceholder,
             isResidentAtLiveTail: state.isResidentAtLiveTail
         )
     }
@@ -2969,12 +2194,7 @@ final class ChatTimelineSession {
         defer { lock.withLock { storeChangeDepth -= 1 } }
         switch change {
         case .latestChanged:
-            if snapshot.state.isResidentAtLiveTail {
-                let currentResidentCount = snapshot.items.count
-                _ = openLatest(limit: currentResidentCount > 0 ? currentResidentCount : nil)
-            } else {
-                _ = refreshResidentItems()
-            }
+            _ = refreshResidentItems()
             _ = refreshUnreadMetadata()
         case .residentChanged:
             _ = refreshResidentItems()
@@ -2999,20 +2219,13 @@ final class ChatTimelineSession {
             let base = snapshot
             let bounded = boundedUnreadMetadata(
                 unreadMetadata,
-                hardLimit: base.residentHardLimit,
-                fallbackReadinessProof:
-                    base.unreadMetadata.initialFrameReadinessProof
+                hardLimit: base.residentHardLimit
             )
             guard bounded != base.unreadMetadata else { return base }
             return publish(
                 items: base.items,
                 state: base.state,
-                loadingState: base.loadingState,
-                loadDecision: base.loadDecision,
                 anchorRestore: base.anchorRestore,
-                localOlderCandidateCount: base.localOlderCandidateCount,
-                shortLocalRemainderRemoteFirst:
-                    base.shortLocalRemainderRemoteFirst,
                 readBoundary: base.readBoundary,
                 unreadMetadata: bounded
             )
@@ -3036,14 +2249,8 @@ final class ChatTimelineSession {
         preparedUnreadMetadata: ChatTimelineUnreadMetadata?
     ) -> ChatTimelineSessionSnapshot {
         operationLock.withLock {
-            let input = lock.withLock { (storedSnapshot, archiveState) }
-            let base = input.0
+            let base = snapshot
             let authorizedBatch = authorizedIncrementalBatch(batch)
-            let shouldOpenLatest = Self.shouldOpenLatestForNewOutgoingMutation(
-                authorizedBatch.mutations,
-                currentItems: base.items,
-                isResidentAtLiveTail: base.state.isResidentAtLiveTail
-            )
             let result = incrementalResidentReducer.apply(
                 currentItems: base.items,
                 mutations: authorizedBatch.mutations,
@@ -3054,50 +2261,18 @@ final class ChatTimelineSession {
             if let preparedUnreadMetadata {
                 unreadMetadata = boundedUnreadMetadata(
                     preparedUnreadMetadata,
-                    hardLimit: base.residentHardLimit,
-                    fallbackReadinessProof:
-                        base.unreadMetadata.initialFrameReadinessProof
+                    hardLimit: base.residentHardLimit
                 )
             } else {
                 unreadMetadata = base.unreadMetadata
             }
-            if shouldOpenLatest {
-                var engine = ChatVirtualTimelineEngine(
-                    provider: store,
-                    pageSize: pageSize,
-                    state: base.state.normalized(
-                        owner: conversationKey.owner,
-                        jid: conversationKey.jid,
-                        conversationType: conversationKey.conversationType
-                    ),
-                    archiveState: input.1
-                )
-                let next = engine.openLatest(
-                    limit: ChatBoundedTimelineWindowPolicy.targetLimit(pageSize: pageSize)
-                )
-                return publish(
-                    items: next.items,
-                    state: next.state,
-                    loadingState: next.loadingState,
-                    loadDecision: next.loadDecision,
-                    anchorRestore: next.anchorRestore,
-                    localOlderCandidateCount: next.localOlderCandidateCount,
-                    shortLocalRemainderRemoteFirst: next.shortLocalRemainderRemoteFirst,
-                    readBoundary: base.readBoundary,
-                    unreadMetadata: unreadMetadata
-                )
-            }
-            guard !result.changeSet.isEmpty || preparedUnreadMetadata != nil else {
+            guard !result.changeSet.isEmpty || unreadMetadata != base.unreadMetadata else {
                 return base
             }
             return publish(
                 items: result.items,
                 state: stateByReplacingResidentItems(result.items, in: base.state),
-                loadingState: base.loadingState,
-                loadDecision: base.loadDecision,
                 anchorRestore: base.anchorRestore,
-                localOlderCandidateCount: base.localOlderCandidateCount,
-                shortLocalRemainderRemoteFirst: base.shortLocalRemainderRemoteFirst,
                 readBoundary: base.readBoundary,
                 unreadMetadata: unreadMetadata,
                 residentChangeSet: result.changeSet
@@ -3108,16 +2283,62 @@ final class ChatTimelineSession {
     /// `operationLock` is held by the caller. Structural publication and its
     /// synchronous `replaceResidentItems` therefore linearize either before
     /// this authorization (stale resident revisions are removed) or after the
-    /// accepted store change. Revisions without resident provenance come from
-    /// the independent latest-message observer and are never filtered here.
+    /// accepted store change. Revisions without resident provenance may still
+    /// update or delete an identity already present in the resident index, but
+    /// they cannot admit a new primary without a verified archive/live receipt.
     private func authorizedIncrementalBatch(
         _ batch: ChatIncrementalMessageMutationBatch<MessageStorageItem>
     ) -> ChatIncrementalMessageMutationBatch<MessageStorageItem> {
-        guard !batch.residentGenerationByRevision.isEmpty else {
-            return batch
-        }
+        let currentSnapshot = snapshot
+        let residentIndex = currentSnapshot.residentIndex
+        let currentScope = verifiedScope
         let installedObservation = lock.withLock { observation }
         let authorizedMutations = batch.mutations.filter { mutation in
+            guard let index = residentIndex.index(
+                primary: mutation.identity.primary,
+                archivedId: mutation.identity.archivedId,
+                messageId: mutation.identity.messageId
+            ), currentSnapshot.items.indices.contains(index) else {
+                // Generic Realm observations have no archive proof for a new
+                // primary. They may reconcile a resident alias/update/delete,
+                // but only a verified archive receipt or explicit live-edge
+                // admission is allowed to grow the visible timeline.
+                return false
+            }
+            let resident = currentSnapshot.items[index]
+            switch mutation.operation {
+            case .delete:
+                // A deletion carries no payload from which to re-check the
+                // conversation. Require the exact admitted primary rather than
+                // accepting a cross-conversation message/archive alias.
+                guard mutation.identity.primary == resident.primary else {
+                    return false
+                }
+            case .upsert(let payload):
+                guard payload.primary == resident.primary,
+                      payload.owner == conversationKey.owner,
+                      payload.opponent == conversationKey.jid,
+                      payload.conversationType ==
+                        conversationKey.conversationType else {
+                    return false
+                }
+                if payload.isDeleted || payload.isLocallyHiddenByReport {
+                    break
+                }
+                if provisionalLocalOutgoingPrimaryIDs.contains(
+                    resident.primary
+                ) {
+                    guard payload.outgoing else { return false }
+                } else {
+                    // A generic observation may refresh only a row that is
+                    // still inside the current archive proof. It cannot turn a
+                    // verified resident into an empty, malformed or out-of-scope
+                    // paging boundary.
+                    guard currentScope?.contains(payload) == true else {
+                        return false
+                    }
+                }
+            }
             guard let generation =
                     batch.residentGenerationByRevision[mutation.revision] else {
                 return true
@@ -3142,35 +2363,15 @@ final class ChatTimelineSession {
 
     private func boundedUnreadMetadata(
         _ metadata: ChatTimelineUnreadMetadata,
-        hardLimit: Int,
-        fallbackReadinessProof: ChatTimelineInitialFrameReadinessProof?
+        hardLimit: Int
     ) -> ChatTimelineUnreadMetadata {
         ChatTimelineUnreadMetadata(
             unreadCount: max(0, metadata.unreadCount),
             mentions: Array(metadata.mentions.prefix(hardLimit)),
             candidateCount: min(max(0, metadata.candidateCount), hardLimit),
-            initialFrameReadinessProof:
-                metadata.initialFrameReadinessProof ?? fallbackReadinessProof,
             latestUnreadMentionArchivedId:
                 metadata.latestUnreadMentionArchivedId
         )
-    }
-
-    private static func shouldOpenLatestForNewOutgoingMutation(
-        _ mutations: [ChatIncrementalMessageMutation<MessageStorageItem>],
-        currentItems: [MessageStorageItem],
-        isResidentAtLiveTail: Bool
-    ) -> Bool {
-        guard !isResidentAtLiveTail else { return false }
-        return mutations.contains { mutation in
-            guard case .upsert(let item) = mutation.operation,
-                  item.outgoing else {
-                return false
-            }
-            return !currentItems.contains {
-                ChatIncrementalMessageIdentity(message: $0).matches(mutation.identity)
-            }
-        }
     }
 
     private static func frozen(_ item: MessageStorageItem) -> MessageStorageItem {
@@ -3283,12 +2484,6 @@ final class RealmChatTimelineSessionStore: ChatTimelineSessionStore {
         }
     }
 
-    func initialLatestWindow(limit: Int) -> [MessageStorageItem] {
-        withProvider(default: []) { provider in
-            provider.initialLatestWindow(limit: limit).map(Self.frozen)
-        }
-    }
-
     func older(before boundary: ChatTimelineBoundary, limit: Int) -> [MessageStorageItem] {
         withProvider(default: []) { provider in
             provider.older(before: boundary, limit: limit).map(Self.frozen)
@@ -3342,276 +2537,19 @@ final class RealmChatTimelineSessionStore: ChatTimelineSessionStore {
         }
     }
 
-    func messageWindow(
-        primary: String?,
-        archivedId: String?,
-        messageId: String?,
-        before: Int,
-        after: Int
-    ) -> ChatTimelineInitialFrameWindow? {
-        withProvider(default: nil) { provider in
-            guard let window = provider.messageWindow(
-                primary: primary,
-                archivedId: archivedId,
-                messageId: messageId,
-                before: before,
-                after: after
-            ) else {
-                return nil
-            }
-            return ChatTimelineInitialFrameWindow(
-                target: Self.frozen(window.target),
-                items: window.items.map(Self.frozen),
-                materializedCandidateCount: window.materializedCandidateCount
-            )
-        }
-    }
-
     func firstIncoming(afterArchiveBoundaryId boundaryArchivedId: String) -> MessageStorageItem? {
         withProvider(default: nil) { provider in
             provider.firstIncoming(afterArchiveBoundaryId: boundaryArchivedId).map(Self.frozen)
         }
     }
 
-    func firstIncomingWindow(
-        afterArchiveBoundaryId boundaryArchivedId: String,
-        before: Int,
-        after: Int
-    ) -> ChatTimelineInitialFrameWindow? {
-        withProvider(default: nil) { provider in
-            guard let window = provider.firstIncomingWindow(
-                afterArchiveBoundaryId: boundaryArchivedId,
-                before: before,
-                after: after
-            ) else {
-                return nil
-            }
-            return ChatTimelineInitialFrameWindow(
-                target: Self.frozen(window.target),
-                items: window.items.map(Self.frozen),
-                materializedCandidateCount: window.materializedCandidateCount
-            )
-        }
-    }
-
     func unreadMetadata(limit: Int) -> ChatTimelineUnreadMetadata {
-        readUnreadMetadata(
-            limit: limit,
-            initialFrameContext: nil
-        )
+        readUnreadMetadata(limit: limit)
     }
 
-    func initialFrameMetadata(
-        limit: Int,
-        materializedLocalMessageCount: Int,
-        conversationKey: ChatTimelineConversationKey,
-        baseGeneration: UInt64
-    ) -> ChatTimelineUnreadMetadata {
-        ChatPerformanceSignposts.measure(.localHistoryQuery) {
-            readUnreadMetadata(
-                limit: limit,
-                initialFrameContext: (
-                    materializedLocalMessageCount: max(0, materializedLocalMessageCount),
-                    conversationKey: conversationKey,
-                    baseGeneration: baseGeneration
-                )
-            )
-        }
-    }
-
-    func withInitialFrameMetadataConsistencyLease(
-        limit: Int,
-        materializedLocalMessageCount: Int,
-        conversationKey: ChatTimelineConversationKey,
-        baseGeneration: UInt64,
-        _ consume: (ChatTimelineUnreadMetadata) -> Void
-    ) {
-        ChatPerformanceSignposts.measure(.localHistoryQuery) {
-            do {
-                let realm = try WRealm.safe()
-                realm.beginWrite()
-                defer {
-                    if realm.isInWriteTransaction {
-                        realm.cancelWrite()
-                    }
-                }
-                consume(
-                    readUnreadMetadata(
-                        limit: limit,
-                        initialFrameContext: (
-                            materializedLocalMessageCount:
-                                max(0, materializedLocalMessageCount),
-                            conversationKey: conversationKey,
-                            baseGeneration: baseGeneration
-                        ),
-                        realm: realm
-                    )
-                )
-            } catch {
-                DDLogDebug(
-                    "RealmChatTimelineSessionStore.initialFrameMetadata lease: \(error.localizedDescription)"
-                )
-                recordSupplemental(operation: "unread", candidateCount: 0)
-                consume(.empty)
-            }
-        }
-    }
-
-    func withPostBootstrapInitialFrameConsistencyLease(
-        target: ChatTimelineInitialFrameTarget,
-        searchAnchor: ChatMessageAnchorRef?,
-        limit: Int,
-        conversationKey: ChatTimelineConversationKey,
-        baseGeneration: UInt64,
-        _ consume: (ChatTimelineInitialFrameLeaseMaterialization?) -> Void
-    ) {
-        ChatPerformanceSignposts.measure(.localHistoryQuery) {
-            do {
-                let realm = try WRealm.safe()
-                realm.beginWrite()
-                defer {
-                    if realm.isInWriteTransaction {
-                        realm.cancelWrite()
-                    }
-                }
-                let boundedLimit = min(
-                    max(1, limit),
-                    ChatInitialFirstFrameHistoryConfiguration.pageSize
-                )
-                let provider = makeProvider(
-                    realm: realm,
-                    recordsDiagnostics: false
-                )
-                let effectiveTarget: ChatTimelineInitialFrameTarget
-                let searchResolutionProof: ChatTimelineSearchResolutionProof
-                if let searchAnchor {
-                    switch provider.searchMessageResolution(
-                        anchor: searchAnchor
-                    ) {
-                    case .found(let message):
-                        searchResolutionProof = .found(
-                            primary: message.primary
-                        )
-                        effectiveTarget = .message(ChatTimelineAnchor(
-                            primary: message.primary,
-                            archivedId: nil,
-                            messageId: nil,
-                            date: message.date
-                        ))
-                    case .failed(let failure):
-                        recordSupplemental(
-                            operation: "postBootstrapWindowAndMetadata",
-                            candidateCount: 0
-                        )
-                        consume(ChatTimelineInitialFrameLeaseMaterialization(
-                            preparedLatestItems: nil,
-                            preparedAroundWindow: nil,
-                            unreadMetadata: .empty,
-                            searchResolutionProof: .failed(failure)
-                        ))
-                        return
-                    }
-                } else {
-                    searchResolutionProof = .notRequested
-                    effectiveTarget = target
-                }
-                let preparedLatestItems: [MessageStorageItem]?
-                let preparedAroundWindow: ChatTimelineInitialFrameWindow?
-                switch effectiveTarget {
-                case .latest:
-                    preparedLatestItems = provider.initialLatestWindow(
-                        limit: boundedLimit
-                    ).map(Self.frozen)
-                    preparedAroundWindow = nil
-                case .message(let anchor):
-                    let before = boundedLimit / 2
-                    preparedLatestItems = nil
-                    preparedAroundWindow = provider.messageWindow(
-                        primary: anchor.primary,
-                        archivedId: anchor.archivedId,
-                        messageId: anchor.messageId,
-                        before: before,
-                        after: max(0, boundedLimit - before - 1)
-                    ).map {
-                        ChatTimelineInitialFrameWindow(
-                            target: Self.frozen($0.target),
-                            items: $0.items.map(Self.frozen),
-                            materializedCandidateCount:
-                                $0.materializedCandidateCount
-                        )
-                    }
-                case .firstIncomingAfterBoundary(let boundaryArchivedId):
-                    let before = boundedLimit / 2
-                    preparedLatestItems = nil
-                    preparedAroundWindow = provider.firstIncomingWindow(
-                        afterArchiveBoundaryId: boundaryArchivedId,
-                        before: before,
-                        after: max(0, boundedLimit - before - 1)
-                    ).map {
-                        ChatTimelineInitialFrameWindow(
-                            target: Self.frozen($0.target),
-                            items: $0.items.map(Self.frozen),
-                            materializedCandidateCount:
-                                $0.materializedCandidateCount
-                        )
-                    }
-                }
-                guard effectiveTarget == .latest ||
-                        preparedAroundWindow != nil else {
-                    recordSupplemental(
-                        operation: "postBootstrapWindowAndMetadata",
-                        candidateCount: 0
-                    )
-                    consume(nil)
-                    return
-                }
-                let materializedMessageCount =
-                    preparedAroundWindow?.items.count ??
-                    preparedLatestItems?.count ?? 0
-                let unreadMetadata = readUnreadMetadata(
-                    limit: boundedLimit,
-                    initialFrameContext: (
-                        materializedLocalMessageCount: materializedMessageCount,
-                        conversationKey: conversationKey,
-                        baseGeneration: baseGeneration
-                    ),
-                    realm: realm,
-                    recordsDiagnostics: false
-                )
-                recordSupplemental(
-                    operation: "postBootstrapWindowAndMetadata",
-                    candidateCount: max(
-                        preparedAroundWindow?.materializedCandidateCount ??
-                            preparedLatestItems?.count ?? 0,
-                        unreadMetadata.candidateCount
-                    )
-                )
-                consume(ChatTimelineInitialFrameLeaseMaterialization(
-                    preparedLatestItems: preparedLatestItems,
-                    preparedAroundWindow: preparedAroundWindow,
-                    unreadMetadata: unreadMetadata,
-                    searchResolutionProof: searchResolutionProof
-                ))
-            } catch {
-                DDLogDebug(
-                    "RealmChatTimelineSessionStore.postBootstrap lease: \(error.localizedDescription)"
-                )
-                recordSupplemental(
-                    operation: "postBootstrapWindowAndMetadata",
-                    candidateCount: 0
-                )
-                consume(nil)
-            }
-        }
-    }
 
     private func readUnreadMetadata(
         limit: Int,
-        initialFrameContext: (
-            materializedLocalMessageCount: Int,
-            conversationKey: ChatTimelineConversationKey,
-            baseGeneration: UInt64
-        )?,
         realm suppliedRealm: Realm? = nil,
         recordsDiagnostics: Bool = true,
         providerDiagnosticsOverride:
@@ -3639,94 +2577,6 @@ final class RealmChatTimelineSessionStore: ChatTimelineSessionStore {
                 RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
                     chat?.mentionId
                 )
-            let archiveState = conversationType.supportsSnapshotArchiveRepair
-                ? realm.object(
-                    ofType: RegularChatArchiveSyncStateStorageItem.self,
-                    forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
-                        jid: jid,
-                        owner: owner,
-                        conversationType: conversationType
-                    )
-                )
-                : nil
-            let loadedRanges = archiveState?.loadedRanges ?? []
-            let knownGaps = archiveState?.knownGaps ?? []
-            let persistedCursorId = archiveState?.oldestLoadedArchiveId ?? {
-                guard chat?.lastLoadedMessageHistoryId?.isNotEmpty == true else {
-                    return nil
-                }
-                return chat?.lastLoadedMessageHistoryId
-            }()
-            let archiveStateSnapshot = ChatArchiveStateSnapshot(
-                primaryKey: chatPrimary,
-                persistedCursorId: persistedCursorId,
-                fullArchiveLoaded:
-                    archiveState?.olderArchiveEndReached ??
-                    chat?.fullArchiveLoaded ?? false,
-                newestCursorId: archiveState?.newestLoadedArchiveId,
-                newerLiveEdgeReached:
-                    archiveState?.newerLiveEdgeReached ?? true,
-                hasKnownNewerGap: knownGaps.isNotEmpty,
-                knownGaps: knownGaps
-            )
-            let archiveBoundaryFingerprint =
-                conversationType.supportsSnapshotArchiveRepair
-                ? MessageArchiveManager.conversationArchiveBoundaryFingerprint(
-                    chat: chat,
-                    archiveState: archiveState
-                )
-                : nil
-            let hasKnownRemoteArchiveBoundary =
-                RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-                    chat?.syncSnapshotLastArchiveId
-                ) != nil || (
-                    (chat?.syncUnreadCount ?? 0) > 0 &&
-                    RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-                        chat?.syncUnreadAfterId
-                    ) != nil
-                ) || RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-                    archiveState?.lastSnapshotArchiveId
-                ) != nil || RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-                    archiveState?.lastSnapshotMessageId
-                ) != nil
-            let readinessProof = initialFrameContext.flatMap { context ->
-                ChatTimelineInitialFrameReadinessProof? in
-                guard context.conversationKey.owner == owner,
-                      context.conversationKey.jid == jid,
-                      context.conversationKey.conversationType == conversationType else {
-                    return nil
-                }
-                return ChatTimelineInitialFrameReadinessProof(
-                    conversationKey: context.conversationKey,
-                    baseGeneration: context.baseGeneration,
-                    materializedLocalMessageCount:
-                        context.materializedLocalMessageCount,
-                    isSynced: chat?.isSynced ?? false,
-                    isInitialArchiveLoaded:
-                        chat?.isInitialArchiveLoaded ?? false,
-                    hasDurableArchiveReadiness:
-                        ConversationArchiveDurableReadinessPolicy.isReady(
-                            chat: chat,
-                            archiveState: archiveState,
-                            conversationType: conversationType,
-                            localMessageCount:
-                                context.materializedLocalMessageCount
-                        ),
-                    archiveState: archiveStateSnapshot,
-                    chatFullArchiveLoaded:
-                        chat?.fullArchiveLoaded ?? false,
-                    loadedRanges: loadedRanges,
-                    knownGaps: knownGaps,
-                    archiveBoundaryFingerprint: archiveBoundaryFingerprint,
-                    hasKnownRemoteArchiveBoundary:
-                        hasKnownRemoteArchiveBoundary,
-                    latestMessageFingerprint: chat?.lastMessage.flatMap {
-                        $0.isDeleted
-                            ? nil
-                            : ChatTimelineObservedMessageFingerprint(message: $0)
-                    }
-                )
-            }
             guard conversationType == .group else {
                 if recordsDiagnostics {
                     recordSupplemental(operation: "unread", candidateCount: 1)
@@ -3735,7 +2585,6 @@ final class RealmChatTimelineSessionStore: ChatTimelineSessionStore {
                     unreadCount: unreadCount,
                     mentions: [],
                     candidateCount: 1,
-                    initialFrameReadinessProof: readinessProof,
                     latestUnreadMentionArchivedId:
                         latestUnreadMentionArchivedId
                 )
@@ -3743,7 +2592,7 @@ final class RealmChatTimelineSessionStore: ChatTimelineSessionStore {
 
             let boundedLimit = min(
                 limit,
-                ChatInitialFirstFrameHistoryConfiguration.pageSize
+                ArchivePageSizing.initial
             )
             let notifications = Array(
                 realm.objects(NotificationStorageItem.self)
@@ -3784,7 +2633,6 @@ final class RealmChatTimelineSessionStore: ChatTimelineSessionStore {
                 unreadCount: unreadCount,
                 mentions: mentions,
                 candidateCount: notifications.count,
-                initialFrameReadinessProof: readinessProof,
                 latestUnreadMentionArchivedId:
                     latestUnreadMentionArchivedId
             )
@@ -3819,7 +2667,6 @@ final class RealmChatTimelineSessionStore: ChatTimelineSessionStore {
                     ChatLocalHistoryPageProviderDiagnostics()
                 let metadata = self.readUnreadMetadata(
                     limit: limit,
-                    initialFrameContext: nil,
                     realm: realm,
                     recordsDiagnostics: false,
                     providerDiagnosticsOverride: mentionDiagnostics
@@ -4613,41 +3460,45 @@ private final class RealmChatTimelineStoreObservation: ChatTimelineStoreObservat
                     ChatTimelineObservedMessageFingerprint(message: message)
                 )
             }
-            if baseline.isAuthoritative {
-                var baselineByPrimary:
-                    [String: ChatTimelineObservedMessageFingerprint] = [:]
-                for message in baseline.items where !message.isDeleted {
-                    baselineByPrimary[message.primary] =
-                        ChatTimelineObservedMessageFingerprint(message: message)
+            var baselineByPrimary:
+                [String: ChatTimelineObservedMessageFingerprint] = [:]
+            for message in baseline.items where !message.isDeleted {
+                baselineByPrimary[message.primary] =
+                    ChatTimelineObservedMessageFingerprint(message: message)
+            }
+            var catchUpCount = 0
+            // This query contains only exact, already-admitted resident keys.
+            // A missing key therefore proves a tombstone or hard deletion even
+            // when unrelated LastChats initial catch-up is non-authoritative.
+            for (primary, previous) in baselineByPrimary
+                where !currentByPrimary.keys.contains(primary) {
+                enqueueResidentMutation(
+                    .delete(
+                        identity: previous.identity,
+                        revision: nextMutationRevision()
+                    ),
+                    generation: identity.generation
+                )
+                catchUpCount += 1
+            }
+            for (primary, current) in currentByPrimary {
+                guard let previous = baselineByPrimary[primary],
+                      previous != current.1 else {
+                    continue
                 }
-                var catchUpCount = 0
-                for (primary, previous) in baselineByPrimary
-                    where !currentByPrimary.keys.contains(primary) {
-                    enqueueResidentMutation(
-                        .delete(
-                            identity: previous.identity,
-                            revision: nextMutationRevision()
-                        ),
-                        generation: identity.generation
-                    )
-                    catchUpCount += 1
-                }
-                for (primary, current) in currentByPrimary
-                    where baselineByPrimary[primary] != current.1 {
-                    let frozen = Self.frozen(current.0)
-                    enqueueResidentMutation(
-                        .upsert(
-                            identity: current.1.identity,
-                            revision: nextMutationRevision(),
-                            payload: frozen
-                        ),
-                        generation: identity.generation
-                    )
-                    catchUpCount += 1
-                }
-                if catchUpCount > 0 {
-                    recordDiagnostics(.catchUpMutations(catchUpCount))
-                }
+                let frozen = Self.frozen(current.0)
+                enqueueResidentMutation(
+                    .upsert(
+                        identity: current.1.identity,
+                        revision: nextMutationRevision(),
+                        payload: frozen
+                    ),
+                    generation: identity.generation
+                )
+                catchUpCount += 1
+            }
+            if catchUpCount > 0 {
+                recordDiagnostics(.catchUpMutations(catchUpCount))
             }
             residentIdentitiesByIndex = collection.map(
                 ChatIncrementalMessageIdentity.init(message:)

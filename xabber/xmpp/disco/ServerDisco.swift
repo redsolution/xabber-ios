@@ -951,12 +951,12 @@ class ServerDiscoManager: AbstractXMPPManager {
 
     private func publishGroupServiceChangeIfNeeded(_ didChange: Bool) {
         guard didChange else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+        let ownerSnapshot = owner
+        DispatchQueue.main.async {
             NotificationCenter.default.post(
                 name: .groupServiceDiscoveryDidChange,
-                object: self,
-                userInfo: ["owner": self.owner]
+                object: nil,
+                userInfo: ["owner": ownerSnapshot]
             )
         }
     }

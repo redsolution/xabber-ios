@@ -2,6 +2,8 @@ import XCTest
 @testable import xabber
 
 final class AccountDelayedActionLifecycleTests: XCTestCase {
+    private final class DelayedActionLifetimeOwner {}
+
     func testDelayedActionRunsForLiveAccount() {
         let account = Account(
             jid: "live-delayed-action@example.com",
@@ -21,21 +23,24 @@ final class AccountDelayedActionLifecycleTests: XCTestCase {
     func testDelayedActionSkipsDestroyedAccount() {
         let actionDidNotRun = expectation(description: "delayed action is skipped")
         actionDidNotRun.isInverted = true
-        weak var releasedAccount: Account?
+        weak var releasedOwner: DelayedActionLifetimeOwner?
 
         autoreleasepool {
-            var account: Account? = Account(
-                jid: "released-delayed-action@example.com",
-                queue: DispatchQueue(label: "AccountDelayedActionLifecycleTests.released")
-            )
-            releasedAccount = account
-            account?.delayedAction(delay: 0.05) { _, _ in
+            let owner = DelayedActionLifetimeOwner()
+            releasedOwner = owner
+            AccountDelayedActionScheduler.schedule(
+                owner: owner,
+                delay: 0.05,
+                queueLabel: "AccountDelayedActionLifecycleTests.released"
+            ) { _ in
                 actionDidNotRun.fulfill()
             }
-            account = nil
         }
 
-        XCTAssertNil(releasedAccount)
+        XCTAssertNil(
+            releasedOwner,
+            "the weak-scheduling fixture must not have independent Account lifecycle work"
+        )
         wait(for: [actionDidNotRun], timeout: 0.15)
     }
 }

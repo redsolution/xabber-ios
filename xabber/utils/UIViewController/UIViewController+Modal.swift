@@ -33,14 +33,6 @@ enum StackedNavigationRoute: Equatable {
     }
 }
 
-enum ChatStackedNavigationInitialFrameStrategyPolicy {
-    static func strategy(
-        for route: StackedNavigationRoute
-    ) -> ChatStackedNavigationInitialFrameStrategy {
-        route == .currentNavigationPush ? .skeletonFirst : .contentFirst
-    }
-}
-
 struct StackedNavigationRouteContext: Equatable {
     let interfaceType: CommonConfigManager.InterfaceType
     let isPhone: Bool
@@ -707,8 +699,6 @@ private func configureStackedChatBackgroundPresentation(
     }
 
     chatViewController.backgroundPresentationMode = mode
-    chatViewController.stackedNavigationInitialFrameStrategy =
-        ChatStackedNavigationInitialFrameStrategyPolicy.strategy(for: route)
 }
 
 private func splitSecondaryTargetBounds(

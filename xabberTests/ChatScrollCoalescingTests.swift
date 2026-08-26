@@ -200,47 +200,6 @@ final class ChatScrollCoalescingTests: XCTestCase {
         XCTAssertEqual(selectedBoundaryIndex, 3)
     }
 
-    func testEntireVisibleShortPageRequestsRemoteOlderOnlyOnceWhilePageIsInFlight() {
-        var scheduled: [() -> Void] = []
-        var requestCount = 0
-        var isRemotePageInFlight = false
-        let scheduler = ChatScrollWorkScheduler(
-            schedule: { scheduled.append($0) },
-            handler: { request in
-                let direction = ChatHistoryPagingPolicy.triggerDirection(
-                    isUserScrolling: request.isUserScrolling,
-                    canLoadDatasource: true,
-                    gestureTranslationY: request.gestureTranslationY,
-                    boundaryContext: ChatHistoryPagingBoundaryContext(
-                        firstRealSection: 0,
-                        lastRealSection: 3,
-                        visibleRealSections: [0, 1, 2, 3]
-                    ),
-                    currentPageMinIndex: 0,
-                    currentPageMaxIndex: 4,
-                    totalCount: 4,
-                    hasLocalOlderAvailable: false,
-                    hasLocalNewerAvailable: false,
-                    hasRemoteOlderAvailable: !isRemotePageInFlight,
-                    hasRemoteNewerAvailable: false,
-                    suppressRemoteBoundaryPaging: true
-                )
-                if direction != nil {
-                    requestCount += 1
-                    isRemotePageInFlight = true
-                }
-            }
-        )
-
-        scheduler.enqueue(request(offsetY: -20, gestureTranslationY: 40, visibleSections: [0, 1, 2, 3], work: [.evaluateBoundaryPaging]))
-        scheduled.removeFirst()()
-
-        scheduler.enqueue(request(offsetY: -24, gestureTranslationY: 42, visibleSections: [0, 1, 2, 3], work: [.evaluateBoundaryPaging]))
-        scheduled.removeFirst()()
-
-        XCTAssertEqual(requestCount, 1)
-    }
-
     private func request(
         offsetY: CGFloat,
         gestureTranslationY: CGFloat = 0,

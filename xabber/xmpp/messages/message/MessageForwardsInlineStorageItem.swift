@@ -53,36 +53,99 @@ class MessageForwardsInlineStorageItem: Object {
     
     
     
-    func configureInline(_ messageContainer: XMPPMessage, parentId: String, owner: String, jid: String, opponent: String, outgoing: Bool, date: Date, forwardJid: String?) {
-        self.messageId = getUniqueMessageId(messageContainer, owner: self.owner)
+    func configureInline(
+        _ messageContainer: XMPPMessage,
+        parentId: String,
+        owner: String,
+        jid: String,
+        opponent: String,
+        outgoing: Bool,
+        date: Date?,
+        forwardJid: String?,
+        forwardDepth: Int = 1
+    ) {
+        self.owner = owner
+        self.jid = jid
+        self.opponent = opponent
+        self.messageId = getUniqueMessageId(messageContainer, owner: owner)
         self.primary = [parentId, messageId].prp()
-        self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: jid, owner: owner))
-        self.subforwards.append(objectsIn: parseInlineMessages(messageContainer, parentId: self.primary, jid: jid, owner: owner))
+        let parsedReferences = parseReferences(
+            messageContainer,
+            primary: self.primary,
+            jid: jid,
+            owner: owner
+        )
+        self.references.append(objectsIn: forwardDepth >= inlineForwardMaximumDepth
+            ? parsedReferences.filter { $0.kind != .forward }
+            : parsedReferences
+        )
+        self.subforwards.append(objectsIn: parseInlineMessages(
+            messageContainer,
+            parentId: self.primary,
+            jid: jid,
+            owner: owner,
+            depth: forwardDepth
+        ))
+        let bodyReferences = messageContainer.elements(forName: "reference")
+        let removableBodyReferences = forwardDepth >= inlineForwardMaximumDepth
+            ? bodyReferences.filter { getReferenceType($0) != "forward" }
+            : bodyReferences
         self.body = messageContainer
             .body?
             .xmlEscaping(reverse: false)
-            .excludeFromBody(messageContainer.elements(forName: "reference"), groupchat: nil) ?? ""
-        self.jid = jid
-        self.owner = owner
-        self.opponent = opponent
+            .excludeFromBody(removableBodyReferences, groupchat: nil) ?? ""
         self.isOutgoing = outgoing
         self.originalDate = date
         self.forwardJid = forwardJid ?? ""
+        if let authorSnapshot = resolvedGroupchatAuthorDisplayName(
+            userElement: nil,
+            references: references.toArray()
+        ) {
+            self.forwardNickname = authorSnapshot
+        }
     }
     
     public func tryToLoadNickname() -> String {
+        if let groupAuthor = resolvedGroupchatAuthorDisplayName(
+            userElement: nil,
+            references: references.toArray()
+        ) {
+            return groupAuthor
+        }
+        if let authorSnapshot = nonEmptyAuthorValue(forwardNickname) {
+            return authorSnapshot
+        }
+        if owner == forwardJid,
+           let accountName = nonEmptyAuthorValue(
+               AccountManager.shared.find(for: owner)?.username
+           ) {
+            return accountName
+        }
         do {
             let realm = try WRealm.safe()
-            if self.owner == self.forwardJid {
-                return AccountManager.shared.find(for: self.owner)?.username ?? forwardJid
-            }
-            if let nickname = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: self.forwardJid, owner: self.owner))?.displayName {
+            if let nickname = nonEmptyAuthorValue(
+                realm.object(
+                    ofType: RosterStorageItem.self,
+                    forPrimaryKey: RosterStorageItem.genPrimary(
+                        jid: forwardJid,
+                        owner: owner
+                    )
+                )?.displayName
+            ) {
                 return nickname
             }
         } catch {
             DDLogDebug("MessageForwardsInlineStorageItem: \(#function). \(error.localizedDescription)")
         }
-        return self.forwardJid
+        return forwardJid
+    }
+
+    private func nonEmptyAuthorValue(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              value.isNotEmpty else {
+            return nil
+        }
+        return value
     }
     
     public final func createRefBody(_ attrs: [NSAttributedString.Key: Any], searchedText: String? = nil, searchedTextColor: UIColor? = nil) -> NSAttributedString {

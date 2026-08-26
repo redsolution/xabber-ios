@@ -67,7 +67,6 @@ struct MessageArchiveEndPageEvent: Equatable {
         case localCallback
         case fallbackCallback
         case unroutedFinalIQ
-        case unroutedErrorIQ
     }
 
     let owner: String
@@ -802,14 +801,8 @@ enum MessageArchiveRequestFailurePreparationDispatcher {
     }
 }
 
-protocol TemporaryMessageReceiverProtocol {
-    func didReceiveMessage(_ item: MessageStorageItem, queryId: String)
-    func didReceiveEndPage(queryId: String, state: MessageArchivePageEndState, first: String, last: String, count: Int)
-}
-
 /// Arbitrates the only two legal terminals of a query-scoped persistence
-/// flush. The winner owns the deferred archive commit; a late Realm callback
-/// after timeout is deliberately ignored so it cannot restore readiness.
+/// flush. A late Realm callback after timeout is deliberately ignored.
 final class ArchivePersistenceTerminalGate {
     private enum State: Equatable {
         case idle
@@ -899,343 +892,7 @@ final class ArchivePersistenceTerminalGate {
     }
 }
 
-struct RegularIdleBackfillAttemptToken: Equatable {
-    private let id = UUID()
-    fileprivate let isAutomaticRetry: Bool
-
-    fileprivate init(isAutomaticRetry: Bool = false) {
-        self.isAutomaticRetry = isAutomaticRetry
-    }
-}
-
-struct RegularIdleBackfillTriggerState: Equatable {
-    private(set) var hasPendingTrigger = false
-    private(set) var isAttemptScheduled = false
-    private(set) var activeAttemptToken: RegularIdleBackfillAttemptToken?
-    private var nextAttemptIsAutomaticRetry = false
-
-    var isInProgress: Bool {
-        activeAttemptToken != nil
-    }
-
-    mutating func registerExplicitTrigger() -> Bool {
-        hasPendingTrigger = true
-        // A new explicit trigger starts a fresh retry chain and supersedes a
-        // queued automatic retry for the same idle pump.
-        nextAttemptIsAutomaticRetry = false
-        guard !isInProgress,
-              !isAttemptScheduled else {
-            return false
-        }
-        isAttemptScheduled = true
-        return true
-    }
-
-    mutating func beginScheduledAttempt() -> RegularIdleBackfillAttemptToken? {
-        guard isAttemptScheduled else {
-            return nil
-        }
-        isAttemptScheduled = false
-        guard activeAttemptToken == nil,
-              hasPendingTrigger else {
-            return nil
-        }
-        hasPendingTrigger = false
-        let token = RegularIdleBackfillAttemptToken(
-            isAutomaticRetry: nextAttemptIsAutomaticRetry
-        )
-        nextAttemptIsAutomaticRetry = false
-        activeAttemptToken = token
-        return token
-    }
-
-    mutating func finishAttempt(
-        _ token: RegularIdleBackfillAttemptToken,
-        requiresRetry: Bool = false
-    ) -> Bool {
-        guard activeAttemptToken == token else {
-            return false
-        }
-        activeAttemptToken = nil
-        if requiresRetry,
-           !token.isAutomaticRetry,
-           !hasPendingTrigger {
-            hasPendingTrigger = true
-            nextAttemptIsAutomaticRetry = true
-        }
-        guard hasPendingTrigger,
-              !isAttemptScheduled else {
-            return false
-        }
-        isAttemptScheduled = true
-        return true
-    }
-
-    mutating func reset() {
-        hasPendingTrigger = false
-        isAttemptScheduled = false
-        activeAttemptToken = nil
-        nextAttemptIsAutomaticRetry = false
-    }
-}
-
-enum RegularIdleBackfillTargetPolicy {
-    /// Regular idle bootstrap is reserved for user-addressed one-to-one chats.
-    /// Domain-only and known service JIDs own separate archive pipelines.
-    static func targetJid<Candidates: Sequence>(
-        from orderedCandidateJids: Candidates,
-        activeRegularJids: Set<String>,
-        ignoredServiceJids: Set<String>,
-        activeCanonicalGroupJids: Set<String> = []
-    ) -> String? where Candidates.Element == String {
-        orderedCandidateJids.first { jid in
-            guard let parsedJid = XMPPJID(string: jid),
-                  !parsedJid.isServer else {
-                return false
-            }
-            return !activeRegularJids.contains(jid) &&
-                !ignoredServiceJids.contains(jid) &&
-                !activeCanonicalGroupJids.contains(GroupStorageKey.bareJID(jid))
-        }
-    }
-}
-
-struct SnapshotRepairFollowUpBudgetDecision: Equatable {
-    let shouldSchedule: Bool
-    let didExhaust: Bool
-    let nextConsumedCount: Int
-}
-
-enum SnapshotRepairFollowUpBudgetPolicy {
-    static func decision(
-        requiresFollowUp: Bool,
-        currentConsumedCount: Int,
-        consumesBudget: Bool,
-        maximumConsumedCount: Int = 1
-    ) -> SnapshotRepairFollowUpBudgetDecision {
-        let current = max(0, currentConsumedCount)
-        let maximum = max(0, maximumConsumedCount)
-        let shouldSchedule = requiresFollowUp && (!consumesBudget || current < maximum)
-        return SnapshotRepairFollowUpBudgetDecision(
-            shouldSchedule: shouldSchedule,
-            didExhaust: requiresFollowUp && consumesBudget && !shouldSchedule,
-            nextConsumedCount: shouldSchedule && consumesBudget ? current + 1 : current
-        )
-    }
-}
-
-enum SnapshotRepairTerminalReceiptBudgetPolicy {
-    /// Only a durable receipt for a demonstrably older boundary is free
-    /// reconciliation. A failed or nondurable terminal represents a real
-    /// attempt for the current boundary and must consume the single retry.
-    static func consumesFollowUpBudget(
-        readiness: ConversationArchiveReadiness?,
-        currentBoundaryFingerprint: MessageArchiveManager.ConversationArchiveBoundaryFingerprint?
-    ) -> Bool {
-        guard let readiness,
-              readiness.phase == .committed,
-              readiness.hasDurableCoverage,
-              let provenBoundary = readiness.boundaryFingerprint,
-              let currentBoundaryFingerprint,
-              provenBoundary != currentBoundaryFingerprint else {
-            return true
-        }
-        return false
-    }
-}
-
-enum SnapshotRepairRetriggerPolicy {
-    /// A queued target will read the latest Realm boundary when it starts. An
-    /// active target, however, may already have proved an older snapshot, so a
-    /// new trigger must survive until the current generation finishes.
-    static func shouldMarkDirty(
-        isAlreadyScheduled: Bool,
-        isActiveTarget: Bool
-    ) -> Bool {
-        isAlreadyScheduled && isActiveTarget
-    }
-}
-
-/// Realm-backed readiness is stricter than the legacy flags alone. The flags
-/// are the terminal marker, while snapshot-capable conversations additionally
-/// need materialized local history and coverage for the exact current
-/// snapshot/unread boundaries.
-enum ConversationArchiveDurableReadinessPolicy {
-    static func isReady(
-        chat: LastChatsStorageItem?,
-        archiveState: RegularChatArchiveSyncStateStorageItem?,
-        conversationType: ClientSynchronizationManager.ConversationType,
-        localMessageCount: Int
-    ) -> Bool {
-        guard let chat,
-              chat.isSynced,
-              chat.isInitialArchiveLoaded else {
-            return false
-        }
-        guard conversationType.supportsSnapshotArchiveRepair else {
-            return true
-        }
-        guard let archiveState,
-              hasCurrentCoverage(
-                chat: chat,
-                archiveState: archiveState
-              ) else {
-            return false
-        }
-
-        // A pre-persistence implementation could write ranges and readiness
-        // flags directly from raw <fin>. If the synchronization snapshot names
-        // remote history but no local row exists, that legacy state is not
-        // materialization proof and must be repaired.
-        if localMessageCount <= 0,
-           hasKnownRemoteBoundary(
-            chat: chat,
-            archiveState: archiveState
-           ) {
-            return false
-        }
-        // For a nonempty timeline the loaded range is the durable page proof;
-        // the exact boundary stanza can legitimately be a non-visible control
-        // item. Requiring a visible row with that exact ID would create a
-        // repair loop even though query-scoped persistence already committed
-        // the page and its coverage atomically.
-        return true
-    }
-
-    static func hasCurrentCoverage(
-        chat: LastChatsStorageItem,
-        archiveState: RegularChatArchiveSyncStateStorageItem
-    ) -> Bool {
-        guard archiveState.newerLiveEdgeReached else {
-            return false
-        }
-
-        let chatSnapshotArchiveId =
-            RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-                chat.syncSnapshotLastArchiveId
-            )
-        let stateSnapshotArchiveId =
-            RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-                archiveState.lastSnapshotArchiveId
-            )
-        if let chatSnapshotArchiveId,
-           chatSnapshotArchiveId != stateSnapshotArchiveId {
-            return false
-        }
-
-        let snapshotArchiveId = chatSnapshotArchiveId ?? stateSnapshotArchiveId
-        if let snapshotArchiveId {
-            guard archiveState.containsArchiveId(snapshotArchiveId) else {
-                return false
-            }
-        } else if let snapshotMessageId = normalizedMessageId(
-            archiveState.lastSnapshotMessageId
-        ) {
-            guard chat.lastMessageId == snapshotMessageId ||
-                    chat.lastMessage?.messageId == snapshotMessageId else {
-                return false
-            }
-        }
-
-        guard chat.syncUnreadCount > 0 else {
-            return true
-        }
-        guard let unreadAfterId =
-                RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-                    chat.syncUnreadAfterId
-                ) else {
-            return false
-        }
-        if let snapshotArchiveId {
-            return archiveState.containsArchiveIdsInSameLoadedRange([
-                snapshotArchiveId,
-                unreadAfterId
-            ])
-        }
-        return archiveState.containsArchiveId(unreadAfterId)
-    }
-
-    static func hasKnownRemoteBoundary(
-        chat: LastChatsStorageItem,
-        archiveState: RegularChatArchiveSyncStateStorageItem?
-    ) -> Bool {
-        RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-            chat.syncSnapshotLastArchiveId
-        ) != nil ||
-        RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-            archiveState?.lastSnapshotArchiveId
-        ) != nil ||
-        normalizedMessageId(archiveState?.lastSnapshotMessageId) != nil ||
-        chat.syncUnreadCount > 0
-    }
-
-    static func localMessageCount(
-        owner: String,
-        jid: String,
-        conversationType: ClientSynchronizationManager.ConversationType,
-        in realm: Realm
-    ) -> Int {
-        // Readiness only needs materialization presence. Fetching the first
-        // matching row avoids counting a large conversation during chat open
-        // and while applying a multi-conversation synchronization snapshot.
-        let firstMaterializedMessage = realm
-            .objects(MessageStorageItem.self)
-            .filter(
-                "opponent == %@ AND owner == %@ AND conversationType_ == %@ AND isDeleted == false",
-                jid,
-                owner,
-                conversationType.rawValue
-            )
-            .first
-        return firstMaterializedMessage == nil ? 0 : 1
-    }
-
-    private static func normalizedMessageId(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              value.isNotEmpty else {
-            return nil
-        }
-        return value
-    }
-}
-
 class MessageArchiveManager: AbstractXMPPManager {
-
-    enum HistoryCursorPolicy {
-        static func shouldPersistCursor(for purpose: MessageArchiveManager.RequestPurpose) -> Bool {
-            [.bootstrap, .pageOlder].contains(purpose)
-        }
-
-        static func persistedOlderCursorId(
-            purpose: MessageArchiveManager.RequestPurpose,
-            first: String,
-            last: String,
-            current: String?
-        ) -> String? {
-            guard shouldPersistCursor(for: purpose) else {
-                return current
-            }
-
-            // iOS older-history requests use flip-page, so RSM `last` is the
-            // oldest archived id in the fetched page and is the correct cursor
-            // for the next `before=` request.
-            if last.isNotEmpty {
-                return last
-            }
-
-            guard first.isNotEmpty else {
-                return current
-            }
-
-            return first
-        }
-    }
-
-    enum ArchiveEndPolicy {
-        static func canCommitCoverage(for purpose: RequestPurpose) -> Bool {
-            purpose.isArchiveHistoryProducing
-        }
-    }
 
     enum ConversationTypeFilterPolicy {
         static func shouldIncludeConversationTypeField(
@@ -1248,34 +905,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 return false
             }
 
-            if conversationType == .regular {
-                return purpose == .snapshotRepair
-            }
-
-            return true
-        }
-    }
-
-    enum ChatBootstrapRequestPolicy {
-        static func shouldStartInitialBootstrap(
-            isSynced: Bool,
-            isInitialArchiveLoaded: Bool,
-            localMessageCount: Int,
-            hasKnownRemoteBoundary: Bool = false
-        ) -> Bool {
-            if localMessageCount == 0, hasKnownRemoteBoundary {
-                return true
-            }
-
-            if !isSynced {
-                return true
-            }
-
-            if !isInitialArchiveLoaded {
-                return true
-            }
-
-            return false
+            return conversationType != .regular
         }
     }
 
@@ -1283,58 +913,18 @@ class MessageArchiveManager: AbstractXMPPManager {
         let onMessage: ((MessageStorageItem, String) -> Void)?
         let onEndPage: ((String, MessageArchivePageEndState, String, String, Int) -> Void)?
         let onFailure: ((MessageArchiveRequestFailureEvent) -> Void)?
-        let onSearchTerminal: ((String, ChatSearchArchiveSession.Terminal) -> Void)?
-        let onSearchContinuationAvailable: ((String, String) -> Void)?
-        let onSearchContinuationStarted: ((String, String) -> Void)?
 
         init(
             onMessage: ((MessageStorageItem, String) -> Void)? = nil,
             onEndPage: ((String, MessageArchivePageEndState, String, String, Int) -> Void)? = nil,
-            onFailure: ((MessageArchiveRequestFailureEvent) -> Void)? = nil,
-            onSearchTerminal: ((String, ChatSearchArchiveSession.Terminal) -> Void)? = nil,
-            onSearchContinuationAvailable: ((String, String) -> Void)? = nil,
-            onSearchContinuationStarted: ((String, String) -> Void)? = nil
+            onFailure: ((MessageArchiveRequestFailureEvent) -> Void)? = nil
         ) {
             self.onMessage = onMessage
             self.onEndPage = onEndPage
             self.onFailure = onFailure
-            self.onSearchTerminal = onSearchTerminal
-            self.onSearchContinuationAvailable = onSearchContinuationAvailable
-            self.onSearchContinuationStarted = onSearchContinuationStarted
         }
 
         static let none = RequestCallbacks()
-    }
-
-    enum SyncChatStartResult: Equatable {
-        case bootstrapStarted(queryId: String)
-        case gapRepairOnly
-        case noop
-    }
-
-    enum DeferredArchiveCommitRejection: Equatable {
-        case persistenceFailed(failedRows: Int)
-        case unaccountedResults(count: Int)
-        case missingPersistenceProof
-        case malformedCoverageRange
-        case nonAdvancingCursor
-        case storageFailure
-    }
-
-    enum DeferredArchiveCommitResult: Equatable {
-        case committed
-        case committedNeedsFollowUpRepair
-        case missingDescriptor
-        case rejected(DeferredArchiveCommitRejection)
-    }
-
-    struct CommittedArchiveConsumerProof: Equatable {
-        let boundaryFingerprint: ConversationArchiveBoundaryFingerprint?
-        let confirmsEmptyConversation: Bool
-        let hasPresentationMaterialization: Bool
-        let recommendedFollowUpTarget: ChatBootstrapPageTarget?
-        let deliveredResultCount: Int
-        let serverResultCount: Int?
     }
 
     struct ArchivePageFinalDisposition: Equatable {
@@ -1367,14 +957,6 @@ class MessageArchiveManager: AbstractXMPPManager {
         )
     }
 
-    private enum DeferredArchiveTracePhase {
-        case prepared
-        case committed
-        case committedNeedsRepair
-        case failed
-        case aborted
-    }
-    
     enum Tags: String {
         case image = "image"
         case audio = "audio"
@@ -1393,29 +975,24 @@ class MessageArchiveManager: AbstractXMPPManager {
         case pageNewer
         case jump
         case gapRepair
-        case snapshotRepair
-        case search
+        case engineSearchPage
         case timestampLookup
         case latest
         case media
         case inviteRecovery
 
-        var marksInitialArchiveLoaded: Bool {
-            self == .bootstrap
-        }
-
         var isArchiveHistoryProducing: Bool {
             switch self {
-            case .bootstrap, .pageOlder, .pageNewer, .jump, .gapRepair, .snapshotRepair:
+            case .bootstrap, .pageOlder, .pageNewer, .jump, .gapRepair:
                 return true
-            case .search, .timestampLookup, .latest, .media, .inviteRecovery:
+            case .engineSearchPage, .timestampLookup, .latest, .media, .inviteRecovery:
                 return false
             }
         }
 
         var routesMamServerErrorAsRequestFailure: Bool {
             switch self {
-            case .bootstrap, .pageOlder, .pageNewer, .gapRepair, .snapshotRepair, .search, .timestampLookup:
+            case .bootstrap, .pageOlder, .pageNewer, .gapRepair, .engineSearchPage, .timestampLookup:
                 return true
             case .jump, .latest, .media, .inviteRecovery:
                 return false
@@ -1429,112 +1006,6 @@ class MessageArchiveManager: AbstractXMPPManager {
         let max: Int
     }
 
-    enum RegularChatArchiveRequestKind: Equatable {
-        case bootstrap
-        case older
-        case newer
-        case exactAnchor
-        case dateWindow
-        case gapRepair
-        case snapshotRepair
-    }
-
-    enum RegularArchiveGapRepairDirection: Equatable, Hashable {
-        case older
-        case newer
-    }
-
-    enum RegularChatArchiveRequestPriority {
-        case interactive
-        case background
-        case idle
-    }
-
-    struct RegularChatArchiveRequestPlan: Equatable {
-        let kind: RegularChatArchiveRequestKind
-        let jid: String
-        let conversationType: ClientSynchronizationManager.ConversationType
-        let purpose: RequestPurpose
-        let nextPage: String?
-        let prevPage: String?
-        let ids: [String]?
-        let start: Date?
-        let end: Date?
-        let max: Int
-        let usesServerArchiveId: Bool
-        let coverageUpdateKind: RegularArchiveCoverageUpdateKind
-    }
-
-    enum ChatBootstrapPageTarget: Hashable {
-        case latest
-        case firstUnread(afterArchiveId: String)
-        case older(beforeArchiveId: String)
-        case savedPosition(
-            messagePrimary: String?,
-            archivedId: String?,
-            messageId: String?,
-            sourceDate: Date?
-        )
-        case savedPositionGapRepair(
-            olderRangeNewestArchiveId: String,
-            newerRangeOldestArchiveId: String,
-            direction: RegularArchiveGapRepairDirection
-        )
-    }
-
-    struct ChatBootstrapTargetFingerprint: Hashable {
-        let target: ChatBootstrapPageTarget
-        let boundary: ConversationArchiveBoundaryFingerprint?
-    }
-
-    private static let bootstrapTargetWindowPadding: TimeInterval = 60
-
-    struct SnapshotRepairTarget: Hashable {
-        let jid: String
-        let conversationType: ClientSynchronizationManager.ConversationType
-
-        func deduplicationKey(owner: String) -> String {
-            ChatInitialBootstrapRequestKey(
-                owner: owner,
-                jid: jid,
-                conversationType: conversationType
-            ).schedulerDeduplicationKey
-        }
-    }
-
-    enum SnapshotArchiveRepairTransportTarget: Equatable {
-        /// Fetch only the delta after the newest archive id already covered
-        /// locally. This is the inexpensive first snapshot-repair attempt.
-        case incremental
-        /// Fetch the newest server page even when a local newest cursor
-        /// exists. This materializes a presentable page after an incremental
-        /// repair proved coverage but produced no visible local timeline.
-        case latest
-
-        static func followUpTarget(
-            current: Self,
-            recommended: ChatBootstrapPageTarget?,
-            hasNewSnapshotGeneration: Bool
-        ) -> Self {
-            guard !hasNewSnapshotGeneration else {
-                return .incremental
-            }
-            return recommended == .latest ? .latest : current
-        }
-    }
-
-    struct RegularChatArchiveRequestKey: Hashable {
-        let jid: String
-        let conversationTypeRaw: String
-        let purpose: RequestPurpose
-        let nextPage: String?
-        let prevPage: String?
-        let ids: [String]?
-        let startTime: TimeInterval?
-        let endTime: TimeInterval?
-        let max: Int
-    }
-
     private struct ArchiveDateConstraint {
         let start: Date?
         let shouldSkipRequest: Bool
@@ -1542,312 +1013,6 @@ class MessageArchiveManager: AbstractXMPPManager {
 
     static func newestBootstrapPageRequest(pageSize: Int) -> PageRequestConfiguration {
         PageRequestConfiguration(nextPage: "", prevPage: nil, max: pageSize)
-    }
-
-    static func olderPageRequest(messageId: String?, pageSize: Int) -> PageRequestConfiguration {
-        PageRequestConfiguration(
-            nextPage: (messageId?.isNotEmpty ?? false) ? messageId : "",
-            prevPage: nil,
-            max: pageSize
-        )
-    }
-
-    static func newerPageRequest(messageId: String, pageSize: Int) -> PageRequestConfiguration {
-        PageRequestConfiguration(nextPage: nil, prevPage: messageId, max: pageSize)
-    }
-
-    static func regularArchivePageSize(requested: Int?, defaultPageSize: Int = ChatHistoryPagingConfiguration.pageSize) -> Int {
-        min(max(requested ?? defaultPageSize, 1), ChatHistoryPagingConfiguration.pageSize)
-    }
-
-    static func regularBootstrapRequestPlan(
-        jid: String,
-        pageSize: Int,
-        target: ChatBootstrapPageTarget = .latest
-    ) -> RegularChatArchiveRequestPlan {
-        switch target {
-        case .latest:
-            let request = newestBootstrapPageRequest(pageSize: pageSize)
-            return RegularChatArchiveRequestPlan(
-                kind: .bootstrap,
-                jid: jid,
-                conversationType: .regular,
-                purpose: .bootstrap,
-                nextPage: request.nextPage,
-                prevPage: request.prevPage,
-                ids: nil,
-                start: nil,
-                end: nil,
-                max: request.max,
-                usesServerArchiveId: false,
-                coverageUpdateKind: .bootstrapNewest
-            )
-        case .firstUnread(let boundaryArchiveId):
-            let request = newerPageRequest(
-                messageId: boundaryArchiveId,
-                pageSize: pageSize
-            )
-            return RegularChatArchiveRequestPlan(
-                kind: .bootstrap,
-                jid: jid,
-                conversationType: .regular,
-                purpose: .bootstrap,
-                nextPage: request.nextPage,
-                prevPage: request.prevPage,
-                ids: nil,
-                start: nil,
-                end: nil,
-                max: request.max,
-                usesServerArchiveId: true,
-                coverageUpdateKind: .pageNewer(cursorArchiveId: boundaryArchiveId)
-            )
-        case .older(let boundaryArchiveId):
-            let request = olderPageRequest(
-                messageId: boundaryArchiveId,
-                pageSize: pageSize
-            )
-            return RegularChatArchiveRequestPlan(
-                kind: .bootstrap,
-                jid: jid,
-                conversationType: .regular,
-                purpose: .bootstrap,
-                nextPage: request.nextPage,
-                prevPage: request.prevPage,
-                ids: nil,
-                start: nil,
-                end: nil,
-                max: request.max,
-                usesServerArchiveId: true,
-                coverageUpdateKind: .pageOlder(cursorArchiveId: boundaryArchiveId)
-            )
-        case .savedPosition(_, let archivedId, let messageId, let sourceDate):
-            let exactId = archivedId ?? messageId
-            if exactId == nil, let sourceDate {
-                return RegularChatArchiveRequestPlan(
-                    kind: .bootstrap,
-                    jid: jid,
-                    conversationType: .regular,
-                    purpose: .bootstrap,
-                    nextPage: nil,
-                    prevPage: nil,
-                    ids: nil,
-                    start: sourceDate.addingTimeInterval(-bootstrapTargetWindowPadding),
-                    end: sourceDate.addingTimeInterval(bootstrapTargetWindowPadding),
-                    max: pageSize,
-                    usesServerArchiveId: false,
-                    coverageUpdateKind: .disjointWindow
-                )
-            }
-            return RegularChatArchiveRequestPlan(
-                kind: .bootstrap,
-                jid: jid,
-                conversationType: .regular,
-                purpose: .bootstrap,
-                nextPage: nil,
-                prevPage: nil,
-                ids: exactId.map { [$0] },
-                start: nil,
-                end: nil,
-                max: 1,
-                usesServerArchiveId: archivedId != nil,
-                coverageUpdateKind: .disjointWindow
-            )
-        case .savedPositionGapRepair(
-            let olderRangeNewestArchiveId,
-            let newerRangeOldestArchiveId,
-            let direction
-        ):
-            return archiveGapRepairRequestPlan(
-                jid: jid,
-                conversationType: .regular,
-                gap: RegularChatArchiveGap(
-                    olderRangeNewestArchiveId: olderRangeNewestArchiveId,
-                    newerRangeOldestArchiveId: newerRangeOldestArchiveId
-                ),
-                direction: direction,
-                pageSize: pageSize
-            )
-        }
-    }
-
-    static func regularOlderRequestPlan(jid: String, oldestLoadedArchiveId: String?, pageSize: Int) -> RegularChatArchiveRequestPlan {
-        let request = olderPageRequest(messageId: oldestLoadedArchiveId, pageSize: pageSize)
-        return RegularChatArchiveRequestPlan(
-            kind: .older,
-            jid: jid,
-            conversationType: .regular,
-            purpose: .pageOlder,
-            nextPage: request.nextPage,
-            prevPage: request.prevPage,
-            ids: nil,
-            start: nil,
-            end: nil,
-            max: request.max,
-            usesServerArchiveId: oldestLoadedArchiveId?.isNotEmpty == true,
-            coverageUpdateKind: .pageOlder(cursorArchiveId: oldestLoadedArchiveId)
-        )
-    }
-
-    static func regularNewerRequestPlan(jid: String, newestLoadedArchiveId: String, pageSize: Int) -> RegularChatArchiveRequestPlan {
-        let request = newerPageRequest(messageId: newestLoadedArchiveId, pageSize: pageSize)
-        return RegularChatArchiveRequestPlan(
-            kind: .newer,
-            jid: jid,
-            conversationType: .regular,
-            purpose: .pageNewer,
-            nextPage: request.nextPage,
-            prevPage: request.prevPage,
-            ids: nil,
-            start: nil,
-            end: nil,
-            max: request.max,
-            usesServerArchiveId: true,
-            coverageUpdateKind: .pageNewer(cursorArchiveId: newestLoadedArchiveId)
-        )
-    }
-
-    static func regularExactAnchorRequestPlan(jid: String, archivedId: String) -> RegularChatArchiveRequestPlan {
-        RegularChatArchiveRequestPlan(
-            kind: .exactAnchor,
-            jid: jid,
-            conversationType: .regular,
-            purpose: .jump,
-            nextPage: nil,
-            prevPage: nil,
-            ids: [archivedId],
-            start: nil,
-            end: nil,
-            max: 1,
-            usesServerArchiveId: true,
-            coverageUpdateKind: .disjointWindow
-        )
-    }
-
-    static func regularDateWindowAnchorRequestPlan(jid: String, start: Date, end: Date, max: Int) -> RegularChatArchiveRequestPlan {
-        RegularChatArchiveRequestPlan(
-            kind: .dateWindow,
-            jid: jid,
-            conversationType: .regular,
-            purpose: .jump,
-            nextPage: nil,
-            prevPage: nil,
-            ids: nil,
-            start: start,
-            end: end,
-            max: max,
-            usesServerArchiveId: false,
-            coverageUpdateKind: .disjointWindow
-        )
-    }
-
-    static func regularGapRepairRequestPlan(
-        jid: String,
-        gap: RegularChatArchiveGap,
-        direction: RegularArchiveGapRepairDirection,
-        pageSize: Int
-    ) -> RegularChatArchiveRequestPlan {
-        archiveGapRepairRequestPlan(
-            jid: jid,
-            conversationType: .regular,
-            gap: gap,
-            direction: direction,
-            pageSize: pageSize
-        )
-    }
-
-    static func archiveGapRepairRequestPlan(
-        jid: String,
-        conversationType: ClientSynchronizationManager.ConversationType,
-        gap: RegularChatArchiveGap,
-        direction: RegularArchiveGapRepairDirection,
-        pageSize: Int
-    ) -> RegularChatArchiveRequestPlan {
-        let pageSize = regularArchivePageSize(requested: pageSize)
-        switch direction {
-        case .older:
-            let cursor = gap.newerRangeOldestArchiveId
-            let request = olderPageRequest(messageId: cursor, pageSize: pageSize)
-            return RegularChatArchiveRequestPlan(
-                kind: .gapRepair,
-                jid: jid,
-                conversationType: conversationType,
-                purpose: .gapRepair,
-                nextPage: request.nextPage,
-                prevPage: request.prevPage,
-                ids: nil,
-                start: nil,
-                end: nil,
-                max: request.max,
-                usesServerArchiveId: true,
-                coverageUpdateKind: .gapRepairOlder(cursorArchiveId: cursor)
-            )
-        case .newer:
-            let cursor = gap.olderRangeNewestArchiveId
-            let request = newerPageRequest(messageId: cursor, pageSize: pageSize)
-            return RegularChatArchiveRequestPlan(
-                kind: .gapRepair,
-                jid: jid,
-                conversationType: conversationType,
-                purpose: .gapRepair,
-                nextPage: request.nextPage,
-                prevPage: request.prevPage,
-                ids: nil,
-                start: nil,
-                end: nil,
-                max: request.max,
-                usesServerArchiveId: true,
-                coverageUpdateKind: .gapRepairNewer(cursorArchiveId: cursor)
-            )
-        }
-    }
-
-    static func snapshotRepairRequestPlan(
-        jid: String,
-        conversationType: ClientSynchronizationManager.ConversationType,
-        newestLoadedArchiveId: String?,
-        pageSize: Int,
-        transportTarget: SnapshotArchiveRepairTransportTarget = .incremental
-    ) -> RegularChatArchiveRequestPlan {
-        if transportTarget == .incremental,
-           let newestLoadedArchiveId =
-                RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-                    newestLoadedArchiveId
-                ) {
-            let request = newerPageRequest(
-                messageId: newestLoadedArchiveId,
-                pageSize: pageSize
-            )
-            return RegularChatArchiveRequestPlan(
-                kind: .snapshotRepair,
-                jid: jid,
-                conversationType: conversationType,
-                purpose: .snapshotRepair,
-                nextPage: request.nextPage,
-                prevPage: request.prevPage,
-                ids: nil,
-                start: nil,
-                end: nil,
-                max: request.max,
-                usesServerArchiveId: true,
-                coverageUpdateKind: .pageNewer(cursorArchiveId: newestLoadedArchiveId)
-            )
-        }
-
-        let request = newestBootstrapPageRequest(pageSize: pageSize)
-        return RegularChatArchiveRequestPlan(
-            kind: .snapshotRepair,
-            jid: jid,
-            conversationType: conversationType,
-            purpose: .snapshotRepair,
-            nextPage: request.nextPage,
-            prevPage: request.prevPage,
-            ids: nil,
-            start: nil,
-            end: nil,
-            max: request.max,
-            usesServerArchiveId: false,
-            coverageUpdateKind: .bootstrapNewest
-        )
     }
 
     static func getArchiveLowerBoundForConversation(
@@ -1866,39 +1031,12 @@ class MessageArchiveManager: AbstractXMPPManager {
 
         return requestedFrom < accountCreatedAt ? accountCreatedAt : requestedFrom
     }
-    
-    struct GapItem: Hashable, Equatable {
-        
-        let left: String
-        let right: String
-        let leftDate: Date
-        let rightDate: Date
-        
-        var verbose: String {
-            get {
-                return "left: \(left) | right: \(right) "
-            }
-        }
-    }
-        
-    struct ConversationArchiveBoundaryFingerprint: Equatable, Hashable {
-        let chatExists: Bool
-        let archiveStateExists: Bool
-        let chatSnapshotArchiveId: String?
-        let archiveSnapshotArchiveId: String?
-        let archiveSnapshotMessageId: String?
-        let unreadAfterId: String?
-        let unreadCount: Int
-    }
 
     struct MAMRequestItem: Equatable, Hashable {
         let jid: String?
-        let taskID: String
-        let isGroupchat: Bool
         let messageId: String?
         let conversationType: ClientSynchronizationManager.ConversationType
         let isContinues: Bool
-        let maxDate: Date?
         let searchText: String?
         let queryId: String?
         let afterId: String?
@@ -1909,21 +1047,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         let start: Date?
         let end: Date?
         let purpose: RequestPurpose
-        let coverageUpdateKind: RegularArchiveCoverageUpdateKind
-        let archiveEndEligibility: Bool
-        let consumerManagesArchiveEnd: Bool
-        let consumerManagesHistoryCursor: Bool
-        let deferCoverageCommitUntilConsumerProof: Bool
-        let boundaryFingerprintAtRequestStart: ConversationArchiveBoundaryFingerprint?
-    }
-
-    private struct DeferredArchiveCommitDescriptor {
-        let task: MAMRequestItem
-        let state: MessageArchivePageEndState
-        let first: String
-        let last: String
-        let serverResultCount: Int?
-        let transportProof: DeferredArchiveTransportProof
+        let retainsSealedTransportProofUntilBarrier: Bool
     }
 
     struct DeferredArchiveTransportProof {
@@ -1980,36 +1104,25 @@ class MessageArchiveManager: AbstractXMPPManager {
             persistenceRoutedResultIds.insert(resultId)
             intentionallyConsumedResultIds.remove(resultId)
         }
-
-        var hasConsistentControlDisposition: Bool {
-            intentionallyConsumedResultIds.isSubset(
-                of: deliveredResultIds
-            ) &&
-                intentionallyConsumedResultsWithoutId <=
-                    deliveredResultsWithoutId &&
-                persistenceRoutedResultIds.isSubset(of: deliveredResultIds) &&
-                persistenceRoutedResultsWithoutId <=
-                    deliveredResultsWithoutId
-        }
     }
-    
+
     struct CallbackQueueItem: Equatable, Hashable {
         static func == (lhs: CallbackQueueItem, rhs: CallbackQueueItem) -> Bool {
             return lhs.elementId == rhs.elementId
         }
-        
+
         let jid: String
         let elementId: String
         let task: MAMRequestItem
         let callback: (() -> Void)?
         let requestCallbacks: RequestCallbacks
-        
+
         func hash(into hasher: inout Hasher) {
             hasher.combine(elementId)
         }
     }
-    
-    var callbacksQueue: Set<CallbackQueueItem> = Set<CallbackQueueItem>()
+
+    private var callbacksQueue: Set<CallbackQueueItem> = Set<CallbackQueueItem>()
     private let callbacksQueueLock = NSRecursiveLock()
 
     @discardableResult
@@ -2059,16 +1172,13 @@ class MessageArchiveManager: AbstractXMPPManager {
 
     private static let fallbackEndPageCallbacksLock = NSLock()
     private static var fallbackEndPageCallbacksByKey: [FallbackEndPageCallbackKey: RequestCallbacks] = [:]
-    
+
 //    var delegate: MessageArchiveManagerDelegate? = nil
     var backgroundTaskDelegate: XMPPBackgroundTaskDelegate? = nil
-    
+
     var interactiveQueue: SynchronizedArray<String> = SynchronizedArray<String>()
-    
+
     internal var version: String? = nil
-    public var isInitialArchiveRequested: Bool = false
-    
-    public var allowHistoryFixTask: Bool = false
     public var isExtendedArchiveAvailable: Bool = false
 
     /// Auxiliary transports do not run the account's full service-discovery
@@ -2078,22 +1188,10 @@ class MessageArchiveManager: AbstractXMPPManager {
         guard let primaryManager else { return }
         isExtendedArchiveAvailable = primaryManager.isExtendedArchiveAvailable
     }
-    
-    public var continuesTaskID: String? = nil
-    
-    internal let pageSize: Int = ChatHistoryPagingConfiguration.pageSize
-    
-    internal var searchResultsQueries: Set<String> = Set()
-    internal var searchContinuationDelay: TimeInterval = 2
-    /// Upper bound for background query-scoped Realm persistence. Interactive
-    /// chat bootstrap owns its own watchdog; this protects autonomous pumps.
-    internal var archivePersistenceTerminalTimeout: TimeInterval = 15
 
-    private struct PendingSearchContinuation {
-        let id: UUID
-        let cursor: String
-        let start: (XMPPStream, @escaping () -> Void) -> Void
-    }
+    internal let pageSize: Int = ArchivePageSizing.history
+
+    internal var searchResultsQueries: Set<String> = Set()
 
     private final class SchedulerCompletionGate {
         private let lock = NSLock()
@@ -2112,49 +1210,14 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
     }
 
-    private let searchArchiveStateLock = NSRecursiveLock()
-    private var searchArchiveSessionsByQueryId: [String: ChatSearchArchiveSession] = [:]
-    private var searchArchiveCallbacksByQueryId: [String: RequestCallbacks] = [:]
-    private var pendingSearchContinuationsByQueryId: [String: PendingSearchContinuation] = [:]
-    private var searchPageSchedulerCompletionsByQueryId: [String: () -> Void] = [:]
-    
-    open var temporaryMessageReceiverDelegate: TemporaryMessageReceiverProtocol? = nil
     private var persistedMessageCountsByQueryId: [String: Int] = [:]
-    private final class RegularArchiveInFlightEntry {
-        let queryId: String
-        var requestCallbacks: [RequestCallbacks] = []
-        var completionCallbacks: [() -> Void] = []
-        let priority: RegularChatArchiveRequestPriority
-
-        init(queryId: String, priority: RegularChatArchiveRequestPriority) {
-            self.queryId = queryId
-            self.priority = priority
-        }
-    }
-    private var regularArchiveInFlightByKey: [RegularChatArchiveRequestKey: RegularArchiveInFlightEntry] = [:]
-    private var regularArchiveRequestKeyByQueryId: [String: RegularChatArchiveRequestKey] = [:]
     private let deferredArchiveCommitLock = NSLock()
     private var deferredArchiveTransportProofsByQueryId: [String: DeferredArchiveTransportProof] = [:]
-    private var deferredArchiveCommitsByQueryId: [String: DeferredArchiveCommitDescriptor] = [:]
-    private var deferredArchiveCommitOrder: [String] = []
+    private var sealedArchiveTransportProofsByQueryId: [String: DeferredArchiveTransportProof] = [:]
+    private var sealedArchiveTransportProofOrder: [String] = []
     private var persistenceIngressExpectationsByQueryId: [String: Int] = [:]
     private var persistenceIngressExpectationOrder: [String] = []
-    private var committedArchiveConsumerProofsByQueryId: [String: CommittedArchiveConsumerProof] = [:]
-    private var committedArchiveConsumerProofOrder: [String] = []
     private let maximumDeferredArchiveCommitCount = 128
-    private let snapshotRepairPumpLock = NSLock()
-    private var pendingSnapshotRepairTargets: [SnapshotRepairTarget] = []
-    private var scheduledSnapshotRepairTargets: Set<SnapshotRepairTarget> = []
-    private var activeSnapshotRepairTarget: SnapshotRepairTarget?
-    private var dirtySnapshotRepairTargets: Set<SnapshotRepairTarget> = []
-    private var snapshotRepairPriorityByTarget: [SnapshotRepairTarget: AccountXMPPTaskScheduler.Priority] = [:]
-    private var snapshotRepairFollowUpCountByTarget: [SnapshotRepairTarget: Int] = [:]
-    private var snapshotRepairEnqueuedAtByTarget: [SnapshotRepairTarget: Date] = [:]
-    private var snapshotRepairTransportTargetByTarget: [
-        SnapshotRepairTarget: SnapshotArchiveRepairTransportTarget
-    ] = [:]
-    private let regularIdleBackfillTriggerLock = NSLock()
-    private var regularIdleBackfillTriggerState = RegularIdleBackfillTriggerState()
     private let archiveRequestLifecycleLock = NSRecursiveLock()
     private var archiveRequestLifecycleGeneration: UInt64 = 0
     private let archiveQueryPurposeLock = NSLock()
@@ -2229,238 +1292,14 @@ class MessageArchiveManager: AbstractXMPPManager {
     var pendingArchiveFailureFinalizationDispatcher: PendingArchiveFailureFinalizationDispatcher = { work in
         work()
     }
-    var snapshotRepairEnqueueObserver: ((SnapshotRepairTarget, AccountXMPPTaskScheduler.Priority, String) -> Void)?
-    
     override init(withOwner owner: String) {
-        self.isInitialArchiveRequested = SettingManager.shared.getKey(for: owner, scope: .messageArchive, key: "initial") == nil
         super.init(withOwner: owner)
     }
-    
+
     private func completeCallback(_ callback: (() -> Void)?) {
         DispatchQueue.main.async {
             callback?()
         }
-    }
-
-    internal func hasActiveSearchArchiveSession(queryId: String) -> Bool {
-        searchArchiveStateLock.lock()
-        defer { searchArchiveStateLock.unlock() }
-        return searchArchiveSessionsByQueryId[queryId]?.isActive == true
-    }
-
-    private func hasSearchArchiveSession(queryId: String) -> Bool {
-        searchArchiveStateLock.lock()
-        defer { searchArchiveStateLock.unlock() }
-        return searchArchiveSessionsByQueryId[queryId] != nil
-    }
-
-    internal func hasPendingSearchContinuation(queryId: String) -> Bool {
-        searchArchiveStateLock.lock()
-        defer { searchArchiveStateLock.unlock() }
-        return pendingSearchContinuationsByQueryId[queryId] != nil
-    }
-
-    @discardableResult
-    internal func requestPendingSearchContinuation(queryId: String) -> Bool {
-        searchArchiveStateLock.lock()
-        guard let continuation = pendingSearchContinuationsByQueryId[queryId],
-              searchArchiveSessionsByQueryId[queryId]?.isActive == true else {
-            searchArchiveStateLock.unlock()
-            return false
-        }
-        searchArchiveStateLock.unlock()
-        guard let account = AccountManager.shared.find(for: owner) else {
-            return false
-        }
-        account.xmppTaskScheduler.enqueueAccountTask(
-            priority: .foreground,
-            resource: .mamArchive,
-            deduplicationKey: "archive.search.\(owner).\(queryId).\(continuation.cursor)",
-            requiresAuthenticatedStream: true
-        ) { _, stream, finish in
-            continuation.start(stream, finish)
-        }
-        return true
-    }
-
-    private func registerSearchArchiveSession(
-        queryId: String,
-        generation: UInt64,
-        configuration: ChatSearchArchiveSession.Configuration,
-        callbacks: RequestCallbacks
-    ) {
-        searchArchiveStateLock.lock()
-        defer { searchArchiveStateLock.unlock() }
-        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)
-        searchArchiveSessionsByQueryId[queryId] = ChatSearchArchiveSession(
-            generation: generation,
-            queryId: queryId,
-            configuration: configuration
-        )
-        searchArchiveCallbacksByQueryId[queryId] = callbacks
-    }
-
-    private func searchArchiveCallbacks(queryId: String) -> RequestCallbacks? {
-        searchArchiveStateLock.lock()
-        defer { searchArchiveStateLock.unlock() }
-        return searchArchiveCallbacksByQueryId[queryId]
-    }
-
-    private func isSearchArchiveSessionActive(
-        queryId: String,
-        generation: UInt64
-    ) -> Bool {
-        searchArchiveStateLock.lock()
-        defer { searchArchiveStateLock.unlock() }
-        guard let session = searchArchiveSessionsByQueryId[queryId] else {
-            return false
-        }
-        return session.generation == generation && session.isActive
-    }
-
-    private func installSearchPageSchedulerCompletion(
-        queryId: String,
-        completion: @escaping () -> Void
-    ) {
-        searchArchiveStateLock.lock()
-        let replaced = searchPageSchedulerCompletionsByQueryId.updateValue(
-            completion,
-            forKey: queryId
-        )
-        searchArchiveStateLock.unlock()
-        replaced?()
-    }
-
-    private func finishSearchPageSchedulerSlot(queryId: String) {
-        searchArchiveStateLock.lock()
-        let completion = searchPageSchedulerCompletionsByQueryId.removeValue(
-            forKey: queryId
-        )
-        searchArchiveStateLock.unlock()
-        completion?()
-    }
-
-    private func acceptSearchArchiveResult(
-        queryId: String,
-        id: ChatSearchResult.ID,
-        date: Date
-    ) -> Bool? {
-        searchArchiveStateLock.lock()
-        defer { searchArchiveStateLock.unlock() }
-        guard var session = searchArchiveSessionsByQueryId[queryId] else {
-            return nil
-        }
-        let accepted = session.accept(
-            result: .init(id: id, date: date),
-            generation: session.generation,
-            queryId: queryId
-        )
-        searchArchiveSessionsByQueryId[queryId] = session
-        return accepted
-    }
-
-    private func notifySearchArchiveTerminal(
-        callbacks: RequestCallbacks,
-        queryId: String,
-        terminal: ChatSearchArchiveSession.Terminal,
-        failureEvent: MessageArchiveRequestFailureEvent? = nil
-    ) {
-        DispatchQueue.main.async {
-            if let failureEvent {
-                callbacks.onFailure?(failureEvent)
-            }
-            callbacks.onSearchTerminal?(queryId, terminal)
-        }
-    }
-
-    @discardableResult
-    private func failSearchArchiveSession(
-        queryId: String,
-        reason: ChatSearchArchiveSession.FailureReason,
-        event: MessageArchiveRequestFailureEvent
-    ) -> Bool {
-        searchArchiveStateLock.lock()
-        guard var session = searchArchiveSessionsByQueryId[queryId],
-              session.isActive else {
-            searchArchiveStateLock.unlock()
-            return false
-        }
-        let callbacks = searchArchiveCallbacksByQueryId[queryId] ?? .none
-        let terminal = session.fail(reason)
-        searchArchiveSessionsByQueryId[queryId] = session
-        searchArchiveStateLock.unlock()
-        notifySearchArchiveTerminal(
-            callbacks: callbacks,
-            queryId: queryId,
-            terminal: terminal,
-            failureEvent: event
-        )
-        return true
-    }
-
-    private static func searchFailureReason(
-        for event: MessageArchiveRequestFailureEvent
-    ) -> ChatSearchArchiveSession.FailureReason {
-        switch event.reason {
-        case .timeout:
-            return .timeout(description: event.errorDescription)
-        case .uiActionDisconnect:
-            return .transport(description: event.errorDescription)
-        case .requestStartFailed:
-            return .requestStart(description: event.errorDescription)
-        case .serverError:
-            return .server(description: event.errorDescription)
-        case .malformedResponse:
-            return .malformedResponse(description: event.errorDescription)
-        }
-    }
-
-    private func cleanupSearchArchiveState(queryId: String) {
-        searchArchiveStateLock.lock()
-        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)
-        let schedulerCompletion = searchPageSchedulerCompletionsByQueryId.removeValue(
-            forKey: queryId
-        )
-        searchArchiveSessionsByQueryId.removeValue(forKey: queryId)
-        searchArchiveCallbacksByQueryId.removeValue(forKey: queryId)
-        searchArchiveStateLock.unlock()
-        schedulerCompletion?()
-        searchResultsQueries.remove(queryId)
-    }
-
-    @discardableResult
-    public func cancelSearch(queryId: String) -> Bool {
-        searchArchiveStateLock.lock()
-        guard var session = searchArchiveSessionsByQueryId[queryId],
-              session.isActive else {
-            searchArchiveStateLock.unlock()
-            return false
-        }
-        let callbacks = searchArchiveCallbacksByQueryId[queryId] ?? .none
-        let terminal = session.cancel()
-        searchArchiveSessionsByQueryId[queryId] = session
-        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)
-        searchArchiveStateLock.unlock()
-
-        // A queued request can be discarded immediately. Once it is on the
-        // wire, however, the server SQL is not cancellable: retain both the
-        // callback identity and the scheduler lease until its final/failure.
-        // The cancelled session rejects all late rows and presentation.
-        let isOnWire = firstCallbackQueueItem(where: {
-            $0.elementId == queryId && $0.task.purpose == .search
-        }) != nil
-        if !isOnWire {
-            queryIds.remove(queryId)
-            persistedMessageCountsByQueryId.removeValue(forKey: queryId)
-            unregisterFallbackEndPageCallbacks(queryId: queryId)
-            cleanupSearchArchiveState(queryId: queryId)
-        }
-        notifySearchArchiveTerminal(
-            callbacks: callbacks,
-            queryId: queryId,
-            terminal: terminal
-        )
-        return true
     }
 
     private static func registerFallbackEndPageCallbacks(owner: String, queryId: String, callbacks: RequestCallbacks) {
@@ -2514,6 +1353,50 @@ class MessageArchiveManager: AbstractXMPPManager {
         ] != nil
         fallbackEndPageCallbacksLock.unlock()
         return hasCallback
+    }
+
+    /// An error response is never archive-boundary proof. Cross-stream MAM
+    /// routing can outlive the manager instance that owns the callback queue,
+    /// so retain the request-failure route independently and let the archive
+    /// engine apply its retry policy.
+    @discardableResult
+    internal static func routeUnroutedRequestFailure(
+        _ event: MessageArchiveRequestFailureEvent
+    ) -> Bool {
+        guard event.owner.isNotEmpty,
+              event.queryId.isNotEmpty else {
+            return false
+        }
+
+        let fallbackCallbacks = takeFallbackEndPageCallbacks(
+            owner: event.owner,
+            queryId: event.queryId
+        )
+        let fallbackFailure = fallbackCallbacks?.onFailure
+        let failureDispatcherRegistered =
+            MessageArchiveRequestFailureDispatcher.hasHandler(
+                owner: event.owner,
+                queryId: event.queryId
+            )
+        let prepared = MessageArchiveRequestFailurePreparationDispatcher.prepare(
+            event
+        ) {
+            let delivered = MessageArchiveRequestFailureDispatcher.publish(event)
+            if !delivered,
+               let fallbackFailure {
+                DispatchQueue.main.async {
+                    fallbackFailure(event)
+                }
+            }
+        }
+        ChatArchiveDebugTrace.log("mamUnroutedRequestFailure", [
+            ("streamKind", event.streamKind.rawValue),
+            ("reason", event.reason.rawValue),
+            ("prepared", prepared),
+            ("failureDispatcherRegistered", failureDispatcherRegistered),
+            ("fallbackFailureRegistered", fallbackFailure != nil)
+        ])
+        return prepared || failureDispatcherRegistered || fallbackFailure != nil
     }
 
     @discardableResult
@@ -2606,7 +1489,6 @@ class MessageArchiveManager: AbstractXMPPManager {
             ])
             let startedAt = Date()
             callbacks.onEndPage?(queryId, state, first, last, count)
-            self.temporaryMessageReceiverDelegate?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
             ChatArchiveDebugTrace.log("mamCallbackFinish", [
                 ("owner", self.owner),
                 ("queryId", queryId),
@@ -2619,7 +1501,6 @@ class MessageArchiveManager: AbstractXMPPManager {
         self.persistedMessageCountsByQueryId[queryId, default: 0] += 1
         DispatchQueue.main.async {
             callbacks.onMessage?(item, queryId)
-            self.temporaryMessageReceiverDelegate?.didReceiveMessage(item, queryId: queryId)
         }
     }
 
@@ -2640,10 +1521,10 @@ class MessageArchiveManager: AbstractXMPPManager {
         // A raw MAM `<fin>` is transport completion, not persistence
         // completion. MessageManager ingress may legitimately arrive after
         // the final IQ, so keep accepting the query identity while its
-        // deferred commit or exact ingress budget is still retained.
+        // sealed transport proof or exact ingress budget is still retained.
         deferredArchiveCommitLock.lock()
         let isAwaitingPersistence =
-            deferredArchiveCommitsByQueryId[queryId] != nil ||
+            sealedArchiveTransportProofsByQueryId[queryId] != nil ||
             persistenceIngressExpectationsByQueryId[queryId] != nil
         deferredArchiveCommitLock.unlock()
         return isAwaitingPersistence
@@ -2666,7 +1547,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     ) -> [MessageArchiveRequestFailureEvent] {
         let pendingItems = self.callbackQueueItems {
             $0.task.purpose.isArchiveHistoryProducing ||
-                $0.task.purpose == .search ||
+                $0.task.purpose == .engineSearchPage ||
                 $0.task.purpose == .timestampLookup ||
                 ($0.task.conversationType == .notifications && $0.task.purpose == .latest)
         }
@@ -2703,13 +1584,8 @@ class MessageArchiveManager: AbstractXMPPManager {
                 queryID: event.queryId,
                 terminal: .failed
             )
-            if item.task.purpose == .search {
-                _ = self.failSearchArchiveSession(
-                    queryId: event.queryId,
-                    reason: Self.searchFailureReason(for: event),
-                    event: event
-                )
-            } else if item.task.purpose == .timestampLookup {
+            if item.task.purpose == .timestampLookup ||
+                item.task.purpose == .engineSearchPage {
                 self.notifyDidFailRequest(item.requestCallbacks, event: event)
             } else if item.task.conversationType == .notifications,
                       !item.task.purpose.isArchiveHistoryProducing {
@@ -2876,9 +1752,8 @@ class MessageArchiveManager: AbstractXMPPManager {
             return true
         }
 
-        let hadState = self.queryIds.contains(queryId)
-            || self.regularArchiveRequestKeyByQueryId[queryId] != nil
-            || self.shouldPersistArchiveQueryId(queryId)
+        let hadState = self.queryIds.contains(queryId) ||
+            self.shouldPersistArchiveQueryId(queryId)
         guard hadState else {
             return false
         }
@@ -2898,14 +1773,9 @@ class MessageArchiveManager: AbstractXMPPManager {
         self.queryIds.remove(queryId)
         self.persistedMessageCountsByQueryId.removeValue(forKey: queryId)
         self.searchResultsQueries.remove(queryId)
-        self.cleanupSearchArchiveState(queryId: queryId)
         self.unregisterArchiveQueryId(queryId)
         self.unregisterFallbackEndPageCallbacks(queryId: queryId)
         self.abortDeferredCommit(queryId: queryId)
-
-        if let key = self.regularArchiveRequestKeyByQueryId.removeValue(forKey: queryId) {
-            self.regularArchiveInFlightByKey.removeValue(forKey: key)
-        }
     }
 
     private func registerArchiveQueryId(_ queryId: String, purpose: RequestPurpose) {
@@ -3004,32 +1874,9 @@ class MessageArchiveManager: AbstractXMPPManager {
         serverResultCount: Int? = nil
     ) -> MessageArchivePageEndState {
         let persistedMessageCount = self.persistedMessageCountsByQueryId.removeValue(forKey: queryId) ?? 0
-        let canReachOlderArchiveEnd: Bool
-        switch (task.purpose, task.coverageUpdateKind) {
-        case (.pageOlder, _),
-             (.bootstrap, .bootstrapNewest),
-             (.bootstrap, .pageOlder),
-             (.bootstrap, .none),
-             (.snapshotRepair, .bootstrapNewest):
-            canReachOlderArchiveEnd = true
-        default:
-            // A newer-page, exact-anchor or date-window terminal proves only
-            // that request's boundary. It must never be promoted to the
-            // conversation's oldest archive boundary.
-            canReachOlderArchiveEnd = false
-        }
-        // Consumer-owned latest-page requests use `archiveEnded` as a
-        // terminal callback signal. `shouldCommitOwnedArchiveEnd` still keeps
-        // this proof from mutating conversation coverage or readiness.
-        let consumerManagedLatestCanReportEnd =
-            task.consumerManagesArchiveEnd &&
-            task.purpose == .latest
         return MessageArchivePageEndState(
             queryExhausted: queryExhausted,
-            archiveEnded:
-                queryExhausted &&
-                task.archiveEndEligibility &&
-                (canReachOlderArchiveEnd || consumerManagedLatestCanReportEnd),
+            archiveEnded: queryExhausted,
             persistedMessageCount: persistedMessageCount,
             requestCursorId: task.messageId,
             rawComplete: rawComplete,
@@ -3037,254 +1884,10 @@ class MessageArchiveManager: AbstractXMPPManager {
         )
     }
 
-    private func handleSearchArchiveFinal(
-        _ stream: XMPPStream,
-        item: CallbackQueueItem,
-        responseQueryId: String,
-        complete: Bool,
-        first: String,
-        last: String,
-        resultCount: Int,
-        streamKind: MessageArchiveEndPageEvent.StreamKind
-    ) -> Bool {
-        let queryId = item.task.queryId ?? item.elementId
-        guard responseQueryId == queryId else {
-            let event = MessageArchiveRequestFailureEvent(
-                owner: owner,
-                queryId: queryId,
-                streamKind: streamKind,
-                reason: .malformedResponse,
-                errorDescription: "MAM search final queryid does not match the active request",
-                pendingQueryCount: 1
-            )
-            _ = failSearchArchiveSession(
-                queryId: queryId,
-                reason: Self.searchFailureReason(for: event),
-                event: event
-            )
-            removePendingArchiveRequestAfterFailure(item)
-            _ = MessageArchiveRequestFailureDispatcher.publish(event)
-            return true
-        }
-
-        let persistedState = makePageEndState(
-            for: item.task,
-            queryId: queryId,
-            queryExhausted: complete || resultCount == 0,
-            rawComplete: complete,
-            serverResultCount: resultCount
-        )
-        searchArchiveStateLock.lock()
-        guard var session = searchArchiveSessionsByQueryId[queryId],
-              session.receiveFinal(
-                  generation: session.generation,
-                  queryId: queryId,
-                  complete: complete,
-                  first: first,
-                  last: last,
-                  serverResultCount: resultCount
-              ),
-              let action = session.commitPersistedPage(
-                  generation: session.generation,
-                  queryId: queryId,
-                  persistedMessageCount: persistedState.persistedMessageCount
-              ) else {
-            searchArchiveStateLock.unlock()
-            finishSearchPageSchedulerSlot(queryId: queryId)
-            removeCallbackQueueItem(item)
-            queryIds.remove(item.elementId)
-            unregisterFallbackEndPageCallbacks(queryId: queryId)
-            cleanupSearchArchiveState(queryId: queryId)
-            return true
-        }
-        searchArchiveSessionsByQueryId[queryId] = session
-        let callbacks = searchArchiveCallbacksByQueryId[queryId] ?? item.requestCallbacks
-        searchArchiveStateLock.unlock()
-
-        finishSearchPageSchedulerSlot(queryId: queryId)
-
-        removeCallbackQueueItem(item)
-        queryIds.remove(item.elementId)
-        unregisterFallbackEndPageCallbacks(queryId: queryId)
-
-        switch action {
-        case .requestNext(let cursor):
-            scheduleSearchArchiveContinuation(
-                stream,
-                task: item.task,
-                queryId: queryId,
-                cursor: cursor
-            )
-            callbacks.onSearchContinuationAvailable?(queryId, cursor)
-        case .terminal(let terminal):
-            notifySearchArchiveTerminal(
-                callbacks: callbacks,
-                queryId: queryId,
-                terminal: terminal
-            )
-            switch terminal {
-            case .completed, .truncated:
-                let terminalState = MessageArchivePageEndState(
-                    queryExhausted: true,
-                    archiveEnded: false,
-                    persistedMessageCount: persistedState.persistedMessageCount,
-                    requestCursorId: item.task.messageId
-                )
-                notifyDidReceiveEndPage(
-                    callbacks,
-                    queryId: queryId,
-                    state: terminalState,
-                    first: first,
-                    last: last,
-                    count: resultCount,
-                    streamKind: streamKind
-                )
-            case .failed, .cancelled:
-                break
-            }
-            cleanupSearchArchiveState(queryId: queryId)
-        }
-        return true
-    }
-
-    private func scheduleSearchArchiveContinuation(
-        _ stream: XMPPStream,
-        task: MAMRequestItem,
-        queryId: String,
-        cursor: String
-    ) {
-        let continuationId = UUID()
-        let start: (XMPPStream, @escaping () -> Void) -> Void = { [weak self] stream, schedulerFinish in
-            guard let self else {
-                schedulerFinish()
-                return
-            }
-            self.searchArchiveStateLock.lock()
-            guard self.pendingSearchContinuationsByQueryId[queryId]?.id == continuationId,
-                  self.searchArchiveSessionsByQueryId[queryId]?.isActive == true else {
-                self.searchArchiveStateLock.unlock()
-                schedulerFinish()
-                return
-            }
-            self.pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)
-            let callbacks = self.searchArchiveCallbacksByQueryId[queryId] ?? .none
-            self.searchArchiveStateLock.unlock()
-
-            self.installSearchPageSchedulerCompletion(
-                queryId: queryId,
-                completion: schedulerFinish
-            )
-
-            callbacks.onSearchContinuationStarted?(queryId, cursor)
-
-            self.requestArchive(
-                stream,
-                jid: task.jid,
-                isContinues: true,
-                conversationType: task.conversationType,
-                purpose: .search,
-                queryId: queryId,
-                searchText: task.searchText,
-                flipPage: false,
-                before: task.messageId,
-                afterId: task.afterId,
-                start: task.start,
-                end: task.end,
-                nextPage: cursor,
-                max: task.max,
-                tags: task.tags,
-                callback: nil,
-                requestCallbacks: callbacks
-            )
-        }
-
-        searchArchiveStateLock.lock()
-        pendingSearchContinuationsByQueryId.removeValue(forKey: queryId)
-        pendingSearchContinuationsByQueryId[queryId] = PendingSearchContinuation(
-            id: continuationId,
-            cursor: cursor,
-            start: start
-        )
-        searchArchiveStateLock.unlock()
-    }
-
-    private func shouldCommitOwnedArchiveEnd(
-        task: MAMRequestItem,
-        state: MessageArchivePageEndState,
-        count: Int
-    ) -> Bool {
-        guard task.archiveEndEligibility,
-              !task.consumerManagesArchiveEnd,
-              !task.deferCoverageCommitUntilConsumerProof,
-              state.archiveEnded else {
-            return false
-        }
-        if count == 0 {
-            return true
-        }
-        return state.persistedMessageCount > 0
-    }
-
-    private func applyOwnedConversationArchivePageResultIfNeeded(
-        task: MAMRequestItem,
-        state: MessageArchivePageEndState,
-        first: String,
-        last: String,
-        count: Int
-    ) {
-        guard shouldCommitOwnedArchiveEnd(task: task, state: state, count: count) else {
-            return
-        }
-        _ = applyConversationArchivePageResult(
-            task: task,
-            state: state,
-            first: first,
-            last: last,
-            count: count
-        )
-    }
-
-    private func canMarkArchiveEnd(
-        purpose: RequestPurpose,
-        searchText: String?,
-        ids: [String]?,
-        beforeId: String?,
-        afterId: String?,
-        rsmBeforeCursor: String?,
-        rsmAfterCursor: String?,
-        start: Date?,
-        end: Date?,
-        tags: [Tags],
-        withCounter: Bool
-    ) -> Bool {
-        let isEligibleHistoryWalk =
-            [.bootstrap, .pageOlder].contains(purpose) ||
-            (
-                purpose == .snapshotRepair &&
-                rsmBeforeCursor == "" &&
-                rsmAfterCursor == nil
-            )
-        guard ArchiveEndPolicy.canCommitCoverage(for: purpose),
-              isEligibleHistoryWalk else {
-            return false
-        }
-
-        // Only pure identity-based archive walks may update the chat's oldest-boundary state.
-        // If requestArchive gains more MAM data-form filters in the future, they must be added here.
-        return searchText == nil &&
-            (ids?.isEmpty ?? true) &&
-            (beforeId?.isEmpty ?? true) &&
-            (afterId?.isEmpty ?? true) &&
-            start == nil &&
-            end == nil &&
-            tags.isEmpty &&
-            (!withCounter || purpose == .bootstrap)
-    }
-
     override func namespaces() -> [String] {
         return ["urn:xmpp:mam:2"]
     }
-    
+
     override func getPrimaryNamespace() -> String {
         return namespaces().first!
     }
@@ -3386,30 +1989,30 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
     }
 
+    internal static func unroutedRequestFailureEvent(
+        owner: String,
+        iq: XMPPIQ,
+        streamKind: MessageArchiveEndPageEvent.StreamKind
+    ) -> MessageArchiveRequestFailureEvent? {
+        guard iq.iqType == .error,
+              let elementId = iq.elementID else {
+            return nil
+        }
+        return MessageArchiveRequestFailureEvent(
+            owner: owner,
+            queryId: elementId,
+            streamKind: streamKind,
+            reason: .serverError,
+            errorDescription: mamErrorDescription(from: iq),
+            pendingQueryCount: 1
+        )
+    }
+
     internal static func unroutedEndPageEvent(
         owner: String,
         iq: XMPPIQ,
         streamKind: MessageArchiveEndPageEvent.StreamKind
     ) -> MessageArchiveEndPageEvent? {
-        if iq.iqType == .error,
-           let elementId = iq.elementID {
-            return MessageArchiveEndPageEvent(
-                owner: owner,
-                queryId: elementId,
-                state: MessageArchivePageEndState(
-                    queryExhausted: true,
-                    archiveEnded: true,
-                    persistedMessageCount: 0,
-                    requestCursorId: nil
-                ),
-                first: "",
-                last: "",
-                count: 0,
-                streamKind: streamKind,
-                source: .unroutedErrorIQ
-            )
-        }
-
         guard iq.iqType == .result,
               let fin = mamFinalElement(in: iq),
               let queryId = fin.attributeStringValue(forName: "queryid"),
@@ -3478,7 +2081,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             )
         )
     }
-    
+
     func makeInitialMessageVisible(jid: String, conversationType: ClientSynchronizationManager.ConversationType, queryId: String) throws {
         if !shouldPersistArchiveQueryId(queryId) {
             return
@@ -3497,7 +2100,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             }
         }
     }
-    
+
     func read(_ stream: XMPPStream, withIQ iq: XMPPIQ) -> Bool {
         let streamKind = Self.streamKind(for: stream)
         if let elementId = iq.elementID,
@@ -3514,8 +2117,19 @@ class MessageArchiveManager: AbstractXMPPManager {
            let elementId = iq.elementID {
             let localCallbackRegistered = self.callbackQueueContains { $0.elementId == elementId }
             let dispatcherRegistered = MessageArchiveEndPageDispatcher.hasHandler(owner: self.owner, queryId: elementId)
+            let failureDispatcherRegistered = MessageArchiveRequestFailureDispatcher.hasHandler(
+                owner: self.owner,
+                queryId: elementId
+            )
             let fallbackRegistered = Self.hasFallbackEndPageCallback(owner: self.owner, queryId: elementId)
             let localQueryRegistered = self.queryIds.contains(elementId)
+            guard localCallbackRegistered ||
+                    dispatcherRegistered ||
+                    failureDispatcherRegistered ||
+                    fallbackRegistered ||
+                    localQueryRegistered else {
+                return false
+            }
             ChatArchiveDebugTrace.log("mamErrorReceived", [
                 ("owner", self.owner),
                 ("queryId", elementId),
@@ -3523,9 +2137,10 @@ class MessageArchiveManager: AbstractXMPPManager {
                 ("streamKind", streamKind.rawValue),
                 ("localCallbackRegistered", localCallbackRegistered),
                 ("dispatcherRegistered", dispatcherRegistered),
+                ("failureDispatcherRegistered", failureDispatcherRegistered),
                 ("fallbackRegistered", fallbackRegistered),
                 ("localQueryRegistered", localQueryRegistered),
-                ("route", localCallbackRegistered ? "activeLocalCallback" : ((dispatcherRegistered || fallbackRegistered || localQueryRegistered) ? "fallbackOrRegistered" : "staleNoActiveContext"))
+                ("route", localCallbackRegistered ? "activeLocalCallback" : "fallbackOrRegistered")
             ])
             if let item = self.firstCallbackQueueItem(where: { $0.elementId == elementId }) {
                 let queryId = item.task.queryId ?? elementId
@@ -3534,103 +2149,60 @@ class MessageArchiveManager: AbstractXMPPManager {
                     queryID: queryId,
                     terminal: .failed
                 )
-                let routesNotificationLatestFailure =
-                    item.task.conversationType == .notifications &&
-                    item.task.purpose == .latest
-                if item.task.purpose.routesMamServerErrorAsRequestFailure ||
-                    routesNotificationLatestFailure {
-                    let event = MessageArchiveRequestFailureEvent(
-                        owner: self.owner,
-                        queryId: queryId,
-                        streamKind: streamKind,
-                        reason: .serverError,
-                        errorDescription: Self.mamErrorDescription(from: iq),
-                        pendingQueryCount: 1
+                let event = MessageArchiveRequestFailureEvent(
+                    owner: self.owner,
+                    queryId: queryId,
+                    streamKind: streamKind,
+                    reason: .serverError,
+                    errorDescription: Self.mamErrorDescription(from: iq),
+                    pendingQueryCount: 1
+                )
+                if item.task.purpose.isArchiveHistoryProducing {
+                    self.beginPendingArchiveFailure(
+                        item: item,
+                        event: event,
+                        terminal: {}
                     )
-                    if item.task.purpose == .search {
-                        _ = self.failSearchArchiveSession(
-                            queryId: queryId,
-                            reason: Self.searchFailureReason(for: event),
-                            event: event
-                        )
-                    } else if item.task.purpose == .timestampLookup {
-                        self.notifyDidFailRequest(item.requestCallbacks, event: event)
-                    } else if item.task.conversationType == .notifications,
-                              !item.task.purpose.isArchiveHistoryProducing {
-                        self.notifyDidFailRequest(item.requestCallbacks, event: event)
-                    }
-                    if item.task.purpose.isArchiveHistoryProducing {
-                        self.beginPendingArchiveFailure(
-                            item: item,
-                            event: event,
-                            terminal: {}
-                        )
-                        return true
-                    }
-                    self.removePendingArchiveRequestAfterFailure(item)
-                    let delivered = MessageArchiveRequestFailureDispatcher.publish(event)
-                    if !delivered {
-                        ChatArchiveDebugTrace.log("mamErrorRequestFailureDropNoHandler", [
-                            ("owner", self.owner),
-                            ("queryId", queryId),
-                            ("elementId", elementId),
-                            ("streamKind", streamKind.rawValue),
-                            ("reason", event.reason.rawValue),
-                            ("error", event.errorDescription ?? "none")
-                        ])
-                    }
                     return true
                 }
-                let pageEndState = self.makePageEndState(
-                    for: item.task,
-                    queryId: queryId,
-                    queryExhausted: true
-                )
-                self.completeCallback(item.callback)
-                self.notifyDidReceiveEndPage(
-                    item.requestCallbacks,
-                    queryId: queryId,
-                    state: pageEndState,
-                    first: "",
-                    last: "",
-                    count: 0,
-                    streamKind: streamKind
-                )
-                self.finishRegularArchiveRequest(queryId: queryId, item: item, state: nil, first: "", last: "", count: 0)
-                self.removeCallbackQueueItem(item)
-                self.queryIds.remove(elementId)
+                self.notifyDidFailRequest(item.requestCallbacks, event: event)
+                self.removePendingArchiveRequestAfterFailure(item)
+                let delivered = MessageArchiveRequestFailureDispatcher.publish(event)
+                if !delivered {
+                    ChatArchiveDebugTrace.log("mamErrorRequestFailureDropNoHandler", [
+                        ("owner", self.owner),
+                        ("queryId", queryId),
+                        ("elementId", elementId),
+                        ("streamKind", streamKind.rawValue),
+                        ("reason", event.reason.rawValue),
+                        ("error", event.errorDescription ?? "none")
+                    ])
+                }
                 return true
             }
 
-            let pageEndState = MessageArchivePageEndState(
-                queryExhausted: true,
-                archiveEnded: true,
-                persistedMessageCount: self.persistedMessageCountsByQueryId.removeValue(forKey: elementId) ?? 0,
-                requestCursorId: nil
-            )
             _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
                 owner: self.owner,
                 queryID: elementId,
                 terminal: .failed
             )
-            let fallbackDelivered = Self.notifyFallbackEndPageIfNeeded(
+            let event = MessageArchiveRequestFailureEvent(
                 owner: self.owner,
                 queryId: elementId,
-                state: pageEndState,
-                first: "",
-                last: "",
-                count: 0,
-                streamKind: streamKind
+                streamKind: streamKind,
+                reason: .serverError,
+                errorDescription: Self.mamErrorDescription(from: iq),
+                pendingQueryCount: 1
             )
-            if fallbackDelivered || self.queryIds.contains(elementId) {
-                ChatArchiveDebugTrace.log("mamOrphanErrorHandled", [
-                    ("localQueryRegistered", self.queryIds.contains(elementId)),
-                    ("fallbackDelivered", fallbackDelivered)
-                ])
-                self.unregisterArchiveQueryId(elementId)
-                self.queryIds.remove(elementId)
-                return true
-            }
+            let failureRouted = Self.routeUnroutedRequestFailure(event)
+            self.persistedMessageCountsByQueryId.removeValue(forKey: elementId)
+            self.unregisterArchiveQueryId(elementId)
+            self.queryIds.remove(elementId)
+            ChatArchiveDebugTrace.log("mamOrphanErrorHandled", [
+                ("localQueryRegistered", localQueryRegistered),
+                ("failureRouted", failureRouted)
+            ])
+            return true
         }
 
         guard iq.iqType == .result,
@@ -3646,7 +2218,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 terminal: .failed
             )
             guard let item = self.firstCallbackQueueItem(where: {
-                $0.elementId == elementId && $0.task.purpose == .search
+                $0.elementId == elementId
             }) else {
                 return false
             }
@@ -3655,14 +2227,21 @@ class MessageArchiveManager: AbstractXMPPManager {
                 queryId: item.task.queryId ?? queryId,
                 streamKind: streamKind,
                 reason: .malformedResponse,
-                errorDescription: "MAM search final is missing the RSM set",
+                errorDescription: item.task.purpose == .engineSearchPage
+                    ? "MAM search final is missing the RSM set"
+                    : "MAM final is missing the RSM set",
                 pendingQueryCount: 1
             )
-            _ = self.failSearchArchiveSession(
-                queryId: event.queryId,
-                reason: Self.searchFailureReason(for: event),
-                event: event
-            )
+            if item.task.purpose.isArchiveHistoryProducing {
+                self.beginPendingArchiveFailure(
+                    item: item,
+                    event: event,
+                    terminal: {}
+                )
+                return true
+            } else {
+                self.notifyDidFailRequest(item.requestCallbacks, event: event)
+            }
             self.removePendingArchiveRequestAfterFailure(item)
             _ = MessageArchiveRequestFailureDispatcher.publish(event)
             return true
@@ -3729,115 +2308,50 @@ class MessageArchiveManager: AbstractXMPPManager {
         ])
 //        DispatchQueue.global().async {
             if let item = self.firstCallbackQueueItem(where: { $0.elementId == elementId }) {
-                if item.task.purpose == .search {
-                    return self.handleSearchArchiveFinal(
-                        stream,
-                        item: item,
-                        responseQueryId: queryId,
-                        complete: complete,
-                        first: first,
-                        last: last,
-                        resultCount: resultCount,
-                        streamKind: streamKind
-                    )
-                }
-                if item.task.isContinues {
-                    let nextPage = set.element(forName: "last")?.stringValue
-                    let pageDisposition = Self.archivePageFinalDisposition(
+                let nextPage = set.element(forName: "last")?.stringValue
+                let pageDisposition = item.task.isContinues
+                    ? Self.archivePageFinalDisposition(
                         deliveredResultCount: deliveredResultCount,
                         serverResultCount: serverResultCount,
                         complete: complete,
                         requestedPageCursor: item.task.nextPage,
                         responseLastCursor: nextPage
                     )
-                    do {
-                            let count = pageDisposition.deliveredResultCount
-                            let realm: Realm?
-                            if item.task.deferCoverageCommitUntilConsumerProof {
-                                realm = nil
-                            } else {
-                                realm = try Realm()
-                            }
-                            let pageEndState = self.makePageEndState(
-                                for: item.task,
-                                queryId: queryId,
-                                queryExhausted: pageDisposition.queryExhausted,
-                                rawComplete: complete,
-                                serverResultCount: serverResultCount
-                            )
-                            self.applyOwnedConversationArchivePageResultIfNeeded(
-                                task: item.task,
-                                state: pageEndState,
-                                first: first,
-                                last: last,
-                                count: count
-                            )
-                            
-                            if let realm,
-                               let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: item.jid, owner: self.owner, conversationType: item.task.conversationType)) {
-                                if count == 0 {
-                                    if self.shouldCommitOwnedArchiveEnd(task: item.task, state: pageEndState, count: count) {
-                                        try realm.write {
-                                            instance.fullArchiveLoaded = pageEndState.archiveEnded
-                                        }
-                                    }
-                                    self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count, serverResultCount: serverResultCount, transportProof: transportProof)
-                                    self.removeCallbackQueueItem(item)
-                                    self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
-                                    self.completeCallback(item.callback)
-                                    return true
-                                }
-                                if complete {
-//                                    try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
-                                    if !item.task.deferCoverageCommitUntilConsumerProof {
-                                        try realm.write {
-                                            if self.shouldCommitOwnedArchiveEnd(task: item.task, state: pageEndState, count: count) {
-                                                instance.fullArchiveLoaded = pageEndState.archiveEnded
-                                            }
-                                            if !item.task.consumerManagesHistoryCursor {
-                                                instance.lastLoadedMessageHistoryId = HistoryCursorPolicy.persistedOlderCursorId(
-                                                    purpose: item.task.purpose,
-                                                    first: first,
-                                                    last: last,
-                                                    current: instance.lastLoadedMessageHistoryId
-                                                )
-                                            }
-                                        }
-                                    }
-                                    self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count, serverResultCount: serverResultCount, transportProof: transportProof)
-                                    self.removeCallbackQueueItem(item)
-                                    self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
-                                    self.completeCallback(item.callback)
-                                    return true
-                                }
-                            }
-                            if count == 0 {
-                                self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count, serverResultCount: serverResultCount, transportProof: transportProof)
-                                self.removeCallbackQueueItem(item)
-                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
-                                self.completeCallback(item.callback)
-                                return true
-                            }
-                            if complete {
-                                self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count, serverResultCount: serverResultCount, transportProof: transportProof)
-                                self.removeCallbackQueueItem(item)
-                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
-                                self.completeCallback(item.callback)
-                                return true
-                            }
-                            if !pageDisposition.shouldContinue {
-                                self.finishRegularArchiveRequest(queryId: queryId, item: item, state: pageEndState, first: first, last: last, count: count, serverResultCount: serverResultCount, transportProof: transportProof)
-                                self.removeCallbackQueueItem(item)
-                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
-                                self.completeCallback(item.callback)
-                                return true
-                            }
-                            self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
-                    } catch {
-                        DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-                    }
+                    : ArchivePageFinalDisposition(
+                        deliveredResultCount: deliveredResultCount,
+                        serverResultCount: serverResultCount,
+                        queryExhausted: deliveredResultCount == 0 || complete,
+                        shouldContinue: false
+                    )
+                let pageEndState = self.makePageEndState(
+                    for: item.task,
+                    queryId: queryId,
+                    queryExhausted: pageDisposition.queryExhausted,
+                    rawComplete: complete,
+                    serverResultCount: serverResultCount
+                )
+                if item.task.retainsSealedTransportProofUntilBarrier {
+                    self.sealArchiveTransportProof(
+                        queryId: queryId,
+                        transportProof: transportProof
+                    )
+                }
+                self.unregisterArchiveQueryId(queryId)
+                self.removeCallbackQueueItem(item)
+                self.queryIds.remove(elementId)
+                self.notifyDidReceiveEndPage(
+                    item.requestCallbacks,
+                    queryId: queryId,
+                    state: pageEndState,
+                    first: first,
+                    last: last,
+                    count: pageDisposition.deliveredResultCount,
+                    streamKind: streamKind
+                )
+                if item.task.isContinues,
+                   pageDisposition.shouldContinue {
                     DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-                        self.continueLoadHistory(
+                        self.requestNextArchivePage(
                             stream,
                             task: item.task,
                             nextPage: nextPage,
@@ -3847,85 +2361,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                     }
                 } else {
                     self.completeCallback(item.callback)
-                    // Non-search consumers require this page's delivered
-                    // envelope count. RSM `<count>` remains whole-result-set
-                    // metadata and must never become an ingress/page budget.
-                    let count = deliveredResultCount
-                    do {
-                            let realm: Realm?
-                            if item.task.deferCoverageCommitUntilConsumerProof {
-                                realm = nil
-                            } else {
-                                realm = try Realm()
-                            }
-                            let pageEndState = self.makePageEndState(
-                                for: item.task,
-                                queryId: queryId,
-                                queryExhausted: count == 0 || complete,
-                                rawComplete: complete,
-                                serverResultCount: serverResultCount
-                            )
-                            self.applyOwnedConversationArchivePageResultIfNeeded(
-                                task: item.task,
-                                state: pageEndState,
-                                first: first,
-                                last: last,
-                                count: count
-                            )
-                            if let realm,
-                               let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: item.jid, owner: self.owner, conversationType: item.task.conversationType)) {
-                                if !item.task.deferCoverageCommitUntilConsumerProof {
-                                    try realm.write {
-                                        if self.shouldCommitOwnedArchiveEnd(task: item.task, state: pageEndState, count: count) {
-                                            instance.fullArchiveLoaded = pageEndState.archiveEnded
-                                        }
-                                        if item.task.purpose.marksInitialArchiveLoaded {
-                                            instance.isInitialArchiveLoaded = true
-                                            instance.isSynced = true
-                                        }
-                                        if !item.task.consumerManagesHistoryCursor {
-                                            instance.lastLoadedMessageHistoryId = HistoryCursorPolicy.persistedOlderCursorId(
-                                                purpose: item.task.purpose,
-                                                first: first,
-                                                last: last,
-                                                current: instance.lastLoadedMessageHistoryId
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            self.finishRegularArchiveRequest(
-                                queryId: queryId,
-                                item: item,
-                                state: pageEndState,
-                                first: first,
-                                last: last,
-                                count: count,
-                                serverResultCount: serverResultCount,
-                                transportProof: transportProof
-                            )
-                            if count == 0 {
-//                                try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
-                                self.removeCallbackQueueItem(item)
-                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
-                                return true
-                            }
-                            if fin.attributeBoolValue(forName: "complete") {
-//                                try self.makeInitialMessageVisible(jid: item.jid, conversationType: item.task.conversationType, queryId: elementId)
-                                self.removeCallbackQueueItem(item)
-                                self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
-                                return true
-                            }
-                            self.notifyDidReceiveEndPage(item.requestCallbacks, queryId: queryId, state: pageEndState, first: first, last: last, count: count, streamKind: streamKind)
-//                            if try self.checkShouldLoadFullHistory(for: item.jid, conversationType: item.task.conversationType) {
-//                                try self.startLoadHistory(stream, jid: item.jid, conversationType: item.task.conversationType)
-//                            }
-                    } catch {
-                        DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-                    }
                 }
-                self.unregisterArchiveQueryId(queryId)
-                self.removeCallbackQueueItem(item)
             } else {
                 // Keep orphan/fallback delivery on the same page-local count
                 // contract as registered non-search callbacks.
@@ -3939,7 +2375,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 if dispatcherRegistered ||
                     fallbackRegistered ||
                     localQueryRegistered {
-                    storePersistenceIngressExpectation(
+                    sealArchiveTransportProof(
                         queryId: queryId,
                         transportProof: transportProof
                     )
@@ -3965,253 +2401,7 @@ class MessageArchiveManager: AbstractXMPPManager {
 //        }
         return true
     }
-    
-    public func getHistoryByDate(_ stream: XMPPStream, jid: String, conversationType: ClientSynchronizationManager.ConversationType, start: Date? = nil, end: Date? = nil, reversed: Bool = false, callback: @escaping (() -> Void)) {
-        self.requestArchive(
-            stream,
-            jid: jid,
-            isContinues: false,
-            conversationType: conversationType,
-            purpose: .jump,
-            queryId: "MAM untill rev=\(reversed ? "true" : "false") history: \(NanoID.new(6))",
-            searchText: nil,
-            flipPage: true,
-            before: nil,
-            beforeId: nil,
-            afterId: nil,
-            start: start,
-            end: end,
-            nextPage: reversed ? "" : nil,//end == nil ? nil : "",
-            prevPage: nil,
-            max: 250,
-            callback: callback
-        )
-    }
-    
-    @discardableResult
-    public func scheduleSearchText(
-        jid: String? = nil,
-        conversationType: ClientSynchronizationManager.ConversationType,
-        text: String,
-        max: Int = ArchivePageSizing.search,
-        loadFull: Bool = false,
-        queryId: String? = nil,
-        pageCursor: String? = nil,
-        generation: UInt64 = 0,
-        maximumPageCount: Int? = 1_000,
-        maximumResultCount: Int? = nil,
-        requestCallbacks: RequestCallbacks = .none
-    ) -> String {
-        let queryId = queryId ?? "MAM search: \(NanoID.new(8))"
-        ArchiveEngineObservability.event(
-            .searchPage,
-            value: max,
-            auxiliary: pageCursor == nil ? 1 : 2
-        )
-        guard let account = AccountManager.shared.find(for: owner) else {
-            let event = MessageArchiveRequestFailureEvent(
-                owner: owner,
-                queryId: queryId,
-                streamKind: .primary,
-                reason: .requestStartFailed,
-                errorDescription: "Archive search account is unavailable",
-                pendingQueryCount: 1
-            )
-            DispatchQueue.main.async {
-                requestCallbacks.onFailure?(event)
-                requestCallbacks.onSearchTerminal?(
-                    queryId,
-                    .failed(
-                        reason: .requestStart(description: event.errorDescription),
-                        resultCount: 0,
-                        pageCount: 0
-                    )
-                )
-            }
-            return queryId
-        }
-        registerSearchArchiveSession(
-            queryId: queryId,
-            generation: generation,
-            configuration: .init(
-                maximumPageCount: maximumPageCount,
-                maximumResultCount: maximumResultCount
-            ),
-            callbacks: requestCallbacks
-        )
-        let unavailable = { [weak self] in
-            let event = MessageArchiveRequestFailureEvent(
-                owner: self?.owner ?? account.jid,
-                queryId: queryId,
-                streamKind: .primary,
-                reason: .requestStartFailed,
-                errorDescription: "Archive search transport is unavailable",
-                pendingQueryCount: 1
-            )
-            DispatchQueue.main.async {
-                guard self?.isSearchArchiveSessionActive(
-                    queryId: queryId,
-                    generation: generation
-                ) == true else {
-                    return
-                }
-                _ = self?.failSearchArchiveSession(
-                    queryId: queryId,
-                    reason: .requestStart(description: event.errorDescription),
-                    event: event
-                )
-                self?.cleanupSearchArchiveState(queryId: queryId)
-            }
-        }
-        account.xmppTaskScheduler.enqueueAccountTask(
-            priority: .foreground,
-            resource: .mamArchive,
-            deduplicationKey: "archive.search.\(owner).\(queryId).\(pageCursor ?? "latest")",
-            requiresAuthenticatedStream: true,
-            unavailable: unavailable
-        ) { user, stream, finish in
-            guard user.mam.isSearchArchiveSessionActive(
-                queryId: queryId,
-                generation: generation
-            ) else {
-                finish()
-                return
-            }
-            user.mam.installSearchPageSchedulerCompletion(
-                queryId: queryId,
-                completion: finish
-            )
-            _ = user.mam.searchText(
-                stream,
-                jid: jid,
-                conversationType: conversationType,
-                text: text,
-                max: max,
-                loadFull: loadFull,
-                queryId: queryId,
-                pageCursor: pageCursor,
-                generation: generation,
-                maximumPageCount: maximumPageCount,
-                maximumResultCount: maximumResultCount,
-                requestCallbacks: requestCallbacks
-            )
-        }
-        return queryId
-    }
 
-    public func searchText(
-        _ stream: XMPPStream,
-        jid: String? = nil,
-        conversationType: ClientSynchronizationManager.ConversationType,
-        text: String,
-        max: Int = 250,
-        loadFull: Bool = true,
-        queryId: String? = nil,
-        pageCursor: String? = nil,
-        generation: UInt64 = 0,
-        maximumPageCount: Int? = 1_000,
-        maximumResultCount: Int? = nil,
-        requestCallbacks: RequestCallbacks = .none
-    ) -> String {
-        let taskId = [jid ?? "global_search", conversationType.rawValue].prp()
-        if let continuesTaskID = continuesTaskID {
-            if taskId != continuesTaskID {
-                if let item = self.firstCallbackQueueItem(where: { $0.task.taskID == continuesTaskID }) {
-                    item.callback?()
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
-                        self.removeCallbackQueueItem(item)
-                    }
-                }
-            }
-        }
-        let queryId = queryId ?? "MAM search: \(NanoID.new(8))"
-        if !isSearchArchiveSessionActive(
-            queryId: queryId,
-            generation: generation
-        ) {
-            self.registerSearchArchiveSession(
-                queryId: queryId,
-                generation: generation,
-                configuration: .init(
-                    maximumPageCount: maximumPageCount,
-                    maximumResultCount: maximumResultCount
-                ),
-                callbacks: requestCallbacks
-            )
-        }
-        self.requestArchive(
-            stream,
-            jid: jid,
-            isContinues: false,
-            conversationType: conversationType,
-            purpose: .search,
-            queryId: queryId,
-            searchText: text,
-            flipPage: false,
-            nextPage: pageCursor ?? "",
-            max: max,
-            callback: nil,
-            requestCallbacks: requestCallbacks
-        )
-        self.continuesTaskID = taskId
-        return queryId
-    }
-
-    @discardableResult
-    internal func requestTimestampLookup(
-        _ stream: XMPPStream,
-        plan: ChatSearchTimestampMAMRequestPlan,
-        requestCallbacks: RequestCallbacks = .none
-    ) -> Bool {
-        guard plan.scope.owner == owner,
-              plan.scope.jid.isNotEmpty,
-              let conversationType = plan.conversationType,
-              ChatSearchTimestampMAMSupportPolicy.supports(conversationType) else {
-            return false
-        }
-
-        let callbacks = RequestCallbacks(
-            onMessage: requestCallbacks.onMessage,
-            onEndPage: { [weak self] queryId, state, first, last, count in
-                self?.searchResultsQueries.remove(queryId)
-                self?.queryIds.remove(queryId)
-                self?.unregisterArchiveQueryId(queryId)
-                requestCallbacks.onEndPage?(queryId, state, first, last, count)
-            },
-            onFailure: requestCallbacks.onFailure
-        )
-        searchResultsQueries.insert(plan.queryId)
-        requestArchive(
-            stream,
-            jid: plan.scope.jid,
-            isContinues: false,
-            conversationType: conversationType,
-            purpose: .timestampLookup,
-            queryId: plan.queryId,
-            flipPage: plan.flipPage,
-            start: plan.start,
-            end: plan.end,
-            nextPage: plan.nextPage,
-            max: plan.max,
-            consumerManagesArchiveEnd: true,
-            consumerManagesHistoryCursor: true,
-            callback: nil,
-            requestCallbacks: callbacks
-        )
-        return true
-    }
-
-    @discardableResult
-    internal func cancelTimestampLookup(queryId: String) -> Bool {
-        guard let item = firstCallbackQueueItem(where: {
-            $0.elementId == queryId && $0.task.purpose == .timestampLookup
-        }) else {
-            return false
-        }
-        removePendingArchiveRequestAfterFailure(item)
-        return true
-    }
-    
     @discardableResult
     public func scheduleMedia(
         jid: String?,
@@ -4267,17 +2457,6 @@ class MessageArchiveManager: AbstractXMPPManager {
 
     @discardableResult
     public func getMedia(_ stream: XMPPStream, jid: String?, conversationType: ClientSynchronizationManager.ConversationType, media: [MessageMediaAttachmentStorageItem.Kind], after lastMessageId: String?, queryId: String? = nil, requestCallbacks: RequestCallbacks = .none) -> String {
-        let taskId = ["media", jid ?? "global", conversationType.rawValue].prp()
-        if let continuesTaskID = continuesTaskID {
-            if taskId != continuesTaskID {
-                if let item = self.firstCallbackQueueItem(where: { $0.task.taskID == continuesTaskID }) {
-                    item.callback?()
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
-                        self.removeCallbackQueueItem(item)
-                    }
-                }
-            }
-        }
         let queryId = queryId ?? "MAM attach: \(NanoID.new(8))"
         let tags: [Tags] = media.compactMap { return Tags(rawValue: $0.rawValue) }
         self.requestArchive(
@@ -4295,188 +2474,10 @@ class MessageArchiveManager: AbstractXMPPManager {
             requestCallbacks: requestCallbacks
         )
         self.searchResultsQueries.insert(queryId)
-        self.continuesTaskID = taskId
         return queryId
     }
 
-    private static func regularRequestKey(for plan: RegularChatArchiveRequestPlan) -> RegularChatArchiveRequestKey {
-        RegularChatArchiveRequestKey(
-            jid: plan.jid,
-            conversationTypeRaw: plan.conversationType.rawValue,
-            purpose: plan.purpose,
-            nextPage: plan.nextPage,
-            prevPage: plan.prevPage,
-            ids: plan.ids,
-            startTime: plan.start?.timeIntervalSince1970,
-            endTime: plan.end?.timeIntervalSince1970,
-            max: plan.max
-        )
-    }
-
-    private func regularArchiveCallbacks(
-        primary: RequestCallbacks,
-        entry: RegularArchiveInFlightEntry
-    ) -> RequestCallbacks {
-        RequestCallbacks(
-            onMessage: { item, queryId in
-                primary.onMessage?(item, queryId)
-                entry.requestCallbacks.forEach { $0.onMessage?(item, queryId) }
-            },
-            onEndPage: { queryId, state, first, last, count in
-                primary.onEndPage?(queryId, state, first, last, count)
-                entry.requestCallbacks.forEach { $0.onEndPage?(queryId, state, first, last, count) }
-            },
-            onFailure: { event in
-                primary.onFailure?(event)
-                entry.requestCallbacks.forEach { $0.onFailure?(event) }
-            },
-            onSearchTerminal: { queryId, terminal in
-                primary.onSearchTerminal?(queryId, terminal)
-                entry.requestCallbacks.forEach { $0.onSearchTerminal?(queryId, terminal) }
-            },
-            onSearchContinuationAvailable: { queryId, cursor in
-                primary.onSearchContinuationAvailable?(queryId, cursor)
-                entry.requestCallbacks.forEach {
-                    $0.onSearchContinuationAvailable?(queryId, cursor)
-                }
-            },
-            onSearchContinuationStarted: { queryId, cursor in
-                primary.onSearchContinuationStarted?(queryId, cursor)
-                entry.requestCallbacks.forEach {
-                    $0.onSearchContinuationStarted?(queryId, cursor)
-                }
-            }
-        )
-    }
-
-    private func regularArchiveCompletion(
-        primary: (() -> Void)?,
-        entry: RegularArchiveInFlightEntry
-    ) -> (() -> Void) {
-        return {
-            primary?()
-            entry.completionCallbacks.forEach { $0() }
-        }
-    }
-
-    @discardableResult
-    internal func startRegularArchiveRequest(
-        _ stream: XMPPStream,
-        plan: RegularChatArchiveRequestPlan,
-        queryId: String,
-        flipPage: Bool = true,
-        priority: RegularChatArchiveRequestPriority = .interactive,
-        joinDuplicateRequests: Bool = true,
-        callback: (() -> Void)? = nil,
-        requestCallbacks: RequestCallbacks = .none,
-        deferCoverageCommitUntilConsumerProof: Bool = false
-    ) -> String {
-        let key = Self.regularRequestKey(for: plan)
-        if let entry = regularArchiveInFlightByKey[key] {
-            if joinDuplicateRequests {
-                if requestCallbacks.onMessage != nil || requestCallbacks.onEndPage != nil {
-                    entry.requestCallbacks.append(requestCallbacks)
-                }
-                if let callback {
-                    entry.completionCallbacks.append(callback)
-                }
-                return entry.queryId
-            }
-
-            // An explicit query ID is a new transaction. Retire an older
-            // matching request before installing the replacement so Retry
-            // cannot attach to a transport that has already timed out at UI.
-            _ = cancelPendingArchiveRequest(queryId: entry.queryId)
-        }
-
-        // An explicit query identifier starts a new wire transaction. Drop
-        // any bounded ingress/deferred proof left by an older use of the same
-        // identifier before the new callback item can accept envelopes.
-        abortDeferredCommit(queryId: queryId)
-        let entry = RegularArchiveInFlightEntry(queryId: queryId, priority: priority)
-        regularArchiveInFlightByKey[key] = entry
-        regularArchiveRequestKeyByQueryId[queryId] = key
-
-        self.requestArchive(
-            stream,
-            jid: plan.jid,
-            isContinues: false,
-            conversationType: plan.conversationType,
-            purpose: plan.purpose,
-            queryId: queryId,
-            ids: plan.ids,
-            flipPage: flipPage,
-            start: plan.start,
-            end: plan.end,
-            nextPage: plan.nextPage,
-            prevPage: plan.prevPage,
-            max: plan.max,
-            coverageUpdateKind: plan.coverageUpdateKind,
-            consumerManagesArchiveEnd: true,
-            consumerManagesHistoryCursor: true,
-            deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof,
-            callback: regularArchiveCompletion(primary: callback, entry: entry),
-            requestCallbacks: regularArchiveCallbacks(primary: requestCallbacks, entry: entry)
-        )
-        return queryId
-    }
-
-    private func finishRegularArchiveRequest(
-        queryId: String,
-        item: CallbackQueueItem,
-        state: MessageArchivePageEndState?,
-        first: String,
-        last: String,
-        count: Int,
-        serverResultCount: Int? = nil,
-        transportProof: DeferredArchiveTransportProof? = nil
-    ) {
-        // A completed regular request must leave no transport registration
-        // behind. Several successful-result branches return immediately after
-        // this helper, so relying on the common tail of read(_:withIQ:) leaves
-        // the query active forever and lets a later Retry join stale state.
-        queryIds.remove(queryId)
-        if state != nil,
-           let transportProof {
-            storePersistenceIngressExpectation(
-                queryId: queryId,
-                transportProof: transportProof
-            )
-        }
-        if let state,
-           item.task.deferCoverageCommitUntilConsumerProof {
-            prepareDeferredArchiveCommit(
-                queryId: queryId,
-                task: item.task,
-                state: state,
-                first: first,
-                last: last,
-                serverResultCount: serverResultCount,
-                transportProof: transportProof
-            )
-        }
-        guard let key = regularArchiveRequestKeyByQueryId.removeValue(forKey: queryId) else {
-            unregisterArchiveQueryId(queryId)
-            return
-        }
-        unregisterArchiveQueryId(queryId)
-
-        regularArchiveInFlightByKey.removeValue(forKey: key)
-        let shouldApplyCoverageHere = !item.task.deferCoverageCommitUntilConsumerProof
-        if let state,
-           shouldApplyCoverageHere {
-            _ = applyConversationArchivePageResult(
-                task: item.task,
-                state: state,
-                first: first,
-                last: last,
-                count: count
-            )
-        }
-
-    }
-
-    private func storePersistenceIngressExpectation(
+    private func sealArchiveTransportProof(
         queryId: String,
         transportProof: DeferredArchiveTransportProof
     ) {
@@ -4489,6 +2490,10 @@ class MessageArchiveManager: AbstractXMPPManager {
                 transportProof.intentionallyConsumedResultCount
         )
         deferredArchiveCommitLock.lock()
+        if sealedArchiveTransportProofsByQueryId[queryId] == nil {
+            sealedArchiveTransportProofOrder.append(queryId)
+        }
+        sealedArchiveTransportProofsByQueryId[queryId] = transportProof
         if persistenceIngressExpectationsByQueryId[queryId] == nil {
             persistenceIngressExpectationOrder.append(queryId)
         }
@@ -4502,52 +2507,11 @@ class MessageArchiveManager: AbstractXMPPManager {
                 forKey: expiredQueryId
             )
         }
-        deferredArchiveCommitLock.unlock()
-    }
-
-    private func prepareDeferredArchiveCommit(
-        queryId: String,
-        task: MAMRequestItem,
-        state: MessageArchivePageEndState,
-        first: String,
-        last: String,
-        serverResultCount: Int?,
-        transportProof: DeferredArchiveTransportProof?
-    ) {
-        guard queryId.isNotEmpty,
-              task.deferCoverageCommitUntilConsumerProof else {
-            return
-        }
-
-        let transportProof = transportProof ?? DeferredArchiveTransportProof()
-        deferredArchiveCommitLock.lock()
-        let descriptor = DeferredArchiveCommitDescriptor(
-            task: task,
-            state: state,
-            first: first,
-            last: last,
-            serverResultCount: serverResultCount,
-            transportProof: transportProof
-        )
-        committedArchiveConsumerProofsByQueryId.removeValue(forKey: queryId)
-        committedArchiveConsumerProofOrder.removeAll { $0 == queryId }
-        if deferredArchiveCommitsByQueryId[queryId] == nil {
-            deferredArchiveCommitOrder.append(queryId)
-        }
-        deferredArchiveCommitsByQueryId[queryId] = descriptor
-        while deferredArchiveCommitOrder.count > maximumDeferredArchiveCommitCount {
-            let expiredQueryId = deferredArchiveCommitOrder.removeFirst()
-            deferredArchiveCommitsByQueryId.removeValue(forKey: expiredQueryId)
+        while sealedArchiveTransportProofOrder.count > maximumDeferredArchiveCommitCount {
+            let expiredQueryId = sealedArchiveTransportProofOrder.removeFirst()
+            sealedArchiveTransportProofsByQueryId.removeValue(forKey: expiredQueryId)
         }
         deferredArchiveCommitLock.unlock()
-
-        ChatArchiveDebugTrace.log(deferredArchiveTraceEvent(
-            purpose: task.purpose,
-            phase: .prepared
-        ), [
-            ("serverResultCount", serverResultCount),
-            ("deliveredResultCount", transportProof.deliveredResultCount)
-        ])
     }
 
     /// Records the MAM result envelope before any consumer-specific routing.
@@ -4643,15 +2607,6 @@ class MessageArchiveManager: AbstractXMPPManager {
         return proof
     }
 
-    internal func hasDeferredCommit(queryId: String) -> Bool {
-        guard queryId.isNotEmpty else {
-            return false
-        }
-        deferredArchiveCommitLock.lock()
-        defer { deferredArchiveCommitLock.unlock() }
-        return deferredArchiveCommitsByQueryId[queryId] != nil
-    }
-
     /// Number of delivered result envelopes that must complete
     /// MessageManager ingress before query persistence can publish terminal.
     ///
@@ -4666,11 +2621,11 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
         deferredArchiveCommitLock.lock()
         defer { deferredArchiveCommitLock.unlock() }
-        if let descriptor = deferredArchiveCommitsByQueryId[queryId] {
+        if let proof = sealedArchiveTransportProofsByQueryId[queryId] {
             return max(
                 0,
-                descriptor.transportProof.deliveredResultCount -
-                    descriptor.transportProof.intentionallyConsumedResultCount
+                proof.deliveredResultCount -
+                    proof.intentionallyConsumedResultCount
             )
         }
         return persistenceIngressExpectationsByQueryId[queryId]
@@ -4691,7 +2646,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         guard queryId.isNotEmpty else { return nil }
         deferredArchiveCommitLock.lock()
         defer { deferredArchiveCommitLock.unlock() }
-        let proof = deferredArchiveCommitsByQueryId[queryId]?.transportProof ??
+        let proof = sealedArchiveTransportProofsByQueryId[queryId] ??
             deferredArchiveTransportProofsByQueryId[queryId]
         guard let proof else { return nil }
         var archiveIDs = Array(proof.deliveredResultIds)
@@ -4710,880 +2665,27 @@ class MessageArchiveManager: AbstractXMPPManager {
         )
     }
 
-    internal func discardPersistenceIngressExpectation(queryId: String) {
-        guard queryId.isNotEmpty else {
-            return
-        }
-        deferredArchiveCommitLock.lock()
-        persistenceIngressExpectationsByQueryId.removeValue(forKey: queryId)
-        persistenceIngressExpectationOrder.removeAll { $0 == queryId }
-        deferredArchiveCommitLock.unlock()
-    }
-
     internal func abortDeferredCommit(queryId: String) {
         guard queryId.isNotEmpty else {
             return
         }
         deferredArchiveCommitLock.lock()
         deferredArchiveTransportProofsByQueryId.removeValue(forKey: queryId)
+        sealedArchiveTransportProofsByQueryId.removeValue(forKey: queryId)
+        sealedArchiveTransportProofOrder.removeAll { $0 == queryId }
         persistenceIngressExpectationsByQueryId.removeValue(forKey: queryId)
         persistenceIngressExpectationOrder.removeAll { $0 == queryId }
-        let removedDescriptor = deferredArchiveCommitsByQueryId.removeValue(forKey: queryId)
-        if removedDescriptor != nil {
-            deferredArchiveCommitOrder.removeAll { $0 == queryId }
-        }
-        committedArchiveConsumerProofsByQueryId.removeValue(forKey: queryId)
-        committedArchiveConsumerProofOrder.removeAll { $0 == queryId }
         deferredArchiveCommitLock.unlock()
-        if let removedDescriptor {
-            ChatArchiveDebugTrace.log(deferredArchiveTraceEvent(
-                purpose: removedDescriptor.task.purpose,
-                phase: .aborted
-            ))
-        }
     }
 
-    @discardableResult
-    internal func commitAfterPersistence(
-        queryId: String,
-        persistenceSummary: MessageManager.ArchivePersistenceSummary
-    ) -> DeferredArchiveCommitResult {
-        deferredArchiveCommitLock.lock()
-        persistenceIngressExpectationsByQueryId.removeValue(forKey: queryId)
-        persistenceIngressExpectationOrder.removeAll { $0 == queryId }
-        let descriptor = deferredArchiveCommitsByQueryId.removeValue(forKey: queryId)
-        if descriptor != nil {
-            deferredArchiveCommitOrder.removeAll { $0 == queryId }
-        }
-        deferredArchiveCommitLock.unlock()
-
-        guard let descriptor else {
-            return .missingDescriptor
-        }
-
-        if persistenceSummary.failed > 0 {
-            let rejection = DeferredArchiveCommitRejection.persistenceFailed(
-                failedRows: persistenceSummary.failed
-            )
-            traceDeferredArchiveCommitRejection(
-                descriptor: descriptor,
-                reason: rejection
-            )
-            return .rejected(rejection)
-        }
-
-        let deliveredResultCount = max(
-            descriptor.transportProof.deliveredResultCount,
-            persistenceSummary.received
-        )
-        let wireDeliveredResultCount =
-            descriptor.transportProof.deliveredResultCount
-        let accountedWireResultCount =
-            persistenceSummary.received +
-            descriptor.transportProof.intentionallyConsumedResultCount
-        if wireDeliveredResultCount > 0,
-           (!descriptor.transportProof.hasConsistentControlDisposition ||
-            wireDeliveredResultCount != accountedWireResultCount) {
-            let rejection = DeferredArchiveCommitRejection.unaccountedResults(
-                count: max(
-                    1,
-                    abs(wireDeliveredResultCount - accountedWireResultCount)
-                )
-            )
-            traceDeferredArchiveCommitRejection(
-                descriptor: descriptor,
-                reason: rejection
-            )
-            return .rejected(rejection)
-        }
-        if persistenceSummary.persistedRows != persistenceSummary.received {
-            let rejection = DeferredArchiveCommitRejection.unaccountedResults(
-                count: max(
-                    1,
-                    abs(
-                        persistenceSummary.received -
-                            persistenceSummary.persistedRows
-                    )
-                )
-            )
-            traceDeferredArchiveCommitRejection(
-                descriptor: descriptor,
-                reason: rejection
-            )
-            return .rejected(rejection)
-        }
-
-        if deliveredResultCount == 0 {
-            guard descriptor.state.queryExhausted || descriptor.state.archiveEnded else {
-                let rejection = DeferredArchiveCommitRejection.missingPersistenceProof
-                traceDeferredArchiveCommitRejection(
-                    descriptor: descriptor,
-                    reason: rejection
-                )
-                return .rejected(rejection)
-            }
-            if descriptor.task.coverageUpdateKind == .bootstrapNewest,
-               descriptor.serverResultCount != 0 {
-                // A newest-page empty terminal is authoritative only when its
-                // cheap page count is also zero. Cursor queries may deliver no
-                // envelopes while the full archive is nonempty.
-                let rejection = DeferredArchiveCommitRejection.missingPersistenceProof
-                traceDeferredArchiveCommitRejection(
-                    descriptor: descriptor,
-                    reason: rejection
-                )
-                return .rejected(rejection)
-            }
-        } else {
-            if descriptor.task.coverageUpdateKind.shouldMutateCoverage,
-               (descriptor.first.isEmpty || descriptor.last.isEmpty) {
-                let rejection = DeferredArchiveCommitRejection.malformedCoverageRange
-                traceDeferredArchiveCommitRejection(
-                    descriptor: descriptor,
-                    reason: rejection
-                )
-                return .rejected(rejection)
-            }
-
-            guard hasDeliveredArchiveBoundaryProof(
-                descriptor: descriptor,
-                persistenceSummary: persistenceSummary
-            ) else {
-                let rejection = DeferredArchiveCommitRejection.missingPersistenceProof
-                traceDeferredArchiveCommitRejection(
-                    descriptor: descriptor,
-                    reason: rejection
-                )
-                return .rejected(rejection)
-            }
-
-            let isExplicitlyConsumedControlOnlyPage =
-                persistenceSummary.received == 0 &&
-                wireDeliveredResultCount > 0 &&
-                descriptor.transportProof.intentionallyConsumedResultCount >=
-                    wireDeliveredResultCount
-            guard isExplicitlyConsumedControlOnlyPage ||
-                    hasPersistedConversationRowProof(
-                        descriptor: descriptor,
-                        persistenceSummary: persistenceSummary
-                    ) else {
-                let rejection = DeferredArchiveCommitRejection.missingPersistenceProof
-                traceDeferredArchiveCommitRejection(
-                    descriptor: descriptor,
-                    reason: rejection
-                )
-                return .rejected(rejection)
-            }
-        }
-
-        guard let hasPersistedVisibleRow =
-                persistedVisibleConversationHasRows(task: descriptor.task) else {
-            let rejection = DeferredArchiveCommitRejection.storageFailure
-            traceDeferredArchiveCommitRejection(
-                descriptor: descriptor,
-                reason: rejection
-            )
-            return .rejected(rejection)
-        }
-        let hasPresentationMaterialization =
-            hasPersistedVisibleRow ||
-            descriptor.task.jid.map {
-                persistenceSummary.visibleRows(
-                    owner: self.owner,
-                    jid: $0,
-                    conversationType: descriptor.task.conversationType
-                ) > 0
-            } == true
-        let canConfirmEmptyConversation: Bool
-        switch descriptor.task.purpose {
-        case .bootstrap:
-            canConfirmEmptyConversation =
-                descriptor.state.archiveEnded &&
-                !hasPresentationMaterialization
-        case .snapshotRepair:
-            // An incremental `after` page proves only the newest live edge.
-            // It cannot prove that a conversation with no local rows is
-            // empty. A forced newest-page repair uses `.bootstrapNewest` and
-            // may provide the same terminal empty proof as chat bootstrap.
-            canConfirmEmptyConversation =
-                descriptor.task.coverageUpdateKind == .bootstrapNewest &&
-                descriptor.state.archiveEnded &&
-                !hasPresentationMaterialization
-        case .pageOlder, .pageNewer, .jump, .gapRepair, .search,
-             .timestampLookup, .latest, .media, .inviteRecovery:
-            canConfirmEmptyConversation = false
-        }
-
-        var recommendedFollowUpTarget: ChatBootstrapPageTarget?
-        if !hasPresentationMaterialization &&
-           !canConfirmEmptyConversation {
-            switch descriptor.task.purpose {
-            case .bootstrap where deliveredResultCount > 0:
-                guard let olderCursor = HistoryCursorPolicy.persistedOlderCursorId(
-                        purpose: .bootstrap,
-                        first: descriptor.first,
-                        last: descriptor.last,
-                        current: nil
-                      ),
-                      olderCursor.isNotEmpty else {
-                    let rejection = DeferredArchiveCommitRejection.malformedCoverageRange
-                    traceDeferredArchiveCommitRejection(
-                        descriptor: descriptor,
-                        reason: rejection
-                    )
-                    return .rejected(rejection)
-                }
-                if olderCursor == descriptor.task.nextPage {
-                    let rejection = DeferredArchiveCommitRejection.nonAdvancingCursor
-                    traceDeferredArchiveCommitRejection(
-                        descriptor: descriptor,
-                        reason: rejection
-                    )
-                    return .rejected(rejection)
-                }
-                recommendedFollowUpTarget = .older(
-                    beforeArchiveId: olderCursor
-                )
-            case .bootstrap, .snapshotRepair:
-                // Coverage without a locally visible row is not a
-                // presentation terminal. Snapshot delta repair must
-                // materialize the newest page; an empty targeted bootstrap
-                // likewise needs a whole-page proof before it may expose an
-                // empty timeline.
-                recommendedFollowUpTarget = .latest
-            case .pageOlder, .pageNewer, .jump, .gapRepair, .search,
-                 .timestampLookup, .latest, .media, .inviteRecovery:
-                break
-            }
-        }
-
-        let applyResult = applyConversationArchivePageResult(
-            task: descriptor.task,
-            state: descriptor.state,
-            first: descriptor.first,
-            last: descriptor.last,
-            count: deliveredResultCount,
-            suppressConversationReadiness:
-                recommendedFollowUpTarget != nil
-        )
-        guard applyResult.didApply else {
-            let rejection = DeferredArchiveCommitRejection.storageFailure
-            traceDeferredArchiveCommitRejection(
-                descriptor: descriptor,
-                reason: rejection
-            )
-            return .rejected(rejection)
-        }
-
-        let confirmsEmptyConversation = canConfirmEmptyConversation
-        let requiresBoundaryRepair =
-            conversationRequiresFollowUpRepair(task: descriptor.task)
-        let effectiveFollowUpTarget =
-            recommendedFollowUpTarget ??
-            (requiresBoundaryRepair ? .latest : nil)
-        storeCommittedArchiveConsumerProof(
-            CommittedArchiveConsumerProof(
-                boundaryFingerprint: applyResult.committedFingerprint,
-                confirmsEmptyConversation: confirmsEmptyConversation,
-                hasPresentationMaterialization:
-                    hasPresentationMaterialization,
-                recommendedFollowUpTarget: effectiveFollowUpTarget,
-                deliveredResultCount: deliveredResultCount,
-                serverResultCount: descriptor.serverResultCount
-            ),
-            queryId: queryId
-        )
-
-        if effectiveFollowUpTarget != nil {
-            ChatArchiveDebugTrace.log(deferredArchiveTraceEvent(
-                purpose: descriptor.task.purpose,
-                phase: .committedNeedsRepair
-            ), [
-                ("serverResultCount", descriptor.serverResultCount),
-                ("deliveredResultCount", deliveredResultCount),
-                ("persistedRows", persistenceSummary.persistedRows),
-                ("hasPresentationMaterialization", hasPresentationMaterialization),
-                ("failedRows", persistenceSummary.failed)
-            ])
-            return .committedNeedsFollowUpRepair
-        }
-
-        ChatArchiveDebugTrace.log(deferredArchiveTraceEvent(
-            purpose: descriptor.task.purpose,
-            phase: .committed
-        ), [
-            ("serverResultCount", descriptor.serverResultCount),
-            ("deliveredResultCount", deliveredResultCount),
-            ("persistedRows", persistenceSummary.persistedRows),
-            ("hasPresentationMaterialization", hasPresentationMaterialization),
-            ("failedRows", persistenceSummary.failed)
-        ])
-        return .committed
-    }
-
-    /// Returns the exact conversation boundary produced by the Realm write
-    /// that committed this query. Reading Realm again after the transaction
-    /// would race a newer snapshot and could incorrectly claim that the older
-    /// page proved that newer boundary.
-    internal func consumeCommittedArchiveBoundaryFingerprint(
-        queryId: String
-    ) -> ConversationArchiveBoundaryFingerprint? {
-        consumeCommittedArchiveConsumerProof(
-            queryId: queryId
-        )?.boundaryFingerprint
-    }
-
-    internal func consumeCommittedArchiveConsumerProof(
-        queryId: String
-    ) -> CommittedArchiveConsumerProof? {
-        guard queryId.isNotEmpty else { return nil }
-        deferredArchiveCommitLock.lock()
-        let proof = committedArchiveConsumerProofsByQueryId.removeValue(
-            forKey: queryId
-        )
-        if proof != nil {
-            committedArchiveConsumerProofOrder.removeAll { $0 == queryId }
-        }
-        deferredArchiveCommitLock.unlock()
-        return proof
-    }
-
-    private func storeCommittedArchiveConsumerProof(
-        _ proof: CommittedArchiveConsumerProof,
-        queryId: String
-    ) {
+    internal func finishEngineSearchPage(queryId: String) {
         guard queryId.isNotEmpty else { return }
-        deferredArchiveCommitLock.lock()
-        committedArchiveConsumerProofsByQueryId[queryId] = proof
-        committedArchiveConsumerProofOrder.removeAll { $0 == queryId }
-        committedArchiveConsumerProofOrder.append(queryId)
-        while committedArchiveConsumerProofOrder.count > maximumDeferredArchiveCommitCount {
-            let expiredQueryId = committedArchiveConsumerProofOrder.removeFirst()
-            committedArchiveConsumerProofsByQueryId.removeValue(forKey: expiredQueryId)
-        }
-        deferredArchiveCommitLock.unlock()
+        searchResultsQueries.remove(queryId)
+        persistedMessageCountsByQueryId.removeValue(forKey: queryId)
+        unregisterFallbackEndPageCallbacks(queryId: queryId)
     }
 
-    private func conversationRequiresFollowUpRepair(task: MAMRequestItem) -> Bool {
-        guard task.purpose == .bootstrap || task.purpose == .snapshotRepair,
-              task.conversationType.supportsSnapshotArchiveRepair,
-              let jid = task.jid,
-              jid.isNotEmpty else {
-            return false
-        }
-
-        do {
-            let realm = try WRealm.safe()
-            let primary = LastChatsStorageItem.genPrimary(
-                jid: jid,
-                owner: self.owner,
-                conversationType: task.conversationType
-            )
-            return realm.object(
-                ofType: LastChatsStorageItem.self,
-                forPrimaryKey: primary
-            )?.isSynced != true
-        } catch {
-            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-            return true
-        }
-    }
-
-    private func hasDeliveredArchiveBoundaryProof(
-        descriptor: DeferredArchiveCommitDescriptor,
-        persistenceSummary: MessageManager.ArchivePersistenceSummary
-    ) -> Bool {
-        guard let jid = descriptor.task.jid,
-              jid.isNotEmpty else {
-            return false
-        }
-
-        let boundaryIds = Set([descriptor.first, descriptor.last].filter(\.isNotEmpty))
-        guard boundaryIds.isNotEmpty else {
-            return false
-        }
-
-        if boundaryIds.isSubset(
-            of: descriptor.transportProof.deliveredResultIds
-        ) {
-            return true
-        }
-
-        if persistenceSummary.containsPersistedArchiveIds(
-            boundaryIds,
-            owner: self.owner,
-            jid: jid,
-            conversationType: descriptor.task.conversationType
-        ) {
-            return true
-        }
-
-        do {
-            let realm = try WRealm.safe()
-            let persistedBoundaryIds = Set(realm.objects(MessageStorageItem.self)
-                .filter(
-                    "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND archivedId IN %@",
-                    self.owner,
-                    jid,
-                    descriptor.task.conversationType.rawValue,
-                    Array(boundaryIds)
-                )
-                .map(\.archivedId))
-            return boundaryIds.isSubset(of: persistedBoundaryIds)
-        } catch {
-            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    private func hasPersistedConversationRowProof(
-        descriptor: DeferredArchiveCommitDescriptor,
-        persistenceSummary: MessageManager.ArchivePersistenceSummary
-    ) -> Bool {
-        guard let jid = descriptor.task.jid,
-              jid.isNotEmpty else {
-            return false
-        }
-        if persistenceSummary.persistedArchiveIdCount(
-            owner: self.owner,
-            jid: jid,
-            conversationType: descriptor.task.conversationType
-        ) > 0 ||
-            persistenceSummary.visibleRows(
-                owner: self.owner,
-                jid: jid,
-                conversationType: descriptor.task.conversationType
-            ) > 0 {
-            return true
-        }
-
-        let boundaryIds = Set(
-            [descriptor.first, descriptor.last].filter(\.isNotEmpty)
-        )
-        guard boundaryIds.isNotEmpty else {
-            return false
-        }
-        do {
-            let realm = try WRealm.safe()
-            return !realm.objects(MessageStorageItem.self)
-                .filter(
-                    "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND archivedId IN %@",
-                    self.owner,
-                    jid,
-                    descriptor.task.conversationType.rawValue,
-                    Array(boundaryIds)
-                )
-                .isEmpty
-        } catch {
-            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    private func persistedVisibleConversationHasRows(
-        task: MAMRequestItem
-    ) -> Bool? {
-        guard let jid = task.jid,
-              jid.isNotEmpty else {
-            return nil
-        }
-        do {
-            let realm = try WRealm.safe()
-            return realm.objects(MessageStorageItem.self)
-                .filter(
-                    "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND isDeleted == false",
-                    self.owner,
-                    jid,
-                    task.conversationType.rawValue
-                )
-                .first != nil
-        } catch {
-            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    private func traceDeferredArchiveCommitRejection(
-        descriptor: DeferredArchiveCommitDescriptor,
-        reason: DeferredArchiveCommitRejection
-    ) {
-        ChatArchiveDebugTrace.log(deferredArchiveTraceEvent(
-            purpose: descriptor.task.purpose,
-            phase: .failed
-        ), [
-            ("failedRows", deferredArchiveFailedRowCount(reason))
-        ])
-    }
-
-    private func deferredArchiveFailedRowCount(
-        _ reason: DeferredArchiveCommitRejection
-    ) -> Int {
-        if case .persistenceFailed(let failedRows) = reason {
-            return failedRows
-        }
-        if case .unaccountedResults(let count) = reason {
-            return count
-        }
-        return 0
-    }
-
-    private func deferredArchiveTraceEvent(
-        purpose: RequestPurpose,
-        phase: DeferredArchiveTracePhase
-    ) -> String {
-        switch (purpose, phase) {
-        case (.bootstrap, .prepared): return "mamBootstrapDeferredPrepared"
-        case (.bootstrap, .committed): return "mamBootstrapDeferredCommitted"
-        case (.bootstrap, .committedNeedsRepair): return "mamBootstrapDeferredCommittedNeedsRepair"
-        case (.bootstrap, .failed): return "mamBootstrapDeferredFailed"
-        case (.bootstrap, .aborted): return "mamBootstrapDeferredAborted"
-        case (.snapshotRepair, .prepared): return "mamSnapshotRepairDeferredPrepared"
-        case (.snapshotRepair, .committed): return "mamSnapshotRepairDeferredCommitted"
-        case (.snapshotRepair, .committedNeedsRepair): return "mamSnapshotRepairDeferredCommittedNeedsRepair"
-        case (.snapshotRepair, .failed): return "mamSnapshotRepairDeferredFailed"
-        case (.snapshotRepair, .aborted): return "mamSnapshotRepairDeferredAborted"
-        case (_, .prepared): return "mamArchiveDeferredPrepared"
-        case (_, .committed): return "mamArchiveDeferredCommitted"
-        case (_, .committedNeedsRepair): return "mamArchiveDeferredCommittedNeedsRepair"
-        case (_, .failed): return "mamArchiveDeferredFailed"
-        case (_, .aborted): return "mamArchiveDeferredAborted"
-        }
-    }
-
-    private func shouldValidateBoundaryFingerprint(for task: MAMRequestItem) -> Bool {
-        (task.purpose == .bootstrap || task.purpose == .snapshotRepair) &&
-            task.conversationType.supportsSnapshotArchiveRepair
-    }
-
-    static func bootstrapPageReachesNewestLiveEdge(
-        coverageUpdateKind: RegularArchiveCoverageUpdateKind,
-        queryExhausted: Bool
-    ) -> Bool {
-        switch coverageUpdateKind {
-        case .bootstrapNewest:
-            return true
-        case .pageNewer:
-            return queryExhausted
-        case .pageOlder, .gapRepairOlder, .gapRepairNewer, .disjointWindow, .none:
-            return false
-        }
-    }
-
-    static func durableNewestCoverageAfterBootstrapPage(
-        previousHasDurableNewestCoverage: Bool,
-        boundaryChanged: Bool,
-        pageReachesNewestLiveEdge: Bool,
-        computedHasDurableNewestCoverage: Bool
-    ) -> Bool {
-        if pageReachesNewestLiveEdge {
-            // A snapshot may advance while this query is on the wire. If the
-            // page merged in the same Realm transaction already covers that
-            // current boundary, the fresh computed proof supersedes the
-            // request-start fingerprint and no identical latest repair is
-            // needed.
-            return computedHasDurableNewestCoverage
-        }
-        guard !boundaryChanged else {
-            return false
-        }
-        // A target-only page (saved position or a truncated unread page)
-        // cannot prove the live edge by itself. It also must not revoke a
-        // durable latest-page proof for the same snapshot boundary.
-        return previousHasDurableNewestCoverage ||
-            computedHasDurableNewestCoverage
-    }
-
-    private static func normalizedBoundaryId(_ value: String?) -> String? {
-        guard let value,
-              value.isNotEmpty else {
-            return nil
-        }
-        return value
-    }
-
-    static func conversationArchiveBoundaryFingerprint(
-        chat: LastChatsStorageItem?,
-        archiveState: RegularChatArchiveSyncStateStorageItem?
-    ) -> ConversationArchiveBoundaryFingerprint {
-        ConversationArchiveBoundaryFingerprint(
-            chatExists: chat != nil,
-            archiveStateExists: archiveState != nil,
-            chatSnapshotArchiveId: RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-                chat?.syncSnapshotLastArchiveId
-            ),
-            archiveSnapshotArchiveId: RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-                archiveState?.lastSnapshotArchiveId
-            ),
-            archiveSnapshotMessageId: normalizedBoundaryId(
-                archiveState?.lastSnapshotMessageId
-            ),
-            unreadAfterId: RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-                chat?.syncUnreadAfterId
-            ),
-            unreadCount: max(chat?.syncUnreadCount ?? 0, 0)
-        )
-    }
-
-    private func captureConversationArchiveBoundaryFingerprint(
-        jid: String?,
-        conversationType: ClientSynchronizationManager.ConversationType,
-        purpose: RequestPurpose
-    ) -> ConversationArchiveBoundaryFingerprint? {
-        guard (purpose == .bootstrap || purpose == .snapshotRepair),
-              conversationType.supportsSnapshotArchiveRepair,
-              let jid,
-              jid.isNotEmpty else {
-            return nil
-        }
-
-        return Self.currentConversationArchiveBoundaryFingerprint(
-            owner: self.owner,
-            jid: jid,
-            conversationType: conversationType
-        )
-    }
-
-    static func currentConversationArchiveBoundaryFingerprint(
-        owner: String,
-        jid: String,
-        conversationType: ClientSynchronizationManager.ConversationType
-    ) -> ConversationArchiveBoundaryFingerprint? {
-        guard conversationType.supportsSnapshotArchiveRepair,
-              owner.isNotEmpty,
-              jid.isNotEmpty else {
-            return nil
-        }
-        do {
-            let realm = try WRealm.safe()
-            let chat = realm.object(
-                ofType: LastChatsStorageItem.self,
-                forPrimaryKey: LastChatsStorageItem.genPrimary(
-                    jid: jid,
-                    owner: owner,
-                    conversationType: conversationType
-                )
-            )
-            let archiveState = realm.object(
-                ofType: RegularChatArchiveSyncStateStorageItem.self,
-                forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
-                    jid: jid,
-                    owner: owner,
-                    conversationType: conversationType
-                )
-            )
-            return Self.conversationArchiveBoundaryFingerprint(
-                chat: chat,
-                archiveState: archiveState
-            )
-        } catch {
-            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    @discardableResult
-    private func applyConversationArchivePageResult(
-        task: MAMRequestItem,
-        state: MessageArchivePageEndState,
-        first: String,
-        last: String,
-        count: Int,
-        suppressConversationReadiness: Bool = false
-    ) -> (
-        didApply: Bool,
-        boundaryChanged: Bool,
-        committedFingerprint: ConversationArchiveBoundaryFingerprint?
-    ) {
-        guard let jid = task.jid,
-              jid.isNotEmpty else {
-            return (false, false, nil)
-        }
-
-        do {
-            let realm = try WRealm.safe()
-            let primary = LastChatsStorageItem.genPrimary(
-                jid: jid,
-                owner: self.owner,
-                conversationType: task.conversationType
-            )
-            var boundaryChanged = false
-            var committedFingerprint: ConversationArchiveBoundaryFingerprint?
-            try realm.write {
-                let chat = realm.object(
-                    ofType: LastChatsStorageItem.self,
-                    forPrimaryKey: primary
-                )
-                let existingArchiveState = realm.object(
-                    ofType: RegularChatArchiveSyncStateStorageItem.self,
-                    forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
-                        jid: jid,
-                        owner: self.owner,
-                        conversationType: task.conversationType
-                    )
-                )
-                if shouldValidateBoundaryFingerprint(for: task) {
-                    let currentFingerprint = Self.conversationArchiveBoundaryFingerprint(
-                        chat: chat,
-                        archiveState: existingArchiveState
-                    )
-                    boundaryChanged = task.boundaryFingerprintAtRequestStart == nil ||
-                        task.boundaryFingerprintAtRequestStart != currentFingerprint
-                }
-                let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(
-                    owner: self.owner,
-                    jid: jid,
-                    conversationType: task.conversationType,
-                    in: realm
-                )
-                if count > 0 {
-                    archiveState.mergeLoadedRange(first: first, last: last, updateKind: task.coverageUpdateKind)
-                }
-                switch task.purpose {
-                case .bootstrap:
-                    if Self.bootstrapPageReachesNewestLiveEdge(
-                        coverageUpdateKind: task.coverageUpdateKind,
-                        queryExhausted: state.queryExhausted
-                    ) {
-                        archiveState.newerLiveEdgeReached = true
-                    }
-                    if state.archiveEnded {
-                        archiveState.olderArchiveEndReached = true
-                    }
-                case .pageOlder:
-                    if state.queryExhausted || state.archiveEnded {
-                        archiveState.olderArchiveEndReached = true
-                    }
-                case .pageNewer:
-                    if state.queryExhausted {
-                        archiveState.newerLiveEdgeReached = true
-                    }
-                case .snapshotRepair:
-                    if task.nextPage == "" || state.queryExhausted {
-                        archiveState.newerLiveEdgeReached = true
-                    }
-                    if state.archiveEnded {
-                        archiveState.olderArchiveEndReached = true
-                    }
-                case .jump, .gapRepair:
-                    break
-                case .search, .timestampLookup, .latest, .media, .inviteRecovery:
-                    break
-                }
-                archiveState.updatedAt = Date()
-
-                if let chat {
-                    chat.lastLoadedMessageHistoryId = archiveState.oldestLoadedArchiveId ?? chat.lastLoadedMessageHistoryId
-                    if task.conversationType.supportsSnapshotArchiveRepair {
-                        chat.fullArchiveLoaded = archiveState.olderArchiveEndReached
-                    }
-                    if task.purpose == .bootstrap {
-                        let pageReachesNewestLiveEdge =
-                            Self.bootstrapPageReachesNewestLiveEdge(
-                                coverageUpdateKind: task.coverageUpdateKind,
-                                queryExhausted: state.queryExhausted
-                            )
-                        let computedHasDurableNewestCoverage =
-                            task.conversationType.supportsSnapshotArchiveRepair
-                            ? canClearSnapshotUnsynced(chat: chat, archiveState: archiveState)
-                            : archiveState.newerLiveEdgeReached
-                        let hasDurableNewestCoverage =
-                            Self.durableNewestCoverageAfterBootstrapPage(
-                                previousHasDurableNewestCoverage:
-                                    chat.isInitialArchiveLoaded && chat.isSynced,
-                                boundaryChanged: boundaryChanged,
-                                pageReachesNewestLiveEdge: pageReachesNewestLiveEdge,
-                                computedHasDurableNewestCoverage:
-                                    computedHasDurableNewestCoverage
-                            )
-                        let mayExposeBootstrapReadiness =
-                            hasDurableNewestCoverage &&
-                            !suppressConversationReadiness
-                        chat.isInitialArchiveLoaded =
-                            mayExposeBootstrapReadiness
-                        chat.isSynced = mayExposeBootstrapReadiness
-                    } else if task.purpose == .pageNewer || task.purpose == .snapshotRepair {
-                        let hasDurableNewestCoverage = !boundaryChanged && canClearSnapshotUnsynced(
-                            chat: chat,
-                            archiveState: archiveState
-                        )
-                        let mayExposeNewestReadiness =
-                            hasDurableNewestCoverage &&
-                            !suppressConversationReadiness
-                        chat.isSynced = mayExposeNewestReadiness
-                        if task.purpose == .snapshotRepair,
-                           mayExposeNewestReadiness {
-                            // A snapshot repair may be the first archive page
-                            // persisted for a newly signed-in account. Once
-                            // that newest boundary is durably covered it
-                            // satisfies the same initial-readiness contract as
-                            // a bootstrap page; leaving this flag false makes
-                            // the first chat open start a duplicate MAM.
-                            chat.isInitialArchiveLoaded = true
-                        } else if task.purpose == .snapshotRepair,
-                                  suppressConversationReadiness {
-                            // Coverage may be durable while no user-visible
-                            // timeline exists. Keep both legacy flags strict
-                            // until the materialization follow-up commits.
-                            chat.isInitialArchiveLoaded = false
-                        }
-                    }
-                }
-                committedFingerprint = Self.conversationArchiveBoundaryFingerprint(
-                    chat: chat,
-                    archiveState: archiveState
-                )
-            }
-            return (true, boundaryChanged, committedFingerprint)
-        } catch {
-            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-            return (false, false, nil)
-        }
-    }
-
-    private func canClearSnapshotUnsynced(
-        chat: LastChatsStorageItem,
-        archiveState: RegularChatArchiveSyncStateStorageItem
-    ) -> Bool {
-        ConversationArchiveDurableReadinessPolicy.hasCurrentCoverage(
-            chat: chat,
-            archiveState: archiveState
-        )
-    }
-    
-    
-    /// Starts the authoritative newest-page MAM bootstrap for an active Xabber
-    /// Group membership. The group component owns this archive, so the query is
-    /// addressed directly to the normalized bare group JID and must not carry
-    /// account-archive `with` or `conversation-type` data-form filters.
-    @discardableResult
-    internal final func requestCanonicalGroupHistory(
-        _ stream: XMPPStream,
-        groupJID: XMPPJID,
-        queryId: String? = nil,
-        pageSize: Int? = nil
-    ) -> String {
-        let normalizedGroupJID = groupJID.bare.lowercased()
-        let request = Self.newestBootstrapPageRequest(
-            pageSize: pageSize ?? self.pageSize
-        )
-        let resolvedQueryId = queryId ?? "MAM canonical group bootstrap: \(NanoID.new(6))"
-
-        requestArchive(
-            stream,
-            jid: normalizedGroupJID,
-            isContinues: false,
-            conversationType: .group,
-            purpose: .bootstrap,
-            queryId: resolvedQueryId,
-            nextPage: request.nextPage,
-            prevPage: request.prevPage,
-            max: request.max,
-            coverageUpdateKind: .bootstrapNewest
-        )
-        return resolvedQueryId
-    }
-
-    internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, ids: [String]? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, coverageUpdateKind: RegularArchiveCoverageUpdateKind = .none, consumerManagesArchiveEnd: Bool = false, consumerManagesHistoryCursor: Bool = false, deferCoverageCommitUntilConsumerProof: Bool = false, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) {
+    internal func requestArchive(_ stream: XMPPStream, jid: String?, isContinues: Bool, conversationType: ClientSynchronizationManager.ConversationType, purpose: RequestPurpose, queryId: String? = nil, searchText: String? = nil, ids: [String]? = nil, flipPage: Bool = true, before: String? = nil, beforeId: String? = nil, afterId: String? = nil, start: Date? = nil, end: Date? = nil, nextPage: String? = nil, prevPage: String? = nil, max: Int? = nil, tags: [Tags] = [], withCounter: Bool = false, retainSealedTransportProofUntilBarrier: Bool = false, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none) {
         let isGroupchat = [.group, .channel].contains(conversationType)
         // `rsm-counter=1` performs a full SQL COUNT on Xabber Server. Normal
         // archive orchestration only needs the cheap page count and must never
@@ -5698,8 +2800,8 @@ class MessageArchiveManager: AbstractXMPPManager {
             }
             x.addChild(idsElement)
         }
-        
-        
+
+
 //        if [.omemo, .omemo1, .axolotl].contains(conversationType)
         query.addChild(x)
         let setElement = DDXMLElement(name: "set", xmlns: "http://jabber.org/protocol/rsm")
@@ -5716,36 +2818,14 @@ class MessageArchiveManager: AbstractXMPPManager {
         if flipPage {
             query.addChild(DDXMLElement(name: "flip-page"))
         }
-        let taskId = [jid ?? "global_search", conversationType.rawValue].prp()
-        let archiveEndEligibility = self.canMarkArchiveEnd(
-            purpose: purpose,
-            searchText: searchText,
-            ids: ids,
-            beforeId: beforeId,
-            afterId: afterId,
-            rsmBeforeCursor: nextPage,
-            rsmAfterCursor: prevPage,
-            start: effectiveStart,
-            end: end,
-            tags: tags,
-            withCounter: requestsAuthoritativeCounter
-        ) || (consumerManagesArchiveEnd && purpose == .latest)
         let requestCursorId = (before ?? nextPage).flatMap { cursor in
             cursor.isNotEmpty ? cursor : nil
         }
-        let boundaryFingerprintAtRequestStart = captureConversationArchiveBoundaryFingerprint(
-            jid: jid,
-            conversationType: conversationType,
-            purpose: purpose
-        )
         let task = MAMRequestItem(
             jid: jid,
-            taskID: taskId,
-            isGroupchat: isGroupchat,
             messageId: requestCursorId,
             conversationType: conversationType,
             isContinues: isContinues,
-            maxDate: effectiveStart,
             searchText: searchText,
             queryId: queryId,
             afterId: afterId,
@@ -5756,12 +2836,8 @@ class MessageArchiveManager: AbstractXMPPManager {
             start: effectiveStart,
             end: end,
             purpose: purpose,
-            coverageUpdateKind: coverageUpdateKind,
-            archiveEndEligibility: archiveEndEligibility,
-            consumerManagesArchiveEnd: consumerManagesArchiveEnd,
-            consumerManagesHistoryCursor: consumerManagesHistoryCursor,
-            deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof,
-            boundaryFingerprintAtRequestStart: boundaryFingerprintAtRequestStart
+            retainsSealedTransportProofUntilBarrier:
+                retainSealedTransportProofUntilBarrier
         )
         self.upsertCallbackQueueItem(
             CallbackQueueItem(
@@ -5801,125 +2877,37 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
     }
 
-    @discardableResult
-    internal func fetchAnchorMessage(
+    private func requestNextArchivePage(
         _ stream: XMPPStream,
-        jid: String,
-        conversationType: ClientSynchronizationManager.ConversationType,
-        archivedId: String,
-        queryId: String? = nil,
-        callback: (() -> Void)? = nil,
-        requestCallbacks: RequestCallbacks = .none
-    ) -> String {
-        let requestQueryId = queryId ?? "MAM jump exact: \(NanoID.new(6))"
-        if conversationType == .regular {
-            let plan = Self.regularExactAnchorRequestPlan(jid: jid, archivedId: archivedId)
-            return startRegularArchiveRequest(
-                stream,
-                plan: plan,
-                queryId: requestQueryId,
-                flipPage: false,
-                callback: callback,
-                requestCallbacks: requestCallbacks
-            )
+        task: MAMRequestItem,
+        nextPage: String?,
+        requestCallbacks: RequestCallbacks,
+        callback: (() -> Void)?
+    ) {
+        guard let nextPage else {
+            completeCallback(callback)
+            return
         }
-        self.requestArchive(
+        requestArchive(
             stream,
-            jid: jid,
-            isContinues: false,
-            conversationType: conversationType,
-            purpose: .jump,
-            queryId: requestQueryId,
-            ids: [archivedId],
-            flipPage: false,
-            max: 1,
-            consumerManagesArchiveEnd: true,
-            consumerManagesHistoryCursor: true,
+            jid: task.jid,
+            isContinues: true,
+            conversationType: task.conversationType,
+            purpose: task.purpose,
+            queryId: task.queryId,
+            searchText: task.searchText,
+            before: task.messageId,
+            afterId: task.afterId,
+            start: task.start,
+            end: task.end,
+            nextPage: nextPage,
+            max: task.max,
+            tags: task.tags,
+            retainSealedTransportProofUntilBarrier:
+                task.retainsSealedTransportProofUntilBarrier,
             callback: callback,
             requestCallbacks: requestCallbacks
         )
-        return requestQueryId
-    }
-
-    @discardableResult
-    internal func fetchAnchorWindow(
-        _ stream: XMPPStream,
-        jid: String,
-        conversationType: ClientSynchronizationManager.ConversationType,
-        start: Date,
-        end: Date,
-        max: Int,
-        queryId: String? = nil,
-        callback: (() -> Void)? = nil,
-        requestCallbacks: RequestCallbacks = .none
-    ) -> String {
-        let requestQueryId = queryId ?? "MAM jump window: \(NanoID.new(6))"
-        if conversationType == .regular {
-            let plan = Self.regularDateWindowAnchorRequestPlan(
-                jid: jid,
-                start: start,
-                end: end,
-                max: max
-            )
-            return startRegularArchiveRequest(
-                stream,
-                plan: plan,
-                queryId: requestQueryId,
-                flipPage: false,
-                callback: callback,
-                requestCallbacks: requestCallbacks
-            )
-        }
-        self.requestArchive(
-            stream,
-            jid: jid,
-            isContinues: false,
-            conversationType: conversationType,
-            purpose: .jump,
-            queryId: requestQueryId,
-            ids: nil,
-            flipPage: false,
-            start: start,
-            end: end,
-            max: max,
-            consumerManagesArchiveEnd: true,
-            consumerManagesHistoryCursor: true,
-            callback: callback,
-            requestCallbacks: requestCallbacks
-        )
-        return requestQueryId
-    }
-    
-    public final func getLastMessage(_ stream: XMPPStream, jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
-        self.requestArchive(
-            stream,
-            jid: jid,
-            isContinues: false,
-            conversationType: conversationType,
-            purpose: .latest,
-            nextPage: "",
-            max: 1
-        )
-    }
-    
-    public final func getLastMessages(_ stream: XMPPStream, jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
-        do {
-            let realm = try WRealm.safe()
-            if (realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: conversationType))?.isSynced ?? false) == false {
-                self.requestArchive(
-                    stream,
-                    jid: jid,
-                    isContinues: false,
-                    conversationType: conversationType,
-                    purpose: .latest,
-                    nextPage: "",
-                    max: self.pageSize
-                )
-            }
-        } catch {
-            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-        }
-        
     }
 
     @discardableResult
@@ -5974,439 +2962,12 @@ class MessageArchiveManager: AbstractXMPPManager {
             nextPage: "",
             max: max,
             tags: [.invite],
-            consumerManagesArchiveEnd: true,
-            consumerManagesHistoryCursor: true,
             requestCallbacks: requestCallbacks
         )
         return queryId
     }
-    
-    
-    class HistoryGap {
-        var newestMessageId: String
-        var oldestMessageId: String
-        var startDate: Date
-        var endDate: Date
-        
-        init(newestMessageId: String, oldestMessageId: String, startDate: Date, endDate: Date) {
-            self.newestMessageId = newestMessageId
-            self.oldestMessageId = oldestMessageId
-            self.startDate = Date(timeIntervalSince1970: startDate.timeIntervalSince1970 + 600)
-            self.endDate = Date(timeIntervalSince1970: endDate.timeIntervalSince1970 - 600)
-        }
-    }
-    
-    @discardableResult
-    internal final func syncChat(
-        _ stream: XMPPStream,
-        jid: String,
-        conversationType: ClientSynchronizationManager.ConversationType,
-        pageSize: Int? = nil,
-        queryId: String? = nil,
-        target: ChatBootstrapPageTarget = .latest,
-        callback: (() -> Void)?,
-        requestCallbacks: RequestCallbacks = .none,
-        deferCoverageCommitUntilConsumerProof: Bool = true
-    ) -> SyncChatStartResult {
-        let effectivePageSize = conversationType == .regular
-            ? Self.regularArchivePageSize(requested: pageSize, defaultPageSize: self.pageSize)
-            : (pageSize ?? self.pageSize)
-        do {
-            let realm = try WRealm.safe()
-            let primary = LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType)
-            if realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary) == nil {
-                try realm.write {
-                    let instance = LastChatsStorageItem()
-                    instance.owner = owner
-                    instance.jid = jid
-                    instance.conversationType = conversationType
-                    instance.messageDate = Date()
-                    instance.setPrimary(withOwner: owner)
-                    instance.isSynced = false
-                    if let rosterItem = realm
-                        .object(ofType: RosterStorageItem.self,
-                                forPrimaryKey: [jid, owner].prp()) {
-                        instance.rosterItem = rosterItem
-                        rosterItem.associatedLastChat = instance
-                    } else {
-                        let rosterItem = RosterStorageItem()
-                        rosterItem.owner = owner
-                        rosterItem.jid = jid
-                        rosterItem.primary = RosterStorageItem.genPrimary(jid: jid, owner: owner)
-                        rosterItem.groups.append(RosterUtils.ungroupped)
-                        rosterItem.associatedLastChat = instance
-                        realm.add(rosterItem)
-                        instance.rosterItem = rosterItem
-                    }
-                    instance.rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [jid, owner].prp())
-                    realm.add(instance, update: .modified)
-                }
-            }
 
-            if let lastChatInstance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary) {
-                let localMessageCount =
-                    ConversationArchiveDurableReadinessPolicy.localMessageCount(
-                        owner: self.owner,
-                        jid: jid,
-                        conversationType: conversationType,
-                        in: realm
-                    )
-                let archiveState = conversationType.supportsSnapshotArchiveRepair
-                    ? realm.object(
-                        ofType: RegularChatArchiveSyncStateStorageItem.self,
-                        forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
-                            jid: jid,
-                            owner: self.owner,
-                            conversationType: conversationType
-                        )
-                    )
-                    : nil
-                let hasDurableConversationReadiness =
-                    ConversationArchiveDurableReadinessPolicy.isReady(
-                        chat: lastChatInstance,
-                        archiveState: archiveState,
-                        conversationType: conversationType,
-                        localMessageCount: localMessageCount
-                    )
-                let isTargetedRegularBootstrap =
-                    conversationType == .regular && target != .latest
-                let hasDurableReadinessBeforeTarget =
-                    isTargetedRegularBootstrap &&
-                    hasDurableConversationReadiness
-                let shouldStartBootstrap =
-                    isTargetedRegularBootstrap ||
-                    !hasDurableConversationReadiness
-                if !shouldStartBootstrap {
-                    // A current persistence-confirmed page is already
-                    // presentable. Explicit paging remains user-owned.
-                    return .noop
-                } else {
-                    // `isSynced` and `isInitialArchiveLoaded` are durable
-                    // readiness flags. Once their proof is missing or known to
-                    // be inconsistent, invalidate both before transport starts;
-                    // only `commitAfterPersistence` may restore them.
-                    // A target-only page is orthogonal to an already proven
-                    // live edge. Preserve that proof only when current Realm
-                    // coverage and local materialization still support it.
-                    if !hasDurableReadinessBeforeTarget,
-                       lastChatInstance.isSynced || lastChatInstance.isInitialArchiveLoaded {
-                        try realm.write {
-                            lastChatInstance.isSynced = false
-                            lastChatInstance.isInitialArchiveLoaded = false
-                        }
-                    }
-                    var archiveStart: Date? = nil
-                    if conversationType.isEncrypted {
-                        if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
-                            archiveStart = instance.createdAt
-                        }
-                    }
-                    let bootstrapQueryId = queryId ?? "MAM bootstrap history: \(NanoID.new(6))"
-                    if conversationType == .regular {
-                        let plan = Self.regularBootstrapRequestPlan(
-                            jid: jid,
-                            pageSize: effectivePageSize,
-                            target: target
-                        )
-                        let resolvedQueryId = startRegularArchiveRequest(
-                            stream,
-                            plan: plan,
-                            queryId: bootstrapQueryId,
-                            joinDuplicateRequests: queryId == nil,
-                            callback: callback,
-                            requestCallbacks: requestCallbacks,
-                            deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof
-                        )
-                        return .bootstrapStarted(queryId: resolvedQueryId)
-                    }
-                    let bootstrapRequest = Self.newestBootstrapPageRequest(pageSize: effectivePageSize)
-                    self.requestArchive(
-                        stream, jid: jid,
-                        isContinues: false,
-                        conversationType: conversationType,
-                        purpose: .bootstrap,
-                        queryId: bootstrapQueryId,
-                        start: archiveStart,
-                        nextPage: bootstrapRequest.nextPage,
-                        prevPage: bootstrapRequest.prevPage,
-                        max: bootstrapRequest.max,
-                        coverageUpdateKind: .bootstrapNewest,
-                        consumerManagesArchiveEnd: true,
-                        consumerManagesHistoryCursor: true,
-                        deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof,
-                        callback: callback,
-                        requestCallbacks: requestCallbacks
-                    )
-                    return .bootstrapStarted(queryId: bootstrapQueryId)
-                }
-            }
-            
-        } catch {
-            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-        }
-        return .noop
-    }
-    
-    @discardableResult
-    internal func requestNewerHistoryPage(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String, pageSize: Int? = nil, queryId: String? = nil, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none, deferCoverageCommitUntilConsumerProof: Bool = false) -> String {
-        let effectivePageSize = conversationType == .regular
-            ? Self.regularArchivePageSize(requested: pageSize, defaultPageSize: self.pageSize)
-            : (pageSize ?? self.pageSize)
-        let pageRequest = Self.newerPageRequest(messageId: messageId, pageSize: effectivePageSize)
-        let requestQueryId = queryId ?? "MAM prev history: \(NanoID.new(6))"
-        if conversationType == .regular {
-            let plan = Self.regularNewerRequestPlan(jid: jid, newestLoadedArchiveId: messageId, pageSize: effectivePageSize)
-            return startRegularArchiveRequest(
-                stream,
-                plan: plan,
-                queryId: requestQueryId,
-                joinDuplicateRequests: queryId == nil,
-                callback: callback,
-                requestCallbacks: requestCallbacks,
-                deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof
-            )
-        }
-        self.requestArchive(
-            stream,
-            jid: jid,
-            isContinues: false,
-            conversationType: conversationType,
-            purpose: .pageNewer,
-            queryId: requestQueryId,
-            searchText: nil,
-            flipPage: true,
-            before: nil,
-            beforeId: nil,
-            afterId: nil,
-            start: nil,//lastMsgDate,//modifiedDate,
-            end: nil,
-            nextPage: pageRequest.nextPage,
-            prevPage: pageRequest.prevPage,
-            max: pageRequest.max,
-            consumerManagesArchiveEnd: true,
-            consumerManagesHistoryCursor: true,
-            deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof,
-            callback: callback,
-            requestCallbacks: requestCallbacks
-        )
-        return requestQueryId
-    }
-    
-    @discardableResult
-    internal func requestOlderHistoryPage(_ stream: XMPPStream, for jid: String, conversationType: ClientSynchronizationManager.ConversationType, messageId: String?, pageSize: Int? = nil, queryId: String? = nil, callback: (() -> Void)? = nil, requestCallbacks: RequestCallbacks = .none, deferCoverageCommitUntilConsumerProof: Bool = false) -> String {
-        let effectivePageSize = conversationType == .regular
-            ? Self.regularArchivePageSize(requested: pageSize, defaultPageSize: self.pageSize)
-            : (pageSize ?? self.pageSize)
-        let pageRequest = Self.olderPageRequest(messageId: messageId, pageSize: effectivePageSize)
-        let requestQueryId = queryId ?? "MAM next history: \(NanoID.new(6))"
-        if conversationType == .regular {
-            let plan = Self.regularOlderRequestPlan(jid: jid, oldestLoadedArchiveId: messageId, pageSize: effectivePageSize)
-            return startRegularArchiveRequest(
-                stream,
-                plan: plan,
-                queryId: requestQueryId,
-                joinDuplicateRequests: queryId == nil,
-                callback: callback,
-                requestCallbacks: requestCallbacks,
-                deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof
-            )
-        }
-        self.requestArchive(
-            stream,
-            jid: jid,
-            isContinues: false,
-            conversationType: conversationType,
-            purpose: .pageOlder,
-            queryId: requestQueryId,
-            searchText: nil,
-            flipPage: true,
-            before: nil,
-            beforeId: nil,
-            afterId: nil,
-            start: nil,
-            end: nil,
-            nextPage: pageRequest.nextPage,
-            prevPage: pageRequest.prevPage,
-            max: pageRequest.max,
-            consumerManagesArchiveEnd: true,
-            consumerManagesHistoryCursor: true,
-            deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof,
-            callback: callback,
-            requestCallbacks: requestCallbacks
-        )
-        return requestQueryId
-    }
 
-    @discardableResult
-    internal func getRegularGapRepairHistory(
-        _ stream: XMPPStream,
-        for jid: String,
-        gap: RegularChatArchiveGap,
-        direction: RegularArchiveGapRepairDirection,
-        pageSize: Int? = nil,
-        queryId: String? = nil,
-        callback: (() -> Void)? = nil,
-        requestCallbacks: RequestCallbacks = .none,
-        deferCoverageCommitUntilConsumerProof: Bool = false
-    ) -> String {
-        getGapRepairHistory(
-            stream,
-            for: jid,
-            conversationType: .regular,
-            gap: gap,
-            direction: direction,
-            pageSize: pageSize,
-            queryId: queryId,
-            callback: callback,
-            requestCallbacks: requestCallbacks,
-            deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof
-        )
-    }
-
-    @discardableResult
-    internal func getGapRepairHistory(
-        _ stream: XMPPStream,
-        for jid: String,
-        conversationType: ClientSynchronizationManager.ConversationType,
-        gap: RegularChatArchiveGap,
-        direction: RegularArchiveGapRepairDirection,
-        pageSize: Int? = nil,
-        queryId: String? = nil,
-        callback: (() -> Void)? = nil,
-        requestCallbacks: RequestCallbacks = .none,
-        deferCoverageCommitUntilConsumerProof: Bool = false
-    ) -> String {
-        let effectivePageSize = Self.regularArchivePageSize(requested: pageSize, defaultPageSize: self.pageSize)
-        let plan = Self.archiveGapRepairRequestPlan(
-            jid: jid,
-            conversationType: conversationType,
-            gap: gap,
-            direction: direction,
-            pageSize: effectivePageSize
-        )
-        let requestQueryId = queryId ?? "MAM gap repair history: \(NanoID.new(6))"
-        return startRegularArchiveRequest(
-            stream,
-            plan: plan,
-            queryId: requestQueryId,
-            joinDuplicateRequests: queryId == nil,
-            callback: callback,
-            requestCallbacks: requestCallbacks,
-            deferCoverageCommitUntilConsumerProof: deferCoverageCommitUntilConsumerProof
-        )
-    }
-    
-    private final func checkShouldLoadFullHistory(for jid: String, conversationType: ClientSynchronizationManager.ConversationType) throws -> Bool {
-        
-        let realm = try WRealm.safe()
-        if let instance = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: conversationType)) {
-            let taskId = [jid, conversationType.rawValue].prp()
-            if instance.isAllHistoryLoaded {
-                return false
-            }
-            if self.continuesTaskID == nil {
-                return true
-            }
-            if self.continuesTaskID == taskId {
-                return false
-            }
-//            let msgCount = realm.objects(MessageStorageItem.self).filter("opponent == %@ AND owner == %@ AND conversationType_ == %@", jid, self.owner, conversationType.rawValue).count
-            
-            if !instance.fullArchiveLoaded {
-                return true
-            }
-        } else {
-            return false
-        }
-        return false
-    }
-    
-    public final func startLoadHistory(_ stream: XMPPStream, jid: String, conversationType: ClientSynchronizationManager.ConversationType) throws {
-        let taskId = [jid, conversationType.rawValue].prp()
-        if let continuesTaskID = continuesTaskID {
-            if taskId != continuesTaskID {
-                if let item = self.firstCallbackQueueItem(where: { $0.task.taskID == continuesTaskID }) {
-                    item.callback?()
-                    DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
-                        self.removeCallbackQueueItem(item)
-                    }
-                }
-            }
-        }
-        
-        let realm = try WRealm.safe()
-        let messageId = realm
-            .objects(MessageStorageItem.self)
-            .filter("opponent == %@ AND owner == %@ AND conversationType_ == %@", jid, self.owner, conversationType.rawValue)
-            .sorted (byKeyPath: "date", ascending: false)
-            .last?
-            .archivedId
-        
-        var archiveStart: Date? = nil
-        if conversationType.isEncrypted {
-            if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
-                archiveStart = instance.createdAt
-            }
-        }
-        
-        self.requestArchive(
-            stream,
-            jid: jid,
-            isContinues: true,
-            conversationType: conversationType,
-            purpose: .pageOlder,
-            before: messageId,
-            start: archiveStart
-        )
-        self.continuesTaskID = taskId
-    }
-    
-    public final func continueLoadHistory(_ stream: XMPPStream, task: MAMRequestItem, nextPage: String?, requestCallbacks: RequestCallbacks = .none, callback: (() -> Void)? = nil) {
-//        guard continuesTaskID == task.taskID else { return }
-        guard let nextPage = nextPage else {
-            if let item = self.firstCallbackQueueItem(where: { $0.task.taskID == task.taskID }) {
-                item.callback?()
-                self.removeCallbackQueueItem(item)
-            }
-            return
-        }
-        
-//        if let item = self.callbacksQueue.first(where: { $0.task.taskID == continuesTaskID }) {
-//            self.callbacksQueue.remove(item)
-//        }
-        
-        self.requestArchive(
-            stream,
-            jid: task.jid,
-            isContinues: true,
-            conversationType: task.conversationType,
-            purpose: task.purpose,
-            queryId: task.queryId,
-            searchText: task.searchText,
-            before: task.messageId,
-            afterId: task.afterId,
-            start: task.start,
-            end: task.end,
-            nextPage: nextPage,
-            max: task.max,
-            tags: task.tags,
-            coverageUpdateKind: task.coverageUpdateKind,
-            callback: callback,
-            requestCallbacks: requestCallbacks
-        )
-    }
-    
-    public final func endLoadHistory(jid: String, conversationType: ClientSynchronizationManager.ConversationType) {
-        let taskId = [jid, conversationType.rawValue].prp()
-        if let continuesTaskID = continuesTaskID, continuesTaskID == taskId {
-            if let item = self.firstCallbackQueueItem(where: { $0.task.taskID == continuesTaskID }) {
-                item.callback?()
-                self.removeCallbackQueueItem(item)
-            }
-            self.continuesTaskID = nil
-        }
-    }
-    
     public func readMessage(_ message: XMPPMessage) -> Bool {
         guard let queryId = message.element(forName: "result")?.attributeStringValue(forName: "queryid") else {
             return false
@@ -6423,9 +2984,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                                      date: getDeliveryTime(messageBare, owner: owner) ?? date,
                                      state: .deliver,
                                      queryId: getMAMQueryId(message))
-            
-            
-            
+
+
+
             if isVoIPMessage(item.message) {
                 return true
             }
@@ -6439,7 +3000,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 return true
             }
             let opponent = to != owner ? to : from
-            
+
             var omemoError: Bool = !(item.message.element(forName: "omemo-result__system")?.attributeBoolValue(forName: "result") ?? false)
             var errorMetadata: [String: Any] = [:]
             var isEncryptedMessage: Bool = false
@@ -6447,9 +3008,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                 isEncryptedMessage = true
                 errorMetadata = SignatureManager.MessageError().errorMetadata
             }
-            
+
             let afterburnInterval = item.message.element(forName: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")?.attributeDoubleValue(forName: "timer") ?? 0
-            
+
             var hasSignElement: Bool = false
             var envelopeContainer: String? = nil
 //            print("RECEIVER", #function, item.message.prettyXMLString!)
@@ -6468,7 +3029,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                     errorMetadata = SignatureManager.MessageError().errorMetadata
                 }
             }
-            
+
             if let userId = groupchatUserElement(from: item.message)?
                 .attributeStringValue(forName: "id") {
                 do {
@@ -6487,7 +3048,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             } else {
                 item.originalOutgoing = from == owner
             }
-            
+
 //            if item.originalOutgoing || item.state == .read {
 //                item.isRead = true
             let readDate = item.readDate ??  nil
@@ -6514,7 +3075,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                                           date: item.date, isEncrypted: isEncryptedMessage)
                 instance.forceUnreadState = item.forceUnreadState
                 instance.state = item.state
-                
+
             }
             instance.envelopeContainer = envelopeContainer
             instance.updatePrimary()
@@ -6523,13 +3084,13 @@ class MessageArchiveManager: AbstractXMPPManager {
             } else {
                 instance.afterburnInterval = afterburnInterval
             }
-            
+
             if hasSignElement {
                 instance.errorMetadata = errorMetadata
             }
-            
-                      
-            
+
+
+
             if isEncryptedMessage {
                 if !errorMetadata.isEmpty {
                     if omemoError {
@@ -6541,7 +3102,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                     }
                 }
             }
-            
+
             if afterburnInterval > 0 {
                 if isEncryptedMessage {
                     if !errorMetadata.isEmpty {
@@ -6561,8 +3122,8 @@ class MessageArchiveManager: AbstractXMPPManager {
                 if instance.autoDeleteExpiresAt <= 0 {
                     instance.burnDate = readDate.timeIntervalSince1970 + afterburnInterval
                 }
-                
-                
+
+
                 if instance.effectiveAutoDeleteExpiresAt > 0,
                    instance.effectiveAutoDeleteExpiresAt <= Date().timeIntervalSince1970 {
                     instance.markAutoDeleted()
@@ -6572,877 +3133,15 @@ class MessageArchiveManager: AbstractXMPPManager {
                instance.autoDeleteExpiresAt <= Date().timeIntervalSince1970 {
                 instance.markAutoDeleted()
             }
-            
-            let requestCallbacks: RequestCallbacks
-            let searchResultId: ChatSearchResult.ID? = instance.archivedId.isNotEmpty
-                ? .archived(instance.archivedId)
-                : (instance.primary.isNotEmpty ? .primary(instance.primary) : nil)
-            if self.hasSearchArchiveSession(queryId: queryId) {
-                guard let searchResultId,
-                      let searchAccepted = self.acceptSearchArchiveResult(
-                          queryId: queryId,
-                          id: searchResultId,
-                          date: instance.date
-                      ) else {
-                    return true
-                }
-                guard searchAccepted else {
-                    return true
-                }
-                requestCallbacks = self.searchArchiveCallbacks(queryId: queryId) ?? .none
-            } else {
-                requestCallbacks = self.firstCallbackQueueItem(where: {
-                    $0.elementId == queryId
-                })?.requestCallbacks ?? .none
-            }
+
+            let requestCallbacks = self.firstCallbackQueueItem(where: {
+                $0.elementId == queryId
+            })?.requestCallbacks ?? .none
             self.notifyDidReceiveMessage(instance, queryId: queryId, callbacks: requestCallbacks)
         }
         return true
     }
 
-    internal func scheduleRegularIdleBackfillIfNeeded(delay: TimeInterval = 0.25) {
-        let shouldSchedule = withRegularIdleBackfillTriggerState {
-            $0.registerExplicitTrigger()
-        }
-        guard shouldSchedule else {
-            return
-        }
-        scheduleRegisteredRegularIdleBackfillAttempt(delay: delay)
-    }
-
-    private func scheduleRegisteredRegularIdleBackfillAttempt(delay: TimeInterval = 0.25) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            self.startNextRegularIdleBackfillIfNeeded()
-        }
-    }
-
-    private func finishRegularIdleBackfillAttempt(
-        _ token: RegularIdleBackfillAttemptToken,
-        requiresRetry: Bool = false
-    ) {
-        let shouldSchedulePendingTrigger = withRegularIdleBackfillTriggerState {
-            $0.finishAttempt(token, requiresRetry: requiresRetry)
-        }
-        if shouldSchedulePendingTrigger {
-            scheduleRegisteredRegularIdleBackfillAttempt()
-        }
-    }
-
-    private func withRegularIdleBackfillTriggerState<T>(
-        _ body: (inout RegularIdleBackfillTriggerState) -> T
-    ) -> T {
-        regularIdleBackfillTriggerLock.lock()
-        defer { regularIdleBackfillTriggerLock.unlock() }
-        return body(&regularIdleBackfillTriggerState)
-    }
-
-    internal func scheduleSnapshotArchiveRepairs(_ targets: [SnapshotRepairTarget]) {
-        guard targets.isNotEmpty,
-              AccountManager.shared.find(for: self.owner) != nil else {
-            return
-        }
-
-        let activeGroupPrimaries: Set<String>
-        do {
-            activeGroupPrimaries = CanonicalGroupRegularShadowPolicy
-                .activeGroupPrimaries(in: try WRealm.safe(), owners: [self.owner])
-        } catch {
-            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-            activeGroupPrimaries = []
-        }
-
-        var seen = Set<SnapshotRepairTarget>()
-        var acceptedTargets: [(target: SnapshotRepairTarget, hasPredecessor: Bool, pendingCount: Int)] = []
-        snapshotRepairPumpLock.lock()
-        targets.forEach { target in
-            guard target.conversationType.supportsSnapshotArchiveRepair,
-                  !CanonicalGroupRegularShadowPolicy.shouldSuppress(
-                    owner: self.owner,
-                    jid: target.jid,
-                    conversationType: target.conversationType,
-                    activeGroupPrimaries: activeGroupPrimaries
-                  ),
-                  seen.insert(target).inserted else {
-                return
-            }
-            let isAlreadyScheduled = scheduledSnapshotRepairTargets.contains(target)
-            if isAlreadyScheduled {
-                if SnapshotRepairRetriggerPolicy.shouldMarkDirty(
-                    isAlreadyScheduled: true,
-                    isActiveTarget: activeSnapshotRepairTarget == target
-                ) {
-                    dirtySnapshotRepairTargets.insert(target)
-                }
-                return
-            }
-            scheduledSnapshotRepairTargets.insert(target)
-            let hasPredecessor = activeSnapshotRepairTarget != nil ||
-                pendingSnapshotRepairTargets.isNotEmpty
-            pendingSnapshotRepairTargets.append(target)
-            snapshotRepairPriorityByTarget[target] = .background
-            snapshotRepairFollowUpCountByTarget[target] = 0
-            snapshotRepairEnqueuedAtByTarget[target] = Date()
-            snapshotRepairTransportTargetByTarget[target] = .incremental
-            acceptedTargets.append((
-                target: target,
-                hasPredecessor: hasPredecessor,
-                pendingCount: pendingSnapshotRepairTargets.count
-            ))
-        }
-        let targetToStart: (target: SnapshotRepairTarget, priority: AccountXMPPTaskScheduler.Priority)?
-        if activeSnapshotRepairTarget == nil,
-           pendingSnapshotRepairTargets.isNotEmpty {
-            let target = pendingSnapshotRepairTargets.removeFirst()
-            activeSnapshotRepairTarget = target
-            targetToStart = (
-                target,
-                snapshotRepairPriorityByTarget[target] ?? .background
-            )
-        } else {
-            targetToStart = nil
-        }
-        snapshotRepairPumpLock.unlock()
-
-        acceptedTargets.forEach { accepted in
-            snapshotRepairEnqueueObserver?(
-                accepted.target,
-                .background,
-                accepted.target.deduplicationKey(owner: self.owner)
-            )
-            ChatArchiveDebugTrace.log("mamSnapshotRepairEnqueued", [
-                ("hasPredecessor", accepted.hasPredecessor),
-                ("pendingCount", accepted.pendingCount)
-            ])
-        }
-
-        if let targetToStart {
-            enqueueSnapshotArchiveRepair(
-                targetToStart.target,
-                priority: targetToStart.priority
-            )
-        }
-    }
-
-    private func enqueueSnapshotArchiveRepair(
-        _ target: SnapshotRepairTarget,
-        priority: AccountXMPPTaskScheduler.Priority
-    ) {
-        // A target may wait behind another repair while an interactive chat
-        // transaction commits it. Re-check durable state before reserving a
-        // second wire request.
-        if isSnapshotArchiveRepairSatisfied(target) {
-            finishSnapshotRepairPump(target)
-            return
-        }
-        guard let account = AccountManager.shared.find(for: self.owner) else {
-            finishSnapshotRepairPump(target)
-            return
-        }
-
-        let key = ChatInitialBootstrapRequestKey(
-            owner: self.owner,
-            jid: target.jid,
-            conversationType: target.conversationType
-        )
-        let coordinator = ChatInitialBootstrapRequestCoordinator.shared
-        let proposedQueryId = "MAM snapshot repair: \(NanoID.new(6))"
-        snapshotRepairPumpLock.lock()
-        let enqueuedAt = snapshotRepairEnqueuedAtByTarget[target] ?? Date()
-        let transportTarget =
-            snapshotRepairTransportTargetByTarget[target] ?? .incremental
-        snapshotRepairPumpLock.unlock()
-        let readinessBeforeAcquisition = coordinator.readiness(for: key)
-        let currentBoundaryFingerprint = Self.currentConversationArchiveBoundaryFingerprint(
-            owner: self.owner,
-            jid: target.jid,
-            conversationType: target.conversationType
-        )
-        let freeReconciliationQueryIdBeforeAcquisition =
-            SnapshotRepairTerminalReceiptBudgetPolicy.consumesFollowUpBudget(
-                readiness: readinessBeforeAcquisition,
-                currentBoundaryFingerprint: currentBoundaryFingerprint
-            )
-            ? nil
-            : coordinator.committedLease(for: key)?.queryId
-
-        let acquisition = coordinator.acquireOrJoin(
-            key: key,
-            proposedQueryId: proposedQueryId,
-            timeout: ChatInteractiveRemoteArchiveTimeoutPolicy.timeout,
-            purpose: .snapshotRepair,
-            persistenceTimeout: self.archivePersistenceTerminalTimeout,
-            targetFingerprint: ChatBootstrapTargetFingerprint(
-                target: .latest,
-                boundary: currentBoundaryFingerprint
-            ),
-            observer: { _, _, _ in }
-        )
-
-        let lease: ChatInitialBootstrapRequestCoordinator.Lease
-        let joinedTerminalReceiptAtAcquisition: Bool
-        switch acquisition {
-        case .terminal:
-            coordinator.clearTerminal(key: key)
-            finishSnapshotRepairPump(
-                target,
-                requiresFollowUpRepair: true,
-                consumesFollowUpBudget: true
-            )
-            return
-        case .start(let acquiredLease):
-            lease = acquiredLease
-            joinedTerminalReceiptAtAcquisition = false
-        case .joined(let acquiredLease):
-            lease = acquiredLease
-            joinedTerminalReceiptAtAcquisition =
-                freeReconciliationQueryIdBeforeAcquisition == acquiredLease.queryId
-        }
-
-        let observationLock = NSLock()
-        var observationToken: ChatInitialBootstrapRequestCoordinator.ObservationToken?
-        var pendingTerminalReadiness: ConversationArchiveReadiness?
-        var didFinishObservation = false
-        let finishObservedLease: (ConversationArchiveReadiness) -> Void = { [weak self] readiness in
-            var token: ChatInitialBootstrapRequestCoordinator.ObservationToken?
-            observationLock.lock()
-            guard !didFinishObservation else {
-                observationLock.unlock()
-                return
-            }
-            guard observationToken != nil else {
-                pendingTerminalReadiness = readiness
-                observationLock.unlock()
-                return
-            }
-            didFinishObservation = true
-            token = observationToken
-            observationToken = nil
-            pendingTerminalReadiness = nil
-            observationLock.unlock()
-
-            if let token {
-                coordinator.detach(key: key, observation: token)
-            }
-            DispatchQueue.main.async {
-                guard let self else { return }
-                // Re-check Realm after joining a terminal receipt. This closes
-                // the interval where another query may commit the target after
-                // the pump's initial satisfaction check but before acquire.
-                let boundaryMatches = readiness.boundaryFingerprint.map {
-                    Self.currentConversationArchiveBoundaryFingerprint(
-                        owner: self.owner,
-                        jid: target.jid,
-                        conversationType: target.conversationType
-                    ) == $0
-                } ?? true
-                let satisfiesCurrentSnapshot = readiness.phase == .committed &&
-                    readiness.hasDurableCoverage &&
-                    boundaryMatches &&
-                    self.isSnapshotArchiveRepairSatisfied(target)
-                let requiresFollowUpRepair = readiness.phase == .failed ||
-                    !satisfiesCurrentSnapshot
-                let committedFollowUpTarget: ChatBootstrapPageTarget? =
-                    coordinator.pendingFollowUpRequest(for: key)?
-                        .fingerprint.target ??
-                    (
-                        readiness.phase == .committed &&
-                        !satisfiesCurrentSnapshot
-                            ? .latest
-                            : nil
-                    )
-                if readiness.phase == .committed {
-                    if satisfiesCurrentSnapshot {
-                        _ = coordinator.acknowledgeCommittedReceipt(
-                            key: key,
-                            queryId: lease.queryId
-                        )
-                    } else {
-                        _ = coordinator.invalidateCommittedReceipt(
-                            key: key,
-                            queryId: lease.queryId
-                        )
-                    }
-                } else {
-                    coordinator.clearTerminal(key: key)
-                }
-                self.finishSnapshotRepairPump(
-                    target,
-                    requiresFollowUpRepair: requiresFollowUpRepair,
-                    recommendedFollowUpTarget: committedFollowUpTarget,
-                    // Joining already terminal proof is only reconciliation;
-                    // joining queued/transport/persistence work is a real
-                    // attempt and consumes the same budget as starting it.
-                    consumesFollowUpBudget: !joinedTerminalReceiptAtAcquisition
-                )
-            }
-        }
-        let installedObservationToken = coordinator.observe(key: key) { readiness in
-            guard let readiness,
-                  readiness.isTerminal else {
-                return
-            }
-            finishObservedLease(readiness)
-        }
-        observationLock.lock()
-        observationToken = installedObservationToken
-        let immediateTerminalReadiness = pendingTerminalReadiness
-        observationLock.unlock()
-        if let immediateTerminalReadiness {
-            finishObservedLease(immediateTerminalReadiness)
-        }
-
-        guard case .start = acquisition else {
-            if priority == .interactive {
-                _ = coordinator.promote(key: key)
-            }
-            return
-        }
-
-        let startFailure: () -> Void = {
-            let event = MessageArchiveRequestFailureEvent(
-                owner: key.owner,
-                queryId: lease.queryId,
-                streamKind: .primary,
-                reason: .requestStartFailed,
-                errorDescription: "Snapshot archive transport unavailable",
-                pendingQueryCount: 1
-            )
-            _ = coordinator.recordFailure(key: key, event: event, publishEvent: true)
-        }
-        account.xmppTaskScheduler.enqueueAccountTask(
-            priority: priority,
-            resource: .mamArchive,
-            deduplicationKey: key.schedulerDeduplicationKey(queryId: lease.queryId),
-            requiresAuthenticatedStream: true,
-            unavailable: startFailure
-        ) { [weak self] user, stream, finish in
-            guard self != nil,
-                  coordinator.isActive(key: key, queryId: lease.queryId) else {
-                finish()
-                return
-            }
-            ChatArchiveDebugTrace.log(
-                priority == .interactive
-                    ? "mamSnapshotRepairFollowUpStarted"
-                    : "mamSnapshotRepairBackgroundStarted",
-                [
-                    ("waitMs", ChatArchiveDebugTrace.milliseconds(since: enqueuedAt)),
-                    ("forcesLatest", transportTarget == .latest)
-                ]
-            )
-            coordinator.attachSchedulerCompletion(
-                key: key,
-                queryId: lease.queryId,
-                completion: finish
-            )
-            coordinator.preparePersistenceSource(
-                key: key,
-                queryId: lease.queryId,
-                messages: user.messages,
-                archiveManager: user.mam
-            )
-            guard coordinator.isActive(key: key, queryId: lease.queryId) else {
-                finish()
-                return
-            }
-            let startedQueryId = user.mam.startSnapshotArchiveRepair(
-                stream,
-                target: target,
-                queryId: lease.queryId,
-                transportTarget: transportTarget,
-                callback: nil,
-                requestCallbacks: .none
-            )
-            guard startedQueryId == lease.queryId else {
-                startFailure()
-                return
-            }
-            coordinator.resolveStart(
-                key: key,
-                queryId: lease.queryId,
-                result: .bootstrapStarted(queryId: lease.queryId),
-                messages: user.messages,
-                archiveManager: user.mam,
-                cancelTransport: {
-                    _ = user.mam.cancelPendingArchiveRequest(queryId: lease.queryId)
-                }
-            )
-        }
-    }
-
-    private func isSnapshotArchiveRepairSatisfied(
-        _ target: SnapshotRepairTarget
-    ) -> Bool {
-        do {
-            let realm = try WRealm.safe()
-            let chat = realm.object(
-                ofType: LastChatsStorageItem.self,
-                forPrimaryKey: LastChatsStorageItem.genPrimary(
-                    jid: target.jid,
-                    owner: self.owner,
-                    conversationType: target.conversationType
-                )
-            )
-            let archiveState = realm.object(
-                ofType: RegularChatArchiveSyncStateStorageItem.self,
-                forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
-                    jid: target.jid,
-                    owner: self.owner,
-                    conversationType: target.conversationType
-                )
-            )
-            let localMessageCount =
-                ConversationArchiveDurableReadinessPolicy.localMessageCount(
-                    owner: self.owner,
-                    jid: target.jid,
-                    conversationType: target.conversationType,
-                    in: realm
-                )
-            return ConversationArchiveDurableReadinessPolicy.isReady(
-                chat: chat,
-                archiveState: archiveState,
-                conversationType: target.conversationType,
-                localMessageCount: localMessageCount
-            )
-        } catch {
-            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    private func finishSnapshotRepairPump(
-        _ target: SnapshotRepairTarget,
-        requiresFollowUpRepair: Bool = false,
-        recommendedFollowUpTarget: ChatBootstrapPageTarget? = nil,
-        consumesFollowUpBudget: Bool = true
-    ) {
-        snapshotRepairPumpLock.lock()
-        guard activeSnapshotRepairTarget == target else {
-            snapshotRepairPumpLock.unlock()
-            return
-        }
-
-        let currentFollowUpCount = snapshotRepairFollowUpCountByTarget[target] ?? 0
-        let hasNewSnapshotGeneration = dirtySnapshotRepairTargets.remove(target) != nil
-        let budgetDecision: SnapshotRepairFollowUpBudgetDecision
-        if hasNewSnapshotGeneration {
-            // This is a new synchronization snapshot, not a retry of the old
-            // one. Preserve it independently of the previous retry budget;
-            // enqueue will cheaply re-check Realm before using the wire.
-            budgetDecision = SnapshotRepairFollowUpBudgetDecision(
-                shouldSchedule: true,
-                didExhaust: false,
-                nextConsumedCount: 0
-            )
-        } else {
-            budgetDecision = SnapshotRepairFollowUpBudgetPolicy.decision(
-                requiresFollowUp: requiresFollowUpRepair,
-                currentConsumedCount: currentFollowUpCount,
-                consumesBudget: consumesFollowUpBudget
-            )
-        }
-        let shouldScheduleFollowUp = budgetDecision.shouldSchedule
-        let didExhaustFollowUp = budgetDecision.didExhaust
-        activeSnapshotRepairTarget = nil
-        if shouldScheduleFollowUp {
-            snapshotRepairFollowUpCountByTarget[target] = budgetDecision.nextConsumedCount
-            snapshotRepairPriorityByTarget[target] = hasNewSnapshotGeneration
-                ? .background
-                : .interactive
-            snapshotRepairEnqueuedAtByTarget[target] = Date()
-            snapshotRepairTransportTargetByTarget[target] =
-                SnapshotArchiveRepairTransportTarget.followUpTarget(
-                    current:
-                        snapshotRepairTransportTargetByTarget[target] ??
-                        .incremental,
-                    recommended: recommendedFollowUpTarget,
-                    hasNewSnapshotGeneration: hasNewSnapshotGeneration
-                )
-            pendingSnapshotRepairTargets.insert(target, at: 0)
-        } else {
-            scheduledSnapshotRepairTargets.remove(target)
-            dirtySnapshotRepairTargets.remove(target)
-            snapshotRepairPriorityByTarget.removeValue(forKey: target)
-            snapshotRepairFollowUpCountByTarget.removeValue(forKey: target)
-            snapshotRepairEnqueuedAtByTarget.removeValue(forKey: target)
-            snapshotRepairTransportTargetByTarget.removeValue(forKey: target)
-        }
-
-        let nextTarget: (target: SnapshotRepairTarget, priority: AccountXMPPTaskScheduler.Priority)?
-        if pendingSnapshotRepairTargets.isNotEmpty {
-            let target = pendingSnapshotRepairTargets.removeFirst()
-            activeSnapshotRepairTarget = target
-            nextTarget = (
-                target,
-                snapshotRepairPriorityByTarget[target] ?? .background
-            )
-        } else {
-            nextTarget = nil
-        }
-        snapshotRepairPumpLock.unlock()
-
-        if shouldScheduleFollowUp {
-            snapshotRepairEnqueueObserver?(
-                target,
-                hasNewSnapshotGeneration ? .background : .interactive,
-                target.deduplicationKey(owner: self.owner)
-            )
-            ChatArchiveDebugTrace.log(
-                hasNewSnapshotGeneration
-                    ? "mamSnapshotRepairRetriggerEnqueued"
-                    : "mamSnapshotRepairFollowUpEnqueued",
-                [
-                ("attempt", budgetDecision.nextConsumedCount),
-                ("consumedBudget", hasNewSnapshotGeneration ? false : consumesFollowUpBudget)
-            ])
-        } else if didExhaustFollowUp {
-            ChatArchiveDebugTrace.log("mamSnapshotRepairFollowUpFailed", [
-                ("attempt", currentFollowUpCount)
-            ])
-        }
-
-        if let nextTarget {
-            enqueueSnapshotArchiveRepair(
-                nextTarget.target,
-                priority: nextTarget.priority
-            )
-        }
-    }
-
-    @discardableResult
-    internal func startSnapshotArchiveRepair(
-        _ stream: XMPPStream,
-        target: SnapshotRepairTarget,
-        queryId: String? = nil,
-        transportTarget: SnapshotArchiveRepairTransportTarget = .incremental,
-        callback: (() -> Void)? = nil,
-        requestCallbacks: RequestCallbacks = .none
-    ) -> String? {
-        guard target.conversationType.supportsSnapshotArchiveRepair,
-              target.jid.isNotEmpty else {
-            callback?()
-            return nil
-        }
-
-        let pageSize = Self.regularArchivePageSize(requested: nil, defaultPageSize: self.pageSize)
-        let newestLoadedArchiveId: String?
-        do {
-            let realm = try WRealm.safe()
-            let primary = RegularChatArchiveSyncStateStorageItem.genPrimary(
-                jid: target.jid,
-                owner: self.owner,
-                conversationType: target.conversationType
-            )
-            if let state = realm.object(ofType: RegularChatArchiveSyncStateStorageItem.self, forPrimaryKey: primary) {
-                newestLoadedArchiveId = state.newestLoadedArchiveId
-            } else {
-                var loadedArchiveId: String?
-                try realm.write {
-                    let state = RegularChatArchiveSyncStateStorageItem.ensure(
-                        owner: self.owner,
-                        jid: target.jid,
-                        conversationType: target.conversationType,
-                        in: realm
-                    )
-                    loadedArchiveId = state.newestLoadedArchiveId
-                }
-                newestLoadedArchiveId = loadedArchiveId
-            }
-        } catch {
-            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-            callback?()
-            return nil
-        }
-
-        let plan = Self.snapshotRepairRequestPlan(
-            jid: target.jid,
-            conversationType: target.conversationType,
-            newestLoadedArchiveId: newestLoadedArchiveId,
-            pageSize: pageSize,
-            transportTarget: transportTarget
-        )
-        let requestQueryId = queryId ?? "MAM snapshot repair: \(NanoID.new(6))"
-        return startRegularArchiveRequest(
-            stream,
-            plan: plan,
-            queryId: requestQueryId,
-            priority: .background,
-            joinDuplicateRequests: true,
-            callback: callback,
-            requestCallbacks: requestCallbacks,
-            deferCoverageCommitUntilConsumerProof: true
-        )
-    }
-
-    private func startNextRegularIdleBackfillIfNeeded() {
-        let attemptToken = withRegularIdleBackfillTriggerState {
-            $0.beginScheduledAttempt()
-        }
-        guard let attemptToken else {
-            return
-        }
-
-        let target: String?
-        do {
-            let realm = try WRealm.safe()
-            let activeRegularJids = Set(
-                regularArchiveInFlightByKey.keys
-                    .filter { $0.conversationTypeRaw == ClientSynchronizationManager.ConversationType.regular.rawValue }
-                    .map(\.jid)
-            )
-            let ignoredServiceJids = Set(
-                XMPPServiceJidsSupport.ignoredServiceJids(
-                    in: realm,
-                    accountJids: [self.owner]
-                )
-            )
-            let activeCanonicalGroupJids = Set(
-                ((try? GroupRepository(realm: realm).activeGroups(owners: [self.owner])) ?? [])
-                    .map(\.groupJID)
-            )
-            let orderedCandidateJids = realm.objects(LastChatsStorageItem.self)
-                .filter("owner == %@ AND conversationType_ == %@ AND isSynced == false", self.owner, ClientSynchronizationManager.ConversationType.regular.rawValue)
-                .sorted(byKeyPath: "messageDate", ascending: false)
-                .lazy
-                .map(\.jid)
-            target = RegularIdleBackfillTargetPolicy.targetJid(
-                from: orderedCandidateJids,
-                activeRegularJids: activeRegularJids,
-                ignoredServiceJids: ignoredServiceJids,
-                activeCanonicalGroupJids: activeCanonicalGroupJids
-            )
-        } catch {
-            DDLogDebug("MessageArchiveManager: \(#function). \(error.localizedDescription)")
-            finishRegularIdleBackfillAttempt(attemptToken)
-            return
-        }
-
-        guard let jid = target else {
-            finishRegularIdleBackfillAttempt(attemptToken)
-            return
-        }
-
-        let pageSize = Self.regularArchivePageSize(requested: nil, defaultPageSize: self.pageSize)
-        let queryId = "MAM idle regular bootstrap: \(NanoID.new(6))"
-        let plan = Self.regularBootstrapRequestPlan(jid: jid, pageSize: pageSize)
-
-        guard let account = AccountManager.shared.find(for: self.owner) else {
-            self.finishRegularIdleBackfillAttempt(attemptToken)
-            return
-        }
-
-        account.xmppTaskScheduler.enqueueAccountTask(
-            priority: .idle,
-            resource: .mamArchive,
-            deduplicationKey: "regular.idle-bootstrap.\(self.owner)",
-            requiresAuthenticatedStream: false
-        ) { [weak self] user, stream, finish in
-            guard let self else {
-                finish()
-                return
-            }
-            guard stream.isAuthenticated else {
-                finish()
-                self.finishRegularIdleBackfillAttempt(attemptToken)
-                return
-            }
-
-            user.messages.beginArchiveQueryBatch(queryId: queryId)
-            let completionLock = NSLock()
-            var didReleaseWire = false
-            var didFinishTransaction = false
-            var wireEndPageToken: MessageArchiveEndPageDispatcher.Token?
-            var failureToken: MessageArchiveRequestFailureDispatcher.Token?
-            var preparationToken: MessageArchiveRequestFailurePreparationDispatcher.Token?
-            var persistenceMustAbort = false
-            var persistenceRequiresRetryAfterAbort = false
-            var failureTerminalAcknowledgements: [() -> Void] = []
-            let persistenceGate = ArchivePersistenceTerminalGate(
-                timeout: self.archivePersistenceTerminalTimeout
-            )
-
-            let releaseWire = {
-                completionLock.lock()
-                guard !didReleaseWire else {
-                    completionLock.unlock()
-                    return
-                }
-                didReleaseWire = true
-                completionLock.unlock()
-                ChatArchiveDebugTrace.log("mamIdleBootstrapWireFin")
-                finish()
-            }
-            let finishTransaction = { [weak self] (requiresRetry: Bool) in
-                completionLock.lock()
-                guard !didFinishTransaction else {
-                    completionLock.unlock()
-                    return
-                }
-                didFinishTransaction = true
-                let activeWireEndPageToken = wireEndPageToken
-                let activeFailureToken = failureToken
-                let activePreparationToken = preparationToken
-                let acknowledgements = failureTerminalAcknowledgements
-                failureTerminalAcknowledgements.removeAll()
-                completionLock.unlock()
-                if let activeWireEndPageToken {
-                    MessageArchiveEndPageDispatcher.unregister(activeWireEndPageToken)
-                }
-                if let activeFailureToken {
-                    MessageArchiveRequestFailureDispatcher.unregister(activeFailureToken)
-                }
-                if let activePreparationToken {
-                    MessageArchiveRequestFailurePreparationDispatcher.unregister(
-                        activePreparationToken
-                    )
-                }
-                acknowledgements.forEach { $0() }
-                self?.finishRegularIdleBackfillAttempt(
-                    attemptToken,
-                    requiresRetry: requiresRetry
-                )
-            }
-
-            let markPersistenceForAbort = {
-                (requiresRetry: Bool, terminal: (() -> Void)?) in
-                var acknowledgeImmediately = false
-                completionLock.lock()
-                if didFinishTransaction {
-                    acknowledgeImmediately = terminal != nil
-                } else {
-                    persistenceMustAbort = true
-                    persistenceRequiresRetryAfterAbort =
-                        persistenceRequiresRetryAfterAbort || requiresRetry
-                    if let terminal {
-                        failureTerminalAcknowledgements.append(terminal)
-                    }
-                }
-                completionLock.unlock()
-                if acknowledgeImmediately {
-                    terminal?()
-                }
-            }
-
-            let flushPersistence = {
-                guard persistenceGate.arm(onTimeout: {
-                    user.mam.abortDeferredCommit(queryId: queryId)
-                    user.messages.releaseArchiveQueryBatchIngressExpectation(
-                        queryId: queryId
-                    )
-                    ChatArchiveDebugTrace.log("mamIdleBootstrapPersistenceTimeout")
-                    finishTransaction(true)
-                }) else {
-                    return
-                }
-                ChatArchiveDebugTrace.log("mamIdleBootstrapPersistenceStart")
-                let expectedReceivedCount =
-                    user.mam.expectedPersistenceResultCount(
-                        queryId: queryId
-                    )
-                user.messages.finishArchiveQueryBatchAsync(
-                    queryId: queryId,
-                    expectedReceivedCount: expectedReceivedCount
-                ) { summary in
-                    guard persistenceGate.claimPersistenceTerminal() else {
-                        return
-                    }
-                    ChatArchiveDebugTrace.log("mamIdleBootstrapPersistenceTerminal", [
-                        ("persistedRows", summary.persistedRows),
-                        ("processedRows", summary.processedRows),
-                        ("failedRows", summary.failed)
-                    ])
-                    completionLock.lock()
-                    let mustAbort = persistenceMustAbort
-                    let requiresRetryAfterAbort = persistenceRequiresRetryAfterAbort
-                    completionLock.unlock()
-                    if mustAbort {
-                        user.mam.abortDeferredCommit(queryId: queryId)
-                        finishTransaction(requiresRetryAfterAbort)
-                        return
-                    }
-
-                    let commitResult = user.mam.commitAfterPersistence(
-                        queryId: queryId,
-                        persistenceSummary: summary
-                    )
-                    _ = user.mam.consumeCommittedArchiveConsumerProof(
-                        queryId: queryId
-                    )
-                    let requiresRetry: Bool
-                    switch commitResult {
-                    case .committed:
-                        ChatArchiveDebugTrace.log("mamIdleBootstrapCommit")
-                        requiresRetry = false
-                    case .committedNeedsFollowUpRepair:
-                        ChatArchiveDebugTrace.log("mamIdleBootstrapCommitNeedsRepair")
-                        requiresRetry = true
-                    case .missingDescriptor:
-                        ChatArchiveDebugTrace.log("mamIdleBootstrapCommitMissingDescriptor")
-                        requiresRetry = true
-                    case .rejected(let rejection):
-                        ChatArchiveDebugTrace.log("mamIdleBootstrapCommitFailed", [
-                            ("failedRows", self.deferredArchiveFailedRowCount(rejection))
-                        ])
-                        requiresRetry = true
-                    }
-                    finishTransaction(requiresRetry)
-                }
-            }
-
-            preparationToken = MessageArchiveRequestFailurePreparationDispatcher.register(
-                owner: self.owner,
-                queryId: queryId
-            ) { _, terminal in
-                releaseWire()
-                markPersistenceForAbort(true, terminal)
-                flushPersistence()
-            }
-            failureToken = MessageArchiveRequestFailureDispatcher.register(
-                owner: self.owner,
-                queryId: queryId,
-                delivery: .synchronous
-            ) { _ in
-                releaseWire()
-            }
-            wireEndPageToken = MessageArchiveEndPageDispatcher.register(
-                owner: self.owner,
-                queryId: queryId,
-                delivery: .synchronous
-            ) { event in
-                guard event.queryId == queryId else { return }
-                releaseWire()
-            }
-
-            let startedQueryId = user.mam.startRegularArchiveRequest(
-                stream,
-                plan: plan,
-                queryId: queryId,
-                priority: .idle,
-                callback: nil,
-                requestCallbacks: RequestCallbacks(
-                    onEndPage: { completedQueryId, _, _, _, _ in
-                        guard completedQueryId == queryId else { return }
-                        releaseWire()
-                        flushPersistence()
-                    },
-                    onFailure: { event in
-                        guard event.queryId == queryId else { return }
-                        releaseWire()
-                    }
-                ),
-                deferCoverageCommitUntilConsumerProof: true
-            )
-            if startedQueryId != queryId {
-                // A higher-priority request for the same conversation won the
-                // race after target selection. Do not attach this idle
-                // persistence transaction to its query.
-                releaseWire()
-                markPersistenceForAbort(false, nil)
-                flushPersistence()
-            }
-        }
-    }
-    
     internal func archiveRequestGenerationSnapshot() -> UInt64 {
         archiveRequestLifecycleLock.lock()
         defer { archiveRequestLifecycleLock.unlock() }
@@ -7464,13 +3163,6 @@ class MessageArchiveManager: AbstractXMPPManager {
         archiveRequestLifecycleLock.lock()
         defer { archiveRequestLifecycleLock.unlock() }
         archiveRequestLifecycleGeneration &+= 1
-        self.withRegularIdleBackfillTriggerState { $0.reset() }
-        searchArchiveStateLock.lock()
-        let activeSearchQueryIds = searchArchiveSessionsByQueryId.compactMap { queryId, session in
-            session.isActive ? queryId : nil
-        }
-        searchArchiveStateLock.unlock()
-        activeSearchQueryIds.forEach { _ = cancelSearch(queryId: $0) }
         let pendingItems = self.drainCallbackQueueItems()
         let pendingCallbacks = pendingItems.compactMap(\.callback)
         pendingItems.forEach { item in
@@ -7489,15 +3181,11 @@ class MessageArchiveManager: AbstractXMPPManager {
         self.queryIds.removeAll()
         self.persistedMessageCountsByQueryId.removeAll()
         self.searchResultsQueries.removeAll()
-        self.continuesTaskID = nil
-        self.regularArchiveInFlightByKey.removeAll()
-        self.regularArchiveRequestKeyByQueryId.removeAll()
         self.deferredArchiveCommitLock.lock()
         // A raw `<fin>` transfers ownership from the stream session to the
-        // query-scoped persistence transaction. Its descriptor, bounded
-        // ingress expectation, and committed proof awaiting coordinator
-        // consumption must therefore survive a socket/module reset. Only
-        // proofs for requests still on the wire belong to the discarded
+        // query-scoped persistence transaction. Its sealed transport proof
+        // and ingress expectation therefore survive a socket/module reset.
+        // Only proofs for requests still on the wire belong to the discarded
         // session.
         self.deferredArchiveTransportProofsByQueryId.removeAll()
         self.deferredArchiveCommitLock.unlock()

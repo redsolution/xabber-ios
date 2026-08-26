@@ -2615,6 +2615,27 @@
 
 "plurals.recent_chat__last_message__locations.item_3" = "%d локаций";
 
+"plurals.last_chat_attachment_preview__photos.item_0" = "Фото";
+"plurals.last_chat_attachment_preview__photos.item_0_counted" = "%@ фото";
+"plurals.last_chat_attachment_preview__photos.item_1" = "%@ фото";
+"plurals.last_chat_attachment_preview__photos.item_2" = "%@ фото";
+"plurals.last_chat_attachment_preview__photos.item_3" = "%@ фото";
+"plurals.last_chat_attachment_preview__videos.item_0" = "Видео";
+"plurals.last_chat_attachment_preview__videos.item_0_counted" = "%@ видео";
+"plurals.last_chat_attachment_preview__videos.item_1" = "%@ видео";
+"plurals.last_chat_attachment_preview__videos.item_2" = "%@ видео";
+"plurals.last_chat_attachment_preview__videos.item_3" = "%@ видео";
+"plurals.last_chat_attachment_preview__files.item_0" = "Файл";
+"plurals.last_chat_attachment_preview__files.item_0_counted" = "%@ файл";
+"plurals.last_chat_attachment_preview__files.item_1" = "%@ файла";
+"plurals.last_chat_attachment_preview__files.item_2" = "%@ файлов";
+"plurals.last_chat_attachment_preview__files.item_3" = "%@ файлов";
+"plurals.last_chat_attachment_preview__voice_messages.item_0" = "Голосовое сообщение";
+"plurals.last_chat_attachment_preview__voice_messages.item_0_counted" = "%@ голосовое сообщение";
+"plurals.last_chat_attachment_preview__voice_messages.item_1" = "%@ голосовых сообщения";
+"plurals.last_chat_attachment_preview__voice_messages.item_2" = "%@ голосовых сообщений";
+"plurals.last_chat_attachment_preview__voice_messages.item_3" = "%@ голосовых сообщений";
+
 
 "recent_chat__last_message__contact" = "Contact: %@";
 
@@ -5565,6 +5586,8 @@
 "chat_attachment_file_no_files_selected" = "Файлы не выбраны";
 "chat_attachment_file_loading_files" = "Загрузка файлов...";
 "chat_attachment_geolocation_allow_access_action" = "Разрешить доступ к геопозиции";
+"chat_attachment_geolocation_search_placeholder" = "Поиск адреса";
+"chat_attachment_geolocation_snapshot_failed_message" = "Не удалось подготовить предпросмотр карты.";
 "chat_attachment_geolocation_denied_message" = "Доступ к геопозиции запрещён.";
 "chat_attachment_geolocation_restricted_message" = "Доступ к геопозиции ограничен.";
 "chat_attachment_geolocation_unavailable_message" = "Геопозиция недоступна.";

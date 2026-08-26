@@ -200,11 +200,6 @@ final class ChatStickerPipelineTests: XCTestCase {
             contacts: []
         )
         let context = ChatCollectionPrefetchContext.empty(
-            conversationKey: .init(
-                owner: "owner@example.com",
-                jid: "alexey@example.com",
-                conversationType: "regular"
-            ),
             mediaContainerSize: .init(width: 314, height: 314),
             screenScale: 3,
             traitStyle: .light
@@ -371,7 +366,7 @@ private final class RecordingStickerThumbnailSubscription: ChatThumbnailSubscrip
 private extension ChatCollectionPrefetchResource {
     var isFullDocumentResource: Bool {
         switch self {
-        case .image, .videoPreview, .avatar, .locationSnapshot, .pageWarmup:
+        case .image, .videoPreview, .avatar, .locationSnapshot:
             return false
         }
     }

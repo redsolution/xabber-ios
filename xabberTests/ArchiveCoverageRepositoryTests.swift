@@ -39,7 +39,7 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
             _ = try await repository.commit(
                 page,
                 request: request,
-                freshnessToken: .xepSync(fingerprint: "sync-1")
+                freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: "q-missing")
             )
             XCTFail("Coverage must not commit without durable message rows")
         } catch {
@@ -84,7 +84,7 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         let result = try await repository.commit(
             page,
             request: request,
-            freshnessToken: .xepSync(fingerprint: "sync-1")
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: "q-consumed-only")
         )
 
         guard case .verified(let snapshot) = result else {
@@ -119,7 +119,7 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         let result = try await repository.commit(
             page,
             request: request,
-            freshnessToken: .xepSync(fingerprint: "sync-1")
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: "q-commit")
         )
 
         guard case .verified(let snapshot) = result else {
@@ -139,13 +139,70 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         )
         XCTAssertEqual(storage.segments.count, 1)
         XCTAssertTrue(storage.segments[0].isVerified)
-        XCTAssertEqual(storage.lastObservedXEPSYNCFingerprint, "sync-1")
+        XCTAssertEqual(storage.lastObservedXEPSYNCFingerprint, "session:1")
         XCTAssertEqual(storage.coverageGeneration, 1)
         XCTAssertTrue(
             realm.object(
                 ofType: RegularChatArchiveSyncStateStorageItem.self,
                 forPrimaryKey: primary
             )?.newerLiveEdgeReached == true
+        )
+    }
+
+    func testNewSessionCommitReplacesStaleSessionCoverageInsteadOfAccumulatingIt() async throws {
+        try persistMessage(primary: "p10", archivedID: "10")
+        try persistMessage(primary: "p20", archivedID: "20")
+        let repository = makeRepository()
+
+        let firstRequest = makeRequest(
+            queryID: "q-session-one",
+            connectionGeneration: 1
+        )
+        _ = try await repository.commit(
+            validatedPage(
+                request: firstRequest,
+                primaryIDs: ["p20", "p10"]
+            ),
+            request: firstRequest,
+            freshnessToken: .sessionMAM(
+                connectionGeneration: 1,
+                queryID: firstRequest.queryID
+            )
+        )
+
+        let secondRequest = makeRequest(
+            queryID: "q-session-two",
+            connectionGeneration: 2
+        )
+        _ = try await repository.commit(
+            validatedPage(
+                request: secondRequest,
+                primaryIDs: ["p20", "p10"]
+            ),
+            request: secondRequest,
+            freshnessToken: .sessionMAM(
+                connectionGeneration: 2,
+                queryID: secondRequest.queryID
+            )
+        )
+
+        let realm = try await Realm(configuration: configuration)
+        realm.refresh()
+        let storage = try XCTUnwrap(
+            realm.object(
+                ofType: ConversationArchiveCoverageStorageItem.self,
+                forPrimaryKey: ConversationArchiveCoverageStorageItem.genPrimary(
+                    owner: conversation.owner,
+                    jid: conversation.jid,
+                    conversationType: conversation.conversationType
+                )
+            )
+        )
+        XCTAssertEqual(storage.archiveFreshnessFingerprint, "session:2")
+        XCTAssertEqual(storage.segments.count, 1)
+        XCTAssertEqual(
+            Set(storage.segments.map(\.fingerprint)),
+            Set(["session:2"])
         )
     }
 
@@ -176,7 +233,7 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         _ = try await repository.commit(
             latestPage,
             request: latestRequest,
-            freshnessToken: .xepSync(fingerprint: "sync-1")
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: "q-latest")
         )
 
         let boundary = try XCTUnwrap(ArchiveCursor(rawValue: "100"))
@@ -188,7 +245,7 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
             pageSize: 100,
             contextBefore: 2,
             contextAfter: 2,
-            proofFingerprint: "sync-1",
+            proofFingerprint: "session:1",
             isUnfiltered: true,
             producesContinuousCoverage: true
         )
@@ -214,7 +271,7 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         let result = try await repository.commit(
             olderPage,
             request: olderRequest,
-            freshnessToken: .xepSync(fingerprint: "sync-1")
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: "q-older")
         )
 
         guard case .verified(let snapshot) = result else {
@@ -225,6 +282,161 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         XCTAssertEqual(snapshot.verifiedSegment.newest.rawValue, "200")
         XCTAssertTrue(snapshot.verifiedSegment.reachesArchiveStart)
         XCTAssertTrue(snapshot.verifiedSegment.reachesLiveEdge)
+    }
+
+    func testCompletedEmptyOlderPageMarksVerifiedArchiveStartWithoutDroppingBoundary() async throws {
+        for archivedID in ["100", "200"] {
+            try persistMessage(primary: "p\(archivedID)", archivedID: archivedID)
+        }
+        let repository = makeRepository()
+        let latestRequest = makeRequest(queryID: "q-empty-edge-latest")
+        _ = try await repository.commit(
+            ArchiveTransportReceiptValidator.validate(
+                receipt(
+                    request: latestRequest,
+                    archiveIDs: ["200", "100"],
+                    primaryIDs: ["p200", "p100"],
+                    complete: false
+                ),
+                for: latestRequest
+            ),
+            request: latestRequest,
+            freshnessToken: .sessionMAM(
+                connectionGeneration: 1,
+                queryID: latestRequest.queryID
+            )
+        )
+
+        let boundary = try XCTUnwrap(ArchiveCursor(rawValue: "100"))
+        let olderRequest = ArchiveTransportRequest(
+            queryID: "q-empty-older-edge",
+            conversation: conversation,
+            locator: .older(before: boundary),
+            connectionGeneration: 1,
+            pageSize: 100,
+            contextBefore: 100,
+            contextAfter: 0,
+            proofFingerprint: "session:1",
+            isUnfiltered: true,
+            producesContinuousCoverage: true
+        )
+        let emptyPage = try ArchiveTransportReceiptValidator.validate(
+            receipt(
+                request: olderRequest,
+                archiveIDs: [],
+                primaryIDs: [],
+                complete: true
+            ),
+            for: olderRequest
+        )
+
+        let result = try await repository.commit(
+            emptyPage,
+            request: olderRequest,
+            freshnessToken: .sessionMAM(
+                connectionGeneration: 1,
+                queryID: olderRequest.queryID
+            )
+        )
+
+        guard case .verified(let snapshot) = result else {
+            return XCTFail("Expected the empty completed boundary to update current proof")
+        }
+        XCTAssertEqual(snapshot.messagePrimaryIDs, ["p100"])
+        XCTAssertEqual(snapshot.verifiedSegment.oldest, boundary)
+        XCTAssertEqual(snapshot.verifiedSegment.newest.rawValue, "200")
+        XCTAssertTrue(snapshot.verifiedSegment.reachesArchiveStart)
+        XCTAssertTrue(snapshot.verifiedSegment.reachesLiveEdge)
+
+        let realm = try await Realm(configuration: configuration)
+        realm.refresh()
+        let storage = try XCTUnwrap(
+            realm.object(
+                ofType: ConversationArchiveCoverageStorageItem.self,
+                forPrimaryKey: ConversationArchiveCoverageStorageItem.genPrimary(
+                    owner: conversation.owner,
+                    jid: conversation.jid,
+                    conversationType: conversation.conversationType
+                )
+            )
+        )
+        XCTAssertEqual(storage.segments.count, 1)
+        XCTAssertTrue(storage.segments[0].reachesArchiveStart)
+    }
+
+    func testCompletedEmptyNewerPageMarksVerifiedLiveEdgeWithoutDroppingBoundary() async throws {
+        for archivedID in ["100", "200"] {
+            try persistMessage(primary: "p\(archivedID)", archivedID: archivedID)
+        }
+        let oldest = try XCTUnwrap(ArchiveCursor(rawValue: "100"))
+        let newest = try XCTUnwrap(ArchiveCursor(rawValue: "200"))
+        let realm = try await Realm(configuration: configuration)
+        try realm.write {
+            let storage = ConversationArchiveCoverageStorageItem.ensure(
+                key: conversation,
+                in: realm
+            )
+            storage.archiveFreshnessFingerprint = "session:1"
+            storage.coverageGeneration = 1
+            storage.segments = [try XCTUnwrap(ArchiveCoverageSegment(
+                oldest: oldest,
+                newest: newest,
+                reachesArchiveStart: true,
+                reachesLiveEdge: false,
+                fingerprint: "session:1",
+                isVerified: true
+            ))]
+        }
+
+        let newerRequest = ArchiveTransportRequest(
+            queryID: "q-empty-newer-edge",
+            conversation: conversation,
+            locator: .newer(after: newest),
+            connectionGeneration: 1,
+            pageSize: 100,
+            contextBefore: 0,
+            contextAfter: 100,
+            proofFingerprint: "session:1",
+            isUnfiltered: true,
+            producesContinuousCoverage: true
+        )
+        let emptyPage = try ArchiveTransportReceiptValidator.validate(
+            receipt(
+                request: newerRequest,
+                archiveIDs: [],
+                primaryIDs: [],
+                complete: true
+            ),
+            for: newerRequest
+        )
+
+        let result = try await makeRepository().commit(
+            emptyPage,
+            request: newerRequest,
+            freshnessToken: .sessionMAM(
+                connectionGeneration: 1,
+                queryID: newerRequest.queryID
+            )
+        )
+
+        guard case .verified(let snapshot) = result else {
+            return XCTFail("Expected the empty completed boundary to update current proof")
+        }
+        XCTAssertEqual(snapshot.messagePrimaryIDs, ["p200"])
+        XCTAssertTrue(snapshot.verifiedSegment.reachesArchiveStart)
+        XCTAssertTrue(snapshot.verifiedSegment.reachesLiveEdge)
+        realm.refresh()
+        let storage = try XCTUnwrap(
+            realm.object(
+                ofType: ConversationArchiveCoverageStorageItem.self,
+                forPrimaryKey: ConversationArchiveCoverageStorageItem.genPrimary(
+                    owner: conversation.owner,
+                    jid: conversation.jid,
+                    conversationType: conversation.conversationType
+                )
+            )
+        )
+        XCTAssertTrue(storage.segments[0].reachesLiveEdge)
     }
 
     func testExactTargetBecomesCoverageOnlyAfterOlderAndNewerProofs() async throws {
@@ -247,7 +459,7 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
             pageSize: 60,
             contextBefore: 30,
             contextAfter: 30,
-            proofFingerprint: "sync-anchor",
+            proofFingerprint: "session:1",
             isUnfiltered: false,
             producesContinuousCoverage: false
         )
@@ -264,19 +476,19 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         let materialized = try await repository.commit(
             exactPage,
             request: exactRequest,
-            freshnessToken: .xepSync(fingerprint: "sync-anchor")
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: "q-exact")
         )
         XCTAssertEqual(materialized, .materializedWithoutCoverage)
 
         let olderRequest = directionalRequest(
             queryID: "q-anchor-older",
             locator: .older(before: target),
-            fingerprint: "sync-anchor"
+            fingerprint: "session:1"
         )
         let newerRequest = directionalRequest(
             queryID: "q-anchor-newer",
             locator: .newer(after: target),
-            fingerprint: "sync-anchor"
+            fingerprint: "session:1"
         )
         let olderPage = try ArchiveTransportReceiptValidator.validate(
             receipt(
@@ -308,7 +520,7 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
             exactPage: exactPage,
             olderPage: olderPage,
             newerPage: newerPage,
-            freshnessToken: .xepSync(fingerprint: "sync-anchor")
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: "q-anchor-context")
         )
 
         XCTAssertEqual(snapshot.messagePrimaryIDs, ["p80", "p90", "p100", "p110", "p120"])
@@ -318,7 +530,7 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         XCTAssertTrue(snapshot.verifiedSegment.reachesLiveEdge)
     }
 
-    func testPersistedLiveMessageExtendsOnlyCurrentVerifiedLiveEdge() async throws {
+    func testPersistedLiveMessageExtendsProofButMaterializesOnlyRequestedLiveRow() async throws {
         try persistMessage(primary: "p10", archivedID: "10")
         try persistMessage(primary: "p20", archivedID: "20")
         let repository = makeRepository()
@@ -326,13 +538,13 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         _ = try await repository.commit(
             validatedPage(request: request, primaryIDs: ["p20", "p10"]),
             request: request,
-            freshnessToken: .xepSync(fingerprint: "sync-1")
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: "q-live-base")
         )
         try persistMessage(primary: "p30", archivedID: "30")
         let intent = ArchiveWindowIntent(
             conversation: conversation,
             locator: .latest,
-            contextBefore: 80,
+            contextBefore: 1,
             contextAfter: 0,
             priority: .visibleIntegrity
         )
@@ -340,10 +552,11 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         let snapshot = try await repository.extendLiveEdge(
             for: intent,
             primaryID: "p30",
-            freshnessToken: .xepSync(fingerprint: "sync-1")
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: "live-message-30")
         )
 
-        XCTAssertEqual(snapshot?.messagePrimaryIDs, ["p10", "p20", "p30"])
+        XCTAssertEqual(snapshot?.messagePrimaryIDs, ["p30"])
+        XCTAssertEqual(snapshot?.verifiedSegment.oldest.rawValue, "10")
         XCTAssertEqual(snapshot?.verifiedSegment.newest.rawValue, "30")
         XCTAssertTrue(snapshot?.verifiedSegment.reachesLiveEdge == true)
     }
@@ -356,7 +569,7 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         _ = try await repository.commit(
             validatedPage(request: request, primaryIDs: ["p20", "p10"]),
             request: request,
-            freshnessToken: .xepSync(fingerprint: "sync-1")
+            freshnessToken: .sessionMAM(connectionGeneration: 1, queryID: "q-live-stale")
         )
         try persistMessage(primary: "p30", archivedID: "30")
 
@@ -369,7 +582,7 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
                 priority: .visibleIntegrity
             ),
             primaryID: "p30",
-            freshnessToken: .xepSync(fingerprint: "sync-2")
+            freshnessToken: .sessionMAM(connectionGeneration: 2, queryID: "stale-live-message-30")
         )
 
         XCTAssertNil(snapshot)
@@ -377,7 +590,7 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
 
     func testAuthoritativeEmptyIsDurableForMatchingFingerprintOnly() async throws {
         let repository = makeRepository()
-        let request = makeRequest(queryID: "q-empty")
+        let request = makeRequest(queryID: "q-empty", connectionGeneration: 20)
         let receipt = ArchiveTransportReceipt(
             queryID: request.queryID,
             connectionGeneration: request.connectionGeneration,
@@ -397,7 +610,7 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         _ = try await repository.commit(
             page,
             request: request,
-            freshnessToken: .xepSync(fingerprint: "sync-empty")
+            freshnessToken: .sessionMAM(connectionGeneration: 20, queryID: "q-empty")
         )
         let intent = ArchiveWindowIntent(
             conversation: conversation,
@@ -409,17 +622,17 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
 
         let matching = try await repository.verifiedAdmission(
             for: intent,
-            freshnessToken: .xepSync(fingerprint: "sync-empty")
+            freshnessToken: .sessionMAM(connectionGeneration: 20, queryID: "empty-admission")
         )
         let stale = try await repository.verifiedAdmission(
             for: intent,
-            freshnessToken: .xepSync(fingerprint: "sync-other")
+            freshnessToken: .sessionMAM(connectionGeneration: 21, queryID: "stale-empty-admission")
         )
         XCTAssertEqual(matching, .authoritativeEmpty)
         XCTAssertNil(stale)
     }
 
-    func testProvisionalCoverageActivatesOnlyForExactReconstructedSyncFingerprint() async throws {
+    func testMigratedProvisionalCoverageNeverAdmitsWithoutSessionMAMCommit() async throws {
         let completedStamp = "snapshot-7"
         let candidate = ArchiveSyncFingerprint(
             completedSnapshotStamp: completedStamp,
@@ -443,27 +656,23 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
             let coverage = ConversationArchiveCoverageStorageItem.ensure(key: conversation, in: realm)
             coverage.segments = [provisional]
             coverage.lastObservedXEPSYNCFingerprint = candidate
-            let chat = LastChatsStorageItem()
-            chat.owner = conversation.owner
-            chat.jid = conversation.jid
-            chat.conversationType = conversation.conversationType
-            chat.primary = LastChatsStorageItem.genPrimary(
-                jid: conversation.jid,
-                owner: conversation.owner,
-                conversationType: conversation.conversationType
-            )
-            chat.syncSnapshotLastArchiveId = "20"
-            chat.lastMessageId = "m20"
-            chat.syncUnreadAfterId = "10"
-            chat.syncUnreadCount = 2
-            realm.add(chat, update: .modified)
         }
 
         let repository = makeRepository()
-        try await repository.verifyProvisionalCoverage(
-            owner: conversation.owner,
-            fingerprint: completedStamp
+        let admission = try await repository.verifiedAdmission(
+            for: ArchiveWindowIntent(
+                conversation: conversation,
+                locator: .latest,
+                contextBefore: 80,
+                contextAfter: 0,
+                priority: .visibleIntegrity
+            ),
+            freshnessToken: .sessionMAM(
+                connectionGeneration: 1,
+                queryID: "first-session-proof"
+            )
         )
+        XCTAssertNil(admission)
 
         let verifiedRealm = try await Realm(configuration: configuration)
         verifiedRealm.refresh()
@@ -477,8 +686,9 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
                 )
             )
         )
-        XCTAssertTrue(storage.segments[0].isVerified)
-        XCTAssertEqual(storage.segments[0].fingerprint, completedStamp)
+        XCTAssertFalse(storage.segments[0].isVerified)
+        XCTAssertEqual(storage.segments[0].fingerprint, candidate)
+        XCTAssertEqual(storage.coverageGeneration, 0)
     }
 
     private func makeRepository() -> RealmArchiveCoverageRepository {
@@ -488,16 +698,19 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         }
     }
 
-    private func makeRequest(queryID: String) -> ArchiveTransportRequest {
+    private func makeRequest(
+        queryID: String,
+        connectionGeneration: UInt64 = 1
+    ) -> ArchiveTransportRequest {
         ArchiveTransportRequest(
             queryID: queryID,
             conversation: conversation,
             locator: .latest,
-            connectionGeneration: 1,
+            connectionGeneration: connectionGeneration,
             pageSize: 80,
             contextBefore: 80,
             contextAfter: 0,
-            proofFingerprint: "sync-1",
+            proofFingerprint: "session:\(connectionGeneration)",
             isUnfiltered: true,
             producesContinuousCoverage: true
         )

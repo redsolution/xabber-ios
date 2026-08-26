@@ -6,6 +6,7 @@ test_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_root=$(CDPATH= cd -- "$test_dir/../.." && pwd)
 runner="$repo_root/tools/run_chat_goal_tests.sh"
 acceptance_manifest="$repo_root/tools/chat_open_acceptance_manifest.sh"
+goal_manifest="$repo_root/tools/chat_goal_test_manifest.sh"
 
 CHAT_GOAL_RUNNER_NO_MAIN=1 . "$runner"
 
@@ -93,24 +94,73 @@ actual_ui=$(chat_goal_acceptance_ui_selectors)
   || fail 'hosted acceptance selector plan differs from the 95-row manifest'
 [ "$actual_ui" = "$expected_ui" ] \
   || fail 'UI acceptance selector plan differs from the 95-row manifest'
-[ "$(printf '%s\n' "$actual_hosted" | awk 'NF { count += 1 } END { print count + 0 }')" -eq 179 ] \
-  || fail 'hosted acceptance selector count is not 179'
-[ "$(printf '%s\n' "$actual_ui" | awk 'NF { count += 1 } END { print count + 0 }')" -eq 26 ] \
-  || fail 'UI acceptance selector count is not 26'
+[ "$(printf '%s\n' "$actual_hosted" | awk 'NF { count += 1 } END { print count + 0 }')" -gt 0 ] \
+  || fail 'hosted acceptance selector plan is empty'
+[ "$(printf '%s\n' "$actual_ui" | awk 'NF { count += 1 } END { print count + 0 }')" -eq 3 ] \
+  || fail 'UI acceptance selector plan must contain exactly three current smoke tests'
+if printf '%s\n' "$actual_ui" | grep -Fq \
+  'xabberChatPerformanceUITests/ChatPerformanceUITests/testChatOpen'; then
+  fail 'UI acceptance selector plan still contains retired legacy video routes'
+fi
 
-for selector in \
-  'xabberTests/ChatPerformanceLabTests/testP14ReadReceiptStableRowStoreChangePreservesCommittedAnchoredFrameWithoutSecondDatasourceApply' \
-  'xabberTests/ChatTimelineSessionTests/testStructuralPublishBetweenAuthoritativeCaptureAndObservationInstallRejectsOldInitialBatch' \
-  'xabberTests/ChatTimelineSessionTests/testSupersededResidentDeliveryPreservesIndependentLatestAndUnreadMetadata' \
-  'xabberTests/ChatTimelineSessionTests/testProductionEditPublishesEditedBodyThroughRealmTimelineAndDisplayMapping' \
-  'xabberTests/RootBottomBarInsetPolicyTests/testDetachedApplyDoesNotForceLayoutOrMutateInsetsOrOffset' \
-  'xabberTests/RootBottomBarInsetPolicyTests/testApplyAfterWindowAttachmentCatchesUpAndPreservesAwayFromBottomOffset' \
-  'xabberTests/RootBottomBarIntegrationTests/testEveryTableOwnerKeepsBottomClearanceAndPreservesAwayFromBottomOffset'; do
-  printf '%s\n' "$actual_hosted" | grep -Fqx "$selector" \
-    || fail "hosted acceptance plan is missing $selector"
+for required_suite in \
+  'xabberTests/ChatVirtualTimelineEngineTests/' \
+  'xabberTests/ChatArchiveVirtualTimelineIntegrationTests/' \
+  'xabberTests/AccountArchiveEngineTests/' \
+  'xabberTests/ArchiveTransportReceiptTests/' \
+  'xabberTests/ChatArchiveEngineUIContractTests/' \
+  'xabberTests/ClientSynchronizationPaginationTests/' \
+  'xabberTests/CanonicalGroupOpenAdmissionCoordinatorTests/' \
+  'xabberTests/VCardRequestSingleFlightCoordinatorTests/' \
+  'xabberTests/SensitiveMediaAnalysisServiceTests/' \
+  'xabberTests/MessageManagerQueueSynchronizationTests/' \
+  'xabberTests/ArchiveCoverageRepositoryTests/'; do
+  printf '%s\n' "$actual_hosted" | grep -Fq "$required_suite" \
+    || fail "hosted acceptance plan is missing $required_suite"
 done
+
 printf '%s\n' "$actual_ui" | grep -Fqx \
   'xabberChatPerformanceUITests/ChatNativeBackUITests/testChevronOnlyBackMeetsHitTargetAndSupportsTapAndSuccessfulEdgeSwipe' \
   || fail 'UI acceptance plan is missing native Back coverage'
+
+deterministic_ui=$(chat_goal_deterministic_ui_selectors)
+[ "$(printf '%s\n' "$deterministic_ui" | awk 'NF { count += 1 } END { print count + 0 }')" -eq 6 ] \
+  || fail 'deterministic UI plan must contain six current smoke tests'
+if printf '%s\n' "$deterministic_ui" | grep -Fq '/testChatOpen'; then
+  fail 'deterministic UI plan still contains retired legacy video routes'
+fi
+
+# The legacy smoothness phases remain callable, so every emitted XCTest suite
+# must still exist after archive/runtime hard cuts delete superseded coverage.
+# A syntactically valid selector for a removed class otherwise reaches
+# xcodebuild and fails only after the full test bundle has been built.
+# shellcheck source=tools/chat_goal_test_manifest.sh
+. "$goal_manifest"
+all_goal_selectors=$(
+  for task_id in "${CHAT_GOAL_TASK_IDS[@]}"; do
+    chat_goal_preflight_selectors "$task_id"
+    chat_goal_focused_selectors "$task_id"
+  done
+  chat_goal_smoke_selectors
+)
+
+for suite in $(printf '%s\n' "$all_goal_selectors" \
+  | awk -F/ '/^xabberTests\// { print $2 }' \
+  | sort -u); do
+  if ! rg -q "class[[:space:]]+$suite([[:space:]]*:|[[:space:]]*\\{)" \
+    "$repo_root/xabberTests" --glob '*.swift'; then
+    fail "chat goal selector references missing XCTest suite $suite"
+  fi
+done
+
+while IFS= read -r selector; do
+  [ -z "$selector" ] && continue
+  method=$(printf '%s\n' "$selector" | awk -F/ 'NF >= 3 { print $3 }')
+  [ -z "$method" ] && continue
+  if ! rg -q "func[[:space:]]+$method[[:space:]]*\\(" \
+    "$repo_root/xabberTests" --glob '*.swift'; then
+    fail "chat goal selector references missing XCTest method $selector"
+  fi
+done < <(printf '%s\n' "$all_goal_selectors" | sort -u)
 
 printf 'chat goal runner offline contract tests passed\n'

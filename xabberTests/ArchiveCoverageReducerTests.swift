@@ -117,19 +117,6 @@ final class ArchiveCoverageReducerTests: XCTestCase {
         )
     }
 
-    func testProvisionalSegmentsVerifyOnlyOnExactFingerprintMatch() throws {
-        let provisional = try segment("100", "200", fingerprint: "candidate", verified: false)
-
-        XCTAssertEqual(
-            ArchiveCoverageReducer.verifying([provisional], with: "other"),
-            [provisional]
-        )
-        XCTAssertEqual(
-            ArchiveCoverageReducer.verifying([provisional], with: "candidate"),
-            [try segment("100", "200", fingerprint: "candidate", verified: true)]
-        )
-    }
-
     func testAdmissionRequiresOneVerifiedSegmentAndCurrentFingerprint() throws {
         let verified = try segment("100", "200", fingerprint: "sync-a", verified: true)
         let provisional = try segment("300", "400", fingerprint: "sync-a", verified: false)

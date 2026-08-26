@@ -528,16 +528,12 @@ final class ChatPerformanceArtifactExporterTests: XCTestCase {
     }
 
     func testMarkerExportFailureMakesScenarioReceiptFailClosed() throws {
-        let missingParent = temporaryDirectory
-            .appendingPathComponent("missing")
-        let paths = ExportPaths(
-            signposts: missingParent.appendingPathComponent("signposts.json"),
-            markers: missingParent.appendingPathComponent("markers.json")
-        )
+        let paths = makePaths(prefix: "missing-parent")
         let session = try XCTUnwrap(try makeSession(paths: paths))
         let context = emitLocalContentTrace()
         try session.bindTraceContext(context, contract: .initialLocalContent)
         try recordAllMarkers(session)
+        try FileManager.default.removeItem(at: temporaryDirectory)
 
         XCTAssertThrowsError(try session.finalize())
         XCTAssertTrue(session.didFail)

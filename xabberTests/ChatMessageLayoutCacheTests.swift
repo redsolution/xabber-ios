@@ -335,6 +335,49 @@ final class ChatMessageLayoutCacheTests: XCTestCase {
         )
     }
 
+    func testForwardedAudioUsesInlineAvailableWidthAt320Points() throws {
+        let forward = MessageAttachment(
+            primary: "forwarded-audio",
+            author: "Juliet",
+            jid: "juliet@example.com",
+            outgoing: false,
+            textMessage: nil,
+            images: [
+                ImageAttachment(
+                    primary: "forwarded-image-width-reference",
+                    url: nil,
+                    size: CGSize(width: 640, height: 480)
+                )
+            ],
+            videos: [],
+            files: [],
+            audios: [
+                AudioAttachment(
+                    primary: "forwarded-audio-reference",
+                    url: nil,
+                    size: 1_024,
+                    name: "voice.ogg",
+                    duration: 12,
+                    downloaded: true,
+                    pcm: [0.2, 0.6]
+                )
+            ],
+            timeMarker: NSAttributedString(string: "12:00"),
+            subforwards: []
+        )
+        let layout = ChatMessageLayoutCalculator.measure(
+            makeDatasource(primary: "narrow-forward", text: "", forwards: [forward]),
+            context(width: 320)
+        )
+        let forwardedLayout = try XCTUnwrap(layout.forwardsInlineViewSize.first)
+
+        XCTAssertEqual(
+            forwardedLayout.audiosContainerSize.width,
+            forwardedLayout.imagesContainerSize.width
+        )
+        XCTAssertLessThan(forwardedLayout.audiosContainerSize.width, 320)
+    }
+
     private func context(
         width: CGFloat,
         category: String = "UICTContentSizeCategoryL",
@@ -369,7 +412,8 @@ final class ChatMessageLayoutCacheTests: XCTestCase {
         primary: String = "message-1",
         text: String = "Hello",
         editDate: Date? = nil,
-        withAvatar: Bool = false
+        withAvatar: Bool = false,
+        forwards: [MessageAttachment] = []
     ) -> ChatViewController.Datasource {
         ChatViewController.Datasource(
             primary: primary,
@@ -392,7 +436,7 @@ final class ChatMessageLayoutCacheTests: XCTestCase {
             canPinMessage: true,
             canEditMessage: true,
             canDeleteMessage: true,
-            forwards: [],
+            forwards: forwards,
             isOutgoing: false,
             isEdited: editDate != nil,
             groupchatAuthorRole: "",

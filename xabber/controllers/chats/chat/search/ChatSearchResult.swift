@@ -138,6 +138,88 @@ enum ChatSearchResultMapper {
         )
     }
 
+    static func map(
+        _ message: ArchiveSearchMessage,
+        context: ChatSearchResultMappingContext
+    ) -> ChatSearchResult? {
+        guard message.owner == context.scope.owner,
+              message.conversationJID == context.scope.jid,
+              message.conversationTypeRaw ==
+                context.scope.conversationTypeRawValue else {
+            return nil
+        }
+        let id: ChatSearchResult.ID
+        if message.archiveID.isNotEmpty {
+            id = .archived(message.archiveID)
+        } else if message.primaryID.isNotEmpty {
+            id = .primary(message.primaryID)
+        } else {
+            return nil
+        }
+        let conversationType = ClientSynchronizationManager.ConversationType(
+            rawValue: message.conversationTypeRaw
+        ) ?? .regular
+        let senderTitle: String
+        if message.outgoing {
+            senderTitle = context.localizedYou
+        } else if [.group, .channel].contains(conversationType) {
+            senderTitle = nonEmpty(message.groupAuthorNickname)
+                ?? nonEmpty(message.groupAuthorID)
+                ?? nonEmpty(context.contactDisplayName)
+                ?? message.conversationJID
+        } else {
+            senderTitle = nonEmpty(context.contactDisplayName)
+                ?? message.conversationJID
+        }
+        let avatar: ChatSearchResult.Avatar
+        if [.group, .channel].contains(conversationType) {
+            let userID = nonEmpty(message.groupAuthorID)
+                ?? (message.outgoing ? context.scope.owner : senderTitle)
+            avatar = ChatSearchResult.Avatar(
+                identity: "group:\(context.scope.owner)|\(context.scope.jid)|\(userID)",
+                fallbackTitle: senderTitle,
+                url: nonEmpty(message.groupAuthorAvatarURL),
+                source: .group(
+                    userId: userID,
+                    conversationJID: context.scope.jid,
+                    owner: context.scope.owner
+                )
+            )
+        } else {
+            let jid = message.outgoing
+                ? context.scope.owner
+                : context.scope.jid
+            avatar = ChatSearchResult.Avatar(
+                identity: "contact:\(context.scope.owner)|\(jid)",
+                fallbackTitle: senderTitle,
+                url: message.outgoing
+                    ? context.ownerAvatarURL
+                    : context.contactAvatarURL,
+                source: .contact(jid: jid, owner: context.scope.owner)
+            )
+        }
+        let body = message.body
+        return ChatSearchResult(
+            id: id,
+            scope: context.scope,
+            anchor: ChatSearchResult.Anchor(
+                primary: message.primaryID,
+                archivedId: message.archiveID,
+                messageId: message.messageID,
+                authorId: message.groupAuthorID,
+                date: message.date
+            ),
+            outgoing: message.outgoing,
+            senderTitle: senderTitle,
+            body: body,
+            snippet: body
+                .split(whereSeparator: { $0.isWhitespace })
+                .joined(separator: " "),
+            deliveryState: deliveryState(rawValue: message.deliveryStateRaw),
+            avatar: avatar
+        )
+    }
+
     private static func avatar(
         for item: MessageStorageItem,
         senderTitle: String,
@@ -206,6 +288,17 @@ enum ChatSearchResultMapper {
         case .none, .sending, .uploading:
             return .pending
         }
+    }
+
+    private static func deliveryState(
+        rawValue: Int
+    ) -> ChatSearchResult.DeliveryState {
+        guard let state = MessageStorageItem.MessageSendingState(
+            rawValue: rawValue
+        ) else {
+            return .pending
+        }
+        return deliveryState(for: state)
     }
 
     private static func nonEmpty(_ value: String?) -> String? {

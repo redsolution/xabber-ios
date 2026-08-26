@@ -448,4 +448,29 @@ final class GroupPermissionsUICutoverTests: XCTestCase {
             )
         }
     }
+
+    func testOpeningGroupChatDoesNotEagerlyFetchPermissions() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let subscriptions = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "xabber/controllers/chats/chat/rx/ChatViewController+HighPrioritySubscribtions.swift"
+            ),
+            encoding: .utf8
+        )
+        let chat = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "xabber/controllers/chats/chat/ChatViewController.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(subscriptions.contains("func groupSubscribtions("))
+        XCTAssertFalse(chat.contains("groupSubscribtions()"))
+        XCTAssertFalse(
+            subscriptions.contains("groupchatService.getPermissions("),
+            "The chat-open subscription path only observes persisted projection; permissions are loaded by explicit info/settings flows"
+        )
+    }
 }

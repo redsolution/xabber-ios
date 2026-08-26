@@ -4,150 +4,6 @@ import XMPPFramework
 @testable import xabber
 
 final class GroupStreamManagementResumeRecoveryTests: XCTestCase {
-    func testFullAuthenticationRecoveryRefreshesPersistedActiveGroupsWithoutSync() throws {
-        var activated: [String] = []
-
-        try CanonicalGroupFullAuthenticationRecovery.recover(
-            activeGroupJIDs: {
-                [
-                    "Stage@Groups.Example.com/Group",
-                    "stage@groups.example.com",
-                    "Second@Groups.Example.com/Group"
-                ]
-            },
-            activate: { activated.append($0) }
-        )
-
-        XCTAssertEqual(
-            activated,
-            ["stage@groups.example.com", "second@groups.example.com"]
-        )
-    }
-
-    @MainActor
-    func testFreshAuthenticationRecoveryAdmitsVerifiedMembershipBeforeConversationProjection() async throws {
-        let realm = try makeRealm()
-        let repository = GroupRepository(realm: realm)
-        let owner = "romeo@example.com/ios"
-        let group = "Stage@Groups.Example.com/Group"
-        var events: [String] = []
-
-        let result = try await CanonicalGroupFreshAuthenticationRecovery.recover(
-            owner: owner,
-            groupJID: group,
-            repository: repository,
-            refreshGroup: {
-                events.append("group")
-                return GroupSnapshot(
-                    jid: "stage@groups.example.com/Group",
-                    privacy: .incognito,
-                    info: GroupInfo(name: "Stage")
-                )
-            },
-            refreshMembers: {
-                events.append("members")
-                return [
-                    GroupMember(id: "member-self", jid: "romeo@example.com", role: .owner),
-                    GroupMember(id: "member-peer", jid: nil, role: .member)
-                ]
-            },
-            activateConversationAndHistory: { normalizedGroupJID in
-                let projection = try repository.projection(
-                    owner: owner,
-                    groupJID: normalizedGroupJID
-                )
-                XCTAssertEqual(projection.state.selfSubscription, .both)
-                XCTAssertEqual(projection.selfMemberID, "member-self")
-                XCTAssertNil(
-                    realm.object(
-                        ofType: LastChatsStorageItem.self,
-                        forPrimaryKey: LastChatsStorageItem.genPrimary(
-                            jid: normalizedGroupJID,
-                            owner: GroupStorageKey.bareJID(owner),
-                            conversationType: .group
-                        )
-                    ),
-                    "The generic sync path must not create LastChat before verified membership"
-                )
-                try GroupConversationProjectionStore.activate(
-                    owner: owner,
-                    groupJID: normalizedGroupJID,
-                    in: realm
-                )
-                events.append("mam")
-            },
-            refreshPermissions: { memberID in
-                events.append("permissions:\(memberID)")
-                return GroupPermissionSet(
-                    scope: .direct,
-                    target: memberID,
-                    permissions: [GroupPermission(name: "send-messages", status: true)]
-                )
-            }
-        )
-
-        XCTAssertEqual(result, .admitted(memberID: "member-self"))
-        XCTAssertEqual(events, ["group", "members", "mam", "permissions:member-self"])
-        let projection = try repository.projection(owner: owner, groupJID: group)
-        XCTAssertEqual(projection.state.selfSubscription, .both)
-        XCTAssertEqual(projection.state.snapshot.info?.name, "Stage")
-        XCTAssertEqual(projection.state.members.map(\.id), ["member-peer", "member-self"])
-        XCTAssertEqual(projection.state.permissionSets.first?.target, "member-self")
-        XCTAssertNotNil(
-            realm.object(
-                ofType: LastChatsStorageItem.self,
-                forPrimaryKey: LastChatsStorageItem.genPrimary(
-                    jid: "stage@groups.example.com",
-                    owner: "romeo@example.com",
-                    conversationType: .group
-                )
-            )
-        )
-    }
-
-    @MainActor
-    func testFreshAuthenticationRecoveryDoesNotResurrectTombstonedMembership() async throws {
-        let realm = try makeRealm()
-        let repository = GroupRepository(realm: realm)
-        let owner = "romeo@example.com"
-        let group = "stage@groups.example.com"
-        try repository.setSelfMembership(
-            .none,
-            memberID: "member-self",
-            owner: owner,
-            groupJID: group
-        )
-        var didActivate = false
-        var didRequestPermissions = false
-
-        let result = try await CanonicalGroupFreshAuthenticationRecovery.recover(
-            owner: owner,
-            groupJID: group,
-            repository: repository,
-            refreshGroup: { GroupSnapshot(jid: group, info: GroupInfo(name: "Stale")) },
-            refreshMembers: {
-                [GroupMember(id: "member-self", jid: owner, role: .member)]
-            },
-            activateConversationAndHistory: { _ in didActivate = true },
-            refreshPermissions: { _ in
-                didRequestPermissions = true
-                return GroupPermissionSet(
-                    scope: .direct,
-                    target: "member-self",
-                    permissions: []
-                )
-            }
-        )
-
-        XCTAssertEqual(result, .ignoredTombstone)
-        XCTAssertFalse(didActivate)
-        XCTAssertFalse(didRequestPermissions)
-        let projection = try repository.projection(owner: owner, groupJID: group)
-        XCTAssertEqual(projection.state.selfSubscription, .none)
-        XCTAssertTrue(projection.state.isDeleted)
-        XCTAssertNil(projection.state.snapshot.info)
-    }
-
     func testTransportBindingIgnoresDuplicatePrepareForSameStream() throws {
         let service = GroupchatService()
         let binding = CanonicalGroupTransportBinding(service: service)
@@ -224,7 +80,7 @@ final class GroupStreamManagementResumeRecoveryTests: XCTestCase {
         XCTAssertEqual(newRecorder.elements.count, 1)
     }
 
-    func testResumeRecoveryInstallsFreshTransportBeforeActiveMembershipRefresh() throws {
+    func testResumeRecoveryOnlyRebindsTransport() throws {
         let service = GroupchatService()
         let binding = CanonicalGroupTransportBinding(service: service)
         let stream = XMPPStream()
@@ -233,74 +89,36 @@ final class GroupStreamManagementResumeRecoveryTests: XCTestCase {
         }
         XCTAssertEqual(binding.disconnect(), 0)
 
-        var events: [String] = []
         var sentElements: [XMPPElement] = []
-        try CanonicalGroupStreamResumeRecovery.recover(
+        CanonicalGroupStreamResumeRecovery.recover(
             binding: binding,
             stream: stream,
             transport: { element in
-                events.append("send")
                 sentElements.append(element)
-            },
-            invalidateCurrentActivations: {
-                events.append("invalidate")
-            },
-            activeGroupJIDs: {
-                [
-                    "Stage@Groups.Example.com/Group",
-                    "stage@groups.example.com",
-                    "Second@Groups.Example.com/Group"
-                ]
-            },
-            activate: { groupJID in
-                events.append("activate:\(groupJID)")
-                try service.sendChatPresence(groupJID: groupJID, state: .active)
             }
         )
 
-        XCTAssertEqual(
-            events,
-            [
-                "invalidate",
-                "activate:stage@groups.example.com",
-                "send",
-                "activate:second@groups.example.com",
-                "send"
-            ]
-        )
-        XCTAssertEqual(sentElements.count, 2)
-        XCTAssertEqual(sentElements.map { $0.to?.bare }, [
-            "stage@groups.example.com",
-            "second@groups.example.com"
-        ])
+        XCTAssertTrue(sentElements.isEmpty)
+
+        try service.sendJoin(groupJID: "stage@groups.example.com")
+
+        XCTAssertEqual(sentElements.map { $0.to?.bare }, ["stage@groups.example.com"])
     }
 
-    func testResumeRecoveryLeavesFreshTransportPreparedWhenActiveGroupLookupFails() throws {
-        enum LookupError: Error {
-            case failed
-        }
-
+    func testResumeRecoveryDoesNotEnumerateOrHydratePersistedGroups() throws {
         let service = GroupchatService()
         let binding = CanonicalGroupTransportBinding(service: service)
         let stream = XMPPStream()
         var sentElements: [XMPPElement] = []
 
-        XCTAssertThrowsError(
-            try CanonicalGroupStreamResumeRecovery.recover(
-                binding: binding,
-                stream: stream,
-                transport: { sentElements.append($0) },
-                invalidateCurrentActivations: {},
-                activeGroupJIDs: { throw LookupError.failed },
-                activate: { _ in XCTFail("No group should be activated") }
-            )
-        ) { error in
-            XCTAssertTrue(error is LookupError)
-        }
-
-        XCTAssertNoThrow(
-            try service.sendJoin(groupJID: "stage@groups.example.com")
+        CanonicalGroupStreamResumeRecovery.recover(
+            binding: binding,
+            stream: stream,
+            transport: { sentElements.append($0) }
         )
+
+        XCTAssertTrue(sentElements.isEmpty)
+        try service.sendJoin(groupJID: "stage@groups.example.com")
         XCTAssertEqual(sentElements.count, 1)
     }
 
@@ -316,8 +134,16 @@ final class GroupStreamManagementResumeRecoveryTests: XCTestCase {
         )
         let body = String(source[resumedBranch.lowerBound..<fullAuthenticationBranch.lowerBound])
 
-        XCTAssertTrue(
-            body.contains("recoverCanonicalGroupRuntimeAfterStreamManagementResume()")
+        let groupTransportRecovery = try XCTUnwrap(
+            body.range(of: "recoverCanonicalGroupRuntimeAfterStreamManagementResume()")
+        )
+        let archiveReadiness = try XCTUnwrap(
+            body.range(of: "sendReadiness.markStreamManagementResumeSucceeded()")
+        )
+        XCTAssertLessThan(
+            groupTransportRecovery.lowerBound,
+            archiveReadiness.lowerBound,
+            "The group transport generation must be rebound before archive admission becomes ready"
         )
 
         let delegate = try productionSource(
@@ -364,18 +190,63 @@ final class GroupStreamManagementResumeRecoveryTests: XCTestCase {
         )
         let methodEnd = try XCTUnwrap(
             integration.range(
-                of: "func recoverCanonicalGroupMembershipFromSynchronization(",
+                of: "func reconcileCanonicalGroupDeletionFromSynchronization(",
                 range: methodStart.upperBound..<integration.endIndex
             )
         )
         let methodBody = String(integration[methodStart.lowerBound..<methodEnd.lowerBound])
-        let prepareTransport = try XCTUnwrap(
-            methodBody.range(of: "prepareCanonicalGroupTransport()")
+        XCTAssertTrue(methodBody.contains("prepareCanonicalGroupTransport()"))
+        XCTAssertFalse(methodBody.contains("activeGroups("))
+        XCTAssertFalse(methodBody.contains("groupMembershipDidActivate("))
+    }
+
+    func testMembershipActivationOnlyUpdatesLocalProjectionWithoutMetadataFanOut() throws {
+        let source = try productionSource(
+            "models/account/delegates/AccountGroupchatIntegration.swift"
         )
-        let enumerateGroups = try XCTUnwrap(
-            methodBody.range(of: "CanonicalGroupFullAuthenticationRecovery.recover")
+        let methodStart = try XCTUnwrap(
+            source.range(of: "func groupMembershipDidActivate(")
         )
-        XCTAssertLessThan(prepareTransport.lowerBound, enumerateGroups.lowerBound)
+        let methodEnd = try XCTUnwrap(
+            source.range(
+                of: "func groupMembershipDidDeactivate(",
+                range: methodStart.upperBound..<source.endIndex
+            )
+        )
+        let methodBody = String(
+            source[methodStart.lowerBound..<methodEnd.lowerBound]
+        )
+
+        XCTAssertTrue(
+            methodBody.contains("GroupConversationProjectionStore.activate(")
+        )
+        let forbiddenNetworkWork = [
+            "Task {",
+            "refreshGroup(",
+            "refreshMembers(",
+            "getPermissions(",
+            "groupActivationSyncGate"
+        ]
+        XCTAssertEqual(
+            forbiddenNetworkWork.filter(methodBody.contains),
+            [],
+            "A live membership activation may project local state, but metadata, members, and permissions are lazy"
+        )
+    }
+
+    func testDeadActivationSyncGateAndLifecycleHooksAreDeleted() throws {
+        let integration = try productionSource(
+            "models/account/delegates/AccountGroupchatIntegration.swift"
+        )
+        let account = try productionSource("models/account/Account.swift")
+        let streamDelegate = try productionSource(
+            "models/account/delegates/AccountStreamDelegate.swift"
+        )
+
+        XCTAssertFalse(integration.contains("GroupActivationSyncGate"))
+        XCTAssertFalse(integration.contains("invalidateCurrentActivations"))
+        XCTAssertFalse(account.contains("groupActivationSyncGate"))
+        XCTAssertFalse(streamDelegate.contains("groupActivationSyncGate"))
     }
 
     private func productionSource(_ relativePath: String) throws -> String {

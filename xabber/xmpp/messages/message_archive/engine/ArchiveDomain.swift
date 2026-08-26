@@ -122,8 +122,6 @@ enum ArchiveWindowLocator: Hashable, Codable, Sendable {
 }
 
 enum ArchiveIntentPriority: Int, Comparable, Codable, Sendable {
-    case idleBackfill = 0
-    case snapshotRepair = 100
     case nearEdgePrefetch = 200
     case searchCurrentPage = 300
     case target = 400
@@ -176,13 +174,10 @@ struct ArchiveIntentDescriptor: Hashable, Codable, Sendable {
 }
 
 enum ArchiveFreshnessToken: Hashable, Codable, Sendable {
-    case xepSync(fingerprint: String)
     case sessionMAM(connectionGeneration: UInt64, queryID: String)
 
     var fingerprint: String {
         switch self {
-        case .xepSync(let fingerprint):
-            return fingerprint
         case .sessionMAM(let generation, _):
             // Query identity remains part of the token so stale terminal
             // receipts can be rejected, while coverage from multiple pages
@@ -194,6 +189,8 @@ enum ArchiveFreshnessToken: Hashable, Codable, Sendable {
     }
 }
 
+/// Schema 18 -> 19 migration helper only. Its stable value imports legacy
+/// ranges as provisional rows; it is never a runtime timeline freshness token.
 struct ArchiveSyncFingerprint: Hashable, Codable, Sendable {
     let completedSnapshotStamp: String?
     let lastArchiveID: String?
@@ -361,25 +358,6 @@ enum ArchiveCoverageReducer {
         return normalized(segments)
     }
 
-    static func verifying(
-        _ segments: [ArchiveCoverageSegment],
-        with fingerprint: String
-    ) -> [ArchiveCoverageSegment] {
-        normalized(segments.compactMap { segment in
-            guard !segment.isVerified, segment.fingerprint == fingerprint else {
-                return segment
-            }
-            return ArchiveCoverageSegment(
-                oldest: segment.oldest,
-                newest: segment.newest,
-                reachesArchiveStart: segment.reachesArchiveStart,
-                reachesLiveEdge: segment.reachesLiveEdge,
-                fingerprint: segment.fingerprint,
-                isVerified: true
-            )
-        })
-    }
-
     static func gaps(in segments: [ArchiveCoverageSegment]) -> [ArchiveCoverageGap] {
         let sorted = normalized(segments)
         guard sorted.count > 1 else { return [] }
@@ -476,6 +454,25 @@ struct ArchiveWindowSnapshot: Hashable, Codable, Sendable {
     let freshnessToken: ArchiveFreshnessToken
 }
 
+/// Proof that one already-persisted live message belongs to a freshly
+/// materialized latest window. This is deliberately separate from
+/// `ArchiveWindowState`: accepting it must never replace the controller's
+/// current target or turn a live insert into a target jump.
+struct ArchiveLiveEdgeAdmission: Hashable, Codable, Sendable {
+    let conversation: ArchiveConversationKey
+    let primaryID: String
+    let latestWindow: ArchiveWindowSnapshot
+    let presentationIntent: ArchiveIntentDescriptor
+}
+
+/// Presentation-only proof that an outgoing row was durably created by the
+/// local sender. Unlike `ArchiveLiveEdgeAdmission`, this value does not extend
+/// archive coverage; the later numeric receipt reconciles the same primary.
+struct ChatTimelineLocalOutgoingAdmission: Hashable, Sendable {
+    let conversation: ArchiveConversationKey
+    let primaryID: String
+}
+
 enum ArchiveSkeletonReason: Hashable, Codable, Sendable {
     case opening
     case offline
@@ -485,10 +482,28 @@ enum ArchiveSkeletonReason: Hashable, Codable, Sendable {
     case loadingTarget
 }
 
+enum ArchiveFailureRecoveryAction: String, Hashable, Codable, Sendable {
+    case retry
+    case recoverAccount
+}
+
 struct ArchiveRetryableFailure: Hashable, Codable, Sendable {
     let message: String
     let retryCount: Int
     let canRetry: Bool
+    let recoveryAction: ArchiveFailureRecoveryAction
+
+    init(
+        message: String,
+        retryCount: Int,
+        canRetry: Bool,
+        recoveryAction: ArchiveFailureRecoveryAction = .retry
+    ) {
+        self.message = message
+        self.retryCount = retryCount
+        self.canRetry = canRetry
+        self.recoveryAction = recoveryAction
+    }
 }
 
 enum ArchiveWindowState: Hashable, Codable, Sendable {
@@ -512,10 +527,155 @@ struct ArchiveWindowActivity: Hashable, Codable, Sendable {
     }
 }
 
+/// The request-correlated terminal for directional archive expansion.
+///
+/// Activity is deliberately not a terminal signal: its independent stream may
+/// reach the UI before the matching verified state. A boundary consumer must
+/// finish only from this outcome and, for success, after its verified window
+/// wins the UIKit transaction.
+enum ArchiveBoundaryTerminalResult: Hashable, Codable, Sendable {
+    case succeeded
+    case failed(ArchiveRetryableFailure)
+    case cancelled
+}
+
+struct ArchiveBoundaryTerminalOutcome: Hashable, Codable, Sendable {
+    let requestID: UUID
+    let descriptor: ArchiveIntentDescriptor
+    let result: ArchiveBoundaryTerminalResult
+}
+
 enum ArchivePageSizing {
     static let initial = 80
     static let history = 100
     static let search = 50
     static let anchorBefore = 30
     static let anchorAfter = 30
+}
+
+enum ArchiveSearchScope: Hashable, Sendable {
+    case conversation(ArchiveConversationKey)
+    case account(owner: String, conversationTypeRaw: String)
+
+    static func account(
+        owner: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> ArchiveSearchScope {
+        .account(
+            owner: owner,
+            conversationTypeRaw: conversationType.rawValue
+        )
+    }
+
+    var owner: String {
+        switch self {
+        case .conversation(let conversation):
+            return conversation.owner
+        case .account(let owner, _):
+            return owner
+        }
+    }
+
+    var conversation: ArchiveConversationKey? {
+        guard case .conversation(let conversation) = self else { return nil }
+        return conversation
+    }
+
+    var jid: String? {
+        conversation?.jid
+    }
+
+    var conversationType: ClientSynchronizationManager.ConversationType {
+        switch self {
+        case .conversation(let conversation):
+            return conversation.conversationType
+        case .account(_, let rawValue):
+            return ClientSynchronizationManager.ConversationType(rawValue: rawValue) ?? .regular
+        }
+    }
+}
+
+struct ArchiveSearchIntent: Hashable, Sendable {
+    let clientQueryID: String
+    let scope: ArchiveSearchScope
+    let query: String
+
+    init(
+        clientQueryID: String,
+        conversation: ArchiveConversationKey,
+        query: String
+    ) {
+        self.init(
+            clientQueryID: clientQueryID,
+            scope: .conversation(conversation),
+            query: query
+        )
+    }
+
+    init(
+        clientQueryID: String,
+        scope: ArchiveSearchScope,
+        query: String
+    ) {
+        self.clientQueryID = clientQueryID
+        self.scope = scope
+        self.query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// An immutable copy of the fields needed to render and navigate a search
+/// result. Realm objects never cross the archive-engine actor boundary.
+struct ArchiveSearchMessage: Hashable, Sendable {
+    let primaryID: String
+    let archiveID: String
+    let messageID: String
+    let owner: String
+    let conversationJID: String
+    let conversationTypeRaw: String
+    let body: String
+    let date: Date
+    let outgoing: Bool
+    let deliveryStateRaw: Int
+    let groupAuthorID: String?
+    let groupAuthorNickname: String?
+    let groupAuthorAvatarURL: String?
+}
+
+struct ArchiveSearchPage: Hashable, Sendable {
+    let index: Int
+    let requestCursor: String?
+    let continuationCursor: String?
+    let messages: [ArchiveSearchMessage]
+    let isComplete: Bool
+}
+
+struct ArchiveSearchSnapshot: Hashable, Sendable {
+    let clientQueryID: String
+    let generation: UInt64
+    let query: String
+    let residentPages: [ArchiveSearchPage]
+    let cursorStack: [String]
+    let requestAttempt: Int
+    let continuationCursor: String?
+    let isComplete: Bool
+    let isLoading: Bool
+
+    var residentMessages: [ArchiveSearchMessage] {
+        residentPages.flatMap(\.messages)
+    }
+
+    var canRequestNextPage: Bool {
+        !isComplete && !isLoading
+    }
+}
+
+struct ArchiveSearchFailure: Hashable, Sendable {
+    let message: String
+    let canRetry: Bool
+}
+
+enum ArchiveSearchState: Hashable, Sendable {
+    case loading(ArchiveSearchSnapshot)
+    case results(ArchiveSearchSnapshot)
+    case retryableFailure(ArchiveSearchSnapshot, ArchiveSearchFailure)
 }

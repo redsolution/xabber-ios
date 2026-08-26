@@ -21,56 +21,6 @@ final class RealmArchiveCoverageRepository:
         self.realmProvider = realmProvider
     }
 
-    func verifyProvisionalCoverage(
-        owner: String,
-        fingerprint: String
-    ) async throws {
-        try await perform { realm in
-            let rows = realm.objects(ConversationArchiveCoverageStorageItem.self)
-                .filter("owner == %@", owner)
-            guard rows.contains(where: { $0.segments.contains(where: { !$0.isVerified }) }) else {
-                return
-            }
-            try realm.write {
-                for storage in rows {
-                    let chat = realm.object(
-                        ofType: LastChatsStorageItem.self,
-                        forPrimaryKey: storage.primary
-                    )
-                    let candidate = ArchiveSyncFingerprint(
-                        completedSnapshotStamp: fingerprint,
-                        lastArchiveID: chat?.syncSnapshotLastArchiveId,
-                        lastMessageID: chat?.lastMessageId,
-                        unreadAfterID: chat?.syncUnreadAfterId,
-                        unreadCount: chat?.syncUnreadCount ?? 0
-                    ).stableValue
-                    var didVerify = false
-                    let activated = storage.segments.compactMap { segment -> ArchiveCoverageSegment? in
-                        guard !segment.isVerified,
-                              segment.fingerprint == candidate else {
-                            return segment
-                        }
-                        didVerify = true
-                        return ArchiveCoverageSegment(
-                            oldest: segment.oldest,
-                            newest: segment.newest,
-                            reachesArchiveStart: segment.reachesArchiveStart,
-                            reachesLiveEdge: segment.reachesLiveEdge,
-                            fingerprint: fingerprint,
-                            isVerified: true
-                        )
-                    }
-                    guard didVerify else { continue }
-                    storage.segments = activated
-                    storage.lastObservedXEPSYNCFingerprint = fingerprint
-                    storage.coverageGeneration += 1
-                    storage.updatedAt = Date()
-                    storage.projectCompatibility(in: realm)
-                }
-            }
-        }
-    }
-
     func verifiedAdmission(
         for intent: ArchiveWindowIntent,
         freshnessToken: ArchiveFreshnessToken
@@ -83,7 +33,7 @@ final class RealmArchiveCoverageRepository:
                     jid: intent.conversation.jid,
                     conversationType: intent.conversation.conversationType
                 )
-            ), storage.lastObservedXEPSYNCFingerprint == freshnessToken.fingerprint else {
+            ), storage.archiveFreshnessFingerprint == freshnessToken.fingerprint else {
                 return nil
             }
             let verified = storage.segments.filter {
@@ -135,7 +85,7 @@ final class RealmArchiveCoverageRepository:
                         in: realm
                     )
                     storage.segments = []
-                    storage.lastObservedXEPSYNCFingerprint = freshnessToken.fingerprint
+                    storage.archiveFreshnessFingerprint = freshnessToken.fingerprint
                     storage.coverageGeneration += 1
                     storage.updatedAt = Date()
                     Self.projectAuthoritativeEmpty(storage: storage, in: realm)
@@ -143,6 +93,15 @@ final class RealmArchiveCoverageRepository:
                 }
                 _ = generation
                 return .authoritativeEmpty
+            }
+
+            if let completedBoundary = try Self.commitCompletedEmptyBoundary(
+                page,
+                request: request,
+                freshnessToken: freshnessToken,
+                realm: realm
+            ) {
+                return completedBoundary
             }
 
             guard let segment = page.segment else {
@@ -179,12 +138,16 @@ final class RealmArchiveCoverageRepository:
                     key: request.conversation,
                     in: realm
                 )
+                let currentSessionSegments =
+                    storage.archiveFreshnessFingerprint == freshnessToken.fingerprint
+                    ? storage.segments
+                    : []
                 storage.segments = ArchiveCoverageReducer.adding(
                     segment,
-                    to: storage.segments,
+                    to: currentSessionSegments,
                     adjacency: page.adjacency
                 )
-                storage.lastObservedXEPSYNCFingerprint = freshnessToken.fingerprint
+                storage.archiveFreshnessFingerprint = freshnessToken.fingerprint
                 storage.coverageGeneration += 1
                 storage.updatedAt = Date()
                 storage.projectCompatibility(in: realm)
@@ -241,6 +204,152 @@ final class RealmArchiveCoverageRepository:
                 )
             )
         }
+    }
+
+    private static func commitCompletedEmptyBoundary(
+        _ page: ValidatedArchiveTransportPage,
+        request: ArchiveTransportRequest,
+        freshnessToken: ArchiveFreshnessToken,
+        realm: Realm
+    ) throws -> ArchiveRepositoryCommit? {
+        guard request.isUnfiltered,
+              request.producesContinuousCoverage,
+              page.requestComplete,
+              page.chronologicalArchiveIDs.isEmpty,
+              page.messagePrimaryIDs.isEmpty,
+              page.deliveredResultCount == 0,
+              page.intentionallyConsumedResultCount == 0,
+              request.proofFingerprint == freshnessToken.fingerprint,
+              let storage = realm.object(
+                ofType: ConversationArchiveCoverageStorageItem.self,
+                forPrimaryKey: ConversationArchiveCoverageStorageItem.genPrimary(
+                    owner: request.conversation.owner,
+                    jid: request.conversation.jid,
+                    conversationType: request.conversation.conversationType
+                )
+              ),
+              storage.archiveFreshnessFingerprint == freshnessToken.fingerprint else {
+            return nil
+        }
+
+        var segments = storage.segments
+        let updatedSegment: ArchiveCoverageSegment
+        switch request.locator {
+        case .older(let boundary):
+            guard let index = segments.firstIndex(where: {
+                $0.isVerified &&
+                    $0.fingerprint == freshnessToken.fingerprint &&
+                    $0.oldest == boundary
+            }), let replacement = ArchiveCoverageSegment(
+                oldest: segments[index].oldest,
+                newest: segments[index].newest,
+                reachesArchiveStart: true,
+                reachesLiveEdge: segments[index].reachesLiveEdge,
+                fingerprint: segments[index].fingerprint,
+                isVerified: true
+            ) else {
+                throw ArchiveCoverageRepositoryError.storageFailure
+            }
+            segments[index] = replacement
+            updatedSegment = replacement
+        case .newer(let boundary), .firstUnread(.some(let boundary)):
+            guard let index = segments.firstIndex(where: {
+                $0.isVerified &&
+                    $0.fingerprint == freshnessToken.fingerprint &&
+                    $0.newest == boundary
+            }), let replacement = ArchiveCoverageSegment(
+                oldest: segments[index].oldest,
+                newest: segments[index].newest,
+                reachesArchiveStart: segments[index].reachesArchiveStart,
+                reachesLiveEdge: true,
+                fingerprint: segments[index].fingerprint,
+                isVerified: true
+            ) else {
+                throw ArchiveCoverageRepositoryError.storageFailure
+            }
+            segments[index] = replacement
+            updatedSegment = replacement
+        case .gap(let olderBoundary, let newerBoundary):
+            guard let olderIndex = segments.firstIndex(where: {
+                $0.isVerified &&
+                    $0.fingerprint == freshnessToken.fingerprint &&
+                    $0.newest == olderBoundary
+            }), let newerIndex = segments.firstIndex(where: {
+                $0.isVerified &&
+                    $0.fingerprint == freshnessToken.fingerprint &&
+                    $0.oldest == newerBoundary
+            }), olderIndex != newerIndex else {
+                throw ArchiveCoverageRepositoryError.storageFailure
+            }
+            let older = segments[olderIndex]
+            let newer = segments[newerIndex]
+            guard let replacement = ArchiveCoverageSegment(
+                oldest: older.oldest,
+                newest: newer.newest,
+                reachesArchiveStart: older.reachesArchiveStart,
+                reachesLiveEdge: newer.reachesLiveEdge,
+                fingerprint: freshnessToken.fingerprint,
+                isVerified: true
+            ) else {
+                throw ArchiveCoverageRepositoryError.storageFailure
+            }
+            for index in [olderIndex, newerIndex].sorted(by: >) {
+                segments.remove(at: index)
+            }
+            segments.append(replacement)
+            updatedSegment = replacement
+        case .latest, .firstUnread(.none), .archiveID, .timestamp:
+            return nil
+        }
+
+        let intent = ArchiveWindowIntent(
+            conversation: request.conversation,
+            locator: request.locator,
+            contextBefore: request.contextBefore,
+            contextAfter: request.contextAfter,
+            priority: .visibleIntegrity
+        )
+        var primaryIDs = messagePrimaryIDs(
+            for: intent,
+            segment: updatedSegment,
+            realm: realm
+        )
+        if primaryIDs.isEmpty {
+            let identities = messageIdentities(
+                realm: realm,
+                conversation: request.conversation
+            ).filter {
+                $0.cursor >= updatedSegment.oldest &&
+                    $0.cursor <= updatedSegment.newest
+            }
+            switch request.locator {
+            case .newer, .firstUnread:
+                primaryIDs = identities.last.map { [$0.primary] } ?? []
+            case .older, .gap:
+                primaryIDs = identities.first.map { [$0.primary] } ?? []
+            case .latest, .archiveID, .timestamp:
+                break
+            }
+        }
+        guard primaryIDs.isNotEmpty else {
+            throw ArchiveCoverageRepositoryError.missingPersistedMessages
+        }
+        let generation: UInt64 = try realm.write {
+            storage.segments = segments
+            storage.coverageGeneration += 1
+            storage.updatedAt = Date()
+            storage.projectCompatibility(in: realm)
+            return UInt64(max(0, storage.coverageGeneration))
+        }
+        return .verified(
+            ArchiveWindowSnapshot(
+                messagePrimaryIDs: primaryIDs,
+                target: request.locator,
+                verifiedSegment: updatedSegment,
+                coverageGeneration: generation,
+                freshnessToken: freshnessToken
+            )
+        )
     }
 
     func materializedMessages(
@@ -376,12 +485,16 @@ final class RealmArchiveCoverageRepository:
                     key: intent.conversation,
                     in: realm
                 )
+                let currentSessionSegments =
+                    storage.archiveFreshnessFingerprint == freshnessToken.fingerprint
+                    ? storage.segments
+                    : []
                 storage.segments = ArchiveCoverageReducer.adding(
                     compoundSegment,
-                    to: storage.segments,
+                    to: currentSessionSegments,
                     adjacency: nil
                 )
-                storage.lastObservedXEPSYNCFingerprint = freshnessToken.fingerprint
+                storage.archiveFreshnessFingerprint = freshnessToken.fingerprint
                 storage.coverageGeneration += 1
                 storage.updatedAt = Date()
                 storage.projectCompatibility(in: realm)
@@ -428,7 +541,7 @@ final class RealmArchiveCoverageRepository:
                        conversationType: intent.conversation.conversationType
                    )
                ),
-               storage.lastObservedXEPSYNCFingerprint == freshnessToken.fingerprint else {
+               storage.archiveFreshnessFingerprint == freshnessToken.fingerprint else {
                 return nil
             }
 

@@ -150,6 +150,66 @@ enum LastChatsBootstrapDatasetUpdatePolicy {
     }
 }
 
+enum LastChatsFirstDatasetApplyOwnershipPolicy {
+    static func pendingAfterCycle(
+        wasPending: Bool,
+        didCommitDatasetApply: Bool
+    ) -> Bool {
+        wasPending && !didCommitDatasetApply
+    }
+}
+
+enum LastChatsProjectionInvalidation: Hashable {
+    case roster
+    case resource
+    case vCard(String)
+}
+
+/// Batches presentation-only Realm/notification invalidations. Roster and
+/// resource writes often accompany the same persisted vCard, so treating
+/// their observers as independent dataset requests needlessly remaps and
+/// diffs the entire chat list more than once for one visible state change.
+struct LastChatsProjectionRefreshCoalescer {
+    struct Registration: Equatable {
+        let shouldRescheduleQuietFlush: Bool
+        let shouldScheduleDeadline: Bool
+    }
+
+    static let quietDelay: TimeInterval = 0.45
+    static let maximumDelay: TimeInterval = 2.0
+
+    private var pendingInvalidations = Set<LastChatsProjectionInvalidation>()
+    private var hasScheduledDeadline = false
+
+    var pendingInvalidationCount: Int {
+        pendingInvalidations.count
+    }
+
+    mutating func register(
+        _ invalidation: LastChatsProjectionInvalidation
+    ) -> Registration {
+        pendingInvalidations.insert(invalidation)
+        let shouldScheduleDeadline = !hasScheduledDeadline
+        hasScheduledDeadline = true
+        return Registration(
+            shouldRescheduleQuietFlush: true,
+            shouldScheduleDeadline: shouldScheduleDeadline
+        )
+    }
+
+    mutating func flush() -> Set<LastChatsProjectionInvalidation> {
+        let invalidations = pendingInvalidations
+        pendingInvalidations.removeAll(keepingCapacity: true)
+        hasScheduledDeadline = false
+        return invalidations
+    }
+
+    mutating func cancel() {
+        pendingInvalidations.removeAll(keepingCapacity: true)
+        hasScheduledDeadline = false
+    }
+}
+
 enum LastChatsDatasourceApplyPolicy: Equatable {
     case detachedSnapshot
     case incrementalDiff
@@ -1069,6 +1129,112 @@ enum SavedMessagesChatListPresentationPolicy {
     }
 }
 
+enum LastChatsIdentityTitlePolicy {
+    static func title(
+        rosterDisplayName: String?,
+        synchronizedVCardTitle: String?,
+        jid: String
+    ) -> String {
+        [rosterDisplayName, synchronizedVCardTitle]
+            .compactMap { value -> String? in
+                let normalized = value?.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ) ?? ""
+                return normalized.isNotEmpty ? normalized : nil
+            }
+            .first ?? jid
+    }
+}
+
+/// Coalesces a visible row's cooldown into one delayed retry. Visibility is
+/// evaluated at the deadline, so scrolling a row away produces no IQ.
+internal final class VCardVisibleRetryScheduler {
+    private struct Entry {
+        let token: UUID
+        let workItem: DispatchWorkItem
+    }
+
+    private let queue: DispatchQueue
+    private let now: () -> Date
+    private let lock = NSLock()
+    private var entries: [VCardPresentationIdentity: Entry] = [:]
+
+    init(
+        queue: DispatchQueue = .main,
+        now: @escaping () -> Date = Date.init
+    ) {
+        self.queue = queue
+        self.now = now
+    }
+
+    var pendingCount: Int {
+        lock.lock()
+        let count = entries.count
+        lock.unlock()
+        return count
+    }
+
+    func schedule(
+        identity: VCardPresentationIdentity,
+        proof: VCardVisibleRetryProof,
+        deadline: Date,
+        isStillVisible: @escaping () -> Bool,
+        retry: @escaping (VCardPresentationIdentity, VCardVisibleRetryProof) -> Void
+    ) {
+        let token = UUID()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.takeEntry(identity: identity, token: token) else {
+                return
+            }
+            guard isStillVisible() else { return }
+            retry(identity, proof)
+        }
+
+        lock.lock()
+        let replaced = entries.updateValue(
+            Entry(token: token, workItem: workItem),
+            forKey: identity
+        )
+        lock.unlock()
+        replaced?.workItem.cancel()
+
+        queue.asyncAfter(
+            deadline: .now() + max(0, deadline.timeIntervalSince(now())),
+            execute: workItem
+        )
+    }
+
+    func cancel(identity: VCardPresentationIdentity) {
+        lock.lock()
+        let entry = entries.removeValue(forKey: identity)
+        lock.unlock()
+        entry?.workItem.cancel()
+    }
+
+    func cancelAll() {
+        lock.lock()
+        let staleEntries = Array(entries.values)
+        entries.removeAll(keepingCapacity: true)
+        lock.unlock()
+        staleEntries.forEach { $0.workItem.cancel() }
+    }
+
+    private func takeEntry(
+        identity: VCardPresentationIdentity,
+        token: UUID
+    ) -> Bool {
+        lock.lock()
+        guard entries[identity]?.token == token else {
+            lock.unlock()
+            return false
+        }
+        entries.removeValue(forKey: identity)
+        lock.unlock()
+        return true
+    }
+}
+
 enum LastChatMessagePreviewPolicy {
     struct Preview: Equatable {
         let text: String
@@ -1076,9 +1242,21 @@ enum LastChatMessagePreviewPolicy {
     }
 
     static func preview(
-        for message: MessageStorageItem,
+        for message: MessageStorageItem?,
+        synchronizedProjection: LastChatListSyncPreviewProjection? = nil,
         blankMessageText: String
     ) -> Preview {
+        guard let message else {
+            if let synchronizedProjection,
+               synchronizedProjection.text.isNotEmpty {
+                return Preview(
+                    text: synchronizedProjection.text,
+                    isItalic: synchronizedProjection.isSystemMessage
+                )
+            }
+            return Preview(text: blankMessageText, isItalic: false)
+        }
+
         if let placeholder = message.localReportPlaceholderText {
             return Preview(text: placeholder, isItalic: false)
         }
@@ -1092,6 +1270,30 @@ enum LastChatMessagePreviewPolicy {
         if let contactReference = visibleReferences.first(where: { $0.kind == .contact }),
            let contactTitle = contactDisplayTitle(for: contactReference) {
             return Preview(text: contactDisplayText(contactTitle), isItalic: true)
+        }
+
+        let fallbackURIs = Set(message.references.toArray().compactMap { reference in
+            nonEmptyContactText(reference.url) ??
+                nonEmptyContactText(reference.metadata?["uri"])
+        })
+        if let caption = LastChatAttachmentPreviewFormatter.normalizedCaption(
+            message.body,
+            fallbackURIs: fallbackURIs
+        ) {
+            return Preview(text: caption, isItalic: false)
+        }
+
+        let attachmentKinds = visibleReferences.compactMap { reference in
+            LastChatAttachmentPreviewFormatter.kind(
+                referenceKindRaw: reference.kind_,
+                mimeType: reference.mimeType,
+                mediaType: reference.metadata?["media-type"] as? String
+            )
+        }
+        if let attachmentText = LastChatAttachmentPreviewFormatter.text(
+            for: attachmentKinds
+        ) {
+            return Preview(text: attachmentText, isItalic: false)
         }
 
         let text = message.displayedBody()
@@ -1130,6 +1332,82 @@ enum LastChatMessagePreviewPolicy {
         guard let string = value as? String else { return nil }
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+/// Resolves an already-persisted message for a list row whose Realm link was
+/// not materialized. XEP-SYNC remains list-only: this performs one indexed,
+/// read-only lookup and never creates or mutates a message or chat row.
+enum LastChatMaterializedPreviewResolver {
+    private struct IdentityKey: Hashable {
+        let owner: String
+        let messageID: String
+    }
+
+    static func resolve(
+        in realm: Realm,
+        for chats: [LastChatsStorageItem]
+    ) -> [String: MessageStorageItem] {
+        let unresolvedChats = chats.filter {
+            $0.lastMessage == nil && $0.lastMessageId.isNotEmpty
+        }
+        guard unresolvedChats.isNotEmpty else { return [:] }
+
+        let owners = Array(Set(unresolvedChats.map(\.owner)))
+        let messageIDs = Array(Set(unresolvedChats.map(\.lastMessageId)))
+        guard owners.isNotEmpty, messageIDs.isNotEmpty else { return [:] }
+
+        let candidates = realm.objects(MessageStorageItem.self).filter(
+            "owner IN %@ AND isDeleted == false AND (messageId IN %@ OR archivedId IN %@)",
+            owners,
+            messageIDs,
+            messageIDs
+        )
+        var candidatesByIdentity: [IdentityKey: [MessageStorageItem]] = [:]
+        candidates.forEach { message in
+            if message.messageId.isNotEmpty {
+                candidatesByIdentity[
+                    IdentityKey(owner: message.owner, messageID: message.messageId),
+                    default: []
+                ].append(message)
+            }
+            if message.archivedId.isNotEmpty,
+               message.archivedId != message.messageId {
+                candidatesByIdentity[
+                    IdentityKey(owner: message.owner, messageID: message.archivedId),
+                    default: []
+                ].append(message)
+            }
+        }
+
+        return unresolvedChats.reduce(into: [:]) { resolved, chat in
+            let key = IdentityKey(
+                owner: chat.owner,
+                messageID: chat.lastMessageId
+            )
+            let exactConversationCandidates = candidatesByIdentity[key]?
+                .filter {
+                    $0.opponent == chat.jid &&
+                        $0.conversationType == chat.conversationType
+                } ?? []
+            guard let message = exactConversationCandidates.max(by: {
+                preference(of: $0, expectedID: chat.lastMessageId) <
+                    preference(of: $1, expectedID: chat.lastMessageId)
+            }) else {
+                return
+            }
+            resolved[chat.primary] = message
+        }
+    }
+
+    private static func preference(
+        of message: MessageStorageItem,
+        expectedID: String
+    ) -> (Int, MessageHistoryOrderKey) {
+        (
+            message.messageId == expectedID ? 1 : 0,
+            MessageHistoryOrderKey(message: message)
+        )
     }
 }
 
@@ -1311,6 +1589,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         let isDraft: Bool
         let hasAttachment: Bool
         let userNickname: String?
+        var userColorKey: String? = nil
         let isSystemMessage: Bool
         let isPinned: Bool
         let subRequest: Bool
@@ -1344,6 +1623,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     && a.isDraft == b.isDraft
                     && a.hasAttachment == b.hasAttachment
                     && a.userNickname == b.userNickname
+                    && a.userColorKey == b.userColorKey
                     && a.isSystemMessage == b.isSystemMessage
                     && a.isPinned == b.isPinned
                     && a.subRequest == b.subRequest
@@ -1546,6 +1826,12 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
     private var bootstrapDatasetUpdateWorkItem: DispatchWorkItem?
     private var pendingDatasetUpdateAfterBootstrapCoalescing: Bool = false
     private var isExecutingBootstrapCoalescedDatasetUpdate: Bool = false
+    private var projectionRefreshCoalescer = LastChatsProjectionRefreshCoalescer()
+    private var projectionRefreshQuietWorkItem: DispatchWorkItem?
+    private var projectionRefreshDeadlineWorkItem: DispatchWorkItem?
+    private var projectionRefreshQuietGeneration: UInt64 = 0
+    private var projectionRefreshDeadlineGeneration: UInt64 = 0
+    private let visibleVCardRetryScheduler = VCardVisibleRetryScheduler()
     
     internal var datasource: [Datasource] = []
     internal var datasourceIndexByKey: [String: Int] = [:]
@@ -2277,6 +2563,15 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             id: "chat_attachment_action_back",
             arguments: []
         )
+        let nativeBackChevron = Self.makeImmediateNativeBackChevron()
+        if let navigationBar = self.navigationController?.navigationBar {
+            if navigationBar.backIndicatorImage == nil {
+                navigationBar.backIndicatorImage = nativeBackChevron
+            }
+            if navigationBar.backIndicatorTransitionMaskImage == nil {
+                navigationBar.backIndicatorTransitionMaskImage = nativeBackChevron
+            }
+        }
         if self.navigationItem.backBarButtonItem == nil {
             // On iOS 26 an implicit Back can be replaced by a non-interactive
             // portal snapshot of this controller's account item during an
@@ -2297,6 +2592,9 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         if let backItem = self.navigationItem.backBarButtonItem {
             if backItem.title != "" {
                 backItem.title = ""
+            }
+            if backItem.image != nil {
+                backItem.image = nil
             }
             backItem.target = nil
             backItem.action = nil
@@ -2341,6 +2639,28 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             deadline: .now() + timeout,
             execute: timeoutWorkItem
         )
+    }
+
+    /// Materializes UIKit's one navigation-bar indicator before the push
+    /// starts. The source `backBarButtonItem` deliberately stays image-free:
+    /// giving it the same artwork would render a second chevron beside this
+    /// system-owned indicator.
+    private static func makeImmediateNativeBackChevron() -> UIImage {
+        let size = CGSize(width: 12, height: 20)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = false
+        let rasterized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            let path = UIBezierPath()
+            path.move(to: CGPoint(x: 9.5, y: 2))
+            path.addLine(to: CGPoint(x: 3, y: 10))
+            path.addLine(to: CGPoint(x: 9.5, y: 18))
+            path.lineWidth = 2.25
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            UIColor.black.setStroke()
+            path.stroke()
+        }
+        return rasterized.withRenderingMode(.alwaysTemplate)
     }
 
     @discardableResult
@@ -2930,7 +3250,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 .debounce(.milliseconds(150), scheduler: MainScheduler.asyncInstance)
                 .skip(1)
                 .subscribe(onNext: { _ in
-                    self.runDatasetUpdateTask()
+                    self.scheduleProjectionRefresh(.roster)
                 })
                 .disposed(by: datasetBag)
 
@@ -2939,7 +3259,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 .debounce(.milliseconds(150), scheduler: MainScheduler.asyncInstance)
                 .skip(1)
                 .subscribe(onNext: { _ in
-                    self.runDatasetUpdateTask()
+                    self.scheduleProjectionRefresh(.resource)
                 })
                 .disposed(by: datasetBag)
 
@@ -3301,7 +3621,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 
     internal var hasVisibleAccountSyncBootstrapInProgress: Bool {
         enabledAccounts.value.contains { jid in
-            AccountManager.shared.find(for: jid)?.syncManager.isBootstrapCriticalSyncInProgress() == true
+            AccountManager.shared.find(for: jid)?.syncManager.isInitialChatListSynchronizationInProgress() == true
         }
     }
 
@@ -3586,6 +3906,53 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     activeGroupPrimaries: activeGroupPrimaries
                 )
             }
+            let materializedPreviewMessagesByChatPrimary =
+                LastChatMaterializedPreviewResolver.resolve(
+                    in: realm,
+                    for: collectionItems
+                )
+            let syncOnlyIdentityItems = collectionItems.filter {
+                $0.rosterItem == nil && $0.conversationType != .saved
+            }
+            let syncOnlyOwners = Array(Set(syncOnlyIdentityItems.map(\.owner)))
+            let syncOnlyJIDs = Array(Set(syncOnlyIdentityItems.map(\.jid)))
+            let syncOnlyVCardIdentities = Set(
+                syncOnlyIdentityItems.compactMap {
+                    VCardPresentationIdentity(owner: $0.owner, jid: $0.jid)
+                }
+            )
+            var synchronizedVCardTitlesByIdentity =
+                VCardPresentationProjectionStore.shared
+                    .titles(for: syncOnlyVCardIdentities)
+                    .reduce(into: [String: String]()) { result, entry in
+                        result[[entry.key.jid, entry.key.owner].prp()] = entry.value
+                    }
+            if syncOnlyOwners.isNotEmpty && syncOnlyJIDs.isNotEmpty {
+                realm
+                    .objects(vCardStorageItem.self)
+                    .filter(
+                        "owner IN %@ AND jid IN %@ AND isLastUpdateErrorOccured == %@",
+                        syncOnlyOwners,
+                        syncOnlyJIDs,
+                        false
+                    )
+                    .forEach { card in
+                        guard let identity = VCardPresentationIdentity(
+                            owner: card.owner,
+                            jid: card.jid
+                        ) else {
+                            return
+                        }
+                        let title = card.generatedNickname
+                        _ = VCardPresentationProjectionStore.shared.apply(
+                            owner: identity.owner,
+                            jid: identity.jid,
+                            title: title
+                        )
+                        let presentationKey = [identity.jid, identity.owner].prp()
+                        synchronizedVCardTitlesByIdentity[presentationKey] = title
+                    }
+            }
             let enabledAccountCount = max(enabledAccounts.value.count, AccountManager.shared.users.count)
             
             let jids = realm.objects(AccountStorageItem.self).filter("enabled == true").toArray().compactMap { $0.jid }
@@ -3767,6 +4134,15 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 item in
                 let blankMessageText: String = "Start messaging here".localizeString(id: "chat_message_start_messaging", arguments: [])
                 let isSavedConversation = item.conversationType == .saved
+                let presentationLastMessage = item.lastMessage ??
+                    materializedPreviewMessagesByChatPrimary[item.primary]
+                let synchronizedPreview = presentationLastMessage == nil
+                    ? LastChatListSyncPreviewStore.shared.projection(
+                        owner: item.owner,
+                        conversationPrimary: item.primary,
+                        expectedLastMessageID: item.lastMessageId
+                    )
+                    : nil
                 
                 let subscriptionRequest: Bool = item.rosterItem?.isThereSubscriptionRequest() ?? false
                 
@@ -3777,14 +4153,15 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 var message: String
                 var isAttachmentPreviewItalic: Bool = false
                 
-                if let lastMessage = item.lastMessage {
+                if presentationLastMessage != nil || synchronizedPreview != nil {
                     let preview = LastChatMessagePreviewPolicy.preview(
-                        for: lastMessage,
+                        for: presentationLastMessage,
+                        synchronizedProjection: synchronizedPreview,
                         blankMessageText: blankMessageText
                     )
                     message = preview.text
                     isAttachmentPreviewItalic = preview.isItalic
-                    if lastMessage.isDeleted {
+                    if presentationLastMessage?.isDeleted == true {
                         message = blankMessageText
                         isAttachmentPreviewItalic = false
                     }
@@ -3812,28 +4189,75 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 }
                 var isAttachment: Bool = [
                     MessageStorageItem.MessageDisplayType.sticker,
-                    MessageStorageItem.MessageDisplayType.call].contains(item.lastMessage?.displayAs ?? .text)
+                    MessageStorageItem.MessageDisplayType.call].contains(presentationLastMessage?.displayAs ?? .text)
+                if synchronizedPreview?.isAttachment == true {
+                    isAttachment = true
+                }
                 if !isAttachment,
-                   let authMessageMetadata = item.lastMessage?.systemMetadata?["auth_message"] as? Bool,
+                   presentationLastMessage?.references.contains(where: { reference in
+                       !reference.isLocallyHiddenByReport &&
+                           LastChatAttachmentPreviewFormatter.kind(
+                               referenceKindRaw: reference.kind_,
+                               mimeType: reference.mimeType,
+                               mediaType: reference.metadata?["media-type"] as? String
+                           ) != nil
+                   }) == true {
+                    isAttachment = true
+                }
+                if !isAttachment,
+                   let authMessageMetadata = presentationLastMessage?.systemMetadata?["auth_message"] as? Bool,
                    authMessageMetadata {
                     isAttachment = true
                 }
                 
                 let isInvite = false
                 
-                let nickname: String? = item.lastMessage?.groupchatDisplayedNickname
-                if item.lastMessage?.inlineForwards.isNotEmpty ?? false {
-                    let sender = item.lastMessage?.inlineForwards.first
-                    var nick = sender?.forwardNickname
-                    if nick == "" || nick == nil {
-                        nick = String(JidManager.shared.prepareJid(jid: sender?.forwardJid ?? "Forwarded message".localizeString(id: "chat_message_forwarded_message", arguments: [])))
+                let synchronizedGroupNickname = item.conversationType == .group
+                    ? synchronizedPreview?.groupchatNickname
+                    : nil
+                let synchronizedGroupColorKey = item.conversationType == .group
+                    ? synchronizedPreview?.groupchatAuthorColorKey
+                    : nil
+                var nickname: String? =
+                    presentationLastMessage?.groupchatDisplayedNickname ??
+                    synchronizedGroupNickname
+                if let sender = presentationLastMessage?.inlineForwards.first {
+                    let forwardedNickname = sender.forwardNickname
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if forwardedNickname.isNotEmpty {
+                        nickname = forwardedNickname
+                    } else {
+                        let forwardedJID = sender.forwardJid
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        nickname = forwardedJID.isNotEmpty
+                            ? String(
+                                JidManager.shared.prepareJid(
+                                    jid: forwardedJID
+                                )
+                            )
+                            : "Forwarded message".localizeString(
+                                id: "chat_message_forwarded_message",
+                                arguments: []
+                            )
                     }
                 }
-                
-                var isSystemMessage: Bool = [.system].contains(item.lastMessage?.displayAs ?? .text)
-                if isSystemMessage == false {
-                    isSystemMessage = item.lastMessage?.shouldShowAsSystemMessage() ?? false
+                let materializedUserColorKey: String? = presentationLastMessage.flatMap { message in
+                    [
+                        message.groupchatAuthorId,
+                        message.groupchatMetadata?["jid"] as? String,
+                        message.groupchatAuthorNickname,
+                        nickname
+                    ].compactMap { value in
+                        let value = value?.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                        return value?.isNotEmpty == true ? value : nil
+                    }.first
                 }
+                let userColorKey = materializedUserColorKey ??
+                    synchronizedGroupColorKey
+
+                var isSystemMessage: Bool = [.system].contains(presentationLastMessage?.displayAs ?? .text)
                 if isAttachmentPreviewItalic {
                     isSystemMessage = true
                 }
@@ -3841,17 +4265,24 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     message = "Write your encrypted messages here"
                     isSystemMessage = true
                 }
-                if item.lastMessage == nil {
-                    isSystemMessage = true
+                if presentationLastMessage == nil {
+                    isSystemMessage = synchronizedPreview?.isSystemMessage ?? true
                 }
                 
                 let username = isSavedConversation
                     ? SavedMessagesChatListPresentationPolicy.title
-                    : item.rosterItem?.displayName ?? item.jid
+                    : LastChatsIdentityTitlePolicy.title(
+                        rosterDisplayName: item.rosterItem?.displayName,
+                        synchronizedVCardTitle:
+                            synchronizedVCardTitlesByIdentity[
+                                [item.jid, item.owner].prp()
+                            ],
+                        jid: item.jid
+                    )
                 var attributedUsername: NSAttributedString? = nil
                 let messageState = isSavedConversation
                     ? nil
-                    : item.lastMessage?.outgoing ?? true ? item.lastMessage?.state ?? nil : nil
+                    : presentationLastMessage?.outgoing ?? true ? presentationLastMessage?.state ?? nil : nil
                 let subRequest = isSavedConversation
                     ? false
                     : (XMPPJID(string: item.jid)?.isServer ?? true) ? false : subscriptionRequest
@@ -3907,18 +4338,23 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     status: isSavedConversation ? SavedMessagesChatListPresentationPolicy.status : primaryResource?.status ?? .offline,
                     entity: isSavedConversation ? SavedMessagesChatListPresentationPolicy.entity : primaryResource?.entity ?? .contact,
                     conversationType: item.conversationType,
-                    unread: item.lastMessage?.outgoing ?? false ? 0 : item.unread,
+                    unread: presentationLastMessage?.outgoing ?? false ? 0 : item.unread,
                     unreadString: nil,
                     hasUnreadMention: item.hasUnreadMention,
                     color: AccountManager.shared.users.count <= 1 ? .clear : AccountColorManager.shared.primaryColor(for: item.owner),
                     isDraft: isDraft,
                     hasAttachment: isAttachment,
                     userNickname: nickname,
+                    userColorKey: userColorKey,
                     isSystemMessage: isSystemMessage,
                     isPinned: item.isPinned,
                     subRequest: subRequest,
                     isEncrypted: item.conversationType.isEncrypted,
-                    avatarUrl: isSavedConversation ? nil : item.rosterItem?.avatarMinUrl ?? item.rosterItem?.avatarMaxUrl ?? item.rosterItem?.oldschoolAvatarKey,
+                    avatarUrl: isSavedConversation
+                        ? nil
+                        : item.rosterItem?.avatarMinUrl
+                            ?? item.rosterItem?.avatarMaxUrl
+                            ?? item.rosterItem?.oldschoolAvatarKey,
                     hasErrorInChat: item.hasErrorInChat,
                     updateTS: item.updateTS,
                     isVerificationActionRequired: isVerificationActionRequired,
@@ -4161,7 +4597,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     DDLogDebug(
                         "LAST_CHATS_BOOTSTRAP_TRACE event=datasetUpdateDropped reason=staleNavigationGeneration"
                     )
-                    self.finishDatasetUpdateCycle()
+                    self.finishDatasetUpdateCycle(didCommitDatasetApply: false)
                     return
                 }
                 if self.deferDatasetMutationForNavigationTransitionIfNeeded() {
@@ -4233,10 +4669,17 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         
     }
     
-    private final func finishDatasetUpdateCycle() {
+    private final func finishDatasetUpdateCycle(
+        didCommitDatasetApply: Bool = true
+    ) {
         if self.deferDatasetMutationForNavigationTransitionIfNeeded() {
             return
         }
+        self.isFirstLayout =
+            LastChatsFirstDatasetApplyOwnershipPolicy.pendingAfterCycle(
+                wasPending: self.isFirstLayout,
+                didCommitDatasetApply: didCommitDatasetApply
+            )
         self.isDatasetUpdateInFlight = false
         self.canUpdateDataset = true
         if self.tableView.window != nil {
@@ -4437,6 +4880,37 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         bag = DisposeBag()
         configureVoiceMessagePlaybackCoordinatorObserver()
 
+        NotificationCenter.default.rx
+            .notification(LastChatListSyncPreviewStore.didChangeNotification)
+            .observe(on: MainScheduler.asyncInstance)
+            .filter { [weak self] notification in
+                guard let owner = notification.object as? String else {
+                    return false
+                }
+                return self?.enabledAccounts.value.contains(owner) == true
+            }
+            .debounce(.milliseconds(120), scheduler: MainScheduler.asyncInstance)
+            .subscribe(onNext: { [weak self] _ in
+                self?.runDatasetUpdateTask()
+            })
+            .disposed(by: bag)
+
+        NotificationCenter.default.rx
+            .notification(VCardManager.didPersistVCardNotification)
+            .observe(on: MainScheduler.asyncInstance)
+            .subscribe(onNext: { [weak self] notification in
+                self?.scheduleVCardProjectionRefresh(for: notification)
+            })
+            .disposed(by: bag)
+
+        NotificationCenter.default.rx
+            .notification(VCardManager.didFailVisibleVCardRequestNotification)
+            .observe(on: MainScheduler.asyncInstance)
+            .subscribe(onNext: { [weak self] notification in
+                self?.scheduleVisibleVCardRetry(for: notification)
+            })
+            .disposed(by: bag)
+
         do {
             let realm = try WRealm.safe()
             Observable
@@ -4569,10 +5043,240 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         bag = DisposeBag()
         datasetBag = DisposeBag()
         unreadCounterBag = DisposeBag()
+        cancelProjectionRefresh()
+        visibleVCardRetryScheduler.cancelAll()
         VoiceMessagePlaybackCoordinator.shared.removeObserver(voiceMessageStateObserverToken)
         voiceMessageStateObserverToken = nil
     }
-    
+
+    private func scheduleVCardProjectionRefresh(for notification: Notification) {
+        guard let owner = notification.userInfo?[
+            VCardManager.persistedOwnerUserInfoKey
+        ] as? String,
+        let jid = notification.userInfo?[
+            VCardManager.persistedJIDUserInfoKey
+        ] as? String,
+        enabledAccounts.value.contains(owner) else {
+            return
+        }
+
+        if let identity = VCardPresentationIdentity(owner: owner, jid: jid) {
+            visibleVCardRetryScheduler.cancel(identity: identity)
+        }
+
+        let identity = datasourceKey(jid: jid, owner: owner)
+        guard datasourceIndexPathByKey[identity] != nil else { return }
+        scheduleProjectionRefresh(.vCard(identity))
+    }
+
+    private func scheduleProjectionRefresh(
+        _ invalidation: LastChatsProjectionInvalidation
+    ) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.scheduleProjectionRefresh(invalidation)
+            }
+            return
+        }
+
+        let registration = projectionRefreshCoalescer.register(invalidation)
+        guard registration.shouldRescheduleQuietFlush else { return }
+
+        projectionRefreshQuietWorkItem?.cancel()
+        projectionRefreshQuietGeneration &+= 1
+        let quietGeneration = projectionRefreshQuietGeneration
+        let quietWorkItem = DispatchWorkItem { [weak self] in
+            guard self?.projectionRefreshQuietGeneration == quietGeneration else {
+                return
+            }
+            self?.flushProjectionRefresh()
+        }
+        projectionRefreshQuietWorkItem = quietWorkItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + LastChatsProjectionRefreshCoalescer.quietDelay,
+            execute: quietWorkItem
+        )
+
+        guard registration.shouldScheduleDeadline else { return }
+        projectionRefreshDeadlineGeneration &+= 1
+        let deadlineGeneration = projectionRefreshDeadlineGeneration
+        let deadlineWorkItem = DispatchWorkItem { [weak self] in
+            guard self?.projectionRefreshDeadlineGeneration ==
+                    deadlineGeneration else {
+                return
+            }
+            self?.flushProjectionRefresh()
+        }
+        projectionRefreshDeadlineWorkItem = deadlineWorkItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + LastChatsProjectionRefreshCoalescer.maximumDelay,
+            execute: deadlineWorkItem
+        )
+    }
+
+    private func flushProjectionRefresh() {
+        let invalidations = projectionRefreshCoalescer.flush()
+        guard invalidations.isNotEmpty else {
+            cancelProjectionRefresh()
+            return
+        }
+        projectionRefreshQuietGeneration &+= 1
+        projectionRefreshDeadlineGeneration &+= 1
+        projectionRefreshQuietWorkItem?.cancel()
+        projectionRefreshQuietWorkItem = nil
+        projectionRefreshDeadlineWorkItem?.cancel()
+        projectionRefreshDeadlineWorkItem = nil
+        guard isAppeared else { return }
+        DDLogDebug(
+            "LAST_CHATS_PROJECTION_TRACE event=batchFlush invalidations=\(invalidations.count)"
+        )
+        runDatasetUpdateTask()
+    }
+
+    private func cancelProjectionRefresh() {
+        projectionRefreshCoalescer.cancel()
+        projectionRefreshQuietGeneration &+= 1
+        projectionRefreshDeadlineGeneration &+= 1
+        projectionRefreshQuietWorkItem?.cancel()
+        projectionRefreshQuietWorkItem = nil
+        projectionRefreshDeadlineWorkItem?.cancel()
+        projectionRefreshDeadlineWorkItem = nil
+    }
+
+    internal func requestVisibleVCard(owner: String, jid: String) {
+        guard let identity = VCardPresentationIdentity(owner: owner, jid: jid) else {
+            return
+        }
+        AccountManager.shared.find(for: identity.owner)?.action {
+            [weak self] user, stream in
+            let disposition = user.vcards.requestVisibleIfNeeded(
+                stream,
+                jid: identity.jid
+            )
+            DispatchQueue.main.async { [weak self] in
+                self?.handleVisibleVCardRequestDisposition(
+                    disposition,
+                    identity: identity
+                )
+            }
+        }
+    }
+
+    private func scheduleVisibleVCardRetry(for notification: Notification) {
+        guard let owner = notification.userInfo?[
+            VCardManager.failedOwnerUserInfoKey
+        ] as? String,
+        let jid = notification.userInfo?[
+            VCardManager.failedJIDUserInfoKey
+        ] as? String,
+        let failedAt = notification.userInfo?[
+            VCardManager.failedAtUserInfoKey
+        ] as? Date,
+        let identity = VCardPresentationIdentity(owner: owner, jid: jid),
+        enabledAccounts.value.contains(identity.owner),
+        isVisibleVCardIdentity(identity) else {
+            return
+        }
+        let generationValue = notification.userInfo?[
+            VCardManager.failedGenerationUserInfoKey
+        ]
+        let generation = (generationValue as? UInt64)
+            ?? (generationValue as? NSNumber)?.uint64Value
+        guard let managerEpoch = notification.userInfo?[
+            VCardManager.failedManagerEpochUserInfoKey
+        ] as? UUID,
+        let generation else {
+            return
+        }
+
+        scheduleVisibleVCardRetry(
+            identity: identity,
+            proof: VCardVisibleRetryProof(
+                managerEpoch: managerEpoch,
+                generation: generation
+            ),
+            deadline: failedAt.addingTimeInterval(
+                VCardRequestRefreshPolicy.failureRetryCooldown
+            )
+        )
+    }
+
+    private func handleVisibleVCardRequestDisposition(
+        _ disposition: VCardVisibleRequestDisposition,
+        identity: VCardPresentationIdentity
+    ) {
+        switch disposition {
+        case .retryAfter(let deadline, let proof):
+            scheduleVisibleVCardRetry(
+                identity: identity,
+                proof: proof,
+                deadline: deadline
+            )
+        case .satisfied, .submitted, .stale, .unavailable:
+            visibleVCardRetryScheduler.cancel(identity: identity)
+        }
+    }
+
+    private func scheduleVisibleVCardRetry(
+        identity: VCardPresentationIdentity,
+        proof: VCardVisibleRetryProof,
+        deadline: Date
+    ) {
+        guard isVisibleVCardIdentity(identity) else { return }
+        visibleVCardRetryScheduler.schedule(
+            identity: identity,
+            proof: proof,
+            deadline: deadline,
+            isStillVisible: { [weak self] in
+                self?.isVisibleVCardIdentity(identity) == true
+            },
+            retry: { [weak self] identity, proof in
+                self?.performVisibleVCardRetry(
+                    identity: identity,
+                    proof: proof
+                )
+            }
+        )
+    }
+
+    private func performVisibleVCardRetry(
+        identity: VCardPresentationIdentity,
+        proof: VCardVisibleRetryProof
+    ) {
+        guard isVisibleVCardIdentity(identity) else { return }
+        AccountManager.shared.find(for: identity.owner)?.action {
+            [weak self] user, stream in
+            let disposition = user.vcards.retryVisibleIfNeeded(
+                stream,
+                jid: identity.jid,
+                expectedProof: proof
+            )
+            DispatchQueue.main.async { [weak self] in
+                self?.handleVisibleVCardRequestDisposition(
+                    disposition,
+                    identity: identity
+                )
+            }
+        }
+    }
+
+    private func isVisibleVCardIdentity(
+        _ identity: VCardPresentationIdentity
+    ) -> Bool {
+        guard isAppeared,
+              !showSkeleton.value,
+              !isShowingSearchResults else {
+            return false
+        }
+        return tableView.indexPathsForVisibleRows?.contains { indexPath in
+            guard let item = item(at: indexPath),
+                  item.specialMessageKind == .none else {
+                return false
+            }
+            return item.owner == identity.owner && item.jid == identity.jid
+        } == true
+    }
+
     override func observer() {
         super.observer()
         NotificationCenter.default.addObserver(self,
@@ -5094,6 +5798,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         NotifyManager.shared.setLastChats(displayed: true)
         isAppeared = true
         hasCompletedCurrentAppearance = false
+        isFirstLayout = true
         self.tabBarController?.tabBar.isHidden = false
         self.tabBarController?.tabBar.layoutIfNeeded()
         if !self.deferUntilNavigationTransitionCompletesIfNeeded({ [weak self] in
@@ -5149,15 +5854,6 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                 }
             }
         }
-        AccountManager.shared.users.compactMap { $0.jid }.forEach {
-            activeUser in
-            AccountManager.shared.find(for: activeUser)?.delayedAction(delay: 0){ user, stream in
-                if stream.isAuthenticated {
-                    user.vcards.lazyLoadMissedVCards(stream)
-                }
-            }
-        }
-        isFirstLayout = true
         completeLeftMenuFirstPresentationQuietModeAfterFirstStableFrame()
         schedulePremiumPromotionEligibilityRefresh()
     }

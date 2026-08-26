@@ -36,6 +36,7 @@ enum ReliableMessageDeliveryReceiptProcessor {
     static func apply(
         owner: String,
         receipt: XabberDeliveryReceipt,
+        onLiveMessagePersisted: ((ArchiveConversationKey, String) -> Void)? = nil,
         onApplied: (String, String) -> Void
     ) -> Bool {
         do {
@@ -48,6 +49,27 @@ enum ReliableMessageDeliveryReceiptProcessor {
                 return false
             }
             let messageSnapshot = Array(messages)
+            let liveAdmissionRows: [(ArchiveConversationKey, String)]
+            if let receiptCursor = ArchiveCursor(rawValue: receipt.stanzaId) {
+                liveAdmissionRows = messageSnapshot.compactMap { message in
+                    guard !message.isDeleted,
+                          !message.isLocallyHiddenByReport,
+                          ArchiveCursor(rawValue: message.archivedId)?
+                            .numericValue != receiptCursor.numericValue else {
+                        return nil
+                    }
+                    return (
+                        ArchiveConversationKey(
+                            owner: message.owner,
+                            jid: message.opponent,
+                            conversationType: message.conversationType
+                        ),
+                        message.primary
+                    )
+                }
+            } else {
+                liveAdmissionRows = []
+            }
             let timeoutErrorChatKeys = messageSnapshot
                 .filter { $0.messageErrorCode == AccountSendCoordinator.deliveryReceiptTimeoutErrorCode }
                 .map { message in
@@ -83,6 +105,9 @@ enum ReliableMessageDeliveryReceiptProcessor {
                     owner: chatKey.owner,
                     conversationType: chatKey.conversationType
                 )
+            }
+            liveAdmissionRows.forEach { conversation, primaryID in
+                onLiveMessagePersisted?(conversation, primaryID)
             }
             onApplied(receipt.originId, receipt.stanzaId)
             return true
@@ -246,17 +271,34 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
 
     @discardableResult
     internal func applyDeliveryReceipt(_ receipt: XabberDeliveryReceipt) -> Bool {
-        ReliableMessageDeliveryReceiptProcessor.apply(owner: self.owner, receipt: receipt) { [weak self] originId, stanzaId in
-            guard let self else { return }
-            if let account = AccountManager.shared.find(for: self.owner) {
-                account.connectionResilience.noteDeliveryReceipt(originId: originId, stanzaId: stanzaId)
-                account.sendCoordinator.deliveryReceiptReceived(originId: originId, stanzaId: stanzaId)
-                account.logConnectionDiagnostics(
-                    event: "delivery_receipt_applied",
-                    details: ["originId": originId, "stanzaId": stanzaId]
-                )
+        ReliableMessageDeliveryReceiptProcessor.apply(
+            owner: self.owner,
+            receipt: receipt,
+            onLiveMessagePersisted: { [weak self] conversation, primaryID in
+                guard let self,
+                      let account = AccountManager.shared.find(for: self.owner)
+                else {
+                    return
+                }
+                Task { [archiveEngine = account.archiveEngine] in
+                    await archiveEngine.liveMessageDidPersist(
+                        conversation: conversation,
+                        primaryID: primaryID
+                    )
+                }
+            },
+            onApplied: { [weak self] originId, stanzaId in
+                guard let self else { return }
+                if let account = AccountManager.shared.find(for: self.owner) {
+                    account.connectionResilience.noteDeliveryReceipt(originId: originId, stanzaId: stanzaId)
+                    account.sendCoordinator.deliveryReceiptReceived(originId: originId, stanzaId: stanzaId)
+                    account.logConnectionDiagnostics(
+                        event: "delivery_receipt_applied",
+                        details: ["originId": originId, "stanzaId": stanzaId]
+                    )
+                }
             }
-        }
+        )
     }
 
     private func scheduleDeliveryReceiptRetry(_ receipt: XabberDeliveryReceipt, attemptsRemaining: Int) {
@@ -308,10 +350,18 @@ class ReliableMessageDeliveryManager: AbstractXMPPManager {
                             owner: owner,
                             echo: true
                         )
+                        let pendingMediaAttachments = parsedReferences.compactMap {
+                            $0.pendingMediaAttachment
+                        }
                         reconcileEchoReferences(
                             instance: instance,
                             parsedReferences: parsedReferences,
                             echoedBody: echoedMessage.body ?? ""
+                        )
+                        MessageStorageItem.persistPendingMediaAttachments(
+                            pendingMediaAttachments,
+                            forMessagePrimary: instance.primary,
+                            in: realm
                         )
                         if let stanzaId = echoStanzaId(for: echoedMessage, conversationJid: from),
                            stanzaId.isNotEmpty {

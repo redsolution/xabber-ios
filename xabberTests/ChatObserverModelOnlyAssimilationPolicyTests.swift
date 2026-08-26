@@ -572,30 +572,50 @@ final class ChatObserverModelOnlyAssimilationPolicyTests: XCTestCase {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let source = try String(
+        let controllerSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "xabber/controllers/chats/chat/ChatViewController.swift"
+            ),
+            encoding: .utf8
+        )
+        let datasetSource = try String(
             contentsOf: repositoryRoot.appendingPathComponent(
                 "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift"
             ),
             encoding: .utf8
         )
-        let branchStart = try XCTUnwrap(
-            source.range(of: "                case .incomingReadOnly:\n")
-        )
-        let suffix = source[branchStart.upperBound...]
-        let branchEnd = try XCTUnwrap(
-            suffix.range(of: "                case .requiresUIKitApply:\n")
-        )
-        let branch = String(suffix[..<branchEnd.lowerBound])
-
-        XCTAssertTrue(
-            branch.contains(
-                "self.datasourceSnapshot = mappedDatasourceSnapshot"
+        let storeDrain = try XCTUnwrap(
+            functionBody(
+                named: "drainPendingTimelineStoreSnapshot",
+                in: controllerSource
             )
         )
-        XCTAssertTrue(
-            branch.contains("self.datasource = mappedDatasource")
+        let storeApply = try XCTUnwrap(
+            functionBody(
+                named: "applyMappedTimelineStoreSnapshot",
+                in: controllerSource
+            )
         )
-        XCTAssertTrue(branch.contains("completion?()"))
+        let datasourceApply = try XCTUnwrap(
+            functionBody(named: "applyChatDatasource", in: datasetSource)
+        )
+
+        XCTAssertTrue(storeDrain.contains("snapshot.items"))
+        XCTAssertTrue(storeDrain.contains("let mappingResult = self.mapDataset("))
+        XCTAssertTrue(storeDrain.contains("self.applyMappedTimelineStoreSnapshot("))
+        XCTAssertTrue(storeApply.contains("mappingResult.datasource"))
+        XCTAssertTrue(storeApply.contains("mode: .targetedDiff"))
+        XCTAssertTrue(
+            storeApply.contains(
+                "preparedLayouts: mappingResult.layoutSnapshot"
+            )
+        )
+        XCTAssertTrue(storeApply.contains("transactionCompletion:"))
+        XCTAssertTrue(storeApply.contains("finishTimelineStoreSnapshotApply("))
+        XCTAssertTrue(datasourceApply.contains("self.datasource = items"))
+        XCTAssertTrue(
+            datasourceApply.contains("self.datasourceSnapshot = newSnapshot")
+        )
 
         for forbiddenWork in [
             "syncCurrentPage",
@@ -604,13 +624,42 @@ final class ChatObserverModelOnlyAssimilationPolicyTests: XCTestCase {
             "scrollBoundaryAvailabilityCache",
             "WRealm.safe",
             "hasOlderLocalPage",
-            "hasNewerLocalPage"
+            "hasNewerLocalPage",
+            "requestTimelineBoundary",
+            "submitArchiveEngineBoundaryExpansion"
         ] {
             XCTAssertFalse(
-                branch.contains(forbiddenWork),
-                "incoming read-only assimilation must not perform \(forbiddenWork)"
+                (storeDrain + storeApply).contains(forbiddenWork),
+                "timeline store snapshot apply must not perform \(forbiddenWork)"
             )
         }
+    }
+
+    private func functionBody(named name: String, in source: String) -> String? {
+        guard let nameRange = source.range(of: "func \(name)") else {
+            return nil
+        }
+        guard let openBrace = source[nameRange.lowerBound...]
+            .firstIndex(of: "{") else {
+            return nil
+        }
+        var depth = 0
+        var index = openBrace
+        while index < source.endIndex {
+            switch source[index] {
+            case "{":
+                depth += 1
+            case "}":
+                depth -= 1
+                if depth == 0 {
+                    return String(source[openBrace...index])
+                }
+            default:
+                break
+            }
+            index = source.index(after: index)
+        }
+        return nil
     }
 
     private func decision(

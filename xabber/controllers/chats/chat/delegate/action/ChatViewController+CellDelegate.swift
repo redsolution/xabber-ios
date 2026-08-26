@@ -149,13 +149,8 @@ extension ChatViewController: ContextMenuDelegate {
 extension ChatViewController: SensitiveContentFirstPaneViewControllerDelegate {
     func onViewSensitiveMedia(messagePrimary: String, referencePrimary: String, urls: [URL], url: URL, isVideo: Bool) {
         if referencePrimary.isNotEmpty {
-            revealedSensitiveMediaPrimaries.insert(referencePrimary)
-            let plan = ChatReloadInvalidationPolicy.sensitiveMediaRevealPlan()
-            mapAndApplyTimelineCurrent(
-                mode: plan.mode,
-                animated: plan.animated,
-                invalidateLayout: plan.invalidateLayout,
-                suppressDefaultBottomScroll: plan.suppressDefaultBottomScroll
+            revealSensitiveMediaAndRemapCommittedTimeline(
+                referencePrimary: referencePrimary
             )
         }
 
@@ -717,7 +712,8 @@ extension ChatViewController: MessageCellDelegate {
             self.datasource,
             mode: .fullReload(keepOffset: true),
             animated: false,
-            suppressDefaultBottomScroll: true
+            suppressDefaultBottomScroll: true,
+            presentationOwner: .archiveEngine
         )
     }
     

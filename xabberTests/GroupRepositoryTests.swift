@@ -3,6 +3,10 @@ import RealmSwift
 @testable import xabber
 
 final class GroupRepositoryTests: XCTestCase {
+    private enum AtomicAdmissionProbeError: Error {
+        case injectedAfterCanonicalMutations
+    }
+
     private func makeRealm() throws -> Realm {
         var configuration = Realm.Configuration(
             inMemoryIdentifier: "GroupRepositoryTests-\(UUID().uuidString)"
@@ -821,5 +825,174 @@ final class GroupRepositoryTests: XCTestCase {
             realm.objects(GroupInviteStorageItem.self).first?.directionRaw,
             GroupInviteDirection.outgoing.rawValue
         )
+    }
+
+    func testAdmissionAdditionalMutationFailureRollsBackCanonicalStateAndConversationProjection() throws {
+        let realm = try makeApplicationRealm()
+        let repository = GroupRepository(realm: realm)
+        let owner = "Owner@Example.COM/Phone"
+        let groupJID = "Stage@Example.COM/Group"
+        let groupPrimary = GroupStorageKey.groupPrimary(
+            owner: owner,
+            groupJID: groupJID
+        )
+        let conversationPrimary = LastChatsStorageItem.genPrimary(
+            jid: GroupStorageKey.bareJID(groupJID),
+            owner: GroupStorageKey.bareJID(owner),
+            conversationType: .group
+        )
+        var reachedAdditionalMutation = false
+
+        XCTAssertThrowsError(
+            try repository.admitSnapshot(
+                snapshot(jid: groupJID),
+                membership: .both,
+                memberID: "self-1",
+                owner: owner,
+                groupJID: groupJID,
+                members: [
+                    GroupMember(id: "self-1", jid: owner, role: .owner),
+                    GroupMember(id: "member-2", role: .member)
+                ],
+                rejectingTombstone: true,
+                additionalMutation: { transactionRealm in
+                    reachedAdditionalMutation = true
+                    XCTAssertNotNil(
+                        transactionRealm.object(
+                            ofType: GroupSelfMembershipStorageItem.self,
+                            forPrimaryKey: groupPrimary
+                        ),
+                        "The injected failure must happen after membership mutation"
+                    )
+                    XCTAssertNotNil(
+                        transactionRealm.object(
+                            ofType: GroupSnapshotStorageItem.self,
+                            forPrimaryKey: groupPrimary
+                        ),
+                        "The injected failure must happen after snapshot mutation"
+                    )
+                    XCTAssertEqual(
+                        transactionRealm.objects(GroupMemberStorageItem.self)
+                            .filter("groupPrimary == %@", groupPrimary)
+                            .count,
+                        2
+                    )
+                    try GroupConversationProjectionStore.activate(
+                        owner: owner,
+                        groupJID: groupJID,
+                        in: transactionRealm
+                    )
+                    XCTAssertNotNil(
+                        transactionRealm.object(
+                            ofType: LastChatsStorageItem.self,
+                            forPrimaryKey: conversationPrimary
+                        )
+                    )
+                    throw AtomicAdmissionProbeError.injectedAfterCanonicalMutations
+                }
+            )
+        ) { error in
+            XCTAssertTrue(error is AtomicAdmissionProbeError)
+        }
+
+        XCTAssertTrue(reachedAdditionalMutation)
+        XCTAssertNil(
+            realm.object(
+                ofType: GroupSelfMembershipStorageItem.self,
+                forPrimaryKey: groupPrimary
+            )
+        )
+        XCTAssertNil(
+            realm.object(
+                ofType: GroupSnapshotStorageItem.self,
+                forPrimaryKey: groupPrimary
+            )
+        )
+        XCTAssertTrue(
+            realm.objects(GroupMemberStorageItem.self)
+                .filter("groupPrimary == %@", groupPrimary)
+                .isEmpty
+        )
+        XCTAssertNil(
+            realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: conversationPrimary
+            )
+        )
+    }
+
+    func testAdmissionAdditionalMutationCommitsCanonicalStateAndConversationProjectionTogether() throws {
+        let realm = try makeApplicationRealm()
+        let repository = GroupRepository(realm: realm)
+        let owner = "Owner@Example.COM/Phone"
+        let groupJID = "Stage@Example.COM/Group"
+        let normalizedOwner = GroupStorageKey.bareJID(owner)
+        let normalizedGroupJID = GroupStorageKey.bareJID(groupJID)
+        let groupPrimary = GroupStorageKey.groupPrimary(
+            owner: owner,
+            groupJID: groupJID
+        )
+        let conversationPrimary = LastChatsStorageItem.genPrimary(
+            jid: normalizedGroupJID,
+            owner: normalizedOwner,
+            conversationType: .group
+        )
+
+        let result = try repository.admitSnapshot(
+            snapshot(jid: groupJID),
+            membership: .both,
+            memberID: "self-1",
+            owner: owner,
+            groupJID: groupJID,
+            members: [
+                GroupMember(id: "self-1", jid: owner, role: .owner),
+                GroupMember(id: "member-2", role: .member)
+            ],
+            rejectingTombstone: true,
+            additionalMutation: { transactionRealm in
+                try GroupConversationProjectionStore.activate(
+                    owner: owner,
+                    groupJID: groupJID,
+                    in: transactionRealm
+                )
+            }
+        )
+
+        XCTAssertEqual(result, .admitted)
+        XCTAssertEqual(
+            realm.object(
+                ofType: GroupSelfMembershipStorageItem.self,
+                forPrimaryKey: groupPrimary
+            )?.stateRaw,
+            GroupSelfMembershipState.both.rawValue
+        )
+        XCTAssertEqual(
+            realm.object(
+                ofType: GroupSnapshotStorageItem.self,
+                forPrimaryKey: groupPrimary
+            )?.name,
+            "Stage"
+        )
+        XCTAssertEqual(
+            realm.objects(GroupMemberStorageItem.self)
+                .filter("groupPrimary == %@", groupPrimary)
+                .count,
+            2
+        )
+        let conversation = try XCTUnwrap(
+            realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: conversationPrimary
+            )
+        )
+        XCTAssertEqual(conversation.owner, normalizedOwner)
+        XCTAssertEqual(conversation.jid, normalizedGroupJID)
+        XCTAssertEqual(conversation.conversationType, .group)
+    }
+
+    private func makeApplicationRealm() throws -> Realm {
+        var configuration = Realm.Configuration()
+        configuration.inMemoryIdentifier = "GroupAtomicAdmissionTests-\(UUID().uuidString)"
+        return try Realm(configuration: configuration)
     }
 }

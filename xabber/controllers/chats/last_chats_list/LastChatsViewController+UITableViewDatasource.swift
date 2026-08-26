@@ -94,6 +94,7 @@ extension LastChatsViewController: UITableViewDataSource {
             isDraft: item.isDraft,
             isAttachment: item.hasAttachment,
             groupchatNickname: item.userNickname,
+            groupchatAuthorColorKey: item.userColorKey,
             isSystem: item.isSystemMessage,
             isPinned: item.isPinned,
             subRequest: item.subRequest,
@@ -240,7 +241,14 @@ extension LastChatsViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
         if self.showSkeleton.value {
             (cell as? SkeletonCell)?.animate()
+            return
         }
+        guard !isShowingSearchResults,
+              let item = item(at: indexPath),
+              item.specialMessageKind == .none else {
+            return
+        }
+        requestVisibleVCard(owner: item.owner, jid: item.jid)
     }
 
 }

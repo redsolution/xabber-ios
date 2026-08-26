@@ -94,85 +94,24 @@ final class ChatReloadInvalidationPolicyTests: XCTestCase {
         XCTAssertEqual(plan.applyCategory, .olderAnchorReload)
     }
 
-    func testNewerAnchorCaptureTreatsBottomPlaceholderAsNonLiveBottom() {
+    func testNewerAnchorCaptureTreatsNonLiveBottomAsAnchored() {
         XCTAssertTrue(ChatHistoryPageAnchorCapturePolicy.shouldCaptureNewerAnchor(
             isNearBottom: true,
-            isResidentAtLiveTail: false,
-            hasBottomBoundaryPlaceholder: true,
-            hasBottomVirtualPlaceholder: true,
-            hasNewerRemoteLoad: true
+            isResidentAtLiveTail: false
         ))
     }
 
     func testNewerAnchorCaptureKeepsLiveBottomLatestBehavior() {
         XCTAssertFalse(ChatHistoryPageAnchorCapturePolicy.shouldCaptureNewerAnchor(
             isNearBottom: true,
-            isResidentAtLiveTail: true,
-            hasBottomBoundaryPlaceholder: false,
-            hasBottomVirtualPlaceholder: false,
-            hasNewerRemoteLoad: false
+            isResidentAtLiveTail: true
         ))
     }
 
     func testNewerAnchorCaptureTreatsNonLiveLocalBottomAsVirtualBottom() {
         XCTAssertTrue(ChatHistoryPageAnchorCapturePolicy.shouldCaptureNewerAnchor(
             isNearBottom: true,
-            isResidentAtLiveTail: false,
-            hasBottomBoundaryPlaceholder: false,
-            hasBottomVirtualPlaceholder: false,
-            hasNewerRemoteLoad: false
-        ))
-    }
-
-    func testSearchObserverRefreshAwayFromBottomPreservesVisibleNewerAnchor() {
-        XCTAssertTrue(ChatObserverRefreshAnchorRestorePolicy.shouldSuppressOpenLatest(
-            isSearchModeActive: true,
-            isNearBottom: false,
-            hasPendingForceLatestOpen: false
-        ))
-        XCTAssertEqual(
-            ChatObserverRefreshAnchorRestorePolicy.visibleAnchorDirection(
-                isSearchModeActive: true,
-                isNearBottom: false,
-                willOpenLatest: false,
-                hasSearchAnchorWork: false,
-                isShowingBootstrapPlaceholder: false
-            ),
-            .newer
-        )
-        XCTAssertEqual(
-            ChatObserverRefreshAnchorRestorePolicy.restorePhase(hasCapturedAnchor: true),
-            .applyTransaction
-        )
-    }
-
-    func testSearchObserverRefreshAtLiveBottomKeepsLatestBehavior() {
-        XCTAssertFalse(ChatObserverRefreshAnchorRestorePolicy.shouldSuppressOpenLatest(
-            isSearchModeActive: true,
-            isNearBottom: true,
-            hasPendingForceLatestOpen: false
-        ))
-        XCTAssertNil(ChatObserverRefreshAnchorRestorePolicy.visibleAnchorDirection(
-            isSearchModeActive: true,
-            isNearBottom: true,
-            willOpenLatest: true,
-            hasSearchAnchorWork: false,
-            isShowingBootstrapPlaceholder: false
-        ))
-    }
-
-    func testSearchObserverRefreshDoesNotSuppressExplicitForceLatest() {
-        XCTAssertFalse(ChatObserverRefreshAnchorRestorePolicy.shouldSuppressOpenLatest(
-            isSearchModeActive: true,
-            isNearBottom: false,
-            hasPendingForceLatestOpen: true
-        ))
-        XCTAssertNil(ChatObserverRefreshAnchorRestorePolicy.visibleAnchorDirection(
-            isSearchModeActive: true,
-            isNearBottom: false,
-            willOpenLatest: true,
-            hasSearchAnchorWork: false,
-            isShowingBootstrapPlaceholder: false
+            isResidentAtLiveTail: false
         ))
     }
 

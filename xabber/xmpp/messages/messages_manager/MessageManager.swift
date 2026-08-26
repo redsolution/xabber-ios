@@ -441,12 +441,52 @@ class MessageManager: AbstractXMPPManager {
     internal var messagePersistenceChunkSizes: [Int] = []
     internal var messagePersistenceChunkObserver: ((Int, Int) -> Void)?
     internal var ordinaryDrainWillExecuteHook: (() -> Void)?
+    /// Optional effects wait here until the matching durable query terminal.
+    /// The value contains detached primitives only; Realm objects never cross
+    /// from message persistence into background work.
+    internal var pendingPostPersistenceEffectsByQueryId: [
+        String: PostPersistenceEffects
+    ] = [:]
+    internal var postPersistenceEffectsHeldForTransportQueryIds: Set<String> = []
+    internal let postPersistenceEffectsQueue = DispatchQueue(
+        label: "com.xabber.message-persistence.optional-effects",
+        qos: .utility,
+        autoreleaseFrequency: .workItem
+    )
+    internal var sensitiveMediaAnalysisScheduler: ([String]) -> Void = {
+        primaryKeys in
+        SensitiveMediaAnalysisService.shared.checkIsSensitive(
+            messageReferencePrimaryKeys: primaryKeys
+        )
+    }
+    internal var videoPreviewScheduler: ([String]) -> Void = { primaryKeys in
+        primaryKeys.forEach {
+            MessageReferenceStorageItem.videoPreviewScheduler.schedule(
+                referencePrimary: $0
+            )
+        }
+    }
     #if DEBUG || CHAT_PERFORMANCE_LAB
     internal var readMessageDurableMutationObserverForTests:
         ((ReadMessageDurableMutationEvent) -> Void)?
     #endif
     
     internal var senderBag: DisposeBag = DisposeBag()
+
+    /// Injectable presentation handoff used immediately after the sender's
+    /// initial Realm transaction. It is intentionally separate from archive
+    /// proof and from generic Realm observation.
+    internal var localOutgoingAdmissionPublisher:
+        (ChatTimelineLocalOutgoingAdmission) -> Void = { admission in
+            guard let account = AccountManager.shared.find(
+                for: admission.conversation.owner
+            ) else {
+                return
+            }
+            Task { [archiveEngine = account.archiveEngine] in
+                await archiveEngine.localOutgoingDidPersist(admission)
+            }
+        }
     
     internal var stanzaQueue: BehaviorRelay<Array<XMPPMessage>> = BehaviorRelay<Array<XMPPMessage>>(value: Array<XMPPMessage>())
     

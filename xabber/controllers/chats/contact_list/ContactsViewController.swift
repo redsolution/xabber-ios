@@ -2413,7 +2413,6 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         
         let frame = CGRect(origin: CGPoint(x: 0, y: self.view.bounds.height - inputHeight), size: CGSize(width: self.view.bounds.width, height: inputHeight))
         bottomBar.updateFrame(to: frame)
-        updateContactsCompactBottomBarState()
     }
 
     override func viewDidLayoutSubviews() {

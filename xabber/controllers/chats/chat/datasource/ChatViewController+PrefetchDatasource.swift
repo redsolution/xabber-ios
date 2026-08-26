@@ -26,94 +26,58 @@ import RxRealm
 
 extension ChatViewController: UICollectionViewDataSourcePrefetching {
 
-    private struct BoundaryPagingSuppressionContext {
-        let suppressRemoteBoundaryPaging: Bool
-        let contentHeight: CGFloat
-        let visibleHeight: CGFloat
-    }
-
-    private func boundaryPagingAvailability() -> ChatScrollBoundaryAvailability {
-        self.scrollBoundaryAvailabilityCache.availability(for: self.chatTimelineConversationKey) ?? .empty
-    }
-
-    private func shortContentRemotePagingSuppressionContext(
-        availability: ChatScrollBoundaryAvailability
-    ) -> BoundaryPagingSuppressionContext {
-        let contentHeight = self.messagesCollectionView.contentSize.height
-        let visibleHeight = max(
-            0,
-            self.messagesCollectionView.bounds.height -
-                self.messagesCollectionView.adjustedContentInset.top -
-                self.messagesCollectionView.adjustedContentInset.bottom
-        )
-        let hasRealMessages = self.scrollResidentMetadata.firstRealSection != nil
-        let shouldSuppress = ChatShortContentRemotePagingSuppressionPolicy.shouldSuppressRemoteBoundaryPaging(
-            hasRealMessages: hasRealMessages,
-            hasLocalOlderAvailable: availability.hasLocalOlderPage,
-            hasLocalNewerAvailable: availability.hasLocalNewerPage,
-            hasRemoteOlderAvailable: availability.hasRemoteOlderPage,
-            contentHeight: contentHeight,
-            visibleHeight: visibleHeight
-        )
-        return BoundaryPagingSuppressionContext(
-            suppressRemoteBoundaryPaging: shouldSuppress,
-            contentHeight: contentHeight,
-            visibleHeight: visibleHeight
-        )
-    }
-
     internal func interactiveBoundaryPagingDirection(
         isUserScrolling: Bool,
         gestureTranslationY: CGFloat,
         boundaryContext: ChatHistoryPagingBoundaryContext
     ) -> ChatHistoryPageDirection? {
-        guard self.canAdmitBoundaryPagingAfterInitialFrame else {
+        guard isUserScrolling,
+              !boundaryContext.visibleRealSections.isEmpty,
+              committedTimelineScope(
+                allowingLocalPresentationID: timelineBoundaryRequest?.id,
+                allowsPendingLiveEdgeAdmission:
+                    timelineBoundaryRequest != nil
+              ) != nil else {
             return nil
         }
-        let availability = self.boundaryPagingAvailability()
-        let suppressionContext = self.shortContentRemotePagingSuppressionContext(availability: availability)
-        let residentCount = self.virtualTimelineState.residentPrimaryKeys.count
-        let pageDirection = ChatHistoryPagingPolicy.triggerDirection(
-            isUserScrolling: isUserScrolling,
-            canLoadDatasource: self.canLoadDatasource,
-            gestureTranslationY: gestureTranslationY,
-            boundaryContext: boundaryContext,
-            currentPageMinIndex: 0,
-            currentPageMaxIndex: residentCount,
-            totalCount: residentCount,
-            hasLocalOlderAvailable: availability.hasLocalOlderPage,
-            hasLocalNewerAvailable: availability.hasLocalNewerPage,
-            hasRemoteOlderAvailable: availability.hasRemoteOlderPage,
-            hasRemoteNewerAvailable: availability.hasRemoteNewerPage,
-            suppressRemoteBoundaryPaging: suppressionContext.suppressRemoteBoundaryPaging
-        )
-        return pageDirection
+
+        let minimumVisibleSection = boundaryContext.visibleRealSections.min()
+        let maximumVisibleSection = boundaryContext.visibleRealSections.max()
+        let isOlderBoundaryVisible = minimumVisibleSection.flatMap { visibleSection in
+            boundaryContext.firstRealSection.map { visibleSection <= $0 }
+        } ?? false
+        let isNewerBoundaryVisible = maximumVisibleSection.flatMap { visibleSection in
+            boundaryContext.lastRealSection.map { visibleSection >= $0 }
+        } ?? false
+        // Server edge flags describe the complete verified scope, not the
+        // currently resident UIKit window. A direction may still be locally
+        // pageable after the opposite edge was evicted from the bounded
+        // resident window, even when the scope itself reaches the archive
+        // edge. The session is the only owner of that distinction.
+        let canRequestOlder = isOlderBoundaryVisible &&
+            canRequestTimelineBoundary(direction: .older)
+        let canRequestNewer = isNewerBoundaryVisible &&
+            canRequestTimelineBoundary(direction: .newer)
+
+        switch (canRequestOlder, canRequestNewer) {
+        case (true, false):
+            return .older
+        case (false, true):
+            return .newer
+        case (true, true):
+            if gestureTranslationY > 0 {
+                return .older
+            }
+            if gestureTranslationY < 0 {
+                return .newer
+            }
+            return nil
+        case (false, false):
+            return nil
+        }
     }
 
-    private func fallbackBoundaryPagingDirection(
-        gestureTranslationY: CGFloat,
-        boundaryContext: ChatHistoryPagingBoundaryContext
-    ) -> ChatHistoryPageDirection? {
-        let availability = self.boundaryPagingAvailability()
-        let suppressionContext = self.shortContentRemotePagingSuppressionContext(availability: availability)
-        let residentCount = self.virtualTimelineState.residentPrimaryKeys.count
-        let pageDirection = ChatHistoryPagingPolicy.fallbackDirectionForShortContentDrag(
-            canLoadDatasource: self.canLoadDatasource,
-            gestureTranslationY: gestureTranslationY,
-            boundaryContext: boundaryContext,
-            currentPageMinIndex: 0,
-            currentPageMaxIndex: residentCount,
-            totalCount: residentCount,
-            hasLocalOlderAvailable: availability.hasLocalOlderPage,
-            hasLocalNewerAvailable: availability.hasLocalNewerPage,
-            hasRemoteOlderAvailable: availability.hasRemoteOlderPage,
-            hasRemoteNewerAvailable: availability.hasRemoteNewerPage,
-            suppressRemoteBoundaryPaging: suppressionContext.suppressRemoteBoundaryPaging
-        )
-        return pageDirection
-    }
-
-    private func triggerInteractiveBoundaryPagingIfNeeded(_ request: ChatScrollWorkRequest) {
+    private func requestTimelineBoundaryIfNeeded(_ request: ChatScrollWorkRequest) {
         let boundaryContext = request.visibleMetadata.boundaryContext
         let pageDirection = self.interactiveBoundaryPagingDirection(
             isUserScrolling: request.isUserScrolling,
@@ -124,23 +88,15 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             return
         }
 
-        self.handleBoundaryPagingCandidate(
-            direction: pageDirection,
-            boundaryContext: boundaryContext,
-            motionState: self.currentScrollMotionState(),
-            trigger: "interactive"
-        )
+        self.requestTimelineBoundary(direction: pageDirection, visible: true)
     }
 
-    private func triggerBoundaryPagingAfterDragIfNeeded(_ scrollView: UIScrollView) {
-        if self.applyPendingBoundaryPagingAfterScrollRest(trigger: "dragEnd") {
-            return
-        }
-
+    private func requestTimelineBoundaryAfterDragIfNeeded(_ scrollView: UIScrollView) {
         let boundaryContext = self.pagingBoundaryContext(
             visibleSections: self.messagesCollectionView.indexPathsForVisibleItems.map(\.section)
         )
-        let pageDirection = self.fallbackBoundaryPagingDirection(
+        let pageDirection = self.interactiveBoundaryPagingDirection(
+            isUserScrolling: true,
             gestureTranslationY: scrollView.panGestureRecognizer.translation(in: scrollView).y,
             boundaryContext: boundaryContext
         )
@@ -148,12 +104,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
             return
         }
 
-        self.handleBoundaryPagingCandidate(
-            direction: pageDirection,
-            boundaryContext: boundaryContext,
-            motionState: self.currentScrollMotionState(),
-            trigger: "dragEnd"
-        )
+        self.requestTimelineBoundary(direction: pageDirection, visible: true)
     }
 
     private func currentVisibleIndexPaths(including indexPath: IndexPath? = nil) -> [IndexPath] {
@@ -231,9 +182,8 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
         }
 
         if effectiveWork.contains(.evaluateBoundaryPaging),
-           request.isUserScrolling,
-           self.timelineInteractionState.isUnlocked {
-            self.triggerInteractiveBoundaryPagingIfNeeded(request)
+           request.isUserScrolling {
+            self.requestTimelineBoundaryIfNeeded(request)
         }
 
         if effectiveWork.contains(.updateFloatingDate) {
@@ -275,7 +225,7 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     
     func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
         collectionPrefetchCoordinator.prefetchItems(at: indexPaths)
-        prefetchArchiveEngineWindowIfNeeded(indexPaths: indexPaths)
+        prefetchTimelineBoundaryIfNeeded(indexPaths: indexPaths)
     }
 
     func collectionView(_ collectionView: UICollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
@@ -289,26 +239,18 @@ extension ChatViewController: UICollectionViewDataSourcePrefetching {
     
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         self.flushPendingScrollWork()
-        self.flushPendingArchiveObserverRefreshIfPossible(reason: "scrollDidEndDecelerating")
-        self.triggerBoundaryPagingAfterDragIfNeeded(scrollView)
+        self.requestTimelineBoundaryAfterDragIfNeeded(scrollView)
     }
     
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         self.flushPendingScrollWork()
         guard !decelerate else { return }
-        self.flushPendingArchiveObserverRefreshIfPossible(reason: "scrollDidEndDragging")
-        self.triggerBoundaryPagingAfterDragIfNeeded(scrollView)
+        self.requestTimelineBoundaryAfterDragIfNeeded(scrollView)
     }
     
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         (cell as? ChatOffscreenWorkManaging)?.resumeOnscreenWork()
-//        if self.canLoadDatasource {
-//            if (self.messagesCollectionView.contentSize.height - self.messagesCollectionView.contentOffset.y) < self.view.bounds.height {
-//                self.canLoadDatasource = false
-//                self.onTouchEndPage(direction: .up)
-//            } 
-//        }
-        
+
         self.enqueueScrollWork(
             visibleIndexPaths: self.currentVisibleIndexPaths(including: indexPath),
             work: [.updateFloatingDate, .advanceReadBoundary, .updateVoiceQueue]

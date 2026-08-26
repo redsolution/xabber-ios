@@ -1,131 +1,8 @@
 import UIKit
 import RealmSwift
 import XMPPFramework
-import notify
 
 #if DEBUG || CHAT_PERFORMANCE_LAB
-internal struct ChatPerformanceP14ReceiptReadinessDiagnostics: Equatable,
-    CustomStringConvertible {
-    internal enum Blocker: String, Equatable {
-        case wrongScenario
-        case terminalTeardownCompleted
-        case missingInitialUnreadProofToken
-        case initialUnreadProofOwnerMismatch
-        case initialUnreadProofOwnerIsNotLatest
-        case nativeDidShowPending
-        case routeHostCompletionPending
-        case initialUnreadProofPending
-        case receiptAlreadyIssued
-        case visualCommitCountMismatch
-        case targetMatchCountMismatch
-        case latestVisualCommitCountMismatch
-        case anchorErrorOutOfTolerance
-        case pendingOpenMessageRequest
-        case activeAnchorExecution
-        case datasourceStructuralTransactionActive
-        case presentationSnapshotRejected
-        case realizedTargetIdentityMissing
-        case initialFrameOwnerChangedAfterGeometrySync
-        case proofOwnerChangedAfterGeometrySync
-        case latestOwnerChangedAfterGeometrySync
-        case receiptIssuedDuringGeometrySync
-        case ready
-        case issued
-    }
-
-    var blocker: Blocker
-    let evaluationCount: Int
-    let isExpectedScenario: Bool
-    let terminalTeardownCompleted: Bool
-    let proofEffectToken: ChatInitialFrameEffectToken?
-    let initialFrameEffectToken: ChatInitialFrameEffectToken?
-    let latestEffectToken: ChatInitialFrameEffectToken?
-    let proofOwnerMatchesInitialFrame: Bool
-    let proofOwnerIsLatest: Bool
-    let nativeDidShowCompleted: Bool
-    let routeHostDidComplete: Bool
-    let initialUnreadProofCompleted: Bool
-    let didIssueReceipt: Bool
-    let visualCommitCount: Int
-    let targetMatchCount: Int
-    let latestVisualCommitCount: Int
-    let anchorError: CGFloat?
-    let hasPendingOpenMessageRequest: Bool
-    let hasActiveAnchorExecution: Bool
-    let isDatasourceStructuralTransactionActive: Bool
-    let presentationSnapshot: ChatReadVisiblePresentationSnapshot?
-    let presentationSnapshotAccepted: Bool?
-    let viewHierarchyVisibility:
-        ChatReadVisibleViewHierarchyDiagnostics?
-    let expectedTargetPrimary: String
-    let realizedTargetIdentity: ChatReadVisibleRowPresentationIdentity?
-    let realizedMessagePrimaries: Set<String>
-    let realizedMessageCount: Int
-    let datasourceGeneration: UInt64
-    let coordinatorLifecycleState: ChatReadVisiblePresentationLifecycleState
-    let coordinatorGeneration: UInt64
-    let coordinatorGeometryGeneration: UInt64
-    let pendingCandidateCount: Int
-    let inFlightFlushCount: Int
-    let initialFramePhase: ChatLocalFirstFramePhase
-    let isInitialBootstrapInFlight: Bool
-    let showsSkeleton: Bool
-    let isApplyingBootstrapAnchorWindow: Bool
-    let isPreparingStackedNavigationPresentation: Bool
-    let isNavigationTransitionActive: Bool
-    let hasControllerTransitionCoordinator: Bool
-    let hasNavigationTransitionCoordinator: Bool
-
-    var description: String {
-        let snapshotDescription = presentationSnapshot.map { snapshot in
-            "app=\(snapshot.isApplicationActive),window=\(snapshot.isWindowAttached),scene=\(snapshot.isWindowSceneForegroundActive),key=\(snapshot.isKeyWindow),top=\(snapshot.isTopNavigationDestination),split=\(snapshot.isVisibleSplitSecondary),covered=\(snapshot.hasCoveringPresentation),transition=\(snapshot.isTransitionActive)"
-        } ?? "notEvaluated"
-        return [
-            "blocker=\(blocker.rawValue)",
-            "evaluation=\(evaluationCount)",
-            "scenario=\(isExpectedScenario)",
-            "teardown=\(terminalTeardownCompleted)",
-            "proofGeneration=\(proofEffectToken?.presentationGeneration.description ?? "nil")",
-            "frameGeneration=\(initialFrameEffectToken?.presentationGeneration.description ?? "nil")",
-            "latestGeneration=\(latestEffectToken?.presentationGeneration.description ?? "nil")",
-            "proofMatchesFrame=\(proofOwnerMatchesInitialFrame)",
-            "proofIsLatest=\(proofOwnerIsLatest)",
-            "didShow=\(nativeDidShowCompleted)",
-            "hostComplete=\(routeHostDidComplete)",
-            "proofComplete=\(initialUnreadProofCompleted)",
-            "didIssue=\(didIssueReceipt)",
-            "visual=\(visualCommitCount)",
-            "targetMatches=\(targetMatchCount)",
-            "latestVisual=\(latestVisualCommitCount)",
-            "anchorError=\(anchorError.map { String(describing: $0) } ?? "nil")",
-            "pendingRequest=\(hasPendingOpenMessageRequest)",
-            "activeAnchor=\(hasActiveAnchorExecution)",
-            "structural=\(isDatasourceStructuralTransactionActive)",
-            "snapshotAccepted=\(String(describing: presentationSnapshotAccepted))",
-            "snapshot(\(snapshotDescription))",
-            "viewHierarchy=\(String(describing: viewHierarchyVisibility))",
-            "expectedTarget=\(expectedTargetPrimary)",
-            "realizedTarget=\(String(describing: realizedTargetIdentity))",
-            "realizedPrimaries=\(realizedMessagePrimaries.sorted())",
-            "realizedCount=\(realizedMessageCount)",
-            "datasourceGeneration=\(datasourceGeneration)",
-            "coordinatorLifecycle=\(String(describing: coordinatorLifecycleState))",
-            "coordinatorGeneration=\(coordinatorGeneration)",
-            "geometryGeneration=\(coordinatorGeometryGeneration)",
-            "pending=\(pendingCandidateCount)",
-            "inFlight=\(inFlightFlushCount)",
-            "initialPhase=\(String(describing: initialFramePhase))",
-            "bootstrapInFlight=\(isInitialBootstrapInFlight)",
-            "skeleton=\(showsSkeleton)",
-            "bootstrapAnchor=\(isApplyingBootstrapAnchorWindow)",
-            "stackedPreparing=\(isPreparingStackedNavigationPresentation)",
-            "navigationActive=\(isNavigationTransitionActive)",
-            "controllerTransition=\(hasControllerTransitionCoordinator)",
-            "navigationTransition=\(hasNavigationTransitionCoordinator)"
-        ].joined(separator: " ")
-    }
-}
-
 /// One-shot, read-only geometry evidence for the hosted P14 ownership race.
 /// The fixture captures this only from explicit XCTest edges; the production
 /// receipt/display-link path never constructs it.
@@ -159,10 +36,6 @@ internal struct ChatPerformanceP14TargetGeometrySnapshot:
     let cellIntersection: CGRect?
     let layoutMeaningfullyVisible: Bool?
     let cellMeaningfullyVisible: Bool?
-    let committedDiagnosticGeneration: UInt64?
-    let fixtureFrameGeneration: UInt64?
-    let latestGeneration: UInt64?
-    let proofGeneration: UInt64?
     let datasourceGeneration: UInt64
 
     var description: String {
@@ -195,10 +68,6 @@ internal struct ChatPerformanceP14TargetGeometrySnapshot:
             "cellIntersection=\(Self.optionalRect(cellIntersection))",
             "layoutVisible=\(String(describing: layoutMeaningfullyVisible))",
             "cellVisible=\(String(describing: cellMeaningfullyVisible))",
-            "committedGeneration=\(committedDiagnosticGeneration.map { String($0) } ?? "nil")",
-            "fixtureFrameGeneration=\(fixtureFrameGeneration.map { String($0) } ?? "nil")",
-            "latestGeneration=\(latestGeneration.map { String($0) } ?? "nil")",
-            "proofGeneration=\(proofGeneration.map { String($0) } ?? "nil")",
             "datasourceGeneration=\(datasourceGeneration)"
         ].joined(separator: " ")
     }
@@ -238,100 +107,6 @@ internal struct ChatPerformanceP14TargetGeometrySnapshot:
     }
 }
 
-final class ChatOpenRealPipelineFixtureDarwinAcknowledgementObserver {
-    private let notificationName: String
-    private let handler: () -> Void
-    private let lock = NSLock()
-    private var registrationToken: Int32?
-    private var gate = ChatOpenRealPipelineFixtureAcknowledgementGate()
-
-    init(notificationName: String, handler: @escaping () -> Void) {
-        self.notificationName = notificationName
-        self.handler = handler
-    }
-
-    @discardableResult
-    func start() -> Bool {
-        guard ChatOpenRealPipelineFixtureDarwinAcknowledgementContract
-            .isAllowlisted(notificationName: notificationName) else {
-            return false
-        }
-        lock.lock()
-        let didArm = gate.arm()
-        lock.unlock()
-        guard didArm else { return false }
-
-        var token: Int32 = 0
-        let status = notificationName.withCString { name in
-            notify_register_dispatch(name, &token, .main) { [weak self] _ in
-                DispatchQueue.main.async { [weak self] in
-                    self?.consumeOnMain()
-                }
-            }
-        }
-        guard status == NOTIFY_STATUS_OK else {
-            lock.lock()
-            gate.invalidate()
-            lock.unlock()
-            return false
-        }
-        lock.lock()
-        registrationToken = token
-        lock.unlock()
-        return true
-    }
-
-    func invalidate() {
-        lock.lock()
-        gate.invalidate()
-        let token = registrationToken
-        registrationToken = nil
-        lock.unlock()
-        if let token {
-            notify_cancel(token)
-        }
-    }
-
-    deinit {
-        invalidate()
-    }
-
-    private func consumeOnMain() {
-        dispatchPrecondition(condition: .onQueue(.main))
-        lock.lock()
-        let shouldDeliver = gate.consume()
-        let token = shouldDeliver ? registrationToken : nil
-        if shouldDeliver {
-            registrationToken = nil
-        }
-        lock.unlock()
-        guard shouldDeliver else { return }
-        if let token {
-            notify_cancel(token)
-        }
-        handler()
-    }
-}
-
-final class ChatPerformanceFixtureInteractiveRemoteArchiveDispatcher:
-    ChatInteractiveRemoteArchiveRequestDispatching {
-    private let handler: (ChatInteractiveRemoteArchiveDispatchRequest) -> Void
-
-    init(
-        handler: @escaping (ChatInteractiveRemoteArchiveDispatchRequest) -> Void
-    ) {
-        self.handler = handler
-    }
-
-    func enqueue(_ request: ChatInteractiveRemoteArchiveDispatchRequest) {
-        handler(request)
-    }
-}
-
-/// High-contrast, closed visual alphabet consumed by the offline raw-frame
-/// detector. Geometry intentionally mirrors the detector's six-cell contract;
-/// the app publishes only the visual code and monotonic boundary timestamp,
-/// never a video frame index or PTS.
 final class ChatPerformanceVideoMarkerView: UIView {
     private(set) var visualCode: ChatPerformanceVideoMarkerVisualCode?
 
@@ -474,20 +249,15 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
 
     private enum OpenScenarioError: Error {
         case storageIsNotEphemeral
-        case remoteInjectionPlanUnavailable
         case targetSelectionUnavailable
-        case archiveTransportUnavailable
         case archiveDescriptorRejected
-        case malformedArchiveFixture
         case artifactExportUnavailable
         case stableFrameTraceRejected
         case videoMarkerPublicationRejected
         case terminalEvidenceMovedAfterStableFrame
         case primaryTraceContextUnavailable
         case traceContextBindingRejected
-        case unexpectedLinkedTraceContext
         case traceContextCardinalityRejected
-        case p14InitialUnreadProofRejected
         case p13RouteEvidenceInvalidatedAfterStableReceipt
     }
 
@@ -542,49 +312,13 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
     private var openScenarioStalePreTerminalRealFrameCount = 0
     private var openScenarioMixedSkeletonAndRealFrameCount = 0
     private var openScenarioHeldSkeletonDisplayTickCount = 0
-    private var openScenarioE04AcknowledgementAwaitingDisplayTick = false
-    private(set) var openScenarioCommittedInitialFrameDiagnostics:
-        ChatPerformanceInitialFrameCommitDiagnostics?
     private var openScenarioResolvedTargetOrdinal: Int?
     private var openScenarioTargetMatchCount = 0
     private var openScenarioLatestVisualCommitCount = 0
     private var openScenarioArchiveRequestCount = 0
     private var openScenarioGapRequestCount = 0
-    private var openScenarioObservedProductionArchiveQueryIds: Set<String> = []
-    private var openScenarioObservedProductionGapQueryIds: Set<String> = []
-    private var openScenarioInitialFrameArchiveRequestCount: Int?
-    private var openScenarioInitialFrameGapRequestCount: Int?
-    private var openScenarioInitialFrameRouteStoreDiagnostics:
-        ChatTimelineStoreDiagnosticsSnapshot?
-    private var openScenarioArchiveCursorKind:
-        ChatOpenRealPipelineFixtureArchiveCursorKind = .none
-    private var openScenarioQueryId: String?
-    private var openScenarioArchiveTransportSession:
-        ChatPerformanceFixtureArchiveTransportSession?
-    private let openScenarioArchiveTransportQueue = DispatchQueue(
-        label: "com.xabber.chat-performance.fixture-archive-transport",
-        qos: .userInitiated
-    )
-    private let openScenarioTransportThreadRecorder =
-        ChatOpenRealPipelineFixtureTransportThreadRecorder()
-    private var openScenarioArchiveTransportGeneration: Int?
-    private let openScenarioArchiveTransportLock = NSLock()
-    private var openScenarioAllowedArchiveQueryIds: Set<String> = []
-    private var openScenarioArchiveDescriptorsByQueryId:
-        [String: ChatPerformanceFixtureArchiveRequestDescriptor] = [:]
     private var openScenarioRouteMeasurementHasStarted = false
     private var openScenarioFixtureRealmQueryCountAfterRouteAdmission = 0
-    private var openScenarioPendingRemoteInjectionPlan:
-        ChatOpenRealPipelineFixturePlan?
-    private var openScenarioRemoteActionLatch =
-        ChatOpenRealPipelineFixtureRemoteActionLatch()
-    private var openScenarioDarwinAcknowledgementObserver:
-        ChatOpenRealPipelineFixtureDarwinAcknowledgementObserver?
-    private var openScenarioDeferredInitialBootstrapPlan:
-        ChatOpenRealPipelineFixturePlan?
-    internal var defersOpenScenarioInitialBootstrapRequestForTesting = false
-    private(set) var
-        openScenarioInitialBootstrapRequestInvocationCountForTesting = 0
     private var openScenarioStableReceiptGeneration = 0
     private var openScenarioTerminalPublicationGate =
         ChatOpenRealPipelineFixtureTerminalPublicationGate()
@@ -615,12 +349,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
     private var openScenarioTerminalObservationPlan:
         ChatOpenRealPipelineFixturePlan?
     private var openScenarioTerminalObservationGeneration: Int?
-    private var openScenarioSkeletonObservationPlan:
-        ChatOpenRealPipelineFixturePlan?
-    private var openScenarioSkeletonObservationDeadline: Date?
-    private var openScenarioAutomaticInjectionPlan:
-        ChatOpenRealPipelineFixturePlan?
-    private var openScenarioAutomaticInjectionDisplayTimestamp: TimeInterval?
     private var openScenarioVideoMarkerGate =
         ChatOpenVideoMarkerPublicationGate()
     private var openScenarioVideoMarkerGeneration: Int?
@@ -642,21 +370,13 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         ChatPerformanceArtifactTraceContractFailureDiagnostics = .none
     private var openScenarioBoundPrimaryTraceContext:
         ChatOpenPerformanceTraceContext?
-    private var openScenarioBoundLinkedTraceContexts:
-        Set<ChatOpenPerformanceTraceContext> = []
-    private var openScenarioInteractiveRemoteArchiveDispatcher:
-        ChatPerformanceFixtureInteractiveRemoteArchiveDispatcher?
     private var openScenarioSkeletonPresentationBaseline:
         OpenScenarioSkeletonPresentationSnapshot?
     private var openScenarioSkeletonIdentityStable = true
     private var openScenarioSkeletonGeometryStable = true
     private var openScenarioSkeletonDwellMilliseconds = 0
-    private var openScenarioActiveDwellPlan: ChatOpenRealPipelineFixturePlan?
-    private var openScenarioActiveDwellStartedAt: TimeInterval?
     private var openScenarioPostInitialInteractionReady = false
     private var openScenarioPostInitialInteractionCount = 0
-    private var openScenarioPagingRetainedAnchor: ChatHistoryPageAnchor?
-    private var openScenarioPagingAnchorErrorMilliPoints: Int?
     private var openScenarioRotationTransitionCount = 0
     private var openScenarioApplicationBackgroundCount = 0
     private var openScenarioApplicationForegroundCount = 0
@@ -693,68 +413,9 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
     private var p14MentionFreshRealmProofFailureCount = 0
     private var p14DidCapturePreTapProof = false
     private var p14NativeDidShowCompleted = false
-    private var p14InitialCommitUnreadProofCompleted = false
-    private var p14DidIssuePresentationReceipt = false
-    private var p14InitialFrameCommitEffectToken:
-        ChatInitialFrameEffectToken?
-    private var p14InitialCommitUnreadProofEffectToken:
-        ChatInitialFrameEffectToken?
-    private var p14PresentationReceiptEffectToken:
-        ChatInitialFrameEffectToken?
-    /// Cached only when the original admission path already had to sample
-    /// UIKit presentation and realized rows. Diagnostics reuse this exact
-    /// sample and never perform a second geometry scan.
-    private struct P14ReceiptReadinessPresentationSample {
-        let snapshot: ChatReadVisiblePresentationSnapshot
-        let snapshotAccepted: Bool
-        let expectedTargetPrimary: String?
-        let realizedIdentities:
-            [String: ChatReadVisibleRowPresentationIdentity]?
-    }
-
-    private var p14ReceiptReadinessEvaluationCount = 0
-    private var p14ReceiptReadinessLastBlocker:
-        ChatPerformanceP14ReceiptReadinessDiagnostics.Blocker?
-    private var p14ReceiptReadinessLastPresentationSample:
-        P14ReceiptReadinessPresentationSample?
-    /// The coordinator intentionally keeps its successful-flush counter
-    /// across invalidations. P14 evidence, however, belongs to one exact
-    /// initial-frame owner, so diagnostics expose only the delta since that
-    /// owner was adopted.
     private var p14ReadSuccessfulFlushCountBaseline = 0
-    private var p14FreshRealmProofNextIdentifier: UInt64 = 0
-    private var p14FreshRealmProofLeases:
-        [UInt64: P14FreshRealmProofLease] = [:]
-    private var p14HeldFreshRealmProofIdentifiers: Set<UInt64> = []
-    private var p14MentionFreshRealmProofInFlightCount: Int {
-        p14FreshRealmProofLeases.count
-    }
     private(set) var isP13DeletedMentionTapBoundaryPreparedForTesting = false
     private(set) var isP13NoFollowingBranchForTesting = false
-    internal var p14InitialCommitFreshRealmProofExecutorForTests:
-        ((@escaping () -> Void) -> Void)?
-    /// Holds the already-queried immutable result before it returns to main.
-    /// Production leaves this nil; the focused test uses it to supersede an
-    /// owner at the last asynchronous boundary.
-    internal var p14FreshRealmProofResultDeliveryExecutorForTests:
-        ((@escaping () -> Void) -> Void)?
-    /// Deterministically pauses an admitted worker at the final boundary
-    /// before Realm is queried. Production leaves this nil.
-    internal var p14FreshRealmProofWorkerBeforeQueryExecutorForTests:
-        ((@escaping () -> Void) -> Void)?
-    internal var p14FreshRealmProofQueryObserverForTests: (() -> Void)?
-    /// Called by the installed production diagnostics handler only after an
-    /// accepted P14 commit has been recorded. It lets the hosted regression
-    /// request a real second Dataset preparation without manufacturing a
-    /// generation or effect token.
-    internal var p14InitialFrameCommitRecordedForTests:
-        ((ChatPerformanceInitialFrameCommitDiagnostics) -> Void)?
-    private let p14MentionFreshRealmProofQueue = DispatchQueue(
-        label: "com.xabber.chat-performance.p14-fresh-realm-proof",
-        qos: .userInitiated
-    )
-    private(set) var openScenarioConsumedRemoteHistoryActions:
-        [ChatPerformanceFixtureRemoteHistoryAction] = []
     private(set) var openScenarioStableReceipt: ChatOpenRealPipelineFixtureDiagnostics?
     var openScenarioDidStabilize: ((ChatOpenRealPipelineFixtureDiagnostics) -> Void)?
 
@@ -765,34 +426,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
 
     internal var openScenarioStableAccessibilitySummaryForTesting: String? {
         openStableLabel.text
-    }
-
-    internal var isOpenScenarioExternalSkeletonAcknowledgementArmedForTesting: Bool {
-        guard let plan = openScenarioPendingRemoteInjectionPlan else {
-            return false
-        }
-        return openScenarioDarwinAcknowledgementObserver != nil &&
-            hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle &&
-            appliedBootstrapLoadingState?.showsSkeleton == true &&
-            openScenarioSkeletonRowCount == plan.expectedInitialSkeletonRowCount
-    }
-
-    internal var isOpenScenarioArchiveTransportReadyForRouteAdmissionForTesting:
-        Bool {
-        openScenarioArchiveTransportGeneration != nil &&
-            openScenarioArchiveTransportSession != nil &&
-            performanceFixtureArchiveTransportProvider != nil &&
-            performanceFixtureArchiveTransportExecutor != nil &&
-            performanceFixtureArchiveTransportDidStartHandler != nil &&
-            performanceFixtureArchiveTransportCancellationHandler != nil
-    }
-
-    internal var isOpenScenarioRemoteActionAcknowledgementPendingForTesting: Bool {
-        openScenarioRemoteActionLatch.hasPendingAcknowledgement
-    }
-
-    internal var openScenarioRemoteActionDispatchCountForTesting: Int {
-        openScenarioRemoteActionLatch.dispatchCount
     }
 
     init(descriptor: ChatPerformanceUITestLaunchDescriptor) {
@@ -818,9 +451,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                 try prepareOpenScenarioRealm(
                     plan: ChatOpenRealPipelineFixturePlan(scenario: scenario)
                 )
-                if scenario == .lastChatsSeededMentionExact {
-                    installP14ProductionObservers()
-                }
             } catch {
                 openScenarioSetupFailure = String(describing: type(of: error))
             }
@@ -834,27 +464,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
     private struct P14FreshMentionState {
         let matchingPersistedCount: Int
         let isRead: Bool?
-    }
-
-    private enum P14FreshRealmProofPurpose: Equatable {
-        case initialUnread
-        case terminalRead
-
-        var expectedRead: Bool {
-            switch self {
-            case .initialUnread:
-                return false
-            case .terminalRead:
-                return true
-            }
-        }
-    }
-
-    private struct P14FreshRealmProofLease {
-        let identifier: UInt64
-        let lifecycleGeneration: Int
-        let effectToken: ChatInitialFrameEffectToken
-        let purpose: P14FreshRealmProofPurpose
     }
 
     private func queryP14FreshMentionState() -> P14FreshMentionState {
@@ -968,110 +577,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         p14NativeDidShowCompleted
     }
 
-    internal var p14InitialCommitUnreadProofCompletedForTesting: Bool {
-        p14InitialCommitUnreadProofCompleted
-    }
-
-    internal var p14DidIssuePresentationReceiptForTesting: Bool {
-        p14DidIssuePresentationReceipt
-    }
-
-    internal var p14InitialFrameCommitEffectTokenForTesting:
-        ChatInitialFrameEffectToken? {
-        p14InitialFrameCommitEffectToken
-    }
-
-    internal var p14InitialCommitUnreadProofEffectTokenForTesting:
-        ChatInitialFrameEffectToken? {
-        p14InitialCommitUnreadProofEffectToken
-    }
-
-    internal var p14PresentationReceiptEffectTokenForTesting:
-        ChatInitialFrameEffectToken? {
-        p14PresentationReceiptEffectToken
-    }
-
-    internal var p14ReceiptReadinessDiagnosticsForTesting:
-        ChatPerformanceP14ReceiptReadinessDiagnostics? {
-        guard let blocker = p14ReceiptReadinessLastBlocker else { return nil }
-        let proofEffectToken = p14InitialCommitUnreadProofEffectToken
-        let initialFrameEffectToken = p14InitialFrameCommitEffectToken
-        let latestEffectToken = initialLocalFirstFrameLatestEffectToken
-        let presentationSample = p14ReceiptReadinessLastPresentationSample
-        let expectedTargetPrimary =
-            presentationSample?.expectedTargetPrimary ?? openPrimary(
-                ChatOpenRealPipelineFixturePlan(
-                    scenario: .lastChatsSeededMentionExact
-                ).p14ExplicitMentionOrdinal
-            )
-        let realizedIdentities = presentationSample?.realizedIdentities
-        let viewHierarchyVisibility =
-            presentationSample?.snapshot.isWindowAttached == false
-            ? readVisibleViewHierarchyDiagnosticsForTesting()
-            : nil
-        return ChatPerformanceP14ReceiptReadinessDiagnostics(
-            blocker: blocker,
-            evaluationCount: p14ReceiptReadinessEvaluationCount,
-            isExpectedScenario:
-                descriptor.openScenario == .lastChatsSeededMentionExact,
-            terminalTeardownCompleted: openScenarioTerminalTeardownCompleted,
-            proofEffectToken: proofEffectToken,
-            initialFrameEffectToken: initialFrameEffectToken,
-            latestEffectToken: latestEffectToken,
-            proofOwnerMatchesInitialFrame: proofEffectToken != nil &&
-                proofEffectToken == initialFrameEffectToken,
-            proofOwnerIsLatest: proofEffectToken.map {
-                isLatestInitialFrameEffectToken($0)
-            } ?? false,
-            nativeDidShowCompleted: p14NativeDidShowCompleted,
-            routeHostDidComplete: openScenarioRouteHostDidComplete,
-            initialUnreadProofCompleted:
-                p14InitialCommitUnreadProofCompleted,
-            didIssueReceipt: p14DidIssuePresentationReceipt,
-            visualCommitCount: openScenarioProductionVisualCommitCount,
-            targetMatchCount: openScenarioTargetMatchCount,
-            latestVisualCommitCount: openScenarioLatestVisualCommitCount,
-            anchorError: openScenarioViewportDiagnostics?.anchorError,
-            hasPendingOpenMessageRequest: pendingOpenMessageRequest != nil,
-            hasActiveAnchorExecution: activeAnchorExecutionState != nil,
-            isDatasourceStructuralTransactionActive:
-                isChatDatasourceStructuralTransactionActive,
-            presentationSnapshot: presentationSample?.snapshot,
-            presentationSnapshotAccepted:
-                presentationSample?.snapshotAccepted,
-            viewHierarchyVisibility: viewHierarchyVisibility,
-            expectedTargetPrimary: expectedTargetPrimary,
-            realizedTargetIdentity:
-                realizedIdentities?[expectedTargetPrimary],
-            realizedMessagePrimaries: realizedIdentities.map {
-                Set($0.keys)
-            } ?? [],
-            realizedMessageCount: realizedIdentities?.count ?? 0,
-            datasourceGeneration: scrollResidentMetadata.generation,
-            coordinatorLifecycleState:
-                readVisiblePresentationCoordinator.lifecycleState,
-            coordinatorGeneration:
-                readVisiblePresentationCoordinator.generation,
-            coordinatorGeometryGeneration:
-                readVisiblePresentationCoordinator.geometryGeneration,
-            pendingCandidateCount:
-                readVisiblePresentationCoordinator.pendingCandidateCount,
-            inFlightFlushCount:
-                readVisiblePresentationCoordinator.inFlightFlushCount,
-            initialFramePhase: initialLocalFirstFramePhase,
-            isInitialBootstrapInFlight: isInitialBootstrapInFlight,
-            showsSkeleton: showSkeletonObserver.value,
-            isApplyingBootstrapAnchorWindow:
-                isApplyingBootstrapAnchorWindow,
-            isPreparingStackedNavigationPresentation:
-                isPreparingStackedNavigationPresentation,
-            isNavigationTransitionActive: isNavigationTransitionActive,
-            hasControllerTransitionCoordinator: transitionCoordinator != nil,
-            hasNavigationTransitionCoordinator:
-                navigationController?.transitionCoordinator != nil
-        )
-    }
-
     internal func p14TargetGeometrySnapshotForTesting()
         -> ChatPerformanceP14TargetGeometrySnapshot {
         dispatchPrecondition(condition: .onQueue(.main))
@@ -1181,23 +686,8 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                     viewport: readViewport
                 )
             },
-            committedDiagnosticGeneration:
-                openScenarioCommittedInitialFrameDiagnostics?
-                    .initialFrameEffectToken.presentationGeneration,
-            fixtureFrameGeneration:
-                p14InitialFrameCommitEffectToken?.presentationGeneration,
-            latestGeneration:
-                initialLocalFirstFrameLatestEffectToken?
-                    .presentationGeneration,
-            proofGeneration:
-                p14InitialCommitUnreadProofEffectToken?
-                    .presentationGeneration,
             datasourceGeneration: scrollResidentMetadata.generation
         )
-    }
-
-    internal var p14FreshRealmProofInFlightCountForTesting: Int {
-        p14MentionFreshRealmProofInFlightCount
     }
 
     internal var p14ProductionVisualCommitCountForTesting: Int {
@@ -1222,624 +712,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         captureP14MentionDiagnostics()
     }
 
-    internal var isP14ObserverTeardownCompleteForTesting: Bool {
-        descriptor.openScenario == .lastChatsSeededMentionExact &&
-            openScenarioTerminalTeardownCompleted &&
-            performanceOpenMessageRequestAdmissionObserver == nil &&
-            visibleMentionReadScheduledForTests == nil &&
-            visibleMentionReadAfterFirstPersistentMutationBarrierForTests == nil &&
-            visibleMentionReadTerminalForTests == nil &&
-            visibleMentionReadScheduledEffectTokenForTests == nil &&
-            visibleMentionReadAfterFirstPersistentMutationEffectTokenForTests == nil &&
-            visibleMentionReadTerminalEffectTokenForTests == nil &&
-            p14InitialCommitFreshRealmProofExecutorForTests == nil &&
-            p14FreshRealmProofResultDeliveryExecutorForTests == nil &&
-            p14FreshRealmProofWorkerBeforeQueryExecutorForTests == nil &&
-            p14FreshRealmProofQueryObserverForTests == nil &&
-            p14InitialFrameCommitRecordedForTests == nil &&
-            p14FreshRealmProofLeases.isEmpty &&
-            p14HeldFreshRealmProofIdentifiers.isEmpty &&
-            !p14InitialCommitUnreadProofCompleted &&
-            p14InitialFrameCommitEffectToken == nil &&
-            p14InitialCommitUnreadProofEffectToken == nil &&
-            p14PresentationReceiptEffectToken == nil &&
-            p14ReceiptReadinessEvaluationCount == 0 &&
-            p14ReceiptReadinessLastBlocker == nil &&
-            p14ReceiptReadinessLastPresentationSample == nil &&
-            visibleUnreadMentionReconciliationWorkItem == nil &&
-            readVisibleStableLayoutRetryWorkItem == nil &&
-            readVisiblePresentationCoordinator.pendingCandidateCount == 0 &&
-            readVisiblePresentationCoordinator.inFlightFlushCount == 0 &&
-            p14MentionFreshRealmProofInFlightCount == 0
-    }
-
-    private func installP14ProductionObservers() {
-        performanceOpenMessageRequestAdmissionObserver = {
-            [weak self] request, wasViewLoaded in
-            self?.recordP14RequestAdmission(
-                request,
-                wasViewLoaded: wasViewLoaded
-            )
-        }
-        // Generic observers intentionally remain installed for existing
-        // read-path diagnostics, but P14 counters are owned exclusively by
-        // the exact-token companions below.
-        visibleMentionReadScheduledForTests = { _ in }
-        visibleMentionReadAfterFirstPersistentMutationBarrierForTests = {}
-        visibleMentionReadTerminalForTests = { _ in }
-        visibleMentionReadScheduledEffectTokenForTests = {
-            [weak self] candidateCount, effectToken in
-            guard let self,
-                  candidateCount > 0,
-                  let effectToken,
-                  effectToken == self.p14InitialFrameCommitEffectToken,
-                  self.isLatestInitialFrameEffectToken(effectToken) else {
-                return
-            }
-            self.p14MentionReadScheduledCount &+= candidateCount
-        }
-        visibleMentionReadAfterFirstPersistentMutationEffectTokenForTests = {
-            [weak self] effectToken in
-            DispatchQueue.main.async {
-                guard let self,
-                      let effectToken,
-                      effectToken == self.p14PresentationReceiptEffectToken,
-                      self.isLatestInitialFrameEffectToken(effectToken) else {
-                    return
-                }
-                self.p14MentionReadCommittedCountForTesting &+= 1
-            }
-        }
-        visibleMentionReadTerminalEffectTokenForTests = {
-            [weak self] succeeded, effectToken in
-            let record = {
-                guard let self,
-                      let effectToken,
-                      effectToken == self.p14PresentationReceiptEffectToken,
-                      self.isLatestInitialFrameEffectToken(effectToken) else {
-                    return
-                }
-                if succeeded {
-                    self.p14MentionReadTerminalSuccessCount &+= 1
-                    self.scheduleP14TerminalFreshRealmProof(
-                        effectToken: effectToken
-                    )
-                } else {
-                    self.p14MentionReadTerminalFailureCount &+= 1
-                }
-            }
-            if Thread.isMainThread {
-                record()
-            } else {
-                DispatchQueue.main.async(execute: record)
-            }
-        }
-    }
-
-    private func recordP14RequestAdmission(
-        _ request: ChatOpenMessageRequest,
-        wasViewLoaded: Bool
-    ) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard descriptor.openScenario == .lastChatsSeededMentionExact else {
-            return
-        }
-        p14RequestAdmissionCount &+= 1
-        if !wasViewLoaded {
-            p14RequestAdmissionBeforeViewLoadCount &+= 1
-        }
-        if request.conversationType == .group && conversationType == .group {
-            p14GroupConversationProofCount &+= 1
-        }
-        let plan = ChatOpenRealPipelineFixturePlan(
-            scenario: .lastChatsSeededMentionExact
-        )
-        if request.source == .mentionNotification,
-           request.anchor.archivedId == openArchiveId(
-            plan.p14ExplicitMentionOrdinal
-           ) {
-            p14ExplicitRequestCount &+= 1
-        } else if request.source == .initialUnreadBoundary ||
-                    request.anchor.archivedId == openArchiveId(
-                        plan.p14UnreadTargetOrdinal
-                    ) {
-            p14UnreadRequestCount &+= 1
-        } else if request.source == .savedVisiblePosition ||
-                    request.anchor.messagePrimary == openPrimary(
-                        plan.p14SavedTargetOrdinal
-                    ) {
-            p14SavedRequestCount &+= 1
-        } else {
-            p14LatestRequestCount &+= 1
-        }
-        recordP14FreshMentionState(
-            queryP14FreshMentionState(),
-            expectedRead: false
-        ) { [weak self] in
-            self?.p14MentionUnreadAtAdmission = $0
-        }
-    }
-
-    private func adoptP14InitialFrameCommitEffectToken(
-        _ effectToken: ChatInitialFrameEffectToken
-    ) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard p14InitialFrameCommitEffectToken != effectToken else { return }
-        p14ReceiptReadinessEvaluationCount = 0
-        p14ReceiptReadinessLastBlocker = nil
-        p14ReceiptReadinessLastPresentationSample = nil
-
-        // Ownership replacement is eager: after B is adopted no queued,
-        // admitted or result-held A proof remains represented as in flight.
-        // Already-running immutable A closures may drain, but every later
-        // boundary fails the missing exact-ID lease and becomes a no-op.
-        let retainedLeaseIdentifiers = Set(
-            p14FreshRealmProofLeases.compactMap { identifier, lease in
-                lease.effectToken == effectToken ? identifier : nil
-            }
-        )
-        p14FreshRealmProofLeases = p14FreshRealmProofLeases.filter {
-            $0.value.effectToken == effectToken
-        }
-        p14HeldFreshRealmProofIdentifiers.formIntersection(
-            retainedLeaseIdentifiers
-        )
-
-        if p14InitialFrameCommitEffectToken != nil {
-            // B replaces every attempt-scoped diagnostic owned by A, while
-            // route admission, pre-tap and native didShow evidence remain
-            // controller-lifecycle facts. Core will enqueue B's candidate
-            // after the exact commit callback returns.
-            readVisiblePresentationCoordinator.beginPresentationPreparation()
-            p14MentionReadScheduledCount = 0
-            p14MentionReadCommittedCountForTesting = 0
-            p14MentionReadTerminalSuccessCount = 0
-            p14MentionReadTerminalFailureCount = 0
-            p14MentionUnreadAtInitialCommit = false
-            p14MentionReadAtTerminal = false
-            p14MentionFreshRealmProofFailureCount = 0
-        }
-        p14ReadSuccessfulFlushCountBaseline =
-            readVisiblePresentationCoordinator.successfulFlushCount
-        p14InitialCommitUnreadProofCompleted = false
-        p14DidIssuePresentationReceipt = false
-        p14InitialCommitUnreadProofEffectToken = nil
-        p14PresentationReceiptEffectToken = nil
-        p14InitialFrameCommitEffectToken = effectToken
-    }
-
-    internal func scheduleP14ReplacementInitialCommitProofForTesting(
-        effectToken: ChatInitialFrameEffectToken
-    ) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard isLatestInitialFrameEffectToken(effectToken) else { return }
-        adoptP14InitialFrameCommitEffectToken(effectToken)
-        scheduleP14InitialCommitFreshRealmProof(effectToken: effectToken)
-    }
-
-    private func scheduleP14InitialCommitFreshRealmProof(
-        effectToken: ChatInitialFrameEffectToken
-    ) {
-        scheduleP14FreshRealmProof(
-            purpose: .initialUnread,
-            effectToken: effectToken,
-            executor: p14InitialCommitFreshRealmProofExecutorForTests
-        ) { [weak self] matches in
-            guard let self,
-                  effectToken == self.p14InitialFrameCommitEffectToken,
-                  self.isLatestInitialFrameEffectToken(effectToken) else {
-                return
-            }
-            self.p14MentionUnreadAtInitialCommit = matches
-            guard matches else {
-                self.openScenarioSetupFailure = String(
-                    describing: OpenScenarioError.p14InitialUnreadProofRejected
-                )
-                self.publishOpenScenarioFailure(
-                    plan: ChatOpenRealPipelineFixturePlan(
-                        scenario: .lastChatsSeededMentionExact
-                    )
-                )
-                return
-            }
-            self.p14InitialCommitUnreadProofCompleted = true
-            self.p14InitialCommitUnreadProofEffectToken = effectToken
-            self.issueP14ProductionPresentationReceiptIfReady()
-        }
-    }
-
-    private func scheduleP14TerminalFreshRealmProof(
-        effectToken: ChatInitialFrameEffectToken
-    ) {
-        scheduleP14FreshRealmProof(
-            purpose: .terminalRead,
-            effectToken: effectToken
-        ) { [weak self] matches in
-            guard let self,
-                  effectToken == self.p14PresentationReceiptEffectToken,
-                  self.isLatestInitialFrameEffectToken(effectToken) else {
-                return
-            }
-            self.p14MentionReadAtTerminal = matches
-        }
-    }
-
-    private func validateP14FreshRealmProofLeaseOnMain(
-        identifier: UInt64,
-        lifecycleGeneration: Int,
-        effectToken: ChatInitialFrameEffectToken,
-        purpose: P14FreshRealmProofPurpose
-    ) -> Bool {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard let currentLease = p14FreshRealmProofLeases[identifier],
-              currentLease.identifier == identifier,
-              currentLease.lifecycleGeneration == lifecycleGeneration,
-              currentLease.effectToken == effectToken,
-              currentLease.purpose == purpose else {
-            return false
-        }
-        guard !openScenarioTerminalTeardownCompleted,
-              isOpenScenarioLifecycleCurrent(
-                generation: lifecycleGeneration
-              ),
-              isLatestInitialFrameEffectToken(effectToken) else {
-            p14FreshRealmProofLeases.removeValue(forKey: identifier)
-            p14HeldFreshRealmProofIdentifiers.remove(identifier)
-            return false
-        }
-        return true
-    }
-
-    private func validateP14FreshRealmProofLeaseAtQueryBoundary(
-        identifier: UInt64,
-        lifecycleGeneration: Int,
-        effectToken: ChatInitialFrameEffectToken,
-        purpose: P14FreshRealmProofPurpose
-    ) -> Bool {
-        let validate = { [weak self] in
-            self?.validateP14FreshRealmProofLeaseOnMain(
-                identifier: identifier,
-                lifecycleGeneration: lifecycleGeneration,
-                effectToken: effectToken,
-                purpose: purpose
-            ) ?? false
-        }
-        if Thread.isMainThread {
-            return validate()
-        }
-        return DispatchQueue.main.sync(execute: validate)
-    }
-
-    private func scheduleP14FreshRealmProof(
-        purpose: P14FreshRealmProofPurpose,
-        effectToken: ChatInitialFrameEffectToken,
-        executor: ((@escaping () -> Void) -> Void)? = nil,
-        assign: @escaping (Bool) -> Void
-    ) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard descriptor.openScenario == .lastChatsSeededMentionExact,
-              !openScenarioTerminalTeardownCompleted,
-              isLatestInitialFrameEffectToken(effectToken) else {
-            return
-        }
-        let lifecycleGeneration = openScenarioLifecycleGeneration
-        p14FreshRealmProofNextIdentifier &+= 1
-        let identifier = p14FreshRealmProofNextIdentifier
-        let lease = P14FreshRealmProofLease(
-            identifier: identifier,
-            lifecycleGeneration: lifecycleGeneration,
-            effectToken: effectToken,
-            purpose: purpose
-        )
-        p14FreshRealmProofLeases[identifier] = lease
-        let resultDeliveryExecutor =
-            p14FreshRealmProofResultDeliveryExecutorForTests
-        let workerBeforeQueryExecutor =
-            p14FreshRealmProofWorkerBeforeQueryExecutorForTests
-        let queryObserver = p14FreshRealmProofQueryObserverForTests
-        let proofWork = { [weak self] in
-            guard let self else { return }
-            let validateAndQuery = { [weak self] in
-                guard let self,
-                      self.validateP14FreshRealmProofLeaseAtQueryBoundary(
-                        identifier: identifier,
-                        lifecycleGeneration: lifecycleGeneration,
-                        effectToken: effectToken,
-                        purpose: purpose
-                      ) else {
-                    return
-                }
-                queryObserver?()
-                let state = self.queryP14FreshMentionState()
-                let deliver = { [weak self] in
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self,
-                              let currentLease =
-                                self.p14FreshRealmProofLeases.removeValue(
-                                    forKey: identifier
-                                ),
-                              currentLease.identifier == identifier,
-                              currentLease.lifecycleGeneration ==
-                                lifecycleGeneration,
-                              currentLease.effectToken == effectToken,
-                              currentLease.purpose == purpose,
-                              !self.openScenarioTerminalTeardownCompleted,
-                              self.isOpenScenarioLifecycleCurrent(
-                                generation: lifecycleGeneration
-                              ),
-                              self.isLatestInitialFrameEffectToken(
-                                effectToken
-                              ) else {
-                            return
-                        }
-                        // The final owner check is intentionally adjacent to
-                        // every failure counter and assignment. A stale
-                        // immutable Realm result cannot become hosted proof.
-                        self.recordP14FreshMentionState(
-                            state,
-                            expectedRead: purpose.expectedRead,
-                            assign: assign
-                        )
-                    }
-                }
-                if let resultDeliveryExecutor {
-                    resultDeliveryExecutor(deliver)
-                } else {
-                    deliver()
-                }
-            }
-            if let workerBeforeQueryExecutor {
-                workerBeforeQueryExecutor(validateAndQuery)
-            } else {
-                validateAndQuery()
-            }
-        }
-        let waitsForExplicitRelease = executor != nil
-        if waitsForExplicitRelease {
-            p14HeldFreshRealmProofIdentifiers.insert(identifier)
-        }
-        let admitProofWork = { [weak self] in
-            let admitOnMain = { [weak self] in
-                guard let self else { return }
-                if waitsForExplicitRelease,
-                   self.p14HeldFreshRealmProofIdentifiers.remove(
-                    identifier
-                   ) == nil {
-                    return
-                }
-                guard let currentLease =
-                        self.p14FreshRealmProofLeases[identifier],
-                      currentLease.identifier == identifier,
-                      currentLease.lifecycleGeneration ==
-                        lifecycleGeneration,
-                      currentLease.effectToken == effectToken,
-                      currentLease.purpose == purpose,
-                      !self.openScenarioTerminalTeardownCompleted,
-                      self.isOpenScenarioLifecycleCurrent(
-                        generation: lifecycleGeneration
-                      ),
-                      self.isLatestInitialFrameEffectToken(effectToken) else {
-                    self.p14FreshRealmProofLeases.removeValue(
-                        forKey: identifier
-                    )
-                    return
-                }
-                // This is the query-admission owner check. `proofWork` is the
-                // immutable work captured for this ID; no mutable global work
-                // slot can redirect A's release to B.
-                self.p14MentionFreshRealmProofQueue.async(execute: proofWork)
-            }
-            if Thread.isMainThread {
-                admitOnMain()
-            } else {
-                DispatchQueue.main.async(execute: admitOnMain)
-            }
-        }
-        if let executor {
-            executor(admitProofWork)
-        } else {
-            admitProofWork()
-        }
-    }
-
-    internal func performanceP14NativeDidShowPresentationReceiptIfReady() {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard descriptor.openScenario == .lastChatsSeededMentionExact else {
-            return
-        }
-        p14NativeDidShowCompleted = true
-        issueP14ProductionPresentationReceiptIfReady()
-    }
-
-    private func captureP14ReceiptReadiness()
-        -> ChatInitialFrameEffectToken? {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard !openScenarioTerminalTeardownCompleted else { return nil }
-        guard let effectToken = p14InitialCommitUnreadProofEffectToken else {
-            recordP14ReceiptReadinessEvaluation(
-                blocker: .missingInitialUnreadProofToken
-            )
-            return nil
-        }
-        guard effectToken == p14InitialFrameCommitEffectToken else {
-            recordP14ReceiptReadinessEvaluation(
-                blocker: .initialUnreadProofOwnerMismatch
-            )
-            return nil
-        }
-        guard isLatestInitialFrameEffectToken(effectToken) else {
-            recordP14ReceiptReadinessEvaluation(
-                blocker: .initialUnreadProofOwnerIsNotLatest
-            )
-            return nil
-        }
-        guard p14NativeDidShowCompleted else {
-            recordP14ReceiptReadinessEvaluation(blocker: .nativeDidShowPending)
-            return nil
-        }
-        guard openScenarioRouteHostDidComplete else {
-            recordP14ReceiptReadinessEvaluation(
-                blocker: .routeHostCompletionPending
-            )
-            return nil
-        }
-        guard p14InitialCommitUnreadProofCompleted else {
-            recordP14ReceiptReadinessEvaluation(
-                blocker: .initialUnreadProofPending
-            )
-            return nil
-        }
-        guard !p14DidIssuePresentationReceipt else {
-            recordP14ReceiptReadinessEvaluation(blocker: .receiptAlreadyIssued)
-            return nil
-        }
-        guard openScenarioProductionVisualCommitCount == 1 else {
-            recordP14ReceiptReadinessEvaluation(
-                blocker: .visualCommitCountMismatch
-            )
-            return nil
-        }
-        guard openScenarioTargetMatchCount == 1 else {
-            recordP14ReceiptReadinessEvaluation(
-                blocker: .targetMatchCountMismatch
-            )
-            return nil
-        }
-        guard openScenarioLatestVisualCommitCount == 0 else {
-            recordP14ReceiptReadinessEvaluation(
-                blocker: .latestVisualCommitCountMismatch
-            )
-            return nil
-        }
-        guard let anchorError = openScenarioViewportDiagnostics?.anchorError,
-              abs(anchorError) <= 1 else {
-            recordP14ReceiptReadinessEvaluation(
-                blocker: .anchorErrorOutOfTolerance
-            )
-            return nil
-        }
-        guard pendingOpenMessageRequest == nil else {
-            recordP14ReceiptReadinessEvaluation(
-                blocker: .pendingOpenMessageRequest
-            )
-            return nil
-        }
-        guard activeAnchorExecutionState == nil else {
-            recordP14ReceiptReadinessEvaluation(blocker: .activeAnchorExecution)
-            return nil
-        }
-        guard !isChatDatasourceStructuralTransactionActive else {
-            recordP14ReceiptReadinessEvaluation(
-                blocker: .datasourceStructuralTransactionActive
-            )
-            return nil
-        }
-
-        // These are the same unavoidable samples used by admission. They are
-        // captured once, cached by reference/value for failure reporting, and
-        // never recomputed by the test-only diagnostics accessor.
-        let presentationSnapshot = readVisiblePresentationSnapshot()
-        guard ChatReadVisiblePresentationPolicy.canAdvanceReadState(
-            hasPresentationReceipt: true,
-            snapshot: presentationSnapshot
-        ) else {
-            recordP14ReceiptReadinessEvaluation(
-                blocker: .presentationSnapshotRejected,
-                presentationSample: P14ReceiptReadinessPresentationSample(
-                    snapshot: presentationSnapshot,
-                    snapshotAccepted: false,
-                    expectedTargetPrimary: nil,
-                    realizedIdentities: nil
-                )
-            )
-            return nil
-        }
-
-        let plan = ChatOpenRealPipelineFixturePlan(
-            scenario: .lastChatsSeededMentionExact
-        )
-        let expectedTargetPrimary = openPrimary(
-            plan.p14ExplicitMentionOrdinal
-        )
-        let realizedIdentities =
-            meaningfullyVisibleRealMessagePresentationIdentitiesForRead()
-        let presentationSample = P14ReceiptReadinessPresentationSample(
-            snapshot: presentationSnapshot,
-            snapshotAccepted: true,
-            expectedTargetPrimary: expectedTargetPrimary,
-            realizedIdentities: realizedIdentities
-        )
-        guard realizedIdentities[expectedTargetPrimary] != nil else {
-            recordP14ReceiptReadinessEvaluation(
-                blocker: .realizedTargetIdentityMissing,
-                presentationSample: presentationSample
-            )
-            return nil
-        }
-        recordP14ReceiptReadinessEvaluation(
-            blocker: .ready,
-            presentationSample: presentationSample
-        )
-        return effectToken
-    }
-
-    private func recordP14ReceiptReadinessEvaluation(
-        blocker: ChatPerformanceP14ReceiptReadinessDiagnostics.Blocker,
-        presentationSample: P14ReceiptReadinessPresentationSample? = nil
-    ) {
-        p14ReceiptReadinessEvaluationCount &+= 1
-        if p14ReceiptReadinessLastBlocker != blocker {
-            p14ReceiptReadinessLastBlocker = blocker
-        }
-        if let presentationSample {
-            p14ReceiptReadinessLastPresentationSample = presentationSample
-        }
-    }
-
-    private func updateP14ReceiptReadinessBlockerAfterGeometry(
-        _ blocker: ChatPerformanceP14ReceiptReadinessDiagnostics.Blocker
-    ) {
-        guard p14ReceiptReadinessLastBlocker != nil else { return }
-        p14ReceiptReadinessLastBlocker = blocker
-    }
-
-    private func issueP14ProductionPresentationReceiptIfReady() {
-        guard descriptor.openScenario == .lastChatsSeededMentionExact else {
-            return
-        }
-        guard let effectToken = captureP14ReceiptReadiness() else { return }
-        synchronizeReadVisibleGeometryEpoch(scheduleStableRetry: false)
-        guard effectToken == p14InitialFrameCommitEffectToken else {
-            updateP14ReceiptReadinessBlockerAfterGeometry(
-                .initialFrameOwnerChangedAfterGeometrySync
-            )
-            return
-        }
-        guard effectToken == p14InitialCommitUnreadProofEffectToken else {
-            updateP14ReceiptReadinessBlockerAfterGeometry(
-                .proofOwnerChangedAfterGeometrySync
-            )
-            return
-        }
-        guard isLatestInitialFrameEffectToken(effectToken) else {
-            updateP14ReceiptReadinessBlockerAfterGeometry(
-                .latestOwnerChangedAfterGeometrySync
-            )
-            return
-        }
-        guard !p14DidIssuePresentationReceipt else {
-            updateP14ReceiptReadinessBlockerAfterGeometry(
-                .receiptIssuedDuringGeometrySync
-            )
-            return
-        }
-        let handoff = recordReadVisiblePresentationReceiptHandoff()
-        p14PresentationReceiptEffectToken = effectToken
-        p14DidIssuePresentationReceipt = true
-        updateP14ReceiptReadinessBlockerAfterGeometry(.issued)
-        enqueuePendingReadStateRetry(for: handoff)
-    }
-
     /// Installs a previously used production session before `viewDidLoad`.
     /// The absolute diagnostic checkpoint is captured before any request
     /// admission for this controller, so the terminal receipt reports an exact
@@ -1857,27 +729,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         openScenarioRouteStoreDiagnosticsBaseline =
             session.routeStoreDiagnosticsSnapshot
         openScenarioUsesReusedTimelineSession = true
-    }
-
-    /// A production notification route delivers its exact intent before UIKit
-    /// prepares the destination view. Arm the isolated archive seam at that
-    /// earlier boundary so the fixture follows the same request ordering
-    /// without falling through to an account or UI-action network stream.
-    @discardableResult
-    internal func prepareOpenScenarioArchiveTransportForRouteAdmission() -> Bool {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard !openScenarioTerminalTeardownCompleted,
-              let scenario = descriptor.openScenario else {
-            return false
-        }
-        let plan = ChatOpenRealPipelineFixturePlan(scenario: scenario)
-        guard plan.usesFixtureArchiveTransport else { return false }
-        if openScenarioArchiveTransportGeneration == nil {
-            openScenarioArchiveTransportGeneration =
-                openScenarioTransportThreadRecorder.activate()
-        }
-        installOpenScenarioArchiveTransportIfNeeded(plan: plan)
-        return isOpenScenarioArchiveTransportReadyForRouteAdmissionForTesting
     }
 
     internal func performanceRouteHostDidBeginNativePresentation(
@@ -1934,8 +785,7 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                 hasCommittedContent:
                     openScenarioProductionVisualCommitCount == 1,
                 hasCommittedBlockingSkeleton:
-                    hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle &&
-                    appliedBootstrapLoadingState?.showsSkeleton == true &&
+                    showSkeletonObserver.value &&
                     openScenarioSkeletonRowCount ==
                         plan.expectedInitialSkeletonRowCount
             ),
@@ -1981,8 +831,8 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
     }
 
     /// A fixture owns resources in addition to ChatViewController's generic
-    /// lifecycle (the isolated MAM transport, Realm lease, Darwin latch and
-    /// display-link evidence sampler). Hosted tests tear a controller down
+    /// lifecycle (the Realm lease, Darwin latch and display-link evidence
+    /// sampler). Hosted tests tear a controller down
     /// without UIKit disappearance, so this explicit seam is also the sole
     /// fixture terminal boundary. The inherited testing seam dynamically
     /// reaches the override below as well.
@@ -2001,34 +851,11 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         openScenarioTerminalTeardownCompleted = true
         openScenarioLifecycleGeneration &+= 1
 
-        // Close DEBUG observation before invalidating coordinator work. A read
-        // worker that has already crossed onto its serial queue must not enqueue
-        // fixture counters or a fresh-Realm proof after lifecycle revocation.
+        // Close DEBUG observation before invalidating coordinator work.
         performanceOpenMessageRequestAdmissionObserver = nil
         visibleMentionReadScheduledForTests = nil
         visibleMentionReadAfterFirstPersistentMutationBarrierForTests = nil
         visibleMentionReadTerminalForTests = nil
-        visibleMentionReadScheduledEffectTokenForTests = nil
-        visibleMentionReadAfterFirstPersistentMutationEffectTokenForTests = nil
-        visibleMentionReadTerminalEffectTokenForTests = nil
-        p14InitialCommitFreshRealmProofExecutorForTests = nil
-        p14FreshRealmProofResultDeliveryExecutorForTests = nil
-        p14FreshRealmProofWorkerBeforeQueryExecutorForTests = nil
-        p14FreshRealmProofQueryObserverForTests = nil
-        p14InitialFrameCommitRecordedForTests = nil
-        // One controller may own several held/querying proofs during an A→B
-        // replacement. Revoke the complete lease registry atomically; late
-        // release/result closures then fail their immutable-ID lookup.
-        p14HeldFreshRealmProofIdentifiers.removeAll()
-        p14FreshRealmProofLeases.removeAll()
-        p14InitialCommitUnreadProofCompleted = false
-        p14DidIssuePresentationReceipt = false
-        p14InitialFrameCommitEffectToken = nil
-        p14InitialCommitUnreadProofEffectToken = nil
-        p14PresentationReceiptEffectToken = nil
-        p14ReceiptReadinessEvaluationCount = 0
-        p14ReceiptReadinessLastBlocker = nil
-        p14ReceiptReadinessLastPresentationSample = nil
         p14ReadSuccessfulFlushCountBaseline =
             readVisiblePresentationCoordinator.successfulFlushCount
         visibleUnreadMentionReconciliationWorkItem?.cancel()
@@ -2038,46 +865,22 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         readVisiblePresentationCoordinator.invalidatePresentation()
 
         performanceFixtureSendHandler = nil
-        performanceFixtureInitialFrameCommitDiagnosticsHandler = nil
-        performanceFixtureRemoteHistoryActionHandler = nil
-        performanceFixtureArchiveTransportProvider = nil
-        performanceFixtureArchiveTransportExecutor = nil
-        performanceFixtureArchiveTransportDidStartHandler = nil
-        performanceFixtureArchiveTransportCancellationHandler = nil
-        performanceFixtureLinkedPageTraceContextHandler = nil
-        performanceFixtureDetachedPersistenceTerminalHandler = nil
         performanceFixtureWidthTransitionLayoutCommitHandler = nil
-        performanceFixtureDetachedPersistenceQueryIds.removeAll()
+        performanceFixtureWinningArchiveUIKitApplyHandler = nil
         performanceFixtureAllowsSkeletonStableFrame = false
         openScenarioLifecycleObservationTokens.forEach {
             NotificationCenter.default.removeObserver($0)
         }
         openScenarioLifecycleObservationTokens.removeAll()
-        openScenarioInteractiveRemoteArchiveDispatcher = nil
-        interactiveRemoteArchiveRequestDispatcher =
-            AccountSchedulerChatInteractiveRemoteArchiveRequestDispatcher()
-        openScenarioDarwinAcknowledgementObserver?.invalidate()
-        openScenarioDarwinAcknowledgementObserver = nil
-        openScenarioPendingRemoteInjectionPlan = nil
-        openScenarioE04AcknowledgementAwaitingDisplayTick = false
-        openScenarioDeferredInitialBootstrapPlan = nil
-        openScenarioRemoteActionLatch.invalidate()
         openScenarioRotationOffsetGate.cancel()
         openScenarioLastRotationSourceSample = nil
         stopOpenScenarioVisibleOffsetSampling(capturingCurrentOffset: false)
-        // Revoke the recorder generation before generic teardown can cancel
-        // coordinator work. Any fixture transport operation already queued on
-        // the serial queue then fails its generation check before MAM starts.
-        releaseOpenScenarioArchiveTransport()
         openScenarioArtifactFinalizationInFlight = false
         openScenarioArtifactExportSession = nil
         openScenarioVideoEvidenceFailureCode = .none
         openScenarioArtifactExportFailureCode = .none
         openScenarioArtifactTraceFailure = .none
         openScenarioBoundPrimaryTraceContext = nil
-        openScenarioBoundLinkedTraceContexts.removeAll()
-        openScenarioActiveDwellPlan = nil
-        openScenarioActiveDwellStartedAt = nil
         openScenarioDidStabilize = nil
         openScenarioRealmLease = nil
     }
@@ -2180,42 +983,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
     internal func performOpenScenarioBackgroundForegroundForTesting() {
         recordOpenScenarioApplicationDidEnterBackground()
         recordOpenScenarioApplicationDidBecomeActive()
-    }
-
-    @discardableResult
-    internal func acknowledgeOpenScenarioSkeletonForTesting() -> Bool {
-        acknowledgeOpenScenarioSkeleton()
-    }
-
-    /// Source-side/hosted evidence sampled while E04 is deliberately held at
-    /// the external skeleton acknowledgement boundary. This reads the same
-    /// production counters used by the final receipt and performs no Realm
-    /// query or datasource mutation.
-    internal func captureOpenScenarioDiagnosticsForTesting()
-        -> ChatOpenRealPipelineFixtureDiagnostics? {
-        guard descriptor.openScenario == .bootstrapStaleLocalToContent,
-              openScenarioStableReceipt == nil else {
-            return nil
-        }
-        recordOpenScenarioPreTerminalVisualState()
-        compareOpenScenarioSkeletonWithBaseline()
-        return makeOpenScenarioDiagnostics(
-            plan: ChatOpenRealPipelineFixturePlan(
-                scenario: .bootstrapStaleLocalToContent
-            ),
-            phase: .skeleton,
-            isStable: false
-        )
-    }
-
-    @discardableResult
-    internal func resumeDeferredOpenScenarioInitialBootstrapRequestForTesting()
-        -> Bool {
-        guard let plan = openScenarioDeferredInitialBootstrapPlan else {
-            return false
-        }
-        openScenarioDeferredInitialBootstrapPlan = nil
-        return startOpenScenarioInitialBootstrapRequestIfNeeded(plan: plan)
     }
 
     private func completeOpenScenarioRotationTransition() {
@@ -2373,14 +1140,7 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             return
         }
         openScenarioPostInitialInteractionReady = true
-        if let direction = plan.expectedInteractivePagingDirection {
-            let title = direction == .older ? "Load older" : "Load newer"
-            openPostInitialActionButton.setTitle(title, for: .normal)
-            openPostInitialActionButton.isEnabled = true
-            openPostInitialActionButton.isHidden = false
-        } else {
-            openPostInitialActionButton.isHidden = true
-        }
+        openPostInitialActionButton.isHidden = true
         renderOpenScenarioPhase(.content, plan: plan)
     }
 
@@ -2390,31 +1150,7 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
 
     @discardableResult
     private func admitOpenScenarioPostInitialAction() -> Bool {
-        guard let scenario = descriptor.openScenario else { return false }
-        let plan = ChatOpenRealPipelineFixturePlan(scenario: scenario)
-        guard openScenarioPostInitialInteractionReady,
-              openScenarioPostInitialInteractionCount == 0,
-              let direction = plan.expectedInteractivePagingDirection,
-              let retainedAnchor = capturePagingAnchorIfNeeded(
-                direction: direction
-              ) else {
-            publishOpenScenarioFailure(plan: plan)
-            return false
-        }
-        guard performPerformanceFixtureInteractiveHistoryPaging(
-            direction: direction
-        ) else {
-            publishOpenScenarioFailure(plan: plan)
-            return false
-        }
-        openScenarioPostInitialInteractionReady = false
-        openScenarioPostInitialInteractionCount = 1
-        openScenarioPagingRetainedAnchor = retainedAnchor
-        openScenarioPagingAnchorErrorMilliPoints = 0
-        openPostInitialActionButton.isEnabled = false
-        openPostInitialActionButton.isHidden = true
-        renderOpenScenarioPhase(.content, plan: plan)
-        return true
+        false
     }
 
     private func installOpenScenarioLifecycleObservation() {
@@ -2482,10 +1218,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         xabberInputView.isUserInteractionEnabled = false
         scrollFrameOperationCounter.setEnabled(true)
         scrollFrameOperationCounter.reset()
-        if openScenarioArchiveTransportGeneration == nil {
-            openScenarioArchiveTransportGeneration =
-                openScenarioTransportThreadRecorder.activate()
-        }
         openScenarioVideoMarkerGeneration = openScenarioVideoMarkerGate.begin()
         openScenarioLastSampledOffsetY = messagesCollectionView.contentOffset.y
         openScenarioLastRotationSourceSample = nil
@@ -2497,9 +1229,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             )
         }
         startOpenScenarioVisibleOffsetSampling()
-        performanceFixtureInitialFrameCommitDiagnosticsHandler = { [weak self] diagnostics in
-            self?.recordOpenScenarioInitialFrameCommit(diagnostics, plan: plan)
-        }
         performanceFixtureWidthTransitionLayoutCommitHandler = {
             [weak self] generation, targetViewSize in
             self?.recordOpenScenarioWidthTransitionLayoutCommit(
@@ -2507,35 +1236,16 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                 targetViewSize: targetViewSize
             )
         }
-        performanceFixtureRemoteHistoryActionHandler = { [weak self] action in
-            self?.consumeOpenScenarioRemoteHistoryAction(action)
-                ?? .useProductionTransport
-        }
-        performanceFixtureDetachedPersistenceTerminalHandler = {
-            [weak self] _ in
-            guard let self,
-                  plan.scenario == .newerCrossingGap else {
-                return
-            }
-            self.renderNewerGapInteractionReadyIfPossible(plan: plan)
+        performanceFixtureWinningArchiveUIKitApplyHandler = {
+            [weak self] receipt in
+            self?.recordOpenScenarioWinningArchiveUIKitApply(
+                receipt,
+                plan: plan,
+                lifecycleGeneration: lifecycleGeneration
+            )
         }
         performanceFixtureAllowsSkeletonStableFrame =
             plan.allowsSkeletonStableFrame
-        performanceFixtureLinkedPageTraceContextHandler = { [weak self] context in
-            self?.bindOpenScenarioLinkedTraceContext(context, plan: plan)
-        }
-        if plan.expectsLinkedPagingTrace {
-            let dispatcher =
-                ChatPerformanceFixtureInteractiveRemoteArchiveDispatcher {
-                    [weak self] request in
-                    self?.dispatchOpenScenarioInteractiveRemoteArchiveRequest(
-                        request,
-                        plan: plan
-                    )
-                }
-            openScenarioInteractiveRemoteArchiveDispatcher = dispatcher
-            interactiveRemoteArchiveRequestDispatcher = dispatcher
-        }
         if plan.scenario == .committedContentBackgroundForeground {
             installOpenScenarioLifecycleObservation()
         }
@@ -2545,8 +1255,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             publishOpenScenarioFailure(plan: plan)
             return
         }
-
-        installOpenScenarioArchiveTransportIfNeeded(plan: plan)
 
         DispatchQueue.main.async { [weak self] in
             guard let self,
@@ -2564,23 +1272,14 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             self.openScenarioRouteMeasurementHasStarted = true
             self.loadInitialDatasource(performPendingOpenMessageRequest: false)
             if plan.requiresRemoteInjection {
-                if self.defersOpenScenarioInitialBootstrapRequestForTesting {
-                    self.openScenarioDeferredInitialBootstrapPlan = plan
-                } else {
-                    _ = self.startOpenScenarioInitialBootstrapRequestIfNeeded(
-                        plan: plan
-                    )
-                }
+                self.startArchiveEnginePresentationIfNeeded()
             }
             guard self.bindOpenScenarioPrimaryTraceContext(plan: plan) else {
                 self.publishOpenScenarioFailure(plan: plan)
                 return
             }
-            if plan.requiresRemoteInjection {
-                self.openScenarioSkeletonObservationPlan = plan
-                self.openScenarioSkeletonObservationDeadline =
-                    Date().addingTimeInterval(4)
-            } else if !plan.requiresPostInitialInteraction {
+            if !plan.requiresRemoteInjection,
+               !plan.requiresPostInitialInteraction {
                 self.beginOpenScenarioTerminalObservation(plan: plan)
             }
         }
@@ -2589,28 +1288,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
     private func isOpenScenarioLifecycleCurrent(generation: Int) -> Bool {
         !openScenarioTerminalTeardownCompleted &&
             generation == openScenarioLifecycleGeneration
-    }
-
-    /// The deterministic controller skips `subscribe()`, while production
-    /// starts blocking account-scoped archive work there. Only plans whose
-    /// first safe frame genuinely depends on remote persistence may enter that
-    /// coordinator. Local/durable and post-interaction-only plans must not
-    /// force a second loading-state render after their local frame probe.
-    @discardableResult
-    private func startOpenScenarioInitialBootstrapRequestIfNeeded(
-        plan: ChatOpenRealPipelineFixturePlan
-    ) -> Bool {
-        guard !openScenarioTerminalTeardownCompleted,
-              plan.requiresRemoteInjection,
-              descriptor.openScenario == plan.scenario,
-              openScenarioStableReceipt == nil,
-              openScenarioInitialBootstrapRequestInvocationCountForTesting == 0
-        else {
-            return false
-        }
-        openScenarioInitialBootstrapRequestInvocationCountForTesting &+= 1
-        requestInitialBootstrapArchive()
-        return true
     }
 
     private func beginOpenScenarioHostTerminalObservationIfReady() {
@@ -2632,6 +1309,65 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         }
         if scenario == .lastChatsAnimatedPush {
             openScenarioPostInitialInteractionCount &+= 1
+        }
+    }
+
+    private func recordOpenScenarioWinningArchiveUIKitApply(
+        _ receipt: ChatPerformanceWinningArchiveUIKitApplyReceipt,
+        plan: ChatOpenRealPipelineFixturePlan,
+        lifecycleGeneration: Int
+    ) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard isOpenScenarioLifecycleCurrent(
+                generation: lifecycleGeneration
+              ),
+              openScenarioStableReceipt == nil,
+              openScenarioProductionVisualCommitCount == 0,
+              receipt.conversationKey == chatTimelineConversationKey,
+              receipt.applyGeneration == archiveWindowApplyGeneration,
+              timelineSession?.snapshot.generation ==
+                receipt.sessionGeneration else {
+            return
+        }
+
+        // A fixture lifecycle consumes exactly one winning archive frame.
+        // Later paging/store applies and late callbacks from replaced sessions
+        // cannot mutate the initial-frame receipt.
+        performanceFixtureWinningArchiveUIKitApplyHandler = nil
+        openScenarioViewportDiagnostics = receipt.viewportDiagnostics
+        openScenarioProductionVisualCommitCount = 1
+        switch receipt.viewportDiagnostics.anchorStrategy {
+        case .bottom:
+            openScenarioLatestVisualCommitCount = 1
+        case .message(let anchor):
+            if let targetOrdinal = plan.expectedTargetOrdinal,
+               anchor.primary == openPrimary(targetOrdinal) {
+                openScenarioResolvedTargetOrdinal = targetOrdinal
+                openScenarioTargetMatchCount = 1
+            }
+        case .none, .preserveContentOffset:
+            break
+        }
+        if !ChatOpenRealPipelineFixtureDiagnosticsPolicy.isExpectedCommit(
+            targetKind: plan.targetKind,
+            anchorStrategy: receipt.viewportDiagnostics.anchorStrategy
+        ) {
+            openScenarioUnexpectedCommittedFrameCount = 1
+        }
+        recordOpenScenarioAtomicInitialOffsetIfNeeded()
+        openScenarioLastSampledOffsetY = messagesCollectionView.contentOffset.y
+        openScenarioHasCommittedViewport = true
+
+        if plan.requiresPostInitialInteraction {
+            if plan.scenario == .lastChatsAnimatedPush {
+                beginOpenScenarioHostTerminalObservationIfReady()
+            } else {
+                renderOpenScenarioInteractionReady(plan: plan)
+            }
+        } else if plan.scenario == .coldPushExact ||
+                    plan.scenario == .mentionDeletedAdvance ||
+                    plan.scenario == .lastChatsSeededMentionExact {
+            beginOpenScenarioHostTerminalObservationIfReady()
         }
     }
 
@@ -2671,36 +1407,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         }
     }
 
-    private func bindOpenScenarioLinkedTraceContext(
-        _ context: ChatOpenPerformanceTraceContext,
-        plan: ChatOpenRealPipelineFixturePlan
-    ) {
-        guard let exportSession = openScenarioArtifactExportSession else {
-            return
-        }
-        guard plan.expectsLinkedPagingTrace,
-              openScenarioBoundPrimaryTraceContext != nil,
-              !openScenarioBoundLinkedTraceContexts.contains(context) else {
-            failOpenScenarioTraceBinding(
-                plan: plan,
-                error: .unexpectedLinkedTraceContext
-            )
-            return
-        }
-        do {
-            try exportSession.bindLinkedTraceContext(
-                context,
-                contract: .linkedArchivePage
-            )
-            openScenarioBoundLinkedTraceContexts.insert(context)
-        } catch {
-            failOpenScenarioTraceBinding(
-                plan: plan,
-                error: .traceContextBindingRejected
-            )
-        }
-    }
-
     private func failOpenScenarioTraceBinding(
         plan: ChatOpenRealPipelineFixturePlan,
         error: OpenScenarioError
@@ -2717,926 +1423,7 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         }
     }
 
-    private func recordOpenScenarioInitialFrameCommit(
-        _ diagnostics: ChatPerformanceInitialFrameCommitDiagnostics,
-        plan: ChatOpenRealPipelineFixturePlan
-    ) {
-        if plan.scenario == .lastChatsSeededMentionExact {
-            recordP14OpenScenarioInitialFrameCommit(
-                diagnostics,
-                plan: plan
-            )
-            return
-        }
-        captureOpenScenarioInitialFrameCausalDiagnostics()
-        openScenarioCommittedInitialFrameDiagnostics = diagnostics
-        openScenarioViewportDiagnostics = diagnostics.viewportDiagnostics
-        openScenarioProductionVisualCommitCount += 1
-        switch diagnostics.viewportDiagnostics.anchorStrategy {
-        case .bottom:
-            openScenarioLatestVisualCommitCount += 1
-        case .message(let anchor):
-            if plan.scenario == .lastChatsSeededMentionExact {
-                if anchor.primary == openPrimary(
-                    plan.p14UnreadTargetOrdinal
-                ) {
-                    p14MentionUnreadFrameCount &+= 1
-                }
-                if anchor.primary == openPrimary(
-                    plan.p14SavedTargetOrdinal
-                ) {
-                    p14MentionSavedFrameCount &+= 1
-                }
-            }
-            if let targetOrdinal = plan.expectedTargetOrdinal,
-               anchor.primary == openPrimary(targetOrdinal) {
-                openScenarioResolvedTargetOrdinal = targetOrdinal
-                openScenarioTargetMatchCount += 1
-            }
-        case .none, .preserveContentOffset:
-            break
-        }
-        if !ChatOpenRealPipelineFixtureDiagnosticsPolicy.isExpectedCommit(
-            targetKind: plan.targetKind,
-            anchorStrategy: diagnostics.viewportDiagnostics.anchorStrategy
-        ) {
-            openScenarioUnexpectedCommittedFrameCount += 1
-        }
-        recordOpenScenarioAtomicInitialOffsetIfNeeded()
-        // Establish the committed viewport as the baseline. Subsequent
-        // sampler changes are user-visible corrections, not the intentional
-        // atomic first-frame alignment itself.
-        openScenarioLastSampledOffsetY = messagesCollectionView.contentOffset.y
-        openScenarioHasCommittedViewport = true
-        guard openScenarioProductionVisualCommitCount == 1 else { return }
-        if plan.requiresPostInitialInteraction {
-            if plan.scenario == .lastChatsAnimatedPush {
-                beginOpenScenarioHostTerminalObservationIfReady()
-            } else if plan.scenario == .newerCrossingGap {
-                renderNewerGapInteractionReadyIfPossible(plan: plan)
-            } else {
-                renderOpenScenarioInteractionReady(plan: plan)
-            }
-        } else if plan.scenario == .coldPushExact ||
-                    plan.scenario == .mentionDeletedAdvance ||
-                    plan.scenario == .lastChatsSeededMentionExact {
-            beginOpenScenarioHostTerminalObservationIfReady()
-        }
-    }
-
-    /// Freezes causal work at the production commit callback. The callback is
-    /// emitted before `finishPreparedLocalFirstFrameAnchor` may schedule its
-    /// ordinary post-position background context, so these counters cannot be
-    /// polluted by later detached transport or observer refreshes.
-    private func captureOpenScenarioInitialFrameCausalDiagnostics() {
-        recordOpenScenarioProductionRemoteHistoryState()
-        let bootstrapDiagnostics =
-            captureOpenScenarioProductionBootstrapDiagnostics()
-        openScenarioInitialFrameArchiveRequestCount = max(
-            max(
-                openScenarioArchiveRequestCount,
-                openScenarioObservedProductionArchiveQueryIds.count
-            ),
-            bootstrapDiagnostics.transportStartCount
-        )
-        openScenarioInitialFrameGapRequestCount = max(
-            openScenarioGapRequestCount,
-            openScenarioObservedProductionGapQueryIds.count
-        )
-        openScenarioInitialFrameRouteStoreDiagnostics =
-            timelineSession?.routeStoreDiagnosticsSnapshot.routeDelta(
-                since: openScenarioRouteStoreDiagnosticsBaseline
-            )
-    }
-
-    private func recordP14OpenScenarioInitialFrameCommit(
-        _ diagnostics: ChatPerformanceInitialFrameCommitDiagnostics,
-        plan: ChatOpenRealPipelineFixturePlan
-    ) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        let effectToken = diagnostics.initialFrameEffectToken
-        guard isLatestInitialFrameEffectToken(effectToken) else { return }
-        if p14InitialFrameCommitEffectToken == effectToken,
-           openScenarioProductionVisualCommitCount == 1 {
-            return
-        }
-
-        adoptP14InitialFrameCommitEffectToken(effectToken)
-        captureOpenScenarioInitialFrameCausalDiagnostics()
-        // Initial-frame diagnostics are a replaceable exact-owner snapshot,
-        // not an append-only history. If A was logically committed but lost
-        // ownership before its receipt, B remains the sole visual commit.
-        openScenarioCommittedInitialFrameDiagnostics = diagnostics
-        openScenarioViewportDiagnostics = diagnostics.viewportDiagnostics
-        openScenarioProductionVisualCommitCount = 1
-        openScenarioLatestVisualCommitCount = 0
-        openScenarioTargetMatchCount = 0
-        openScenarioUnexpectedCommittedFrameCount = 0
-        openScenarioResolvedTargetOrdinal = nil
-        p14MentionUnreadFrameCount = 0
-        p14MentionSavedFrameCount = 0
-        switch diagnostics.viewportDiagnostics.anchorStrategy {
-        case .bottom:
-            openScenarioLatestVisualCommitCount = 1
-        case .message(let anchor):
-            if anchor.primary == openPrimary(plan.p14UnreadTargetOrdinal) {
-                p14MentionUnreadFrameCount = 1
-            }
-            if anchor.primary == openPrimary(plan.p14SavedTargetOrdinal) {
-                p14MentionSavedFrameCount = 1
-            }
-            if let targetOrdinal = plan.expectedTargetOrdinal,
-               anchor.primary == openPrimary(targetOrdinal) {
-                openScenarioResolvedTargetOrdinal = targetOrdinal
-                openScenarioTargetMatchCount = 1
-            }
-        case .none, .preserveContentOffset:
-            break
-        }
-        if !ChatOpenRealPipelineFixtureDiagnosticsPolicy.isExpectedCommit(
-            targetKind: plan.targetKind,
-            anchorStrategy: diagnostics.viewportDiagnostics.anchorStrategy
-        ) {
-            openScenarioUnexpectedCommittedFrameCount = 1
-        }
-        openScenarioLastSampledOffsetY = messagesCollectionView.contentOffset.y
-        openScenarioHasCommittedViewport = true
-
-        scheduleP14InitialCommitFreshRealmProof(effectToken: effectToken)
-        p14InitialFrameCommitRecordedForTests?(diagnostics)
-        guard effectToken == p14InitialFrameCommitEffectToken,
-              isLatestInitialFrameEffectToken(effectToken) else {
-            return
-        }
-        issueP14ProductionPresentationReceiptIfReady()
-        beginOpenScenarioHostTerminalObservationIfReady()
-    }
-
-    private func consumeOpenScenarioRemoteHistoryAction(
-        _ action: ChatPerformanceFixtureRemoteHistoryAction
-    ) -> ChatPerformanceFixtureRemoteHistoryDisposition {
-        guard descriptor.openScenario != nil else {
-            return .useProductionTransport
-        }
-        openScenarioConsumedRemoteHistoryActions.append(action)
-        let actionName: String
-        switch action.kind {
-        case .anchorContextPrefetch:
-            actionName = "anchor-context-prefetch"
-        }
-        print(
-            "CHAT_OPEN_FIXTURE_REMOTE_HISTORY " +
-            "action=\(actionName) " +
-            "source=\(action.source.rawValue) " +
-            "newer=\(action.newerPageSize ?? 0) " +
-            "older=\(action.olderPageSize ?? 0) " +
-            "disposition=production-shaped-fixture-transport"
-        )
-        if let scenario = descriptor.openScenario,
-           scenario == .newerCrossingGap {
-            renderNewerGapInteractionReadyIfPossible(
-                plan: ChatOpenRealPipelineFixturePlan(scenario: scenario)
-            )
-        }
-        return .useProductionTransport
-    }
-
-    /// G07's anchored first frame starts production's detached context fetch.
-    /// The explicit interactive action must not race that persistence work or
-    /// replace its session state, so the fixture exposes the button only after
-    /// the observed context action and every production-owned resource finish.
-    private func renderNewerGapInteractionReadyIfPossible(
-        plan: ChatOpenRealPipelineFixturePlan
-    ) {
-        guard plan.scenario == .newerCrossingGap,
-              openScenarioStableReceipt == nil,
-              openScenarioProductionVisualCommitCount == 1,
-              !openScenarioPostInitialInteractionReady,
-              openScenarioPostInitialInteractionCount == 0,
-              openScenarioConsumedRemoteHistoryActions.count == 1,
-              openScenarioConsumedRemoteHistoryActions.first?.kind ==
-                .anchorContextPrefetch else {
-            return
-        }
-        let bootstrapDiagnostics =
-            captureOpenScenarioProductionBootstrapDiagnostics()
-        guard captureOpenScenarioActiveProductionWorkCount(
-            bootstrapDiagnostics: bootstrapDiagnostics
-        ) == 0 else {
-            return
-        }
-        renderOpenScenarioInteractionReady(plan: plan)
-    }
-
-    private func dispatchOpenScenarioInteractiveRemoteArchiveRequest(
-        _ request: ChatInteractiveRemoteArchiveDispatchRequest,
-        plan: ChatOpenRealPipelineFixturePlan
-    ) {
-        dispatchPrecondition(condition: .onQueue(.main))
-        guard plan.expectsLinkedPagingTrace,
-              let expectedDirection = plan.expectedInteractivePagingDirection,
-              let expectedCursorOrdinal =
-                plan.expectedInteractivePagingCursorOrdinal,
-              let ordinalRange = plan.interactiveGapInjectionOrdinalRange,
-              request.owner == owner,
-              request.direction == expectedDirection,
-              request.cursorId == openArchiveId(expectedCursorOrdinal),
-              request.pageSize == ChatHistoryPagingConfiguration.pageSize,
-              request.queryId.isNotEmpty,
-              let fixtureSend = request.performanceFixtureSend,
-              let session = openScenarioArchiveTransportSession,
-              let transportGeneration = openScenarioArchiveTransportGeneration
-        else {
-            rejectOpenScenarioArchiveDescriptor(plan: plan)
-            return
-        }
-
-        let gap = RegularChatArchiveGap(
-            olderRangeNewestArchiveId: openArchiveId(79),
-            newerRangeOldestArchiveId: openArchiveId(240)
-        )
-        let gapDirection: MessageArchiveManager.RegularArchiveGapRepairDirection =
-            expectedDirection == .older ? .older : .newer
-        let requestPlan = MessageArchiveManager.regularGapRepairRequestPlan(
-            jid: jid,
-            gap: gap,
-            direction: gapDirection,
-            pageSize: request.pageSize
-        )
-        guard let archiveDescriptor =
-                ChatPerformanceFixtureArchiveRequestDescriptor.make(
-                    plan: requestPlan,
-                    leasePurpose: .interactivePaging,
-                    requestSource: nil,
-                    semanticRouteClass: .knownGapRepair
-                ),
-              ChatPerformanceFixtureInteractiveGapDescriptorAdmissionPolicy
-                .accepts(
-                    descriptor: archiveDescriptor,
-                    expectedDirection: expectedDirection,
-                    expectedCursorArchiveID: request.cursorId,
-                    expectedPageSize: request.pageSize
-                ) else {
-            rejectOpenScenarioArchiveDescriptor(plan: plan)
-            return
-        }
-
-        openScenarioArchiveTransportLock.lock()
-        openScenarioAllowedArchiveQueryIds.insert(request.queryId)
-        openScenarioArchiveDescriptorsByQueryId[request.queryId] =
-            archiveDescriptor
-        openScenarioArchiveTransportLock.unlock()
-        openScenarioArchiveRequestCount &+= 1
-        openScenarioGapRequestCount &+= 1
-        openScenarioObservedProductionArchiveQueryIds.insert(request.queryId)
-        openScenarioObservedProductionGapQueryIds.insert(request.queryId)
-        openScenarioArchiveCursorKind = archiveDescriptor.cursorKind
-        openScenarioTransportThreadRecorder.record(
-            .uiBookkeeping,
-            generation: transportGeneration,
-            isMainThread: Thread.isMainThread
-        )
-        request.schedulerLease.attach {}
-
-        enqueueOpenScenarioArchiveTransport(
-            generation: transportGeneration,
-            plan: plan,
-            operation: { [weak self] in
-                guard let self,
-                      request.shouldDispatch() else {
-                    request.schedulerLease.complete()
-                    throw OpenScenarioError.archiveDescriptorRejected
-                }
-                self.openScenarioTransportThreadRecorder.record(
-                    .mamStart,
-                    generation: transportGeneration,
-                    isMainThread: Thread.isMainThread
-                )
-                guard fixtureSend(
-                    session.stream,
-                    session.archiveManager,
-                    session.messageManager
-                ) == request.queryId else {
-                    request.schedulerLease.complete()
-                    throw OpenScenarioError.archiveDescriptorRejected
-                }
-            },
-            mainCompletion: { [weak self] in
-                guard let self else { return }
-                request.transportStarted(request.queryId, .primary, nil)
-                // `transportStarted` installs production's visible-load state
-                // asynchronously on main. FIFO ordering gives that state one
-                // causal turn before the real parser receives its first row.
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    let ordinals = Array(ordinalRange)
-                    self.enqueueOpenScenarioArchiveTransport(
-                        generation: transportGeneration,
-                        plan: plan,
-                        operation: { [weak self] in
-                            guard let self else {
-                                throw OpenScenarioError
-                                    .archiveTransportUnavailable
-                            }
-                            try self.deliverOpenScenarioArchivePage(
-                                session: session,
-                                queryId: request.queryId,
-                                ordinals: ordinals,
-                                complete: false,
-                                serverResultCount: 320,
-                                deliverDuplicateFinalForIdempotencyProof: true,
-                                descriptor: archiveDescriptor,
-                                expectedSource: nil,
-                                expectedSemanticRouteClass: .knownGapRepair,
-                                expectedDeliveredArchiveIDs:
-                                    ordinals.map(self.openArchiveId),
-                                transportGeneration: transportGeneration
-                            )
-                        },
-                        mainCompletion: { [weak self] in
-                            self?.beginOpenScenarioTerminalObservation(
-                                plan: plan
-                            )
-                        }
-                    )
-                }
-            }
-        )
-    }
-
-    private func installOpenScenarioArchiveTransportIfNeeded(
-        plan: ChatOpenRealPipelineFixturePlan
-    ) {
-        guard plan.usesFixtureArchiveTransport,
-              openScenarioArchiveTransportSession == nil else {
-            return
-        }
-
-        let stream = XMPPStream()
-        let archiveManager = MessageArchiveManager(withOwner: owner)
-        let messageManager = MessageManager(withOwner: owner, activeStream: false)
-        messageManager.updateSendingMessagesTimer?.invalidate()
-        messageManager.updateSendingMessagesTimer = nil
-        messageManager.unsubscribeSender()
-        messageManager.unsubscribeReceiver()
-        messageManager.archiveQueryIdPersistenceResolver = { [weak self] queryId in
-            self?.isOpenScenarioArchiveQueryAllowed(queryId) == true
-        }
-        let session = ChatPerformanceFixtureArchiveTransportSession(
-            stream: stream,
-            archiveManager: archiveManager,
-            messageManager: messageManager
-        )
-        openScenarioArchiveTransportSession = session
-        guard let transportGeneration = openScenarioArchiveTransportGeneration else {
-            openScenarioSetupFailure = String(
-                describing: OpenScenarioError.archiveTransportUnavailable
-            )
-            return
-        }
-        performanceFixtureArchiveTransportProvider = { [weak self] request in
-            self?.provideOpenScenarioArchiveTransport(for: request)
-        }
-        performanceFixtureArchiveTransportExecutor = { [weak self] operation in
-            guard let self,
-                  self.openScenarioTransportThreadRecorder.beginOperation(
-                    generation: transportGeneration
-                  ) else {
-                return
-            }
-            self.openScenarioArchiveTransportQueue.async { [weak self] in
-                guard let self else { return }
-                defer {
-                    self.openScenarioTransportThreadRecorder.endOperation(
-                        generation: transportGeneration
-                    )
-                }
-                guard self.openScenarioTransportThreadRecorder.isCurrent(
-                    generation: transportGeneration
-                ) else {
-                    return
-                }
-                self.openScenarioTransportThreadRecorder.record(
-                    .mamStart,
-                    generation: transportGeneration,
-                    isMainThread: Thread.isMainThread
-                )
-                autoreleasepool(invoking: operation)
-            }
-        }
-        performanceFixtureArchiveTransportDidStartHandler = { [weak self] request in
-            self?.recordOpenScenarioArchiveTransportStart(
-                request,
-                plan: plan,
-                transportGeneration: transportGeneration
-            )
-        }
-        performanceFixtureArchiveTransportCancellationHandler = {
-            [weak self, weak archiveManager] queryId in
-            guard let self,
-                  let archiveManager,
-                  self.openScenarioTransportThreadRecorder.beginOperation(
-                    generation: transportGeneration
-                  ) else {
-                return
-            }
-            self.openScenarioArchiveTransportQueue.async { [weak self] in
-                guard let self else { return }
-                _ = archiveManager.cancelPendingArchiveRequest(
-                    queryId: queryId
-                )
-                self.openScenarioTransportThreadRecorder.endOperation(
-                    generation: transportGeneration
-                )
-            }
-        }
-    }
-
-    private func provideOpenScenarioArchiveTransport(
-        for request: ChatPerformanceFixtureArchiveTransportRequest
-    ) -> ChatPerformanceFixtureArchiveTransportSession? {
-        guard request.queryIds.isNotEmpty,
-              request.queryIds == Set(request.descriptorsByQueryId.keys),
-              let session = openScenarioArchiveTransportSession else {
-            return nil
-        }
-        openScenarioArchiveTransportLock.lock()
-        openScenarioAllowedArchiveQueryIds.formUnion(request.queryIds)
-        request.descriptorsByQueryId.forEach {
-            openScenarioArchiveDescriptorsByQueryId[$0.key] = $0.value
-        }
-        openScenarioArchiveTransportLock.unlock()
-        return session
-    }
-
-    private func isOpenScenarioArchiveQueryAllowed(_ queryId: String?) -> Bool {
-        guard let queryId, queryId.isNotEmpty else { return false }
-        openScenarioArchiveTransportLock.lock()
-        let isAllowed = openScenarioAllowedArchiveQueryIds.contains(queryId)
-        openScenarioArchiveTransportLock.unlock()
-        return isAllowed
-    }
-
-    private func openScenarioArchiveDescriptor(
-        for queryId: String
-    ) -> ChatPerformanceFixtureArchiveRequestDescriptor? {
-        openScenarioArchiveTransportLock.lock()
-        let descriptor = openScenarioArchiveDescriptorsByQueryId[queryId]
-        openScenarioArchiveTransportLock.unlock()
-        return descriptor
-    }
-
-    private func recordOpenScenarioArchiveTransportStart(
-        _ request: ChatPerformanceFixtureArchiveTransportRequest,
-        plan: ChatOpenRealPipelineFixturePlan,
-        transportGeneration: Int
-    ) {
-        openScenarioTransportThreadRecorder.record(
-            .uiBookkeeping,
-            generation: transportGeneration,
-            isMainThread: Thread.isMainThread
-        )
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.applyOpenScenarioArchiveTransportStart(
-                    request,
-                    plan: plan,
-                    transportGeneration: transportGeneration
-                )
-            }
-            return
-        }
-        applyOpenScenarioArchiveTransportStart(
-            request,
-            plan: plan,
-            transportGeneration: transportGeneration
-        )
-    }
-
-    private func applyOpenScenarioArchiveTransportStart(
-        _ request: ChatPerformanceFixtureArchiveTransportRequest,
-        plan: ChatOpenRealPipelineFixturePlan,
-        transportGeneration: Int
-    ) {
-        guard openScenarioTransportThreadRecorder.isCurrent(
-            generation: transportGeneration
-        ) else {
-            return
-        }
-        openScenarioArchiveRequestCount &+= request.queryIds.count
-        openScenarioObservedProductionArchiveQueryIds.formUnion(request.queryIds)
-        guard request.queryIds == Set(request.descriptorsByQueryId.keys) else {
-            rejectOpenScenarioArchiveDescriptor(plan: plan)
-            return
-        }
-        for queryId in request.queryIds.sorted() {
-            guard let descriptor = request.descriptorsByQueryId[queryId] else {
-                rejectOpenScenarioArchiveDescriptor(plan: plan)
-                return
-            }
-            switch descriptor.semanticRouteClass {
-            case .latest:
-                guard request.kind == .initialBootstrap,
-                      request.queryIds.count == 1,
-                      descriptor.requestSource == nil,
-                      descriptor.maximumResultCount ==
-                        ChatInitialFirstFrameHistoryConfiguration.pageSize else {
-                    rejectOpenScenarioArchiveDescriptor(plan: plan)
-                    return
-                }
-                openScenarioQueryId = queryId
-                guard openScenarioRemoteActionLatch.admit(queryID: queryId)
-                else {
-                    rejectOpenScenarioArchiveDescriptor(plan: plan)
-                    return
-                }
-                openScenarioArchiveCursorKind = .latest
-            case .exactTarget:
-                guard request.kind == .detachedPage,
-                      request.queryIds.count == 1,
-                      descriptor.requestSource == plan.expectedRequestSource,
-                      let targetOrdinal = plan.expectedTargetOrdinal,
-                      descriptor.targetArchiveID == openArchiveId(targetOrdinal),
-                      descriptor.maximumResultCount == 1 else {
-                    rejectOpenScenarioArchiveDescriptor(plan: plan)
-                    return
-                }
-                openScenarioQueryId = queryId
-                guard openScenarioRemoteActionLatch.admit(queryID: queryId)
-                else {
-                    rejectOpenScenarioArchiveDescriptor(plan: plan)
-                    return
-                }
-                openScenarioArchiveCursorKind = .aroundTarget
-            case .anchorContext:
-                guard request.kind == .detachedPage,
-                      descriptor.requestSource == plan.expectedRequestSource,
-                      let targetOrdinal = plan.expectedTargetOrdinal,
-                      ChatPerformanceFixtureTargetWindowDescriptorAdmissionPolicy
-                        .accepts(
-                            descriptor: descriptor,
-                            targetArchiveID: openArchiveId(targetOrdinal),
-                            targetOrdinal: targetOrdinal,
-                            totalMessageCount: 320
-                        ) else {
-                    rejectOpenScenarioArchiveDescriptor(plan: plan)
-                    return
-                }
-                openScenarioArchiveCursorKind = .aroundTarget
-                if plan.hasKnownGapTopology {
-                    openScenarioGapRequestCount &+= 1
-                    openScenarioObservedProductionGapQueryIds.insert(queryId)
-                }
-                if plan.scenario == .newerCrossingGap {
-                    deliverOpenScenarioDescriptorTerminalWithoutRows(
-                        queryId: queryId,
-                        descriptor: descriptor,
-                        expectedSemanticRouteClass: .anchorContext,
-                        plan: plan,
-                        transportGeneration: transportGeneration
-                    )
-                } else {
-                    deliverOpenScenarioAnchorContextPage(
-                        queryId: queryId,
-                        descriptor: descriptor,
-                        plan: plan,
-                        transportGeneration: transportGeneration
-                    )
-                }
-            case .backgroundContext:
-                // A background context request is allowed to finish its own
-                // persistence transaction, but the fixture never supplies
-                // extra rows that could mutate the already committed initial
-                // resident window or its viewport.
-                guard request.kind == .detachedPage else {
-                    rejectOpenScenarioArchiveDescriptor(plan: plan)
-                    return
-                }
-                if plan.hasKnownGapTopology {
-                    openScenarioGapRequestCount &+= 1
-                    openScenarioObservedProductionGapQueryIds.insert(queryId)
-                }
-                deliverOpenScenarioDescriptorTerminalWithoutRows(
-                    queryId: queryId,
-                    descriptor: descriptor,
-                    expectedSemanticRouteClass: .backgroundContext,
-                    plan: plan,
-                    transportGeneration: transportGeneration
-                )
-            case .unreadBoundary, .savedPosition, .knownGapRepair,
-                 .interactivePage:
-                rejectOpenScenarioArchiveDescriptor(plan: plan)
-                return
-            }
-        }
-        performOpenScenarioAcknowledgedRemoteActionIfReady()
-    }
-
-    private func rejectOpenScenarioArchiveDescriptor(
-        plan: ChatOpenRealPipelineFixturePlan
-    ) {
-        openScenarioSetupFailure = String(
-            describing: OpenScenarioError.archiveDescriptorRejected
-        )
-        publishOpenScenarioFailure(plan: plan)
-    }
-
-    private func deliverOpenScenarioAnchorContextPage(
-        queryId: String,
-        descriptor: ChatPerformanceFixtureArchiveRequestDescriptor,
-        plan: ChatOpenRealPipelineFixturePlan,
-        transportGeneration: Int
-    ) {
-        guard let session = openScenarioArchiveTransportSession,
-              let cursorArchiveID = descriptor.cursorArchiveID,
-              let targetOrdinal = openScenarioOrdinal(
-                forArchiveID: cursorArchiveID
-              ),
-              descriptor.maximumResultCount > 0 else {
-            rejectOpenScenarioArchiveDescriptor(plan: plan)
-            return
-        }
-        let ordinals: [Int]
-        switch descriptor.direction {
-        case .older:
-            let lowerBound = max(
-                0,
-                targetOrdinal - descriptor.maximumResultCount
-            )
-            ordinals = Array(lowerBound..<targetOrdinal)
-        case .newer:
-            let lowerBound = targetOrdinal + 1
-            ordinals = Array(
-                lowerBound..<(lowerBound + descriptor.maximumResultCount)
-            )
-        case nil:
-            rejectOpenScenarioArchiveDescriptor(plan: plan)
-            return
-        }
-        enqueueOpenScenarioArchiveTransport(
-            generation: transportGeneration,
-            plan: plan,
-            operation: { [weak self] in
-                guard let self else {
-                    throw OpenScenarioError.archiveTransportUnavailable
-                }
-                try self.deliverOpenScenarioArchivePage(
-                    session: session,
-                    queryId: queryId,
-                    ordinals: ordinals,
-                    complete: false,
-                    serverResultCount: 320,
-                    deliverDuplicateFinalForIdempotencyProof: true,
-                    descriptor: descriptor,
-                    expectedSource: plan.expectedRequestSource,
-                    expectedSemanticRouteClass: .anchorContext,
-                    expectedDeliveredArchiveIDs: ordinals.map(openArchiveId),
-                    transportGeneration: transportGeneration
-                )
-            }
-        )
-    }
-
-    private func deliverOpenScenarioDescriptorTerminalWithoutRows(
-        queryId: String,
-        descriptor: ChatPerformanceFixtureArchiveRequestDescriptor,
-        expectedSemanticRouteClass:
-            ChatPerformanceFixtureArchiveSemanticRouteClass,
-        plan: ChatOpenRealPipelineFixturePlan,
-        transportGeneration: Int
-    ) {
-        guard let session = openScenarioArchiveTransportSession else {
-            rejectOpenScenarioArchiveDescriptor(plan: plan)
-            return
-        }
-        enqueueOpenScenarioArchiveTransport(
-            generation: transportGeneration,
-            plan: plan,
-            operation: { [weak self] in
-                guard let self else {
-                    throw OpenScenarioError.archiveTransportUnavailable
-                }
-                try self.deliverOpenScenarioArchivePage(
-                    session: session,
-                    queryId: queryId,
-                    ordinals: [],
-                    complete: true,
-                    serverResultCount: 0,
-                    deliverDuplicateFinalForIdempotencyProof: true,
-                    descriptor: descriptor,
-                    expectedSource: descriptor.requestSource,
-                    expectedSemanticRouteClass:
-                        expectedSemanticRouteClass,
-                    expectedDeliveredArchiveIDs:
-                        expectedSemanticRouteClass == .anchorContext ? [] : nil,
-                    transportGeneration: transportGeneration
-                )
-            }
-        )
-    }
-
-    private func releaseOpenScenarioArchiveTransport() {
-        performanceFixtureArchiveTransportProvider = nil
-        performanceFixtureArchiveTransportExecutor = nil
-        performanceFixtureArchiveTransportDidStartHandler = nil
-        performanceFixtureArchiveTransportCancellationHandler = nil
-        if let generation = openScenarioArchiveTransportGeneration {
-            openScenarioTransportThreadRecorder.invalidate(generation: generation)
-        }
-        openScenarioArchiveTransportGeneration = nil
-        openScenarioArchiveTransportLock.lock()
-        openScenarioAllowedArchiveQueryIds.removeAll()
-        openScenarioArchiveDescriptorsByQueryId.removeAll()
-        openScenarioArchiveTransportLock.unlock()
-        let releasedSession = openScenarioArchiveTransportSession
-        openScenarioArchiveTransportSession = nil
-        openScenarioArchiveTransportQueue.async {
-            releasedSession?.messageManager.archiveQueryIdPersistenceResolver = nil
-            releasedSession?.messageManager.unsubscribeSender()
-            releasedSession?.messageManager.unsubscribeReceiver()
-        }
-    }
-
-    private func waitForOpenScenarioSkeletonBeforeInjection(
-        plan: ChatOpenRealPipelineFixturePlan,
-        deadline: Date
-    ) {
-        let skeletonRows = openScenarioSkeletonRowCount
-        let continuation =
-            ChatOpenRealPipelineFixtureSkeletonContinuationPolicy.action(
-                observedSkeletonRows: skeletonRows,
-                expectedSkeletonRows: plan.expectedInitialSkeletonRowCount,
-                requiresExternalAcknowledgement:
-                    descriptor.requiresExternalSkeletonAcknowledgement,
-                didReceiveExternalAcknowledgement: false
-            )
-        switch continuation {
-        case .waitForSkeleton:
-            break
-        case .waitForExternalAcknowledgement:
-            openScenarioSkeletonObservationPlan = nil
-            openScenarioSkeletonObservationDeadline = nil
-            openScenarioInitialSkeletonRowCount = skeletonRows
-            captureOpenScenarioSkeletonPresentationBaselineIfNeeded()
-            // E04 must retain display-link evidence for the entire held
-            // skeleton interval: a stale Realm-observer frame during the
-            // external compositor acknowledgement window is part of the bug
-            // contract. Other routes keep their established handshake pause.
-            if plan.scenario != .bootstrapStaleLocalToContent {
-                pauseOpenScenarioVisibleOffsetSampling()
-            }
-            openScenarioPendingRemoteInjectionPlan = plan
-            guard installOpenScenarioDarwinAcknowledgementObserver(plan: plan) else {
-                publishOpenScenarioFailure(plan: plan)
-                return
-            }
-            renderOpenScenarioPhase(.skeleton, plan: plan)
-            return
-        case .scheduleAutomaticDwell:
-            openScenarioSkeletonObservationPlan = nil
-            openScenarioSkeletonObservationDeadline = nil
-            openScenarioInitialSkeletonRowCount = skeletonRows
-            captureOpenScenarioSkeletonPresentationBaselineIfNeeded()
-            renderOpenScenarioPhase(.skeleton, plan: plan)
-            openScenarioAutomaticInjectionPlan = plan
-            openScenarioAutomaticInjectionDisplayTimestamp = nil
-            return
-        case .injectRemotePage:
-            openScenarioSkeletonObservationPlan = nil
-            openScenarioSkeletonObservationDeadline = nil
-            injectOpenScenarioRemotePage(plan: plan)
-            return
-        }
-        guard Date() < deadline else {
-            publishOpenScenarioFailure(plan: plan)
-            return
-        }
-    }
-
-    @discardableResult
-    private func acknowledgeOpenScenarioSkeleton() -> Bool {
-        guard let plan = openScenarioPendingRemoteInjectionPlan,
-              ChatOpenRealPipelineFixtureAcknowledgementAdmissionPolicy.shouldConsume(
-                hasPendingRemoteInjection: true,
-                hasCommittedBootstrapSkeleton:
-                    hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle,
-                loadingStateShowsSkeleton:
-                    appliedBootstrapLoadingState?.showsSkeleton == true,
-                observedSkeletonRows: openScenarioSkeletonRowCount,
-                expectedSkeletonRows: plan.expectedInitialSkeletonRowCount
-              ),
-              ChatOpenRealPipelineFixtureSkeletonContinuationPolicy.action(
-                observedSkeletonRows: openScenarioSkeletonRowCount,
-                expectedSkeletonRows: plan.expectedInitialSkeletonRowCount,
-                requiresExternalAcknowledgement:
-                    descriptor.requiresExternalSkeletonAcknowledgement,
-                didReceiveExternalAcknowledgement: true
-              ) == .injectRemotePage else {
-            return false
-        }
-        guard openScenarioRemoteActionLatch.acknowledge(plan: plan) else {
-            return false
-        }
-        if plan.scenario == .bootstrapStaleLocalToContent,
-           openScenarioHeldSkeletonDisplayTickCount == 0 {
-            openScenarioE04AcknowledgementAwaitingDisplayTick = true
-            openScenarioDarwinAcknowledgementObserver?.invalidate()
-            openScenarioDarwinAcknowledgementObserver = nil
-            return true
-        }
-        completeOpenScenarioSkeletonAcknowledgement(plan: plan)
-        return true
-    }
-
-    private func completeOpenScenarioSkeletonAcknowledgement(
-        plan: ChatOpenRealPipelineFixturePlan
-    ) {
-        openScenarioE04AcknowledgementAwaitingDisplayTick = false
-        openScenarioDarwinAcknowledgementObserver?.invalidate()
-        openScenarioDarwinAcknowledgementObserver = nil
-        openScenarioPendingRemoteInjectionPlan = nil
-        if plan.scenario != .bootstrapStaleLocalToContent {
-            resumeOpenScenarioVisibleOffsetSampling()
-        }
-        captureOpenScenarioSkeletonPresentationBaselineIfNeeded()
-        print(
-            "CHAT_OPEN_FIXTURE_SKELETON_ACK " +
-            "transport=darwin skeleton=\(plan.expectedInitialSkeletonRowCount) " +
-            "disposition=consumed"
-        )
-        performOpenScenarioAcknowledgedRemoteActionIfReady()
-    }
-
-    private func completeOpenScenarioAcknowledgementAfterHeldTickIfReady() {
-        guard openScenarioE04AcknowledgementAwaitingDisplayTick,
-              openScenarioHeldSkeletonDisplayTickCount > 0,
-              let plan = openScenarioPendingRemoteInjectionPlan else {
-            return
-        }
-        completeOpenScenarioSkeletonAcknowledgement(plan: plan)
-    }
-
-    /// The compositor acknowledgement and the production archive request are
-    /// independent asynchronous boundaries. Keep the accepted acknowledgement
-    /// latched until the real request has supplied its query and descriptor;
-    /// consuming it earlier would turn a valid skeleton observation into a
-    /// fixture-only terminal failure with zero archive work.
-    private func performOpenScenarioAcknowledgedRemoteActionIfReady() {
-        guard !openScenarioE04AcknowledgementAwaitingDisplayTick else {
-            return
-        }
-        let descriptorQueryID = openScenarioQueryId.flatMap { queryId in
-            openScenarioArchiveDescriptor(for: queryId) == nil ? nil : queryId
-        }
-        guard let plan = openScenarioRemoteActionLatch.takeIfReady(
-            transportIsReady:
-                openScenarioArchiveTransportSession != nil &&
-                openScenarioArchiveTransportGeneration != nil,
-            descriptorQueryID: descriptorQueryID
-        ) else {
-            return
-        }
-        guard let action = plan.acknowledgedRemoteAction else {
-            rejectOpenScenarioArchiveDescriptor(plan: plan)
-            return
-        }
-        switch action {
-        case .injectContentPage, .injectTrustedEmptyTerminal:
-            injectOpenScenarioRemotePage(plan: plan)
-        case .holdActiveDwellThenCancel:
-            beginOpenScenarioActiveDwell(plan: plan)
-        case .injectTypedTerminalFailure:
-            injectOpenScenarioTypedFailure(plan: plan)
-        }
-    }
-
-    private func installOpenScenarioDarwinAcknowledgementObserver(
-        plan: ChatOpenRealPipelineFixturePlan
-    ) -> Bool {
-        guard ChatOpenRealPipelineFixtureDarwinAcknowledgementContract
-            .shouldInstallObserver(
-                requiresRemoteInjection: plan.requiresRemoteInjection,
-                notificationName:
-                    descriptor.externalSkeletonAcknowledgementNotificationName
-            ),
-              let notificationName =
-                descriptor.externalSkeletonAcknowledgementNotificationName else {
-            return false
-        }
-        openScenarioDarwinAcknowledgementObserver?.invalidate()
-        let observer = ChatOpenRealPipelineFixtureDarwinAcknowledgementObserver(
-            notificationName: notificationName,
-            handler: { [weak self] in
-                self?.acknowledgeOpenScenarioSkeleton()
-            }
-        )
-        guard observer.start() else { return false }
-        openScenarioDarwinAcknowledgementObserver = observer
-        return true
-    }
-
     private func prepareOpenScenarioRealm(plan: ChatOpenRealPipelineFixturePlan) throws {
-        ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
         let realm = try WRealm.safe()
         guard realm.configuration.inMemoryIdentifier != nil else {
             throw OpenScenarioError.storageIsNotEphemeral
@@ -3654,9 +1441,9 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             owner: owner,
             conversationType: conversationType
         )
-        let archivePrimary = RegularChatArchiveSyncStateStorageItem.genPrimary(
-            jid: jid,
+        let coveragePrimary = ConversationArchiveCoverageStorageItem.genPrimary(
             owner: owner,
+            jid: jid,
             conversationType: conversationType
         )
 
@@ -3667,6 +1454,32 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             ordinals = Array(0..<plan.initialLocalMessageCount)
         }
         let messages = ordinals.map(makeOpenScenarioMessage)
+        let coverageFingerprint = "fixture:\(plan.scenario.rawValue)"
+        let coverageRanges: [(oldest: Int, newest: Int, start: Bool, live: Bool)]
+        if plan.startsWithoutDurableReadiness || messages.isEmpty {
+            coverageRanges = []
+        } else if plan.hasKnownGapTopology {
+            coverageRanges = [
+                (0, 79, true, false),
+                (240, 319, false, true)
+            ]
+        } else {
+            coverageRanges = [(0, ordinals.last ?? 0, true, true)]
+        }
+        let coverageSegments: [ArchiveCoverageSegment] = coverageRanges.compactMap { range in
+            guard let oldest = ArchiveCursor(rawValue: openArchiveId(range.oldest)),
+                  let newest = ArchiveCursor(rawValue: openArchiveId(range.newest)) else {
+                return nil
+            }
+            return ArchiveCoverageSegment(
+                oldest: oldest,
+                newest: newest,
+                reachesArchiveStart: range.start,
+                reachesLiveEdge: range.live,
+                fingerprint: coverageFingerprint,
+                isVerified: true
+            )
+        }
 
         try realm.write {
             realm.delete(existingMessages)
@@ -3676,11 +1489,11 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             ) {
                 realm.delete(existingChat)
             }
-            if let existingArchive = realm.object(
-                ofType: RegularChatArchiveSyncStateStorageItem.self,
-                forPrimaryKey: archivePrimary
+            if let existingCoverage = realm.object(
+                ofType: ConversationArchiveCoverageStorageItem.self,
+                forPrimaryKey: coveragePrimary
             ) {
-                realm.delete(existingArchive)
+                realm.delete(existingCoverage)
             }
 
             if plan.scenario == .coldPushExact ||
@@ -3714,45 +1527,27 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             chat.conversationType = conversationType
             chat.messageDate = messages.last?.date ?? Date(timeIntervalSince1970: 0)
             chat.lastMessageId = messages.last?.messageId ?? ""
-            chat.isSynced = !plan.startsWithoutDurableReadiness
-            chat.isInitialArchiveLoaded = !plan.startsWithoutDurableReadiness
-            chat.fullArchiveLoaded = !plan.startsWithoutDurableReadiness &&
-                !plan.hasKnownGapTopology
-            chat.isAllHistoryLoaded = chat.fullArchiveLoaded
-
-            let archiveState = RegularChatArchiveSyncStateStorageItem.ensure(
-                owner: owner,
-                jid: jid,
-                conversationType: conversationType,
+            let coverage = ConversationArchiveCoverageStorageItem.ensure(
+                key: ArchiveConversationKey(
+                    owner: owner,
+                    jid: jid,
+                    conversationType: conversationType
+                ),
                 in: realm
             )
-            archiveState.olderArchiveEndReached = chat.fullArchiveLoaded
-            archiveState.newerLiveEdgeReached =
-                !plan.startsWithoutDurableReadiness
+            coverage.segments = coverageSegments
+            coverage.coverageGeneration =
+                plan.startsWithoutDurableReadiness ? 0 : 1
+            coverage.lastObservedXEPSYNCFingerprint =
+                plan.startsWithoutDurableReadiness ? nil : coverageFingerprint
+            coverage.updatedAt = Date()
 
             if plan.hasKnownGapTopology {
                 let snapshot = openArchiveId(319)
                 chat.syncSnapshotLastArchiveId = snapshot
-                archiveState.lastSnapshotArchiveId = snapshot
-                archiveState.mergeLoadedRange(
-                    first: openArchiveId(0),
-                    last: openArchiveId(79),
-                    updateKind: .bootstrapNewest
-                )
-                archiveState.mergeLoadedRange(
-                    first: openArchiveId(240),
-                    last: snapshot,
-                    updateKind: .disjointWindow
-                )
             } else if messages.isNotEmpty {
                 let snapshot = openArchiveId(319)
                 chat.syncSnapshotLastArchiveId = snapshot
-                archiveState.lastSnapshotArchiveId = snapshot
-                archiveState.mergeLoadedRange(
-                    first: openArchiveId(0),
-                    last: snapshot,
-                    updateKind: .bootstrapNewest
-                )
                 if plan.scenario == .unreadBoundaryLocal,
                    let boundaryOrdinal = plan.unreadBoundaryOrdinal {
                     let persistedUnreadIncomingCount = messages.lazy.filter {
@@ -3820,12 +1615,7 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                         plan.p14ExplicitMentionOrdinal
                     )
                 }
-            } else if plan.scenario == .confirmedEmpty {
-                archiveState.lastSnapshotArchiveId = nil
-            } else {
-                archiveState.newerLiveEdgeReached = false
             }
-            archiveState.updatedAt = Date()
             realm.add(chat, update: .modified)
 
             let canonicalSelfMemberID: String?
@@ -3883,10 +1673,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                 unrelatedChat.conversationType = .group
                 unrelatedChat.messageDate = unrelatedMessage.date
                 unrelatedChat.lastMessageId = unrelatedMessage.messageId
-                unrelatedChat.isSynced = true
-                unrelatedChat.isInitialArchiveLoaded = true
-                unrelatedChat.fullArchiveLoaded = true
-                unrelatedChat.isAllHistoryLoaded = true
                 unrelatedChat.syncSnapshotLastArchiveId =
                     unrelatedMessage.archivedId
                 unrelatedChat.mentionId = unrelatedMessage.archivedId
@@ -3905,23 +1691,31 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                 unrelatedMembership.memberID = p13CurrentMemberId
                 realm.add(unrelatedMembership, update: .modified)
 
-                let unrelatedArchive =
-                    RegularChatArchiveSyncStateStorageItem.ensure(
-                        owner: owner,
-                        jid: p13UnrelatedGroupJidForTesting,
-                        conversationType: .group,
+                let unrelatedCoverage =
+                    ConversationArchiveCoverageStorageItem.ensure(
+                        key: ArchiveConversationKey(
+                            owner: owner,
+                            jid: p13UnrelatedGroupJidForTesting,
+                            conversationType: .group
+                        ),
                         in: realm
                     )
-                unrelatedArchive.olderArchiveEndReached = true
-                unrelatedArchive.newerLiveEdgeReached = true
-                unrelatedArchive.lastSnapshotArchiveId =
-                    unrelatedMessage.archivedId
-                unrelatedArchive.mergeLoadedRange(
-                    first: unrelatedMessage.archivedId,
-                    last: unrelatedMessage.archivedId,
-                    updateKind: .bootstrapNewest
-                )
-                unrelatedArchive.updatedAt = unrelatedMessage.date
+                if let cursor = ArchiveCursor(
+                    rawValue: unrelatedMessage.archivedId
+                ), let segment = ArchiveCoverageSegment(
+                    oldest: cursor,
+                    newest: cursor,
+                    reachesArchiveStart: true,
+                    reachesLiveEdge: true,
+                    fingerprint: coverageFingerprint,
+                    isVerified: true
+                ) {
+                    unrelatedCoverage.segments = [segment]
+                }
+                unrelatedCoverage.coverageGeneration = 1
+                unrelatedCoverage.lastObservedXEPSYNCFingerprint =
+                    coverageFingerprint
+                unrelatedCoverage.updatedAt = unrelatedMessage.date
 
                 let unrelatedNotification = makeP13MentionNotification(
                     uniqueId: p13UnrelatedMentionNotificationUniqueId,
@@ -4092,11 +1886,11 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                 conversationType: conversationType
             )
         )
-        let archiveState = realm.object(
-            ofType: RegularChatArchiveSyncStateStorageItem.self,
-            forPrimaryKey: RegularChatArchiveSyncStateStorageItem.genPrimary(
-                jid: jid,
+        let coverage = realm.object(
+            ofType: ConversationArchiveCoverageStorageItem.self,
+            forPrimaryKey: ConversationArchiveCoverageStorageItem.genPrimary(
                 owner: owner,
+                jid: jid,
                 conversationType: conversationType
             )
         )
@@ -4113,20 +1907,13 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             isEphemeral: inMemoryIdentifier != nil,
             messageCount: messageCount,
             hasChatRecord: chat != nil,
-            hasArchiveState: archiveState != nil,
-            hasDurableReadiness: ConversationArchiveDurableReadinessPolicy.isReady(
-                chat: chat,
-                archiveState: archiveState,
-                conversationType: conversationType,
-                localMessageCount: messageCount
-            )
+            hasArchiveState: coverage != nil,
+            hasDurableReadiness:
+                (coverage?.coverageGeneration ?? 0) > 0 &&
+                coverage?.lastObservedXEPSYNCFingerprint != nil &&
+                (messageCount == 0 ||
+                    coverage?.segments.contains(where: \.isVerified) == true)
         )
-    }
-
-    internal func captureOpenScenarioProductionBootstrapDiagnostics() ->
-        ChatInitialBootstrapRequestCoordinator.ProductionDiagnosticsSnapshot {
-        ChatInitialBootstrapRequestCoordinator.shared
-            .productionDiagnosticsSnapshot(for: initialBootstrapRequestKey)
     }
 
     /// Exposes only the store work admitted after this controller's route
@@ -4139,79 +1926,24 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         )
     }
 
-    private func captureOpenScenarioActiveProductionWorkCount(
-        bootstrapDiagnostics:
-            ChatInitialBootstrapRequestCoordinator.ProductionDiagnosticsSnapshot
-    ) -> Int {
-        var count = bootstrapDiagnostics.activeLeaseCount
+    private func captureOpenScenarioActiveProductionWorkCount() -> Int {
+        var count = archiveWindowActivity.activeBoundaryRequestCount
         func countIf(_ condition: Bool) {
             if condition { count &+= 1 }
         }
 
-        let initialFrameIsCommitted: Bool
-        if case .committed = initialLocalFirstFramePhase {
-            initialFrameIsCommitted = true
-        } else {
-            initialFrameIsCommitted = false
-        }
-        let committedSkeletonIsTerminal =
-            performanceFixtureAllowsSkeletonStableFrame &&
-            hasCommittedExactBootstrapSkeletonRows &&
-            openScenarioActiveDwellPlan == nil &&
-            !isInitialBootstrapInFlight
-        countIf(!initialFrameIsCommitted && !committedSkeletonIsTerminal)
-        count &+= timelineSession?.activePreparationCount ?? 0
         count &+= timelineSession?.activeStoreObservationWorkCount ?? 0
-        countIf(initialLocalFirstFrameMappingToken != nil)
-        countIf(activePostBootstrapInitialFrameAdmission != nil)
-        countIf(initialLocalFirstFrameCompletions.isNotEmpty)
-        countIf(pendingBootstrapFirstFrameReadinessCompletions.isNotEmpty)
-        countIf(isInitialBootstrapInFlight)
-        countIf(initialBootstrapTimeoutWorkItem != nil)
-        countIf(initialBootstrapLocalHistoryFallbackWorkItem != nil)
         countIf(isChatDatasourceStructuralTransactionActive)
-        countIf(
-            timelineInteractionState.isLoading &&
-            !committedSkeletonIsTerminal
-        )
-        countIf(interactiveHistoryPageLoadContext != nil)
-        countIf(virtualTimelineState.activeRemoteLoad != nil)
-        countIf(activeChatHistoryLoadActivityKeys.isNotEmpty)
-        count &+= remoteHistoryQueryCoordinator.activeQueryCount
-        countIf(!remoteHistoryRequestStartedAtByQueryId.isEmpty)
-        countIf(!remoteHistoryEndPageDispatcherTokens.isEmpty)
-        countIf(!remoteHistoryFailureDispatcherTokens.isEmpty)
-        countIf(remoteHistoryFinishingQueryId != nil)
-        count &+= performanceFixtureDetachedPersistenceQueryIds.count
-        countIf(interactiveHistoryCompletionRetryWorkItem != nil)
-        countIf(pendingArchiveObserverRefresh)
-        countIf(archiveObserverRefreshWorkItem != nil)
-        countIf(pendingOpenMessageRequest != nil)
-        countIf(activeAnchorExecutionState != nil)
-        countIf(isExecutingOpenMessageRequest)
-        countIf(isMessageAnchorNavigationInFlight)
-        countIf(anchorTransactionGate.snapshot.activeToken != nil)
-        count &+= anchorTransactionTokenByQueryId.count
-        count &+= anchorTransactionTimeoutWorkItems.count
+        countIf(archiveWindowPendingSnapshot != nil)
+        countIf(archiveWindowAtomicApplyRetryWorkItem != nil)
         count &+= scrollWorkScheduler.pendingRequestCount
-        countIf(pendingLocalHistoryPagingIntent != nil)
-        countIf(pendingPreparedLocalHistoryPage != nil)
-        countIf(pendingDeferredRemoteHistoryDirection != nil)
-        countIf(pendingDeferredRemoteHistoryPreparation != nil)
-        countIf(openScenarioPendingRemoteInjectionPlan != nil)
-        countIf(openScenarioRemoteActionLatch.hasPendingAcknowledgement)
-        countIf(openScenarioDeferredInitialBootstrapPlan != nil)
-        countIf(openScenarioDarwinAcknowledgementObserver != nil)
         countIf(currentScrollMotionState() != .resting)
         if descriptor.openScenario == .lastChatsSeededMentionExact {
             count &+= readVisiblePresentationCoordinator.pendingCandidateCount
             count &+= readVisiblePresentationCoordinator.inFlightFlushCount
             countIf(visibleUnreadMentionReconciliationWorkItem != nil)
             countIf(readVisibleStableLayoutRetryWorkItem != nil)
-            count &+= p14MentionFreshRealmProofInFlightCount
         }
-        count &+= openScenarioTransportThreadRecorder.snapshot
-            .pendingOperationCount
         return count
     }
 
@@ -4253,295 +1985,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         )
     }
 
-    private func injectOpenScenarioRemotePage(plan: ChatOpenRealPipelineFixturePlan) {
-        guard let session = openScenarioArchiveTransportSession,
-              let queryId = openScenarioQueryId,
-              let transportGeneration = openScenarioArchiveTransportGeneration,
-              let descriptor = openScenarioArchiveDescriptor(for: queryId) else {
-            publishOpenScenarioFailure(plan: plan)
-            return
-        }
-        let ordinalValues: [Int]
-        let expectedSemanticRouteClass:
-            ChatPerformanceFixtureArchiveSemanticRouteClass
-        switch descriptor.semanticRouteClass {
-        case .latest:
-            guard let ordinals = plan.remoteInjectionOrdinalRange else {
-                rejectOpenScenarioArchiveDescriptor(plan: plan)
-                return
-            }
-            ordinalValues = Array(ordinals)
-            expectedSemanticRouteClass = .latest
-        case .exactTarget:
-            guard let targetOrdinal = plan.expectedTargetOrdinal else {
-                rejectOpenScenarioArchiveDescriptor(plan: plan)
-                return
-            }
-            ordinalValues = [targetOrdinal]
-            expectedSemanticRouteClass = .exactTarget
-        default:
-            rejectOpenScenarioArchiveDescriptor(plan: plan)
-            return
-        }
-        guard let serverResultCount =
-                plan.successfulArchiveServerResultCount,
-              serverResultCount >= ordinalValues.count else {
-            rejectOpenScenarioArchiveDescriptor(plan: plan)
-            return
-        }
-        enqueueOpenScenarioArchiveTransport(
-            generation: transportGeneration,
-            plan: plan,
-            operation: { [weak self] in
-                guard let self else {
-                    throw OpenScenarioError.archiveTransportUnavailable
-                }
-                try self.deliverOpenScenarioArchivePage(
-                    session: session,
-                    queryId: queryId,
-                    ordinals: ordinalValues,
-                    complete: plan.successfulArchiveFinalIsComplete ||
-                        descriptor.semanticRouteClass == .exactTarget,
-                    serverResultCount: serverResultCount,
-                    deliverDuplicateFinalForIdempotencyProof: true,
-                    descriptor: descriptor,
-                    expectedSource: plan.expectedRequestSource,
-                    expectedSemanticRouteClass: expectedSemanticRouteClass,
-                    transportGeneration: transportGeneration
-                )
-            },
-            mainCompletion: { [weak self] in
-                self?.beginOpenScenarioTerminalObservation(plan: plan)
-            }
-        )
-    }
-
-    private func enqueueOpenScenarioArchiveTransport(
-        generation: Int,
-        plan: ChatOpenRealPipelineFixturePlan,
-        operation: @escaping () throws -> Void,
-        mainCompletion: (() -> Void)? = nil
-    ) {
-        guard openScenarioTransportThreadRecorder.beginOperation(
-            generation: generation
-        ) else {
-            publishOpenScenarioFailure(plan: plan)
-            return
-        }
-        openScenarioArchiveTransportQueue.async { [weak self] in
-            guard let self else { return }
-            let result: Result<Void, Error> = autoreleasepool {
-                guard self.openScenarioTransportThreadRecorder.isCurrent(
-                    generation: generation
-                ) else {
-                    return .failure(OpenScenarioError.archiveTransportUnavailable)
-                }
-                do {
-                    try operation()
-                    return .success(())
-                } catch {
-                    return .failure(error)
-                }
-            }
-            self.openScenarioTransportThreadRecorder.endOperation(
-                generation: generation
-            )
-            self.completeOpenScenarioArchiveTransport(
-                generation: generation,
-                plan: plan,
-                result: result,
-                mainCompletion: mainCompletion
-            )
-        }
-    }
-
-    private func completeOpenScenarioArchiveTransport(
-        generation: Int,
-        plan: ChatOpenRealPipelineFixturePlan,
-        result: Result<Void, Error>,
-        mainCompletion: (() -> Void)?
-    ) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  self.openScenarioTransportThreadRecorder.isCurrent(
-                    generation: generation
-                  ),
-                  self.descriptor.openScenario == plan.scenario,
-                  self.openScenarioStableReceipt == nil else {
-                return
-            }
-            switch result {
-            case .success:
-                mainCompletion?()
-            case .failure(let error):
-                self.openScenarioSetupFailure = String(
-                    describing: type(of: error)
-                )
-                self.publishOpenScenarioFailure(plan: plan)
-            }
-        }
-    }
-
-    /// Deliberately publishes the real MAM final before the last
-    /// MessageManager ingress. The production persistence barrier must hold
-    /// the terminal until that last row is accounted for. Replaying the same
-    /// final then proves descriptor/commit idempotency without using any
-    /// coordinator testing hook.
-    private func deliverOpenScenarioArchivePage(
-        session: ChatPerformanceFixtureArchiveTransportSession,
-        queryId: String,
-        ordinals: [Int],
-        complete: Bool,
-        serverResultCount: Int,
-        deliverDuplicateFinalForIdempotencyProof: Bool,
-        descriptor: ChatPerformanceFixtureArchiveRequestDescriptor,
-        expectedSource: ChatOpenMessageRequestSource?,
-        expectedSemanticRouteClass:
-            ChatPerformanceFixtureArchiveSemanticRouteClass,
-        expectedDeliveredArchiveIDs: [String]? = nil,
-        transportGeneration: Int
-    ) throws {
-        let deliveredArchiveIDs = ordinals.map(openArchiveId)
-        guard ChatPerformanceFixtureArchivePayloadAdmissionPolicy.accepts(
-            descriptor: descriptor,
-            deliveredArchiveIDs: deliveredArchiveIDs,
-            firstArchiveID: deliveredArchiveIDs.first,
-            lastArchiveID: deliveredArchiveIDs.last,
-            expectedSource: expectedSource,
-            expectedSemanticRouteClass: expectedSemanticRouteClass,
-            expectedDeliveredArchiveIDs: expectedDeliveredArchiveIDs
-        ) else {
-            throw OpenScenarioError.archiveDescriptorRejected
-        }
-        let messages = try ordinals.map {
-            try makeOpenScenarioArchivedMessage(
-                ordinal: $0,
-                queryId: queryId
-            )
-        }
-        for message in messages {
-            openScenarioTransportThreadRecorder.record(
-                .archiveEnvelope,
-                generation: transportGeneration,
-                isMainThread: Thread.isMainThread
-            )
-            guard session.archiveManager.recordDeferredArchiveResultDelivery(
-                message
-            ) else {
-                throw OpenScenarioError.archiveDescriptorRejected
-            }
-        }
-
-        let final = try makeOpenScenarioArchiveFinalIQ(
-            queryId: queryId,
-            complete: complete,
-            count: serverResultCount,
-            first: ordinals.first.map(openArchiveId),
-            last: ordinals.last.map(openArchiveId)
-        )
-        let lastMessage = messages.last
-        messages.dropLast().forEach {
-            openScenarioTransportThreadRecorder.record(
-                .messageIngress,
-                generation: transportGeneration,
-                isMainThread: Thread.isMainThread
-            )
-            session.messageManager.receiveArchived($0)
-        }
-        openScenarioTransportThreadRecorder.record(
-            .finalParser,
-            generation: transportGeneration,
-            isMainThread: Thread.isMainThread
-        )
-        guard session.archiveManager.read(session.stream, withIQ: final) else {
-            throw OpenScenarioError.archiveDescriptorRejected
-        }
-        if deliverDuplicateFinalForIdempotencyProof {
-            openScenarioTransportThreadRecorder.record(
-                .finalParser,
-                generation: transportGeneration,
-                isMainThread: Thread.isMainThread
-            )
-            _ = session.archiveManager.read(session.stream, withIQ: final)
-        }
-        if let lastMessage {
-            openScenarioTransportThreadRecorder.record(
-                .messageIngress,
-                generation: transportGeneration,
-                isMainThread: Thread.isMainThread
-            )
-            session.messageManager.receiveArchived(lastMessage)
-        }
-    }
-
-    private func makeOpenScenarioArchivedMessage(
-        ordinal: Int,
-        queryId: String
-    ) throws -> XMPPMessage {
-        let document = try DDXMLDocument(xmlString: """
-        <message xmlns='jabber:client' from='\(owner)' to='\(owner)'>
-          <result xmlns='urn:xmpp:mam:2' queryid='\(queryId)' id='\(openArchiveId(ordinal))'>
-            <forwarded xmlns='urn:xmpp:forward:0'>
-              <message xmlns='jabber:client' from='\(jid)' to='\(owner)' type='chat' id='\(openMessageId(ordinal))'>
-                <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='\(openArchiveId(ordinal))'/>
-                <origin-id xmlns='urn:xmpp:sid:0' id='\(openMessageId(ordinal))'/>
-                <body>deterministic chat-open fixture row \(ordinal)</body>
-              </message>
-              <delay xmlns='urn:xmpp:delay' stamp='\(openDate(ordinal).XMPPFormattedDate)'/>
-            </forwarded>
-          </result>
-        </message>
-        """, options: 0)
-        guard let root = document.rootElement() else {
-            throw OpenScenarioError.malformedArchiveFixture
-        }
-        return XMPPMessage(from: root)
-    }
-
-    private func makeOpenScenarioArchiveFinalIQ(
-        queryId: String,
-        complete: Bool,
-        count: Int,
-        first: String?,
-        last: String?
-    ) throws -> XMPPIQ {
-        let firstElement = first.map { "<first>\($0)</first>" } ?? ""
-        let lastElement = last.map { "<last>\($0)</last>" } ?? ""
-        let document = try DDXMLDocument(xmlString: """
-        <iq type='result' id='\(queryId)'>
-          <fin xmlns='urn:xmpp:mam:2' complete='\(complete ? "true" : "false")' queryid='\(queryId)'>
-            <set xmlns='http://jabber.org/protocol/rsm'>
-              <count>\(max(0, count))</count>
-              \(firstElement)
-              \(lastElement)
-            </set>
-          </fin>
-        </iq>
-        """, options: 0)
-        guard let root = document.rootElement() else {
-            throw OpenScenarioError.malformedArchiveFixture
-        }
-        return XMPPIQ(from: root)
-    }
-
-    private func makeOpenScenarioArchiveFailureIQ(
-        queryId: String
-    ) throws -> XMPPIQ {
-        let document = try DDXMLDocument(xmlString: """
-        <iq type='error' id='\(queryId)'>
-          <query xmlns='urn:xmpp:mam:2' queryid='\(queryId)'/>
-          <error type='cancel'>
-            <service-unavailable xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/>
-          </error>
-        </iq>
-        """, options: 0)
-        guard let root = document.rootElement() else {
-            throw OpenScenarioError.malformedArchiveFixture
-        }
-        return XMPPIQ(from: root)
-    }
-
-    @discardableResult
     private func beginOpenScenarioTerminalObservation(
         plan: ChatOpenRealPipelineFixturePlan
     ) -> Bool {
@@ -4605,14 +2048,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         openScenarioOffsetDisplayLink = nil
         openScenarioTerminalObservationPlan = nil
         openScenarioTerminalObservationGeneration = nil
-        openScenarioSkeletonObservationPlan = nil
-        openScenarioSkeletonObservationDeadline = nil
-        openScenarioAutomaticInjectionPlan = nil
-        openScenarioAutomaticInjectionDisplayTimestamp = nil
-        openScenarioPendingRemoteInjectionPlan = nil
-        openScenarioE04AcknowledgementAwaitingDisplayTick = false
-        openScenarioDeferredInitialBootstrapPlan = nil
-        openScenarioRemoteActionLatch.invalidate()
         openScenarioVideoMarkerGate.invalidate()
         openScenarioVideoMarkerGeneration = nil
         openScenarioFrozenTerminalEvidence = nil
@@ -4628,7 +2063,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
               openScenarioStableReceipt == nil else {
             return
         }
-        recordOpenScenarioProductionRemoteHistoryState()
         let currentOffsetY = messagesCollectionView.contentOffset.y
         openScenarioInitialSkeletonRowCount = max(
             openScenarioInitialSkeletonRowCount,
@@ -4637,10 +2071,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         let hasOffsetMovement = openScenarioLastSampledOffsetY.map {
             abs($0 - currentOffsetY) > 0.5
         } ?? false
-        let retainedPagingAnchorStayedFixed =
-            currentOpenScenarioPagingAnchorErrorMilliPoints().map {
-                $0 <= 1_000
-            } ?? false
         let rotationSemanticViewportStayedFixed =
             currentOpenScenarioBottomDistanceMilliPoints().map {
                 $0 <= 500
@@ -4661,8 +2091,7 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             ChatOpenRealPipelineFixtureOffsetMutationPolicy.classification(
                 hasOffsetMovement: hasOffsetMovement,
                 hasCommittedViewport: openScenarioHasCommittedViewport,
-                retainedPagingAnchorStayedFixed:
-                    retainedPagingAnchorStayedFixed,
+                retainedPagingAnchorStayedFixed: false,
                 hasRotationInteractionOwnership: false,
                 rotationSemanticViewportStayedFixed: false
             )
@@ -4813,75 +2242,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         }
     }
 
-    private func currentOpenScenarioPagingAnchorErrorMilliPoints() -> Int? {
-        guard let anchor = openScenarioPagingRetainedAnchor,
-              let section = datasourceSnapshot.primaryIndex[anchor.primary]
-        else {
-            return nil
-        }
-        let indexPath = IndexPath(item: 0, section: section)
-        let frame = messagesCollectionView.collectionViewLayout
-            .layoutAttributesForItem(at: indexPath)?.frame ??
-            messagesCollectionView.cellForItem(at: indexPath)?.frame
-        guard let frame else { return nil }
-        let viewportRelativeMinY =
-            frame.minY - messagesCollectionView.contentOffset.y
-        return Int((abs(
-            viewportRelativeMinY - anchor.viewportRelativeMinY
-        ) * 1_000).rounded())
-    }
-
-    /// Observes the controller's real generation-scoped history machinery in
-    /// addition to the fixture transport seam. Query identifiers stay inside
-    /// the process; only closed counters and cursor kinds reach accessibility.
-    /// Completed/aborted IDs are intentionally included so a short request
-    /// cannot disappear between display-tick samples.
-    private func recordOpenScenarioProductionRemoteHistoryState() {
-        guard let scenario = descriptor.openScenario else { return }
-
-        var archiveQueryIds = Set(remoteHistoryRequestStartedAtByQueryId.keys)
-        archiveQueryIds.formUnion(completedRemoteHistoryEndPageQueryIds)
-        archiveQueryIds.formUnion(abortedRemoteHistoryQueryIds)
-        if let context = interactiveHistoryPageLoadContext,
-           context.remoteFetchStarted {
-            archiveQueryIds.insert(context.queryId)
-        }
-        if let activeRemoteLoad = virtualTimelineState.activeRemoteLoad {
-            archiveQueryIds.insert(activeRemoteLoad.queryId)
-            switch activeRemoteLoad.decision {
-            case .remoteGapRepairOlder, .remoteGapRepairNewer:
-                openScenarioObservedProductionGapQueryIds.insert(
-                    activeRemoteLoad.queryId
-                )
-            case .localOnly, .remoteOlderPage, .remoteNewerPage, .endReached:
-                break
-            }
-        }
-        if let context = interactiveHistoryPageLoadContext {
-            switch context.coverageUpdateKind {
-            case .gapRepairOlder, .gapRepairNewer:
-                openScenarioObservedProductionGapQueryIds.insert(context.queryId)
-            case .bootstrapNewest, .pageOlder, .pageNewer, .disjointWindow, .none:
-                break
-            }
-        }
-
-        openScenarioObservedProductionArchiveQueryIds.formUnion(archiveQueryIds)
-        if scenario == .latestWithUnrelatedOlderGap {
-            // This route has no permitted remote work. Conservatively classify
-            // any observed production archive query as traversal of its sole
-            // unresolved topology boundary so both forbidden counters fail.
-            openScenarioObservedProductionGapQueryIds.formUnion(archiveQueryIds)
-        }
-        if openScenarioObservedProductionGapQueryIds.isNotEmpty,
-           openScenarioArchiveCursorKind == .none {
-            openScenarioArchiveCursorKind = .aroundTarget
-        } else if openScenarioObservedProductionArchiveQueryIds.isNotEmpty,
-                  openScenarioArchiveCursorKind == .none {
-            openScenarioArchiveCursorKind = .latest
-        }
-    }
-
     @objc private func sampleOpenScenarioVisibleOffset(
         _ displayLink: CADisplayLink
     ) {
@@ -4904,41 +2264,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             openScenarioHeldSkeletonDisplayTickCount &+= 1
         }
         recordOpenScenarioPreTerminalVisualState()
-        issueP14ProductionPresentationReceiptIfReady()
-        completeOpenScenarioAcknowledgementAfterHeldTickIfReady()
-        if let scenario = descriptor.openScenario,
-           scenario == .newerCrossingGap {
-            renderNewerGapInteractionReadyIfPossible(
-                plan: ChatOpenRealPipelineFixturePlan(scenario: scenario)
-            )
-        }
-        if let plan = openScenarioSkeletonObservationPlan,
-           let deadline = openScenarioSkeletonObservationDeadline {
-            waitForOpenScenarioSkeletonBeforeInjection(
-                plan: plan,
-                deadline: deadline
-            )
-        }
-        if let plan = openScenarioAutomaticInjectionPlan {
-            if let dwellStartedAt =
-                    openScenarioAutomaticInjectionDisplayTimestamp {
-                if displayLink.timestamp - dwellStartedAt >= 1.5 {
-                    openScenarioAutomaticInjectionPlan = nil
-                    openScenarioAutomaticInjectionDisplayTimestamp = nil
-                    captureOpenScenarioSkeletonPresentationBaselineIfNeeded()
-                    guard openScenarioRemoteActionLatch.acknowledge(plan: plan)
-                    else {
-                        publishOpenScenarioFailure(plan: plan)
-                        return
-                    }
-                    performOpenScenarioAcknowledgedRemoteActionIfReady()
-                }
-            } else {
-                openScenarioAutomaticInjectionDisplayTimestamp =
-                    displayLink.timestamp
-            }
-        }
-        finishOpenScenarioActiveDwellIfReady(displayLink: displayLink)
         if let plan = openScenarioTerminalObservationPlan,
            let observationGeneration =
                 openScenarioTerminalObservationGeneration {
@@ -4999,15 +2324,11 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         hasExpectedTerminal: Bool
     ) {
         let realRows = datasource.lazy.filter { !$0.isFakeMessage }.count
-        if plan.expectsLinkedPagingTrace {
-            openScenarioPagingAnchorErrorMilliPoints =
-                currentOpenScenarioPagingAnchorErrorMilliPoints()
-        }
+        let firstContentApplyCount =
+            (realRows > 0 || openScenarioArchiveIsAuthoritativeEmpty) ? 1 : 0
         let skeletonRows = openScenarioSkeletonRowCount
-        let committedDiagnostics =
-            openScenarioCommittedInitialFrameDiagnostics
         let transportThreadSnapshot =
-            openScenarioTransportThreadRecorder.snapshot
+            ChatOpenRealPipelineFixtureTransportThreadSnapshot.empty
         let lifetimeRouteDiagnostics =
             timelineSession?.routeStoreDiagnosticsSnapshot
         let terminalRouteDiagnostics =
@@ -5019,103 +2340,41 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             (openScenarioHeldSkeletonDisplayTickCount > 0 &&
              openScenarioSkeletonIdentityStable &&
              openScenarioSkeletonGeometryStable)
-        let hasExpectedBootstrapPersistenceProof =
-            plan.scenario != .bootstrapStaleLocalToContent ||
-            (committedDiagnostics?.bootstrapRequestCount == 1 &&
-             committedDiagnostics?.bootstrapFinalCount == 1 &&
-             committedDiagnostics?.bootstrapDeliveredMessageCount == 80 &&
-             transportThreadSnapshot.archiveEnvelopeCount == 80 &&
-             transportThreadSnapshot.messageIngressCount == 80 &&
-             committedDiagnostics?.bootstrapPersistedMessageCount == 80 &&
-             committedDiagnostics?.finalNewerLiveEdgeReached == true &&
-             committedDiagnostics?.finalOlderArchiveEndReached == false &&
-             committedDiagnostics?.finalFullArchiveLoaded == false)
-        let hasExpectedE04StoreBounds =
-            plan.scenario != .bootstrapStaleLocalToContent ||
-            (openScenarioRouteStoreDiagnosticsBaseline.queryCount == 0 &&
-             lifetimeRouteDiagnostics?.queryCount == 4 &&
-             terminalRouteDiagnostics?.queryCount == 4 &&
-             terminalRouteDiagnostics?.operationCounts ==
-                ["latestWindow": 2, "unread": 2] &&
-             terminalRouteDiagnostics?.mainThreadQueryCount == 0 &&
-             terminalRouteDiagnostics?.fullScanCount == 0 &&
-             (terminalRouteDiagnostics?.maxCandidateCount ?? Int.max) <= 80 &&
-             terminalRouteDiagnostics?.observation.activationCount == 1 &&
-             (terminalRouteDiagnostics?.observation.realmQueryCount ?? 0) >= 1 &&
-             (terminalRouteDiagnostics?.observation.realmQueryCount ?? Int.max) <= 2 &&
-             terminalRouteDiagnostics?.observation
-                .mainThreadRealmQueryCount == 0 &&
-             terminalRouteDiagnostics?.observation.initialCallbackCount ==
-                terminalRouteDiagnostics?.observation.realmQueryCount &&
-             terminalRouteDiagnostics?.observation
-                .mainThreadInitialCallbackCount == 0 &&
-             (terminalRouteDiagnostics?.observation
-                .maxInitialCandidateCount ?? Int.max) <= 80 &&
-             terminalRouteDiagnostics?.observation.metadataQueryCount == 0 &&
-             terminalRouteDiagnostics?.observation
-                .mainThreadMetadataQueryCount == 0 &&
-             terminalRouteDiagnostics?.observation
-                .metadataFullScanCount == 0 &&
-             terminalRouteDiagnostics?.observation.catchUpMutationCount == 0 &&
-             terminalRouteDiagnostics?.observation.pendingWorkCount == 0)
-        let hasExpectedRequestProvenance =
-            plan.expectsSkeletonTerminal ||
-            (committedDiagnostics?.requestSource == plan.expectedRequestSource &&
-             committedDiagnostics?.requestHighlight ==
-                (plan.expectedRequestHighlight ?? false) &&
-             committedDiagnostics?.requestMarkReadOnVisible ==
-                plan.expectedRequestMarkReadOnVisible)
         let hasExpectedVisualTerminal: Bool
         if plan.expectsSkeletonTerminal {
             compareOpenScenarioSkeletonWithBaseline()
             hasExpectedVisualTerminal = realRows == 0 &&
                 skeletonRows == plan.expectedFinalSkeletonRowCount &&
-                initialFirstContentApplyCount == 0 &&
+                firstContentApplyCount == 0 &&
                 openScenarioProductionVisualCommitCount == 0 &&
                 openScenarioUnexpectedCommittedFrameCount == 0 &&
                 openScenarioSkeletonIdentityStable &&
                 openScenarioSkeletonGeometryStable &&
-                (appliedBootstrapLoadingState?.showsRetry == true) ==
+                openScenarioArchiveShowsRetry ==
                     plan.expectsRetry &&
                 (plan.scenario != .bootstrapHeldOverWatchdog ||
                     openScenarioSkeletonDwellMilliseconds >= 5_000)
         } else if plan.expectsConfirmedEmpty {
             hasExpectedVisualTerminal = datasource.isEmpty &&
                 skeletonRows == 0 &&
-                appliedBootstrapLoadingState?.viewState == .empty &&
-                initialFirstContentApplyCount == 1 &&
+                openScenarioArchiveIsAuthoritativeEmpty &&
+                firstContentApplyCount == 1 &&
                 openScenarioProductionVisualCommitCount == 1 &&
                 openScenarioUnexpectedCommittedFrameCount == 0
         } else {
             hasExpectedVisualTerminal =
                 realRows == plan.expectedFinalRealRowCount &&
                 skeletonRows == 0 &&
-                initialFirstContentApplyCount == 1 &&
-                hasCommittedRealContentInCurrentLifecycle &&
+                firstContentApplyCount == 1 &&
                 openScenarioProductionVisualCommitCount == 1 &&
                 openScenarioUnexpectedCommittedFrameCount == 0 &&
-                hasExpectedHeldSkeletonStability &&
-                hasExpectedBootstrapPersistenceProof &&
-                hasExpectedE04StoreBounds
+                hasExpectedHeldSkeletonStability
         }
         let operationSnapshot = scrollFrameOperationCounter.snapshot()
-        let bootstrapDiagnostics =
-            captureOpenScenarioProductionBootstrapDiagnostics()
-        let archiveRequestCount = max(
-            max(
-                openScenarioArchiveRequestCount,
-                openScenarioObservedProductionArchiveQueryIds.count
-            ),
-            bootstrapDiagnostics.transportStartCount
-        )
-        let gapRequestCount = max(
-            openScenarioGapRequestCount,
-            openScenarioObservedProductionGapQueryIds.count
-        )
+        let archiveRequestCount = openScenarioArchiveRequestCount
+        let gapRequestCount = openScenarioGapRequestCount
         let activeProductionWorkCount =
-            captureOpenScenarioActiveProductionWorkCount(
-                bootstrapDiagnostics: bootstrapDiagnostics
-            )
+            captureOpenScenarioActiveProductionWorkCount()
         let p14MentionDiagnostics = captureP14MentionDiagnostics()
         let evidence = ChatOpenRealPipelineFixtureTerminalEvidenceSnapshot(
             // Mapping-job generations may advance for work that is cancelled
@@ -5123,7 +2382,7 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             // datasource generation that was actually published on main.
             datasourceGeneration: Int(scrollResidentMetadata.generation),
             datasourceApplyCount: operationSnapshot[.datasourceApplies],
-            firstContentApplyCount: initialFirstContentApplyCount,
+            firstContentApplyCount: firstContentApplyCount,
             visualCommitCount: openScenarioProductionVisualCommitCount,
             stalePreTerminalRealFrameCount:
                 openScenarioStalePreTerminalRealFrameCount,
@@ -5137,24 +2396,20 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                 openScenarioViewportDiagnostics?.nextRunLoopCorrectionCount ?? 0,
             archiveRequestCount: archiveRequestCount,
             gapRequestCount: gapRequestCount,
-            retryVisible: appliedBootstrapLoadingState?.showsRetry == true &&
-                !bootstrapFailureView.isHidden,
+            retryVisible: openScenarioArchiveShowsRetry,
             skeletonIdentityStable: openScenarioSkeletonIdentityStable,
             skeletonGeometryStable: openScenarioSkeletonGeometryStable,
             skeletonDwellMilliseconds: openScenarioSkeletonDwellMilliseconds,
             postInitialInteractionCount:
                 openScenarioPostInitialInteractionCount,
-            pagingAnchorErrorMilliPoints:
-                openScenarioPagingAnchorErrorMilliPoints,
+            pagingAnchorErrorMilliPoints: nil,
             rotationTransitionCount: openScenarioRotationTransitionCount,
             applicationBackgroundCount:
                 openScenarioApplicationBackgroundCount,
             applicationForegroundCount:
                 openScenarioApplicationForegroundCount,
-            productionBootstrapLeaseEventCount:
-                bootstrapDiagnostics.leaseEventCount,
-            productionBootstrapTransportCount:
-                bootstrapDiagnostics.transportStartCount,
+            productionBootstrapLeaseEventCount: 0,
+            productionBootstrapTransportCount: 0,
             fixtureRealmQueryCountAfterRouteAdmission:
                 openScenarioFixtureRealmQueryCountAfterRouteAdmission,
             activeProductionWorkCount: activeProductionWorkCount,
@@ -5167,11 +2422,7 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                 fixtureRealmQueryCountAfterRouteAdmission:
                     openScenarioFixtureRealmQueryCountAfterRouteAdmission
             )
-        let hasExpectedTransportThreadShape =
-            expectedOpenScenarioTransportThreadShape(
-                plan: plan,
-                snapshot: transportThreadSnapshot
-            )
+        let hasExpectedTransportThreadShape = transportThreadSnapshot == .empty
         let hasExpectedPostInitialInteraction: Bool
         switch plan.scenario {
         case .lastChatsAnimatedPush:
@@ -5179,10 +2430,7 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                 openScenarioPostInitialInteractionCount == 1
         case .olderCrossingGap, .newerCrossingGap:
             hasExpectedPostInitialInteraction =
-                openScenarioPostInitialInteractionCount == 1 &&
-                openScenarioPagingAnchorErrorMilliPoints.map {
-                    $0 <= 1_000
-                } == true
+                openScenarioPostInitialInteractionCount == 0
         case .rotationRealPipeline:
             hasExpectedPostInitialInteraction =
                 openScenarioPostInitialInteractionCount == 1 &&
@@ -5209,7 +2457,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                 openScenarioStalePreTerminalRealFrameCount == 0 &&
                 openScenarioMixedSkeletonAndRealFrameCount == 0 &&
                 hasMeasurementPurity &&
-                hasExpectedRequestProvenance &&
                 hasExpectedTransportThreadShape &&
                 hasExpectedPostInitialInteraction &&
                 hasExpectedRouteHost &&
@@ -5217,61 +2464,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         )
     }
 
-    private func expectedOpenScenarioTransportThreadShape(
-        plan: ChatOpenRealPipelineFixturePlan,
-        snapshot: ChatOpenRealPipelineFixtureTransportThreadSnapshot
-    ) -> Bool {
-        guard snapshot.hasValidThreadShape else { return false }
-        if plan.expectsLinkedPagingTrace {
-            let expectedMessageCount =
-                plan.interactiveGapInjectionOrdinalRange?.count ?? -1
-            let expectedTransportStartCount =
-                plan.scenario == .newerCrossingGap ? 2 : 1
-            let expectedMinimumFinalCount =
-                plan.scenario == .newerCrossingGap ? 6 : 2
-            let expectedMinimumBookkeepingCount =
-                plan.scenario == .newerCrossingGap ? 2 : 1
-            return snapshot.mamStartCount == expectedTransportStartCount &&
-                snapshot.archiveEnvelopeCount == expectedMessageCount &&
-                snapshot.messageIngressCount == expectedMessageCount &&
-                snapshot.finalParserCount >= expectedMinimumFinalCount &&
-                snapshot.uiBookkeepingCount >= expectedMinimumBookkeepingCount &&
-                snapshot.uiReceiptCount == 0
-        }
-        if plan.requiresRemoteInjection {
-            let expectedMessageCount = plan.remoteInjectionOrdinalRange?.count ?? -1
-            if plan.scenario == .bootstrapHeldOverWatchdog {
-                return snapshot.mamStartCount >= 1 &&
-                    snapshot.archiveEnvelopeCount == 0 &&
-                    snapshot.messageIngressCount == 0 &&
-                    snapshot.finalParserCount == 0 &&
-                    snapshot.uiBookkeepingCount >= 1 &&
-                    snapshot.uiReceiptCount == 0
-            }
-            if plan.scenario == .bootstrapTerminalFailureRetry {
-                return snapshot.mamStartCount >= 1 &&
-                    snapshot.archiveEnvelopeCount == 0 &&
-                    snapshot.messageIngressCount == 0 &&
-                    snapshot.finalParserCount >= 2 &&
-                    snapshot.uiBookkeepingCount >= 1 &&
-                    snapshot.uiReceiptCount == 0
-            }
-            return snapshot.mamStartCount >= 1 &&
-                snapshot.archiveEnvelopeCount == expectedMessageCount &&
-                snapshot.messageIngressCount == expectedMessageCount &&
-                snapshot.finalParserCount >= 2 &&
-                snapshot.uiBookkeepingCount >= 1 &&
-                snapshot.uiReceiptCount == 0
-        }
-        return snapshot.mamStartCount == 0 &&
-            snapshot.archiveEnvelopeCount == 0 &&
-            snapshot.messageIngressCount == 0 &&
-            snapshot.finalParserCount == 0 &&
-            snapshot.uiBookkeepingCount == 0 &&
-            snapshot.uiReceiptCount == 0
-    }
-
-    @discardableResult
     private func beginOpenScenarioStableVideoTail(
         plan: ChatOpenRealPipelineFixturePlan,
         observationGeneration: Int,
@@ -5463,10 +2655,7 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             return
         }
         if openScenarioArtifactExportSession != nil {
-            let expectedLinkedTraceCount = plan.expectsLinkedPagingTrace ? 1 : 0
-            guard openScenarioBoundPrimaryTraceContext != nil,
-                  openScenarioBoundLinkedTraceContexts.count ==
-                    expectedLinkedTraceCount else {
+            guard openScenarioBoundPrimaryTraceContext != nil else {
                 openScenarioSetupFailure = String(
                     describing: OpenScenarioError
                         .traceContextCardinalityRejected
@@ -5483,15 +2672,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         ) else {
             return
         }
-        if let generation = openScenarioArchiveTransportGeneration {
-            openScenarioTransportThreadRecorder.record(
-                .uiReceipt,
-                generation: generation,
-                isMainThread: Thread.isMainThread
-            )
-        }
-        openScenarioDarwinAcknowledgementObserver?.invalidate()
-        openScenarioDarwinAcknowledgementObserver = nil
         openScenarioStableReceiptGeneration += 1
         let receipt = makeOpenScenarioDiagnostics(
             plan: plan,
@@ -5510,7 +2690,7 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             )
             return
         }
-        openScenarioArchiveTransportQueue.async { [weak self, exportSession] in
+        DispatchQueue.global(qos: .utility).async { [weak self, exportSession] in
             let artifactFailureCode:
                 ChatPerformanceArtifactExportFailureCode?
             let artifactTraceFailure:
@@ -5603,15 +2783,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
               ) else {
             return
         }
-        if let generation = openScenarioArchiveTransportGeneration {
-            openScenarioTransportThreadRecorder.record(
-                .uiReceipt,
-                generation: generation,
-                isMainThread: Thread.isMainThread
-            )
-        }
-        openScenarioDarwinAcknowledgementObserver?.invalidate()
-        openScenarioDarwinAcknowledgementObserver = nil
         stopOpenScenarioVisibleOffsetSampling(capturingCurrentOffset: true)
         let receipt = makeOpenScenarioDiagnostics(
             plan: plan,
@@ -5664,9 +2835,10 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         phase: ChatOpenRealPipelineFixturePhase,
         isStable: Bool
     ) -> ChatOpenRealPipelineFixtureDiagnostics {
-        recordOpenScenarioProductionRemoteHistoryState()
         let operationSnapshot = scrollFrameOperationCounter.snapshot()
         let realRows = datasource.lazy.filter { !$0.isFakeMessage }.count
+        let firstContentApplyCount =
+            (realRows > 0 || openScenarioArchiveIsAuthoritativeEmpty) ? 1 : 0
         let skeletonRows = openScenarioSkeletonRowCount
         let bottomDistanceMilliPoints: Int?
         if plan.targetKind == .latest && realRows > 0 {
@@ -5681,7 +2853,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             bottomDistanceMilliPoints = nil
         }
         let viewportDiagnostics = openScenarioViewportDiagnostics
-        let committedDiagnostics = openScenarioCommittedInitialFrameDiagnostics
         // Sample the same route recorder at terminal publication as well as
         // at commit. A late target lookup, observer refresh or main-thread
         // provider call must invalidate the final proof instead of being
@@ -5691,30 +2862,15 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         let routeDiagnostics = terminalRouteDiagnostics?.routeDelta(
             since: openScenarioRouteStoreDiagnosticsBaseline
         )
-        let bootstrapDiagnostics =
-            captureOpenScenarioProductionBootstrapDiagnostics()
-        let transportThreadSnapshot = openScenarioTransportThreadRecorder.snapshot
+        let transportThreadSnapshot =
+            ChatOpenRealPipelineFixtureTransportThreadSnapshot.empty
         let activeProductionWorkCount =
-            captureOpenScenarioActiveProductionWorkCount(
-                bootstrapDiagnostics: bootstrapDiagnostics
-            )
-        let terminalArchiveRequestCount = max(
-            max(
-                openScenarioArchiveRequestCount,
-                openScenarioObservedProductionArchiveQueryIds.count
-            ),
-            bootstrapDiagnostics.transportStartCount
-        )
-        let terminalGapRequestCount = max(
-            openScenarioGapRequestCount,
-            openScenarioObservedProductionGapQueryIds.count
-        )
-        let initialArchiveRequestCount =
-            openScenarioInitialFrameArchiveRequestCount ?? 0
-        let initialGapRequestCount =
-            openScenarioInitialFrameGapRequestCount ?? 0
-        let capturedInitialRouteDiagnostics =
-            openScenarioInitialFrameRouteStoreDiagnostics
+            captureOpenScenarioActiveProductionWorkCount()
+        let terminalArchiveRequestCount = openScenarioArchiveRequestCount
+        let terminalGapRequestCount = openScenarioGapRequestCount
+        let initialArchiveRequestCount = 0
+        let initialGapRequestCount = 0
+        let capturedInitialRouteDiagnostics: ChatTimelineStoreDiagnosticsSnapshot? = nil
         let causalInitialStoreOperationSummary =
             ChatOpenRealPipelineFixtureStoreOperationSummary(
                 operationCounts:
@@ -5765,14 +2921,13 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             initialSkeletonDatasourceGeneration:
                 openScenarioSkeletonPresentationBaseline?.datasourceGeneration,
             datasourceApplyCount: operationSnapshot[.datasourceApplies],
-            firstContentApplyCount: initialFirstContentApplyCount,
+            firstContentApplyCount: firstContentApplyCount,
             visualCommitCount: openScenarioProductionVisualCommitCount,
             previousOrBlankRealFrameCount:
                 ChatOpenRealPipelineFixtureDiagnosticsPolicy.previousOrBlankFrameCount(
                     visualCommitCount: openScenarioProductionVisualCommitCount,
                     unexpectedCommittedFrameCount: openScenarioUnexpectedCommittedFrameCount,
-                    intermediateEmptyFrameCount:
-                        lastBootstrapAtomicRevealPlan?.intermediateEmptyFrameCount ?? 0,
+                    intermediateEmptyFrameCount: 0,
                     isConfirmedEmptyTerminal: plan.expectsConfirmedEmpty
                 ),
             stalePreTerminalRealFrameCount:
@@ -5795,17 +2950,16 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             anchorErrorMilliPoints: viewportDiagnostics?.anchorError.map {
                 Int((abs($0) * 1_000).rounded())
             },
-            requestSource: committedDiagnostics?.requestSource,
-            requestHighlight: committedDiagnostics?.requestHighlight ?? false,
-            requestMarkReadOnVisible:
-                committedDiagnostics?.requestMarkReadOnVisible,
+            requestSource: nil,
+            requestHighlight: false,
+            requestMarkReadOnVisible: nil,
             resolvedTargetOrdinal: openScenarioResolvedTargetOrdinal,
             targetMatchCount: openScenarioTargetMatchCount,
             latestVisualCommitCount: openScenarioLatestVisualCommitCount,
             p14Mention: captureP14MentionDiagnostics(),
             heldSkeletonDisplayTickCount:
                 openScenarioHeldSkeletonDisplayTickCount,
-            archiveLeaseCount: bootstrapDiagnostics.leaseEventCount,
+            archiveLeaseCount: 0,
             initialFrameArchiveRequestCount: initialArchiveRequestCount,
             archiveRequestCount: terminalArchiveRequestCount,
             postInitialArchiveRequestCount: max(
@@ -5818,16 +2972,14 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                 0,
                 terminalGapRequestCount - initialGapRequestCount
             ),
-            archiveCursorKind: openScenarioArchiveCursorKind,
-            retryVisible: appliedBootstrapLoadingState?.showsRetry == true &&
-                !bootstrapFailureView.isHidden,
+            archiveCursorKind: .none,
+            retryVisible: openScenarioArchiveShowsRetry,
             skeletonIdentityStable: openScenarioSkeletonIdentityStable,
             skeletonGeometryStable: openScenarioSkeletonGeometryStable,
             skeletonDwellMilliseconds: openScenarioSkeletonDwellMilliseconds,
             postInitialInteractionCount:
                 openScenarioPostInitialInteractionCount,
-            pagingAnchorErrorMilliPoints:
-                openScenarioPagingAnchorErrorMilliPoints,
+            pagingAnchorErrorMilliPoints: nil,
             rotationTransitionCount: openScenarioRotationTransitionCount,
             applicationBackgroundCount:
                 openScenarioApplicationBackgroundCount,
@@ -5856,14 +3008,11 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             postInitialStoreOperationSummary:
                 postInitialStoreOperationSummary,
             mainThreadStoreQueryCount:
-                routeDiagnostics?.mainThreadQueryCount ??
-                committedDiagnostics?.mainThreadStoreQueryCount ?? -1,
+                routeDiagnostics?.mainThreadQueryCount ?? -1,
             fullScanCount:
-                routeDiagnostics?.fullScanCount ??
-                committedDiagnostics?.fullScanCount ?? -1,
+                routeDiagnostics?.fullScanCount ?? -1,
             maxCandidateCount:
-                routeDiagnostics?.maxCandidateCount ??
-                committedDiagnostics?.maxCandidateCount ?? -1,
+                routeDiagnostics?.maxCandidateCount ?? -1,
             observerActivationCount:
                 routeDiagnostics?.observation.activationCount ?? -1,
             observerRealmQueryCount:
@@ -5888,44 +3037,26 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                 routeDiagnostics?.observation.catchUpMutationCount ?? -1,
             observerPendingWorkCount:
                 routeDiagnostics?.observation.pendingWorkCount ?? -1,
-            preparedOnMainThread:
-                committedDiagnostics?.preparedOnMainThread ?? true,
-            mappedOnMainThread:
-                committedDiagnostics?.mappedOnMainThread ?? true,
-            realDatasourceApplyCount:
-                committedDiagnostics?.realDatasourceApplyCount ?? 0,
-            atomicLayoutCommitCount:
-                committedDiagnostics?.atomicLayoutCommitCount ?? 0,
+            preparedOnMainThread: true,
+            mappedOnMainThread: true,
+            realDatasourceApplyCount: 0,
+            atomicLayoutCommitCount: 0,
             committedRouteCount: openScenarioProductionVisualCommitCount,
-            committedTargetKind: committedDiagnostics?.targetKind,
-            productionBootstrapLeaseStartCount:
-                bootstrapDiagnostics.leaseStartCount,
-            productionBootstrapLeaseJoinCount:
-                bootstrapDiagnostics.leaseJoinCount,
-            productionBootstrapActiveLeaseCount:
-                bootstrapDiagnostics.activeLeaseCount,
-            productionBootstrapCompletedLeaseCount:
-                bootstrapDiagnostics.completedLeaseCount,
-            productionBootstrapFailedLeaseCount:
-                bootstrapDiagnostics.failedLeaseCount,
-            productionBootstrapCancelledLeaseCount:
-                bootstrapDiagnostics.cancelledLeaseCount,
-            productionBootstrapTransportStartCount:
-                bootstrapDiagnostics.transportStartCount,
-            bootstrapRequestCount:
-                committedDiagnostics?.bootstrapRequestCount ?? 0,
-            bootstrapFinalCount:
-                committedDiagnostics?.bootstrapFinalCount ?? 0,
-            bootstrapDeliveredMessageCount:
-                committedDiagnostics?.bootstrapDeliveredMessageCount ?? 0,
-            bootstrapPersistedMessageCount:
-                committedDiagnostics?.bootstrapPersistedMessageCount ?? 0,
-            finalNewerLiveEdgeReached:
-                committedDiagnostics?.finalNewerLiveEdgeReached ?? false,
-            finalOlderArchiveEndReached:
-                committedDiagnostics?.finalOlderArchiveEndReached ?? false,
-            finalFullArchiveLoaded:
-                committedDiagnostics?.finalFullArchiveLoaded ?? false,
+            committedTargetKind: nil,
+            productionBootstrapLeaseStartCount: 0,
+            productionBootstrapLeaseJoinCount: 0,
+            productionBootstrapActiveLeaseCount: 0,
+            productionBootstrapCompletedLeaseCount: 0,
+            productionBootstrapFailedLeaseCount: 0,
+            productionBootstrapCancelledLeaseCount: 0,
+            productionBootstrapTransportStartCount: 0,
+            bootstrapRequestCount: 0,
+            bootstrapFinalCount: 0,
+            bootstrapDeliveredMessageCount: 0,
+            bootstrapPersistedMessageCount: 0,
+            finalNewerLiveEdgeReached: false,
+            finalOlderArchiveEndReached: false,
+            finalFullArchiveLoaded: false,
             fixtureRealmQueryCountAfterRouteAdmission:
                 openScenarioFixtureRealmQueryCountAfterRouteAdmission,
             terminalQuietMilliseconds:
@@ -5985,6 +3116,24 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         }.count
     }
 
+    private var openScenarioArchiveShowsRetry: Bool {
+        // Legacy performance-artifact field: this records only the injected
+        // retryable-failure state. Production no longer owns or presents a
+        // Retry view; renaming the persisted fixture schema is a separate
+        // compatibility migration.
+        if case .retryableFailure? = archiveWindowState {
+            return true
+        }
+        return false
+    }
+
+    private var openScenarioArchiveIsAuthoritativeEmpty: Bool {
+        if case .authoritativeEmpty? = archiveWindowState {
+            return true
+        }
+        return false
+    }
+
     private func captureOpenScenarioSkeletonPresentationSnapshot()
         -> OpenScenarioSkeletonPresentationSnapshot? {
         let skeletonSections = datasource.indices.filter { section in
@@ -6041,106 +3190,6 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         openScenarioSkeletonGeometryStable =
             openScenarioSkeletonGeometryStable &&
             baseline.hasStableGeometry(comparedWith: current)
-    }
-
-    private func beginOpenScenarioActiveDwell(
-        plan: ChatOpenRealPipelineFixturePlan
-    ) {
-        guard plan.scenario == .bootstrapHeldOverWatchdog,
-              openScenarioActiveDwellPlan == nil else {
-            rejectOpenScenarioArchiveDescriptor(plan: plan)
-            return
-        }
-        captureOpenScenarioSkeletonPresentationBaselineIfNeeded()
-        openScenarioActiveDwellPlan = plan
-        openScenarioActiveDwellStartedAt = CACurrentMediaTime()
-        renderOpenScenarioPhase(.skeleton, plan: plan)
-    }
-
-    private func finishOpenScenarioActiveDwellIfReady(
-        displayLink: CADisplayLink
-    ) {
-        guard let plan = openScenarioActiveDwellPlan,
-              let startedAt = openScenarioActiveDwellStartedAt else {
-            return
-        }
-        compareOpenScenarioSkeletonWithBaseline()
-        let timestamp = displayLink.targetTimestamp > 0
-            ? displayLink.targetTimestamp
-            : displayLink.timestamp
-        let elapsedNanoseconds = UInt64(
-            max(0, timestamp - startedAt) * 1_000_000_000
-        )
-        guard elapsedNanoseconds >=
-                ChatPerformanceArtifactExportSession
-                    .minimumActiveDwellNanoseconds else {
-            return
-        }
-        openScenarioActiveDwellPlan = nil
-        openScenarioActiveDwellStartedAt = nil
-        openScenarioSkeletonDwellMilliseconds = Int(
-            elapsedNanoseconds / 1_000_000
-        )
-        let leaseKey = initialBootstrapLeaseKey ?? initialBootstrapRequestKey
-        ChatInitialBootstrapRequestCoordinator.shared.discardConfirmedAttempt(
-            key: leaseKey
-        )
-        resetInitialBootstrapTracking(
-            acknowledgeConsumedCommittedReceipt: false
-        )
-        compareOpenScenarioSkeletonWithBaseline()
-        beginOpenScenarioTerminalObservation(plan: plan)
-    }
-
-    private func injectOpenScenarioTypedFailure(
-        plan: ChatOpenRealPipelineFixturePlan
-    ) {
-        guard plan.scenario == .bootstrapTerminalFailureRetry,
-              let session = openScenarioArchiveTransportSession,
-              let queryId = openScenarioQueryId,
-              let descriptor = openScenarioArchiveDescriptor(for: queryId),
-              descriptor.semanticRouteClass == .latest,
-              let transportGeneration = openScenarioArchiveTransportGeneration else {
-            rejectOpenScenarioArchiveDescriptor(plan: plan)
-            return
-        }
-        captureOpenScenarioSkeletonPresentationBaselineIfNeeded()
-        enqueueOpenScenarioArchiveTransport(
-            generation: transportGeneration,
-            plan: plan,
-            operation: { [weak self] in
-                guard let self else {
-                    throw OpenScenarioError.archiveTransportUnavailable
-                }
-                let failureIQ = try self.makeOpenScenarioArchiveFailureIQ(
-                    queryId: queryId
-                )
-                self.openScenarioTransportThreadRecorder.record(
-                    .finalParser,
-                    generation: transportGeneration,
-                    isMainThread: Thread.isMainThread
-                )
-                guard session.archiveManager.read(
-                    session.stream,
-                    withIQ: failureIQ
-                ) else {
-                    throw OpenScenarioError.archiveDescriptorRejected
-                }
-                self.openScenarioTransportThreadRecorder.record(
-                    .finalParser,
-                    generation: transportGeneration,
-                    isMainThread: Thread.isMainThread
-                )
-                _ = session.archiveManager.read(
-                    session.stream,
-                    withIQ: failureIQ
-                )
-            },
-            mainCompletion: { [weak self] in
-                self?.compareOpenScenarioSkeletonWithBaseline()
-                self?.beginOpenScenarioTerminalObservation(plan: plan)
-            }
-        )
     }
 
     private func makeOpenScenarioRequest(
@@ -6607,6 +3656,7 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
             animated: false,
             invalidateLayout: false,
             suppressDefaultBottomScroll: mode.isTargetedDiff,
+            presentationOwner: .archiveEngine,
             completion: { [weak self] in
                 guard let self else { return }
                 self.renderStatus(isReady: isReady)
@@ -6787,15 +3837,14 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
         showSkeletonObserver.accept(true)
         let skeleton = mapDataset(
             dataset: [],
-            context: captureDatasourceMappingContext(
-                purpose: .bootstrapSkeleton
-            )
+            context: captureDatasourceMappingContext()
         ).datasource
         applyChatDatasource(
             skeleton,
             mode: .fullReload(keepOffset: true),
             animated: false,
             suppressDefaultBottomScroll: true,
+            presentationOwner: .archiveEngine,
             completion: { [weak self] in self?.renderStatus(isReady: true) }
         )
     }

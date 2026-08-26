@@ -515,35 +515,43 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
     
     public override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
         super.apply(layoutAttributes)
-        if let attributes = layoutAttributes as? MessagesCollectionViewLayoutAttributes {
-            layoutAuthorView(with: attributes)
-            layoutForwardsContainer(with: attributes)
-            layoutImagesView(with: attributes)
-            layoutVideosView(with: attributes)
-            layoutLocationsView(with: attributes)
-            layoutContactsView(with: attributes)
-            layoutAudiosView(with: attributes)
-            layoutFilesView(with: attributes)
-            layoutLabelView(with: attributes)
-            layoutWarningLabel(with: attributes)
-            layoutTimeMarker(with: attributes)
-            ChatMessageFrameGeometryValidator.assertValid(
-                frames: [
-                    .init(name: "author", frame: authorView.frame),
-                    .init(name: "forwards", frame: forwardsContainer.frame),
-                    .init(name: "images", frame: imagesView.frame),
-                    .init(name: "videos", frame: videosView.frame),
-                    .init(name: "locations", frame: locationsView.frame),
-                    .init(name: "contacts", frame: contactsView.frame),
-                    .init(name: "audios", frame: audiosView.frame),
-                    .init(name: "files", frame: filesView.frame),
-                    .init(name: "text", frame: labelContainer.frame),
-                    .init(name: "warning", frame: warningLabel.frame),
-                    .init(name: "time", frame: timeMarker.frame)
-                ],
-                containerBounds: CGRect(origin: .zero, size: attributes.messageContainerSize)
-            )
+        guard let attributes = layoutAttributes as? MessagesCollectionViewLayoutAttributes else {
+            return
         }
+        // During a structural collection update UIKit can briefly deliver the
+        // new row's attributes to the old visible cell at the same index path.
+        // Keep the base cell transition, but never apply another message's
+        // text/media geometry to the represented content.
+        guard messagePrimary.isEmpty || attributes.messagePrimary == messagePrimary else {
+            return
+        }
+        layoutAuthorView(with: attributes)
+        layoutForwardsContainer(with: attributes)
+        layoutImagesView(with: attributes)
+        layoutVideosView(with: attributes)
+        layoutLocationsView(with: attributes)
+        layoutContactsView(with: attributes)
+        layoutAudiosView(with: attributes)
+        layoutFilesView(with: attributes)
+        layoutLabelView(with: attributes)
+        layoutWarningLabel(with: attributes)
+        layoutTimeMarker(with: attributes)
+        ChatMessageFrameGeometryValidator.assertValid(
+            frames: [
+                .init(name: "author", frame: authorView.frame),
+                .init(name: "forwards", frame: forwardsContainer.frame),
+                .init(name: "images", frame: imagesView.frame),
+                .init(name: "videos", frame: videosView.frame),
+                .init(name: "locations", frame: locationsView.frame),
+                .init(name: "contacts", frame: contactsView.frame),
+                .init(name: "audios", frame: audiosView.frame),
+                .init(name: "files", frame: filesView.frame),
+                .init(name: "text", frame: labelContainer.frame),
+                .init(name: "warning", frame: warningLabel.frame),
+                .init(name: "time", frame: timeMarker.frame)
+            ],
+            containerBounds: CGRect(origin: .zero, size: attributes.messageContainerSize)
+        )
     }
     
     func layoutAuthorView(with attributes: MessagesCollectionViewLayoutAttributes) {

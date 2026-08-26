@@ -28,15 +28,15 @@ import SwiftKeychainWrapper
 import UIKit
 import MaterialComponents.MaterialPalettes
 
-/// A short, account-local scheduling gate owned by one or more visible chat
-/// opens. It pauses only planned background/idle work; XMPP stream processing
-/// and foreground/interactive tasks continue normally.
+/// An account-local scheduling gate owned by one or more visible archive
+/// presentations. While active it admits only interactive scheduler work;
+/// already-running wire work and XMPP stream processing continue normally.
 final class AccountInteractiveChatOpenGate {
     struct Token: Hashable {
         fileprivate let id: UUID
     }
 
-    static let maximumAllowedDuration: TimeInterval = 5
+    static let maximumAllowedDuration: TimeInterval = 30
 
     private let lock = NSLock()
     private let expirationQueue = DispatchQueue(
@@ -230,8 +230,8 @@ final class AccountXMPPTaskScheduler {
     private var nextOrder: Int = 0
     private var generation: UInt64 = 0
     private var isPaused: Bool
-    private let bootstrapGate: () -> Bool
     private let interactiveChatOpenGate: () -> Bool
+    private let initialListSynchronizationInProgress: () -> Bool
     #if DEBUG
     internal var resetObserverForTests: (() -> Void)?
     #endif
@@ -240,14 +240,14 @@ final class AccountXMPPTaskScheduler {
         account: Account? = nil,
         configuration: Configuration = .production,
         startsImmediately: Bool = true,
-        bootstrapGate: @escaping () -> Bool = { false },
-        interactiveChatOpenGate: @escaping () -> Bool = { false }
+        interactiveChatOpenGate: @escaping () -> Bool = { false },
+        initialListSynchronizationInProgress: @escaping () -> Bool = { false }
     ) {
         self.account = account
         self.configuration = configuration
         self.isPaused = !startsImmediately
-        self.bootstrapGate = bootstrapGate
         self.interactiveChatOpenGate = interactiveChatOpenGate
+        self.initialListSynchronizationInProgress = initialListSynchronizationInProgress
     }
 
     func enqueue(
@@ -375,13 +375,13 @@ final class AccountXMPPTaskScheduler {
         }
     }
 
-    func bootstrapGateDidChange() {
+    func interactiveChatOpenGateDidChange() {
         queue.async {
             self.drainLocked()
         }
     }
 
-    func interactiveChatOpenGateDidChange() {
+    func initialListSynchronizationDidChange() {
         queue.async {
             self.drainLocked()
         }
@@ -431,13 +431,14 @@ final class AccountXMPPTaskScheduler {
     }
 
     private func nextRunnableTaskIndexLocked() -> Int? {
-        pendingTasks
+        let onlyInteractiveWorkMayStart = interactiveChatOpenGate() ||
+            initialListSynchronizationInProgress()
+        return pendingTasks
             .enumerated()
             .filter { _, task in
                 !delayedResources.contains(task.resource)
                     && runningCountByResource[task.resource, default: 0] < configuration.maxConcurrent(for: task.resource)
-                    && (!bootstrapGate() || task.priority == .interactive)
-                    && (!interactiveChatOpenGate() || task.priority >= .foreground)
+                    && (!onlyInteractiveWorkMayStart || task.priority == .interactive)
                     && (
                         !task.requiresAuthenticatedStream ||
                         account == nil ||
@@ -656,8 +657,12 @@ enum AccountForegroundConnectionRecoveryPolicy {
     static func decide(
         canFlushApplicationStanzas: Bool,
         lifecyclePhase: AccountStreamLifecyclePhase,
-        isNetworkPathSatisfied: Bool?
+        isNetworkPathSatisfied: Bool?,
+        isConnectionRecoveryAllowed: Bool = true
     ) -> AccountForegroundConnectionRecoveryDecision {
+        guard isConnectionRecoveryAllowed else {
+            return .skip
+        }
         guard !canFlushApplicationStanzas else {
             return .skip
         }
@@ -3002,11 +3007,11 @@ struct ConnectionDiagnosticsLogger {
     static let prefix = "CONNECTION_DIAGNOSTICS"
     static let redactedValue = "[redacted]"
 
-    #if DEBUG
-    static let rawXMLLoggingEnabled = true
-    #else
+    // Full XML is intentionally opt-in even in Debug. Per-stanza serialization,
+    // redaction and disk logging noticeably distort UI performance while a
+    // debugger is attached. Narrow diagnostics can still pass
+    // `includeRawXML: true` explicitly.
     static let rawXMLLoggingEnabled = false
-    #endif
 
     static func log(
         event: String,
@@ -3203,6 +3208,28 @@ struct ConnectionDiagnosticsLogger {
     }
 }
 
+/// Lifecycle-independent scheduling primitive used by `Account.delayedAction`.
+/// The scheduled work owns `execute`, but never owns `owner` itself.
+enum AccountDelayedActionScheduler {
+    static func schedule<Owner: AnyObject>(
+        owner: Owner,
+        delay: TimeInterval,
+        queueLabel: String,
+        execute: @escaping (Owner) -> Void
+    ) {
+        DispatchQueue(
+            label: queueLabel,
+            qos: .background,
+            attributes: .concurrent,
+            autoreleaseFrequency: .workItem,
+            target: nil
+        ).asyncAfter(deadline: .now() + delay) { [weak owner] in
+            guard let owner else { return }
+            execute(owner)
+        }
+    }
+}
+
 final class Account: NSObject {
 //  main params
     var jid: String = ""
@@ -3241,11 +3268,11 @@ final class Account: NSObject {
     }
     lazy var xmppTaskScheduler: AccountXMPPTaskScheduler = AccountXMPPTaskScheduler(
         account: self,
-        bootstrapGate: { [weak self] in
-            self?.syncManager.isBootstrapCriticalSyncInProgress() ?? false
-        },
         interactiveChatOpenGate: { [weak self] in
             self?.interactiveChatOpenGate.isActive ?? false
+        },
+        initialListSynchronizationInProgress: { [weak self] in
+            self?.syncManager.isInitialListSynchronizationTrafficGateActive() ?? false
         }
     )
     let authenticationCounterTracker = XMPPAuthenticationCounterTracker()
@@ -3339,11 +3366,6 @@ final class Account: NSObject {
             self?.connectionResilience.noteStreamManagementAckTimeout()
         }
     )
-    private lazy var primaryStreamBootstrapSendGate = AccountPrimaryStreamBootstrapSendGate(
-        now: { [weak self] in
-            self?.connectionResilienceScheduler.now ?? ProcessInfo.processInfo.systemUptime
-        }
-    )
     private var networkPathMonitor: AccountNetworkPathMonitoring?
     private var isConnectionResilienceMonitoringStarted = false
     var pendingDisconnectContext = AccountPendingDisconnectContext()
@@ -3372,10 +3394,14 @@ final class Account: NSObject {
     lazy var archiveEngine = AccountArchiveEngine(
         owner: jid,
         repository: archiveCoverageRepository,
-        transport: archiveTransportAdapter
+        transport: archiveTransportAdapter,
+        admissionProvider: canonicalGroupOpenAdmissionCoordinator
     )
     private let archiveEngineConnectionLock = NSLock()
     private var archiveEngineConnectionGeneration: UInt64 = 0
+    // Readiness callbacks are synchronous, but their bridge Tasks are not
+    // ordered. Capture source order while the same lock owns readiness state.
+    private var archiveEngineConnectionTransitionSequence: UInt64 = 0
     private var isArchiveEngineConnectionReady = false
     var carbons: CarbonsManager
     var lastChats: LastChats
@@ -3391,10 +3417,16 @@ final class Account: NSObject {
     var chatMarkers: ChatMarkersManager
     var attention: AttentionManger
     let groupchatService: GroupchatService
+    lazy var canonicalGroupOpenAdmissionCoordinator =
+        CanonicalGroupOpenAdmissionCoordinator(
+            owner: jid,
+            service: LiveCanonicalGroupOpenAdmissionService(
+                groupchatService: groupchatService
+            )
+        )
     lazy var canonicalGroupTransportBinding = CanonicalGroupTransportBinding(
         service: groupchatService
     )
-    let groupActivationSyncGate = GroupActivationSyncGate()
     lazy var groupEventProcessor = GroupEventProcessor(
         owner: self.jid,
         repository: {
@@ -3439,11 +3471,9 @@ final class Account: NSObject {
             DDLogDebug("pushWasReceived was changed from \(oldValue)to \(self.pushWasReceived)")
         }
     }
-    var pushLastMAMId: String
 //  notification part
     var completionHandler: (() -> Void)?
     var completionHandlerTimer: Timer?
-    var isInitialMAMRequestSend: Bool = false
 //  Observable
     var statusState: BehaviorRelay<ResourceStatus> = BehaviorRelay(value: ResourceStatus.offline)
     var statusMessage: BehaviorRelay<String> = BehaviorRelay(value: "Offline")
@@ -3459,7 +3489,6 @@ final class Account: NSObject {
     var startTLSStallWatchID: UInt64 = 0
     var startTLSDelegateCallbackWatchID: UInt64?
     
-    var isRequestedAway: Bool = false
     var isBinded: Bool = false
     
     var isRegularPushRequestSended: Bool = false
@@ -3486,7 +3515,6 @@ final class Account: NSObject {
         self.username = Account.username(from: jid)
         // default push variables
         self.pushWasReceived = false
-        self.pushLastMAMId = ""
         // set pointer to queue, in which application worked
         self.queue = queue
         // setting XMPPStream
@@ -3578,14 +3606,14 @@ final class Account: NSObject {
             }
             isArchiveEngineConnectionReady = true
             archiveEngineConnectionGeneration &+= 1
+            archiveEngineConnectionTransitionSequence &+= 1
             let generation = archiveEngineConnectionGeneration
-            let waitsForXEPSYNC = syncManager.isAvailable
+            let transitionSequence = archiveEngineConnectionTransitionSequence
             archiveEngineConnectionLock.unlock()
             Task { [archiveEngine] in
                 await archiveEngine.connectionDidBecomeReady(
                     generation: generation,
-                    completedXEPSYNCFingerprint: nil,
-                    waitsForXEPSYNC: waitsForXEPSYNC
+                    transitionSequence: transitionSequence
                 )
             }
             return
@@ -3596,26 +3624,12 @@ final class Account: NSObject {
             return
         }
         isArchiveEngineConnectionReady = false
+        archiveEngineConnectionTransitionSequence &+= 1
+        let transitionSequence = archiveEngineConnectionTransitionSequence
         archiveEngineConnectionLock.unlock()
         Task { [archiveEngine] in
-            await archiveEngine.connectionDidDisconnect()
-        }
-    }
-
-    func archiveXEPSYNCSnapshotDidComplete(fingerprint: String) {
-        let fingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard fingerprint.isNotEmpty else { return }
-        archiveEngineConnectionLock.lock()
-        guard isArchiveEngineConnectionReady else {
-            archiveEngineConnectionLock.unlock()
-            return
-        }
-        let generation = archiveEngineConnectionGeneration
-        archiveEngineConnectionLock.unlock()
-        Task { [archiveEngine] in
-            await archiveEngine.connectionDidBecomeReady(
-                generation: generation,
-                completedXEPSYNCFingerprint: fingerprint
+            await archiveEngine.connectionDidDisconnect(
+                transitionSequence: transitionSequence
             )
         }
     }
@@ -3627,23 +3641,6 @@ final class Account: NSObject {
     ) -> PrimaryStreamSendResult {
         let stanzaId = PrimaryStreamStanzaIdentifier.ensureID(on: stanza)
         let effectiveReplayPolicy = primaryStreamReplayPolicy(for: stanza, requestedPolicy: replayPolicy)
-        let isBootstrapActive = syncManager.isBootstrapCriticalSyncInProgress()
-        if isBootstrapActive,
-           let reason = AccountPrimaryStreamBootstrapSendGate.loginCriticalDiscoReason(
-            stanza,
-            ownerBareJID: jid
-           ) {
-            logBootstrapSendGateAllowed(stanza: stanza, reason: reason)
-        }
-        if case .queued(let queuedId) = primaryStreamBootstrapSendGate.prepareForSend(
-            stanza,
-            replayPolicy: effectiveReplayPolicy,
-            isBootstrapActive: isBootstrapActive,
-            ownerBareJID: jid
-        ) {
-            logBootstrapSendGateQueued(stanza: stanza, replayPolicy: effectiveReplayPolicy)
-            return .queued(stanzaId: queuedId)
-        }
         if shouldTrackPrimaryStreamStanza {
             let result = primaryStreamStanzaTracker.track(
                 stanzaId: stanzaId,
@@ -3675,23 +3672,6 @@ final class Account: NSObject {
         replayPolicy: PrimaryStreamReplayPolicy = .notReplayable
     ) -> Bool {
         let effectiveReplayPolicy = primaryStreamReplayPolicy(for: stanza, requestedPolicy: replayPolicy)
-        let isBootstrapActive = syncManager.isBootstrapCriticalSyncInProgress()
-        if isBootstrapActive,
-           let reason = AccountPrimaryStreamBootstrapSendGate.loginCriticalDiscoReason(
-            stanza,
-            ownerBareJID: jid
-           ) {
-            logBootstrapSendGateAllowed(stanza: stanza, reason: reason)
-        }
-        if case .queued = primaryStreamBootstrapSendGate.prepareForSend(
-            stanza,
-            replayPolicy: effectiveReplayPolicy,
-            isBootstrapActive: isBootstrapActive,
-            ownerBareJID: jid
-        ) {
-            logBootstrapSendGateQueued(stanza: stanza, replayPolicy: effectiveReplayPolicy)
-            return false
-        }
         guard shouldTrackPrimaryStreamStanza else { return true }
 
         let stanzaId = PrimaryStreamStanzaIdentifier.ensureID(on: stanza)
@@ -3807,113 +3787,6 @@ final class Account: NSObject {
         return true
     }
 
-    private func logBootstrapSendGateQueued(
-        stanza: XMPPElement,
-        replayPolicy: PrimaryStreamReplayPolicy
-    ) {
-        logConnectionDiagnostics(
-            event: "primary_stream_bootstrap_send_gate_queued",
-            details: [
-                "id": stanza.elementID ?? "none",
-                "kind": primaryStreamStanzaKind(for: stanza).rawValue,
-                "type": stanza.attributeStringValue(forName: "type") ?? "none",
-                "childNamespace": stanza.children?.compactMap({ $0 as? DDXMLElement }).first?.xmlns() ?? "none",
-                "replayPolicy": String(describing: replayPolicy),
-                "queuedCount": primaryStreamBootstrapSendGate.queuedCount
-            ],
-            rawXML: stanza.xmlString
-        )
-    }
-
-    private func logBootstrapSendGateAllowed(stanza: XMPPElement, reason: String) {
-        logConnectionDiagnostics(
-            event: "primary_stream_bootstrap_send_gate_allowed",
-            details: [
-                "id": stanza.elementID ?? "none",
-                "kind": primaryStreamStanzaKind(for: stanza).rawValue,
-                "type": stanza.attributeStringValue(forName: "type") ?? "none",
-                "childNamespace": stanza.children?.compactMap({ $0 as? DDXMLElement }).first?.xmlns() ?? "none",
-                "reason": reason
-            ],
-            rawXML: stanza.xmlString
-        )
-    }
-
-    func flushBootstrapQueuedPrimaryStanzas(reason: String) {
-        guard !syncManager.isBootstrapCriticalSyncInProgress() else {
-            logConnectionDiagnostics(
-                event: "primary_stream_bootstrap_send_gate_flush_deferred",
-                details: [
-                    "reason": reason,
-                    "queuedCount": primaryStreamBootstrapSendGate.queuedCount
-                ]
-            )
-            return
-        }
-
-        let queuedStanzas = primaryStreamBootstrapSendGate.drainQueuedStanzas()
-        guard queuedStanzas.isNotEmpty else { return }
-
-        logConnectionDiagnostics(
-            event: "primary_stream_bootstrap_send_gate_flush_start",
-            details: [
-                "reason": reason,
-                "count": queuedStanzas.count,
-                "iq": queuedStanzas.filter { $0.kind == .iq }.count,
-                "presence": queuedStanzas.filter { $0.kind == .presence }.count,
-                "message": queuedStanzas.filter { $0.kind == .message }.count
-            ]
-        )
-
-        queuedStanzas.forEach { queued in
-            guard let stanza = queued.makeElement() else {
-                logConnectionDiagnostics(
-                    event: "primary_stream_bootstrap_send_gate_flush_drop_invalid_xml",
-                    details: [
-                        "id": queued.stanzaId,
-                        "kind": queued.kind.rawValue,
-                        "age": queued.queuedAge
-                    ]
-                )
-                return
-            }
-
-            logConnectionDiagnostics(
-                event: "primary_stream_bootstrap_send_gate_flush_send",
-                details: [
-                    "id": queued.stanzaId,
-                    "kind": queued.kind.rawValue,
-                    "type": queued.stanzaType ?? "none",
-                    "childNamespace": queued.childNamespace ?? "none",
-                    "age": queued.queuedAge
-                ],
-                rawXML: queued.xmlString
-            )
-            _ = sendPrimaryStanza(stanza, replayPolicy: queued.replayPolicy)
-        }
-
-        logConnectionDiagnostics(
-            event: "primary_stream_bootstrap_send_gate_flush_finish",
-            details: [
-                "reason": reason,
-                "count": queuedStanzas.count
-            ]
-        )
-    }
-
-    func discardBootstrapQueuedPrimaryStanzas(reason: String) {
-        let count = primaryStreamBootstrapSendGate.queuedCount
-        primaryStreamBootstrapSendGate.removeAll()
-        guard count > 0 else { return }
-        logConnectionDiagnostics(
-            event: "primary_stream_bootstrap_send_gate_discard",
-            details: [
-                "reason": reason,
-                "count": count
-            ]
-        )
-    }
-    
     private func startConnectionResilienceMonitoring() {
         guard !isConnectionResilienceMonitoringStarted else { return }
         isConnectionResilienceMonitoringStarted = true
@@ -3981,13 +3854,13 @@ final class Account: NSObject {
     func resetStream() {
         self.logConnectionDiagnostics(event: "reset_stream_requested")
         self.disconnectCanonicalGroupTransport()
-        self.groupActivationSyncGate.invalidateAll()
         self.notifications.invalidateNotificationSyncSession()
         self.disco.cancelCloudDiscoveryForDisconnect()
         self.cloudStorage.markAvailabilityRetryableFailure(stage: .disconnected)
         let mam = self.mam
         let scheduler = self.xmppTaskScheduler
         let archiveRequestGeneration = mam.archiveRequestGenerationSnapshot()
+        self.vcards.clearSession()
         scheduler.reset()
         _ = mam.publishPendingArchiveRequestFailures(
             streamKind: .primary,
@@ -4244,7 +4117,10 @@ final class Account: NSObject {
         let decision = AccountForegroundConnectionRecoveryPolicy.decide(
             canFlushApplicationStanzas: readiness.canFlushApplicationStanzas,
             lifecyclePhase: gateSnapshot.phase,
-            isNetworkPathSatisfied: healthSnapshot.isNetworkPathSatisfied
+            isNetworkPathSatisfied: healthSnapshot.isNetworkPathSatisfied,
+            isConnectionRecoveryAllowed: !HostedXCTestIsolationPolicy.isEnabled(
+                environment: ProcessInfo.processInfo.environment
+            )
         )
         self.logConnectionDiagnostics(
             event: "foreground_connection_recovery_evaluated",
@@ -4958,8 +4834,6 @@ final class Account: NSObject {
  *    calls after any kind of disconnect
  **/
     func resetConfigs() {
-        self.isRequestedAway = false
-        self.isInitialMAMRequestSend = false
         self.ping.resetState()
     }
     
@@ -4974,6 +4848,7 @@ final class Account: NSObject {
         let mam = self.mam
         let scheduler = self.xmppTaskScheduler
         let archiveRequestGeneration = mam.archiveRequestGenerationSnapshot()
+        self.vcards.clearSession()
         scheduler.reset()
         _ = mam.publishPendingArchiveRequestFailures(
             streamKind: .primary,
@@ -5003,32 +4878,6 @@ final class Account: NSObject {
             return ResourceStatus.offline
         }
     }
-    
-/**
- *    sends request to XMPP Message archive (XEP-0313)
- *    if its first request for account, it perform request for all contacts in roster by 1 message
- *    if it calls after initial state, when some last chats are exists,
- *    it perform request from last message delivery date to current moment by 50 message.
- *    if query size more than contains in one page, all other chats updates by individual request by 1 message
- **/
-    func requestInitialMAM() {
-//        if mam.isInitialArchiveRequested {
-//            mam.requestAfterLastMessage(xmppStream, sync: true)
-//        } else {
-//            mam.requestForRoster(xmppStream)
-//        }
-        self.isInitialMAMRequestSend = true
-        self.isRequestedAway = true
-    }
-    
-/**
- *    used by push notification
- *    when push notification come, method compare last away date with current moment
- **/
-    
-//    func syncForPush() {
-//        mam.requestAfterLastMessage(xmppStream, sync: false)
-//    }
     
 /**
  *    get stored properties about account from Realm
@@ -5358,16 +5207,12 @@ final class Account: NSObject {
     }
     
     func delayedAction(delay: TimeInterval, toExecute: @escaping ((Account, XMPPStream) -> Void)) {
-        DispatchQueue(
-            label: "com.xabber.action.delayed.\(jid).\(UUID().uuidString)",
-            qos: .background,
-            attributes: .concurrent,
-            autoreleaseFrequency: .workItem,
-            target: nil
-        ).asyncAfter(deadline: .now() + delay ) {
-            [weak self] in
-            guard let self else { return }
-            toExecute(self, self.xmppStream)
+        AccountDelayedActionScheduler.schedule(
+            owner: self,
+            delay: delay,
+            queueLabel: "com.xabber.action.delayed.\(jid).\(UUID().uuidString)"
+        ) { account in
+            toExecute(account, account.xmppStream)
         }
     }
     

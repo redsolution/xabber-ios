@@ -312,7 +312,7 @@ extension BaseMediaGalleryForChatViewController: UICollectionViewDataSourcePrefe
     ) {}
 }
 
-extension BaseMediaGalleryForChatViewController: TemporaryMessageReceiverProtocol {
+extension BaseMediaGalleryForChatViewController {
     func didReceiveMessage(_ item: MessageStorageItem, queryId: String) {
         
     }

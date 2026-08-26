@@ -363,7 +363,6 @@ final class ChatBackgroundBackdropView: UIView {
         patternImageView.alpha = 0.1
         patternImageView.tintColor = .systemBackground
         patternImageView.contentMode = .scaleAspectFill
-        reloadFromSettings()
     }
 
     required init?(coder: NSCoder) {
@@ -424,6 +423,7 @@ final class BackgroundRootContainerViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         view.isOpaque = true
+        backgroundView.reloadFromSettings()
         backgroundView.isHidden = true
         applyBackgroundMode()
         view.addSubview(backgroundView)

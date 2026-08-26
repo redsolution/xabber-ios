@@ -191,6 +191,192 @@ extension MessageManager {
         }
     }
 
+    private func stagePostPersistenceEffects(
+        _ effects: PostPersistenceEffects,
+        archiveQueryIdsByPrimary: [String: [String]]
+    ) {
+        guard !effects.isEmpty else {
+            return
+        }
+        let queryIds = Set(
+            archiveQueryIdsByPrimary.values.flatMap { $0 }
+                .filter { $0.isNotEmpty }
+        ).sorted()
+        let terminalQueryId = self.performMessageQueueSync {
+            queryIds.first { self.archiveQueryBatchIds.contains($0) }
+        }
+        guard let terminalQueryId else {
+            self.schedulePostPersistenceEffects(effects)
+            return
+        }
+        if queryIds.count > 1 {
+            DDLogDebug(
+                "MessageManager: optional effects received multiple archive query IDs; staging behind \(terminalQueryId)"
+            )
+        }
+        self.performMessageQueueSync {
+            self.pendingPostPersistenceEffectsByQueryId[
+                terminalQueryId,
+                default: PostPersistenceEffects()
+            ].merge(effects)
+        }
+    }
+
+    private func schedulePostPersistenceEffectsAfterTerminal(queryId: String) {
+        let effects: PostPersistenceEffects? = self.performMessageQueueSync {
+            guard !self.postPersistenceEffectsHeldForTransportQueryIds
+                .contains(queryId) else {
+                return nil
+            }
+            return self.pendingPostPersistenceEffectsByQueryId.removeValue(
+                forKey: queryId
+            )
+        }
+        guard let effects else {
+            return
+        }
+        self.schedulePostPersistenceEffects(effects)
+    }
+
+    internal func holdPostPersistenceEffectsUntilArchiveTransportTerminal(
+        queryId: String
+    ) {
+        guard queryId.isNotEmpty else { return }
+        self.performMessageQueueSync {
+            self.postPersistenceEffectsHeldForTransportQueryIds.insert(queryId)
+        }
+    }
+
+    internal func releasePostPersistenceEffectsAfterArchiveTransportTerminal(
+        queryId: String
+    ) {
+        guard queryId.isNotEmpty else { return }
+        let effects = self.performMessageQueueSync {
+            self.postPersistenceEffectsHeldForTransportQueryIds.remove(queryId)
+            return self.pendingPostPersistenceEffectsByQueryId.removeValue(
+                forKey: queryId
+            )
+        }
+        guard let effects else { return }
+        self.schedulePostPersistenceEffects(effects)
+    }
+
+    private func schedulePostPersistenceEffects(
+        _ effects: PostPersistenceEffects
+    ) {
+        self.postPersistenceEffectsQueue.async { [weak self] in
+            self?.executePostPersistenceEffects(effects)
+        }
+    }
+
+    private func executePostPersistenceEffects(
+        _ effects: PostPersistenceEffects
+    ) {
+        autoreleasepool {
+            var clearedStanzaIDs: Set<String> = []
+            var messagePrimariesToMarkRead: Set<String> = []
+            if effects.readStateRequests.isNotEmpty ||
+                effects.affectedGroupChats.isNotEmpty {
+                do {
+                    let realm = try WRealm.safe()
+                    try realm.write {
+                        clearedStanzaIDs = self.reconcileReadStates(
+                            effects.readStateRequests,
+                            in: realm
+                        )
+                        if effects.affectedGroupChats.isNotEmpty {
+                            messagePrimariesToMarkRead = MentionNotificationSync
+                                .reconcileMentionNotifications(
+                                    for: self.owner,
+                                    chats: effects.affectedGroupChats,
+                                    in: realm
+                                )
+                        }
+                    }
+                } catch {
+                    DDLogDebug(
+                        "MessageManager optional reconciliation failed: \(error.localizedDescription)"
+                    )
+                }
+            }
+
+            if clearedStanzaIDs.isNotEmpty {
+                NotifyManager.shared.clearNotifications(
+                    forMessage: Array(clearedStanzaIDs)
+                )
+            }
+            effects.notificationPayloads.forEach {
+                NotifyManager.shared.update(
+                    withMessage: $0.message,
+                    messageId: $0.messageId,
+                    username: $0.username,
+                    opponent: $0.opponent,
+                    owner: $0.owner,
+                    date: $0.date,
+                    displayName: $0.displayName,
+                    imageUrl: $0.imageUrl,
+                    conversationType: $0.conversationType,
+                    preview: $0.preview
+                )
+            }
+            messagePrimariesToMarkRead.sorted().forEach {
+                self.readMessage($0, last: false)
+            }
+
+            if effects.needsEphemeralCleanup {
+                AccountManager.shared.find(for: self.owner)?
+                    .chatMarkers
+                    .deleteEphemeralMessages()
+            }
+            self.reconcileDeliveredScheduleMarkers(
+                messagePrimaryKeys: effects.scheduleMarkerMessagePrimaryKeys
+            )
+            let videoPreviewPrimaryKeys =
+                effects.videoPreviewReferencePrimaryKeys.sorted()
+            if videoPreviewPrimaryKeys.isNotEmpty {
+                self.videoPreviewScheduler(videoPreviewPrimaryKeys)
+            }
+            let sensitiveMediaPrimaryKeys =
+                effects.sensitiveMediaReferencePrimaryKeys.sorted()
+            if sensitiveMediaPrimaryKeys.isNotEmpty {
+                self.sensitiveMediaAnalysisScheduler(
+                    sensitiveMediaPrimaryKeys
+                )
+            }
+        }
+    }
+
+    private func reconcileDeliveredScheduleMarkers(
+        messagePrimaryKeys: Set<String>
+    ) {
+        guard messagePrimaryKeys.isNotEmpty,
+              let scheduleManager = AccountManager.shared
+                .find(for: self.owner)?
+                .messageSchedule else {
+            return
+        }
+        do {
+            let realm = try WRealm.safe()
+            let messages = messagePrimaryKeys.compactMap { primary -> MessageStorageItem? in
+                guard let stored = realm.object(
+                    ofType: MessageStorageItem.self,
+                    forPrimaryKey: primary
+                ) else {
+                    return nil
+                }
+                let detached = MessageStorageItem()
+                detached.owner = stored.owner
+                detached.systemMetadata = stored.systemMetadata
+                return detached
+            }
+            scheduleManager.reconcileDeliveredScheduleMarkers(from: messages)
+        } catch {
+            DDLogDebug(
+                "MessageManager optional schedule reconciliation failed: \(error.localizedDescription)"
+            )
+        }
+    }
+
     private func archivePersistenceSummarySnapshot(forQueryId queryId: String) -> ArchivePersistenceSummary {
         self.archivePersistenceSummariesByQueryId[queryId] ?? ArchivePersistenceSummary()
     }
@@ -244,6 +430,10 @@ extension MessageManager {
             let currentPriority = self.archivePersistencePriorityByQueryId[queryId] ?? .background
             self.archivePersistencePriorityByQueryId[queryId] = max(currentPriority, priority)
             if inserted {
+                self.pendingPostPersistenceEffectsByQueryId
+                    .removeValue(forKey: queryId)
+                self.postPersistenceEffectsHeldForTransportQueryIds
+                    .remove(queryId)
                 self.completedArchiveQueryBatchSummariesByQueryId.removeValue(forKey: queryId)
                 self.completedArchiveQueryBatchSummaryOrder.removeAll { $0 == queryId }
             }
@@ -314,6 +504,7 @@ extension MessageManager {
             ])
             self.scheduleQueuedMessagesDrainOnQueue()
             completions.forEach { $0(summary) }
+            self.schedulePostPersistenceEffectsAfterTerminal(queryId: queryId)
             return summary
         }
     }
@@ -697,9 +888,6 @@ extension MessageManager {
                 }
             })
             self.adjustInFlightMessageCounts(for: results, delta: -1)
-            AccountManager.shared.find(for: self.owner)?
-                .chatMarkers
-                .deleteEphemeralMessages()
         }
 
         let hasRemainingTarget = self.queuedMessages.contains {
@@ -778,7 +966,6 @@ extension MessageManager {
                 }
             })
             self.adjustInFlightMessageCounts(for: results, delta: -1)
-            AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
         }
 
         let actualQueuedCount = self.queuedMessages.lazy.filter {
@@ -839,6 +1026,9 @@ extension MessageManager {
                 ("observerCount", completions.count)
             ])
             completions.forEach { $0(summary) }
+            self.schedulePostPersistenceEffectsAfterTerminal(
+                queryId: request.queryId
+            )
         } else if actualQueuedCount == 0 {
             self.parkArchivePersistenceRequestAwaitingIngress(
                 queryId: request.queryId
@@ -934,7 +1124,6 @@ extension MessageManager {
                 }
             })
             self.adjustInFlightMessageCounts(for: results, delta: -1)
-            AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
 
             if self.isReceiverActive,
                self.hasOrdinaryDrainEligibleMessages,
@@ -1019,19 +1208,74 @@ extension MessageManager {
         let afterburnInterval: Double
     }
 
+    struct PostPersistenceEffects {
+        var readStateRequests: [ReadStateReconciliationRequest] = []
+        var affectedGroupChats: Set<String> = []
+        var notificationPayloads: [
+            MessageStorageItem.SaveNotificationPayload
+        ] = []
+        var scheduleMarkerMessagePrimaryKeys: Set<String> = []
+        var videoPreviewReferencePrimaryKeys: Set<String> = []
+        var sensitiveMediaReferencePrimaryKeys: Set<String> = []
+        var needsEphemeralCleanup = false
+
+        var isEmpty: Bool {
+            readStateRequests.isEmpty &&
+                affectedGroupChats.isEmpty &&
+                notificationPayloads.isEmpty &&
+                scheduleMarkerMessagePrimaryKeys.isEmpty &&
+                videoPreviewReferencePrimaryKeys.isEmpty &&
+                sensitiveMediaReferencePrimaryKeys.isEmpty &&
+                !needsEphemeralCleanup
+        }
+
+        mutating func merge(_ other: PostPersistenceEffects) {
+            readStateRequests.append(contentsOf: other.readStateRequests)
+            affectedGroupChats.formUnion(other.affectedGroupChats)
+            notificationPayloads.append(contentsOf: other.notificationPayloads)
+            scheduleMarkerMessagePrimaryKeys.formUnion(
+                other.scheduleMarkerMessagePrimaryKeys
+            )
+            videoPreviewReferencePrimaryKeys.formUnion(
+                other.videoPreviewReferencePrimaryKeys
+            )
+            sensitiveMediaReferencePrimaryKeys.formUnion(
+                other.sensitiveMediaReferencePrimaryKeys
+            )
+            needsEphemeralCleanup = needsEphemeralCleanup ||
+                other.needsEphemeralCleanup
+        }
+    }
+
     struct ProcessedQueueBatch {
         let messages: [MessageStorageItem]
         let readStateRequests: [ReadStateReconciliationRequest]
         let archiveQueryIdsByPrimary: [String: [String]]
+        let requiredMediaAttachmentsByMessagePrimary: [
+            String: [MessageMediaAttachmentStorageItem]
+        ]
 
         init(
             messages: [MessageStorageItem],
             readStateRequests: [ReadStateReconciliationRequest],
-            archiveQueryIdsByPrimary: [String: [String]] = [:]
+            archiveQueryIdsByPrimary: [String: [String]] = [:],
+            requiredMediaAttachmentsByMessagePrimary: [
+                String: [MessageMediaAttachmentStorageItem]
+            ]? = nil
         ) {
             self.messages = messages
             self.readStateRequests = readStateRequests
             self.archiveQueryIdsByPrimary = archiveQueryIdsByPrimary
+            self.requiredMediaAttachmentsByMessagePrimary =
+                requiredMediaAttachmentsByMessagePrimary ??
+                messages.reduce(into: [:]) { attachmentsByMessage, message in
+                    let attachments = message
+                        .pendingMediaAttachmentsIncludingInlineForwards()
+                    guard attachments.isNotEmpty else {
+                        return
+                    }
+                    attachmentsByMessage[message.primary] = attachments
+                }
         }
 
         func chunks(maxSize: Int) -> [ProcessedQueueBatch] {
@@ -1047,6 +1291,12 @@ extension MessageManager {
                 let chunkArchiveQueryIds = archiveQueryIdsByPrimary.filter { primary, _ in
                     chunkPrimaries.contains(primary)
                 }
+                let chunkMediaAttachments =
+                    requiredMediaAttachmentsByMessagePrimary.filter {
+                        primary,
+                        _ in
+                        chunkPrimaries.contains(primary)
+                    }
                 let readStateChunk: [ReadStateReconciliationRequest]
                 if readStateRequests.count == messages.count {
                     readStateChunk = Array(readStateRequests[startIndex..<endIndex])
@@ -1056,7 +1306,9 @@ extension MessageManager {
                 return ProcessedQueueBatch(
                     messages: messageChunk,
                     readStateRequests: readStateChunk,
-                    archiveQueryIdsByPrimary: chunkArchiveQueryIds
+                    archiveQueryIdsByPrimary: chunkArchiveQueryIds,
+                    requiredMediaAttachmentsByMessagePrimary:
+                        chunkMediaAttachments
                 )
             }
         }
@@ -1306,6 +1558,7 @@ extension MessageManager {
                 .sorted()
             var persistedRows = 0
             var terminalCallbacks: [(
+                queryId: String,
                 summary: ArchivePersistenceSummary,
                 completions: [(ArchivePersistenceSummary) -> Void]
             )] = []
@@ -1314,6 +1567,7 @@ extension MessageManager {
                 persistedRows += summary.persistedRows
                 self.archiveQueryBatchIds.remove(queryId)
                 terminalCallbacks.append((
+                    queryId,
                     summary,
                     self.completeArchivePersistenceRequest(
                         queryId: queryId,
@@ -1330,6 +1584,9 @@ extension MessageManager {
             }
             terminalCallbacks.forEach { terminal in
                 terminal.completions.forEach { $0(terminal.summary) }
+                self.schedulePostPersistenceEffectsAfterTerminal(
+                    queryId: terminal.queryId
+                )
             }
         }
         clearQueue()
@@ -1705,7 +1962,6 @@ extension MessageManager {
             })
 
             self.adjustInFlightMessageCounts(for: results, delta: -1)
-            AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
 
             if self.queuedMessages.isEmpty {
                 self.isQueuedMessagesDrainScheduled = false
@@ -1854,6 +2110,7 @@ extension MessageManager {
 
     private func persistMessage(
         _ message: MessageStorageItem,
+        requiredMediaAttachments: [MessageMediaAttachmentStorageItem],
         in realm: Realm,
         silentNotifications: Bool,
         runtimeQueryIds: [String]?
@@ -1866,6 +2123,11 @@ extension MessageManager {
         if sideEffects?.shouldStoreStanza == true {
             message.storeStanza(in: realm)
         }
+        MessageStorageItem.persistPendingMediaAttachments(
+            requiredMediaAttachments,
+            forMessagePrimary: message.primary,
+            in: realm
+        )
 
         let outcome: ArchivePersistenceOutcome
         if sideEffects?.shouldStoreStanza == true {
@@ -1902,6 +2164,56 @@ extension MessageManager {
         )
     }
 
+    private func makePostPersistenceEffects(
+        batch: ProcessedQueueBatch,
+        persistedMessagePrimaryKeys: Set<String>,
+        notificationPayloads: [MessageStorageItem.SaveNotificationPayload]
+    ) -> PostPersistenceEffects {
+        var effects = PostPersistenceEffects()
+        effects.readStateRequests = batch.readStateRequests
+        effects.notificationPayloads = notificationPayloads
+        effects.scheduleMarkerMessagePrimaryKeys =
+            persistedMessagePrimaryKeys
+        do {
+            let realm = try WRealm.safe()
+            persistedMessagePrimaryKeys.forEach { primary in
+                guard let message = realm.object(
+                    ofType: MessageStorageItem.self,
+                    forPrimaryKey: primary
+                ) else {
+                    return
+                }
+                if message.conversationType == .group {
+                    effects.affectedGroupChats.insert(message.opponent)
+                }
+                message.referencesIncludingInlineForwards().forEach { entry in
+                    let reference = entry.reference
+                    guard reference.primary.isNotEmpty else {
+                        return
+                    }
+                    if reference.isVideoPreviewCandidate {
+                        effects.videoPreviewReferencePrimaryKeys.insert(
+                            reference.primary
+                        )
+                    }
+                    if reference.kind == .media {
+                        effects.sensitiveMediaReferencePrimaryKeys.insert(
+                            reference.primary
+                        )
+                    }
+                }
+            }
+        } catch {
+            DDLogDebug(
+                "MessageManager optional effect staging failed: \(error.localizedDescription)"
+            )
+        }
+        effects.needsEphemeralCleanup =
+            persistedMessagePrimaryKeys.isNotEmpty ||
+            batch.readStateRequests.isNotEmpty
+        return effects
+    }
+
     private func saveIndividuallyAfterBatchFailure(
         _ batch: ProcessedQueueBatch,
         silentNotifications: Bool
@@ -1916,9 +2228,10 @@ extension MessageManager {
             ("count", batch.messages.count)
         ])
         var outcomes: [ArchivePersistenceOutcomeItem] = []
-        var persistedMessages: [MessageStorageItem] = []
-        var referencePrepareMs = 0
-        var referenceCount = 0
+        var persistedMessagePrimaryKeys: Set<String> = []
+        var notificationPayloads: [
+            MessageStorageItem.SaveNotificationPayload
+        ] = []
 
         batch.messages.forEach { message in
             do {
@@ -1929,6 +2242,10 @@ extension MessageManager {
                 try realm.write {
                     let result = self.persistMessage(
                         message,
+                        requiredMediaAttachments:
+                            batch.requiredMediaAttachmentsByMessagePrimary[
+                                message.primary
+                            ] ?? [],
                         in: realm,
                         silentNotifications: silentNotifications,
                         runtimeQueryIds: batch.archiveQueryIdsByPrimary[message.primary]
@@ -1938,44 +2255,13 @@ extension MessageManager {
                 }
                 if let outcome {
                     outcomes.append(outcome)
-                    if outcome.outcome != .failed {
-                        persistedMessages.append(message)
+                    if outcome.outcome == .savedNew ||
+                        outcome.outcome == .updatedExisting {
+                        persistedMessagePrimaryKeys.insert(outcome.primaryID)
                     }
                 }
                 if let notification = sideEffects?.notification {
-                    NotifyManager.shared.update(
-                        withMessage: notification.message,
-                        messageId: notification.messageId,
-                        username: notification.username,
-                        opponent: notification.opponent,
-                        owner: notification.owner,
-                        date: notification.date,
-                        displayName: notification.displayName,
-                        imageUrl: notification.imageUrl,
-                        conversationType: notification.conversationType,
-                        preview: notification.preview
-                    )
-                }
-                message.references.forEach { reference in
-                    let referenceStartedAt = Date()
-                    ChatPerformanceSignposts.measure(.referencePrepare) {
-                        reference.prepare()
-                    }
-                    let durationMs = ChatArchiveDebugTrace.milliseconds(since: referenceStartedAt)
-                    referencePrepareMs += durationMs
-                    referenceCount += 1
-                    if durationMs > 100 {
-                        ChatArchiveDebugTrace.log("messageReferencePrepareSlow", [
-                            ("owner", self.owner),
-                            ("queryId", batch.archiveQueryIdsByPrimary[message.primary]?.joined(separator: ",") ?? message.queryIds ?? "-"),
-                            ("referencePrimary", reference.primary),
-                            ("kind", reference.kind.rawValue),
-                            ("mimeType", reference.mimeType),
-                            ("isDownloaded", reference.isDownloaded),
-                            ("hasPreview", reference.videoPreviewKey != nil),
-                            ("durationMs", durationMs)
-                        ])
-                    }
+                    notificationPayloads.append(notification)
                 }
                 ChatArchiveDebugTrace.log("messageSaveFallbackItem", [
                     ("owner", self.owner),
@@ -1994,15 +2280,20 @@ extension MessageManager {
             }
         }
 
-        AccountManager.shared.find(for: self.owner)?.messageSchedule.reconcileDeliveredScheduleMarkers(from: persistedMessages)
         self.recordArchivePersistenceOutcomes(outcomes)
         let summary = self.archiveSummary(from: outcomes)
+        self.stagePostPersistenceEffects(
+            self.makePostPersistenceEffects(
+                batch: batch,
+                persistedMessagePrimaryKeys: persistedMessagePrimaryKeys,
+                notificationPayloads: notificationPayloads
+            ),
+            archiveQueryIdsByPrimary: batch.archiveQueryIdsByPrimary
+        )
         ChatArchiveDebugTrace.log("messageSaveFallbackFinish", [
             ("owner", self.owner),
             ("queryId", batchQueryIds),
             ("durationMs", ChatArchiveDebugTrace.milliseconds(since: startedAt)),
-            ("referencePrepareMs", referencePrepareMs),
-            ("referenceCount", referenceCount),
             ("savedNew", summary.savedNew),
             ("updatedExisting", summary.updatedExisting),
             ("skipped", summary.skipped),
@@ -2051,24 +2342,19 @@ extension MessageManager {
         ])
         do {
             let realm = try  WRealm.safe()
-            var clearedStanzaIDs: Set<String> = []
             var notificationPayloads: [MessageStorageItem.SaveNotificationPayload] = []
-            var messagePrimariesToMarkRead: Set<String> = []
             var outcomes: [ArchivePersistenceOutcomeItem] = []
-            let affectedChats = Set(batch.messages.compactMap { message -> String? in
-                guard message.conversationType == .group else {
-                    return nil
-                }
-                return message.opponent
-            })
 
             try self.archiveBatchSaveFailureInjector?()
             let realmWriteStartedAt = Date()
             try realm.write {
-                clearedStanzaIDs = self.reconcileReadStates(batch.readStateRequests, in: realm)
                 batch.messages.forEach {
                     let result = self.persistMessage(
                         $0,
+                        requiredMediaAttachments:
+                            batch.requiredMediaAttachmentsByMessagePrimary[
+                                $0.primary
+                            ] ?? [],
                         in: realm,
                         silentNotifications: silentNotifications,
                         runtimeQueryIds: batch.archiveQueryIdsByPrimary[$0.primary]
@@ -2078,80 +2364,29 @@ extension MessageManager {
                         notificationPayloads.append(notification)
                     }
                 }
-                if affectedChats.isNotEmpty {
-                    messagePrimariesToMarkRead = MentionNotificationSync.reconcileMentionNotifications(
-                        for: self.owner,
-                        chats: affectedChats,
-                        in: realm
-                    )
-                }
             }
             let realmWriteMs = ChatArchiveDebugTrace.milliseconds(since: realmWriteStartedAt)
-
-            let sideEffectsStartedAt = Date()
-            if clearedStanzaIDs.isNotEmpty {
-                NotifyManager.shared.clearNotifications(forMessage: Array(clearedStanzaIDs))
-            }
-
-            notificationPayloads.forEach {
-                NotifyManager.shared.update(
-                    withMessage: $0.message,
-                    messageId: $0.messageId,
-                    username: $0.username,
-                    opponent: $0.opponent,
-                    owner: $0.owner,
-                    date: $0.date,
-                    displayName: $0.displayName,
-                    imageUrl: $0.imageUrl,
-                    conversationType: $0.conversationType,
-                    preview: $0.preview
-                )
-            }
-
-            messagePrimariesToMarkRead.forEach { primary in
-                self.readMessage(primary, last: false)
-            }
-            let sideEffectsMs = ChatArchiveDebugTrace.milliseconds(since: sideEffectsStartedAt)
-
-            let referencePrepareStartedAt = Date()
-            var referenceCount = 0
-            batch.messages.forEach {
-                message in
-                message.references.forEach {
-                    reference in
-                    let referenceStartedAt = Date()
-                    ChatPerformanceSignposts.measure(.referencePrepare) {
-                        reference.prepare()
-                    }
-                    let durationMs = ChatArchiveDebugTrace.milliseconds(since: referenceStartedAt)
-                    referenceCount += 1
-                    if durationMs > 100 {
-                        ChatArchiveDebugTrace.log("messageReferencePrepareSlow", [
-                            ("owner", self.owner),
-                            ("queryId", batch.archiveQueryIdsByPrimary[message.primary]?.joined(separator: ",") ?? message.queryIds ?? "-"),
-                            ("referencePrimary", reference.primary),
-                            ("kind", reference.kind.rawValue),
-                            ("mimeType", reference.mimeType),
-                            ("isDownloaded", reference.isDownloaded),
-                            ("hasPreview", reference.videoPreviewKey != nil),
-                            ("durationMs", durationMs)
-                        ])
-                    }
-                }
-            }
-            let referencePrepareMs = ChatArchiveDebugTrace.milliseconds(since: referencePrepareStartedAt)
-            AccountManager.shared.find(for: self.owner)?.chatMarkers.deleteEphemeralMessages()
-            AccountManager.shared.find(for: self.owner)?.messageSchedule.reconcileDeliveredScheduleMarkers(from: batch.messages)
             self.recordArchivePersistenceOutcomes(outcomes)
             let summary = self.archiveSummary(from: outcomes)
+            let durablePrimaryKeys = Set(outcomes.compactMap { outcome in
+                outcome.outcome == .savedNew ||
+                    outcome.outcome == .updatedExisting
+                    ? outcome.primaryID
+                    : nil
+            })
+            self.stagePostPersistenceEffects(
+                self.makePostPersistenceEffects(
+                    batch: batch,
+                    persistedMessagePrimaryKeys: durablePrimaryKeys,
+                    notificationPayloads: notificationPayloads
+                ),
+                archiveQueryIdsByPrimary: batch.archiveQueryIdsByPrimary
+            )
             ChatArchiveDebugTrace.log("messageSaveFinish", [
                 ("owner", self.owner),
                 ("queryId", batchQueryIds),
                 ("count", batch.messages.count),
                 ("realmWriteMs", realmWriteMs),
-                ("sideEffectsMs", sideEffectsMs),
-                ("referencePrepareMs", referencePrepareMs),
-                ("referenceCount", referenceCount),
                 ("durationMs", ChatArchiveDebugTrace.milliseconds(since: startedAt)),
                 ("savedNew", summary.savedNew),
                 ("updatedExisting", summary.updatedExisting),

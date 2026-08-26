@@ -27,6 +27,25 @@ private let referencesXMLNS = "https://xabber.com/protocol/references"
 private let geolocXMLNS = "http://jabber.org/protocol/geoloc"
 private let contactSharingXMLNS = "https://xabber.com/protocol/contact-sharing"
 private let avatarMetadataXMLNS = "urn:xmpp:avatar:metadata"
+private let inlineForwardXMLNS = "urn:xmpp:forward:0"
+private let delayedDeliveryXMLNS = "urn:xmpp:delay"
+
+let inlineForwardMaximumDepth = 8
+
+private func validatedHTTPThumbnailURI(_ rawValue: String) -> String? {
+    let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard value.isNotEmpty else { return nil }
+    let encoded = value.addingPercentEncoding(
+        withAllowedCharacters: .urlQueryAllowed
+    ) ?? value
+    guard let url = URL(string: encoded),
+          let scheme = url.scheme?.lowercased(),
+          ["http", "https"].contains(scheme),
+          url.host?.isNotEmpty == true else {
+        return nil
+    }
+    return value
+}
 
 enum GroupSystemMessageSource: Equatable {
     case live
@@ -280,67 +299,112 @@ func parseSystemMessageMetadata(
     return metadata
 }
 
-func parseInlineMessages(_ message: XMPPMessage, parentId: String, jid: String, owner: String) -> [MessageForwardsInlineStorageItem] {
-       
-    func delayedDate(delay dateString: String) -> Date? {
-        var date: Date? = nil
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-        date = dateFormatter.date(from: dateString)
-        if date == nil {
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
-            date = dateFormatter.date(from: dateString)
-        }
-        return date
+private struct InlineForwardPayload {
+    let message: XMPPMessage
+    let from: String
+    let to: String
+    let originalDate: Date?
+}
+
+private func inlineForwardPayload(
+    from reference: DDXMLElement
+) -> InlineForwardPayload? {
+    guard reference.xmlns() == referencesXMLNS,
+          reference.attributeStringValue(forName: "type") == "mutable" else {
+        return nil
     }
-    
-    func parse(_ ref: DDXMLElement) -> [MessageForwardsInlineStorageItem] {
-        guard ref.xmlns() == "https://xabber.com/protocol/references",
-            ref.attributeStringValue(forName: "type") == "mutable",
-            let forwarded = ref.element(forName: "forwarded", xmlns: "urn:xmpp:forward:0"),
-            let delay = forwarded.element(forName: "delay", xmlns: "urn:xmpp:delay")?.attributeStringValue(forName: "stamp"),
-            let messageDate = delayedDate(delay: delay),
-            let message = forwarded.element(forName: "message") else {
-                return []
-        }
-        let messageContainer = XMPPMessage(from: message)
-        guard let to = messageContainer.to?.bare else { return [] }
-        let from = messageContainer.from?.bare
-        var outgoing: Bool = owner != to
-        if  messageContainer.from?.bare != owner {
-            outgoing = false
-        }
-        var out: [MessageForwardsInlineStorageItem] = []
-        let item: MessageForwardsInlineStorageItem = MessageForwardsInlineStorageItem()
-        item.configureInline(messageContainer,
-                             parentId: parentId,
-                             owner: owner,
-                             jid: jid,
-                             opponent: (outgoing ? messageContainer.to?.bare : messageContainer.from?.bare) ?? jid,
-                             outgoing: outgoing,
-                             date: messageDate,
-                             forwardJid: from)
-        
-        if let opponent = (outgoing ? messageContainer.to?.bare : messageContainer.from?.bare) {
-            do {
-                let realm = try WRealm.safe()
-                item.rosterItem = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: [opponent, owner].prp())
-            } catch {
-                DDLogDebug("\(#function). \(error.localizedDescription)")
-            }
-        }
-        out.append(item)
-        return out
+
+    let forwardedElements = directElementChildren(of: reference).filter {
+        $0.name == "forwarded" && effectiveNamespace(of: $0) == inlineForwardXMLNS
     }
-    
-    var out: [MessageForwardsInlineStorageItem] = []
-    
-    for ref in message.elements(forName: "reference") {
-        out.append(contentsOf: parse(ref))
+    guard forwardedElements.count == 1 else { return nil }
+
+    let forwardedChildren = directElementChildren(of: forwardedElements[0])
+    let delayElements = forwardedChildren.filter {
+        $0.name == "delay" && effectiveNamespace(of: $0) == delayedDeliveryXMLNS
     }
-    
-    return out
+    guard delayElements.count <= 1 else { return nil }
+
+    let stanzaElements = forwardedChildren.filter { child in
+        !(child.name == "delay" && effectiveNamespace(of: child) == delayedDeliveryXMLNS)
+    }
+    guard stanzaElements.count == 1,
+          stanzaElements[0].name == "message" else {
+        return nil
+    }
+
+    let message = XMPPMessage(from: stanzaElements[0])
+    guard let from = message.from?.bare,
+          from.isNotEmpty,
+          let to = message.to?.bare,
+          to.isNotEmpty else {
+        return nil
+    }
+
+    let forwardedDate: Date?
+    if let delay = delayElements.first {
+        guard let stamp = delay.attributeStringValue(forName: "stamp")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              stamp.isNotEmpty,
+              let parsedDate = stamp.xmppDate else {
+            return nil
+        }
+        forwardedDate = parsedDate
+    } else {
+        forwardedDate = getDeliveryDate(message)
+    }
+
+    return InlineForwardPayload(
+        message: message,
+        from: from,
+        to: to,
+        originalDate: forwardedDate
+    )
+}
+
+func parseInlineMessages(
+    _ message: XMPPMessage,
+    parentId: String,
+    jid: String,
+    owner: String,
+    depth: Int = 0
+) -> [MessageForwardsInlineStorageItem] {
+    guard depth < inlineForwardMaximumDepth else { return [] }
+
+    let escapedBody = (message.body ?? "").xmlEscaping(reverse: false)
+
+    return message.elements(forName: "reference").compactMap { reference in
+        guard messageReferenceWireRange(reference, in: escapedBody) != nil,
+              let payload = inlineForwardPayload(from: reference) else {
+            return nil
+        }
+
+        let outgoing = payload.from == owner && payload.to != owner
+        let opponent = outgoing ? payload.to : payload.from
+        let item = MessageForwardsInlineStorageItem()
+        item.configureInline(
+            payload.message,
+            parentId: parentId,
+            owner: owner,
+            jid: jid,
+            opponent: opponent,
+            outgoing: outgoing,
+            date: payload.originalDate,
+            forwardJid: payload.from,
+            forwardDepth: depth + 1
+        )
+
+        do {
+            let realm = try WRealm.safe()
+            item.rosterItem = realm.object(
+                ofType: RosterStorageItem.self,
+                forPrimaryKey: [opponent, owner].prp()
+            )
+        } catch {
+            DDLogDebug("\(#function). \(error.localizedDescription)")
+        }
+        return item
+    }
 }
 
 func getReferenceType(_ ref: DDXMLElement) -> String? {
@@ -369,7 +433,7 @@ func getReferenceType(_ ref: DDXMLElement) -> String? {
             return "mention"
         }
         return "markup"
-    } else if ref.element(forName: "forwarded", xmlns: "urn:xmpp:forward:0") != nil {
+    } else if inlineForwardPayload(from: ref) != nil {
         return "forward"
     }
     return nil
@@ -493,6 +557,7 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 attachment.jid = jid
                 attachment.owner = owner
                 attachment.conversationType = conversationType
+                attachment.messagePrimary = primary
                 attachment.archiveId = getStanzaId(message, owner: owner)
                 attachment.metadata = metadata
                 switch reference.mimeType {
@@ -513,28 +578,29 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 attachment.sizeBytes = file.element(forName: "size")?.stringValueAsNSInteger() ?? 0
                 attachment.metadata = metadata
                 
-                if let thumb = file.element(forName: "thumbnail"), let dataURI = thumb.attributeStringValue(forName: "uri") {
-                    if let commaIndex = dataURI.firstIndex(of: ","),
-                       dataURI.hasPrefix("data:image/") {
-                        let base64String = String(dataURI[dataURI.index(after: commaIndex)...])
+                if let thumb = file.element(forName: "thumbnail"),
+                   let thumbnailURI = thumb.attributeStringValue(forName: "uri") {
+                    if let commaIndex = thumbnailURI.firstIndex(of: ","),
+                       thumbnailURI.hasPrefix("data:image/") {
+                        let base64String = String(
+                            thumbnailURI[thumbnailURI.index(after: commaIndex)...]
+                        )
                         attachment.verySmallThumb = base64String
-                    }
-                }
-                
-                do {
-                    let realm = try WRealm.safe()
-                    if realm.object(ofType: MessageMediaAttachmentStorageItem.self, forPrimaryKey: attachment.primary) == nil {
-                        if realm.isInWriteTransaction {
-                            realm.add(attachment, update: .modified)
-                        } else {
-                            try realm.write {
-                                realm.add(attachment, update: .modified)
-                            }
+                        if let thumbnailMediaType =
+                            MessageMediaThumbnailDataURLPolicy.mediaType(
+                                fromDataURL: thumbnailURI
+                            ) ?? thumb.attributeStringValue(forName: "media-type") {
+                            metadata["thumbnail-media-type"] = thumbnailMediaType
                         }
+                    } else if let remoteThumbnailURI = validatedHTTPThumbnailURI(
+                        thumbnailURI
+                    ) {
+                        metadata["thumbnail-uri"] = remoteThumbnailURI
                     }
-                } catch {
-                    DDLogDebug("MessageReferencePArser: \(#function). \(error.localizedDescription)")
                 }
+                attachment.metadata = metadata
+
+                reference.pendingMediaAttachment = attachment
             case .geoloc:
                 guard let geoloc = geolocElement(from: ref),
                       let latitude = validGeolocCoordinate(

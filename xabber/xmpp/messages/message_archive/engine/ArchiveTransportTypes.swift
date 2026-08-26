@@ -29,6 +29,125 @@ struct ArchiveTransportReceipt: Hashable, Sendable {
     var finalReceived: Bool
 }
 
+struct ArchiveSearchTransportRequest: Hashable, Sendable {
+    let queryID: String
+    let scope: ArchiveSearchScope
+    let query: String
+    let connectionGeneration: UInt64
+    let pageCursor: String?
+    let pageSize: Int
+
+    init(
+        queryID: String,
+        scope: ArchiveSearchScope,
+        query: String,
+        connectionGeneration: UInt64,
+        pageCursor: String?,
+        pageSize: Int
+    ) {
+        self.queryID = queryID
+        self.scope = scope
+        self.query = query
+        self.connectionGeneration = connectionGeneration
+        self.pageCursor = pageCursor
+        self.pageSize = pageSize
+    }
+
+    init(
+        queryID: String,
+        conversation: ArchiveConversationKey,
+        query: String,
+        connectionGeneration: UInt64,
+        pageCursor: String?,
+        pageSize: Int
+    ) {
+        self.init(
+            queryID: queryID,
+            scope: .conversation(conversation),
+            query: query,
+            connectionGeneration: connectionGeneration,
+            pageCursor: pageCursor,
+            pageSize: pageSize
+        )
+    }
+
+    var conversation: ArchiveConversationKey? { scope.conversation }
+    var jid: String? { scope.jid }
+    var conversationType: ClientSynchronizationManager.ConversationType {
+        scope.conversationType
+    }
+}
+
+struct ArchiveSearchTransportReceipt: Hashable, Sendable {
+    let queryID: String
+    let connectionGeneration: UInt64
+    let messages: [ArchiveSearchMessage]
+    let first: String
+    let last: String
+    let complete: Bool
+    let deliveredResultCount: Int
+    let persistedResultCount: Int
+    let failedPersistenceCount: Int
+    let finalReceived: Bool
+}
+
+struct ValidatedArchiveSearchPage: Hashable, Sendable {
+    let messages: [ArchiveSearchMessage]
+    let continuationCursor: String?
+    let isComplete: Bool
+}
+
+enum ArchiveSearchTransportReceiptValidator {
+    static func validate(
+        _ receipt: ArchiveSearchTransportReceipt,
+        for request: ArchiveSearchTransportRequest
+    ) throws -> ValidatedArchiveSearchPage {
+        guard receipt.finalReceived else {
+            throw ArchiveTransportValidationError.missingFinal
+        }
+        guard receipt.queryID == request.queryID else {
+            throw ArchiveTransportValidationError.staleQuery
+        }
+        guard receipt.connectionGeneration == request.connectionGeneration else {
+            throw ArchiveTransportValidationError.staleConnectionGeneration
+        }
+        guard receipt.failedPersistenceCount == 0 else {
+            throw ArchiveTransportValidationError.persistenceFailure
+        }
+        guard receipt.deliveredResultCount >= receipt.messages.count,
+              receipt.persistedResultCount >= 0,
+              receipt.persistedResultCount <= receipt.deliveredResultCount else {
+            throw ArchiveTransportValidationError.incompletePersistenceAccounting(
+                delivered: receipt.deliveredResultCount,
+                persisted: receipt.persistedResultCount,
+                consumed: max(0, receipt.deliveredResultCount - receipt.persistedResultCount),
+                resultArchiveIDs: receipt.deliveredResultCount,
+                messagePrimaryIDs: receipt.messages.count
+            )
+        }
+
+        let exhausted = receipt.complete || receipt.deliveredResultCount == 0
+        let continuation: String?
+        if exhausted {
+            continuation = nil
+        } else {
+            let normalized = receipt.first.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard normalized.isNotEmpty else {
+                throw ArchiveTransportValidationError.malformedBoundary
+            }
+            guard normalized != request.pageCursor else {
+                throw ArchiveTransportValidationError.nonAdvancingCursor
+            }
+            continuation = normalized
+        }
+        return ValidatedArchiveSearchPage(
+            messages: receipt.messages,
+            continuationCursor: continuation,
+            isComplete: exhausted
+        )
+    }
+}
+
 enum ArchiveTransportValidationError: Error, Equatable, Sendable {
     case missingFinal
     case staleQuery
@@ -245,7 +364,6 @@ enum ArchiveRepositoryAdmission: Hashable, Sendable {
 }
 
 protocol ArchiveCoverageRepository: Sendable {
-    func verifyProvisionalCoverage(owner: String, fingerprint: String) async throws
     func verifiedAdmission(
         for intent: ArchiveWindowIntent,
         freshnessToken: ArchiveFreshnessToken
@@ -289,13 +407,19 @@ protocol ArchiveTransport: Sendable {
     ) async throws -> ArchiveTransportReceipt
     func promote(
         descriptor: ArchiveIntentDescriptor,
+        connectionGeneration: UInt64,
         to priority: ArchiveIntentPriority
     ) async
+    func searchPage(
+        _ request: ArchiveSearchTransportRequest,
+        priority: ArchiveIntentPriority
+    ) async throws -> ArchiveSearchTransportReceipt
 }
 
 enum ArchiveTransportError: Error, Equatable, Sendable {
     case disconnected
     case timeout
+    case serverError
     case storage
     case authentication
     case protocolViolation
@@ -303,7 +427,7 @@ enum ArchiveTransportError: Error, Equatable, Sendable {
 
     var isRetryable: Bool {
         switch self {
-        case .disconnected, .timeout, .storage:
+        case .disconnected, .timeout, .serverError, .storage:
             return true
         case .authentication, .protocolViolation, .malformedCursor:
             return false

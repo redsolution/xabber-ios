@@ -76,6 +76,33 @@ final class VoIPCall: NSObject {
         case unhandled
     }
 
+    internal struct IncomingMessagePayload {
+        let message: XMPPMessage
+        let isCarbon: Bool
+    }
+
+    internal static func unwrapIncomingMessage(_ message: XMPPMessage) -> IncomingMessagePayload? {
+        if isCarbonCopy(message) {
+            guard let innerMessage = getCarbonCopyMessageContainer(message) else {
+                return nil
+            }
+            return IncomingMessagePayload(message: innerMessage, isCarbon: true)
+        }
+        if isCarbonForwarded(message) {
+            guard let innerMessage = getCarbonForwardedMessageContainer(message) else {
+                return nil
+            }
+            return IncomingMessagePayload(message: innerMessage, isCarbon: false)
+        }
+        if isForwardedMessage(message) {
+            guard let innerMessage = getForwardedMessage(message) else {
+                return nil
+            }
+            return IncomingMessagePayload(message: innerMessage, isCarbon: false)
+        }
+        return IncomingMessagePayload(message: message, isCarbon: false)
+    }
+
     internal static func incomingIQRoute(for iq: XMPPIQ) -> IncomingIQRoute {
         if iq.iqType == .set {
             if let action = iq
@@ -1440,24 +1467,20 @@ extension VoIPCall: XMPPStreamDelegate {
             ],
             rawXML: message.xmlString
         )
-        var bareMessage: XMPPMessage
-        var isCarbon: Bool = false
-        if isCarbonCopy(message) {
-            isCarbon = true
-            bareMessage = getCarbonCopyMessageContainer(message)!// ?? message
-        } else if isCarbonForwarded(message) {
-            bareMessage = getCarbonForwardedMessageContainer(message)!// ?? message
-        } else if isForwardedMessage(message) {
-            bareMessage = getForwardedMessage(message)!// ?? message
-        } else {
-            bareMessage = message
+        guard let payload = Self.unwrapIncomingMessage(message) else {
+            DDLogWarn(
+                "VoIPCall: ignore malformed forwarded message " +
+                "owner=\(owner) callId=\(callId) id=\(message.elementID ?? "none")"
+            )
+            return
         }
+        let bareMessage = payload.message
         let fromDeviceId = bareMessage.element(forName: "device")?.attributeStringValue(forName: "id")
         let currentDeviceId = AccountManager.shared.find(for: owner)?.devices.deviceId
         let fromCurrentDevice = fromDeviceId != nil && fromDeviceId == currentDeviceId
         switch true {
-            case onAccept(bareMessage, carbons: isCarbon): return
-            case onReject(bareMessage, carbons: isCarbon, fromCurrentDevice: fromCurrentDevice): return
+            case onAccept(bareMessage, carbons: payload.isCarbon): return
+            case onReject(bareMessage, carbons: payload.isCarbon, fromCurrentDevice: fromCurrentDevice): return
             default: return
         }
     }

@@ -71,45 +71,6 @@ final class LastChatsSearchProvenanceRouteTests: XCTestCase {
         XCTAssertFalse(request.markReadOnVisible)
     }
 
-    func testNilSourceDateNeverCreatesDateWindowPlan() {
-        let provenance = makeMessageProvenance(
-            primary: nil,
-            archivedId: "archive-id",
-            messageId: nil,
-            sourceDate: nil
-        )
-        let outcome = LastChatsSearchRouteFactory.outcome(
-            for: provenance,
-            activeGeneration: provenance.queryGeneration
-        )
-        guard case .message(let request) = outcome else {
-            return XCTFail("Expected message route")
-        }
-
-        XCTAssertEqual(ChatAnchorFetchPolicy.initialPlan(for: request.anchor, pageSize: 40), .exactArchivedId("archive-id"))
-        XCTAssertNil(
-            ChatAnchorFetchPolicy.fallbackPlan(
-                after: .exactArchivedId("archive-id"),
-                anchor: request.anchor,
-                pageSize: 40
-            )
-        )
-
-        let identityWithoutDate = makeMessageProvenance(
-            primary: "message-primary",
-            archivedId: nil,
-            messageId: nil,
-            sourceDate: nil
-        )
-        guard case .message(let requestWithoutDate) = LastChatsSearchRouteFactory.outcome(
-            for: identityWithoutDate,
-            activeGeneration: identityWithoutDate.queryGeneration
-        ) else {
-            return XCTFail("Expected primary-only message route")
-        }
-        XCTAssertNil(ChatAnchorFetchPolicy.initialPlan(for: requestWithoutDate.anchor, pageSize: 40))
-    }
-
     func testContactResultRoutesToLatestExplicitly() {
         let provenance = LastChatsSearchResultProvenance.latest(
             conversation: conversation,

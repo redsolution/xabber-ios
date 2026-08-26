@@ -174,19 +174,38 @@ final class MessagesCollectionViewFlowLayoutTests: XCTestCase {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let source = try String(
-            contentsOf: root.appendingPathComponent(
-                "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift"
-            ),
-            encoding: .utf8
-        )
-        let mappingCount = source.components(separatedBy: "let mappingResult = self.mapDataset").count - 1
-        let preparedApplyCount = source.components(
-            separatedBy: "preparedLayouts: mappingResult.layoutSnapshot"
-        ).count - 1
+        let workerSourcePaths = [
+            "xabber/controllers/chats/chat/ChatViewController.swift",
+            "xabber/controllers/chats/chat/extension/ChatViewController+ArchiveEngine.swift",
+            "xabber/controllers/chats/chat/extension/ChatViewController+SearchBar.swift"
+        ]
+        let mappingMarker = "let mappingResult = self.mapDataset("
+        let preparedApplyMarker =
+            "preparedLayouts: mappingResult.layoutSnapshot"
+        var inspectedMappingSiteCount = 0
 
-        XCTAssertEqual(mappingCount, 9)
-        XCTAssertEqual(preparedApplyCount, 11)
+        for sourcePath in workerSourcePaths {
+            let source = try String(
+                contentsOf: root.appendingPathComponent(sourcePath),
+                encoding: .utf8
+            )
+            let mappingTails = source
+                .components(separatedBy: mappingMarker)
+                .dropFirst()
+            XCTAssertFalse(
+                mappingTails.isEmpty,
+                "Expected at least one worker mapping site in \(sourcePath)"
+            )
+            for (index, mappingTail) in mappingTails.enumerated() {
+                inspectedMappingSiteCount += 1
+                XCTAssertTrue(
+                    mappingTail.contains(preparedApplyMarker),
+                    "Worker mapping site \(index + 1) in \(sourcePath) must carry its prepared layout snapshot into datasource apply"
+                )
+            }
+        }
+
+        XCTAssertGreaterThan(inspectedMappingSiteCount, 0)
     }
 
     private var forwardSize: MessageAttachmentSizes {

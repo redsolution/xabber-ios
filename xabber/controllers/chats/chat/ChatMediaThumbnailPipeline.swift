@@ -525,9 +525,30 @@ private final class KingfisherChatThumbnailLoader: ChatThumbnailLoading {
         completion: @escaping (Result<ChatThumbnailImage, ChatThumbnailPipelineError>) -> Void
     ) -> ChatThumbnailLoadTask {
         let token = KingfisherChatThumbnailLoadTask()
-        let resource = Kingfisher.ImageResource(downloadURL: request.url, cacheKey: request.cacheKey)
+        let source: Kingfisher.Source
+        if request.url.scheme?.lowercased() == "data" {
+            guard let data = MessageMediaThumbnailDataURLPolicy.decodedData(
+                from: request.url
+            ) else {
+                completion(.failure(.loadFailed))
+                return token
+            }
+            source = .provider(
+                Kingfisher.RawImageDataProvider(
+                    data: data,
+                    cacheKey: request.cacheKey
+                )
+            )
+        } else {
+            source = .network(
+                Kingfisher.ImageResource(
+                    downloadURL: request.url,
+                    cacheKey: request.cacheKey
+                )
+            )
+        }
         let task = KingfisherManager.shared.retrieveImage(
-            with: resource,
+            with: source,
             options: [
                 .backgroundDecode,
                 .callbackQueue(.mainCurrentOrAsync),

@@ -202,6 +202,11 @@ class SearchResultsViewController: SimpleBaseViewController {
     internal var currentQueries: Set<SearchRequest> = Set()
     
     internal var messagesQueue: [MessageStorageItem] = []
+
+    private var archiveSearchGeneration: UInt64 = 0
+    private var archiveSearchStateTasks: [ArchiveSearchScope: Task<Void, Never>] = [:]
+    private var archiveSearchClientQueryIDs: [ArchiveSearchScope: String] = [:]
+    private var archiveSearchSnapshots: [ArchiveSearchScope: ArchiveSearchSnapshot] = [:]
     
     internal var currentVc: ChatViewController? = nil
     
@@ -222,7 +227,7 @@ class SearchResultsViewController: SimpleBaseViewController {
         self.searchObserver
             .asObservable()
             .distinctUntilChanged()
-            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(300), scheduler: MainScheduler.asyncInstance)
             .subscribe { searchText in
                 self.updateDatasource(searchText)
             } onError: { _ in
@@ -274,28 +279,175 @@ class SearchResultsViewController: SimpleBaseViewController {
                     item in
                     self.messagesQueue.append(item)
             }
-            let requestCallbacks = MessageArchiveManager.RequestCallbacks(
-                onMessage: { [weak self] item, queryId in
-                    self?.didReceiveMessage(item, queryId: queryId)
-                },
-                onEndPage: { [weak self] queryId, state, first, last, count in
-                    self?.didReceiveEndPage(queryId: queryId, state: state, first: first, last: last, count: count)
-                }
-            )
-            guard let manager = AccountManager.shared.find(for: owner)?.mam else {
+            guard AccountManager.shared.find(for: owner) != nil else {
                 return
             }
-            let queryId = manager.scheduleSearchText(
-                conversationType: .regular,
-                text: text,
-                max: ArchivePageSizing.search,
-                loadFull: false,
-                maximumPageCount: 1,
-                requestCallbacks: requestCallbacks
-            )
-            self.registerSearchRequest(owner: owner, queryId: queryId)
+            [
+                ClientSynchronizationManager.ConversationType.regular,
+                .group,
+            ].forEach {
+                startArchiveEngineSearch(
+                    owner: owner,
+                    conversationType: $0,
+                    text: text
+                )
+            }
         } catch {
             DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+
+    private func startArchiveEngineSearch(
+        owner: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        text: String
+    ) {
+        guard let account = AccountManager.shared.find(for: owner) else { return }
+        let scope = ArchiveSearchScope.account(
+            owner: owner,
+            conversationType: conversationType
+        )
+        let clientQueryID = [
+            "legacy-global-archive-search",
+            owner,
+            String(archiveSearchGeneration),
+            text,
+        ].prp()
+        archiveSearchClientQueryIDs[scope] = clientQueryID
+        registerSearchRequest(
+            owner: owner,
+            queryId: [clientQueryID, conversationType.rawValue].prp()
+        )
+        archiveSearchStateTasks[scope]?.cancel()
+        archiveSearchStateTasks[scope] = Task { [weak self, weak account] in
+            guard let account else { return }
+            let states = await account.archiveEngine.searchStates(for: scope)
+            _ = await account.archiveEngine.startSearch(
+                ArchiveSearchIntent(
+                    clientQueryID: clientQueryID,
+                    scope: scope,
+                    query: text
+                )
+            )
+            for await state in states {
+                guard !Task.isCancelled else { return }
+                self?.receiveArchiveEngineSearchState(
+                    state,
+                    scope: scope,
+                    clientQueryID: clientQueryID
+                )
+            }
+        }
+    }
+
+    private func receiveArchiveEngineSearchState(
+        _ state: ArchiveSearchState,
+        scope: ArchiveSearchScope,
+        clientQueryID: String
+    ) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.receiveArchiveEngineSearchState(
+                    state,
+                    scope: scope,
+                    clientQueryID: clientQueryID
+                )
+            }
+            return
+        }
+        guard archiveSearchClientQueryIDs[scope] == clientQueryID else { return }
+        switch state {
+        case .loading(let snapshot):
+            guard snapshot.clientQueryID == clientQueryID else { return }
+            archiveSearchSnapshots[scope] = snapshot
+            isLoadingDone = false
+        case .results(let snapshot):
+            guard snapshot.clientQueryID == clientQueryID else { return }
+            archiveSearchSnapshots[scope] = snapshot
+            mergeArchiveSearchMessages(snapshot.residentMessages)
+            markArchiveSearchScopeTerminalIfNeeded(scope, snapshot: snapshot)
+        case .retryableFailure(let snapshot, _):
+            guard snapshot.clientQueryID == clientQueryID else { return }
+            archiveSearchSnapshots[scope] = snapshot
+            mergeArchiveSearchMessages(snapshot.residentMessages)
+            markArchiveSearchScopeTerminalIfNeeded(scope, snapshot: snapshot)
+        }
+    }
+
+    private func mergeArchiveSearchMessages(_ messages: [ArchiveSearchMessage]) {
+        do {
+            let realm = try WRealm.safe()
+            var existing = Set(messagesQueue.map(\.primary))
+            messages.forEach { message in
+                guard existing.insert(message.primaryID).inserted,
+                      let item = realm.object(
+                          ofType: MessageStorageItem.self,
+                          forPrimaryKey: message.primaryID
+                      ) else {
+                    return
+                }
+                messagesQueue.append(item)
+            }
+            try updateMessagesSearchResults()
+        } catch {
+            DDLogDebug("SearchResultsViewController: \(#function). \(error.localizedDescription)")
+        }
+    }
+
+    private func markArchiveSearchScopeTerminalIfNeeded(
+        _ scope: ArchiveSearchScope,
+        snapshot: ArchiveSearchSnapshot
+    ) {
+        if snapshot.isComplete {
+            let registrationID = [
+                archiveSearchClientQueryIDs[scope] ?? "",
+                scope.conversationType.rawValue,
+            ].prp()
+            currentQueries = currentQueries.filter {
+                $0.owner != scope.owner || $0.queryId != registrationID
+            }
+        }
+        isLoadingDone = archiveSearchSnapshots.values.allSatisfy {
+            $0.isComplete || (!$0.isLoading && $0.continuationCursor == nil)
+        }
+    }
+
+    internal func requestNextArchiveSearchPageIfNeeded(at indexPath: IndexPath) {
+        guard sections.indices.contains(indexPath.section),
+              sections[indexPath.section].kind == .messages,
+              indexPath.row >= max(0, messagesDatasource.count - 12) else {
+            return
+        }
+        archiveSearchSnapshots.forEach { scope, snapshot in
+            guard snapshot.canRequestNextPage,
+                  let clientQueryID = archiveSearchClientQueryIDs[scope],
+                  let account = AccountManager.shared.find(for: scope.owner) else {
+                return
+            }
+            Task {
+                _ = await account.archiveEngine.requestNextSearchPage(
+                    scope: scope,
+                    clientQueryID: clientQueryID
+                )
+            }
+        }
+    }
+
+    private func cancelArchiveEngineSearches() {
+        archiveSearchGeneration &+= 1
+        archiveSearchStateTasks.values.forEach { $0.cancel() }
+        archiveSearchStateTasks.removeAll(keepingCapacity: false)
+        let queryIDs = archiveSearchClientQueryIDs
+        archiveSearchClientQueryIDs.removeAll(keepingCapacity: false)
+        archiveSearchSnapshots.removeAll(keepingCapacity: false)
+        queryIDs.forEach { scope, clientQueryID in
+            guard let account = AccountManager.shared.find(for: scope.owner) else { return }
+            Task {
+                await account.archiveEngine.cancelSearch(
+                    scope: scope,
+                    clientQueryID: clientQueryID
+                )
+            }
         }
     }
     
@@ -437,6 +589,7 @@ class SearchResultsViewController: SimpleBaseViewController {
     }
     
     private func updateDatasource(_ searchText: String?) {
+        cancelArchiveEngineSearches()
         do {
             self.chatsDatasource = []
             let realm = try WRealm.safe()
@@ -685,6 +838,7 @@ class SearchResultsViewController: SimpleBaseViewController {
         tableView.fillSuperview()
         
         tableView.dataSource = self
+        tableView.delegate = self
     }
 }
 
@@ -1083,7 +1237,7 @@ enum InPlaceSearchResultRouteHelper {
     }
 }
 
-final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, TemporaryMessageReceiverProtocol {
+final class ChatSearchResultsController: NSObject, UISearchResultsUpdating {
     typealias Section = SearchResultsViewController.Section
     typealias Datasource = SearchResultsViewController.Datasource
     typealias SearchRequest = SearchResultsViewController.SearchRequest
@@ -1111,12 +1265,14 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
     private var localPageCancellations: [LastChatsSearchProviderID: LastChatsSearchCancellationToken] = [:]
     private var presentationByStableID: [String: (revision: UInt64, datasource: Datasource)] = [:]
 
-    private struct RemotePageContext {
-        let request: LastChatsSearchPageRequest
-        var items: [LastChatsSearchItem]
+    private struct RemoteArchiveEngineBinding {
+        let scope: ArchiveSearchScope
+        let clientQueryID: String
     }
 
-    private var remotePagesByQueryID: [String: RemotePageContext] = [:]
+    private var remoteArchiveEngineBindings: [LastChatsSearchProviderID: RemoteArchiveEngineBinding] = [:]
+    private var remoteArchiveEngineRequests: [LastChatsSearchProviderID: LastChatsSearchPageRequest] = [:]
+    private var remoteArchiveEngineStateTasks: [LastChatsSearchProviderID: Task<Void, Never>] = [:]
 
     internal lazy var enabledAccounts: [String] = {
         do {
@@ -1296,7 +1452,7 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
             .asObservable()
             .skip(1)
             .distinctUntilChanged()
-            .debounce(.milliseconds(250), scheduler: MainScheduler.asyncInstance)
+            .debounce(.milliseconds(300), scheduler: MainScheduler.asyncInstance)
             .subscribe { [weak self] searchText in
                 self?.updateDatasource(searchText)
             } onError: { _ in
@@ -1331,7 +1487,23 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
         pipeline.cancel()
         localPageCancellations.values.forEach { $0.cancel() }
         localPageCancellations.removeAll(keepingCapacity: false)
-        remotePagesByQueryID.removeAll(keepingCapacity: false)
+        remoteArchiveEngineStateTasks.values.forEach { $0.cancel() }
+        remoteArchiveEngineStateTasks.removeAll(keepingCapacity: false)
+        let bindings = remoteArchiveEngineBindings
+        remoteArchiveEngineBindings.removeAll(keepingCapacity: false)
+        remoteArchiveEngineRequests.removeAll(keepingCapacity: false)
+        bindings.forEach { provider, binding in
+            guard case .remoteArchive(let owner, _) = provider,
+                  let account = AccountManager.shared.find(for: owner) else {
+                return
+            }
+            Task {
+                await account.archiveEngine.cancelSearch(
+                    scope: binding.scope,
+                    clientQueryID: binding.clientQueryID
+                )
+            }
+        }
         if clearPresentation {
             presentationByStableID.removeAll(keepingCapacity: false)
         }
@@ -1411,53 +1583,155 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
             return
         }
 
-        let callbacks = MessageArchiveManager.RequestCallbacks(
-            onMessage: { [weak self] item, queryId in
-                self?.didReceiveMessage(item, queryId: queryId)
-            },
-            onEndPage: { [weak self] queryId, state, first, last, count in
-                self?.didReceiveEndPage(
-                    queryId: queryId,
-                    state: state,
-                    first: first,
-                    last: last,
-                    count: count
-                )
-            }
-        )
-
-        let register: (MessageArchiveManager) -> Void = { [weak self] manager in
-            guard let self else { return }
-            let queryId = manager.scheduleSearchText(
-                conversationType: conversationType,
-                text: request.query,
-                max: request.limit,
-                loadFull: false,
-                pageCursor: request.cursor?.opaque,
-                maximumPageCount: 1,
-                requestCallbacks: callbacks
-            )
-            let registration = {
-                guard request.generation == self.pipeline.snapshot.generation else { return }
-                self.remotePagesByQueryID[queryId] = RemotePageContext(
-                    request: request,
-                    items: []
-                )
-            }
-            if Thread.isMainThread {
-                registration()
-            } else {
-                DispatchQueue.main.async(execute: registration)
-            }
-        }
-
-        guard let manager = AccountManager.shared.find(for: owner)?.mam else {
+        guard let account = AccountManager.shared.find(for: owner) else {
             DispatchQueue.main.async { [weak self] in
                 self?.receive(.failed(request, reason: .providerUnavailable))
             }
             return
         }
-        register(manager)
+        let scope = ArchiveSearchScope.account(
+            owner: owner,
+            conversationType: conversationType
+        )
+        let clientQueryID = [
+            "global-archive-search",
+            owner,
+            String(request.generation),
+            request.query,
+        ].prp()
+        remoteArchiveEngineRequests[request.provider] = request
+
+        if request.ordinal == 0 {
+            remoteArchiveEngineStateTasks[request.provider]?.cancel()
+            let binding = RemoteArchiveEngineBinding(
+                scope: scope,
+                clientQueryID: clientQueryID
+            )
+            remoteArchiveEngineBindings[request.provider] = binding
+            remoteArchiveEngineStateTasks[request.provider] = Task { [weak self, weak account] in
+                guard let account else { return }
+                let states = await account.archiveEngine.searchStates(for: scope)
+                _ = await account.archiveEngine.startSearch(
+                    ArchiveSearchIntent(
+                        clientQueryID: clientQueryID,
+                        scope: scope,
+                        query: request.query
+                    )
+                )
+                for await state in states {
+                    guard !Task.isCancelled else { return }
+                    self?.receiveRemoteArchiveEngineState(
+                        state,
+                        provider: request.provider,
+                        binding: binding
+                    )
+                }
+            }
+            return
+        }
+
+        guard remoteArchiveEngineBindings[request.provider]?.clientQueryID == clientQueryID else {
+            receive(.failed(request, reason: .cancelled))
+            return
+        }
+        Task { [weak self, weak account] in
+            guard let account else { return }
+            let accepted = await account.archiveEngine.requestNextSearchPage(
+                scope: scope,
+                clientQueryID: clientQueryID
+            )
+            guard !accepted else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      self.remoteArchiveEngineRequests[request.provider] == request else {
+                    return
+                }
+                self.receive(.failed(request, reason: .queryFailed))
+            }
+        }
+    }
+
+    private func receiveRemoteArchiveEngineState(
+        _ state: ArchiveSearchState,
+        provider: LastChatsSearchProviderID,
+        binding: RemoteArchiveEngineBinding
+    ) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.receiveRemoteArchiveEngineState(
+                    state,
+                    provider: provider,
+                    binding: binding
+                )
+            }
+            return
+        }
+        guard remoteArchiveEngineBindings[provider]?.clientQueryID == binding.clientQueryID,
+              let request = remoteArchiveEngineRequests[provider],
+              request.generation == pipeline.snapshot.generation else {
+            return
+        }
+
+        let snapshot: ArchiveSearchSnapshot
+        switch state {
+        case .loading(let loading):
+            guard loading.clientQueryID == binding.clientQueryID else { return }
+            isLoadingDone = false
+            onSnapshotChanged?()
+            return
+        case .results(let results):
+            snapshot = results
+        case .retryableFailure(let retained, let failure):
+            guard retained.clientQueryID == binding.clientQueryID else { return }
+            if failure.canRetry, let continuation = retained.continuationCursor {
+                receive(
+                    .page(
+                        LastChatsSearchProviderPage(
+                            request: request,
+                            items: [],
+                            nextCursor: LastChatsSearchCursor(opaque: continuation)
+                        )
+                    )
+                )
+            } else if failure.canRetry {
+                // Keep the first-page request owned by the pipeline. The
+                // archive engine resumes it after reconnect; marking the
+                // provider terminal here would make that valid receipt stale.
+                isLoadingDone = true
+                onSnapshotChanged?()
+            } else {
+                receive(.failed(request, reason: .queryFailed))
+            }
+            return
+        }
+
+        guard snapshot.clientQueryID == binding.clientQueryID,
+              snapshot.requestAttempt == request.ordinal + 1,
+              let page = snapshot.residentPages.last(where: {
+                  $0.requestCursor == request.cursor?.opaque
+              }) else {
+            return
+        }
+        let items = page.messages.prefix(request.limit).map {
+            LastChatsSearchLocalPageLoader.messageProjection(
+                $0,
+                request: request
+            )
+        }
+        receive(
+            .page(
+                LastChatsSearchProviderPage(
+                    request: request,
+                    items: items,
+                    nextCursor: page.continuationCursor.map(
+                        LastChatsSearchCursor.init(opaque:)
+                    )
+                )
+            )
+        )
+        if page.isComplete {
+            receive(.finished(request))
+        }
     }
 
     internal final func replaceMessageStorageItemsForTesting(
@@ -1829,74 +2103,14 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating, Temp
         }
     }
 
-    func didReceiveEndPage(queryId: String, state: MessageArchivePageEndState, first: String, last: String, count: Int) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  let context = self.remotePagesByQueryID.removeValue(forKey: queryId) else {
-                return
-            }
-            let nextCursor = !state.queryExhausted && last.isNotEmpty
-                ? LastChatsSearchCursor(opaque: last)
-                : nil
-            let page = LastChatsSearchProviderPage(
-                request: context.request,
-                items: Array(context.items.prefix(context.request.limit)),
-                nextCursor: nextCursor
-            )
-            self.receive(.page(page))
-            if nextCursor == nil {
-                self.receive(.finished(context.request))
-            }
-        }
-    }
-
-    func didReceiveMessage(_ item: MessageStorageItem, queryId: String) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  var context = self.remotePagesByQueryID[queryId],
-                  context.request.generation == self.pipeline.snapshot.generation else {
-                return
-            }
-            if context.items.count < context.request.limit {
-                let projection = LastChatsSearchLocalPageLoader.messageProjection(
-                    item,
-                    request: context.request
-                )
-                context.items.append(projection)
-                self.remotePagesByQueryID[queryId] = context
-            }
-        }
-    }
 }
 
-extension SearchResultsViewController: TemporaryMessageReceiverProtocol {
-    func didReceiveEndPage(queryId: String, state: MessageArchivePageEndState, first: String, last: String, count: Int) {
-        DispatchQueue.main.async {
-            let decision = SearchRemoteQueryCompletionPolicy.endPageDecision(
-                queryId: queryId,
-                currentQueries: self.currentQueries
-            )
-            guard !decision.isStale else {
-                return
-            }
-
-            self.currentQueries = decision.remainingQueries
-            self.isLoadingDone = decision.isLoadingDone
-            try? self.updateMessagesSearchResults()
-        }
-    }
-    
-    func didReceiveMessage(_ item: MessageStorageItem, queryId: String) {
-        DispatchQueue.main.async {
-            guard SearchRemoteQueryCompletionPolicy.shouldAcceptMessage(
-                queryId: queryId,
-                currentQueries: self.currentQueries
-            ) else {
-                return
-            }
-
-            self.messagesQueue.append(item)
-            self.searchResultsObserver.accept(item.primary)
-        }
+extension SearchResultsViewController: UITableViewDelegate {
+    func tableView(
+        _ tableView: UITableView,
+        willDisplay cell: UITableViewCell,
+        forRowAt indexPath: IndexPath
+    ) {
+        requestNextArchiveSearchPageIfNeeded(at: indexPath)
     }
 }

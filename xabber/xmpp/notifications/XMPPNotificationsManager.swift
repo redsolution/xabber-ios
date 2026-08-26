@@ -1291,8 +1291,6 @@ class XMPPNotificationsManager: AbstractXMPPManager {
             afterId: afterId,
             nextPage: bootstrapFromNewestPage ? "" : nil,
             max: Self.archivePageSize,
-            consumerManagesArchiveEnd: true,
-            consumerManagesHistoryCursor: true,
             requestCallbacks: .init(
                 onMessage: nil,
                 onEndPage: { [weak self] _, state, first, last, count in
@@ -1520,8 +1518,6 @@ class XMPPNotificationsManager: AbstractXMPPManager {
             before: beforeId,
             nextPage: beforeId,
             max: Self.archivePageSize,
-            consumerManagesArchiveEnd: true,
-            consumerManagesHistoryCursor: true,
             requestCallbacks: .init(
                 onMessage: nil,
                 onEndPage: { [weak self] _, state, first, _, _ in
@@ -1770,30 +1766,24 @@ class XMPPNotificationsManager: AbstractXMPPManager {
         }
         let node = identity.node
 
-        let runLatestSync: (XMPPStream, @escaping () -> Void) -> Void = { [weak self] stream, completion in
+        guard let account = AccountManager.shared.find(for: self.owner) else {
+            return
+        }
+        account.xmppTaskScheduler.enqueueAccountTask(
+            priority: .background,
+            resource: .mamArchive,
+            deduplicationKey: "notifications.latest.\(self.owner).\(node).\(identity.generation)"
+        ) { [weak self] _, stream, finish in
             guard let self else {
-                completion()
+                finish()
                 return
             }
             self.performLatestSync(
                 stream,
                 identity: identity,
-                completion: completion
+                completion: finish
             )
         }
-
-        if let account = AccountManager.shared.find(for: self.owner) {
-            account.xmppTaskScheduler.enqueueAccountTask(
-                priority: .foreground,
-                resource: .mamArchive,
-                deduplicationKey: "notifications.latest.\(self.owner).\(node).\(identity.generation)"
-            ) { _, stream, finish in
-                runLatestSync(stream, finish)
-            }
-            return
-        }
-
-        runLatestSync(stream, {})
     }
 
     private final func performLatestSync(

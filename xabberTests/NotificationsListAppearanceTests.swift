@@ -657,8 +657,15 @@ final class NotificationsListAppearanceTests: XCTestCase {
 
     func testNotificationsLastRowRemainsAboveBottomSearchAtMaximumOffset() {
         let controller = NotificationsListViewController()
-        controller.view.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
-        controller.loadViewIfNeeded()
+        let navigationController = UINavigationController(rootViewController: controller)
+        let container = embedInTraitContainer(
+            navigationController,
+            horizontalSizeClass: .compact
+        )
+
+        container.loadViewIfNeeded()
+        container.view.layoutIfNeeded()
+        navigationController.view.layoutIfNeeded()
         controller.view.layoutIfNeeded()
         controller.tableView.contentSize = CGSize(width: 393, height: 1_600)
         controller.updateNotificationsTableInsetsForBottomSearch()

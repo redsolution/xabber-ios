@@ -83,14 +83,25 @@ class CallAttachment {
 
 class ImageAttachment {
     var primary: String
+    /// Full-resolution source used for identity, gallery opening and download.
     var url: URL?
+    /// Bounded presentation resource used only for inline rendering/prefetch.
+    var previewUrl: URL?
     var size: CGSize
     var isSensitive: Bool
     var isSensitiveRevealed: Bool
     
-    init(primary: String, url: URL? = nil, size: CGSize, isSensitive: Bool = false, isSensitiveRevealed: Bool = false) {
+    init(
+        primary: String,
+        url: URL? = nil,
+        previewUrl: URL? = nil,
+        size: CGSize,
+        isSensitive: Bool = false,
+        isSensitiveRevealed: Bool = false
+    ) {
         self.primary = primary
         self.url = url
+        self.previewUrl = previewUrl
         self.size = size
         self.isSensitive = isSensitive
         self.isSensitiveRevealed = isSensitiveRevealed

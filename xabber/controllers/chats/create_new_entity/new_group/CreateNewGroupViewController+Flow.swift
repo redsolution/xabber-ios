@@ -104,18 +104,13 @@ extension CreateNewGroupViewController {
                         owner: owner,
                         jid: groupJID,
                         conversationType: .group,
-                        configure: { chatViewController in
-                            chatViewController?
-                                .prepareForNewlyCreatedGroupPresentation()
-                        }
+                        configure: nil
                     )
                 } else {
                     let vc = ChatViewController()
                     vc.jid = groupJID
                     vc.owner = owner
                     vc.conversationType = .group
-                    vc.prepareForNewlyCreatedGroupPresentation()
-                    
                     if let presenterVc = self.presentationController {
                         showStacked(vc, in: presenterVc.presentingViewController)
                     }

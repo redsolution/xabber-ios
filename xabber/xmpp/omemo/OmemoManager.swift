@@ -889,6 +889,13 @@ extension OmemoManager {
     }
     
     func modifySyncQuery(_ query: DDXMLElement) -> DDXMLElement {
+        modifySyncQuery(query, decryptMessage: self.decryptMessage(_:))
+    }
+
+    internal func modifySyncQuery(
+        _ query: DDXMLElement,
+        decryptMessage: (XMPPMessage) throws -> DDXMLElement?
+    ) -> DDXMLElement {
         query.elements(forName: "conversation").forEach {
             item in
             guard (ClientSynchronizationManager.ConversationType(rawValue: item.attributeStringValue(forName: "type") ?? "none") ?? .regular) == .omemo else {
@@ -900,43 +907,57 @@ extension OmemoManager {
                 .element(forName: "last-message")?.element(forName: "message") else {
                 return
             }
+            // XEP-SYNC may already contain a safe plaintext list preview for
+            // an OMEMO conversation. Only run the decrypt/replace path when
+            // the embedded message actually carries an OMEMO payload;
+            // otherwise a valid preview was being overwritten with
+            // "Failed to decrypt".
+            guard messageElement.element(
+                forName: "encrypted",
+                xmlns: getPrimaryNamespace()
+            ) != nil else {
+                return
+            }
             
             do {
-                let content = try self.decryptMessage(XMPPMessage(from: messageElement))
-                let body = content?.element(forName: "content")?.element(forName: "body")?.stringValue
-                item
-                    .elements(forName: "metadata")
-                    .first(where: { $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/synchronization" })?
-                    .element(forName: "last-message")?
-                    .element(forName: "message")?
-                    .remove(forName: "body")
-                item
-                    .elements(forName: "metadata")
-                    .first(where: { $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/synchronization" })?
-                    .element(forName: "last-message")?
-                    .element(forName: "message")?
-                    .addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt"))
-                
-                if let content = content?.element(forName: "content") {
-                    content.children?.forEach {
-                        if $0.name != "body" {
-                            item
-                                .elements(forName: "metadata")
-                                .first(where: { $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/synchronization" })?
-                                .element(forName: "last-message")?
-                                .element(forName: "message")?
-                                .addChild($0.copy() as! DDXMLNode)
-                        }
-                    }
-                    let resultElement = DDXMLElement(name: "omemo-result__system")
-                    resultElement.addAttribute(withName: "result", boolValue: true)
-                    item
-                        .elements(forName: "metadata")
-                        .first(where: { $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/synchronization" })?
-                        .element(forName: "last-message")?
-                        .element(forName: "message")?
-                        .addChild(resultElement)
+                guard let decryptedEnvelope = try decryptMessage(
+                    XMPPMessage(from: messageElement)
+                ),
+                let decryptedContent = decryptedEnvelope.element(
+                    forName: "content"
+                ) else {
+                    return
                 }
+                // A successfully decrypted attachment-only envelope has no
+                // body. Keep any safe server preview in that case; without
+                // one, the copied reference lets the list parser choose its
+                // neutral attachment fallback.
+                if let decryptedBody = decryptedContent
+                    .element(forName: "body")?
+                    .stringValue,
+                   decryptedBody.isNotEmpty {
+                    messageElement.remove(forName: "body")
+                    messageElement.addChild(
+                        DDXMLElement(
+                            name: "body",
+                            stringValue: decryptedBody
+                        )
+                    )
+                }
+
+                decryptedContent.children?.forEach {
+                    if $0.name != "body" {
+                        messageElement.addChild($0.copy() as! DDXMLNode)
+                    }
+                }
+                let resultElement = DDXMLElement(
+                    name: "omemo-result__system"
+                )
+                resultElement.addAttribute(
+                    withName: "result",
+                    boolValue: true
+                )
+                messageElement.addChild(resultElement)
             } catch {
                 DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
                 return

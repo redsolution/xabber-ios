@@ -25,6 +25,35 @@ import Kingfisher
 import AVFoundation
 import CryptoSwift
 
+enum MessageReferenceURLPolicy {
+    static func url(from rawValue: String?) -> URL? {
+        guard let rawValue = rawValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              rawValue.isNotEmpty else {
+            return nil
+        }
+
+        // A direct parse preserves canonical percent escapes such as `%20` and
+        // `%2F`. Re-encoding every value first turns them into `%2520` and
+        // `%252F`, breaking both source downloads and thumbnail cache keys.
+        if let direct = URL(string: rawValue) {
+            return direct
+        }
+
+        // Older Foundation versions reject otherwise valid URLs containing
+        // literal spaces. Preserve existing escapes while encoding only the
+        // remaining unsafe characters.
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.insert(charactersIn: "%")
+        guard let encoded = rawValue.addingPercentEncoding(
+            withAllowedCharacters: allowed
+        ) else {
+            return nil
+        }
+        return URL(string: encoded)
+    }
+}
+
 protocol MessageReferenceVideoPreviewScheduling: AnyObject {
     func schedule(referencePrimary: String)
 }
@@ -309,10 +338,20 @@ class MessageReferenceStorageItem: Object {
     @objc dynamic var reportCount: Int = 0
     
     override static func ignoredProperties() -> [String] {
-        return ["temporaryData", "cachedMetadata", "model", "conversationType"]
+        return [
+            "temporaryData",
+            "pendingMediaAttachment",
+            "cachedMetadata",
+            "model",
+            "conversationType",
+        ]
     }
         
     public var temporaryData: Data? = nil
+    /// Parser output staged for the owning message transaction. This object is
+    /// deliberately unmanaged so parsing cannot publish a sparse media row
+    /// before the message/reference graph is durable.
+    var pendingMediaAttachment: MessageMediaAttachmentStorageItem?
     
     var kind: Kind {
         get {
@@ -342,7 +381,7 @@ class MessageReferenceStorageItem: Object {
     var uploadUrl: URL? {
         get {
             guard let uri = self.metadata?["putUri"] as? String else { return nil }
-            return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
+            return MessageReferenceURLPolicy.url(from: uri)
         } set {
             if let uri = newValue?.absoluteString {
                 self.metadata?["putUri"] = uri
@@ -353,7 +392,7 @@ class MessageReferenceStorageItem: Object {
     var localFileUrl: URL? {
         get {
             guard let uri = self.metadata?["localFileUri"] as? String else { return nil }
-            return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
+            return MessageReferenceURLPolicy.url(from: uri)
         } set {
             if let uri = newValue?.absoluteString {
                 self.metadata?["localFileUri"] = uri
@@ -365,7 +404,7 @@ class MessageReferenceStorageItem: Object {
         get {
             guard ![Kind.geoloc, .contact].contains(kind) else { return nil }
             guard let uri = self.url else { return nil }
-            return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
+            return MessageReferenceURLPolicy.url(from: uri)
         }
         set {
             if let uri = newValue?.absoluteString {
@@ -390,7 +429,7 @@ class MessageReferenceStorageItem: Object {
     var decodedUrl: URL? {
         get {
             guard let uri = self.metadata?["decodedUrl"] as? String else { return nil }
-            return URL(string: uri.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "")
+            return MessageReferenceURLPolicy.url(from: uri)
         }
         set {
             if let uri = newValue?.absoluteString {
@@ -673,24 +712,18 @@ class MessageReferenceStorageItem: Object {
     }
     
     
-    private static let sensitivityScanQueue = DispatchQueue(
-        label: "com.xabber.sensitive-media.startup-scan",
-        qos: .utility
-    )
-
-    static func checkAllUndefinedForSesitive() {
-        sensitivityScanQueue.async {
-            do {
-                let realm = try WRealm.safe()
-                let primaryKeys = pendingSensitiveAnalysisPrimaryKeys(in: realm)
-                Task.detached(priority: .utility) {
-                    for primaryKey in primaryKeys {
-                        await SensitiveMediaAnalysisService.shared.analyzeMessageReference(primaryKey: primaryKey)
-                    }
-                }
-            } catch {
-                DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
-            }
+    /// Runs only inside the startup account-scheduler task. The caller owns the
+    /// utility queue and releases `.other("sensitiveMediaStartup")` after this
+    /// detached-key scan has submitted all per-reference idle tasks.
+    static func checkAllUndefinedForSensitive() {
+        do {
+            let realm = try WRealm.safe()
+            let primaryKeys = pendingSensitiveAnalysisPrimaryKeys(in: realm)
+            SensitiveMediaAnalysisService.shared.checkIsSensitive(
+                messageReferencePrimaryKeys: primaryKeys
+            )
+        } catch {
+            DDLogDebug("MessageReferenceStorageItem: \(#function). \(error.localizedDescription)")
         }
     }
 
@@ -708,6 +741,10 @@ class MessageReferenceStorageItem: Object {
     
     func prepare() {
         self.checkIsSensitive()
+        prepareVideoPreview()
+    }
+
+    func prepareVideoPreview() {
         if isDownloaded {
             return
         }

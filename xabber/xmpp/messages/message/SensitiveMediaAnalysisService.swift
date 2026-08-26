@@ -68,11 +68,110 @@ enum SensitiveMediaAnalysisError: Error, LocalizedError {
     }
 }
 
+@available(iOS 17.0, *)
+private final class SensitiveMediaAnalysisSerialExecutor: SerialExecutor {
+    private let queue = DispatchQueue(
+        label: "com.xabber.sensitive-media.analysis",
+        qos: .utility,
+        autoreleaseFrequency: .workItem
+    )
+
+    func enqueue(_ job: consuming ExecutorJob) {
+        let unownedJob = UnownedJob(job)
+        let executor = asUnownedSerialExecutor()
+        queue.async {
+            unownedJob.runSynchronously(on: executor)
+        }
+    }
+}
+
+@available(iOS 17.0, *)
+@globalActor
+actor SensitiveMediaAnalysisExecutionActor {
+    static let shared = SensitiveMediaAnalysisExecutionActor()
+
+    private struct WorkKey: Hashable {
+        let serviceID: ObjectIdentifier
+        let primaryKey: String
+    }
+
+    private struct PendingWork {
+        let key: WorkKey
+        let service: SensitiveMediaAnalysisService
+    }
+
+    private let executor = SensitiveMediaAnalysisSerialExecutor()
+    private var pending: [PendingWork] = []
+    private var scheduledKeys: Set<WorkKey> = []
+    private var waitersByKey: [
+        WorkKey: [CheckedContinuation<Void, Never>]
+    ] = [:]
+    private var isDraining = false
+
+    nonisolated var unownedExecutor: UnownedSerialExecutor {
+        executor.asUnownedSerialExecutor()
+    }
+
+    func submit(
+        service: SensitiveMediaAnalysisService,
+        primaryKeys: [String]
+    ) async {
+        for primaryKey in primaryKeys {
+            await submitOne(service: service, primaryKey: primaryKey)
+        }
+    }
+
+    private func submitOne(
+        service: SensitiveMediaAnalysisService,
+        primaryKey: String
+    ) async {
+        let key = WorkKey(
+            serviceID: ObjectIdentifier(service),
+            primaryKey: primaryKey
+        )
+        await withCheckedContinuation { continuation in
+            waitersByKey[key, default: []].append(continuation)
+            if scheduledKeys.insert(key).inserted {
+                pending.append(PendingWork(key: key, service: service))
+            }
+            guard !isDraining else {
+                return
+            }
+            isDraining = true
+            Task { @SensitiveMediaAnalysisExecutionActor in
+                await self.drain()
+            }
+        }
+    }
+
+    private func drain() async {
+        // Actor reentrancy may append work while analysis awaits. Only this
+        // drain owner invokes analyzers, so async suspension never opens a
+        // second analysis slot.
+        while pending.isNotEmpty {
+            let work = pending.removeFirst()
+            await work.service.analyzeMessageReferenceOnExecutor(
+                primaryKey: work.key.primaryKey
+            )
+            scheduledKeys.remove(work.key)
+            let waiters = waitersByKey.removeValue(forKey: work.key) ?? []
+            waiters.forEach { $0.resume() }
+        }
+        isDraining = false
+    }
+}
+
 protocol SensitiveMediaAnalyzing {
     var analysisPolicy: SensitiveMediaAnalysisPolicy { get }
 
+    @available(iOS 17.0, *)
+    @SensitiveMediaAnalysisExecutionActor
     func analyzeImageFile(at url: URL) async throws -> Bool
+    @available(iOS 17.0, *)
+    @SensitiveMediaAnalysisExecutionActor
     func analyzeImage(_ cgImage: CGImage) async throws -> Bool
+    @available(iOS 17.0, *)
+    @SensitiveMediaAnalysisExecutionActor
     func analyzeVideoFile(at url: URL) async throws -> Bool
 }
 
@@ -82,14 +181,21 @@ struct SensitiveMediaAnalysisLocalFile {
 }
 
 protocol SensitiveMediaFileProviding {
+    @available(iOS 17.0, *)
+    @SensitiveMediaAnalysisExecutionActor
     func downloadImageCGImage(from url: URL) async throws -> CGImage
+    @available(iOS 17.0, *)
+    @SensitiveMediaAnalysisExecutionActor
     func localVideoFile(from url: URL) async throws -> SensitiveMediaAnalysisLocalFile
 }
 
-actor SensitiveMediaAnalysisCoordinator {
+final class SensitiveMediaAnalysisCoordinator {
+    private let lock = NSLock()
     private var inProgress: Set<String> = []
 
     func begin(_ primaryKey: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
         guard !inProgress.contains(primaryKey) else {
             return false
         }
@@ -98,7 +204,9 @@ actor SensitiveMediaAnalysisCoordinator {
     }
 
     func end(_ primaryKey: String) {
+        lock.lock()
         inProgress.remove(primaryKey)
+        lock.unlock()
     }
 }
 
@@ -208,8 +316,108 @@ final class DefaultSensitiveMediaFileProvider: SensitiveMediaFileProviding {
     }
 }
 
+struct SensitiveMediaAnalysisAccountTaskDescriptor: Equatable {
+    let owner: String
+    let primaryKey: String
+
+    var priority: AccountXMPPTaskScheduler.Priority { .idle }
+    var resource: AccountXMPPTaskScheduler.Resource { .other("sensitiveMedia") }
+    var deduplicationKey: String {
+        "sensitiveMedia.\(owner).\(primaryKey)"
+    }
+}
+
+/// Converts detached reference identities into one account-scheduler task per
+/// reference. The scheduler completion is deliberately owned by the analysis
+/// callback, so the `.other("sensitiveMedia")` lane remains occupied across
+/// every async download/analyzer/persistence suspension.
+final class SensitiveMediaAnalysisAccountTaskScheduler {
+    typealias ResolveOwners = ([String]) -> [String: String]
+    typealias ScheduledWork = (@escaping () -> Void) -> Void
+    typealias Enqueue = (
+        SensitiveMediaAnalysisAccountTaskDescriptor,
+        @escaping ScheduledWork
+    ) -> Void
+    typealias Analysis = (String, @escaping () -> Void) -> Void
+
+    static let production = SensitiveMediaAnalysisAccountTaskScheduler(
+        resolveOwners: { primaryKeys in
+            do {
+                let realm = try WRealm.safe()
+                let references = realm.objects(MessageReferenceStorageItem.self)
+                    .filter("primary IN %@", primaryKeys)
+                return references.reduce(into: [String: String]()) {
+                    result, reference in
+                    let owner = reference.owner.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    guard owner.isNotEmpty else { return }
+                    result[reference.primary] = owner
+                }
+            } catch {
+                DDLogDebug(
+                    "SensitiveMediaAnalysisAccountTaskScheduler: owner resolution failed. \(error.localizedDescription)"
+                )
+                return [:]
+            }
+        },
+        enqueue: { task, work in
+            guard let account = AccountManager.shared.find(for: task.owner) else {
+                return
+            }
+            account.xmppTaskScheduler.enqueue(
+                priority: task.priority,
+                resource: task.resource,
+                deduplicationKey: task.deduplicationKey,
+                requiresAuthenticatedStream: false,
+                work: work
+            )
+        }
+    )
+
+    private let resolveOwners: ResolveOwners
+    private let enqueue: Enqueue
+
+    init(
+        resolveOwners: @escaping ResolveOwners,
+        enqueue: @escaping Enqueue
+    ) {
+        self.resolveOwners = resolveOwners
+        self.enqueue = enqueue
+    }
+
+    func schedule(
+        primaryKeys: [String],
+        analysis: @escaping Analysis
+    ) {
+        let uniquePrimaryKeys = Array(Set(
+            primaryKeys.filter { $0.isNotEmpty }
+        )).sorted()
+        guard uniquePrimaryKeys.isNotEmpty else { return }
+        let owners = resolveOwners(uniquePrimaryKeys)
+        uniquePrimaryKeys.forEach { primaryKey in
+            guard let owner = owners[primaryKey]?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ), owner.isNotEmpty else {
+                return
+            }
+            let task = SensitiveMediaAnalysisAccountTaskDescriptor(
+                owner: owner,
+                primaryKey: primaryKey
+            )
+            enqueue(task) { finish in
+                analysis(primaryKey, finish)
+            }
+        }
+    }
+}
+
 final class SensitiveMediaAnalysisService {
-    static let shared = SensitiveMediaAnalysisService()
+    typealias AnalysisTaskScheduler = ([String]) -> Void
+
+    static let shared = SensitiveMediaAnalysisService(
+        accountTaskScheduler: .production
+    )
 
     static let sourceAppleSCA = "apple_sca"
 
@@ -233,36 +441,108 @@ final class SensitiveMediaAnalysisService {
     private let coordinator: SensitiveMediaAnalysisCoordinator
     private let dateProvider: () -> Date
     private let failureRetryInterval: TimeInterval
+    private let analysisTaskScheduler: AnalysisTaskScheduler?
+    private let accountTaskScheduler: SensitiveMediaAnalysisAccountTaskScheduler?
+
+    var isAnalysisEnabled: Bool {
+        analyzer.analysisPolicy == .enabled
+    }
 
     init(
         analyzer: SensitiveMediaAnalyzing = AppleSensitiveMediaAnalyzer(),
         fileProvider: SensitiveMediaFileProviding = DefaultSensitiveMediaFileProvider(),
         coordinator: SensitiveMediaAnalysisCoordinator = SensitiveMediaAnalysisCoordinator(),
         dateProvider: @escaping () -> Date = Date.init,
-        failureRetryInterval: TimeInterval = 6 * 60 * 60
+        failureRetryInterval: TimeInterval = 6 * 60 * 60,
+        analysisTaskScheduler: AnalysisTaskScheduler? = nil,
+        accountTaskScheduler: SensitiveMediaAnalysisAccountTaskScheduler? = nil
     ) {
         self.analyzer = analyzer
         self.fileProvider = fileProvider
         self.coordinator = coordinator
         self.dateProvider = dateProvider
         self.failureRetryInterval = failureRetryInterval
+        self.analysisTaskScheduler = analysisTaskScheduler
+        self.accountTaskScheduler = accountTaskScheduler
     }
 
     func checkIsSensitive(messageReferencePrimaryKey primaryKey: String) {
-        Task {
-            await analyzeMessageReference(primaryKey: primaryKey)
+        checkIsSensitive(messageReferencePrimaryKeys: [primaryKey])
+    }
+
+    func checkIsSensitive(messageReferencePrimaryKeys primaryKeys: [String]) {
+        guard analyzer.analysisPolicy == .enabled else {
+            return
+        }
+        let uniquePrimaryKeys = Array(Set(
+            primaryKeys.filter { $0.isNotEmpty }
+        )).sorted()
+        guard uniquePrimaryKeys.isNotEmpty else {
+            return
+        }
+        if let analysisTaskScheduler {
+            analysisTaskScheduler(uniquePrimaryKeys)
+            return
+        }
+        if let accountTaskScheduler {
+            accountTaskScheduler.schedule(
+                primaryKeys: uniquePrimaryKeys
+            ) { [weak self] primaryKey, finish in
+                guard let self else {
+                    finish()
+                    return
+                }
+                guard #available(iOS 17.0, *) else {
+                    finish()
+                    return
+                }
+                Task {
+                    await self.analyzeMessageReference(primaryKey: primaryKey)
+                    finish()
+                }
+            }
+            return
+        }
+        guard #available(iOS 17.0, *) else {
+            return
+        }
+        Task { @SensitiveMediaAnalysisExecutionActor in
+            await SensitiveMediaAnalysisExecutionActor.shared.submit(
+                service: self,
+                primaryKeys: uniquePrimaryKeys
+            )
         }
     }
 
     func analyzeMessageReference(primaryKey: String) async {
-        guard await coordinator.begin(primaryKey) else {
+        guard analyzer.analysisPolicy == .enabled else {
             return
         }
-
-        await analyzeStartedMessageReference(primaryKey: primaryKey)
-        await coordinator.end(primaryKey)
+        guard #available(iOS 17.0, *) else {
+            return
+        }
+        await SensitiveMediaAnalysisExecutionActor.shared.submit(
+            service: self,
+            primaryKeys: [primaryKey]
+        )
     }
 
+    @available(iOS 17.0, *)
+    @SensitiveMediaAnalysisExecutionActor
+    fileprivate func analyzeMessageReferenceOnExecutor(primaryKey: String) async {
+        guard analyzer.analysisPolicy == .enabled else {
+            return
+        }
+        guard coordinator.begin(primaryKey) else {
+            return
+        }
+        defer { coordinator.end(primaryKey) }
+
+        await analyzeStartedMessageReference(primaryKey: primaryKey)
+    }
+
+    @available(iOS 17.0, *)
+    @SensitiveMediaAnalysisExecutionActor
     private func analyzeStartedMessageReference(primaryKey: String) async {
         guard let snapshot = loadSnapshot(primaryKey: primaryKey) else {
             return
@@ -368,6 +648,8 @@ final class SensitiveMediaAnalysisService {
         }
     }
 
+    @available(iOS 17.0, *)
+    @SensitiveMediaAnalysisExecutionActor
     private func analyzeImage(_ snapshot: Snapshot) async throws -> Bool {
         if let localFileURL = snapshot.localFileURL,
            FileManager.default.isReadableFile(atPath: localFileURL.path) {
@@ -387,6 +669,8 @@ final class SensitiveMediaAnalysisService {
         return try await analyzer.analyzeImage(cgImage)
     }
 
+    @available(iOS 17.0, *)
+    @SensitiveMediaAnalysisExecutionActor
     private func analyzeVideo(_ snapshot: Snapshot) async throws -> Bool {
         if let localFileURL = snapshot.localFileURL,
            FileManager.default.isReadableFile(atPath: localFileURL.path) {
@@ -440,10 +724,6 @@ final class SensitiveMediaAnalysisService {
                     failedAt: nil,
                     error: nil
                 )
-
-                if let message = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: reference.messageId) {
-                    message.queryIds = "\(message.queryIds ?? "") sensitivity"
-                }
             }
         } catch {
             DDLogDebug("SensitiveMediaAnalysisService: \(#function). \(error.localizedDescription)")
@@ -512,19 +792,77 @@ final class SensitiveMediaAnalysisService {
     }
 }
 
+struct SensitiveMediaAnalysisStartupTaskDescriptor: Equatable {
+    let owner: String
+
+    var priority: AccountXMPPTaskScheduler.Priority { .idle }
+    var resource: AccountXMPPTaskScheduler.Resource {
+        .other("sensitiveMediaStartup")
+    }
+    var deduplicationKey: String {
+        "sensitiveMediaStartup.\(owner)"
+    }
+}
+
 final class SensitiveMediaAnalysisStartupScheduler {
-    static let shared = SensitiveMediaAnalysisStartupScheduler()
+    typealias AccountScanScheduler = (
+        SensitiveMediaAnalysisStartupTaskDescriptor,
+        @escaping () -> Void
+    ) -> Void
+
+    private static let productionScanQueue = DispatchQueue(
+        label: "com.xabber.sensitive-media.startup-scan",
+        qos: .utility,
+        autoreleaseFrequency: .workItem
+    )
+
+    static let shared = SensitiveMediaAnalysisStartupScheduler(
+        scan: {
+            MessageReferenceStorageItem.checkAllUndefinedForSensitive()
+        },
+        isAnalysisEnabled: {
+            SensitiveMediaAnalysisService.shared.isAnalysisEnabled
+        },
+        accountScanScheduler: { task, scan in
+            guard let account = AccountManager.shared.find(for: task.owner) else {
+                return
+            }
+            account.xmppTaskScheduler.enqueue(
+                priority: task.priority,
+                resource: task.resource,
+                deduplicationKey: task.deduplicationKey,
+                requiresAuthenticatedStream: false
+            ) { finish in
+                SensitiveMediaAnalysisStartupScheduler.productionScanQueue.async {
+                    scan()
+                    finish()
+                }
+            }
+        }
+    )
 
     private let lock = NSLock()
     private let scan: () -> Void
+    private let isAnalysisEnabled: () -> Bool
+    private let accountScanScheduler: AccountScanScheduler
     private var preparedForLaunch = false
-    private var hasOnlineAccount = false
+    private var onlineAccountJID: String?
     private var scanStarted = false
 
-    init(scan: @escaping () -> Void = {
-        MessageReferenceStorageItem.checkAllUndefinedForSesitive()
-    }) {
+    init(scan: @escaping () -> Void) {
         self.scan = scan
+        self.isAnalysisEnabled = { true }
+        self.accountScanScheduler = { _, scan in scan() }
+    }
+
+    init(
+        scan: @escaping () -> Void,
+        isAnalysisEnabled: @escaping () -> Bool = { true },
+        accountScanScheduler: @escaping AccountScanScheduler
+    ) {
+        self.scan = scan
+        self.isAnalysisEnabled = isAnalysisEnabled
+        self.accountScanScheduler = accountScanScheduler
     }
 
     func prepareForLaunch() {
@@ -535,22 +873,34 @@ final class SensitiveMediaAnalysisStartupScheduler {
 
     func accountDidReachOnline(jid: String) {
         runScanIfNeeded {
-            hasOnlineAccount = true
+            let normalized = jid.trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalized.isNotEmpty {
+                onlineAccountJID = normalized
+            }
         }
     }
 
     private func runScanIfNeeded(_ mutation: () -> Void) {
-        let shouldRun: Bool
+        let analysisIsEnabled = isAnalysisEnabled()
+        let accountJID: String?
         lock.lock()
         mutation()
-        shouldRun = preparedForLaunch && hasOnlineAccount && !scanStarted
-        if shouldRun {
+        if analysisIsEnabled,
+           preparedForLaunch,
+           !scanStarted,
+           let onlineAccountJID {
             scanStarted = true
+            accountJID = onlineAccountJID
+        } else {
+            accountJID = nil
         }
         lock.unlock()
 
-        if shouldRun {
-            scan()
+        if let accountJID {
+            accountScanScheduler(
+                SensitiveMediaAnalysisStartupTaskDescriptor(owner: accountJID),
+                scan
+            )
         }
     }
 }

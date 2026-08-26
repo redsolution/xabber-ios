@@ -311,16 +311,28 @@ final class ChatScrollFrameBudgetTests: XCTestCase {
         ))
         let execution = try XCTUnwrap(functionBody(named: "performCoalescedScrollWork", in: prefetchSource))
         let boundaryDecision = try XCTUnwrap(functionBody(named: "interactiveBoundaryPagingDirection", in: prefetchSource))
-        let shortContent = try XCTUnwrap(functionBody(named: "shortContentRemotePagingSuppressionContext", in: prefetchSource))
+        let boundarySubmission = try XCTUnwrap(functionBody(named: "requestTimelineBoundaryIfNeeded", in: prefetchSource))
 
         ["WRealm.safe", "ChatLocalHistoryPageProvider", "orderedViewportReadMessages", "DateFormatter", "layoutIfNeeded", "sizeThatFits", "voiceMessageDescriptors("].forEach {
             XCTAssertFalse(execution.contains($0), "forbidden scroll-frame work: \($0)")
         }
-        [boundaryDecision, shortContent].forEach { source in
+        [boundaryDecision, boundarySubmission].forEach { source in
             ["WRealm.safe", "ChatLocalHistoryPageProvider", "datasource.contains", "collectionViewLayout", "ChatArchiveDebugTrace"].forEach {
                 XCTAssertFalse(source.contains($0), "forbidden boundary-frame work: \($0)")
             }
         }
+        XCTAssertTrue(
+            boundarySubmission.contains("requestTimelineBoundary(direction:"),
+            "The bounded scroll decision must enter the single local-first timeline gateway"
+        )
+        XCTAssertFalse(
+            boundarySubmission.contains("submitArchiveEnginePage("),
+            "Scroll-frame work must never bypass verified local paging with direct MAM"
+        )
+        XCTAssertFalse(
+            prefetchSource.contains("shortContentRemotePagingSuppressionContext"),
+            "The deleted legacy boundary planner must not return through a frame-budget helper"
+        )
         XCTAssertFalse(controllerSource.contains("attachment.subforwards.forEach {\n            descriptors.append(contentsOf: voiceMessageDescriptors"))
         XCTAssertFalse(controllerSource.contains("for forward in attachment.subforwards"))
     }

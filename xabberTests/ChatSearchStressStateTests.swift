@@ -75,100 +75,6 @@ final class ChatSearchStressStateTests: XCTestCase {
         XCTAssertFalse(session.receive(.failed(generation: first.generation)))
     }
 
-    func testCancelBetweenArchiveFinalAndPersistenceSuppressesCompletion() {
-        var session = ChatSearchArchiveSession(generation: 7, queryId: "stress-mam")
-
-        XCTAssertTrue(
-            session.receiveFinal(
-                generation: 7,
-                queryId: "stress-mam",
-                complete: true,
-                first: "10",
-                last: "20",
-                serverResultCount: 10
-            )
-        )
-        XCTAssertEqual(
-            session.cancel(),
-            .cancelled(resultCount: 0, pageCount: 0)
-        )
-        XCTAssertNil(
-            session.commitPersistedPage(
-                generation: 7,
-                queryId: "stress-mam",
-                persistedMessageCount: 10
-            )
-        )
-        XCTAssertEqual(
-            session.terminal,
-            .cancelled(resultCount: 0, pageCount: 0)
-        )
-    }
-
-    func testRepeatedCursorProducesExactlyOneTruncatedTerminal() {
-        var session = ChatSearchArchiveSession(generation: 8, queryId: "stress-cursor")
-
-        XCTAssertTrue(
-            session.receiveFinal(
-                generation: 8,
-                queryId: "stress-cursor",
-                complete: false,
-                first: "cursor",
-                last: "newer",
-                serverResultCount: 1
-            )
-        )
-        XCTAssertEqual(
-            session.commitPersistedPage(
-                generation: 8,
-                queryId: "stress-cursor",
-                persistedMessageCount: 1
-            ),
-            .requestNext(cursor: "cursor")
-        )
-        XCTAssertTrue(
-            session.receiveFinal(
-                generation: 8,
-                queryId: "stress-cursor",
-                complete: false,
-                first: "cursor",
-                last: "newer",
-                serverResultCount: 1
-            )
-        )
-        let terminal = ChatSearchArchiveSession.Terminal.truncated(
-            reason: .repeatedCursor,
-            resultCount: 0,
-            pageCount: 2
-        )
-        XCTAssertEqual(
-            session.commitPersistedPage(
-                generation: 8,
-                queryId: "stress-cursor",
-                persistedMessageCount: 0
-            ),
-            .terminal(terminal)
-        )
-        XCTAssertFalse(
-            session.receiveFinal(
-                generation: 8,
-                queryId: "stress-cursor",
-                complete: false,
-                first: "cursor",
-                last: "newer",
-                serverResultCount: 1
-            )
-        )
-        XCTAssertNil(
-            session.commitPersistedPage(
-                generation: 8,
-                queryId: "stress-cursor",
-                persistedMessageCount: 1
-            )
-        )
-        XCTAssertEqual(session.terminal, terminal)
-    }
-
     func testLocalCancelBetweenBatchesEmitsOneTypedTerminalAndNoLaterBatch() throws {
         let configuration = Realm.Configuration(
             inMemoryIdentifier: "ChatSearchStressStateTests-local-\(UUID().uuidString)"
@@ -215,43 +121,6 @@ final class ChatSearchStressStateTests: XCTestCase {
         XCTAssertEqual(terminalCount, 1)
         XCTAssertFalse(provider.cancel(queryId: request.queryId, generation: request.generation))
         _ = realm
-    }
-
-    func testTimestampReplacementAndCancelEachDeliverOneTerminal() {
-        let harness = StressTimestampHarness()
-        let resolver = ChatSearchTimestampMAMResolver(dependencies: harness.dependencies)
-        let requestID = UUID()
-        var firstOutcomes: [ChatSearchTimestampMAMResolutionOutcome] = []
-        var secondOutcomes: [ChatSearchTimestampMAMResolutionOutcome] = []
-
-        resolver.resolve(timestampFallback, requestID: requestID, generation: 1) {
-            firstOutcomes.append($0)
-        }
-        let stale = harness.attempts[0]
-        resolver.resolve(timestampFallback, requestID: requestID, generation: 2) {
-            secondOutcomes.append($0)
-        }
-
-        XCTAssertEqual(firstOutcomes, [.cancelled])
-        XCTAssertEqual(harness.cancelledQueryIDs, [stale.plan.queryId])
-        XCTAssertTrue(resolver.cancel(requestID: requestID))
-        XCTAssertEqual(secondOutcomes, [.cancelled])
-
-        stale.callbacks.onEndPage?(
-            stale.plan.queryId,
-            MessageArchivePageEndState(
-                queryExhausted: true,
-                archiveEnded: false,
-                persistedMessageCount: 0,
-                requestCursorId: nil
-            ),
-            "",
-            "",
-            0
-        )
-        XCTAssertEqual(firstOutcomes, [.cancelled])
-        XCTAssertEqual(secondOutcomes, [.cancelled])
-        XCTAssertEqual(harness.attempts.count, 2)
     }
 
     func testOneHundredAlternatingArrowIntentsCoalesceToLastValidTarget() {
@@ -407,46 +276,12 @@ final class ChatSearchStressStateTests: XCTestCase {
         return item
     }
 
-    private var timestampFallback: ChatSearchTimestampRemoteFallback {
-        ChatSearchTimestampRemoteFallback(
-            scope: ChatSearchResult.Scope(
-                owner: "owner@example.com",
-                jid: "andrew@example.com",
-                conversationTypeRawValue: ClientSynchronizationManager.ConversationType.regular.rawValue
-            ),
-            selectedTimestamp: Date(timeIntervalSince1970: 1_784_044_800),
-            localCandidates: []
-        )
-    }
-
     private var stressCalendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = Locale(identifier: "en_US_POSIX")
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         calendar.firstWeekday = 1
         return calendar
-    }
-}
-
-private final class StressTimestampHarness {
-    struct Attempt {
-        let plan: ChatSearchTimestampMAMRequestPlan
-        let callbacks: MessageArchiveManager.RequestCallbacks
-    }
-
-    private(set) var attempts: [Attempt] = []
-    private(set) var cancelledQueryIDs: [String] = []
-
-    var dependencies: ChatSearchTimestampMAMResolver.Dependencies {
-        .init(
-            start: { [weak self] plan, callbacks in
-                self?.attempts.append(Attempt(plan: plan, callbacks: callbacks))
-                return self != nil
-            },
-            cancel: { [weak self] queryID in
-                self?.cancelledQueryIDs.append(queryID)
-            }
-        )
     }
 }
 

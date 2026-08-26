@@ -27,6 +27,9 @@ import Foundation
 
 open class SettingManager: NSObject {
 
+    static let clientSynchronizationRegularDeletionTombstonesKey =
+        "regular_conversation_deletion_tombstones_v1"
+
     open class var shared: SettingManager {
         struct SettingsManagerSingleton {
             static let instance = SettingManager()
@@ -529,6 +532,11 @@ open class SettingManager: NSObject {
 
     public final func clear(for jid: String) {
         removeItem(for: jid, scope: .clientSynchronization, key: "version")
+        removeItem(
+            for: jid,
+            scope: .clientSynchronization,
+            key: Self.clientSynchronizationRegularDeletionTombstonesKey
+        )
         removeItem(for: jid, scope: .trustCertificatePolicy, key: "allowed")
         removeItem(for: jid, scope: .roster, key: "version")
         removeItem(for: jid, scope: .messageArchive, key: "version")

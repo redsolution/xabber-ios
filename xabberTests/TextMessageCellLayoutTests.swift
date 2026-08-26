@@ -53,6 +53,58 @@ final class TextMessageCellLayoutTests: XCTestCase {
         XCTAssertEqual(snapshot(cell), first)
     }
 
+    func testRepresentedTextCellIgnoresLayoutAttributesForDifferentPrimary() {
+        let cell = makeCell()
+        cell.messagePrimary = "text-a"
+
+        let textAttributes = makeAttributes(
+            textSize: CGSize(width: 120, height: 20)
+        )
+        textAttributes.messagePrimary = "text-a"
+        textAttributes.frame = CGRect(x: 0, y: 0, width: 390, height: 80)
+        textAttributes.messageContainerSize = CGSize(width: 280, height: 80)
+        cell.apply(textAttributes)
+        let representedFrames = textSpecificSnapshot(cell)
+
+        let systemAttributes = MessagesCollectionViewLayoutAttributes(
+            forCellWith: IndexPath(item: 0, section: 0)
+        )
+        systemAttributes.messagePrimary = "date-b"
+        systemAttributes.frame = CGRect(x: 0, y: 0, width: 440, height: 64)
+        systemAttributes.messageContainerSize = CGSize(width: 440, height: 64)
+        systemAttributes.messageLabelInsets = UIEdgeInsets(
+            top: 4,
+            left: 8,
+            bottom: 4,
+            right: 8
+        )
+        systemAttributes.textInlineViewSize = CGSize(width: 112, height: 23)
+        cell.apply(systemAttributes)
+
+        XCTAssertEqual(textSpecificSnapshot(cell), representedFrames)
+    }
+
+    func testUnrepresentedTextCellAcceptsFirstLayoutAttributes() {
+        let cell = makeCell()
+        let attributes = makeAttributes(
+            textSize: CGSize(width: 120, height: 20)
+        )
+        attributes.messagePrimary = "text-a"
+        attributes.frame = CGRect(x: 0, y: 0, width: 390, height: 80)
+        attributes.messageContainerSize = CGSize(width: 280, height: 80)
+
+        cell.apply(attributes)
+
+        XCTAssertEqual(
+            cell.labelContainer.frame,
+            CGRect(x: 0, y: 0, width: 138, height: 28)
+        )
+        XCTAssertEqual(
+            cell.messageLabel.frame,
+            CGRect(x: 7, y: 3, width: 120, height: 20)
+        )
+    }
+
     func testGeometryValidatorAcceptsFiniteContainedFrames() {
         let violations = ChatMessageFrameGeometryValidator.violations(
             frames: [
@@ -239,6 +291,23 @@ final class TextMessageCellLayoutTests: XCTestCase {
             cell.warningLabel.frame,
             cell.timeMarker.frame,
             cell.containerView.frame
+        ]
+    }
+
+    private func textSpecificSnapshot(_ cell: TextMessageCell) -> [CGRect] {
+        [
+            cell.authorView.frame,
+            cell.forwardsContainer.frame,
+            cell.imagesView.frame,
+            cell.videosView.frame,
+            cell.locationsView.frame,
+            cell.contactsView.frame,
+            cell.audiosView.frame,
+            cell.filesView.frame,
+            cell.labelContainer.frame,
+            cell.messageLabel.frame,
+            cell.warningLabel.frame,
+            cell.timeMarker.frame
         ]
     }
 }

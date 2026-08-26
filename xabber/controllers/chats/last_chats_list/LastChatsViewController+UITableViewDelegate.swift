@@ -429,10 +429,7 @@ extension LastChatsViewController: UITableViewDelegate {
             semanticTargetFingerprint:
                 destination.chatOpenPerformanceSemanticTargetFingerprint(
                     for: traceRequest
-                ),
-            bootstrapTarget: destination.chatOpenPerformanceSemanticTarget(
-                for: traceRequest
-            )
+                )
         )
         configureCallback?(destination)
 

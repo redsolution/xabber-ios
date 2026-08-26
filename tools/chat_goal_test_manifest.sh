@@ -13,11 +13,11 @@ CHAT_GOAL_TASK_IDS=(
 chat_goal_preflight_selectors() {
   case "$1" in
     G00) cat <<'SELECTORS'
-xabberTests/ChatLocalHistoryPageProviderWindowingTests
+xabberTests/ChatArchiveVirtualTimelineIntegrationTests
 xabberTests/ChatTimelineCursorTests
 xabberTests/ChatDatasourceBoundsTests
 xabberTests/ChatScrollCoalescingTests
-xabberTests/ChatScrollBoundaryCacheTests
+xabberTests/ChatArchiveLegacyPagingHardCutTests
 xabberTests/ChatViewportReadBoundaryTests
 xabberTests/ChatCollectionPrefetchTests
 xabberTests/ChatDatasourceMappingThreadingTests
@@ -26,7 +26,7 @@ xabberTests/ChatDisplayModelCacheTests
 xabberTests/ChatPerformanceSignpostTests
 xabberTests/ChatVirtualTimelineEngineTests
 xabberTests/ChatBottomScrollAlignmentPolicyTests
-xabberTests/ChatInitialHistoryAppearancePolicyTests
+xabberTests/ChatArchiveEnginePresentationTests
 xabberTests/TextMessageCellReuseTests
 xabberTests/ChatSearchPresentationStateTests
 xabberTests/ChatSearchResultPresentationTests
@@ -47,16 +47,16 @@ xabberTests/ComposerMentionsTests
 SELECTORS
       ;;
     G03) cat <<'SELECTORS'
-xabberTests/ChatLocalHistoryPageProviderWindowingTests
+xabberTests/ChatArchiveVirtualTimelineIntegrationTests
 xabberTests/ChatTimelineCursorTests
 xabberTests/ChatLocalHistoryPageProviderTests
 SELECTORS
       ;;
     G04) cat <<'SELECTORS'
-xabberTests/ChatTimelineSessionTests
-xabberTests/ChatTimelineSessionSourcePolicyTests
+xabberTests/ChatArchiveVirtualTimelineIntegrationTests
+xabberTests/ChatArchiveLegacyPagingHardCutTests
 xabberTests/ChatHistoryRealmMigrationTests
-xabberTests/ChatCursorNativeHistoryScaleTests/testMillionRowTimelineSessionKeepsResidentAndOperationsBounded
+xabberTests/ChatProofScopedLocalTargetPresentationTests
 xabberTests/ChatVirtualTimelineEngineTests
 xabberTests/ChatDatasourceBoundsTests
 xabberTests/ChatViewportReadBoundaryTests
@@ -64,36 +64,36 @@ xabberTests/ChatUnreadMentionsTests
 SELECTORS
       ;;
     G05A) cat <<'SELECTORS'
-xabberTests/ChatAsyncLocalPagingTests
-xabberTests/ChatAsyncLocalPagingSourcePolicyTests
-xabberTests/ChatFirstFrameLocalHistoryRegressionTests
-xabberTests/ChatLocalHistoryPageProviderWindowingTests
+xabberTests/ChatArchiveVirtualTimelineIntegrationTests
+xabberTests/ChatArchiveLegacyPagingHardCutTests
+xabberTests/ChatArchiveEnginePresentationTests
+xabberTests/ArchiveCoverageRepositoryTests
 xabberTests/ChatVirtualTimelineEngineTests
-xabberTests/ChatHistoryPagingPolicyTests
+xabberTests/AccountArchiveEngineTests
 xabberTests/ChatHistoryPageAnchorRestorePolicyTests
 SELECTORS
       ;;
     G05B) cat <<'SELECTORS'
 xabberTests/MessageArchiveQueryCallbackTests
 xabberTests/MessageManagerQueueSynchronizationTests
-xabberTests/ChatRemoteMAMPersistenceCoordinatorTests
-xabberTests/ChatArchiveCoverageCommitPolicyTests
-xabberTests/ChatHistoryPagingPolicyTests
-xabberTests/ChatFirstFrameLocalHistoryRegressionTests
-xabberTests/ChatRemoteHistoryApplyPolicyTests
-xabberTests/ChatHistoryLoadingTimeoutPolicyTests
-xabberTests/ChatInteractiveRemoteArchiveAbortTests
+xabberTests/ArchiveTransportReceiptTests
+xabberTests/ArchiveCoverageRepositoryTests
+xabberTests/AccountArchiveEngineTests
+xabberTests/ChatArchiveEnginePresentationTests
+xabberTests/ChatArchiveVirtualTimelineIntegrationTests
+xabberTests/ChatArchiveEngineUIContractTests
+xabberTests/ChatArchiveLegacyPagingHardCutTests
 SELECTORS
       ;;
     G06) cat <<'SELECTORS'
-xabberTests/ChatSingleFrameLocalOpenTests
-xabberTests/ChatInitialHistoryAppearancePolicyTests
-xabberTests/ChatBootstrapStateTests
-xabberTests/ChatFirstFrameLocalHistoryPolicyTests
-xabberTests/ChatFirstFrameLocalHistoryRegressionTests
-xabberTests/ChatFirstFrameAuxiliaryWorkPolicyTests
+xabberTests/ChatArchiveEnginePresentationTests
+xabberTests/ChatArchiveEngineUIContractTests
+xabberTests/ChatVirtualTimelineEngineTests
+xabberTests/ChatArchiveVirtualTimelineIntegrationTests
+xabberTests/ArchiveTransportReceiptTests
+xabberTests/AccountArchiveEngineTests
 xabberTests/ChatOpenMessageRequestHandlingPolicyTests
-xabberTests/ChatOpenTimingPolicyTests
+xabberTests/ChatImmediateNavigationControlsTests
 SELECTORS
       ;;
     G07) cat <<'SELECTORS'
@@ -107,7 +107,7 @@ SELECTORS
     G08) cat <<'SELECTORS'
 xabberTests/ChatScrollFrameBudgetTests
 xabberTests/ChatScrollCoalescingTests
-xabberTests/ChatScrollBoundaryCacheTests
+xabberTests/ChatArchiveLegacyPagingHardCutTests
 xabberTests/ChatViewportReadBoundaryTests
 xabberTests/VoiceMessagePlaybackCoordinatorTests
 SELECTORS
@@ -115,7 +115,7 @@ SELECTORS
     G09) cat <<'SELECTORS'
 xabberTests/ChatIncrementalMessageApplyTests
 xabberTests/TextMessageCellGranularUpdateTests
-xabberTests/ChatTimelineSessionTests/testIncrementalStoreBatchPublishesOnceWithoutLatestOrResidentRefetch
+xabberTests/ChatArchiveVirtualTimelineIntegrationTests
 xabberTests/ChatDiffKeySignatureTests
 xabberTests/ChatDatasourceMappingThreadingTests
 xabberTests/ChatOutgoingAutoScrollPolicyTests
@@ -186,10 +186,10 @@ xabberTests/MediaGalleryVoicePlaybackTests
 SELECTORS
       ;;
     G16) cat <<'SELECTORS'
-xabberTests/ChatSkeletonLifecycleTests
-xabberTests/ChatBootstrapStateTests
-xabberTests/ChatBootstrapSkeletonRenderPolicyTests
-xabberTests/ChatInitialHistoryAppearancePolicyTests
+xabberTests/ChatArchiveEnginePresentationTests
+xabberTests/ChatVirtualTimelineEngineTests
+xabberTests/ChatArchiveEngineUIContractTests
+xabberTests/ChatImmediateNavigationControlsTests
 xabberTests/LastChatsSkeletonCellLayoutTests
 SELECTORS
       ;;
@@ -214,7 +214,7 @@ SELECTORS
     G18) cat <<'SELECTORS'
 xabberTests/ChatAnchorTransactionTests
 xabberTests/ChatMessageAnchorPolicyTests
-xabberTests/ChatFirstFrameLocalHistoryRegressionTests
+xabberTests/ChatProofScopedLocalTargetPresentationTests
 xabberTests/ChatSearchSessionStateTests
 xabberTests/ChatSearchResultNavigationStateTests
 xabberTests/MessageArchiveQueryCallbackTests
@@ -224,8 +224,8 @@ SELECTORS
     G19) cat <<'SELECTORS'
 xabberTests/ChatLifecycleMemoryDiagnosticsTests
 xabberTests/ChatObserverLifecycleTests
-xabberTests/ChatSingleFrameLocalOpenTests
-xabberTests/ChatAsyncLocalPagingTests
+xabberTests/ChatArchiveEnginePresentationTests
+xabberTests/ChatArchiveVirtualTimelineIntegrationTests
 xabberTests/ChatDisplayModelCacheTests
 xabberTests/ChatDisplayRevisionCancellationTests
 xabberTests/ChatMessageLayoutCacheTests
@@ -238,11 +238,19 @@ SELECTORS
       ;;
     G20) cat <<'SELECTORS'
 xabberTests/ChatFinalIntegrationGateTests
-xabberTests/ChatLocalHistoryPageProviderWindowingTests
+xabberTests/ChatArchiveVirtualTimelineIntegrationTests
+xabberTests/ChatArchiveLegacyPagingHardCutTests
+xabberTests/ChatArchiveEnginePresentationTests
+xabberTests/ChatArchiveEngineUIContractTests
+xabberTests/AccountArchiveEngineTests
+xabberTests/ArchiveTransportReceiptTests
+xabberTests/ArchiveCoverageRepositoryTests
+xabberTests/ArchiveSessionFreshnessHardCutTests
+xabberTests/ChatProofScopedLocalTargetPresentationTests
+xabberTests/ChatImmediateNavigationControlsTests
 xabberTests/ChatTimelineCursorTests
 xabberTests/ChatDatasourceBoundsTests
 xabberTests/ChatScrollCoalescingTests
-xabberTests/ChatScrollBoundaryCacheTests
 xabberTests/ChatViewportReadBoundaryTests
 xabberTests/ChatCollectionPrefetchTests
 xabberTests/ChatDatasourceMappingThreadingTests
@@ -251,7 +259,7 @@ xabberTests/ChatDisplayModelCacheTests
 xabberTests/ChatPerformanceSignpostTests
 xabberTests/ChatVirtualTimelineEngineTests
 xabberTests/ChatBottomScrollAlignmentPolicyTests
-xabberTests/ChatInitialHistoryAppearancePolicyTests
+xabberTests/ChatOpenBackdropTests
 xabberTests/TextMessageCellReuseTests
 xabberTests/ChatSearchPresentationStateTests
 xabberTests/ChatSearchResultPresentationTests
@@ -274,27 +282,11 @@ xabberTests/ChatLocalHistoryPageProviderTests
 xabberTests/ChatCursorNativeHistoryProviderTests
 xabberTests/ChatCursorNativeHistoryScaleTests
 xabberTests/ChatHistoryRealmMigrationTests
-xabberTests/ChatTimelineSessionTests
-xabberTests/ChatTimelineSessionSourcePolicyTests
 xabberTests/ChatUnreadMentionsTests
-xabberTests/ChatAsyncLocalPagingTests
-xabberTests/ChatAsyncLocalPagingSourcePolicyTests
-xabberTests/ChatFirstFrameLocalHistoryRegressionTests
-xabberTests/ChatHistoryPagingPolicyTests
 xabberTests/ChatHistoryPageAnchorRestorePolicyTests
 xabberTests/MessageArchiveQueryCallbackTests
 xabberTests/MessageManagerQueueSynchronizationTests
-xabberTests/ChatRemoteMAMPersistenceCoordinatorTests
-xabberTests/ChatArchiveCoverageCommitPolicyTests
-xabberTests/ChatRemoteHistoryApplyPolicyTests
-xabberTests/ChatHistoryLoadingTimeoutPolicyTests
-xabberTests/ChatInteractiveRemoteArchiveAbortTests
-xabberTests/ChatSingleFrameLocalOpenTests
-xabberTests/ChatBootstrapStateTests
-xabberTests/ChatFirstFrameLocalHistoryPolicyTests
-xabberTests/ChatFirstFrameAuxiliaryWorkPolicyTests
 xabberTests/ChatOpenMessageRequestHandlingPolicyTests
-xabberTests/ChatOpenTimingPolicyTests
 xabberTests/ChatCollectionAnchorPreservationTests
 xabberTests/ChatComposerFrameUpdateTests
 xabberTests/ChatScrollFrameBudgetTests
@@ -322,8 +314,6 @@ xabberTests/ChatAttachmentGeolocationSourceTests
 xabberTests/ChatWaveformRenderingTests
 xabberTests/MediaGalleryVoiceListTests
 xabberTests/MediaGalleryVoicePlaybackTests
-xabberTests/ChatSkeletonLifecycleTests
-xabberTests/ChatBootstrapSkeletonRenderPolicyTests
 xabberTests/LastChatsSkeletonCellLayoutTests
 xabberTests/LastChatsSearchPipelineTests
 xabberTests/ChatInChatSearchQueryLifecycleTests
@@ -377,7 +367,7 @@ SELECTORS
 xabberTests/ChatCursorNativeHistoryProviderTests
 xabberTests/ChatCursorNativeHistoryScaleTests
 xabberTests/ChatHistoryRealmMigrationTests
-xabberTests/ChatLocalHistoryPageProviderWindowingTests
+xabberTests/ChatArchiveVirtualTimelineIntegrationTests
 xabberTests/ChatTimelineCursorTests
 xabberTests/ChatLocalHistoryPageProviderTests
 SELECTORS
@@ -391,7 +381,7 @@ chat_goal_smoke_selectors() {
 xabberTests/ChatPerformanceLabTests
 xabberTests/ChatRenderOperationCounterTests
 xabberTests/ChatPerformanceSignpostTests
-xabberTests/ChatLocalHistoryPageProviderWindowingTests
+xabberTests/ChatArchiveVirtualTimelineIntegrationTests
 xabberTests/ChatVirtualTimelineEngineTests
 xabberTests/ChatDatasourceBoundsTests
 xabberTests/ChatScrollCoalescingTests

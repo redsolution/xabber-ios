@@ -306,7 +306,13 @@ final class PushExtensionRichContentTests: XCTestCase {
                 <user xmlns='https://xabber.com/protocol/groups' id='member-a'>
                   <jid>mercutio@example.com</jid>
                   <nickname>Mercutio</nickname>
-                  <avatar><info id='avatar-1' url='https://cdn.example.com/mercutio.jpg'/></avatar>
+                  <avatar>
+                    <info xmlns='urn:xmpp:avatar:metadata'
+                          id='avatar-1'
+                          type='image/jpeg'
+                          bytes='1234'
+                          url='https://cdn.example.com/mercutio.jpg'/>
+                  </avatar>
                 </user>
               </x>
             </message>

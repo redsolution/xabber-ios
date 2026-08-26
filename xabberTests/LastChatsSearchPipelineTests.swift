@@ -322,7 +322,12 @@ final class LastChatsSearchPipelineTests: XCTestCase {
                 .appendingPathComponent("xabber/controllers/chats/search/SearchResultsViewController.swift"),
             encoding: .utf8
         )
-        let body = try XCTUnwrap(source.slice(from: "final class ChatSearchResultsController", to: "extension SearchResultsViewController: TemporaryMessageReceiverProtocol"))
+        let body = try XCTUnwrap(
+            source.slice(
+                from: "final class ChatSearchResultsController",
+                to: "extension SearchResultsViewController:"
+            )
+        )
 
         XCTAssertFalse(body.contains(".toArray()"))
         XCTAssertFalse(body.contains("messagesQueue.sorted"))

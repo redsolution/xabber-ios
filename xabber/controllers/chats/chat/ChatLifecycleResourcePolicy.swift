@@ -80,7 +80,6 @@ struct ChatLifecycleResourceSnapshot: Equatable {
     let anchorQueries: Int
     let anchorTimeouts: Int
     let searchWorkItems: Int
-    let bootstrapWorkItems: Int
     let retryWorkItems: Int
     let remoteDispatchers: Int
     let activeRemoteQueries: Int
@@ -100,7 +99,6 @@ struct ChatLifecycleResourceSnapshot: Equatable {
             anchorQueries,
             anchorTimeouts,
             searchWorkItems,
-            bootstrapWorkItems,
             retryWorkItems,
             remoteDispatchers,
             activeRemoteQueries,

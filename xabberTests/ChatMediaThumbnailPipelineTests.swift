@@ -10,7 +10,6 @@ final class ChatMediaThumbnailPipelineTests: XCTestCase {
             for: item(imageURL: url),
             indexPath: IndexPath(item: 0, section: 0),
             context: .empty(
-                conversationKey: conversationKey(),
                 mediaContainerSize: renderedSize,
                 screenScale: 3,
                 traitStyle: .dark
@@ -66,7 +65,6 @@ final class ChatMediaThumbnailPipelineTests: XCTestCase {
             ),
             indexPath: IndexPath(item: 0, section: 0),
             context: .empty(
-                conversationKey: conversationKey(),
                 mediaContainerSize: .init(width: 96, height: 96),
                 screenScale: Double(UIScreen.main.scale),
                 traitStyle: ChatThumbnailTraitStyle(grid.traitCollection.userInterfaceStyle)
@@ -340,6 +338,46 @@ final class ChatMediaThumbnailPipelineTests: XCTestCase {
         XCTAssertEqual(serving.requests.count, 2)
     }
 
+    func testImageGridLoadsPreviewButTapReturnsFullSourceIdentity() throws {
+        let sourceURL = try XCTUnwrap(
+            URL(string: "https://cdn.example.com/full-resolution.jpg")
+        )
+        let previewURL = try XCTUnwrap(
+            URL(string: "https://cdn.example.com/bounded-preview.jpg")
+        )
+        let serving = RecordingChatThumbnailServing()
+        let grid = InlineImagesGridView(
+            frame: CGRect(x: 0, y: 0, width: 220, height: 220)
+        )
+        grid.thumbnailPipeline = serving
+        let attachment = ImageAttachment(
+            primary: "image",
+            url: sourceURL,
+            previewUrl: previewURL,
+            size: CGSize(width: 1_000, height: 1_000)
+        )
+
+        grid.configure([attachment], representedBy: "message")
+
+        XCTAssertEqual(serving.requests.first?.url, previewURL)
+        XCTAssertEqual(grid.views.first?.url, previewURL)
+        XCTAssertEqual(grid.views.first?.sourceURL, sourceURL)
+
+        var openedURLs: [URL] = []
+        var selectedURL: URL?
+        XCTAssertTrue(
+            grid.handleTouch(
+                at: CGPoint(x: 110, y: 110),
+                callback: { urls, selected, _, _ in
+                    openedURLs = urls
+                    selectedURL = selected
+                }
+            )
+        )
+        XCTAssertEqual(openedURLs, [sourceURL])
+        XCTAssertEqual(selectedURL, sourceURL)
+    }
+
     func testMissingHistoricalImageURLRendersExplicitUnavailableState() {
         let grid = InlineImagesGridView(frame: CGRect(x: 0, y: 0, width: 220, height: 220))
         let attachment = ImageAttachment(
@@ -366,6 +404,40 @@ final class ChatMediaThumbnailPipelineTests: XCTestCase {
 
         XCTAssertEqual(grid.views[0].thumbnailPresentationState, .loading)
         serving.complete(at: 0, with: .failure(.loadFailed))
+        XCTAssertEqual(grid.views[0].thumbnailPresentationState, .unavailable)
+        XCTAssertNotNil(grid.views[0].image)
+    }
+
+    func testRemoteThumbnailFailureFallsBackToFullSourceExactlyOnce() throws {
+        let previewURL = try XCTUnwrap(
+            URL(string: "https://cdn.example.com/bounded-preview.jpg")
+        )
+        let sourceURL = try XCTUnwrap(
+            URL(string: "https://cdn.example.com/full-resolution.jpg")
+        )
+        let serving = RecordingChatThumbnailServing()
+        let grid = InlineImagesGridView(
+            frame: CGRect(x: 0, y: 0, width: 220, height: 220)
+        )
+        grid.thumbnailPipeline = serving
+        grid.configure([
+            ImageAttachment(
+                primary: "fallback-image",
+                url: sourceURL,
+                previewUrl: previewURL,
+                size: CGSize(width: 1_000, height: 1_000)
+            )
+        ], representedBy: "historical-message")
+
+        XCTAssertEqual(serving.requests.map(\.url), [previewURL])
+        serving.complete(at: 0, with: .failure(.loadFailed))
+        XCTAssertEqual(serving.requests.map(\.url), [previewURL, sourceURL])
+        XCTAssertEqual(grid.views[0].thumbnailPresentationState, .loading)
+
+        serving.complete(at: 1, with: .failure(.loadFailed))
+        grid.refreshThumbnailBindings()
+
+        XCTAssertEqual(serving.requests.map(\.url), [previewURL, sourceURL])
         XCTAssertEqual(grid.views[0].thumbnailPresentationState, .unavailable)
         XCTAssertNotNil(grid.views[0].image)
     }
@@ -399,10 +471,6 @@ final class ChatMediaThumbnailPipelineTests: XCTestCase {
             locations: [],
             contacts: []
         )
-    }
-
-    private func conversationKey() -> ChatCollectionPrefetchConversationKey {
-        .init(owner: "owner@example.com", jid: "chat@example.com", conversationType: "regular")
     }
 
     private func thumbnailRequest(

@@ -28,6 +28,18 @@ import RealmSwift
 
 var _DEBUG: Bool = true
 
+enum AppLoggingPolicy {
+    static func osLogLevel(isRelease: Bool) -> DDLogLevel {
+        isRelease ? .info : .debug
+    }
+
+    static func shouldEnablePersistentLogging(
+        developerSettingEnabled: Bool
+    ) -> Bool {
+        developerSettingEnabled
+    }
+}
+
 func getAppVersion() -> String {
     let dictionary = Bundle.main.infoDictionary!
     let version = dictionary["CFBundleShortVersionString"] as? String ?? "0"
@@ -140,16 +152,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         )
         #if RELEASE
         _DEBUG = false
-        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)
+        let isReleaseBuild = true
         #else
-        DDLog.add(DDOSLogger.sharedInstance, with: DDLogLevel.all)
+        let isReleaseBuild = false
         #endif
-        
-        #if RELEASE
-        let shouldEnableFileLogging = SettingManager.logEnabled
-        #else
-        let shouldEnableFileLogging = true
-        #endif
+
+        DDLog.add(
+            DDOSLogger.sharedInstance,
+            with: AppLoggingPolicy.osLogLevel(isRelease: isReleaseBuild)
+        )
+        let shouldEnableFileLogging =
+            AppLoggingPolicy.shouldEnablePersistentLogging(
+                developerSettingEnabled: SettingManager.logEnabled
+            )
 
         if shouldEnableFileLogging {
             let fileLogger = DDFileLogger()

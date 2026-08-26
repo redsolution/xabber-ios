@@ -35,13 +35,20 @@ class InlineImagesGridView: InlineAttachmentView {
         }
         
         var primary: String
+        /// Resource used by the bounded thumbnail pipeline.
         var url: URL?
+        /// First-choice bounded preview. Kept separate from `url` so a failed
+        /// preview can fall back once without update passes rearming it.
+        private(set) var preferredThumbnailURL: URL?
+        /// Full source retained for gallery/open/download callbacks.
+        var sourceURL: URL?
         var representedRequest: InlineAttachmentRepresentedRequest
         var representedThumbnailRequest: ChatThumbnailRequest?
         var representedThumbnailConsumer: ChatThumbnailConsumer?
         var thumbnailSubscription: ChatThumbnailSubscription?
         let visibleConsumerID = UUID()
         private(set) var thumbnailPresentationState: ThumbnailPresentationState = .loading
+        private var didAttemptFullSourceFallback = false
         var isSensitive: Bool {
             didSet {
                 updateSensitiveAppearance()
@@ -58,11 +65,14 @@ class InlineImagesGridView: InlineAttachmentView {
             frame: CGRect,
             primary: String,
             url: URL?,
+            sourceURL: URL?,
             isSensitive: Bool,
             representedRequest: InlineAttachmentRepresentedRequest
         ) {
             self.primary = primary
             self.url = url
+            self.preferredThumbnailURL = url
+            self.sourceURL = sourceURL
             self.isSensitive = isSensitive
             self.representedRequest = representedRequest
             super.init(frame: frame)
@@ -127,6 +137,35 @@ class InlineImagesGridView: InlineAttachmentView {
             thumbnailSubscription = nil
             representedThumbnailRequest = nil
             representedThumbnailConsumer = nil
+        }
+
+        func updateThumbnailResources(
+            preferredURL: URL?,
+            sourceURL: URL?
+        ) {
+            guard preferredThumbnailURL != preferredURL ||
+                    self.sourceURL != sourceURL else {
+                return
+            }
+            cancelThumbnailBinding()
+            preferredThumbnailURL = preferredURL
+            self.sourceURL = sourceURL
+            url = preferredURL
+            didAttemptFullSourceFallback = false
+        }
+
+        func beginFullSourceFallback() -> Bool {
+            guard !didAttemptFullSourceFallback,
+                  let preferredThumbnailURL,
+                  let scheme = preferredThumbnailURL.scheme?.lowercased(),
+                  ["http", "https"].contains(scheme),
+                  let sourceURL,
+                  sourceURL != preferredThumbnailURL else {
+                return false
+            }
+            didAttemptFullSourceFallback = true
+            url = sourceURL
+            return true
         }
 
         override func layoutSubviews() {
@@ -250,15 +289,17 @@ class InlineImagesGridView: InlineAttachmentView {
         prepareGrid(attachments).enumerated().forEach {
             index, rect in
             let item = attachments[index]
+            let presentationURL = item.previewUrl ?? item.url
             let request = InlineAttachmentRepresentedRequest(
                 containerPrimary: containerPrimary,
                 referencePrimary: item.primary,
-                resourceIdentity: item.url?.absoluteString ?? "unavailable:\(item.primary)"
+                resourceIdentity: presentationURL?.absoluteString ?? "unavailable:\(item.primary)"
             )
             let view = InlineMessageImageView(
                 frame: rect,
                 primary: item.primary,
-                url: item.url,
+                url: presentationURL,
+                sourceURL: item.url,
                 isSensitive: item.isSensitive && !item.isSensitiveRevealed,
                 representedRequest: request
             )
@@ -287,16 +328,20 @@ class InlineImagesGridView: InlineAttachmentView {
         prepareGrid(attachments).enumerated().forEach { index, rect in
             let item = attachments[index]
             let view = self.views[index]
+            let presentationURL = item.previewUrl ?? item.url
             let request = InlineAttachmentRepresentedRequest(
                 containerPrimary: containerPrimary,
                 referencePrimary: item.primary,
-                resourceIdentity: item.url?.absoluteString ?? "unavailable:\(item.primary)"
+                resourceIdentity: presentationURL?.absoluteString ?? "unavailable:\(item.primary)"
             )
             view.frame = rect
             view.primary = item.primary
             view.isSensitive = item.isSensitive && !item.isSensitiveRevealed
             view.representedRequest = request
-            view.url = item.url
+            view.updateThumbnailResources(
+                preferredURL: presentationURL,
+                sourceURL: item.url
+            )
         }
         refreshThumbnailBindings()
     }
@@ -337,10 +382,10 @@ class InlineImagesGridView: InlineAttachmentView {
             view.showLoadingPlaceholder()
             view.representedThumbnailRequest = request
             view.representedThumbnailConsumer = consumer
-            view.thumbnailSubscription = thumbnailPipeline.acquire(
+            let subscription = thumbnailPipeline.acquire(
                 request,
                 consumer: consumer
-            ) { [weak view] result in
+            ) { [weak self, weak view] result in
                 guard let view,
                       view.representedThumbnailRequest == request,
                       view.representedThumbnailConsumer == consumer else {
@@ -350,19 +395,33 @@ class InlineImagesGridView: InlineAttachmentView {
                 case .success(let delivery):
                     view.showThumbnail(delivery.image)
                 case .failure:
-                    view.showUnavailablePlaceholder()
+                    if view.beginFullSourceFallback() {
+                        self?.refreshThumbnailBindings()
+                    } else {
+                        view.showUnavailablePlaceholder()
+                    }
                 }
+            }
+            if view.representedThumbnailRequest == request,
+               view.representedThumbnailConsumer == consumer {
+                view.thumbnailSubscription = subscription
+            } else {
+                // `acquire` may synchronously fail (for example, queue
+                // overflow) and start the one-shot full-source fallback.
+                // Never let the obsolete preview token overwrite that newer
+                // binding when the outer call returns.
+                subscription.cancel()
             }
         }
     }
     
     func handleTouch(at point: CGPoint, callback: (([URL], URL, String, Bool) -> Void)?) -> Bool {
         var isMyTouch: Bool = false
-        let urls = views.compactMap(\.url)
+        let urls = views.compactMap(\.sourceURL)
         views.forEach {
             item in
             if !isMyTouch {
-                if item.frame.contains(point), let url = item.url {
+                if item.frame.contains(point), let url = item.sourceURL {
                     callback?(urls, url, item.primary, item.isSensitive)
                     isMyTouch = true
                 }

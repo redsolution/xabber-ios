@@ -464,6 +464,7 @@ extension Account: XMPPStreamDelegate {
         )
         self.cancelDelayedConnectTimer()
         self.notifications.invalidateNotificationSyncSession()
+        self.vcards.clearSession()
         let scheduler = self.xmppTaskScheduler
         scheduler.reset()
         _ = self.mam.publishPendingArchiveRequestFailures(
@@ -473,9 +474,7 @@ extension Account: XMPPStreamDelegate {
         )
         self.disco.cancelCloudDiscoveryForDisconnect()
         self.disconnectCanonicalGroupTransport()
-        self.groupActivationSyncGate.invalidateAll()
         self.cloudStorage.markAvailabilityRetryableFailure(stage: .disconnected)
-        self.discardBootstrapQueuedPrimaryStanzas(reason: "streamDisconnect")
         CredentialsManager.shared.getItem(for: self.jid).release(.authFailedRecoverable)
         self.statusState.accept(.offline)
         self.statusMessage.accept("Offline")

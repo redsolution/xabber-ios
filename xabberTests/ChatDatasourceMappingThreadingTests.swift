@@ -1,5 +1,6 @@
 import XCTest
 import RealmSwift
+import XMPPFramework
 @testable import xabber
 
 final class ChatDatasourceMappingThreadingTests: XCTestCase {
@@ -363,6 +364,86 @@ final class ChatDatasourceMappingThreadingTests: XCTestCase {
         XCTAssertNotEqual(originalRevision, editedRevision)
     }
 
+    func testInlineForwardCapturesGroupAuthorSnapshotAndUsesItAfterReferencesAreUnavailable() throws {
+        let message = try makeXMPPMessage(xml: """
+        <message type='chat' from='group@example.com/room' to='owner@example.com' id='forwarded-group-message'>
+          <x xmlns='https://xabber.com/protocol/groups'>
+            <user id='historical-author'>
+              <jid>historical@example.com</jid>
+              <nickname>Historical Juliet</nickname>
+            </user>
+          </x>
+          <body>Historical Juliet:
+        Forwarded body</body>
+        </message>
+        """)
+        let forward = MessageForwardsInlineStorageItem()
+
+        forward.configureInline(
+            message,
+            parentId: "parent-message",
+            owner: owner,
+            jid: "group@example.com",
+            opponent: "group@example.com",
+            outgoing: false,
+            date: Date(timeIntervalSince1970: 1_700_000_050),
+            forwardJid: "group@example.com"
+        )
+
+        XCTAssertEqual(forward.forwardNickname, "Historical Juliet")
+        forward.references.removeAll()
+        XCTAssertEqual(ChatMessageForwardSnapshot(forward).authorName, "Historical Juliet")
+    }
+
+    func testForwardAuthorResolutionPrefersGroupMetadataThenStoredSnapshotThenRosterAndJID() throws {
+        let forward = makeForward(primary: "author-resolution", body: "Forward")
+        forward.forwardNickname = "Stored historical name"
+        let groupAuthor = MessageReferenceStorageItem()
+        groupAuthor.kind = .groupchat
+        groupAuthor.metadata = [
+            "nickname": "Reference historical name",
+            "jid": "reference-author@example.com"
+        ]
+        forward.references.append(groupAuthor)
+
+        XCTAssertEqual(forward.tryToLoadNickname(), "Reference historical name")
+
+        groupAuthor.metadata = [
+            "nickname": "",
+            "jid": "reference-author@example.com"
+        ]
+        XCTAssertEqual(forward.tryToLoadNickname(), "reference-author@example.com")
+
+        forward.references.removeAll()
+        XCTAssertEqual(forward.tryToLoadNickname(), "Stored historical name")
+
+        forward.forwardNickname = ""
+        let realm = try WRealm.safe()
+        let roster = RosterStorageItem()
+        roster.primary = RosterStorageItem.genPrimary(jid: forward.forwardJid, owner: owner)
+        roster.owner = owner
+        roster.jid = forward.forwardJid
+        roster.username = "Current roster name"
+        try realm.write {
+            realm.add(roster)
+        }
+        XCTAssertEqual(forward.tryToLoadNickname(), "Current roster name")
+
+        try realm.write {
+            realm.delete(roster)
+        }
+        XCTAssertEqual(forward.tryToLoadNickname(), forward.forwardJid)
+    }
+
+    func testInlineForwardWithoutOriginalDateLeavesVisibleTimeMarkerEmpty() {
+        let forward = makeForward(primary: "missing-original-date", body: "Forward")
+        forward.originalDate = nil
+
+        let attachment = makeController().mapAttachment(forward)
+
+        XCTAssertEqual(attachment.timeMarker.string, "")
+    }
+
     private func makeController() -> ChatViewController {
         let controller = ChatViewController()
         controller.owner = owner
@@ -374,6 +455,11 @@ final class ChatDatasourceMappingThreadingTests: XCTestCase {
         controller.inSearchMode.accept(false)
         controller.searchTextObserver.accept(nil)
         return controller
+    }
+
+    private func makeXMPPMessage(xml: String) throws -> XMPPMessage {
+        let document = try DDXMLDocument(xmlString: xml, options: 0)
+        return XMPPMessage(from: try XCTUnwrap(document.rootElement()))
     }
 
     private func messageText(_ kind: MessageKind) -> String? {

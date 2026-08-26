@@ -174,6 +174,9 @@ final class GroupRepository {
     /// coherent Realm transition. A fresh `wait` admission clears stale
     /// authoritative state, while an already-active `both` membership keeps
     /// members and permissions intact during P2P conflict reconciliation.
+    /// `additionalMutation` runs after the canonical rows in that same write;
+    /// throwing from it rolls the entire admission back. Tombstones and the
+    /// terminal `.none` state do not invoke it.
     @discardableResult
     func admitSnapshot(
         _ snapshot: GroupSnapshot,
@@ -182,7 +185,8 @@ final class GroupRepository {
         owner: String,
         groupJID: String,
         members: [GroupMember]? = nil,
-        rejectingTombstone: Bool = false
+        rejectingTombstone: Bool = false,
+        additionalMutation: ((Realm) throws -> Void)? = nil
     ) throws -> GroupRepositoryAdmissionResult {
         let context = try makeContext(owner: owner, groupJID: groupJID)
         try validate(snapshotJID: snapshot.jid, context: context)
@@ -249,6 +253,7 @@ final class GroupRepository {
                     )
                 )
             }
+            try additionalMutation?(self.realm)
         }
         return result
     }
@@ -653,7 +658,7 @@ final class GroupRepository {
         ) else {
             return true
         }
-        return membership.stateRaw != GroupSelfMembershipState.none.rawValue
+        return membership.stateRaw == GroupSelfMembershipState.both.rawValue
     }
 
     private func deleteGroupState(_ context: Context) {

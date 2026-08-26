@@ -317,6 +317,13 @@ struct ChatIncrementalResidentReducer {
                 ChatIncrementalMessageIdentity(message: item).revisionKeys.forEach {
                     newestRevisionByStableKey[$0] = mutation.revision
                 }
+                if item.isDeleted || item.isLocallyHiddenByReport {
+                    guard let existingIndex else { continue }
+                    deleted.append(items[existingIndex].primary)
+                    items.remove(at: existingIndex)
+                    applied += 1
+                    continue
+                }
                 if let existingIndex {
                     let stablePrimary = items[existingIndex].primary
                     items[existingIndex] = item

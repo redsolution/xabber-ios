@@ -357,7 +357,11 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
 
         if iq.iqType == .error,
            let elementId = iq.elementID,
-           MessageArchiveManager.isMamCompletionIQ(iq, owner: self.currentJid) {
+           self.preRoutedMamCompletionIQIds.contains(elementId) ||
+            MessageArchiveManager.isMamCompletionIQ(
+                iq,
+                owner: self.currentJid
+            ) {
             return elementId
         }
 
@@ -373,16 +377,27 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         let handledByMam = self.mam?.read(sender, withIQ: iq) ?? false
         var fallbackDelivered = false
         if !handledByMam,
-           let owner = self.currentJid,
-           let event = MessageArchiveManager.unroutedEndPageEvent(
+           let owner = self.currentJid {
+            if let failure = MessageArchiveManager.unroutedRequestFailureEvent(
                 owner: owner,
                 iq: iq,
                 streamKind: .uiAction
-           ) {
-            fallbackDelivered = MessageArchiveEndPageDispatcher.publish(event)
-            DDLogDebug(
-                "XMPPUIActionManager.uiActionMamFinalRoute unrouted owner=\(owner) queryId=\(event.queryId) source=\(event.source.rawValue) delivered=\(fallbackDelivered)"
-            )
+            ) {
+                fallbackDelivered = MessageArchiveManager
+                    .routeUnroutedRequestFailure(failure)
+                DDLogDebug(
+                    "XMPPUIActionManager.uiActionMamFailureRoute unrouted owner=\(owner) queryId=\(failure.queryId) reason=\(failure.reason.rawValue) delivered=\(fallbackDelivered)"
+                )
+            } else if let event = MessageArchiveManager.unroutedEndPageEvent(
+                owner: owner,
+                iq: iq,
+                streamKind: .uiAction
+            ) {
+                fallbackDelivered = MessageArchiveEndPageDispatcher.publish(event)
+                DDLogDebug(
+                    "XMPPUIActionManager.uiActionMamFinalRoute unrouted owner=\(owner) queryId=\(event.queryId) source=\(event.source.rawValue) delivered=\(fallbackDelivered)"
+                )
+            }
         }
 
         self.logConnectionDiagnostics(

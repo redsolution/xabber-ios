@@ -31,8 +31,6 @@ final class ChatSearchLifecycleTests: XCTestCase {
         prepareCommittedSearch(controller, suffix: 1)
         controller.onSearchPanelChangeChatViewState()
         controller.onSearchPanelOpenCalendar()
-        let completion = RecordingLifecycleCompletionCoordinator()
-        controller.searchCalendarCompletionCoordinator = completion
         let workItem = DispatchWorkItem {}
         controller.searchSessionDebounceWorkItem = workItem
         controller.searchSessionDebounceGeneration = controller.searchSession.generation
@@ -40,14 +38,10 @@ final class ChatSearchLifecycleTests: XCTestCase {
         controller.teardownChatSearchLifecycle(reason: .navigationAway)
 
         XCTAssertTrue(workItem.isCancelled)
-        XCTAssertTrue(completion.wasCancelled)
-        XCTAssertNil(controller.searchCalendarCompletionCoordinator)
-        XCTAssertNil(controller.searchCalendarTimestampMAMTransport)
         XCTAssertNil(controller.searchResultsListViewController)
         XCTAssertNil(controller.searchCalendarViewController)
         XCTAssertNil(controller.searchSessionDebounceWorkItem)
         XCTAssertTrue(controller.searchSessionGenerationByQueryId.isEmpty)
-        XCTAssertTrue(controller.searchArchiveManagersByQueryId.isEmpty)
         XCTAssertFalse(controller.searchPresentationState.isActive)
         XCTAssertEqual(controller.searchSession.providerPhase, .idle)
         XCTAssertEqual(controller.xabberInputView.state, .normal)
@@ -55,10 +49,9 @@ final class ChatSearchLifecycleTests: XCTestCase {
         XCTAssertTrue(controller.messagesCollectionView.isUserInteractionEnabled)
     }
 
-    func testTeardownReleasesListCalendarCoordinatorAndAvatarRequestOwners() throws {
+    func testTeardownReleasesListCalendarAndAvatarRequestOwners() throws {
         weak var weakList: ChatSearchResultsListViewController?
         weak var weakCalendar: ChatSearchCalendarViewController?
-        weak var weakCompletion: RecordingLifecycleCompletionCoordinator?
         weak var weakController: ChatViewController?
         autoreleasepool {
             let controller = makeLoadedController()
@@ -68,20 +61,15 @@ final class ChatSearchLifecycleTests: XCTestCase {
             controller.onSearchPanelOpenCalendar()
             weakList = controller.searchResultsListViewController
             weakCalendar = controller.searchCalendarViewController
-            let completion = RecordingLifecycleCompletionCoordinator()
-            weakCompletion = completion
-            controller.searchCalendarCompletionCoordinator = completion
 
             controller.teardownChatSearchLifecycle(reason: .navigationAway)
 
             XCTAssertNil(controller.searchResultsListViewController)
             XCTAssertNil(controller.searchCalendarViewController)
-            XCTAssertNil(controller.searchCalendarCompletionCoordinator)
         }
 
         XCTAssertNil(weakList)
         XCTAssertNil(weakCalendar)
-        XCTAssertNil(weakCompletion)
         XCTAssertNil(weakController)
     }
 
@@ -264,24 +252,5 @@ final class ChatSearchLifecycleTests: XCTestCase {
                 source: .contact(jid: "andrew@example.com", owner: "owner@example.com")
             )
         )
-    }
-}
-
-private final class RecordingLifecycleCompletionCoordinator: ChatSearchCalendarCompletionCoordinating {
-    var activeRequestID: UUID? = UUID()
-    private(set) var wasCancelled = false
-
-    func begin(
-        _ request: ChatSearchCalendarCompletionRequest,
-        completion: @escaping (ChatSearchCalendarCompletionOutcome) -> Void
-    ) -> Bool {
-        activeRequestID = request.id
-        return true
-    }
-
-    func cancel() -> Bool {
-        wasCancelled = true
-        activeRequestID = nil
-        return true
     }
 }

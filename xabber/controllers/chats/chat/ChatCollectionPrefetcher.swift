@@ -1,7 +1,6 @@
 import CoreGraphics
 import Foundation
 import UIKit
-import CocoaLumberjack
 
 struct ChatCollectionPrefetchIdentity: Hashable {
     enum Kind: String, Hashable {
@@ -16,62 +15,6 @@ struct ChatCollectionPrefetchIdentity: Hashable {
     let kind: Kind
     let messagePrimary: String
     let referencePrimary: String
-}
-
-struct ChatCollectionPrefetchConversationKey: Hashable {
-    let owner: String
-    let jid: String
-    let conversationType: String
-
-    init(owner: String, jid: String, conversationType: String) {
-        self.owner = owner
-        self.jid = jid
-        self.conversationType = conversationType
-    }
-
-    init(_ key: ChatTimelineConversationKey) {
-        self.init(
-            owner: key.owner,
-            jid: key.jid,
-            conversationType: key.conversationType.rawValue
-        )
-    }
-
-    var resolvedConversationType: ClientSynchronizationManager.ConversationType {
-        ClientSynchronizationManager.ConversationType(rawValue: conversationType) ?? .regular
-    }
-}
-
-struct ChatCollectionPrefetchBoundary: Hashable {
-    let primary: String
-    let archivedId: String?
-    let messageId: String?
-    let timestamp: TimeInterval
-
-    init(primary: String, archivedId: String?, messageId: String?, timestamp: TimeInterval) {
-        self.primary = primary
-        self.archivedId = archivedId
-        self.messageId = messageId
-        self.timestamp = timestamp
-    }
-
-    init(_ boundary: ChatTimelineBoundary) {
-        self.init(
-            primary: boundary.primary,
-            archivedId: boundary.archivedId,
-            messageId: boundary.messageId,
-            timestamp: boundary.date.timeIntervalSince1970
-        )
-    }
-
-    var timelineBoundary: ChatTimelineBoundary {
-        ChatTimelineBoundary(
-            primary: primary,
-            archivedId: archivedId,
-            messageId: messageId,
-            date: Date(timeIntervalSince1970: timestamp)
-        )
-    }
 }
 
 struct ChatCollectionPrefetchSize: Hashable {
@@ -116,16 +59,21 @@ struct ChatCollectionPrefetchLocation: Hashable {
 
 struct ChatCollectionPrefetchImageReference: Hashable {
     let primary: String
+    /// Full source identity retained for opening/download semantics.
     let url: URL?
+    /// Optional bounded resource used by the thumbnail pipeline.
+    let previewURL: URL?
     let size: ChatCollectionPrefetchSize?
 
     init(
         primary: String,
         url: URL?,
+        previewURL: URL? = nil,
         size: ChatCollectionPrefetchSize? = nil
     ) {
         self.primary = primary
         self.url = url
+        self.previewURL = previewURL
         self.size = size
     }
 }
@@ -232,83 +180,43 @@ struct ChatCollectionPrefetchItem: Hashable {
     }
 }
 
-enum ChatCollectionPrefetchPageDirection: String, Hashable {
-    case older
-    case newer
-}
-
-struct ChatCollectionPrefetchPageWarmup: Hashable {
-    let direction: ChatCollectionPrefetchPageDirection
-    let conversationKey: ChatCollectionPrefetchConversationKey
-    let boundary: ChatCollectionPrefetchBoundary
-}
-
 enum ChatCollectionPrefetchResource: Hashable {
     case image(identity: ChatCollectionPrefetchIdentity, request: ChatCollectionPrefetchImageRequest)
     case videoPreview(identity: ChatCollectionPrefetchIdentity, request: ChatCollectionPrefetchImageRequest)
     case avatar(identity: ChatCollectionPrefetchIdentity, request: ChatAvatarRequest)
     case locationSnapshot(identity: ChatCollectionPrefetchIdentity, request: ChatLocationSnapshotRequest)
-    case pageWarmup(ChatCollectionPrefetchPageWarmup)
 }
 
 struct ChatCollectionPrefetchContext {
-    let conversationKey: ChatCollectionPrefetchConversationKey
-    let availability: ChatScrollBoundaryAvailability
-    let oldestBoundary: ChatCollectionPrefetchBoundary?
-    let newestBoundary: ChatCollectionPrefetchBoundary?
-    let firstRealSection: Int?
-    let lastRealSection: Int?
     let locationSnapshotSize: ChatCollectionPrefetchSize
     let mediaContainerSize: ChatCollectionPrefetchSize
     let avatarSize: ChatCollectionPrefetchSize
     let contactAvatarSize: ChatCollectionPrefetchSize
     let screenScale: Double
     let traitStyle: ChatThumbnailTraitStyle
-    let pageWarmupDistance: Int
 
     init(
-        conversationKey: ChatCollectionPrefetchConversationKey,
-        availability: ChatScrollBoundaryAvailability,
-        oldestBoundary: ChatCollectionPrefetchBoundary?,
-        newestBoundary: ChatCollectionPrefetchBoundary?,
-        firstRealSection: Int?,
-        lastRealSection: Int?,
         locationSnapshotSize: ChatCollectionPrefetchSize,
         mediaContainerSize: ChatCollectionPrefetchSize = ChatCollectionPrefetchSize(width: 220, height: 220),
         avatarSize: ChatCollectionPrefetchSize = ChatCollectionPrefetchSize(width: 32, height: 32),
         contactAvatarSize: ChatCollectionPrefetchSize = ChatCollectionPrefetchSize(width: 36, height: 36),
         screenScale: Double = 2,
-        traitStyle: ChatThumbnailTraitStyle = .unspecified,
-        pageWarmupDistance: Int = 2
+        traitStyle: ChatThumbnailTraitStyle = .unspecified
     ) {
-        self.conversationKey = conversationKey
-        self.availability = availability
-        self.oldestBoundary = oldestBoundary
-        self.newestBoundary = newestBoundary
-        self.firstRealSection = firstRealSection
-        self.lastRealSection = lastRealSection
         self.locationSnapshotSize = locationSnapshotSize
         self.mediaContainerSize = mediaContainerSize
         self.avatarSize = avatarSize
         self.contactAvatarSize = contactAvatarSize
         self.screenScale = screenScale
         self.traitStyle = traitStyle
-        self.pageWarmupDistance = pageWarmupDistance
     }
 
     static func empty(
-        conversationKey: ChatCollectionPrefetchConversationKey,
         mediaContainerSize: ChatCollectionPrefetchSize = ChatCollectionPrefetchSize(width: 220, height: 220),
         screenScale: Double = 2,
         traitStyle: ChatThumbnailTraitStyle = .unspecified
     ) -> ChatCollectionPrefetchContext {
-        ChatCollectionPrefetchContext(
-            conversationKey: conversationKey,
-            availability: .empty,
-            oldestBoundary: nil,
-            newestBoundary: nil,
-            firstRealSection: nil,
-            lastRealSection: nil,
+        return ChatCollectionPrefetchContext(
             locationSnapshotSize: ChatCollectionPrefetchSize(width: 220, height: 220),
             mediaContainerSize: mediaContainerSize,
             screenScale: screenScale,
@@ -433,7 +341,7 @@ final class ChatCollectionPrefetchCoordinator {
 enum ChatCollectionPrefetchPlanner {
     static func resources(
         for item: ChatCollectionPrefetchItem,
-        indexPath: IndexPath,
+        indexPath _: IndexPath,
         context: ChatCollectionPrefetchContext
     ) -> Set<ChatCollectionPrefetchResource> {
         var resources = Set<ChatCollectionPrefetchResource>()
@@ -465,7 +373,7 @@ enum ChatCollectionPrefetchPlanner {
 
         let imageFrames = mediaFrames(count: item.images.count, containerSize: context.mediaContainerSize)
         item.images.enumerated().forEach { index, image in
-            guard let url = image.url else { return }
+            guard let url = image.previewURL ?? image.url else { return }
             resources.insert(.image(
                 identity: identity(.image, messagePrimary: item.messagePrimary, referencePrimary: image.primary),
                 request: imageRequest(url: url, displaySize: displaySize(at: index, in: imageFrames, fallback: context.mediaContainerSize), context: context)
@@ -527,10 +435,6 @@ enum ChatCollectionPrefetchPlanner {
                     traitStyle: context.traitStyle
                 )
             ))
-        }
-
-        pageWarmups(for: indexPath, context: context).forEach { warmup in
-            resources.insert(.pageWarmup(warmup))
         }
 
         return resources
@@ -632,103 +536,17 @@ enum ChatCollectionPrefetchPlanner {
             referencePrimary: referencePrimary
         )
     }
-
-    private static func pageWarmups(
-        for indexPath: IndexPath,
-        context: ChatCollectionPrefetchContext
-    ) -> [ChatCollectionPrefetchPageWarmup] {
-        let distance = max(0, context.pageWarmupDistance)
-        var warmups: [ChatCollectionPrefetchPageWarmup] = []
-        if context.availability.hasLocalOlderPage,
-           let firstRealSection = context.firstRealSection,
-           indexPath.section <= firstRealSection + distance,
-           let oldestBoundary = context.oldestBoundary {
-            warmups.append(ChatCollectionPrefetchPageWarmup(
-                direction: .older,
-                conversationKey: context.conversationKey,
-                boundary: oldestBoundary
-            ))
-        }
-
-        if context.availability.hasLocalNewerPage,
-           let lastRealSection = context.lastRealSection,
-           indexPath.section >= lastRealSection - distance,
-           let newestBoundary = context.newestBoundary {
-            warmups.append(ChatCollectionPrefetchPageWarmup(
-                direction: .newer,
-                conversationKey: context.conversationKey,
-                boundary: newestBoundary
-            ))
-        }
-
-        return warmups
-    }
-}
-
-protocol ChatCollectionPageWarmupTask: AnyObject {
-    func cancel()
-}
-
-protocol ChatCollectionPageWarmupProviding: AnyObject {
-    func warmup(_ request: ChatCollectionPrefetchPageWarmup, limit: Int) -> ChatCollectionPageWarmupTask
-}
-
-private final class ChatCollectionPageWarmupCancellationToken: ChatCollectionPageWarmupTask {
-    private(set) var isCancelled = false
-
-    func cancel() {
-        isCancelled = true
-    }
-}
-
-final class ChatCollectionLocalHistoryPageWarmupProvider: ChatCollectionPageWarmupProviding {
-    typealias WorkQueue = (@escaping () -> Void) -> Void
-
-    private let workQueue: WorkQueue
-
-    init(workQueue: @escaping WorkQueue = { work in
-        DispatchQueue.global(qos: .utility).async(execute: work)
-    }) {
-        self.workQueue = workQueue
-    }
-
-    func warmup(_ request: ChatCollectionPrefetchPageWarmup, limit: Int) -> ChatCollectionPageWarmupTask {
-        let token = ChatCollectionPageWarmupCancellationToken()
-        workQueue {
-            guard !token.isCancelled else { return }
-            do {
-                let provider = ChatLocalHistoryPageProvider(
-                    realm: try WRealm.safe(),
-                    owner: request.conversationKey.owner,
-                    jid: request.conversationKey.jid,
-                    conversationType: request.conversationKey.resolvedConversationType
-                )
-                switch request.direction {
-                case .older:
-                    _ = provider.older(before: request.boundary.timelineBoundary, limit: limit)
-                case .newer:
-                    _ = provider.newer(after: request.boundary.timelineBoundary, limit: limit)
-                }
-            } catch {
-                DDLogDebug("ChatCollectionLocalHistoryPageWarmupProvider: \(error.localizedDescription)")
-            }
-        }
-        return token
-    }
 }
 
 final class ChatCollectionContentPrefetcher: ChatCollectionContentPrefetching {
     private let locationSnapshotPipeline: ChatLocationSnapshotServing
     private let avatarPipeline: ChatAvatarServing
-    private let pageWarmupProvider: ChatCollectionPageWarmupProviding
     private let thumbnailPipeline: ChatThumbnailServing
-    private let pageWarmupLimit: Int
     private var imagePrefetchers: [ChatCollectionPrefetchResource: ChatThumbnailSubscription] = [:]
     private var avatarPrefetchers: [ChatCollectionPrefetchResource: ChatAvatarSubscription] = [:]
     private var locationSnapshotPrefetchers: [ChatCollectionPrefetchResource: ChatLocationSnapshotSubscription] = [:]
     private var avatarTokens: [ChatCollectionPrefetchResource: UUID] = [:]
     private var locationSnapshotTokens: [ChatCollectionPrefetchResource: UUID] = [:]
-    private var pageWarmupTasks: [ChatCollectionPrefetchResource: ChatCollectionPageWarmupTask] = [:]
 
     var activeImagePrefetchCount: Int {
         imagePrefetchers.count
@@ -742,21 +560,13 @@ final class ChatCollectionContentPrefetcher: ChatCollectionContentPrefetching {
         avatarPrefetchers.count
     }
 
-    var activePageWarmupTaskCount: Int {
-        pageWarmupTasks.count
-    }
-
     init(
         locationSnapshotPipeline: ChatLocationSnapshotServing = ChatLocationSnapshotPipeline.shared,
         avatarPipeline: ChatAvatarServing = ChatAvatarPipeline.shared,
-        pageWarmupProvider: ChatCollectionPageWarmupProviding = ChatCollectionLocalHistoryPageWarmupProvider(),
-        pageWarmupLimit: Int,
         thumbnailPipeline: ChatThumbnailServing = ChatMediaThumbnailPipeline.shared
     ) {
         self.locationSnapshotPipeline = locationSnapshotPipeline
         self.avatarPipeline = avatarPipeline
-        self.pageWarmupProvider = pageWarmupProvider
-        self.pageWarmupLimit = pageWarmupLimit
         self.thumbnailPipeline = thumbnailPipeline
     }
 
@@ -771,12 +581,6 @@ final class ChatCollectionContentPrefetcher: ChatCollectionContentPrefetching {
                     startAvatarPrefetch(for: resource, identity: identity, request: request)
                 case .locationSnapshot(let identity, let request):
                     startLocationSnapshotPrefetch(for: resource, identity: identity, request: request)
-                case .pageWarmup(let request):
-                    guard pageWarmupTasks[resource] == nil else { return }
-                    pageWarmupTasks[resource] = pageWarmupProvider.warmup(
-                        request,
-                        limit: pageWarmupLimit
-                    )
                 }
             }
         }
@@ -792,9 +596,6 @@ final class ChatCollectionContentPrefetcher: ChatCollectionContentPrefetching {
             }
             if let prefetcher = locationSnapshotPrefetchers.removeValue(forKey: resource) {
                 prefetcher.cancel()
-            }
-            if let task = pageWarmupTasks.removeValue(forKey: resource) {
-                task.cancel()
             }
             avatarTokens.removeValue(forKey: resource)
             locationSnapshotTokens.removeValue(forKey: resource)
@@ -892,7 +693,8 @@ extension ChatViewController.Datasource {
             images: images.map {
                 ChatCollectionPrefetchImageReference(
                     primary: $0.primary,
-                    url: $0.url
+                    url: $0.url,
+                    previewURL: $0.previewUrl
                 )
             },
             videos: videos.map {
@@ -936,14 +738,6 @@ extension ChatViewController {
     }
 
     internal func chatCollectionPrefetchContext() -> ChatCollectionPrefetchContext {
-        let conversationKey = chatTimelineConversationKey
-        let normalizedState = virtualTimelineState.normalized(
-            owner: conversationKey.owner,
-            jid: conversationKey.jid,
-            conversationType: conversationKey.conversationType
-        )
-        let firstRealSection = datasource.firstIndex(where: { !$0.isFakeMessage })
-        let lastRealSection = datasource.lastIndex(where: { !$0.isFakeMessage })
         let flowLayout = messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout
         let layoutWidth = flowLayout?.itemWidth ?? messagesCollectionView.bounds.width
         // ChatMessageLayoutCalculator subtracts 76 points from the item width,
@@ -951,12 +745,6 @@ extension ChatViewController {
         let width = max(1, min(420, layoutWidth - 76) - 4)
         let mediaSize = ChatCollectionPrefetchSize(width: Double(width), height: Double(width))
         return ChatCollectionPrefetchContext(
-            conversationKey: ChatCollectionPrefetchConversationKey(conversationKey),
-            availability: scrollBoundaryAvailabilityCache.availability(for: conversationKey) ?? .empty,
-            oldestBoundary: normalizedState.oldest.map(ChatCollectionPrefetchBoundary.init),
-            newestBoundary: normalizedState.newest.map(ChatCollectionPrefetchBoundary.init),
-            firstRealSection: firstRealSection,
-            lastRealSection: lastRealSection,
             locationSnapshotSize: mediaSize,
             mediaContainerSize: mediaSize,
             avatarSize: ChatCollectionPrefetchSize(width: 32, height: 32),
@@ -974,7 +762,7 @@ private extension ChatCollectionPrefetchResource {
              .videoPreview(let identity, _),
              .avatar(let identity, _):
             return identity
-        case .locationSnapshot, .pageWarmup:
+        case .locationSnapshot:
             return nil
         }
     }

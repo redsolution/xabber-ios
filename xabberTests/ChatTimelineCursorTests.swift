@@ -124,19 +124,6 @@ final class ChatTimelineCursorTests: XCTestCase {
         XCTAssertEqual(Set(items.map(\.primary)).count, 2)
     }
 
-    func testGapRepairRequiresProviderVisibleRowsBeforeAdvance() {
-        XCTAssertFalse(ChatRemoteHistoryApplyProofPolicy.didAdvance(
-            direction: .older,
-            visibleRows: 0,
-            resultCount: 10,
-            queryExhausted: false,
-            previousOldestArchivedId: "300",
-            previousNewestArchivedId: "500",
-            newOldestArchivedId: "100",
-            newNewestArchivedId: "500"
-        ))
-    }
-
     private func provider() throws -> ChatLocalHistoryPageProvider {
         ChatLocalHistoryPageProvider(
             realm: try WRealm.safe(),

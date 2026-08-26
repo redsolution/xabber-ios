@@ -304,38 +304,54 @@ extension MessageManager {
                 return
             }
             
+            let forwardedItems = formForwardedMessages(item
+                .inlineForwards
+                .sorted(byKeyPath: "originalDate", ascending: true)
+                .toArray()
+                .compactMap { $0.messageId })
+            let forwardedFallbackBody = forwardedItems.reduce(into: "") { result, forwardedItem in
+                result += "\(forwardedItem.body)\n"
+            }
+            let forwardedFallbackOffset: Int
+            if forwardedFallbackBody.isNotEmpty,
+               item.legacyBody.hasPrefix(forwardedFallbackBody) {
+                forwardedFallbackOffset = forwardedItems.last?
+                    .referenceElement
+                    .attributeIntegerValue(forName: "end") ?? 0
+            } else {
+                forwardedFallbackOffset = 0
+            }
+            let shiftedReferences = shiftReferenceRanges(
+                item.createReferences(),
+                by: forwardedFallbackOffset
+            )
+
             switch conversationType {
                 case .omemo, .omemo1, .axolotl:
-                    
-                    formForwardedMessages(item
-                        .inlineForwards
-                        .sorted(byKeyPath: "originalDate", ascending: true)
-                        .toArray()
-                        .compactMap { return $0.messageId })
-                        .forEach { stanzaToSave.addChild($0.referenceElement) }
+                    forwardedItems.forEach {
+                        if let copy = $0.referenceElement.copy() as? DDXMLElement {
+                            stanzaToSave.addChild(copy)
+                        }
+                    }
                     
                     if let mentions = item.createMentionsElement() {
                         stanzaToSave.addChild(mentions)
                     }
 
-                    let references = item.createReferences()
-                    references.forEach {
-                        stanzaToSave.addChild($0)
+                    shiftedReferences.forEach {
+                        if let copy = $0.copy() as? DDXMLElement {
+                            stanzaToSave.addChild(copy)
+                        }
                     }
                     
-                    let forwardedMessages = formForwardedMessages(item
-                        .inlineForwards
-                        .sorted(byKeyPath: "originalDate", ascending: true)
-                        .toArray()
-                        .compactMap { return $0.messageId })
-                        .compactMap { $0.referenceElement }
+                    let forwardedMessages = forwardedItems.map(\.referenceElement)
                     let mentions = item.createMentionsElement().map { [$0] } ?? []
                     
                     guard let payload = AccountManager.shared.find(for: self.owner)?.omemo.prepareStanzaContent(
                         message: item.legacyBody,
                         date: item.sentDate,
                         jid: item.opponent,
-                        additionalContent: [forwardedMessages, mentions, references].flatMap({ $0 }),
+                        additionalContent: [forwardedMessages, mentions, shiftedReferences].flatMap({ $0 }),
                         ignoreTimeSignature: item.displayAs == .system
                     ) else {
                         failEncryptedSend()
@@ -357,12 +373,7 @@ extension MessageManager {
                     stanza.addBody("Message was encrypted by OMEMO".localizeString(id: "message_omemo_encryption", arguments: []))
                     stanzaToSave.addBody(item.legacyBody)
                 default:
-                    formForwardedMessages(item
-                        .inlineForwards
-                        .sorted(byKeyPath: "originalDate", ascending: true)
-                        .toArray()
-                        .compactMap { return $0.messageId })
-                        .forEach {
+                    forwardedItems.forEach {
                             stanza.addChild($0.referenceElement.copy() as! DDXMLElement)
                             stanzaToSave.addChild($0.referenceElement.copy() as! DDXMLElement)
                         }
@@ -373,7 +384,7 @@ extension MessageManager {
                         stanza.addChild(mentions.copy() as! DDXMLElement)
                         stanzaToSave.addChild(mentions.copy() as! DDXMLElement)
                     }
-                    item.createReferences().forEach {
+                    shiftedReferences.forEach {
                         stanza.addChild($0.copy() as! DDXMLElement)
                         stanzaToSave.addChild($0.copy() as! DDXMLElement)
                     }
@@ -524,7 +535,6 @@ extension MessageManager {
     
     internal func formForwardedMessages(_ forwarded: [String]) -> [ForwardedMessageItem] {
         var out: [ForwardedMessageItem] = []
-        var legacyBody: String = ""
         do {
             let realm = try WRealm.safe()
             
@@ -574,15 +584,13 @@ extension MessageManager {
                     let refElement = DDXMLElement.element(withName: "reference") as! DDXMLElement
                     refElement.setXmlns("https://xabber.com/protocol/references")
                     refElement.addAttribute(withName: "type", stringValue: "mutable")
-                    refElement.addAttribute(withName: "begin", integerValue: legacyBody.count)
-                    legacyBody += "\(body?.xmlEscaping(reverse: false) ?? "")"
-                    legacyBody += "\n"
-                    refElement.addAttribute(withName: "end", integerValue: legacyBody.count)// - 1)
                     let forwardedElement = DDXMLElement.element(withName: "forwarded", uri: "urn:xmpp:forward:0") as! DDXMLElement
                     let delayElement = DDXMLElement.element(withName: "delay", uri: "urn:xmpp:delay") as! DDXMLElement
                     delayElement.addAttribute(withName: "stamp", stringValue: (date ?? Date()).XMPPFormattedDate)
                     forwardedElement.addChild(delayElement)
-                    forwardedElement.addChild(message)
+                    let innerMessage = (message.copy() as? DDXMLElement) ?? message
+                    innerMessage.setXmlns("jabber:client")
+                    forwardedElement.addChild(innerMessage)
                     refElement.addChild(forwardedElement)
                     stanza = refElement
                 }
@@ -598,7 +606,36 @@ extension MessageManager {
         } catch {
             DDLogDebug("cant form body for forwarded messages")
         }
-        return out.sorted(by: { $0.date.compare($1.date) == .orderedDescending })
+        let sorted = out.sorted(by: { $0.date.compare($1.date) == .orderedDescending })
+        var fallbackOffset = 0
+        sorted.forEach { item in
+            item.referenceElement.addAttribute(withName: "begin", integerValue: fallbackOffset)
+            fallbackOffset += item.body
+                .xmlEscaping(reverse: false)
+                .unicodeScalars
+                .count + 1
+            item.referenceElement.addAttribute(withName: "end", integerValue: fallbackOffset)
+        }
+        return sorted
+    }
+
+    private func shiftReferenceRanges(
+        _ references: [DDXMLElement],
+        by offset: Int
+    ) -> [DDXMLElement] {
+        guard offset > 0 else { return references }
+        return references.compactMap { reference in
+            guard let copy = reference.copy() as? DDXMLElement else { return nil }
+            ["begin", "end"].forEach { attributeName in
+                guard let rawValue = copy.attributeStringValue(forName: attributeName),
+                      let value = Int(rawValue) else {
+                    return
+                }
+                copy.removeAttribute(forName: attributeName)
+                copy.addAttribute(withName: attributeName, integerValue: value + offset)
+            }
+            return copy
+        }
     }
 
     private func forwardingSourceMessage(
@@ -744,6 +781,23 @@ extension MessageManager {
         }
     }
         
+    private func publishLocalOutgoingAdmission(
+        primaryID: String,
+        conversationJID: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) {
+        localOutgoingAdmissionPublisher(
+            ChatTimelineLocalOutgoingAdmission(
+                conversation: ArchiveConversationKey(
+                    owner: owner,
+                    jid: conversationJID,
+                    conversationType: conversationType
+                ),
+                primaryID: primaryID
+            )
+        )
+    }
+
     public func sendSimpleMessage(
         _ body: String,
         to jid: String,
@@ -820,7 +874,13 @@ extension MessageManager {
                 let chat = realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: LastChatsStorageItem.genPrimary(jid: conversationJID, owner: self.owner, conversationType: conversationType))
                 chat?.draftMessage = nil
             }
-            
+            if !isReport {
+                publishLocalOutgoingAdmission(
+                    primaryID: instance.primary,
+                    conversationJID: conversationJID,
+                    conversationType: conversationType
+                )
+            }
             self.processSender(
                 item: instance.primary,
                 childs: childs,
@@ -853,7 +913,11 @@ extension MessageManager {
             try realm.write {
                 _ = instance.save(commitTransaction: false)
             }
-            
+            publishLocalOutgoingAdmission(
+                primaryID: instance.primary,
+                conversationJID: conversationJID,
+                conversationType: conversationType
+            )
             self.processSender(item: instance.primary, childs: childs)
         } catch {
             DDLogDebug("cant store new message item")
@@ -916,6 +980,11 @@ extension MessageManager {
                 _ = instance.save(commitTransaction: false)
             }
             let primary = instance.primary
+            publishLocalOutgoingAdmission(
+                primaryID: primary,
+                conversationJID: conversationJID,
+                conversationType: conversationType
+            )
             return primary
         } catch {
             DDLogDebug("cant store new message item")

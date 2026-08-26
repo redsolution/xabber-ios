@@ -1147,7 +1147,6 @@ public class AccountManager: NSObject {
     }
 
     private func performPreRealmAccountDeletionCleanup(jid: String, hard: Bool) {
-        ChatInitialBootstrapRequestCoordinator.shared.purge(owner: jid)
         self.find(for: jid)?.notifications.invalidatePendingNotificationPersistence()
         self.find(for: jid)?.presences.invalidatePendingPresencePersistence()
         if XMPPUIActionManager.shared.currentJid == jid {

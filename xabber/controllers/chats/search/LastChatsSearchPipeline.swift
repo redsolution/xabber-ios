@@ -1102,6 +1102,39 @@ struct LastChatsSearchLocalPageLoader: @unchecked Sendable {
         )
     }
 
+    static func messageProjection(
+        _ message: ArchiveSearchMessage,
+        request: LastChatsSearchPageRequest
+    ) -> LastChatsSearchItem {
+        let provenance = LastChatsSearchResultProvenance(
+            targetKind: .message,
+            conversation: LastChatsSearchConversation(
+                owner: message.owner,
+                jid: message.conversationJID,
+                conversationTypeRawValue: message.conversationTypeRaw
+            ),
+            messagePrimary: message.primaryID,
+            archivedId: message.archiveID,
+            messageId: message.messageID,
+            authorId: message.groupAuthorID,
+            sourceDate: message.date,
+            bodyFingerprint: message.body,
+            provider: request.provider,
+            queryGeneration: request.generation
+        )
+        return LastChatsSearchItem(
+            stableID: "message:\(message.primaryID)",
+            kind: .message,
+            owner: message.owner,
+            jid: message.conversationJID,
+            conversationTypeRawValue: message.conversationTypeRaw,
+            storagePrimary: message.primaryID,
+            date: message.date,
+            revision: revision(timestamp: message.date.timeIntervalSince1970),
+            provenance: provenance
+        )
+    }
+
     private static func conversationStableID(
         owner: String,
         jid: String,

@@ -364,6 +364,39 @@ final class ChatIncrementalMessageApplyTests: XCTestCase {
         XCTAssertEqual(result.changeSet.nonResidentIncomingPrimaries, ["message-10"])
     }
 
+    func testResidentUpsertThatBecomesLocallyHiddenRemovesTheVisibleRow() {
+        var reducer = ChatIncrementalResidentReducer()
+        let visible = message(
+            primary: "message-1",
+            messageId: "origin-1",
+            archivedId: "1"
+        )
+        let hidden = message(
+            primary: "message-1",
+            messageId: "origin-1",
+            archivedId: "1"
+        )
+        hidden.isLocallyHiddenByReport = true
+
+        let result = reducer.apply(
+            currentItems: [visible],
+            mutations: [
+                .upsert(
+                    identity: ChatIncrementalMessageIdentity(message: hidden),
+                    revision: 1,
+                    payload: hidden
+                )
+            ],
+            isResidentAtLiveTail: true,
+            hardLimit: 20
+        )
+
+        XCTAssertTrue(result.items.isEmpty)
+        XCTAssertEqual(result.changeSet.deletedPrimaries, ["message-1"])
+        XCTAssertTrue(result.changeSet.updatedStablePrimaries.isEmpty)
+        XCTAssertEqual(result.diagnostics.appliedMutationCount, 1)
+    }
+
     func testStableMessageIdentityTreatsServerPrimaryChangeAsContentUpdate() {
         let old = datasource(
             primary: "optimistic-owner",
@@ -456,8 +489,8 @@ final class ChatIncrementalMessageApplyTests: XCTestCase {
         )
     }
 
-    func testOutgoingScrollNeverSelectsReloadDataFallback() {
-        XCTAssertFalse(
+    func testOutgoingScrollSelectsAtomicImmediateReload() {
+        XCTAssertTrue(
             ChatOutgoingAutoScrollApplyPolicy.shouldUseImmediateReload(
                 outgoingAutoScrollDecision: .scroll(IndexPath(item: 0, section: 3))
             )

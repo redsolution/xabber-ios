@@ -1,10 +1,243 @@
 import XCTest
 import XMPPFramework
+import UIKit
 @testable import xabber
 
 final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
     private let owner = "romeo@example.com"
     private let jid = "juliet@example.com"
+
+    func testFilePresentationPrefersSemanticReferenceNameOverTransportFilename() throws {
+        let sourceURL = "https://gallery.example/files/opaque-token/server-generated-name.bin"
+        let message = try makeMessage(
+            referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references'
+                       type='mutable'
+                       begin='0'
+                       end='\(sourceURL.xmlEscaping(reverse: false).unicodeScalars.count)'>
+              <file-sharing xmlns='https://xabber.com/protocol/files'>
+                <file>
+                  <media-type>application/pdf</media-type>
+                  <name>Quarterly Report.pdf</name>
+                  <size>4096</size>
+                </file>
+                <sources>
+                  <uri>\(sourceURL)</uri>
+                </sources>
+              </file-sharing>
+            </reference>
+            """,
+            body: sourceURL
+        )
+        let reference = try XCTUnwrap(
+            parseReferences(
+                message,
+                primary: "semantic-file-name-message",
+                jid: jid,
+                owner: owner
+            ).first
+        )
+        var metadata = try XCTUnwrap(reference.metadata)
+        metadata["filename"] = "server-generated-name.bin"
+        reference.metadata = metadata
+
+        let mapped = ChatViewController.mapReferenceAttachments([reference])
+        let file = try XCTUnwrap(mapped.files.first)
+
+        XCTAssertEqual(file.name, "Quarterly Report.pdf")
+        XCTAssertEqual(file.presentation.displayName, "Quarterly Report.pdf")
+    }
+
+    func testIncomingImageRetainsAndUsesRemoteWireThumbnailForInlinePresentation() throws {
+        let sourceURL = "https://gallery.example/files/opaque-token/full-size.png"
+        let thumbnailURL = "https://gallery.example/files/opaque-token/thumb_full-size.png"
+        let fallbackLength = sourceURL.xmlEscaping(reverse: false).unicodeScalars.count
+        let message = try makeMessage(
+            referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references'
+                       type='mutable'
+                       begin='0'
+                       end='\(fallbackLength)'>
+              <file-sharing xmlns='https://xabber.com/protocol/files'>
+                <file>
+                  <media-type>image/png</media-type>
+                  <thumbnail xmlns='urn:xmpp:thumbs:1'
+                             width='320'
+                             height='260'
+                             media-type='image/png'
+                             uri='\(thumbnailURL)'/>
+                  <name>Screenshot.png</name>
+                  <size>373348</size>
+                  <height>731</height>
+                  <width>900</width>
+                </file>
+                <sources>
+                  <uri>\(sourceURL)</uri>
+                </sources>
+              </file-sharing>
+            </reference>
+            """,
+            body: sourceURL
+        )
+        let parsed = try XCTUnwrap(
+            parseReferences(
+                message,
+                primary: "remote-thumbnail-message",
+                jid: jid,
+                owner: owner
+            ).first
+        )
+
+        XCTAssertEqual(parsed.metadata?["thumbnail-uri"] as? String, thumbnailURL)
+        XCTAssertEqual(parsed.downloadUrl?.absoluteString, sourceURL)
+        let image = try XCTUnwrap(
+            ChatViewController.mapReferenceAttachments([parsed]).images.first
+        )
+        XCTAssertEqual(image.url?.absoluteString, sourceURL)
+        XCTAssertEqual(
+            image.previewUrl?.absoluteString,
+            thumbnailURL,
+            "The bounded wire thumbnail must remain distinct from the full source used for opening and download."
+        )
+    }
+
+    func testAlreadyPercentEncodedMediaSourceAndThumbnailRemainCanonical() throws {
+        let sourceURL = "https://gallery.example/files/Trip%20Photos/photo%2Bfinal.png?token=a%2Fb"
+        let thumbnailURL = "https://gallery.example/files/Trip%20Photos/thumb%2Bfinal.png?token=c%2Fd"
+        let message = try makeMessage(
+            referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references'
+                       type='mutable'
+                       begin='0'
+                       end='\(sourceURL.unicodeScalars.count)'>
+              <file-sharing xmlns='https://xabber.com/protocol/files'>
+                <file>
+                  <media-type>image/png</media-type>
+                  <thumbnail xmlns='urn:xmpp:thumbs:1'
+                             width='320'
+                             height='260'
+                             media-type='image/png'
+                             uri='\(thumbnailURL)'/>
+                  <name>photo final.png</name>
+                </file>
+                <sources>
+                  <uri>\(sourceURL)</uri>
+                </sources>
+              </file-sharing>
+            </reference>
+            """,
+            body: sourceURL
+        )
+        let reference = try XCTUnwrap(
+            parseReferences(
+                message,
+                primary: "percent-encoded-media-message",
+                jid: jid,
+                owner: owner
+            ).first
+        )
+
+        XCTAssertEqual(reference.downloadUrl?.absoluteString, sourceURL)
+        let image = try XCTUnwrap(
+            ChatViewController.mapReferenceAttachments([reference]).images.first
+        )
+        XCTAssertEqual(image.url?.absoluteString, sourceURL)
+        XCTAssertEqual(image.previewUrl?.absoluteString, thumbnailURL)
+    }
+
+    func testPersistedDataImageThumbnailBecomesBoundedTimelinePreview() throws {
+        let sourceURL = "https://gallery.example/files/data-thumbnail.png"
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { context in
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        let thumbnailData = try XCTUnwrap(image.pngData())
+        let thumbnailURI = "data:image/png;base64,\(thumbnailData.base64EncodedString())"
+        let messagePrimary = "data-thumbnail-message-\(UUID().uuidString)"
+        let message = try makeMessage(
+            referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references'
+                       type='mutable'
+                       begin='0'
+                       end='\(sourceURL.unicodeScalars.count)'>
+              <file-sharing xmlns='https://xabber.com/protocol/files'>
+                <file>
+                  <media-type>image/png</media-type>
+                  <thumbnail xmlns='urn:xmpp:thumbs:1'
+                             width='2'
+                             height='2'
+                             media-type='image/png'
+                             uri='\(thumbnailURI)'/>
+                  <name>data-thumbnail.png</name>
+                </file>
+                <sources>
+                  <uri>\(sourceURL)</uri>
+                </sources>
+              </file-sharing>
+            </reference>
+            """,
+            body: sourceURL
+        )
+        let reference = try XCTUnwrap(
+            parseReferences(
+                message,
+                primary: messagePrimary,
+                jid: jid,
+                owner: owner
+            ).first
+        )
+        let attachment = try XCTUnwrap(reference.pendingMediaAttachment)
+        reference.messageId = messagePrimary
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.add(reference, update: .modified)
+            realm.add(attachment, update: .modified)
+        }
+        defer {
+            try? realm.write {
+                realm.delete(reference)
+                realm.delete(attachment)
+            }
+        }
+        reference.pendingMediaAttachment = nil
+
+        let mapped = ChatViewController.mapReferenceAttachments([reference])
+
+        XCTAssertEqual(mapped.images.first?.previewUrl?.absoluteString, thumbnailURI)
+        XCTAssertEqual(mapped.images.first?.url?.absoluteString, sourceURL)
+    }
+
+    func testEmptySemanticFileNameFallsBackToTransportFilename() throws {
+        let reference = mediaReference(
+            mediaType: "application/octet-stream",
+            name: "   "
+        )
+        var metadata = try XCTUnwrap(reference.metadata)
+        metadata["filename"] = "transport-report.bin"
+        reference.metadata = metadata
+
+        let file = try XCTUnwrap(
+            ChatViewController.mapReferenceAttachments([reference]).files.first
+        )
+
+        XCTAssertEqual(file.name, "transport-report.bin")
+    }
+
+    func testEmptySemanticAndTransportFileNamesUseGenericFallback() throws {
+        let reference = mediaReference(
+            mediaType: "application/octet-stream",
+            name: "\n  "
+        )
+        var metadata = try XCTUnwrap(reference.metadata)
+        metadata["filename"] = "\t"
+        reference.metadata = metadata
+
+        let file = try XCTUnwrap(
+            ChatViewController.mapReferenceAttachments([reference]).files.first
+        )
+
+        XCTAssertEqual(file.name, "file")
+    }
 
     func testVideoReferenceRoundTripsPreviewMetadata() throws {
         let reference = mediaReference(
@@ -494,6 +727,199 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
         XCTAssertEqual(mapped.contacts.first?.title, "Ally")
     }
 
+    func testInlineForwardParsesWhenXEP0297DelayIsOmitted() throws {
+        let fallback = "Forwarded fallback"
+        let originalStamp = "2026-08-26T08:15:30Z"
+        let message = try makeMessage(
+            referenceXML: inlineForwardReferenceXML(
+                fallback: fallback,
+                forwardedChildren: """
+                <message xmlns='jabber:client'
+                         from='juliet@example.com/mobile'
+                         to='romeo@example.com'
+                         id='forward-without-delay'>
+                  <time xmlns='https://xabber.com/protocol/delivery' stamp='\(originalStamp)'/>
+                  <body>Original body</body>
+                </message>
+                """
+            ),
+            body: fallback
+        )
+
+        let forwards = parseInlineMessages(
+            message,
+            parentId: "outer-message",
+            jid: jid,
+            owner: owner
+        )
+
+        XCTAssertEqual(forwards.count, 1)
+        XCTAssertEqual(forwards.first?.messageId, "forward-without-delay")
+        XCTAssertEqual(forwards.first?.body, "Original body")
+        XCTAssertEqual(forwards.first?.originalDate, originalStamp.xmppDate)
+    }
+
+    func testInlineForwardWithoutAnyTimestampKeepsOriginalDateUnknown() throws {
+        let fallback = "Forwarded fallback"
+        let message = try makeMessage(
+            referenceXML: inlineForwardReferenceXML(
+                fallback: fallback,
+                forwardedChildren: """
+                <message xmlns='jabber:client'
+                         from='juliet@example.com/mobile'
+                         to='romeo@example.com'
+                         id='forward-without-timestamp'>
+                  <body>Original body</body>
+                </message>
+                """
+            ),
+            body: fallback
+        )
+
+        let forward = try XCTUnwrap(parseInlineMessages(
+            message,
+            parentId: "outer-message",
+            jid: jid,
+            owner: owner
+        ).first)
+
+        XCTAssertNil(forward.originalDate)
+    }
+
+    func testInlineForwardRequiresUnambiguousXEP0297EnvelopeAndKeepsFallbackVisible() throws {
+        let fallback = "Malformed forward fallback"
+        let malformedPayloads = [
+            "<delay xmlns='urn:xmpp:delay' stamp='2026-08-26T08:15:30Z'/>",
+            """
+            <message xmlns='jabber:client' from='juliet@example.com' to='romeo@example.com' id='first'>
+              <body>First</body>
+            </message>
+            <message xmlns='jabber:client' from='mercutio@example.com' to='romeo@example.com' id='second'>
+              <body>Second</body>
+            </message>
+            """,
+            """
+            <delay xmlns='urn:xmpp:delay' stamp='2026-08-26T08:15:30Z'/>
+            <delay xmlns='urn:xmpp:delay' stamp='2026-08-26T08:15:31Z'/>
+            <message xmlns='jabber:client' from='juliet@example.com' to='romeo@example.com' id='duplicate-delay'>
+              <body>Duplicate delay</body>
+            </message>
+            """
+        ]
+
+        for payload in malformedPayloads {
+            let message = try makeMessage(
+                referenceXML: inlineForwardReferenceXML(
+                    fallback: fallback,
+                    forwardedChildren: payload
+                ),
+                body: fallback
+            )
+            let item = configuredIncomingMessage(message)
+
+            XCTAssertTrue(item.inlineForwards.isEmpty)
+            XCTAssertFalse(item.references.contains(where: { $0.kind == .forward }))
+            XCTAssertEqual(item.body, fallback)
+        }
+    }
+
+    func testInlineForwardRequiresCompleteOriginalAddressingAndKeepsFallbackVisible() throws {
+        let fallback = "Incomplete forward fallback"
+        let malformedMessages = [
+            """
+            <message xmlns='jabber:client' to='romeo@example.com' id='missing-from'>
+              <body>Missing from</body>
+            </message>
+            """,
+            """
+            <message xmlns='jabber:client' from='juliet@example.com' id='missing-to'>
+              <body>Missing to</body>
+            </message>
+            """
+        ]
+
+        for malformedMessage in malformedMessages {
+            let message = try makeMessage(
+                referenceXML: inlineForwardReferenceXML(
+                    fallback: fallback,
+                    forwardedChildren: malformedMessage
+                ),
+                body: fallback
+            )
+            let item = configuredIncomingMessage(message)
+
+            XCTAssertTrue(item.inlineForwards.isEmpty)
+            XCTAssertFalse(item.references.contains(where: { $0.kind == .forward }))
+            XCTAssertEqual(item.body, fallback)
+        }
+    }
+
+    func testInlineForwardWithMalformedDelayKeepsFallbackVisible() throws {
+        let fallback = "Invalid delay fallback"
+        let message = try makeMessage(
+            referenceXML: inlineForwardReferenceXML(
+                fallback: fallback,
+                forwardedChildren: """
+                <delay xmlns='urn:xmpp:delay' stamp='not-a-date'/>
+                <message xmlns='jabber:client'
+                         from='juliet@example.com'
+                         to='romeo@example.com'
+                         id='invalid-delay-forward'>
+                  <body>Original body</body>
+                </message>
+                """
+            ),
+            body: fallback
+        )
+
+        let item = configuredIncomingMessage(message)
+
+        XCTAssertTrue(item.inlineForwards.isEmpty)
+        XCTAssertFalse(item.references.contains(where: { $0.kind == .forward }))
+        XCTAssertEqual(item.body, fallback)
+    }
+
+    func testInlineForwardWithoutRequiredWireRangeKeepsFallbackVisible() throws {
+        let fallback = "Missing range fallback"
+        let message = try makeMessage(
+            referenceXML: inlineForwardReferenceXML(
+                fallback: fallback,
+                includeRange: false,
+                forwardedChildren: """
+                <message xmlns='jabber:client'
+                         from='juliet@example.com'
+                         to='romeo@example.com'
+                         id='missing-range-forward'>
+                  <body>Original body</body>
+                </message>
+                """
+            ),
+            body: fallback
+        )
+
+        let item = configuredIncomingMessage(message)
+
+        XCTAssertTrue(item.inlineForwards.isEmpty)
+        XCTAssertFalse(item.references.contains(where: { $0.kind == .forward }))
+        XCTAssertEqual(item.body, fallback)
+    }
+
+    func testInlineForwardParsingBoundsMaliciousNestedDepth() throws {
+        let message = try makeNestedInlineForwardMessage(levels: 24)
+
+        let forwards = parseInlineMessages(
+            message,
+            parentId: "deep-forward-root",
+            jid: jid,
+            owner: owner
+        )
+
+        let deepestForward = deepestInlineForward(in: forwards)
+        XCTAssertEqual(inlineForwardDepth(forwards), inlineForwardMaximumDepth)
+        XCTAssertEqual(deepestForward?.body, "Forward level 8")
+        XCTAssertFalse(deepestForward?.references.contains(where: { $0.kind == .forward }) == true)
+    }
+
     func testArchivedContactSharingMessageUsesSameParsingAndPreviewBehavior() throws {
         let body = "Ally (alice@example.com)"
         let message = try makeArchivedMessage(
@@ -960,6 +1386,88 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
         """
         let document = try DDXMLDocument(xmlString: xml, options: 0)
         return XMPPMessage(from: try XCTUnwrap(document.rootElement()))
+    }
+
+    private func inlineForwardReferenceXML(
+        fallback: String,
+        includeRange: Bool = true,
+        forwardedChildren: String
+    ) -> String {
+        let range = includeRange
+            ? " begin='0' end='\(fallback.xmlEscaping(reverse: false).unicodeScalars.count)'"
+            : ""
+        return """
+        <reference xmlns='https://xabber.com/protocol/references' type='mutable'\(range)>
+          <forwarded xmlns='urn:xmpp:forward:0'>
+            \(forwardedChildren)
+          </forwarded>
+        </reference>
+        """
+    }
+
+    private func configuredIncomingMessage(_ message: XMPPMessage) -> MessageStorageItem {
+        let item = MessageStorageItem()
+        item.configureIncomingMessage(
+            message,
+            owner: owner,
+            opponent: jid,
+            outgoing: false,
+            isRead: false,
+            date: Date(timeIntervalSince1970: 10)
+        )
+        return item
+    }
+
+    private func makeNestedInlineForwardMessage(levels: Int) throws -> XMPPMessage {
+        var childXML = """
+        <message xmlns='jabber:client'
+                 from='juliet@example.com/mobile'
+                 to='romeo@example.com'
+                 id='deep-forward-leaf'>
+          <body>Leaf body</body>
+        </message>
+        """
+
+        for level in (0..<levels).reversed() {
+            let fallback = "Forward level \(level)"
+            childXML = """
+            <message xmlns='jabber:client'
+                     from='juliet@example.com/mobile'
+                     to='romeo@example.com'
+                     id='deep-forward-\(level)'>
+              <body>\(fallback)</body>
+              \(inlineForwardReferenceXML(
+                  fallback: fallback,
+                  forwardedChildren: childXML
+              ))
+            </message>
+            """
+        }
+
+        let document = try DDXMLDocument(xmlString: childXML, options: 0)
+        return XMPPMessage(from: try XCTUnwrap(document.rootElement()))
+    }
+
+    private func inlineForwardDepth(
+        _ forwards: [MessageForwardsInlineStorageItem]
+    ) -> Int {
+        var depth = 0
+        var current = forwards.first
+        while let forward = current {
+            depth += 1
+            current = forward.subforwards.first
+        }
+        return depth
+    }
+
+    private func deepestInlineForward(
+        in forwards: [MessageForwardsInlineStorageItem]
+    ) -> MessageForwardsInlineStorageItem? {
+        var current = forwards.first
+        while let child = current?.subforwards.first {
+            current = child
+        }
+        return current
     }
 
     private func mediaReferenceXML(begin: String?, end: String?) -> String {

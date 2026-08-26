@@ -291,7 +291,15 @@ class MessageDeleteManager: AbstractXMPPManager {
                 .filter("owner == %@ AND opponent == %@ AND archivedId == %@", owner, conversation, stanzaId).first {
                 try realm.write {
                     if instance.isInvalidated { return }
-                    instance.editMessage(XMPPMessage(from: messageContainer), editDate: editDate)
+                    let pendingMediaAttachments = instance.editMessage(
+                        XMPPMessage(from: messageContainer),
+                        editDate: editDate
+                    )
+                    MessageStorageItem.persistPendingMediaAttachments(
+                        pendingMediaAttachments,
+                        forMessagePrimary: instance.primary,
+                        in: realm
+                    )
                     realm
                         .object(ofType: LastChatsStorageItem.self,
                                 forPrimaryKey: LastChatsStorageItem.genPrimary(

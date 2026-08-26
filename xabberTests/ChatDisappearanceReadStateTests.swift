@@ -67,6 +67,124 @@ final class ChatDisappearanceReadStateTests: XCTestCase {
         XCTAssertFalse(chat.isPrereaded)
     }
 
+    func testCachedOldLatestMAMRecreatesMissingRegularLastChatsProjectionForListDiscovery() throws {
+        let oldLatestDate = Date(timeIntervalSince1970: 1_784_625_681)
+        let cached = makeMessage(
+            primary: "cached-old-latest",
+            archivedId: "1784625681838707",
+            messageId: "old-latest-message",
+            date: oldLatestDate
+        )
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.add(cached, update: .modified)
+        }
+
+        let replay = makeMessage(
+            primary: cached.primary,
+            archivedId: cached.archivedId,
+            messageId: cached.messageId,
+            date: oldLatestDate
+        )
+        replay.queryIds = "archive.engine.replayed-latest"
+        replay.shouldPersistArchiveQueryId = true
+
+        _ = replay.save(
+            commitTransaction: true,
+            silentNotifications: true
+        )
+
+        let expectedPrimary = LastChatsStorageItem.genPrimary(
+            jid: jid,
+            owner: owner,
+            conversationType: .regular
+        )
+        let chat = try XCTUnwrap(
+            realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: expectedPrimary
+            )
+        )
+        XCTAssertFalse(chat.isArchived)
+        XCTAssertEqual(chat.lastMessage?.primary, cached.primary)
+        XCTAssertEqual(chat.messageDate, oldLatestDate)
+        XCTAssertNotNil(
+            realm.objects(LastChatsStorageItem.self)
+                .filter(
+                    "owner == %@ AND jid == %@ AND conversationType_ == %@ AND isArchived == false",
+                    owner,
+                    jid,
+                    ClientSynchronizationManager.ConversationType.regular.rawValue
+                )
+                .first
+        )
+    }
+
+    func testCachedOldToNewLatestMAMAdvancesRestoredRegularProjectionChronologically() throws {
+        let oldDate = Date(timeIntervalSince1970: 1_784_625_681)
+        let newestDate = Date(timeIntervalSince1970: 1_784_625_741)
+        let cachedOld = makeMessage(
+            primary: "cached-page-old",
+            archivedId: "1784625681838707",
+            messageId: "cached-page-old-message",
+            date: oldDate
+        )
+        let cachedNewest = makeMessage(
+            primary: "cached-page-newest",
+            archivedId: "1784625741838707",
+            messageId: "cached-page-newest-message",
+            date: newestDate
+        )
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.add([cachedOld, cachedNewest], update: .modified)
+        }
+
+        let replayOld = makeMessage(
+            primary: cachedOld.primary,
+            archivedId: cachedOld.archivedId,
+            messageId: cachedOld.messageId,
+            date: oldDate
+        )
+        replayOld.queryIds = "archive.engine.latest.old"
+        replayOld.shouldPersistArchiveQueryId = true
+        let replayNewest = makeMessage(
+            primary: cachedNewest.primary,
+            archivedId: cachedNewest.archivedId,
+            messageId: cachedNewest.messageId,
+            date: newestDate
+        )
+        replayNewest.queryIds = "archive.engine.latest.newest"
+        replayNewest.shouldPersistArchiveQueryId = true
+
+        _ = replayOld.save(
+            commitTransaction: true,
+            silentNotifications: true
+        )
+        _ = replayNewest.save(
+            commitTransaction: true,
+            silentNotifications: true
+        )
+        _ = replayOld.save(
+            commitTransaction: true,
+            silentNotifications: true
+        )
+
+        let chat = try XCTUnwrap(
+            realm.object(
+                ofType: LastChatsStorageItem.self,
+                forPrimaryKey: LastChatsStorageItem.genPrimary(
+                    jid: jid,
+                    owner: owner,
+                    conversationType: .regular
+                )
+            )
+        )
+        XCTAssertEqual(chat.lastMessage?.primary, cachedNewest.primary)
+        XCTAssertEqual(chat.lastMessageId, cachedNewest.messageId)
+        XCTAssertEqual(chat.messageDate, newestDate)
+    }
+
     private func makeController() -> ChatViewController {
         let controller = ChatViewController()
         controller.owner = owner

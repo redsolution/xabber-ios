@@ -188,7 +188,7 @@ final class ChatNavigationBarStateTests: XCTestCase {
         XCTAssertFalse(navigationItem.rightBarButtonItems?.contains(where: { $0 === searchItem }) ?? true)
     }
 
-    func testChatAvatarItemFactoryProducesStockBarButtonItem() throws {
+    func testChatAvatarItemFactoryProducesImmediateRoundedControl() throws {
         let image = makeImage()
         let avatarImage = ChatNavigationAvatarItemFactory.avatarImage(from: image)
         let item = ChatNavigationAvatarItemFactory.makeItem(
@@ -197,8 +197,9 @@ final class ChatNavigationBarStateTests: XCTestCase {
             action: #selector(dummyAction)
         )
 
-        XCTAssertNil(item.customView)
+        let button = try XCTUnwrap(item.customView as? RoundedAvatarButton)
         let itemImage = try XCTUnwrap(item.image)
+        XCTAssertNotNil(button.image(for: .normal))
         XCTAssertEqual(ChatNavigationAvatarItemFactory.imageSize, 32, accuracy: 0.001)
         XCTAssertEqual(itemImage.size.width, 32, accuracy: 0.001)
         XCTAssertEqual(itemImage.size.height, 32, accuracy: 0.001)
@@ -608,6 +609,44 @@ final class ChatNavigationBarStateTests: XCTestCase {
                     forControlEvent: .touchUpInside
                 ),
                 [NSStringFromSelector(#selector(ChatViewController.onTitleButtonTouchUp(_:)))]
+            )
+        }
+    }
+
+    func testOutgoingChatBackItemLeavesSingleChevronRenderingToUIKit() throws {
+        try withInterfaceType(.tabs) {
+            let lastChats = LastChatsViewController()
+            let navigationController = UINavigationController(
+                rootViewController: lastChats
+            )
+            navigationController.loadViewIfNeeded()
+            lastChats.loadViewIfNeeded()
+
+            lastChats.beginOutgoingChatOpenNavigationDeferral(
+                preparationTimeout: 60
+            )
+
+            let backItem = try XCTUnwrap(
+                lastChats.navigationItem.backBarButtonItem
+            )
+            XCTAssertNil(
+                backItem.image,
+                "UINavigationController already renders the native Back indicator; a second item image produces two chevrons"
+            )
+            XCTAssertEqual(backItem.title, "")
+            XCTAssertNil(backItem.target)
+            XCTAssertNil(backItem.action)
+            XCTAssertEqual(
+                backItem.accessibilityIdentifier,
+                LastChatsViewController.nativeChatBackAccessibilityIdentifier
+            )
+            XCTAssertFalse(backItem.accessibilityLabel?.isEmpty ?? true)
+            XCTAssertNotNil(
+                navigationController.navigationBar.backIndicatorImage,
+                "the eagerly materialized artwork must be installed as UIKit's one Back indicator"
+            )
+            XCTAssertNotNil(
+                navigationController.navigationBar.backIndicatorTransitionMaskImage
             )
         }
     }

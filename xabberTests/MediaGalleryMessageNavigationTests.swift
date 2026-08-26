@@ -141,10 +141,10 @@ final class MediaGalleryMessageNavigationTests: XCTestCase {
         XCTAssertTrue(
             ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: .mediaGallery)
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: .pushNotification)
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             ChatOpenMessageRequestHandlingPolicy.shouldHonorMessageAnchorRequest(source: .mentionNotification)
         )
     }

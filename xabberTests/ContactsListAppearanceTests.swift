@@ -118,21 +118,24 @@ final class ContactsListAppearanceTests: XCTestCase {
     ) {
         let realm = try! WRealm.safe()
         let repository = GroupRepository(realm: realm)
-        try! repository.setSelfMembership(
-            .both,
-            memberID: "self-member",
-            owner: owner,
-            groupJID: jid
-        )
-        try! repository.applySnapshot(
+        try! repository.admitSnapshot(
             GroupSnapshot(
                 jid: jid,
                 privacy: privacy,
                 parentJID: peerToPeer ? "parent@example.com" : nil,
                 info: GroupInfo(name: jid)
             ),
+            membership: .both,
+            memberID: "self-member",
             owner: owner,
-            groupJID: jid
+            groupJID: jid,
+            members: [
+                GroupMember(
+                    id: "self-member",
+                    jid: owner,
+                    role: .member
+                )
+            ]
         )
         try! realm.write {
             let rosterItem = RosterStorageItem()

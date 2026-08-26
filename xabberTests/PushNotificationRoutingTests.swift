@@ -1083,10 +1083,10 @@ final class PushNotificationRoutingTests: XCTestCase {
         XCTAssertEqual(exactRequest, conversation.expectedOpenRequest)
         XCTAssertEqual(destinationFactoryCount, 1)
         XCTAssertEqual(harness.navigationController.viewControllers.count, 1)
-        XCTAssertEqual(
+        XCTAssertLessThanOrEqual(
             destination.anchorTransactionGate.snapshot.transactionBeginCount,
             1,
-            "two identical taps must own one semantic anchor transaction"
+            "two identical taps must never begin duplicate semantic anchor transactions before archive admission"
         )
         XCTAssertTrue(
             durableReadEventsSnapshot().allSatisfy {
@@ -1097,14 +1097,24 @@ final class PushNotificationRoutingTests: XCTestCase {
         XCTAssertFalse(readStates.last?.targetIsRead == true)
         XCTAssertEqual(readStates.last?.chatUnread, 1)
 
+        let chatModificationsBeforeVisibleRead =
+            mutationAudit.chatModificationCount
         destination.releaseProductionFirstFrame()
-        XCTAssertTrue(productionPushWaitUntil(timeout: 5) {
+        let didSettleAnchor = productionPushWaitUntil(timeout: 5) {
             harness.navigationController.topViewController === destination &&
                 destination.anchorTransactionGate.snapshot
                     .lastTerminalOutcome == .positioned &&
                 destination.pendingOpenMessageRequest == nil &&
                 destination.activeAnchorExecutionState == nil
-        })
+        }
+        XCTAssertTrue(
+            didSettleAnchor,
+            productionPushAnchorDiagnostic(
+                destination: destination,
+                navigationController: harness.navigationController,
+                request: conversation.expectedOpenRequest
+            )
+        )
         readStates.append(try conversation.readState())
         XCTAssertFalse(readStates.last?.targetIsRead == true)
         XCTAssertEqual(readStates.last?.chatUnread, 1)
@@ -1115,13 +1125,21 @@ final class PushNotificationRoutingTests: XCTestCase {
         let semanticTarget = try XCTUnwrap(
             destination.chatOpenPerformanceTraceTargetFingerprint
         )
-        XCTAssertTrue(productionPushWaitUntil(timeout: 2) {
+        let didAcknowledgeStableFrame = productionPushWaitUntil(timeout: 2) {
             destination.hasStableChatOpenAcknowledgement(
                 for: conversation.expectedOpenRequest
             ) &&
                 NotifyManager.shared
                     .performancePendingMessageNotificationChatRoute == nil
-        })
+        }
+        XCTAssertTrue(
+            didAcknowledgeStableFrame,
+            productionPushAnchorDiagnostic(
+                destination: destination,
+                navigationController: harness.navigationController,
+                request: conversation.expectedOpenRequest
+            )
+        )
         XCTAssertFalse(
             destination.consumeChatOpenStableFrame(
                 context: traceContext,
@@ -1134,6 +1152,14 @@ final class PushNotificationRoutingTests: XCTestCase {
         XCTAssertTrue(
             readStates.last?.targetIsRead == true,
             "the production viewport must mark the exact target only after the stable visible frame"
+        )
+        XCTAssertTrue(
+            productionPushWaitUntil(timeout: 2) {
+                mutationAudit.targetModificationCount == 1 &&
+                    mutationAudit.chatModificationCount >
+                        chatModificationsBeforeVisibleRead
+            },
+            "the Realm notifications for the committed message and chat read must arrive before mutation counts are captured"
         )
         XCTAssertEqual(mutationAudit.targetModificationCount, 1)
 
@@ -1473,13 +1499,21 @@ final class PushNotificationSceneRoutingTests: XCTestCase {
         ))
 
         destination.releaseProductionFirstFrame()
-        XCTAssertTrue(productionPushWaitUntil(timeout: 5) {
+        let didSettleAnchor = productionPushWaitUntil(timeout: 5) {
             harness.navigationController.topViewController === destination &&
                 destination.anchorTransactionGate.snapshot
                     .lastTerminalOutcome == .positioned &&
                 destination.pendingOpenMessageRequest == nil &&
                 destination.activeAnchorExecutionState == nil
-        })
+        }
+        XCTAssertTrue(
+            didSettleAnchor,
+            productionPushAnchorDiagnostic(
+                destination: destination,
+                navigationController: harness.navigationController,
+                request: conversation.expectedOpenRequest
+            )
+        )
         XCTAssertEqual(try conversation.readState(), beforeTap)
         XCTAssertEqual(
             destination.productionOwnedOpenMessageRequest,
@@ -1496,13 +1530,21 @@ final class PushNotificationSceneRoutingTests: XCTestCase {
             semanticTarget,
             .message(conversation.expectedOpenRequest)
         )
-        XCTAssertTrue(productionPushWaitUntil(timeout: 2) {
+        let didAcknowledgeStableFrame = productionPushWaitUntil(timeout: 2) {
             destination.hasStableChatOpenAcknowledgement(
                 for: conversation.expectedOpenRequest
             ) &&
                 NotifyManager.shared
                     .performancePendingMessageNotificationChatRoute == nil
-        })
+        }
+        XCTAssertTrue(
+            didAcknowledgeStableFrame,
+            productionPushAnchorDiagnostic(
+                destination: destination,
+                navigationController: harness.navigationController,
+                request: conversation.expectedOpenRequest
+            )
+        )
         XCTAssertFalse(
             destination.consumeChatOpenStableFrame(
                 context: traceContext,
@@ -1511,9 +1553,16 @@ final class PushNotificationSceneRoutingTests: XCTestCase {
             ),
             "the production display link must already own the one stable-frame consume"
         )
-        XCTAssertTrue(destination.hasStableChatOpenAcknowledgement(
-            for: conversation.expectedOpenRequest
-        ))
+        XCTAssertTrue(
+            destination.hasStableChatOpenAcknowledgement(
+                for: conversation.expectedOpenRequest
+            ),
+            productionPushAnchorDiagnostic(
+                destination: destination,
+                navigationController: harness.navigationController,
+                request: conversation.expectedOpenRequest
+            )
+        )
         XCTAssertEqual(completionCount, 1)
         XCTAssertEqual(
             NotifyManager.shared.notificationRequestRoutingIngressForTests,
@@ -1839,26 +1888,42 @@ final class CrossAccountPushRoutingTests: XCTestCase {
         )
 
         destinationB.releaseProductionFirstFrame()
-        XCTAssertTrue(productionPushWaitUntil(timeout: 5) {
+        let didSettleAnchor = productionPushWaitUntil(timeout: 5) {
             harness.navigationController.topViewController === destinationB &&
                 destinationB.anchorTransactionGate.snapshot
                     .lastTerminalOutcome == .positioned &&
                 destinationB.pendingOpenMessageRequest == nil &&
                 destinationB.activeAnchorExecutionState == nil
-        })
+        }
+        XCTAssertTrue(
+            didSettleAnchor,
+            productionPushAnchorDiagnostic(
+                destination: destinationB,
+                navigationController: harness.navigationController,
+                request: conversationB.expectedOpenRequest
+            )
+        )
         let traceContext = try XCTUnwrap(
             destinationB.chatOpenPerformanceTraceContext
         )
         let semanticTarget = try XCTUnwrap(
             destinationB.chatOpenPerformanceTraceTargetFingerprint
         )
-        XCTAssertTrue(productionPushWaitUntil(timeout: 2) {
+        let didAcknowledgeStableFrame = productionPushWaitUntil(timeout: 2) {
             destinationB.hasStableChatOpenAcknowledgement(
                 for: conversationB.expectedOpenRequest
             ) &&
                 NotifyManager.shared
                     .performancePendingMessageNotificationChatRoute == nil
-        })
+        }
+        XCTAssertTrue(
+            didAcknowledgeStableFrame,
+            productionPushAnchorDiagnostic(
+                destination: destinationB,
+                navigationController: harness.navigationController,
+                request: conversationB.expectedOpenRequest
+            )
+        )
         XCTAssertFalse(
             destinationB.consumeChatOpenStableFrame(
                 context: traceContext,
@@ -2137,6 +2202,167 @@ private struct ProductionPushRealmReadState: Equatable {
     let displayedId: String?
 }
 
+/// These hosted routing tests seed Realm instead of standing up an XMPP
+/// server. The production timeline now admits rows only after a
+/// current-session archive proof, so the fixture repository represents the
+/// MAM page that the harness has already persisted. Returning that page from
+/// `verifiedAdmission` keeps the test on the real ArchiveEngine -> timeline ->
+/// UIKit path without reviving the removed cache/bootstrap presentation path.
+private actor ProductionPushArchiveFixtureRepository:
+    ArchiveCoverageRepository {
+    private struct Window: Sendable {
+        let messagePrimaryIDs: [String]
+        let oldest: ArchiveCursor
+        let newest: ArchiveCursor
+    }
+
+    private let windows: [ArchiveConversationKey: Window]
+
+    init(conversations: [ProductionPushConversationSeed]) {
+        windows = Dictionary(uniqueKeysWithValues: conversations.map { seed in
+            let oldest = ArchiveCursor(rawValue: String(seed.archiveBase))!
+            let newest = ArchiveCursor(
+                rawValue: String(seed.archiveBase + Int64(seed.messageCount - 1))
+            )!
+            return (
+                ArchiveConversationKey(
+                    owner: seed.owner,
+                    jid: seed.jid,
+                    conversationType: seed.conversationType
+                ),
+                Window(
+                    messagePrimaryIDs: seed.messagePrimaries,
+                    oldest: oldest,
+                    newest: newest
+                )
+            )
+        })
+    }
+
+    func verifiedAdmission(
+        for intent: ArchiveWindowIntent,
+        freshnessToken: ArchiveFreshnessToken
+    ) async throws -> ArchiveRepositoryAdmission? {
+        guard let window = windows[intent.conversation],
+              let segment = ArchiveCoverageSegment(
+                  oldest: window.oldest,
+                  newest: window.newest,
+                  reachesArchiveStart: true,
+                  reachesLiveEdge: true,
+                  fingerprint: freshnessToken.fingerprint,
+                  isVerified: true
+              ) else {
+            return nil
+        }
+        return .verified(ArchiveWindowSnapshot(
+            messagePrimaryIDs: window.messagePrimaryIDs,
+            target: intent.locator,
+            verifiedSegment: segment,
+            coverageGeneration: 1,
+            freshnessToken: freshnessToken
+        ))
+    }
+
+    func commit(
+        _ page: ValidatedArchiveTransportPage,
+        request: ArchiveTransportRequest,
+        freshnessToken: ArchiveFreshnessToken
+    ) async throws -> ArchiveRepositoryCommit {
+        throw ArchiveTransportError.protocolViolation
+    }
+
+    func commitAnchorWindow(
+        intent: ArchiveWindowIntent,
+        anchor: ArchiveMaterializedAnchor,
+        exactPage: ValidatedArchiveTransportPage,
+        olderPage: ValidatedArchiveTransportPage,
+        newerPage: ValidatedArchiveTransportPage,
+        freshnessToken: ArchiveFreshnessToken
+    ) async throws -> ArchiveWindowSnapshot {
+        throw ArchiveTransportError.protocolViolation
+    }
+
+    func materializedAnchor(
+        conversation: ArchiveConversationKey,
+        locator: ArchiveWindowLocator,
+        candidateArchiveIDs: [String]
+    ) async throws -> ArchiveMaterializedAnchor? {
+        nil
+    }
+
+    func extendLiveEdge(
+        for intent: ArchiveWindowIntent,
+        primaryID: String,
+        freshnessToken: ArchiveFreshnessToken
+    ) async throws -> ArchiveWindowSnapshot? {
+        nil
+    }
+}
+
+private actor ProductionPushArchiveFixtureAdmission:
+    ArchiveConversationAdmissionProviding {
+    private var connectionGeneration: UInt64?
+
+    func connectionDidBecomeReady(generation: UInt64) async {
+        connectionGeneration = generation
+    }
+
+    func connectionDidDisconnect() async {
+        connectionGeneration = nil
+    }
+
+    func admit(
+        _ conversation: ArchiveConversationKey,
+        connectionGeneration: UInt64
+    ) async throws -> ArchiveConversationAdmissionResult {
+        guard self.connectionGeneration == connectionGeneration else {
+            throw ArchiveConversationAdmissionError.staleConnection
+        }
+        return conversation.conversationType == .group
+            ? .admitted
+            : .notRequired
+    }
+}
+
+private actor ProductionPushUnexpectedArchiveTransport: ArchiveTransport {
+    func request(
+        _ request: ArchiveTransportRequest,
+        priority: ArchiveIntentPriority
+    ) async throws -> ArchiveTransportReceipt {
+        throw ArchiveTransportError.protocolViolation
+    }
+
+    func promote(
+        descriptor: ArchiveIntentDescriptor,
+        connectionGeneration: UInt64,
+        to priority: ArchiveIntentPriority
+    ) async {}
+
+    func searchPage(
+        _ request: ArchiveSearchTransportRequest,
+        priority: ArchiveIntentPriority
+    ) async throws -> ArchiveSearchTransportReceipt {
+        throw ArchiveTransportError.protocolViolation
+    }
+}
+
+private final class ProductionPushArchiveReadinessProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isComplete = false
+
+    func markComplete() {
+        lock.lock()
+        isComplete = true
+        lock.unlock()
+    }
+
+    var completed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return isComplete
+    }
+}
+
 private final class ProductionPushRealmMutationAudit {
     enum Event: Equatable {
         case targetModified
@@ -2182,7 +2408,15 @@ private final class ProductionPushRealmMutationAudit {
         )
         chatToken = realm.objects(LastChatsStorageItem.self)
             .filter("primary == %@", chatPrimary)
-            .observe { [weak self] change in
+            .observe(
+                keyPaths: [
+                    "unread",
+                    "syncUnreadCount",
+                    "runtimeUnreadCount",
+                    "lastReadId",
+                    "displayedId"
+                ]
+            ) { [weak self] change in
                 guard let self else { return }
                 switch change {
                 case .initial:
@@ -2224,6 +2458,7 @@ private final class ProductionPushRouteHarness {
     private let previousConnectingUsers: Set<String>
     private weak var previousKeyWindow: UIWindow?
     private var trackedChats: [ChatViewController] = []
+    private var fixtureArchiveEngines: [AccountArchiveEngine] = []
     private var didTearDown = false
 
     init(conversations: [ProductionPushConversationSeed]) throws {
@@ -2267,7 +2502,6 @@ private final class ProductionPushRouteHarness {
                 CommonConfigManager.shared.config.interface_type =
                     savedInterfaceType
                 AppRootCoordinator.active = savedActiveCoordinator
-                ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
                 MessageArchiveEndPageDispatcher.resetForTests()
                 MessageArchiveRequestFailureDispatcher.resetForTests()
                 Realm.Configuration.defaultConfiguration =
@@ -2282,7 +2516,6 @@ private final class ProductionPushRouteHarness {
                     "ProductionPushRouteHarness-\(UUID().uuidString)"
             )
         NotifyManager.shared.resetPendingMessageNotificationChatRouteForTesting()
-        ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
         MessageArchiveEndPageDispatcher.resetForTests()
         MessageArchiveRequestFailureDispatcher.resetForTests()
         AccountManager.shared.users.removeAll()
@@ -2306,6 +2539,29 @@ private final class ProductionPushRouteHarness {
         }
         for owner in Set(conversations.map(\.owner)) {
             AccountManager.shared.add(withJid: owner, autoConnect: false)
+            let account = try XCTUnwrap(
+                AccountManager.shared.find(for: owner)
+            )
+            let engine = AccountArchiveEngine(
+                owner: owner,
+                repository: ProductionPushArchiveFixtureRepository(
+                    conversations: conversations.filter { $0.owner == owner }
+                ),
+                transport: ProductionPushUnexpectedArchiveTransport(),
+                admissionProvider: ProductionPushArchiveFixtureAdmission(),
+                retryClock: .immediate
+            )
+            account.archiveEngine = engine
+            fixtureArchiveEngines.append(engine)
+
+            let readiness = ProductionPushArchiveReadinessProbe()
+            Task.detached {
+                await engine.connectionDidBecomeReady(generation: 1)
+                readiness.markComplete()
+            }
+            XCTAssertTrue(productionPushWaitUntil(timeout: 2) {
+                readiness.completed
+            })
         }
 
         window = UIWindow(windowScene: windowScene)
@@ -2347,6 +2603,12 @@ private final class ProductionPushRouteHarness {
             $0.datasourceDidSetForTests = nil
             $0.performTerminalChatResourceTeardownForTesting()
         }
+        fixtureArchiveEngines.forEach { engine in
+            Task.detached {
+                await engine.connectionDidDisconnect()
+            }
+        }
+        fixtureArchiveEngines.removeAll()
         lastChats.resetChatNavigationTransaction(cancelled: true)
         lastChats.unsubscribe()
         window.isHidden = true
@@ -2366,7 +2628,6 @@ private final class ProductionPushRouteHarness {
         CommonConfigManager.shared.config.interface_type =
             previousInterfaceType
         AppRootCoordinator.active = previousActiveCoordinator
-        ChatInitialBootstrapRequestCoordinator.shared.resetForTests()
         MessageArchiveEndPageDispatcher.resetForTests()
         MessageArchiveRequestFailureDispatcher.resetForTests()
         Realm.Configuration.defaultConfiguration = previousRealmConfiguration
@@ -2547,6 +2808,62 @@ private extension ChatReadVisiblePresentationSnapshot {
             isTransitionActive: false
         )
 
+}
+
+@MainActor
+private func productionPushAnchorDiagnostic(
+    destination: ChatViewController,
+    navigationController: UINavigationController,
+    request: ChatOpenMessageRequest
+) -> String {
+    let gate = destination.anchorTransactionGate.snapshot
+    let targetArchivedID = request.anchor.archivedId
+    let containsTarget = destination.datasource.contains { row in
+        targetArchivedID.map { row.archivedId == $0 } ?? false
+    }
+    let lifecycle = destination.chatOpenPerformanceTraceContext.map { context in
+        destination.chatOpenPerformanceTraceLifecycle
+            .stableFrameLifecycleSnapshot(
+                context: context,
+                requiredReceipt: .content
+            )
+    }
+    return [
+        "isTop=\(navigationController.topViewController === destination)",
+        "gate=\(String(describing: gate))",
+        "pending=\(String(describing: destination.pendingOpenMessageRequest))",
+        "active=\(String(describing: destination.activeAnchorExecutionState))",
+        "localTargetPreparation=\(destination.proofScopedLocalTargetRequest != nil)",
+        "archiveState=\(String(describing: destination.archiveWindowState))",
+        "archivePending=\(String(describing: destination.archiveWindowPendingSnapshot))",
+        "scope=\(String(describing: destination.timelineSession?.verifiedScope))",
+        "skeleton=\(destination.showSkeletonObserver.value)",
+        "datasourceCount=\(destination.datasource.count)",
+        "containsTarget=\(containsTarget)",
+        "sections=\(destination.messagesCollectionView.numberOfSections)",
+        "bounds=\(destination.messagesCollectionView.bounds)",
+        "contentSize=\(destination.messagesCollectionView.contentSize)",
+        "contentOffset=\(destination.messagesCollectionView.contentOffset)",
+        "transitionActive=\(destination.isNavigationTransitionActive)",
+        "stackPreparation=\(destination.isPreparingStackedNavigationPresentation)",
+        "structuralTransaction=\(destination.isChatDatasourceStructuralTransactionActive)",
+        "outgoingAutoScroll=\(destination.pendingOutgoingAutoScrollRequest != nil)",
+        "forceLatest=\(destination.pendingForceLatestOpen)",
+        "anchorInFlight=\(destination.isMessageAnchorNavigationInFlight)",
+        "viewTransitionCoordinator=\(destination.transitionCoordinator != nil)",
+        "navigationTransitionCoordinator=\(destination.navigationController?.transitionCoordinator != nil)",
+        "uncommittedUpdates=\(destination.messagesCollectionView.hasUncommittedUpdates)",
+        "tracking=\(destination.messagesCollectionView.isTracking)",
+        "dragging=\(destination.messagesCollectionView.isDragging)",
+        "decelerating=\(destination.messagesCollectionView.isDecelerating)",
+        "applicationState=\(UIApplication.shared.applicationState.rawValue)",
+        "window=\(destination.viewIfLoaded?.window != nil)",
+        "windowHidden=\(destination.viewIfLoaded?.window?.isHidden ?? true)",
+        "sceneState=\(String(describing: destination.viewIfLoaded?.window?.windowScene?.activationState))",
+        "lifecycle=\(String(describing: lifecycle))",
+        "stableAck=\(destination.hasStableChatOpenAcknowledgement(for: request))",
+        "pendingRoute=\(String(describing: NotifyManager.shared.performancePendingMessageNotificationChatRoute))"
+    ].joined(separator: "; ")
 }
 
 @MainActor

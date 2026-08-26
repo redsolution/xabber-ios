@@ -207,6 +207,32 @@ struct ChatSearchSession: Sendable {
     }
 
     @discardableResult
+    mutating func replaceResidentResults(
+        generation: UInt64,
+        ids: [ChatSearchResult.ID]
+    ) -> Bool {
+        guard generation == self.generation,
+              activeRequest?.generation == generation else {
+            return false
+        }
+
+        resultIds = Set(ids)
+        if let pendingTarget,
+           !resultIds.contains(pendingTarget) {
+            self.pendingTarget = nil
+        }
+        if let committedSelection,
+           !resultIds.contains(committedSelection) {
+            self.committedSelection = nil
+        }
+        if pendingTarget == nil,
+           committedSelection == nil {
+            pendingTarget = ids.first
+        }
+        return true
+    }
+
+    @discardableResult
     mutating func positioningSucceeded(
         generation: UInt64,
         id: ChatSearchResult.ID

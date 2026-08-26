@@ -58,11 +58,6 @@ final class ChatContactAvatarBindingTests: XCTestCase {
             )]
         )
         let context = ChatCollectionPrefetchContext.empty(
-            conversationKey: ChatCollectionPrefetchConversationKey(
-                owner: "owner@example.com",
-                jid: "chat@example.com",
-                conversationType: "regular"
-            ),
             screenScale: 3,
             traitStyle: .light
         )

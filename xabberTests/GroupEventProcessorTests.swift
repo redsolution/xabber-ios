@@ -212,7 +212,7 @@ final class GroupEventProcessorTests: XCTestCase {
         )
     }
 
-    func testActivationIntegrationUsesCanonicalGroupMAMEntryPoint() throws {
+    func testActivationIntegrationLeavesHistoryToArchiveEngine() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -223,7 +223,7 @@ final class GroupEventProcessorTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(integration.contains("requestCanonicalGroupHistory"))
+        XCTAssertFalse(integration.contains("requestCanonicalGroupHistory"))
         XCTAssertFalse(integration.contains("conversation-type"))
     }
 
@@ -255,24 +255,6 @@ final class GroupEventProcessorTests: XCTestCase {
         XCTAssertTrue(projection.state.isDeleted)
         XCTAssertNil(projection.state.snapshot.info)
         XCTAssertEqual(deactivated, [group])
-    }
-
-    func testActivationSyncGateDeduplicatesAndIgnoresStaleTicketCompletion() {
-        let gate = GroupActivationSyncGate()
-        let first = gate.begin(groupJID: "Stage@Example.com/Group")
-
-        XCTAssertNotNil(first)
-        XCTAssertNil(gate.begin(groupJID: "stage@example.com"))
-
-        gate.invalidate(groupJID: group)
-        if let first { XCTAssertFalse(gate.isCurrent(first)) }
-        let replacement = gate.begin(groupJID: group)
-        XCTAssertNotNil(replacement)
-        if let first { gate.end(first) }
-        XCTAssertNil(gate.begin(groupJID: group))
-        if let replacement { XCTAssertTrue(gate.isCurrent(replacement)) }
-        if let replacement { gate.end(replacement) }
-        XCTAssertNotNil(gate.begin(groupJID: group))
     }
 
     func testConversationProjectionStartsOnlyGroupChatAndCleanupIsConversationScoped() throws {

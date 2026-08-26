@@ -127,6 +127,17 @@ chat_goal_acceptance_ui_selectors() {
     | awk '/^xabberChatPerformanceUITests\//'
 }
 
+chat_goal_deterministic_ui_selectors() {
+  cat <<'SELECTORS'
+xabberChatPerformanceUITests/ChatPerformanceUITests/testArtifactExportEnvironmentIsInternallyRouteBound
+xabberChatPerformanceUITests/ChatPerformanceUITests/testMediaSkeletonAndExactSearchRouteAreAtomic
+xabberChatPerformanceUITests/ChatPerformanceUITests/testMillionHistoryOpensWithSameBoundedFirstFrame
+xabberChatPerformanceUITests/ChatPerformanceUITests/testRotationReflowsTimelineAndPreservesAnchorWithoutCorrection
+xabberChatPerformanceUITests/ChatPerformanceUITests/testScrollIncomingAndOptimisticSendEditDeleteStayStable
+xabberChatPerformanceUITests/ChatPerformanceUITests/testSmallHistoryOpensWithBoundedFirstFrame
+SELECTORS
+}
+
 if [[ "${CHAT_GOAL_RUNNER_NO_MAIN:-0}" == "1" ]]; then
   return 0 2>/dev/null || exit 0
 fi
@@ -405,17 +416,13 @@ case "$phase" in
     "$script_dir/xcodebuild_cached.sh" build
     ;;
   deterministic-ui)
-    echo "  selectors: xabberChatPerformanceUITests/ChatPerformanceUITests"
-    env \
-      -u TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT \
-      -u TEST_RUNNER_XABBER_ISOLATED_STORAGE \
-      -u XABBER_CHAT_LIVE_QA_MODE \
-      XABBER_SCHEME="Chat Performance UI Tests" \
-      "$script_dir/xcodebuild_cached.sh" test \
-        "${chat_test_safety_arguments[@]}" \
-        -only-testing:xabberChatPerformanceUITests/ChatPerformanceUITests \
-        "XABBER_APP_BUNDLE_IDENTIFIER=$fixture_bundle_identifier" \
-        "XABBER_PUSH_EXTENSION_BUNDLE_IDENTIFIER=$fixture_push_extension_bundle_identifier"
+    selectors="$(chat_goal_deterministic_ui_selectors)"
+    validate_selector_list \
+      "deterministic UI" \
+      "$selectors" \
+      "xabberChatPerformanceUITests/"
+    print_selectors "selectors" "$selectors"
+    run_ui_test_selectors "$selectors"
     ;;
   chat-open-acceptance-hosted)
     bash "$acceptance_manifest" validate

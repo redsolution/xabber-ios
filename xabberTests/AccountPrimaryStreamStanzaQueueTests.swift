@@ -732,39 +732,6 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
         finishBackground?()
     }
 
-    func testSchedulerDefersNonInteractiveWorkWhileBootstrapGateIsActive() {
-        var isBootstrapActive = true
-        let scheduler = AccountXMPPTaskScheduler(
-            configuration: .test(defaultCooldown: 0),
-            bootstrapGate: { isBootstrapActive }
-        )
-        let backgroundStarted = expectation(description: "background work is deferred")
-        backgroundStarted.isInverted = true
-        var backgroundStartHandler: () -> Void = {
-            backgroundStarted.fulfill()
-        }
-        scheduler.enqueue(priority: .background, resource: .mamArchive, deduplicationKey: "background") { finish in
-            backgroundStartHandler()
-            finish()
-        }
-        wait(for: [backgroundStarted], timeout: 0.1)
-
-        let interactiveStarted = expectation(description: "interactive work starts")
-        scheduler.enqueue(priority: .interactive, resource: .mamArchive, deduplicationKey: "interactive") { finish in
-            interactiveStarted.fulfill()
-            finish()
-        }
-        wait(for: [interactiveStarted], timeout: 1)
-
-        let deferredStarted = expectation(description: "deferred work starts after bootstrap")
-        backgroundStartHandler = {
-            deferredStarted.fulfill()
-        }
-        isBootstrapActive = false
-        scheduler.bootstrapGateDidChange()
-        wait(for: [deferredStarted], timeout: 1)
-    }
-
     func testDurableRegularMessagePreemptsLowerPriorityTrackedStanzaWhenTrackerIsFull() {
         let harness = makeTrackerHarness(
             configuration: .init(maxTrackedCount: 2, maxRetainedXMLBytes: 1024, ackTimeout: 5)

@@ -332,7 +332,7 @@ enum ChatMessageLayoutCalculator {
                 ).margin(width: 0, height: CommonMessageSizeCalculator.attachmentPadding.vertical)
                 let audios = inlineAudioSize(
                     count: attachment.audios.count,
-                    maxWidth: 320
+                    maxWidth: min(320, maxWidth)
                 ).margin(width: 0, height: CommonMessageSizeCalculator.attachmentPadding.vertical)
                 let paddedText = text == .zero ? .zero : text
                 let components = [author, paddedText, images, videos, locations, contacts, files, audios]

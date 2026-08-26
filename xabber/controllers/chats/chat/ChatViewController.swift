@@ -31,62 +31,6 @@ import CocoaLumberjack
 import AVFoundation
 import XMPPFramework.XMPPJID
 
-enum ChatHistoryPagingConfiguration {
-    static let pageSize: Int = 250
-}
-
-enum ChatInitialFirstFrameHistoryConfiguration {
-    static let pageSize: Int = 80
-}
-
-enum ChatStackedNavigationInitialFrameStrategy: Equatable {
-    case contentFirst
-    case skeletonFirst
-}
-
-enum ChatInitialPresentationContext: Equatable {
-    case standard
-    case newlyCreatedGroup
-}
-
-enum ChatInitialPresentationContextPolicy {
-    static func loadingState(
-        standard: ChatBootstrapLoadingState,
-        context: ChatInitialPresentationContext,
-        localMessageCount: Int
-    ) -> ChatBootstrapLoadingState {
-        guard context == .newlyCreatedGroup else {
-            return standard
-        }
-        switch standard {
-        case .blockingArchive, .blockingTarget:
-            return localMessageCount > 0 ? .content : .empty
-        case .content, .empty, .failure:
-            return standard
-        }
-    }
-
-    static func shouldUseSkeletonFirstFrame(
-        strategy: ChatStackedNavigationInitialFrameStrategy,
-        context: ChatInitialPresentationContext,
-        isDatasourceEmpty: Bool
-    ) -> Bool {
-        context == .standard &&
-            strategy == .skeletonFirst &&
-            isDatasourceEmpty
-    }
-
-    static func timeoutFallback(
-        context: ChatInitialPresentationContext,
-        hasRealRows: Bool
-    ) -> ChatBootstrapViewState {
-        if hasRealRows {
-            return .content
-        }
-        return context == .newlyCreatedGroup ? .empty : .skeleton
-    }
-}
-
 /// In-memory UI-intent identity. Exact anchors that share the same MAM
 /// transport target (`latest`) must still own different open generations.
 /// This value is never emitted, exported, or persisted.
@@ -344,15 +288,6 @@ enum ChatHistoryLoadActivityRegistry {
         lock.lock()
         activeCounts.removeAll()
         lock.unlock()
-    }
-}
-
-enum ChatInitialBootstrapArchivePageSizePolicy {
-    static func requestPageSize(
-        initialFirstFramePageSize: Int,
-        datasourcePageSize: Int
-    ) -> Int {
-        max(1, min(initialFirstFramePageSize, datasourcePageSize))
     }
 }
 
@@ -1537,18 +1472,15 @@ struct ChatPendingMentionReadCandidate: Hashable {
     let notificationPrimary: String
     let messagePrimary: String
     let expectedMessageIdentity: ChatReadVisibleMessageIdentity?
-    let initialFrameEffectToken: ChatInitialFrameEffectToken?
 
     init(
         notificationPrimary: String,
         messagePrimary: String,
-        expectedMessageIdentity: ChatReadVisibleMessageIdentity? = nil,
-        initialFrameEffectToken: ChatInitialFrameEffectToken? = nil
+        expectedMessageIdentity: ChatReadVisibleMessageIdentity? = nil
     ) {
         self.notificationPrimary = notificationPrimary
         self.messagePrimary = messagePrimary
         self.expectedMessageIdentity = expectedMessageIdentity
-        self.initialFrameEffectToken = initialFrameEffectToken
     }
 }
 
@@ -1562,18 +1494,6 @@ struct ChatPendingMentionReadFlush: Equatable {
 
     var notificationPrimaries: Set<String> {
         Set(candidates.map(\.notificationPrimary))
-    }
-
-    /// Exact initial-frame owner shared by every candidate in this flush.
-    /// A mixed or natural-scroll flush deliberately has no single owner.
-    var exactInitialFrameEffectToken: ChatInitialFrameEffectToken? {
-        guard let first = candidates.first?.initialFrameEffectToken,
-              candidates.allSatisfy({
-                $0.initialFrameEffectToken == first
-              }) else {
-            return nil
-        }
-        return first
     }
 }
 
@@ -1717,66 +1637,17 @@ final class ChatReadVisiblePresentationCoordinator {
                     candidate.notificationPrimary
                 ],
                    pending.messagePrimary == candidate.messagePrimary {
-                    // A generic visibility resample carries less ownership
-                    // information than an exact initial-frame candidate and
-                    // may never erase its revocation token. Conversely, a
-                    // fresh non-nil token is an explicit new owner and must
-                    // replace the old one. Row identity follows the same
-                    // strongest-evidence rule independently of ownership.
                     replacement = ChatPendingMentionReadCandidate(
                         notificationPrimary: candidate.notificationPrimary,
                         messagePrimary: candidate.messagePrimary,
                         expectedMessageIdentity:
                             candidate.expectedMessageIdentity ??
-                                pending.expectedMessageIdentity,
-                        initialFrameEffectToken:
-                            candidate.initialFrameEffectToken ??
-                                pending.initialFrameEffectToken
+                                pending.expectedMessageIdentity
                     )
                     guard replacement != pending else { return }
                 }
                 pendingByNotificationPrimary[candidate.notificationPrimary] =
                     replacement
-            }
-        }
-    }
-
-    /// Revokes only effects owned by the superseded initial frame. Natural
-    /// scroll candidates and candidates from a newer attempt remain intact.
-    /// A flush that already crossed its first persistent mutation is the
-    /// linearization winner and retains exactly-once completion ownership.
-    func revoke(initialFrameEffectToken token: ChatInitialFrameEffectToken) {
-        withStateLock {
-            pendingByNotificationPrimary = pendingByNotificationPrimary
-                .filter { $0.value.initialFrameEffectToken != token }
-            let revokedFlushes = inFlightFlushesByIdentifier.values.filter {
-                !startedMutationFlushIdentifiers.contains($0.identifier) &&
-                    $0.candidates.contains {
-                        $0.initialFrameEffectToken == token
-                    }
-            }
-            revokedFlushes.forEach { flush in
-                claimedCommitFlushIdentifiers.remove(flush.identifier)
-                inFlightFlushesByIdentifier.removeValue(
-                    forKey: flush.identifier
-                )
-                flush.candidates.forEach { candidate in
-                    if inFlightByNotificationPrimary[
-                        candidate.notificationPrimary
-                    ] == candidate {
-                        inFlightByNotificationPrimary.removeValue(
-                            forKey: candidate.notificationPrimary
-                        )
-                    }
-                    if candidate.initialFrameEffectToken != token,
-                       !consumedNotificationPrimaries.contains(
-                        candidate.notificationPrimary
-                       ) {
-                        pendingByNotificationPrimary[
-                            candidate.notificationPrimary
-                        ] = candidate
-                    }
-                }
             }
         }
     }
@@ -1826,9 +1697,7 @@ final class ChatReadVisiblePresentationCoordinator {
                         notificationPrimary: candidate.notificationPrimary,
                         messagePrimary: candidate.messagePrimary,
                         expectedMessageIdentity:
-                            candidate.expectedMessageIdentity ?? rowIdentity.message,
-                        initialFrameEffectToken:
-                            candidate.initialFrameEffectToken
+                            candidate.expectedMessageIdentity ?? rowIdentity.message
                     )
                 }
                 .sorted { $0.notificationPrimary < $1.notificationPrimary }
@@ -2007,6 +1876,271 @@ final class ChatReadVisiblePresentationCoordinator {
         stateLock.lock()
         defer { stateLock.unlock() }
         return try work()
+    }
+}
+
+enum ChatTimelineStoreSnapshotPresentationAction: Equatable {
+    case apply
+    case deferUntilPresentationSettles
+    case reject
+}
+
+enum ChatTimelineStoreSnapshotPresentationPolicy {
+    static func action(
+        for snapshot: ChatTimelineSessionSnapshot,
+        currentSessionGeneration: UInt64,
+        presentedPrimaryIDs: Set<String>,
+        hasCommittedArchivePresentation: Bool,
+        isShowingSkeleton: Bool,
+        hasPendingArchiveApply: Bool
+    ) -> ChatTimelineStoreSnapshotPresentationAction {
+        guard snapshot.generation == currentSessionGeneration else {
+            return .reject
+        }
+        let snapshotPrimaryIDs = Set(snapshot.items.map(\.primary))
+        switch snapshot.cause {
+        case .storeChange:
+            let inserted = snapshotPrimaryIDs.subtracting(presentedPrimaryIDs)
+            guard inserted.isSubset(
+                    of: snapshot.provisionalLocalOutgoingPrimaryIDs
+                  ),
+                  inserted.allSatisfy({ primary in
+                    guard let item = snapshot.item(primary: primary) else {
+                        return false
+                    }
+                    return item.outgoing &&
+                        !item.isDeleted &&
+                        !item.isLocallyHiddenByReport
+                  }) else {
+                return .reject
+            }
+        case .localOutgoingAdmission:
+            let inserted = snapshotPrimaryIDs.subtracting(presentedPrimaryIDs)
+            guard !inserted.isEmpty,
+                  inserted.isSubset(
+                    of: snapshot.provisionalLocalOutgoingPrimaryIDs
+                  ),
+                  inserted.allSatisfy({ primary in
+                    guard let item = snapshot.item(primary: primary) else {
+                        return false
+                    }
+                    return item.outgoing &&
+                        !item.isDeleted &&
+                        !item.isLocallyHiddenByReport
+                  }) else {
+                return .reject
+            }
+        case .command:
+            return .reject
+        }
+        guard hasCommittedArchivePresentation,
+              !isShowingSkeleton,
+              !hasPendingArchiveApply else {
+            return .deferUntilPresentationSettles
+        }
+        return .apply
+    }
+}
+
+struct ChatTimelineStorePresentationEpoch: Equatable {
+    let datasourceGeneration: UInt64
+    let layoutGeneration: Int
+    let layoutContext: ChatMessageLayoutContext
+    let displayContext: ChatDisplayModelCacheContext
+    let inSearchMode: Bool
+    let revealedSensitiveMediaPrimaries: Set<String>
+    let canPinMessages: Bool
+}
+
+enum ChatTimelineStorePresentationEpochPolicy {
+    static func isCurrent(
+        _ captured: ChatTimelineStorePresentationEpoch,
+        current: ChatTimelineStorePresentationEpoch
+    ) -> Bool {
+        captured == current
+    }
+}
+
+struct ChatTimelineStoreUIKitApplyToken: Equatable {
+    let bindingGeneration: UInt64
+    let snapshotGeneration: UInt64
+}
+
+#if DEBUG || CHAT_PERFORMANCE_LAB
+/// Process-local evidence emitted only by an ArchiveEngine transaction that
+/// remained current through its winning atomic UIKit apply.
+struct ChatPerformanceWinningArchiveUIKitApplyReceipt: Equatable {
+    let conversationKey: ChatTimelineConversationKey
+    let applyGeneration: UInt64
+    let sessionGeneration: UInt64
+    let viewportDiagnostics: ChatViewportTransactionDiagnostics
+}
+#endif
+
+enum ChatTimelinePresentationDrainLane: Equatable {
+    case store
+    case sensitiveReveal
+    case liveEdge
+}
+
+enum ChatTimelineStoreRemoteApplyAdmission: Equatable {
+    case start
+    case deferred
+    case coalesced
+}
+
+struct ChatTimelineStoreRemoteApplyExclusionGate {
+    private(set) var activeStoreApplyToken:
+        ChatTimelineStoreUIKitApplyToken?
+    private(set) var deferredRemoteApplyGeneration: UInt64?
+
+    var isStoreApplyActive: Bool {
+        activeStoreApplyToken != nil
+    }
+
+    mutating func beginStoreApply(
+        token: ChatTimelineStoreUIKitApplyToken
+    ) -> Bool {
+        guard activeStoreApplyToken == nil else { return false }
+        activeStoreApplyToken = token
+        return true
+    }
+
+    mutating func admitRemote(
+        applyGeneration: UInt64
+    ) -> ChatTimelineStoreRemoteApplyAdmission {
+        guard activeStoreApplyToken != nil else { return .start }
+        guard let current = deferredRemoteApplyGeneration else {
+            deferredRemoteApplyGeneration = applyGeneration
+            return .deferred
+        }
+        if applyGeneration > current {
+            deferredRemoteApplyGeneration = applyGeneration
+        }
+        return .coalesced
+    }
+
+    mutating func finishStoreApply(
+        token: ChatTimelineStoreUIKitApplyToken
+    ) -> UInt64? {
+        guard activeStoreApplyToken == token else { return nil }
+        activeStoreApplyToken = nil
+        defer { deferredRemoteApplyGeneration = nil }
+        return deferredRemoteApplyGeneration
+    }
+
+    mutating func cancelDeferredRemoteApply() {
+        deferredRemoteApplyGeneration = nil
+    }
+}
+
+enum ChatTimelineStoreSnapshotReceiveDisposition: Equatable {
+    case ignored
+    case queued
+    case supersededActive
+}
+
+struct ChatTimelineStoreSnapshotApplyCoordinator {
+    private(set) var bindingGeneration: UInt64 = 0
+    private(set) var isBindingActive = false
+    private(set) var pendingSnapshot: ChatTimelineSessionSnapshot?
+    private(set) var activeGeneration: UInt64?
+    private(set) var lastAppliedGeneration: UInt64?
+
+    @discardableResult
+    mutating func replaceBinding() -> UInt64 {
+        bindingGeneration &+= 1
+        isBindingActive = true
+        pendingSnapshot = nil
+        activeGeneration = nil
+        lastAppliedGeneration = nil
+        return bindingGeneration
+    }
+
+    mutating func invalidateBinding() {
+        bindingGeneration &+= 1
+        isBindingActive = false
+        pendingSnapshot = nil
+        activeGeneration = nil
+        lastAppliedGeneration = nil
+    }
+
+    mutating func receive(
+        _ snapshot: ChatTimelineSessionSnapshot,
+        bindingGeneration candidateBindingGeneration: UInt64
+    ) -> ChatTimelineStoreSnapshotReceiveDisposition {
+        guard candidateBindingGeneration == bindingGeneration,
+              snapshot.cause == .storeChange ||
+                snapshot.cause == .localOutgoingAdmission else {
+            return .ignored
+        }
+        let newestSeenGeneration = [
+            lastAppliedGeneration,
+            activeGeneration,
+            pendingSnapshot?.generation
+        ].compactMap { $0 }.max()
+        guard newestSeenGeneration.map({ snapshot.generation > $0 }) ?? true else {
+            return .ignored
+        }
+        pendingSnapshot = snapshot
+        return activeGeneration == nil ? .queued : .supersededActive
+    }
+
+    mutating func beginPending(
+        bindingGeneration candidateBindingGeneration: UInt64
+    ) -> ChatTimelineSessionSnapshot? {
+        guard candidateBindingGeneration == bindingGeneration,
+              activeGeneration == nil,
+              let pendingSnapshot else {
+            return nil
+        }
+        self.pendingSnapshot = nil
+        activeGeneration = pendingSnapshot.generation
+        return pendingSnapshot
+    }
+
+    @discardableResult
+    mutating func complete(
+        generation: UInt64,
+        bindingGeneration candidateBindingGeneration: UInt64,
+        applied: Bool
+    ) -> Bool {
+        guard candidateBindingGeneration == bindingGeneration,
+              activeGeneration == generation else {
+            return false
+        }
+        activeGeneration = nil
+        if applied {
+            lastAppliedGeneration = max(lastAppliedGeneration ?? 0, generation)
+        }
+        return pendingSnapshot != nil
+    }
+
+    mutating func deferActive(
+        _ snapshot: ChatTimelineSessionSnapshot,
+        bindingGeneration candidateBindingGeneration: UInt64
+    ) {
+        guard candidateBindingGeneration == bindingGeneration,
+              activeGeneration == snapshot.generation else {
+            return
+        }
+        activeGeneration = nil
+        if pendingSnapshot.map({ $0.generation < snapshot.generation }) ?? true {
+            pendingSnapshot = snapshot
+        }
+    }
+
+    @discardableResult
+    mutating func discardPending(
+        generation: UInt64,
+        bindingGeneration candidateBindingGeneration: UInt64
+    ) -> Bool {
+        guard candidateBindingGeneration == bindingGeneration,
+              pendingSnapshot?.generation == generation else {
+            return false
+        }
+        pendingSnapshot = nil
+        return true
     }
 }
 
@@ -2230,14 +2364,7 @@ class ChatViewController: MessagesViewController {
         }
     }
         
-    let datasourcePageSize: Int = ChatHistoryPagingConfiguration.pageSize
-    let initialFirstFramePageSize: Int = ChatInitialFirstFrameHistoryConfiguration.pageSize
-    var initialBootstrapArchiveRequestPageSize: Int {
-        ChatInitialBootstrapArchivePageSizePolicy.requestPageSize(
-            initialFirstFramePageSize: self.initialFirstFramePageSize,
-            datasourcePageSize: self.datasourcePageSize
-        )
-    }
+    let datasourcePageSize: Int = ArchivePageSizing.history
         
     var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular
 
@@ -2254,20 +2381,78 @@ class ChatViewController: MessagesViewController {
     var cornerRadius: String = "16"
     
 // datasource
-    var timelineSession: ChatTimelineSession?
-    var archiveEnginePresentationActive = false
+    var timelineSession: ChatTimelineSession? {
+        didSet {
+            guard oldValue !== timelineSession else { return }
+            replaceTimelineStoreSnapshotBinding(previousSession: oldValue)
+        }
+    }
+    private var timelineStoreSnapshotApplyCoordinator =
+        ChatTimelineStoreSnapshotApplyCoordinator()
+    private var timelineStoreSnapshotMappingToken:
+        ChatDatasetMappingCancellationToken?
+    private var timelineStoreRemoteApplyExclusionGate =
+        ChatTimelineStoreRemoteApplyExclusionGate()
+    private var deferredArchiveEnginePresentationAfterTimelineStoreApply: (
+        applyGeneration: UInt64,
+        work: () -> Void
+    )?
+    private var deferredArchiveEnginePresentationAfterAnchorPositioning: (
+        applyGeneration: UInt64,
+        work: () -> Void
+    )?
+    #if DEBUG || CHAT_PERFORMANCE_LAB
+    var timelineStoreSnapshotReceiveObserverForTests: ((
+        ChatTimelineSessionSnapshot,
+        ChatTimelineStoreSnapshotReceiveDisposition
+    ) -> Void)?
+    #endif
     var archiveWindowStateTask: Task<Void, Never>?
+    var archiveLiveEdgeAdmissionTask: Task<Void, Never>?
+    var archiveLocalOutgoingAdmissionTask: Task<Void, Never>?
+    var archivePendingLocalOutgoingAdmissions:
+        [String: ChatTimelineLocalOutgoingAdmission] = [:]
+    var archiveLocalOutgoingAdmissionInFlightPrimaryIDs: Set<String> = []
+    let archiveLocalOutgoingAdmissionQueue = DispatchQueue(
+        label: "org.xabber.chat.timeline.local-outgoing",
+        qos: .userInitiated,
+        autoreleaseFrequency: .workItem
+    )
     var archiveWindowActivityTask: Task<Void, Never>?
+    var archiveBoundaryTerminalTask: Task<Void, Never>?
+    var archiveSearchStateTask: Task<Void, Never>?
+    var archiveEnginePresentationDemandID: UUID?
+    var archiveEnginePresentationDemandTask: Task<Void, Never>?
+    var archiveEnginePresentationDemandConversation: ArchiveConversationKey?
+    var archiveEnginePresentationDemandEngine: AccountArchiveEngine?
     var archiveWindowState: ArchiveWindowState?
     var archiveWindowActivity: ArchiveWindowActivity = .idle
     var archiveWindowIntent: ArchiveWindowIntent?
     var archiveWindowApplyGeneration: UInt64 = 0
+    var archiveWindowAuthoritativeEmptyApplyGeneration: UInt64?
+    var archiveWindowAuthoritativeEmptyMappingGeneration: Int?
     var archiveWindowCommittedCoverageGeneration: UInt64?
     var archiveWindowPendingSnapshot: ArchiveWindowSnapshot?
+    var archiveWindowPendingLiveEdgeAdmission: ArchiveLiveEdgeAdmission?
+    var archiveWindowLiveEdgeApplyGeneration: UInt64?
+    var archiveWindowLiveEdgeReprepareCount = 0
+    var archiveWindowBoundaryLoadingTarget: ArchiveWindowLocator?
     var archiveWindowBoundaryPresentationAnchor: ChatArchiveBoundaryPresentationAnchor?
+    var timelineBoundaryRequest: ChatTimelineBoundaryRequestContext?
+    var committedTimelineLocalPresentationToken:
+        ChatCommittedTimelineLocalPresentationToken?
+    var committedTimelineSensitiveRevealRemapPending = false
+    var committedTimelineSensitiveRevealRemapRetryCount = 0
     var archiveWindowAtomicApplyRetryCount = 0
     var archiveWindowAtomicApplyRetryWorkItem: DispatchWorkItem?
+    var archiveHistoryAutomaticRetryWorkItem: DispatchWorkItem?
+    var archiveHistoryAutomaticRetryEpoch: UInt64 = 0
+    var archiveHistoryAutomaticRetryAttempt = 0
     var archiveSkeletonBeganAt: Date?
+    var archiveInteractiveGate: AccountInteractiveChatOpenGate?
+    var archiveInteractiveGateToken: AccountInteractiveChatOpenGate.Token?
+    var archiveSearchInteractiveGateToken: AccountInteractiveChatOpenGate.Token?
+    var archiveSearchInteractiveGateQueryID: String?
     var datasource: [Datasource] = [] {
         didSet {
             rebuildScrollResidentMetadata()
@@ -2300,7 +2485,6 @@ class ChatViewController: MessagesViewController {
     internal var chatNotificationCenter: NotificationCenter = .default
     internal var chatSearchObserverRemovalCount: Int = 0
     private var detachedVirtualTimelineState: ChatVirtualTimelineState = .empty
-    private var detachedBoundedTimelineWindowState: ChatBoundedTimelineWindowState = .empty
     var virtualTimelineState: ChatVirtualTimelineState {
         get {
             self.timelineSession?.snapshot.state ?? self.detachedVirtualTimelineState
@@ -2315,27 +2499,11 @@ class ChatViewController: MessagesViewController {
                 ChatTimelineSnapshot(
                     items: current.items,
                     state: newValue,
-                    loadingState: current.loadingState,
-                    loadDecision: current.loadDecision,
-                    anchorRestore: current.anchorRestore,
-                    localOlderCandidateCount: current.localOlderCandidateCount,
-                    pageSize: current.pageSize,
-                    shortLocalRemainderRemoteFirst: current.shortLocalRemainderRemoteFirst
+                    anchorRestore: current.anchorRestore
                 )
             )
         }
     }
-    var boundedTimelineWindowState: ChatBoundedTimelineWindowState {
-        get {
-            self.timelineSession.map { ChatBoundedTimelineWindowState(virtualState: $0.snapshot.state) }
-                ?? self.detachedBoundedTimelineWindowState
-        }
-        set {
-            guard self.timelineSession == nil else { return }
-            self.detachedBoundedTimelineWindowState = newValue
-        }
-    }
-    var scrollBoundaryAvailabilityCache: ChatScrollBoundaryAvailabilityCache = .empty
     var displayModelCache: ChatDisplayModelCache = ChatDisplayModelCache(
         capacity: ChatPerformanceResourceBudgets.displayModelCount
     )
@@ -2353,50 +2521,9 @@ class ChatViewController: MessagesViewController {
     
 // skeleton
     var showSkeletonObserver: BehaviorRelay<Bool> = BehaviorRelay(value: true)
-    var initialHistoryAppearancePending: Bool = true
-    var hasRenderedStableInitialHistory: Bool = false
-    var hasCompletedInitialHistoryViewAppearance: Bool = false
-    var initialLatestOpenStabilizationState: ChatInitialLatestOpenStabilizationState = .inactive
-    var initialLocalFirstFramePhase: ChatLocalFirstFramePhase = .idle
-    var initialLocalFirstFrameReadinessProof:
-        ChatTimelineInitialFrameReadinessProof? = nil
-    var initialLocalFirstFrameMappingToken: ChatDatasetMappingCancellationToken? = nil
-    var initialLocalFirstFramePresentationGeneration: UInt64 = 0
-    var initialLocalFirstFramePresentationOwnership:
-        ChatInitialFramePresentationOwnership? = nil
-    var initialLocalFirstFrameLatestEffectToken:
-        ChatInitialFrameEffectToken? = nil
-    /// The generation whose outer Core Animation transaction has produced a
-    /// committed content/empty receipt. Before this boundary an exact rollback
-    /// snapshot may replace A; afterwards request routing uses normal loaded
-    /// navigation and must never regress the visible chat to skeleton.
-    var initialLocalFirstFrameCoreAnimationReceiptGeneration: UInt64? = nil
-    /// Non-nil only while the synchronous success terminal for this exact
-    /// publication is settling controller state. A reentrant replacement is
-    /// latched until the epilogue so it cannot start a nested mapping while A
-    /// is still draining its own callbacks.
-    var initialLocalFirstFrameTerminalizingAttempt:
-        ChatInitialFramePresentationAttempt? = nil
-    var deferredInitialLocalFirstFrameReplacement:
-        ChatDeferredInitialFrameReplacement? = nil
-    var activePostBootstrapInitialFrameAdmission:
-        ChatPostBootstrapInitialFrameAdmission? = nil
-    var initialLocalFirstFramePresentationRetryDescriptor: ChatLocalFirstFrameDescriptor? = nil
-    var initialLocalFirstFrameCompletions: [() -> Void] = []
-    var pendingBootstrapFirstFrameReadinessCompletions: [() -> Void] = []
-    var initialLocalFirstFrameShouldPerformPendingRequest: Bool = false
-    var initialFirstContentApplyCount: Int = 0
-    var hasCommittedRealContentInCurrentLifecycle: Bool = false
-    var hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle: Bool = false
-    var hasCommittedTimelinePresentationInCurrentLifecycle: Bool = false
     /// True only while UIKit owns an asynchronous structural batch update.
-    /// Navigation fallback must never start a nested reload in this interval.
+    /// Navigation preparation must never start a nested reload in this interval.
     var isChatDatasourceStructuralTransactionActive: Bool = false
-    var pendingArchiveObserverRefresh: Bool = false
-    var archiveObserverRefreshWorkItem: DispatchWorkItem? = nil
-    var activeChatHistoryLoadActivityKeys: Set<ChatHistoryLoadActivityKey> = []
-    var activeHistoryLoadingUIActivityReason: String? = nil
-    var isApplyingBootstrapAnchorWindow: Bool = false
     var pendingForceLatestOpen: Bool = false
     var pendingForceLatestOpenAnimated: Bool = false
 
@@ -2494,7 +2621,6 @@ class ChatViewController: MessagesViewController {
     var searchSessionDebounceWorkItem: DispatchWorkItem? = nil
     var searchSessionDebounceGeneration: UInt64? = nil
     var searchSessionGenerationByQueryId: [String: UInt64] = [:]
-    var searchArchiveManagersByQueryId: [String: MessageArchiveManager] = [:]
     var searchOlderPageNavigationGate = ChatSearchOlderPageNavigationGate(generation: 0)
     let searchLocalProvider: ChatSearchLocalProvider = ChatSearchLocalProvider()
     var searchMessagesQueue: [MessageStorageItem] = []
@@ -2510,10 +2636,7 @@ class ChatViewController: MessagesViewController {
     var searchChromeTransitionCoordinator = ChatSearchChromeTransitionCoordinator()
     var searchNavigationFeedbackCoordinator = ChatSearchNavigationFeedbackCoordinator()
     var searchCalendarViewController: ChatSearchCalendarViewController? = nil
-    var searchCalendarCompletionCoordinator: ChatSearchCalendarCompletionCoordinating? = nil
-    var searchCalendarTimestampMAMTransport: ChatSearchTimestampMAMTransport? = nil
-    var pendingSearchCalendarCompletionRequest: ChatSearchCalendarCompletionRequest? = nil
-    var activeSearchCalendarCompletionRequest: ChatSearchCalendarCompletionRequest? = nil
+    var pendingSearchCalendarDateRequest: ChatSearchCalendarDateRequest? = nil
     var isChatSearchCalendarDateResolutionLoading = false
     var chatSearchCalendarDateAnnouncementHandler: ((String) -> Void)? = nil
     var chatSearchCalendarDateErrorHandler: ((String) -> Void)? = nil
@@ -2528,12 +2651,6 @@ class ChatViewController: MessagesViewController {
     internal private(set) var chatDestinationBackdropInstallationReceipt:
         ChatDestinationBackdropInstallationReceipt = .unavailable
     internal var isNavigationTransitionActive: Bool = false
-    internal var stackedNavigationInitialFrameStrategy:
-        ChatStackedNavigationInitialFrameStrategy = .contentFirst
-    internal private(set) var initialPresentationContext:
-        ChatInitialPresentationContext = .standard
-    private var initialPresentationContextConversationKey:
-        ChatTimelineConversationKey?
     internal var isPreparingStackedNavigationPresentation: Bool = false
     internal var isStackedNavigationPresentationPreparationCancelled: Bool = false
     internal var shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion: Bool = false
@@ -2553,8 +2670,9 @@ class ChatViewController: MessagesViewController {
     internal var isHandlingCancelledInteractiveReappearance: Bool = false
     var activeAnchorExecutionState: ChatAnchorExecutionState? = nil
     var activeAnchorExecutionHooks: ChatAnchorExecutionHooks? = nil
-    var activeAnchorPersistenceMaterializationAdmission:
-        ChatAnchorPersistenceMaterializationAdmission? = nil
+    var isApplyingAnchorWindow: Bool = false
+    var proofScopedLocalTargetRequest:
+        ChatProofScopedLocalTargetRequestContext? = nil
     internal let anchorTransactionGate = ChatAnchorTransactionGate()
     internal var anchorTransactionTokenByQueryId: [String: ChatAnchorTransactionToken] = [:]
     internal var anchorTransactionTimeoutWorkItems: [String: DispatchWorkItem] = [:]
@@ -2563,25 +2681,6 @@ class ChatViewController: MessagesViewController {
     var isMessageAnchorNavigationInFlight: Bool = false
     var searchAnchorNavigationWasScrollEnabled: Bool? = nil
     var hasRequestedMentionUsersRefresh: Bool = false
-    internal var pendingLocalHistoryPagingIntent: ChatLocalHistoryPagingIntent? = nil
-    internal var pendingLocalHistoryPagingReleaseWhenPrepared: Bool = false
-    internal var pendingPreparedLocalHistoryPage: ChatPreparedLocalHistoryPage? = nil
-    internal var pendingDeferredRemoteHistoryDirection: ChatHistoryPageDirection? = nil
-    internal var pendingDeferredRemoteHistoryPreparation: ChatInteractiveHistoryPagingPreparation? = nil
-    internal var interactiveRemoteArchiveRequestDispatcher: ChatInteractiveRemoteArchiveRequestDispatching = AccountSchedulerChatInteractiveRemoteArchiveRequestDispatcher()
-    internal let remoteHistoryQueryCoordinator = ChatRemoteHistoryQueryCoordinator()
-    var interactiveHistoryPageLoadContext: ChatInteractiveHistoryPageLoadContext? = nil
-    var interactiveHistoryCompletionRetryWorkItem: DispatchWorkItem? = nil
-    var remoteHistoryFinishingQueryId: String? = nil
-    internal var remoteHistoryEndPageDispatcherTokens: [String: MessageArchiveEndPageDispatcher.Token] = [:]
-    internal var remoteHistoryFailureDispatcherTokens: [String: MessageArchiveRequestFailureDispatcher.Token] = [:]
-    internal var completedRemoteHistoryEndPageQueryIds: Set<String> = []
-    internal var abortedRemoteHistoryQueryIds: Set<String> = []
-    internal var remoteHistoryRequestStartedAtByQueryId: [String: Date] = [:]
-    internal var chatArchiveMainStallProbeWorkItem: DispatchWorkItem?
-    internal var chatArchiveMainStallProbeLastBeat: Date?
-    internal var chatArchiveMainStallProbeQueryId: String?
-    internal var chatArchiveMainStallProbeOperation: String?
     internal var chatOpenTimingSession: ChatOpenTimingSession?
     private var chatOpenFirstFrameSignpost: ChatPerformanceSignposts.Interval?
     internal let chatOpenPerformanceTraceLifecycle =
@@ -2600,8 +2699,6 @@ class ChatViewController: MessagesViewController {
         ChatOpenPerformanceTraceContext?
     private var chatOpenPerformanceStableFrameTargetFingerprint:
         ChatOpenPerformanceSemanticTargetFingerprint?
-    private var chatOpenPerformanceStableFrameInitialPresentationAttempt:
-        ChatInitialFramePresentationAttempt?
     private var pendingSendToLocalRowSignpost: ChatPerformanceSignposts.Interval?
     internal lazy var scrollWorkScheduler = ChatScrollWorkScheduler { [weak self] request in
         self?.performCoalescedScrollWork(request)
@@ -2613,139 +2710,27 @@ class ChatViewController: MessagesViewController {
             },
             contextProvider: { [weak self] in
                 guard let self else {
-                    return .empty(
-                        conversationKey: ChatCollectionPrefetchConversationKey(
-                            owner: "",
-                            jid: "",
-                            conversationType: ClientSynchronizationManager.ConversationType.regular.rawValue
-                        )
-                    )
+                    return .empty()
                 }
                 return self.chatCollectionPrefetchContext()
             },
-            prefetcher: ChatCollectionContentPrefetcher(
-                pageWarmupLimit: self.datasourcePageSize
-            )
+            prefetcher: ChatCollectionContentPrefetcher()
         )
     }()
-    var initialBootstrapQueryId: String? = nil
-    var isInitialBootstrapInFlight: Bool = false
-    var initialBootstrapLeaseKey: ChatInitialBootstrapRequestKey? = nil
-    var initialBootstrapTargetFingerprint: MessageArchiveManager.ChatBootstrapTargetFingerprint? = nil
-    var initialBootstrapPerformanceSemanticTargetFingerprint:
-        ChatOpenPerformanceSemanticTargetFingerprint? = nil
-    var initialBootstrapFollowUpTargetOverride: MessageArchiveManager.ChatBootstrapPageTarget? = nil
-    var pendingInitialBootstrapArchiveRequestAfterSkeletonReceiptShowsFailure:
-        Bool?
-    var savedPositionFirstFrameProbeResult: ChatSavedPositionFirstFrameProbeResult? = nil
-    var isInitialBootstrapArchiveRequestDeferredForSavedPositionProbe: Bool = false
-    var interactiveChatOpenGate: AccountInteractiveChatOpenGate? = nil
-    var interactiveChatOpenGateToken: AccountInteractiveChatOpenGate.Token? = nil
-    var initialBootstrapReadinessObservationToken: ChatInitialBootstrapRequestCoordinator.ObservationToken? = nil
-    var initialBootstrapReadinessObservationKey: ChatInitialBootstrapRequestKey? = nil
-    var conversationArchiveTerminalObservationToken:
-        ChatInitialBootstrapRequestCoordinator.ObservationToken? = nil
-    var conversationArchiveTerminalObservationKey:
-        ChatInitialBootstrapRequestKey? = nil
-    /// A persistence-confirmed bootstrap with authoritative server count=0 is
-    /// monotonic for this conversation. Keep the receipt locally after the
-    /// shared coordinator releases its bounded transaction so late UIKit or
-    /// mapping callbacks cannot turn the empty chat into loading/failure.
-    var consumedEmptyArchiveTerminalKey:
-        ChatInitialBootstrapRequestKey? = nil
-    /// UIKit publication eligibility is independent from archive transport and
-    /// persistence. Background work may finish preparing the current frame,
-    /// but only foreground may replace the committed skeleton with it.
-    var isInitialFramePresentationLifecycleEligible: Bool = true
-    var initialFramePresentationApplicationStateProvider: () -> UIApplication.State = {
-        UIApplication.shared.applicationState
-    }
-    var pendingInitialFrameLifecyclePresentation:
-        ChatInitialFrameLifecyclePresentation? = nil
-    var didReceiveInitialBootstrapEndPage: Bool = false
-    var initialBootstrapPageEndState: MessageArchivePageEndState? = nil
-    var initialBootstrapResultCount: Int? = nil
-    var initialBootstrapPersistedMessageCount: Int? = nil
-    var initialBootstrapPersistedRowsForQuery: Int? = nil
-    var initialBootstrapVisibleRowsForConversation: Int? = nil
-    /// The initial archive page owns one direct timeline refresh after its
-    /// query-scoped persistence barrier. This intentionally bypasses the
-    /// general Realm-observer pressure gate that remains active during
-    /// bootstrap.
-    var initialBootstrapScopedRefreshQueryId: String? = nil
-    var didEnterInitialBootstrapObserverSettlePhase: Bool = false
-    var didObserveInitialBootstrapPostIdleTick: Bool = false
-    var initialBootstrapTimeoutWorkItem: DispatchWorkItem? = nil
-    var initialBootstrapPresentationDeadline: Date? = nil
-    var initialBootstrapLocalHistoryFallbackWorkItem: DispatchWorkItem? = nil
-    var initialBootstrapAutomaticRetryWorkItem: DispatchWorkItem? = nil
-    var initialBootstrapAutomaticRetryGeneration: UInt64 = 0
-    var initialBootstrapAutomaticRetryFailureCount: Int = 0
-    var isInitialBootstrapAutomaticRetryPending: Bool = false
-    var allowsStaleLocalHistoryDuringInitialBootstrap: Bool = false
-    var allowsBootstrapFailureFallback: Bool = false
-    /// Legacy presentation ownership flag retained for in-flight local frame
-    /// recovery. Archive transport failures never surface a retry overlay.
-    var preservesBootstrapFailureOverlayUntilRetryCommit: Bool = false
-    /// A persistence-confirmed page may still miss a synchronization boundary
-    /// that advanced while its transport was in flight. Allow one interactive
-    /// repair in the current controller lifecycle. Later failures enter the
-    /// bounded silent automatic-retry loop.
-    var hasAttemptedInitialBootstrapBoundaryFollowUp: Bool = false
-    var appliedBootstrapLoadingState: ChatBootstrapLoadingState?
-    var lastBootstrapAtomicRevealPlan: ChatBootstrapAtomicRevealPlan?
 #if DEBUG || CHAT_PERFORMANCE_LAB
-    var initialBootstrapAutomaticRetryDelayProvider:
-        ((Int) -> TimeInterval)?
-    /// Counts admission into the local presentation retry without coupling a
-    /// focused regression test to its asynchronous mapping implementation.
-    var initialLocalFirstFrameRetryScheduledForTests: (() -> Void)?
-    /// Deterministic fixture observer emitted from the accepted production
-    /// initial-frame commit. Evidence stays process-local; its accessibility
-    /// projection is numeric or closed-enum only.
-    var performanceFixtureInitialFrameCommitDiagnosticsHandler:
-        ((ChatPerformanceInitialFrameCommitDiagnostics) -> Void)?
-    /// Deterministic DEBUG barrier entered after an initial frame is prepared
-    /// and before its off-main display mapping starts. Production leaves nil.
-    var initialFirstFrameMappingBarrierForTests: (() -> Void)?
-    /// Optional deterministic transport boundary for DEBUG/lab fixtures.
-    /// Production controllers leave it nil and retain normal archive dispatch.
-    var performanceFixtureRemoteHistoryActionHandler:
-        ((ChatPerformanceFixtureRemoteHistoryAction) ->
-            ChatPerformanceFixtureRemoteHistoryDisposition)?
-    /// DEBUG/lab-only production-shaped archive transport. The controller
-    /// consults this only after its real request admission has produced the
-    /// query identifiers and lifecycle owners used by production.
-    var performanceFixtureArchiveTransportProvider:
-        ((ChatPerformanceFixtureArchiveTransportRequest) ->
-            ChatPerformanceFixtureArchiveTransportSession?)?
-    /// One fixture-owned serial queue keeps the production-shaped archive
-    /// start/persist path off main without changing production scheduling.
-    var performanceFixtureArchiveTransportExecutor:
-        ((@escaping () -> Void) -> Void)?
-    var performanceFixtureArchiveTransportDidStartHandler:
-        ((ChatPerformanceFixtureArchiveTransportRequest) -> Void)?
-    var performanceFixtureArchiveTransportCancellationHandler:
-        ((String) -> Void)?
-    var performanceFixtureLinkedPageTraceContextHandler:
-        ((ChatOpenPerformanceTraceContext) -> Void)?
-    /// Query-scoped detached persistence remains active after the MAM parser
-    /// has delivered its raw final. Fixture stability must wait for the typed
-    /// flush + unregister terminal, not only for transport-queue idleness.
-    var performanceFixtureDetachedPersistenceQueryIds: Set<String> = []
-    var performanceFixtureDetachedPersistenceTerminalHandler:
-        ((String) -> Void)?
     /// Exact DEBUG/lab receipt emitted only after the production
     /// width-transition cache and staged semantic offset have committed.
     /// Production controllers leave this nil.
     var performanceFixtureWidthTransitionLayoutCommitHandler:
         ((Int, CGSize) -> Void)?
+    /// DEBUG/lab observer for the content or authoritative-empty ArchiveEngine
+    /// frame. The bridge emits only after target/session/generation guards pass.
+    var performanceFixtureWinningArchiveUIKitApplyHandler:
+        ((ChatPerformanceWinningArchiveUIKitApplyReceipt) -> Void)?
     /// Failure/dwell evidence intentionally terminates on the skeleton frame.
     /// Successful opens leave this false and wait for content/empty instead.
     var performanceFixtureAllowsSkeletonStableFrame = false
 #endif
-    var hasConfirmedArchiveEndThisSession: Bool = false
-    var hasUsedArchiveEndVerificationProbe: Bool = false
     var inSearchMode: BehaviorRelay<Bool> = BehaviorRelay(value: false)
     var pendingSearchActivationRequest: ChatSearchActivationRequest? = nil
     var searchSeekDirection: ChatDirection? = nil
@@ -2767,7 +2752,6 @@ class ChatViewController: MessagesViewController {
     
     internal var canLoadDatasource: Bool = false
     internal var loadDatasourceObserver: BehaviorRelay<Bool> = BehaviorRelay(value: true)
-    internal var historyLoadingGeneration: Int = 0
     
     internal var messagesToReadObserver: BehaviorRelay<Set<String>> = BehaviorRelay(value: Set())
     private var detachedViewportReadBoundaryPrimary: String?
@@ -2824,7 +2808,6 @@ class ChatViewController: MessagesViewController {
             return
         }
         self.needsNavigationChromeReconciliationAfterCancelledTransition = false
-        _ = self.reconcileInitialBootstrapReadinessAfterNavigationIfNeeded()
         self.flushPendingNavigationTransitionWork()
     }
 
@@ -2896,16 +2879,19 @@ class ChatViewController: MessagesViewController {
     internal func setSkeletonVisible(_ isVisible: Bool) {
         self.performOnMain {
             if !isVisible,
-               self.archiveEnginePresentationActive,
                let state = self.archiveWindowState,
                ChatArchiveWindowPresentationPolicy.shouldShowFullSkeleton(
                     for: state,
                     committedCoverageGeneration:
-                        self.archiveWindowCommittedCoverageGeneration
+                        self.archiveWindowCommittedCoverageGeneration,
+                    verifiedScope: self.timelineSession?.verifiedScope
                ) {
                 return
             }
             self.showSkeletonObserver.accept(isVisible)
+            if !isVisible {
+                self.drainPendingTimelineStoreSnapshot()
+            }
         }
     }
 
@@ -2928,108 +2914,17 @@ class ChatViewController: MessagesViewController {
         }
     }
 
-    internal func beginChatHistoryLoadActivity(reason: String) {
-        let key = ChatHistoryLoadActivityKey(
-            owner: self.owner,
-            jid: self.jid,
-            conversationType: self.conversationType,
-            reason: reason
-        )
-        guard !self.activeChatHistoryLoadActivityKeys.contains(key) else {
-            return
-        }
-        self.activeChatHistoryLoadActivityKeys.insert(key)
-        ChatHistoryLoadActivityRegistry.begin(key)
-        ChatArchiveDebugTrace.log("historyLoadActivityBegin", [
-            ("owner", self.owner),
-            ("jid", self.jid),
-            ("conversationType", self.conversationType.rawValue),
-            ("reason", reason),
-            ("activeLocalCount", self.activeChatHistoryLoadActivityKeys.count)
-        ])
-    }
-
-    internal func endChatHistoryLoadActivity(reason: String) {
-        let key = ChatHistoryLoadActivityKey(
-            owner: self.owner,
-            jid: self.jid,
-            conversationType: self.conversationType,
-            reason: reason
-        )
-        guard self.activeChatHistoryLoadActivityKeys.remove(key) != nil else {
-            return
-        }
-        ChatHistoryLoadActivityRegistry.end(key)
-        ChatArchiveDebugTrace.log("historyLoadActivityEnd", [
-            ("owner", self.owner),
-            ("jid", self.jid),
-            ("conversationType", self.conversationType.rawValue),
-            ("reason", reason),
-            ("activeLocalCount", self.activeChatHistoryLoadActivityKeys.count)
-        ])
-    }
-
-    internal func endAllChatHistoryLoadActivities(reason cleanupReason: String) {
-        let keys = self.activeChatHistoryLoadActivityKeys
-        self.activeChatHistoryLoadActivityKeys.removeAll()
-        self.activeHistoryLoadingUIActivityReason = nil
-        keys.forEach {
-            ChatHistoryLoadActivityRegistry.end($0)
-        }
-        if !keys.isEmpty {
-            ChatArchiveDebugTrace.log("historyLoadActivityEndAll", [
-                ("owner", self.owner),
-                ("jid", self.jid),
-                ("conversationType", self.conversationType.rawValue),
-                ("reason", cleanupReason),
-                ("endedCount", keys.count)
-            ])
-        }
-    }
-
-    private func scheduleHistoryLoadingWatchdog(generation: Int, startedAt: Date) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + ChatHistoryLoadingTimeoutPolicy.checkInterval) { [weak self] in
-            guard let self,
-                  self.historyLoadingGeneration == generation,
-                  self.timelineInteractionState.isLoading else {
-                return
-            }
-
-            if self.interactiveHistoryPageLoadContext == nil {
-                self.endHistoryLoadingUI(unlockPage: true)
-                return
-            }
-
-            if self.tryFinishInteractiveHistoryPageLoadIfReady() {
-                return
-            }
-
-            let elapsed = Date().timeIntervalSince(startedAt)
-            guard !ChatHistoryLoadingTimeoutPolicy.shouldAbortInteractivePageLoad(elapsed: elapsed) else {
-                self.abortInteractiveHistoryPageLoad()
-                return
-            }
-
-            self.scheduleHistoryLoadingWatchdog(generation: generation, startedAt: startedAt)
-        }
-    }
-
     internal var chatOpenPerformanceTraceContext:
         ChatOpenPerformanceTraceContext? {
         self.chatOpenPerformanceTraceLifecycle.currentContext
     }
 
-    /// Route acceptance is the sole creator of an initial-open generation.
-    /// A reopened controller may adopt the active account lease only when the
-    /// conversation and semantic target are identical; otherwise the previous
-    /// UI generation is cancelled before a fresh open event is emitted.
+    /// Route acceptance is the sole creator of an open-performance generation.
     @discardableResult
     internal func acceptChatOpenPerformanceTrace(
         purpose: ChatOpenPerformanceTracePurpose,
         semanticTargetFingerprint explicitSemanticTargetFingerprint:
-            ChatOpenPerformanceSemanticTargetFingerprint? = nil,
-        bootstrapTarget explicitBootstrapTarget:
-            MessageArchiveManager.ChatBootstrapPageTarget? = nil
+            ChatOpenPerformanceSemanticTargetFingerprint? = nil
     ) -> ChatOpenPerformanceTraceContext {
         assert(Thread.isMainThread, "Chat-open route acceptance must run on main")
         let conversationKey = self.chatTimelineConversationKey
@@ -3037,15 +2932,6 @@ class ChatViewController: MessagesViewController {
             self.chatOpenPerformanceSemanticTargetFingerprint(
                 for: self.pendingOpenMessageRequest
             )
-        let targetFingerprint: MessageArchiveManager.ChatBootstrapTargetFingerprint
-        if let explicitBootstrapTarget {
-            targetFingerprint = MessageArchiveManager.ChatBootstrapTargetFingerprint(
-                target: explicitBootstrapTarget,
-                boundary: nil
-            )
-        } else {
-            targetFingerprint = self.currentInitialBootstrapTargetFingerprint
-        }
         if self.chatOpenPerformanceTraceConversationKey == conversationKey,
            self.chatOpenPerformanceTraceTargetFingerprint ==
             semanticTargetFingerprint,
@@ -3053,35 +2939,18 @@ class ChatViewController: MessagesViewController {
             return current
         }
 
-        let canAdoptAlreadyVisibleExactSkeleton =
-            self.chatOpenPerformanceTraceContext != nil &&
-            self.chatOpenPerformanceTraceConversationKey == conversationKey &&
-            self.hasCommittedExactBootstrapSkeletonRows &&
-            self.hasCommittedChatOpenPerformanceReceipt(.skeleton)
-
         self.invalidateChatOpenPerformanceStableFrameDisplayLink()
         if let current = self.chatOpenPerformanceTraceContext {
             _ = self.chatOpenPerformanceTraceLifecycle.cancel(context: current)
         }
 
-        let requestKey = ChatInitialBootstrapRequestKey(
-            owner: conversationKey.owner,
-            jid: conversationKey.jid,
-            conversationType: conversationKey.conversationType
-        )
-        let adoptedTrace = ChatInitialBootstrapRequestCoordinator.shared
-            .activePerformanceTraceAdoption(
-                for: requestKey,
-                targetFingerprint: targetFingerprint,
-                semanticTargetFingerprint: semanticTargetFingerprint
-            )
-        let context = adoptedTrace?.context ?? ChatOpenPerformanceTraceContextFactory.make(
+        let context = ChatOpenPerformanceTraceContextFactory.make(
             kind: .initialOpen,
             purpose: purpose
         )
         _ = self.chatOpenPerformanceTraceLifecycle.accept(
             context: context,
-            emitsOpenRequest: adoptedTrace == nil
+            emitsOpenRequest: true
         )
         self.chatOpenPerformanceTraceConversationKey = conversationKey
         self.chatOpenPerformanceTraceTargetFingerprint =
@@ -3090,29 +2959,6 @@ class ChatViewController: MessagesViewController {
             context: context,
             semanticTarget: semanticTargetFingerprint
         )
-        if adoptedTrace?.hasSkeletonReceipt == true {
-            if self.chatOpenPerformanceTraceLifecycle.adoptPresentationReceipt(
-                .skeleton,
-                context: context
-            ) {
-                self.resumeInitialBootstrapArchiveRequestAfterSkeletonReceiptIfNeeded()
-            }
-        } else if canAdoptAlreadyVisibleExactSkeleton {
-            // Exact skeleton rows are target-agnostic and already committed
-            // on screen. A same-conversation target supersession adopts that
-            // visible receipt after its own open event; it must not remap the
-            // datasource or wait forever behind the skeleton-before-lease
-            // gate merely because the opaque trace generation changed.
-            let didAdoptSkeleton = self.chatOpenPerformanceTraceLifecycle
-                .recordPresentationReceipt(
-                    .skeleton,
-                    context: context,
-                    schedulesStableFrame: false
-                )
-            if didAdoptSkeleton {
-                self.resumeInitialBootstrapArchiveRequestAfterSkeletonReceiptIfNeeded()
-            }
-        }
         return context
     }
 
@@ -3146,47 +2992,12 @@ class ChatViewController: MessagesViewController {
         )
     }
 
-    /// Pure route-time target resolution. It intentionally does not queue the
-    /// request, touch the timeline, or start positioning before open_request.
-    internal func chatOpenPerformanceSemanticTarget(
-        for request: ChatOpenMessageRequest?
-    ) -> MessageArchiveManager.ChatBootstrapPageTarget {
-        guard self.conversationType == .regular,
-              let request,
-              request.owner == self.owner,
-              request.chatJid == self.jid,
-              request.conversationType == self.conversationType else {
-            return .latest
-        }
-        switch request.targetResolution {
-        case .firstIncomingAfterBoundary(let boundaryArchiveId):
-            return .firstUnread(afterArchiveId: boundaryArchiveId)
-        case .anchor where request.source == .savedVisiblePosition:
-            return .savedPosition(
-                messagePrimary: request.anchor.messagePrimary,
-                archivedId: request.anchor.archivedId,
-                messageId: request.anchor.messageId,
-                sourceDate: request.anchor.sourceDate
-            )
-        case .anchor:
-            return .savedPosition(
-                messagePrimary: request.anchor.messagePrimary,
-                archivedId: request.anchor.archivedId,
-                messageId: request.anchor.messageId,
-                sourceDate: request.anchor.sourceDate
-            )
-        }
-    }
-
     /// Wraps the actual UIKit datasource/layout transaction. Skeleton records
-    /// its logical, already-visible commit synchronously so archive admission
-    /// cannot overtake it. Content/empty and every stable-frame arm wait until
+    /// its logical commit synchronously; content and empty receipts wait until
     /// Core Animation confirms the outer transaction completion.
     internal func performChatOpenPerformancePresentationTransaction(
         receipt: ChatOpenPerformancePresentationReceipt,
         context explicitContext: ChatOpenPerformanceTraceContext? = nil,
-        initialFramePresentationAttempt:
-            ChatInitialFramePresentationAttempt? = nil,
         schedulesStableFrame: Bool,
         updates: () -> Void
     ) {
@@ -3196,27 +3007,7 @@ class ChatViewController: MessagesViewController {
             return
         }
         guard let context = explicitContext ?? self.chatOpenPerformanceTraceContext else {
-            guard let initialFramePresentationAttempt else {
-                updates()
-                return
-            }
-            CATransaction.begin()
-            CATransaction.setCompletionBlock { [weak self] in
-                guard let self,
-                      self.isCurrentInitialFramePresentationAttempt(
-                        initialFramePresentationAttempt,
-                        phase: .committed
-                      ) else {
-                    return
-                }
-                self.initialLocalFirstFrameCoreAnimationReceiptGeneration =
-                    initialFramePresentationAttempt.presentationGeneration
-                self.retireCommittedInitialFramePresentationAttempt(
-                    initialFramePresentationAttempt
-                )
-            }
             updates()
-            CATransaction.commit()
             return
         }
 
@@ -3225,36 +3016,13 @@ class ChatViewController: MessagesViewController {
             guard let self else {
                 return
             }
-            let ownsInitialFramePublication =
-                initialFramePresentationAttempt.map {
-                    self.isCurrentInitialFramePresentationAttempt(
-                        $0,
-                        phase: .committed
-                    )
-                } ?? true
-            let didCommit = ownsInitialFramePublication &&
-                self.chatOpenPerformanceTraceLifecycle.isCurrent(context) &&
+            let didCommit = self.chatOpenPerformanceTraceLifecycle.isCurrent(context) &&
                 self.hasCommittedChatOpenPerformanceReceipt(receipt)
-            if didCommit,
-               let initialFramePresentationAttempt {
-                self.initialLocalFirstFrameCoreAnimationReceiptGeneration =
-                    initialFramePresentationAttempt.presentationGeneration
-            }
             if receipt != .skeleton {
-                if let attempt = initialFramePresentationAttempt {
-                    if ownsInitialFramePublication,
-                       attempt.ownsPerformancePresentingInterval {
-                        _ = self.chatOpenPerformanceTraceLifecycle.endPresenting(
-                            context: context,
-                            terminal: didCommit ? .committed : .cancelled
-                        )
-                    }
-                } else {
-                    _ = self.chatOpenPerformanceTraceLifecycle.endPresenting(
-                        context: context,
-                        terminal: didCommit ? .committed : .cancelled
-                    )
-                }
+                _ = self.chatOpenPerformanceTraceLifecycle.endPresenting(
+                    context: context,
+                    terminal: didCommit ? .committed : .cancelled
+                )
             }
             guard didCommit else {
                 return
@@ -3277,24 +3045,18 @@ class ChatViewController: MessagesViewController {
                 context: context
                ) {
                 self.armChatOpenPerformanceStableFrameDisplayLink(
-                    context: context,
-                    initialFramePresentationAttempt:
-                        initialFramePresentationAttempt
+                    context: context
                 )
             }
         }
         updates()
         if receipt == .skeleton,
            self.hasCommittedChatOpenPerformanceReceipt(.skeleton) {
-            let didRecordSkeletonCommit = self.chatOpenPerformanceTraceLifecycle
-                .recordPresentationReceipt(
+            _ = self.chatOpenPerformanceTraceLifecycle.recordPresentationReceipt(
                 .skeleton,
                 context: context,
                 schedulesStableFrame: false
             )
-            if didRecordSkeletonCommit {
-                self.resumeInitialBootstrapArchiveRequestAfterSkeletonReceiptIfNeeded()
-            }
         }
         CATransaction.commit()
     }
@@ -3304,24 +3066,17 @@ class ChatViewController: MessagesViewController {
     ) -> Bool {
         switch receipt {
         case .skeleton:
-            return self.hasCommittedBootstrapSkeletonRows &&
-                self.datasource.allSatisfy(\.isFakeMessage) &&
-                self.appliedBootstrapLoadingState?.showsSkeleton == true
+            return self.showSkeletonObserver.value
         case .content:
-            return self.hasCommittedTimelinePresentationInCurrentLifecycle &&
-                self.hasCommittedRealContentInCurrentLifecycle &&
+            return !self.showSkeletonObserver.value &&
                 self.datasource.contains { !$0.isFakeMessage }
         case .empty:
-            return self.hasCommittedTimelinePresentationInCurrentLifecycle &&
-                self.datasource.isEmpty &&
-                self.appliedBootstrapLoadingState?.viewState == .empty
+            return !self.showSkeletonObserver.value && self.datasource.isEmpty
         }
     }
 
     private func armChatOpenPerformanceStableFrameDisplayLink(
-        context: ChatOpenPerformanceTraceContext,
-        initialFramePresentationAttempt:
-            ChatInitialFramePresentationAttempt? = nil
+        context: ChatOpenPerformanceTraceContext
     ) {
         guard self.chatOpenPerformanceTraceLifecycle.isCurrent(context),
               let semanticTarget =
@@ -3331,8 +3086,6 @@ class ChatViewController: MessagesViewController {
         self.invalidateChatOpenPerformanceStableFrameDisplayLink()
         self.chatOpenPerformanceStableFrameContext = context
         self.chatOpenPerformanceStableFrameTargetFingerprint = semanticTarget
-        self.chatOpenPerformanceStableFrameInitialPresentationAttempt =
-            initialFramePresentationAttempt
         let displayLink = CADisplayLink(
             target: self,
             selector: #selector(self.handleChatOpenPerformanceStableFrameDisplayLink(_:))
@@ -3349,14 +3102,7 @@ class ChatViewController: MessagesViewController {
               let context = self.chatOpenPerformanceStableFrameContext,
               let semanticTarget =
                 self.chatOpenPerformanceStableFrameTargetFingerprint,
-              self.chatOpenPerformanceTraceLifecycle.isCurrent(context),
-              self.chatOpenPerformanceStableFrameInitialPresentationAttempt
-                .map({
-                    self.isCurrentInitialFramePresentationAttempt(
-                        $0,
-                        phase: .committed
-                    )
-                }) ?? true else {
+              self.chatOpenPerformanceTraceLifecycle.isCurrent(context) else {
             self.invalidateChatOpenPerformanceStableFrameDisplayLink()
             return
         }
@@ -3369,15 +3115,12 @@ class ChatViewController: MessagesViewController {
             isViewVisible: self.isViewLoaded &&
                 !self.view.isHidden &&
                 self.view.alpha > 0.01,
-            isForegroundActive:
-                self.initialFramePresentationApplicationStateProvider() == .active &&
-                self.isInitialFramePresentationLifecycleEligible,
+            isForegroundActive: UIApplication.shared.applicationState == .active,
             isCurrentPresentation: navigationOwnsPresentation &&
                 self.presentedViewController == nil,
             hasPendingCorrection:
                 self.isChatDatasourceStructuralTransactionActive ||
                 self.pendingOutgoingAutoScrollRequest != nil ||
-                self.initialLatestOpenStabilizationState != .inactive ||
                 self.pendingForceLatestOpen ||
                 self.isMessageAnchorNavigationInFlight ||
                 self.transitionCoordinator != nil ||
@@ -3398,14 +3141,7 @@ class ChatViewController: MessagesViewController {
             semanticTarget: semanticTarget,
             eligibility: eligibility
         ) {
-            let committedAttempt =
-                self.chatOpenPerformanceStableFrameInitialPresentationAttempt
             self.invalidateChatOpenPerformanceStableFrameDisplayLink()
-            if let committedAttempt {
-                self.retireCommittedInitialFramePresentationAttempt(
-                    committedAttempt
-                )
-            }
         }
     }
 
@@ -3527,7 +3263,6 @@ class ChatViewController: MessagesViewController {
         self.chatOpenPerformanceStableFrameDisplayLink = nil
         self.chatOpenPerformanceStableFrameContext = nil
         self.chatOpenPerformanceStableFrameTargetFingerprint = nil
-        self.chatOpenPerformanceStableFrameInitialPresentationAttempt = nil
     }
 
     internal func cancelChatOpenPerformanceTrace() {
@@ -3539,7 +3274,6 @@ class ChatViewController: MessagesViewController {
         self.chatOpenPerformanceTraceTargetFingerprint = nil
         self.chatOpenStableTargetAcknowledgementGate.reset()
         self.chatOpenStableVisibilityAcknowledgementHandler = nil
-        self.pendingInitialBootstrapArchiveRequestAfterSkeletonReceiptShowsFailure = nil
     }
 
     internal func beginChatOpenTimingSessionIfNeeded(
@@ -3613,88 +3347,6 @@ class ChatViewController: MessagesViewController {
             reason: "viewWillAppearExistingDatasource",
             modeDescription: "existingDatasource"
         )
-    }
-
-    internal func recordChatOpenTimingInitialDatasourceLoadScheduled(
-        performPendingOpenMessageRequest: Bool
-    ) {
-        self.beginChatOpenTimingSessionIfNeeded(trigger: "initialDatasourceSchedule")
-        guard var session = self.chatOpenTimingSession,
-              session.initialDatasourceLoadScheduledAt == nil else {
-            return
-        }
-        let now = Date()
-        session.initialDatasourceLoadScheduledAt = now
-        self.chatOpenTimingSession = session
-        var fields = self.chatOpenTimingBaseFields(session: session, now: now)
-        fields.append(("performPendingOpenMessageRequest", performPendingOpenMessageRequest))
-        ChatArchiveDebugTrace.log("chatOpenTimingInitialDatasourceLoadScheduled", fields)
-    }
-
-    internal func recordChatOpenTimingInitialDatasourceLoadDequeued(
-        performPendingOpenMessageRequest: Bool
-    ) {
-        guard var session = self.chatOpenTimingSession,
-              session.initialDatasourceLoadDequeuedAt == nil else {
-            return
-        }
-        let now = Date()
-        session.initialDatasourceLoadDequeuedAt = now
-        self.chatOpenTimingSession = session
-        var fields = self.chatOpenTimingBaseFields(session: session, now: now)
-        fields.append(("performPendingOpenMessageRequest", performPendingOpenMessageRequest))
-        fields.append(("mainAsyncWaitMs", ChatOpenTimingPolicy.milliseconds(
-            from: session.initialDatasourceLoadScheduledAt,
-            to: now
-        )))
-        ChatArchiveDebugTrace.log("chatOpenTimingInitialDatasourceLoadDequeued", fields)
-    }
-
-    internal func recordChatOpenTimingInitialDatasourceLoadStarted(
-        performPendingOpenMessageRequest: Bool
-    ) {
-        self.beginChatOpenTimingSessionIfNeeded(trigger: "initialDatasourceLoad")
-        guard var session = self.chatOpenTimingSession,
-              session.initialDatasourceLoadStartedAt == nil else {
-            return
-        }
-        let now = Date()
-        session.initialDatasourceLoadStartedAt = now
-        self.chatOpenTimingSession = session
-        var fields = self.chatOpenTimingBaseFields(session: session, now: now)
-        fields.append(("performPendingOpenMessageRequest", performPendingOpenMessageRequest))
-        ChatArchiveDebugTrace.log("chatOpenTimingInitialDatasourceLoadStart", fields)
-    }
-
-    internal func recordChatOpenTimingInitialDatasourceLoadFinished(
-        bootstrapState: ChatBootstrapViewState,
-        performPendingOpenMessageRequest: Bool
-    ) {
-        guard var session = self.chatOpenTimingSession,
-              !session.didLogInitialDatasourceLoadFinish else {
-            return
-        }
-        let now = Date()
-        session.didLogInitialDatasourceLoadFinish = true
-        self.chatOpenTimingSession = session
-        ChatPerformanceSignposts.event(.localSnapshotReady)
-        var fields = self.chatOpenTimingBaseFields(session: session, now: now)
-        fields.append(("bootstrapState", "\(bootstrapState)"))
-        fields.append(("performPendingOpenMessageRequest", performPendingOpenMessageRequest))
-        fields.append(("loadDurationMs", ChatOpenTimingPolicy.milliseconds(
-            from: session.initialDatasourceLoadStartedAt,
-            to: now
-        )))
-        ChatArchiveDebugTrace.log("chatOpenTimingInitialDatasourceLoadFinish", fields)
-    }
-
-    internal func recordChatOpenTimingInitialDatasourceLoadFailed(_ error: Error) {
-        guard let session = self.chatOpenTimingSession else {
-            return
-        }
-        var fields = self.chatOpenTimingBaseFields(session: session, now: Date())
-        fields.append(("error", error.localizedDescription))
-        ChatArchiveDebugTrace.log("chatOpenTimingInitialDatasourceLoadFailure", fields)
     }
 
     internal func recordChatOpenTimingViewDidAppear() {
@@ -3875,8 +3527,7 @@ class ChatViewController: MessagesViewController {
 
     private var chatOpenTimingIsViewVisible: Bool {
         self.isViewLoaded &&
-            self.view.window != nil &&
-            self.hasCompletedInitialHistoryViewAppearance
+            self.view.window != nil
     }
 
     private func chatOpenTimingBaseFields(
@@ -3907,126 +3558,12 @@ class ChatViewController: MessagesViewController {
             ("viewHeight", self.isViewLoaded ? Int(self.view.bounds.height) : nil),
             ("isViewLoaded", self.isViewLoaded),
             ("isViewVisible", self.chatOpenTimingIsViewVisible),
-            ("isShowingBootstrapPlaceholder", self.isShowingBootstrapPlaceholder),
+            ("isShowingSkeleton", self.showSkeletonObserver.value),
             ("hasPendingOpenMessageRequest", self.pendingOpenMessageRequest != nil),
             ("hasActiveAnchorExecution", self.activeAnchorExecutionState != nil),
             ("isNavigationTransitionActive", self.isNavigationTransitionActive),
             ("isPreparingStackedNavigationPresentation", self.isPreparingStackedNavigationPresentation)
         ]
-    }
-
-    private func startChatArchiveMainStallProbe(queryId: String?, operation: String) {
-        self.chatArchiveMainStallProbeWorkItem?.cancel()
-        self.chatArchiveMainStallProbeQueryId = queryId
-        self.chatArchiveMainStallProbeOperation = operation
-        self.chatArchiveMainStallProbeLastBeat = Date()
-        ChatArchiveDebugTrace.log("mainStallProbeStart", [
-            ("owner", self.owner),
-            ("jid", self.jid),
-            ("conversationType", self.conversationType.rawValue),
-            ("queryId", queryId ?? "-"),
-            ("operation", operation)
-        ])
-        self.scheduleChatArchiveMainStallProbe(queryId: queryId, operation: operation)
-    }
-
-    private func scheduleChatArchiveMainStallProbe(queryId: String?, operation: String) {
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self,
-                  self.timelineInteractionState.isLoading,
-                  self.chatArchiveMainStallProbeQueryId == queryId,
-                  self.chatArchiveMainStallProbeOperation == operation else {
-                return
-            }
-
-            let now = Date()
-            if let lastBeat = self.chatArchiveMainStallProbeLastBeat {
-                let gapMs = ChatArchiveDebugTrace.milliseconds(since: lastBeat)
-                if gapMs > 1000 {
-                    ChatArchiveDebugTrace.log("mainStallProbeGap", [
-                        ("owner", self.owner),
-                        ("jid", self.jid),
-                        ("conversationType", self.conversationType.rawValue),
-                        ("queryId", queryId ?? "-"),
-                        ("operation", operation),
-                        ("gapMs", gapMs),
-                        ("activeRemoteLoad", self.virtualTimelineState.activeRemoteLoad?.queryId ?? "-"),
-                        ("interactiveQueryId", self.interactiveHistoryPageLoadContext?.queryId ?? "-"),
-                        ("datasourceCount", self.datasource.count),
-                        ("residentCount", self.virtualTimelineState.residentPrimaryKeys.count)
-                    ])
-                }
-            }
-            self.chatArchiveMainStallProbeLastBeat = now
-            self.scheduleChatArchiveMainStallProbe(queryId: queryId, operation: operation)
-        }
-        self.chatArchiveMainStallProbeWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: workItem)
-    }
-
-    private func stopChatArchiveMainStallProbe(reason: String) {
-        guard self.chatArchiveMainStallProbeWorkItem != nil ||
-              self.chatArchiveMainStallProbeQueryId != nil else {
-            return
-        }
-        self.chatArchiveMainStallProbeWorkItem?.cancel()
-        ChatArchiveDebugTrace.log("mainStallProbeStop", [
-            ("owner", self.owner),
-            ("jid", self.jid),
-            ("conversationType", self.conversationType.rawValue),
-            ("queryId", self.chatArchiveMainStallProbeQueryId ?? "-"),
-            ("operation", self.chatArchiveMainStallProbeOperation ?? "-"),
-            ("reason", reason)
-        ])
-        self.chatArchiveMainStallProbeWorkItem = nil
-        self.chatArchiveMainStallProbeLastBeat = nil
-        self.chatArchiveMainStallProbeQueryId = nil
-        self.chatArchiveMainStallProbeOperation = nil
-    }
-
-    internal func beginHistoryLoadingUI(queryId: String? = nil) {
-        self.performOnMain {
-            self.historyLoadingGeneration += 1
-            let generation = self.historyLoadingGeneration
-            let startedAt = Date()
-            if let activeHistoryLoadingUIActivityReason = self.activeHistoryLoadingUIActivityReason {
-                self.endChatHistoryLoadActivity(reason: activeHistoryLoadingUIActivityReason)
-            }
-            let activityReason = queryId.map { "remote:\($0)" } ?? "remote:generation:\(generation)"
-            self.activeHistoryLoadingUIActivityReason = activityReason
-            self.beginChatHistoryLoadActivity(reason: activityReason)
-
-            self.timelineInteractionState.isLoading = true
-            self.setLoadingIndicatorVisible(true)
-            self.setArchiveLoading(true)
-            if ChatHistoryLoadingOverlayPolicy.shouldDisableCollectionInteraction {
-                self.messagesCollectionView.isUserInteractionEnabled = false
-            }
-
-            self.startChatArchiveMainStallProbe(queryId: queryId, operation: "remoteHistoryLoading")
-            self.scheduleHistoryLoadingWatchdog(generation: generation, startedAt: startedAt)
-        }
-    }
-
-    internal func endHistoryLoadingUI(unlockPage: Bool) {
-        self.performOnMain {
-            self.stopChatArchiveMainStallProbe(reason: "endHistoryLoadingUI")
-            if let activeHistoryLoadingUIActivityReason = self.activeHistoryLoadingUIActivityReason {
-                self.endChatHistoryLoadActivity(reason: activeHistoryLoadingUIActivityReason)
-                self.activeHistoryLoadingUIActivityReason = nil
-            }
-            self.timelineInteractionState.isLoading = false
-            self.setLoadingIndicatorVisible(false)
-            self.setArchiveLoading(false)
-            if ChatHistoryLoadingOverlayPolicy.shouldDisableCollectionInteraction {
-                self.messagesCollectionView.isUserInteractionEnabled = true
-            }
-            self.setDatasourceLoadingEnabled(true)
-            if unlockPage {
-                self.timelineInteractionState.unlock()
-            }
-            self.flushPendingArchiveObserverRefreshIfPossible(reason: "historyLoadingEnded")
-        }
     }
 
     internal func setStatusText(_ text: String) {
@@ -4153,8 +3690,6 @@ class ChatViewController: MessagesViewController {
         }
     }
     
-    internal var activeHistoryBoundaryPlaceholder: ChatHistoryBoundaryPlaceholderPosition?
-    
     internal let updateQueue: DispatchQueue = {
         let queue = DispatchQueue(
             label: "com.xabber.chat.updater",
@@ -4172,21 +3707,7 @@ class ChatViewController: MessagesViewController {
     internal let datasetMappingJobCoordinator = ChatDatasetMappingJobCoordinator(
         cancellationCheckInterval: 16
     )
-    internal let bootstrapSkeletonMappingJobCoordinator = ChatDatasetMappingJobCoordinator(
-        cancellationCheckInterval: 16
-    )
-    internal let remoteHistoryApplyQueue: DispatchQueue = {
-        let queue = DispatchQueue(
-            label: "com.xabber.chat.remote-history.apply",
-            qos: .userInteractive,
-            attributes: [],
-            autoreleaseFrequency: .workItem,
-            target: nil
-        )
-        return queue
-    }()
     internal var datasetMappingGeneration: Int = 0
-    internal var bootstrapSkeletonMappingGeneration: Int = 0
     internal var layoutPreparationGeneration: Int = 0
     internal var activeWidthTransitionLayoutTargetSize: CGSize?
     internal var activeWidthTransitionLayoutGeneration: Int?
@@ -4222,15 +3743,6 @@ class ChatViewController: MessagesViewController {
         return view
     }()
 
-    internal lazy var bootstrapFailureView: BootstrapFailureView = {
-        let view = BootstrapFailureView(frame: .zero)
-        view.isHidden = true
-        view.onRetry = { [weak self] in
-            self?.retryInitialBootstrapAfterFailure()
-        }
-        return view
-    }()
-    
     var titleButton: UIButton = {
         let button = UIButton(frame: .zero)
 
@@ -4436,14 +3948,6 @@ class ChatViewController: MessagesViewController {
     internal var visibleMentionReadTerminalForTests: ((Bool) -> Void)?
     internal var visibleMentionReadScheduledForTests: ((Int) -> Void)?
     internal var visibleMentionReadScrollTriggerForTests: (() -> Void)?
-    /// Companion observers retain immutable effect ownership for hosted P14
-    /// diagnostics without changing the established generic test seams.
-    internal var visibleMentionReadScheduledEffectTokenForTests:
-        ((Int, ChatInitialFrameEffectToken?) -> Void)?
-    internal var visibleMentionReadAfterFirstPersistentMutationEffectTokenForTests:
-        ((ChatInitialFrameEffectToken?) -> Void)?
-    internal var visibleMentionReadTerminalEffectTokenForTests:
-        ((Bool, ChatInitialFrameEffectToken?) -> Void)?
     internal var performanceOpenMessageRequestAdmissionObserver:
         ((ChatOpenMessageRequest, Bool) -> Void)?
     /// Stops a focused test at the exact generic-execution admission after
@@ -4451,12 +3955,12 @@ class ChatViewController: MessagesViewController {
     /// builds do not contain this seam.
     internal var pendingOpenMessageGenericExecutionInterceptorForTests:
         (() -> Bool)?
-    /// Fires after a superseded atomic frame restored its pre-attempt
-    /// high-level paging state and before the deferred replacement is replayed.
-    internal var initialFrameSupersededRollbackForTests:
-        ((ChatDatasetWindow,
-          ChatHistoryBoundaryPlaceholderPosition?,
-          ChatScrollBoundaryAvailabilityCache) -> Void)?
+    internal var loadedAnchorPositioningDriverForTests:
+        ((@escaping (Bool) -> Void) -> Void)?
+    internal var timelinePresentationLaneDrainObserverForTests:
+        ((ChatTimelinePresentationDrainLane) -> Void)?
+    internal var authoritativeEmptyPendingTargetActionObserverForTests:
+        ((ChatAuthoritativeEmptyPendingTargetAction) -> Void)?
     internal var unreadMentionBadgeOpenResolutionObserverForTests:
         ((NotificationsMentionOpenResolution, String?) -> Void)?
     internal var unreadMentionBadgeSuccessFeedbackObserverForTests:
@@ -4487,8 +3991,6 @@ class ChatViewController: MessagesViewController {
         ((Bool) -> Void)?
     internal var mentionReadOnVisibleSchedulingObserverForTests:
         ((ChatOpenMessageRequest) -> Void)?
-    internal var initialFrameRollbackSnapshotWillCaptureForTests:
-        (() -> Void)?
 #endif
     
     internal var voiceMessageStateObserverToken: UUID? = nil
@@ -4873,7 +4375,7 @@ class ChatViewController: MessagesViewController {
         }
 
         let frame = shouldShowButton ? visibleFrame : hiddenFrame
-        let shouldAnimate = self.shouldAnimateDuringInitialLatestStabilization(requestedAnimated: animated) &&
+        let shouldAnimate = animated &&
             self.hasPositionedScrollDownButton &&
             !isVisibilitySuppressed
         let updates = {
@@ -4987,121 +4489,11 @@ class ChatViewController: MessagesViewController {
         )
     }
 
-    internal var isInitialLatestOpenStabilizing: Bool {
-        self.initialLatestOpenStabilizationState != .inactive
-    }
-
-    internal func beginInitialLatestOpenStabilizationIfNeeded() {
-        guard ChatInitialLatestOpenStabilizationPolicy.shouldStart(
-            forceLatestOpen: ChatOpenMessageRequestHandlingPolicy.shouldForceLatestOnOpen()
-        ) else {
-            return
-        }
-
-        if self.initialLatestOpenStabilizationState == .inactive {
-            self.initialLatestOpenStabilizationState = .active
-        }
-    }
-
-    internal func markInitialLatestOpenBottomAlignedIfNeeded() {
-        self.initialLatestOpenStabilizationState = ChatInitialLatestOpenStabilizationPolicy.stateAfterBottomAlignment(
-            current: self.initialLatestOpenStabilizationState,
-            hasRealMessages: self.datasource.contains { !$0.isFakeMessage }
-        )
-        self.completeInitialLatestOpenStabilizationIfPossible()
-    }
-
-    internal func completeInitialLatestOpenStabilizationIfPossible() {
-        guard ChatInitialLatestOpenStabilizationPolicy.shouldComplete(
-            state: self.initialLatestOpenStabilizationState,
-            hasViewAppeared: self.hasCompletedInitialHistoryViewAppearance
-        ) else {
-            return
-        }
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  ChatInitialLatestOpenStabilizationPolicy.shouldComplete(
-                    state: self.initialLatestOpenStabilizationState,
-                    hasViewAppeared: self.hasCompletedInitialHistoryViewAppearance
-                  ) else {
-                return
-            }
-
-            self.initialLatestOpenStabilizationState = .inactive
-        }
-    }
-
-    internal func newestRealDatasourcePrimary() -> String? {
-        self.datasource.last(where: { !$0.isFakeMessage })?.primary
-    }
-
-    internal func newestLocalMessagePrimaryForLatestOpen() -> String? {
-        self.timelineSession?.latestMessage()?.primary
-    }
-
-    internal func shouldSkipInitialLatestForcedContentRender(forceRender: Bool) -> Bool {
-        ChatInitialLatestOpenStabilizationPolicy.shouldSkipForcedContentRender(
-            state: self.initialLatestOpenStabilizationState,
-            forceRender: forceRender,
-            hasRealDatasource: self.datasource.contains { !$0.isFakeMessage },
-            newestLocalPrimary: self.newestLocalMessagePrimaryForLatestOpen(),
-            datasourceNewestPrimary: self.newestRealDatasourcePrimary()
-        )
-    }
-
-    internal func initialLatestObserverRefreshAction(baseShouldOpenLatest: Bool) -> ChatInitialLatestOpenStabilizationPolicy.ObserverRefreshAction {
-        guard self.isInitialLatestOpenStabilizing else {
-            return .followDefault
-        }
-        return ChatInitialLatestOpenStabilizationPolicy.observerRefreshAction(
-            state: self.initialLatestOpenStabilizationState,
-            baseShouldOpenLatest: baseShouldOpenLatest,
-            newestLocalPrimary: self.newestLocalMessagePrimaryForLatestOpen(),
-            datasourceNewestPrimary: self.newestRealDatasourcePrimary()
-        )
-    }
-
-    internal func shouldAnimateDuringInitialLatestStabilization(requestedAnimated: Bool) -> Bool {
-        ChatInitialLatestOpenStabilizationPolicy.shouldAnimateAuxiliaryUpdate(
-            state: self.initialLatestOpenStabilizationState,
-            requestedAnimated: requestedAnimated
-        )
-    }
-
     internal func scrollToLatestTimeline(animated: Bool) {
-        if self.submitArchiveEngineLatestTarget() {
-            self.pendingForceLatestOpen = false
-            self.pendingForceLatestOpenAnimated = false
-            return
-        }
-        let isStabilizing = self.isInitialLatestOpenStabilizing
-        self.mapAndApplyTimelineLatest(
-            mode: .windowReload(),
-            animated: false,
-            invalidateLayout: true,
-            limit: isStabilizing ? self.initialFirstFramePageSize : nil,
-            suppressDefaultBottomScroll: isStabilizing,
-            forceBottomAlignmentTarget: isStabilizing ? .newestRealMessage : nil,
-            completion: { [weak self] in
-                guard let self else {
-                    return
-                }
-                self.finishLatestBottomScroll(
-                    animated: isStabilizing ? false : animated,
-                    consumePendingForceLatest: true
-                )
-            },
-            cancelledCompletion: { [weak self] in
-                guard let self else {
-                    return
-                }
-                self.finishLatestBottomScroll(
-                    animated: isStabilizing ? false : animated,
-                    consumePendingForceLatest: true
-                )
-            }
-        )
+        _ = animated
+        _ = self.submitArchiveEngineLatestTarget()
+        self.pendingForceLatestOpen = false
+        self.pendingForceLatestOpenAnimated = false
     }
 
     internal func requestForceLatestOpen(animated: Bool = false) {
@@ -5109,7 +4501,6 @@ class ChatViewController: MessagesViewController {
             return
         }
 
-        self.beginInitialLatestOpenStabilizationIfNeeded()
         self.clearSuppressedOpenMessageRequestState()
         self.pendingForceLatestOpen = true
         self.pendingForceLatestOpenAnimated = self.pendingForceLatestOpenAnimated || animated
@@ -5128,7 +4519,7 @@ class ChatViewController: MessagesViewController {
             return
         }
 
-        let animated = self.pendingForceLatestOpenAnimated && !self.initialHistoryAppearancePending
+        let animated = self.pendingForceLatestOpenAnimated
         ChatArchiveDebugTrace.log("forceLatestOpenApply", [
             ("owner", self.owner),
             ("jid", self.jid),
@@ -5144,7 +4535,6 @@ class ChatViewController: MessagesViewController {
             return
         }
 
-        let isStabilizing = self.isInitialLatestOpenStabilizing
         self.view.layoutIfNeeded()
         self.updateChatCollectionInsets()
         self.messagesCollectionView.layoutIfNeeded()
@@ -5153,15 +4543,9 @@ class ChatViewController: MessagesViewController {
             return
         }
 
-        let shouldSkipScroll = isStabilizing &&
-            self.initialLatestOpenStabilizationState == .bottomAligned &&
-            self.isNearBottom(threshold: 1)
-        if !shouldSkipScroll {
-            self.scrollToBottom(animated: isStabilizing ? false : animated)
-        }
-        self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: isStabilizing ? false : animated)
+        self.scrollToBottom(animated: animated)
+        self.scheduleSavedVisiblePositionFlushAfterBottomScroll(animated: animated)
         self.setFloatingDateVisible(true)
-        self.markInitialLatestOpenBottomAlignedIfNeeded()
 
         if consumePendingForceLatest {
             self.pendingForceLatestOpen = false
@@ -5257,7 +4641,7 @@ class ChatViewController: MessagesViewController {
                 trailingActionFrame: resolvedTrailingActionFrame
             )
         }
-        let shouldAnimate = self.shouldAnimateDuringInitialLatestStabilization(requestedAnimated: animated)
+        let shouldAnimate = animated
         let updates = {
 #if DEBUG || CHAT_PERFORMANCE_LAB
             self.unreadMentionNavigatorFrameWriteObserverForTests?()
@@ -5423,9 +4807,7 @@ class ChatViewController: MessagesViewController {
     
     func configureSearchBar(activateKeyboard: Bool = true, animated: Bool = true) {
         let shouldAnimate = ChatSearchMotionMutationPolicy.shouldAnimate(
-            requestedAnimated: self.shouldAnimateDuringInitialLatestStabilization(
-                requestedAnimated: animated
-            ),
+            requestedAnimated: animated,
             isNavigationTransitionActive: self.isNavigationTransitionActive,
             isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation,
             isInteractiveKeyboardUpdate: false
@@ -5841,7 +5223,531 @@ class ChatViewController: MessagesViewController {
     
     var previousFrame: CGRect = .zero
     
-    
+    private func replaceTimelineStoreSnapshotBinding(
+        previousSession: ChatTimelineSession?
+    ) {
+        assert(Thread.isMainThread)
+        previousSession?.onSnapshot = nil
+        timelineStoreSnapshotMappingToken?.cancel()
+        timelineStoreSnapshotMappingToken = nil
+        deferredArchiveEnginePresentationAfterTimelineStoreApply = nil
+        deferredArchiveEnginePresentationAfterAnchorPositioning = nil
+        archiveWindowAuthoritativeEmptyApplyGeneration = nil
+        archiveWindowAuthoritativeEmptyMappingGeneration = nil
+        timelineStoreRemoteApplyExclusionGate.cancelDeferredRemoteApply()
+        committedTimelineLocalPresentationToken = nil
+        committedTimelineSensitiveRevealRemapPending = false
+        committedTimelineSensitiveRevealRemapRetryCount = 0
+        let bindingGeneration =
+            timelineStoreSnapshotApplyCoordinator.replaceBinding()
+        guard let session = timelineSession else { return }
+
+        session.onSnapshot = { [weak self, weak session] snapshot in
+            guard snapshot.cause == .storeChange ||
+                    snapshot.cause == .localOutgoingAdmission else {
+                return
+            }
+            DispatchQueue.main.async { [weak self, weak session] in
+                guard let self, let session else { return }
+                self.receiveTimelineStoreSnapshot(
+                    snapshot,
+                    session: session,
+                    bindingGeneration: bindingGeneration
+                )
+            }
+        }
+    }
+
+    internal func ensureTimelineStoreSnapshotBindingForCurrentAppearance() {
+        assert(Thread.isMainThread)
+        guard timelineSession != nil,
+              !timelineStoreSnapshotApplyCoordinator.isBindingActive else {
+            return
+        }
+        replaceTimelineStoreSnapshotBinding(previousSession: nil)
+    }
+
+    private func receiveTimelineStoreSnapshot(
+        _ snapshot: ChatTimelineSessionSnapshot,
+        session: ChatTimelineSession,
+        bindingGeneration: UInt64
+    ) {
+        assert(Thread.isMainThread)
+        guard self.timelineSession === session else { return }
+
+        let disposition = timelineStoreSnapshotApplyCoordinator.receive(
+            snapshot,
+            bindingGeneration: bindingGeneration
+        )
+        #if DEBUG || CHAT_PERFORMANCE_LAB
+        timelineStoreSnapshotReceiveObserverForTests?(snapshot, disposition)
+        #endif
+        switch disposition {
+        case .ignored:
+            return
+        case .queued:
+            break
+        case .supersededActive:
+            timelineStoreSnapshotMappingToken?.cancel()
+        }
+        drainPendingTimelineStoreSnapshot()
+    }
+
+    internal func drainPendingTimelineStoreSnapshot() {
+        assert(Thread.isMainThread)
+        guard !anchorTransactionGate.snapshot.positioningStarted,
+              let session = timelineSession,
+              timelineStoreSnapshotApplyCoordinator.activeGeneration == nil,
+              let pending =
+                timelineStoreSnapshotApplyCoordinator.pendingSnapshot else {
+            return
+        }
+        let bindingGeneration =
+            timelineStoreSnapshotApplyCoordinator.bindingGeneration
+        guard self.timelineSession === session else { return }
+
+        switch timelineStoreSnapshotPresentationAction(
+            for: pending,
+            session: session
+        ) {
+        case .deferUntilPresentationSettles:
+            return
+        case .reject:
+            _ = timelineStoreSnapshotApplyCoordinator.discardPending(
+                generation: pending.generation,
+                bindingGeneration: bindingGeneration
+            )
+            drainPendingTimelineStoreSnapshot()
+            return
+        case .apply:
+            break
+        }
+
+        guard let snapshot =
+                timelineStoreSnapshotApplyCoordinator.beginPending(
+                    bindingGeneration: bindingGeneration
+                ) else {
+            return
+        }
+        let mappingToken = ChatDatasetMappingCancellationToken(
+            generation: Int(truncatingIfNeeded: snapshot.generation),
+            cancellationCheckInterval: 16
+        )
+        timelineStoreSnapshotMappingToken = mappingToken
+        let mappingContext = captureDatasourceMappingContext()
+        let presentationEpoch = timelineStorePresentationEpoch(
+            mappingContext: mappingContext
+        )
+
+        datasetMappingQueue.async { [weak self, weak session] in
+            guard let self, let session else { return }
+            let mappingResult = self.mapDataset(
+                dataset: snapshot.items,
+                context: mappingContext,
+                cancellationToken: mappingToken
+            )
+            DispatchQueue.main.async { [weak self, weak session] in
+                guard let self, let session else { return }
+                self.applyMappedTimelineStoreSnapshot(
+                    mappingResult,
+                    snapshot: snapshot,
+                    session: session,
+                    bindingGeneration: bindingGeneration,
+                    mappingToken: mappingToken,
+                    presentationEpoch: presentationEpoch
+                )
+            }
+        }
+    }
+
+    private func timelineStorePresentationEpoch(
+        mappingContext: ChatDatasourceMappingContext
+    ) -> ChatTimelineStorePresentationEpoch {
+        ChatTimelineStorePresentationEpoch(
+            datasourceGeneration: scrollResidentMetadataGeneration,
+            layoutGeneration: layoutPreparationGeneration,
+            layoutContext: mappingContext.layoutContext,
+            displayContext: mappingContext.displayCacheContext,
+            inSearchMode: mappingContext.inSearchMode,
+            revealedSensitiveMediaPrimaries:
+                mappingContext.revealedSensitiveMediaPrimaries,
+            canPinMessages: mappingContext.canPinMessages
+        )
+    }
+
+    private func currentTimelineStorePresentationEpoch()
+        -> ChatTimelineStorePresentationEpoch {
+        timelineStorePresentationEpoch(
+            mappingContext: captureDatasourceMappingContext()
+        )
+    }
+
+    private func timelineStoreSnapshotPresentationAction(
+        for snapshot: ChatTimelineSessionSnapshot,
+        session: ChatTimelineSession
+    ) -> ChatTimelineStoreSnapshotPresentationAction {
+        ChatTimelineStoreSnapshotPresentationPolicy.action(
+            for: snapshot,
+            currentSessionGeneration: session.snapshot.generation,
+            presentedPrimaryIDs: Set(datasource.map(\.primary)),
+            hasCommittedArchivePresentation:
+                archiveWindowCommittedCoverageGeneration != nil,
+            isShowingSkeleton: showSkeletonObserver.value,
+            hasPendingArchiveApply:
+                anchorTransactionGate.snapshot.positioningStarted ||
+                archiveWindowPendingSnapshot != nil ||
+                archiveWindowAuthoritativeEmptyApplyGeneration != nil ||
+                archiveWindowPendingLiveEdgeAdmission != nil ||
+                archiveWindowLiveEdgeApplyGeneration != nil ||
+                committedTimelineLocalPresentationToken != nil ||
+                archiveWindowAtomicApplyRetryWorkItem != nil
+        )
+    }
+
+    private func applyMappedTimelineStoreSnapshot(
+        _ mappingResult: ChatDatasourceMappingResult,
+        snapshot: ChatTimelineSessionSnapshot,
+        session: ChatTimelineSession,
+        bindingGeneration: UInt64,
+        mappingToken: ChatDatasetMappingCancellationToken,
+        presentationEpoch: ChatTimelineStorePresentationEpoch
+    ) {
+        assert(Thread.isMainThread)
+        guard timelineSession === session,
+              timelineStoreSnapshotApplyCoordinator.bindingGeneration ==
+                bindingGeneration,
+              timelineStoreSnapshotApplyCoordinator.activeGeneration ==
+                snapshot.generation,
+              timelineStoreSnapshotMappingToken === mappingToken,
+              !mappingToken.isCancelled,
+              !mappingResult.wasCancelled else {
+            finishTimelineStoreSnapshotApply(
+                generation: snapshot.generation,
+                bindingGeneration: bindingGeneration,
+                mappingToken: mappingToken,
+                applied: false
+            )
+            return
+        }
+        guard session.snapshot.generation == snapshot.generation else {
+            let reprepared = session.reprepareLocalOutgoingPresentation(
+                snapshot
+            )
+            finishTimelineStoreSnapshotApply(
+                generation: snapshot.generation,
+                bindingGeneration: bindingGeneration,
+                mappingToken: mappingToken,
+                applied: false
+            )
+            if let reprepared {
+                receiveTimelineStoreSnapshot(
+                    reprepared,
+                    session: session,
+                    bindingGeneration: bindingGeneration
+                )
+            }
+            return
+        }
+
+        switch timelineStoreSnapshotPresentationAction(
+            for: snapshot,
+            session: session
+        ) {
+        case .deferUntilPresentationSettles:
+            timelineStoreSnapshotMappingToken = nil
+            timelineStoreSnapshotApplyCoordinator.deferActive(
+                snapshot,
+                bindingGeneration: bindingGeneration
+            )
+            return
+        case .reject:
+            finishTimelineStoreSnapshotApply(
+                generation: snapshot.generation,
+                bindingGeneration: bindingGeneration,
+                mappingToken: mappingToken,
+                applied: false
+            )
+            return
+        case .apply:
+            break
+        }
+
+        guard ChatTimelineStorePresentationEpochPolicy.isCurrent(
+            presentationEpoch,
+            current: currentTimelineStorePresentationEpoch()
+        ) else {
+            timelineStoreSnapshotMappingToken = nil
+            timelineStoreSnapshotApplyCoordinator.deferActive(
+                snapshot,
+                bindingGeneration: bindingGeneration
+            )
+            drainPendingTimelineStoreSnapshot()
+            return
+        }
+
+        let mappedPrimaryIDs = Set(mappingResult.datasource.map(\.primary))
+        let presentedPrimaryIDs = Set(datasource.map(\.primary))
+        let insertedPrimaryIDs = mappedPrimaryIDs.subtracting(
+            presentedPrimaryIDs
+        )
+        let introducesLocalOutgoing = !insertedPrimaryIDs.isDisjoint(
+            with: snapshot.provisionalLocalOutgoingPrimaryIDs
+        )
+        let restoreAnchor = introducesLocalOutgoing
+            ? nil
+            : captureTimelineStoreSnapshotAnchor(
+                retainedPrimaryIDs: mappedPrimaryIDs
+            )
+        let storeApplyToken = ChatTimelineStoreUIKitApplyToken(
+            bindingGeneration: bindingGeneration,
+            snapshotGeneration: snapshot.generation
+        )
+        guard timelineStoreRemoteApplyExclusionGate.beginStoreApply(
+            token: storeApplyToken
+        ) else {
+            timelineStoreSnapshotMappingToken = nil
+            timelineStoreSnapshotApplyCoordinator.deferActive(
+                snapshot,
+                bindingGeneration: bindingGeneration
+            )
+            return
+        }
+
+        let transactionCommitAuthorization: () -> Bool = {
+            [weak self, weak session] in
+            guard let self, let session else { return false }
+            return self.timelineSession === session &&
+                self.timelineStoreSnapshotApplyCoordinator
+                    .bindingGeneration == bindingGeneration &&
+                self.timelineStoreSnapshotApplyCoordinator
+                    .activeGeneration == snapshot.generation &&
+                self.timelineStoreSnapshotMappingToken === mappingToken &&
+                !mappingToken.isCancelled &&
+                session.snapshot.generation == snapshot.generation
+        }
+
+        applyChatDatasource(
+            mappingResult.datasource,
+            mode: .targetedDiff,
+            animated: false,
+            invalidateLayout: false,
+            preparedLayouts: mappingResult.layoutSnapshot,
+            suppressDefaultBottomScroll: true,
+            forceBottomAlignmentTarget: introducesLocalOutgoing
+                ? .newestRealMessage
+                : nil,
+            anchorRestorePhase: restoreAnchor == nil ? .none : .applyTransaction,
+            anchorPrimary: restoreAnchor?.primary,
+            restoreAnchor: restoreAnchor,
+            presentationOwner: .archiveEngine,
+            presentationCommitMode: .atomicInitialFrame,
+            transactionCommitAuthorization: transactionCommitAuthorization,
+            transactionCompletion: { [weak self, weak session] result in
+                guard let self else { return }
+                let didCommit: Bool
+                if case .committed = result {
+                    didCommit = true
+                } else {
+                    didCommit = false
+                }
+                let remainsAuthorized: Bool
+                if let session {
+                    remainsAuthorized = transactionCommitAuthorization() &&
+                        self.timelineSession === session
+                } else {
+                    remainsAuthorized = false
+                }
+                self.finishTimelineStoreSnapshotApply(
+                    generation: snapshot.generation,
+                    bindingGeneration: bindingGeneration,
+                    mappingToken: mappingToken,
+                    applied: didCommit && remainsAuthorized
+                )
+            }
+        )
+    }
+
+    private func finishTimelineStoreSnapshotApply(
+        generation: UInt64,
+        bindingGeneration: UInt64,
+        mappingToken: ChatDatasetMappingCancellationToken,
+        applied: Bool
+    ) {
+        assert(Thread.isMainThread)
+        if timelineStoreSnapshotMappingToken === mappingToken {
+            timelineStoreSnapshotMappingToken = nil
+        }
+        let hasPending = timelineStoreSnapshotApplyCoordinator.complete(
+            generation: generation,
+            bindingGeneration: bindingGeneration,
+            applied: applied
+        )
+        let storeApplyToken = ChatTimelineStoreUIKitApplyToken(
+            bindingGeneration: bindingGeneration,
+            snapshotGeneration: generation
+        )
+        let storeExclusionFinish =
+            finishTimelineStoreUIKitApplyExclusion(
+                token: storeApplyToken
+            )
+        if pendingOpenMessageRequest != nil {
+            performPendingOpenMessageRequestIfNeeded()
+        }
+        if let deferredRemoteWork =
+                storeExclusionFinish.deferredRemoteWork {
+            deferredRemoteWork()
+        } else if hasPending ||
+                    storeExclusionFinish.didFinish ||
+                    pendingOpenMessageRequest == nil {
+            drainTimelinePresentationLanesAfterAnchorTerminal()
+        }
+    }
+
+    private func captureTimelineStoreSnapshotAnchor(
+        retainedPrimaryIDs: Set<String>
+    ) -> ChatHistoryPageAnchor? {
+        let candidateSections = messagesCollectionView.indexPathsForVisibleItems
+            .compactMap(\.section)
+            .sorted()
+        for section in candidateSections {
+            guard let item = datasourceItem(atSection: section),
+                  !item.isFakeMessage,
+                  retainedPrimaryIDs.contains(item.primary) else {
+                continue
+            }
+            let indexPath = IndexPath(item: 0, section: section)
+            let frame = messagesCollectionView.layoutAttributesForItem(
+                at: indexPath
+            )?.frame ?? messagesCollectionView.cellForItem(
+                at: indexPath
+            )?.frame
+            guard let frame else { continue }
+            return ChatHistoryPageAnchor(
+                primary: item.primary,
+                viewportRelativeMinY:
+                    frame.minY - messagesCollectionView.contentOffset.y
+            )
+        }
+        return nil
+    }
+
+    internal func deferArchiveEnginePresentationIfTimelineStoreApplyActive(
+        applyGeneration: UInt64,
+        work: @escaping () -> Void
+    ) -> Bool {
+        assert(Thread.isMainThread)
+        switch timelineStoreRemoteApplyExclusionGate.admitRemote(
+            applyGeneration: applyGeneration
+        ) {
+        case .start:
+            return false
+        case .deferred, .coalesced:
+            if timelineStoreRemoteApplyExclusionGate
+                .deferredRemoteApplyGeneration == applyGeneration {
+                deferredArchiveEnginePresentationAfterTimelineStoreApply = (
+                    applyGeneration: applyGeneration,
+                    work: work
+                )
+            }
+            return true
+        }
+    }
+
+    internal func shouldDeferLoadedAnchorForForeignTimelinePresentation(
+        allowingLocalPresentationID: UUID? = nil
+    ) -> Bool {
+        let hasForeignLocalPresentation =
+            committedTimelineLocalPresentationToken.map {
+                $0.id != allowingLocalPresentationID
+            } ?? false
+        return isChatDatasourceStructuralTransactionActive ||
+            timelineBoundaryRequest != nil ||
+            archiveWindowPendingSnapshot != nil ||
+            archiveWindowAuthoritativeEmptyApplyGeneration != nil ||
+            archiveWindowAtomicApplyRetryWorkItem != nil ||
+            archiveWindowLiveEdgeApplyGeneration != nil ||
+            timelineStoreSnapshotApplyCoordinator.activeGeneration != nil ||
+            timelineStoreRemoteApplyExclusionGate.isStoreApplyActive ||
+            hasForeignLocalPresentation
+    }
+
+    internal func deferArchiveEnginePresentationIfAnchorPositioningActive(
+        applyGeneration: UInt64,
+        work: @escaping () -> Void
+    ) -> Bool {
+        assert(Thread.isMainThread)
+        guard anchorTransactionGate.snapshot.positioningStarted else {
+            return false
+        }
+        if deferredArchiveEnginePresentationAfterAnchorPositioning.map({
+            applyGeneration >= $0.applyGeneration
+        }) ?? true {
+            deferredArchiveEnginePresentationAfterAnchorPositioning = (
+                applyGeneration: applyGeneration,
+                work: work
+            )
+        }
+        return true
+    }
+
+    @discardableResult
+    internal func drainDeferredArchiveEnginePresentationAfterAnchorPositioning()
+        -> Bool {
+        assert(Thread.isMainThread)
+        guard !anchorTransactionGate.snapshot.positioningStarted,
+              let deferred =
+                deferredArchiveEnginePresentationAfterAnchorPositioning else {
+            return false
+        }
+        deferredArchiveEnginePresentationAfterAnchorPositioning = nil
+        deferred.work()
+        return true
+    }
+
+    @discardableResult
+    private func finishTimelineStoreUIKitApplyExclusion(
+        token: ChatTimelineStoreUIKitApplyToken
+    ) -> (didFinish: Bool, deferredRemoteWork: (() -> Void)?) {
+        guard timelineStoreRemoteApplyExclusionGate.activeStoreApplyToken ==
+                token else {
+            return (false, nil)
+        }
+        let deferredGeneration =
+            timelineStoreRemoteApplyExclusionGate.finishStoreApply(
+                token: token
+            )
+        guard let deferredGeneration,
+              let deferred =
+                deferredArchiveEnginePresentationAfterTimelineStoreApply,
+              deferred.applyGeneration == deferredGeneration else {
+            deferredArchiveEnginePresentationAfterTimelineStoreApply = nil
+            return (true, nil)
+        }
+        deferredArchiveEnginePresentationAfterTimelineStoreApply = nil
+        return (true, deferred.work)
+    }
+
+    private func invalidateTimelineStoreSnapshotBinding() {
+        assert(Thread.isMainThread)
+        timelineSession?.onSnapshot = nil
+        timelineStoreSnapshotMappingToken?.cancel()
+        timelineStoreSnapshotMappingToken = nil
+        deferredArchiveEnginePresentationAfterTimelineStoreApply = nil
+        deferredArchiveEnginePresentationAfterAnchorPositioning = nil
+        archiveWindowAuthoritativeEmptyApplyGeneration = nil
+        archiveWindowAuthoritativeEmptyMappingGeneration = nil
+        timelineStoreRemoteApplyExclusionGate.cancelDeferredRemoteApply()
+        committedTimelineLocalPresentationToken = nil
+        committedTimelineSensitiveRevealRemapPending = false
+        committedTimelineSensitiveRevealRemapRetryCount = 0
+        timelineStoreSnapshotApplyCoordinator.invalidateBinding()
+    }
+
+    #if DEBUG || CHAT_PERFORMANCE_LAB
+    internal func invalidateTimelineStoreSnapshotBindingForTests() {
+        invalidateTimelineStoreSnapshotBinding()
+    }
+    #endif
     
     final func configureDataset() {
         let conversationKey = ChatTimelineConversationKey(
@@ -5849,76 +5755,14 @@ class ChatViewController: MessagesViewController {
             jid: self.jid,
             conversationType: self.conversationType
         )
-        if self.consumedEmptyArchiveTerminalKey !=
-                self.initialBootstrapRequestKey {
-            self.consumedEmptyArchiveTerminalKey = nil
-        }
         if let timelineSession = self.timelineSession,
            timelineSession.isConfigured(for: conversationKey) {
             return
         }
         let isConversationReplacement = self.timelineSession != nil
-        let preservesCommittedRealContent = !isConversationReplacement &&
-            (self.hasCommittedRealContentInCurrentLifecycle ||
-                self.datasource.contains { !$0.isFakeMessage })
-        let preservesCommittedTimelinePresentation =
-            !isConversationReplacement &&
-            (self.hasCommittedTimelinePresentationInCurrentLifecycle ||
-                preservesCommittedRealContent)
-        self.timelineSession?.cancelInitialFramePreparations()
-        self.timelineSession?.cancelLocalPagePreparations()
         if isConversationReplacement {
-            // The old session and its real datasource form one presentation
-            // identity. Revoke all work that could still publish or consume A
-            // before installing B's deterministic first frame below.
-            self.cancelInitialBootstrapAutomaticRetry(
-                resetFailureCount: true
-            )
-            self.resetInitialBootstrapTracking(
-                acknowledgeConsumedCommittedReceipt: false
-            )
-            let replacedRemoteQueryIds = Set([
-                self.interactiveHistoryPageLoadContext?.queryId,
-                self.remoteHistoryFinishingQueryId,
-                self.timelineSession?.snapshot.state.activeRemoteLoad?.queryId
-            ].compactMap { $0 })
-            self.clearRemoteHistoryEndPageDispatchers()
-            self.interactiveHistoryCompletionRetryWorkItem?.cancel()
-            self.interactiveHistoryCompletionRetryWorkItem = nil
-            replacedRemoteQueryIds.forEach {
-                _ = self.timelineSession?.abortRemoteLoad(queryId: $0)
-            }
-            if let pageContext = self.interactiveHistoryPageLoadContext,
-               let performanceTraceContext = pageContext.performanceTraceContext {
-                _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
-                    owner: pageContext.performanceTraceOwner ?? self.owner,
-                    queryID: pageContext.queryId,
-                    context: performanceTraceContext,
-                    terminal: .cancelled
-                )
-            }
-            self.interactiveHistoryPageLoadContext = nil
-            self.remoteHistoryFinishingQueryId = nil
-            // Do not route conversation replacement through the ordinary
-            // paging abort/fallback path: that path can flush observers and
-            // mutate the viewport. Revoke A's watchdog/UI lease directly;
-            // B's skeleton transaction below is the next visual boundary.
-            self.historyLoadingGeneration &+= 1
-            self.chatArchiveMainStallProbeWorkItem?.cancel()
-            self.chatArchiveMainStallProbeWorkItem = nil
-            self.chatArchiveMainStallProbeLastBeat = nil
-            self.chatArchiveMainStallProbeQueryId = nil
-            self.chatArchiveMainStallProbeOperation = nil
-            self.endAllChatHistoryLoadActivities(
-                reason: "conversationReplacement"
-            )
             self.setLoadingIndicatorVisible(false)
             self.setArchiveLoading(false)
-            self.cancelPendingArchiveObserverRefresh(
-                reason: "conversationReplacement"
-            )
-            self.initialBootstrapFollowUpTargetOverride = nil
-            self.hasAttemptedInitialBootstrapBoundaryFollowUp = false
             self.cancelDatasetMappingJobs()
             self.scrollWorkScheduler.cancel()
             self.pendingOutgoingAutoScrollRequest = nil
@@ -5932,7 +5776,9 @@ class ChatViewController: MessagesViewController {
             self.detachedViewportReadBoundaryIndex = nil
             self.detachedViewportReadBoundaryPosition = nil
         }
-        self.cancelActiveAnchorExecutionForLifecycle()
+        if isConversationReplacement {
+            self.cancelActiveAnchorExecutionForLifecycle()
+        }
         self.retainedMessageAnchor = nil
         if let request = self.pendingOpenMessageRequest,
            request.owner != conversationKey.owner ||
@@ -5940,38 +5786,10 @@ class ChatViewController: MessagesViewController {
             request.conversationType != conversationKey.conversationType {
             self.pendingOpenMessageRequest = nil
         }
-        self.clearPendingLocalHistoryPagingPreparation()
         self.observerRefreshGenerationCoalescer =
             ChatObserverRefreshGenerationCoalescer()
-        self.initialLocalFirstFramePhase = .idle
-        self.initialLocalFirstFrameReadinessProof = nil
-        self.savedPositionFirstFrameProbeResult = nil
-        self.isInitialBootstrapArchiveRequestDeferredForSavedPositionProbe = false
-        self.initialLocalFirstFrameMappingToken = nil
-        if let attempt =
-            self.initialLocalFirstFramePresentationOwnership?.attempt {
-            self.revokeInitialFramePresentationAttempt(attempt)
-        }
-        self.initialLocalFirstFrameTerminalizingAttempt = nil
-        self.initialLocalFirstFrameLatestEffectToken = nil
-        self.initialLocalFirstFrameCoreAnimationReceiptGeneration = nil
-        self.deferredInitialLocalFirstFrameReplacement = nil
-        self.initialLocalFirstFramePresentationRetryDescriptor = nil
-        self.initialLocalFirstFrameCompletions.removeAll(keepingCapacity: false)
-        self.pendingBootstrapFirstFrameReadinessCompletions.removeAll(keepingCapacity: false)
-        self.initialLocalFirstFrameShouldPerformPendingRequest = false
-        self.initialFirstContentApplyCount = 0
-        self.hasCommittedRealContentInCurrentLifecycle = preservesCommittedRealContent
-        self.hasCommittedBootstrapSkeletonPresentationInCurrentLifecycle = false
-        self.hasCommittedTimelinePresentationInCurrentLifecycle =
-            preservesCommittedTimelinePresentation
         if isConversationReplacement {
-            self.appliedBootstrapLoadingState = nil
-            self.lastBootstrapAtomicRevealPlan = nil
-            self.allowsBootstrapFailureFallback = false
-            self.preservesBootstrapFailureOverlayUntilRetryCommit = false
             self.residentDatasetWindow = .empty
-            self.activeHistoryBoundaryPlaceholder = nil
             self.timelineInteractionState.isLoading = false
             self.timelineInteractionState.unlock()
             self.unreadMessagePositionId = nil
@@ -5991,67 +5809,16 @@ class ChatViewController: MessagesViewController {
             store: store,
             pageSize: self.datasourcePageSize,
             conversationKey: conversationKey,
-            archiveState: .unresolved(
-                primaryKey: LastChatsStorageItem.genPrimary(
-                    jid: self.jid,
-                    owner: self.owner,
-                    conversationType: self.conversationType
-                )
-            ),
             observesStoreImmediately: false
         )
-        session.onSnapshot = { [weak self, weak session] snapshot in
-            let applySnapshot = {
-                guard let self, let session, self.timelineSession === session else { return }
-                guard snapshot.cause == .storeChange else {
-                    return
-                }
-                switch ChatInitialFrameStoreChangeRoutingPolicy.action(
-                    phase: self.initialLocalFirstFramePhase,
-                    hasCommittedTimelinePresentation:
-                        self.hasCommittedTimelinePresentationInCurrentLifecycle
-                ) {
-                case .coalesce:
-                    self.pendingArchiveObserverRefresh = true
-                    self.archiveObserverRefreshWorkItem?.cancel()
-                    self.archiveObserverRefreshWorkItem = nil
-                    ChatArchiveDebugTrace.log(
-                        "initialFrameStoreChangeCoalesced"
-                    )
-                case .apply:
-                    self.handleTimelineSessionRefresh(
-                        observedGeneration: snapshot.generation
-                    )
-                case .ignore:
-                    break
-                }
-            }
-            if Thread.isMainThread {
-                applySnapshot()
-            } else {
-                DispatchQueue.main.async(execute: applySnapshot)
-            }
-        }
         self.timelineSession = session
         self.unreadMentionItems = []
         self.lastAppliedUnreadMentionPresentationMetadata = nil
         self.unreadMentionsState = .empty
         if isConversationReplacement {
-            // A configured session can also be replaced before its view has
-            // loaded in a test or restoration path. Finish loading only after
-            // B owns the session, so the nested configure call is an unchanged
-            // key no-op and no A frame can be published.
             self.loadViewIfNeeded()
-            let replacementLoadingState: ChatBootstrapLoadingState =
-                self.pendingOpenMessageRequest == nil
-                    ? .blockingArchive
-                    : .blockingTarget
-            self.applyBootstrapLoadingState(
-                replacementLoadingState,
-                forceRender: true,
-                synchronousSkeletonCommit: true,
-                replacingConversationDatasource: true
-            )
+            self.setSkeletonVisible(true)
+            self.setDatasourceLoadingEnabled(false)
         }
     }
     
@@ -6388,7 +6155,7 @@ class ChatViewController: MessagesViewController {
         let visibilityChanged = floatingBubblesStackView.isHidden != shouldHideStack
         let heightChanged = abs(floatingBubblesHeight - height) > 0.5
         let shouldAnimate = ChatNavigationTransitionMutationPolicy.shouldAnimateMutation(
-            requestedAnimated: self.shouldAnimateDuringInitialLatestStabilization(requestedAnimated: animated),
+            requestedAnimated: animated,
             isTransitionActive: self.isNavigationTransitionActive,
             isPreparingFirstFrame: self.isPreparingStackedNavigationPresentation
         )
@@ -7006,14 +6773,7 @@ class ChatViewController: MessagesViewController {
         self.groupProjectionObserver = nil
         self.canonicalGroupProjectionState = nil
         self.canonicalGroupChatPresenceState = nil
-        self.cancelPendingArchiveObserverRefresh(reason: "unsubscribe")
-        self.endAllChatHistoryLoadActivities(reason: "unsubscribe")
         self.bag = DisposeBag()
-        self.cancelInitialBootstrapLocalHistoryFallback()
-        self.detachInitialBootstrapReadinessObservation()
-        self.clearRemoteHistoryEndPageDispatchers()
-        self.remoteHistoryQueryCoordinator.cancelAll(reason: .cancelled)
-        self.stopChatArchiveMainStallProbe(reason: "unsubscribe")
         self.finishChatOpenTimingSession(reason: "unsubscribe")
         VoiceMessagePlaybackCoordinator.shared.removeObserver(self.voiceMessageStateObserverToken)
         self.voiceMessageStateObserverToken = nil
@@ -7408,20 +7168,10 @@ class ChatViewController: MessagesViewController {
         guard self.readVisiblePresentationCoordinator.hasPresentationReceipt else {
             return false
         }
-        switch self.initialLocalFirstFramePhase {
-        case .preparing, .presenting:
-            return false
-        case .idle,
-             .committed,
-             .blockedArchiveBootstrap,
-             .blockedMissingTarget,
-             .failedPresentation:
-            break
-        }
         guard !self.isChatDatasourceStructuralTransactionActive,
               self.pendingOpenMessageRequest == nil,
               self.activeAnchorExecutionState == nil,
-              !self.isApplyingBootstrapAnchorWindow else {
+              !self.isApplyingAnchorWindow else {
             return false
         }
         return ChatReadVisiblePresentationPolicy.canAdvanceReadState(
@@ -7658,13 +7408,7 @@ class ChatViewController: MessagesViewController {
     ) -> Bool {
         assert(Thread.isMainThread, "Read-visible geometry is main-owned")
         guard self.canAdvanceReadStateFromVisiblePresentation(),
-              !flush.rowPresentationIdentityByNotificationPrimary.isEmpty,
-              flush.candidates.allSatisfy({ candidate in
-                guard let token = candidate.initialFrameEffectToken else {
-                    return true
-                }
-                return self.isLatestInitialFrameEffectToken(token)
-              }) else {
+              !flush.rowPresentationIdentityByNotificationPrimary.isEmpty else {
             return false
         }
         let viewport = self.currentReadVisibleViewport()
@@ -7799,21 +7543,11 @@ class ChatViewController: MessagesViewController {
         self.flushPendingScrollWork()
         self.releaseNavigationAvatarItemAfterConfirmedRemoval()
         self.teardownChatSearchLifecycle(reason: .navigationAway)
-        AccountManager.shared.find(for: owner)?.mam.allowHistoryFixTask = false
-        AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-            user.mam.allowHistoryFixTask = false
-        })
         LastChats.updateErrorState(for: self.jid, owner: self.owner, conversationType: self.conversationType)
-        self.timelineSession?.cancelInitialFramePreparations()
-        self.timelineSession?.cancelLocalPagePreparations()
-        self.clearPendingLocalHistoryPagingPreparation()
         self.flushPendingVisibleReadTarget()
         self.saveCurrentVisibleMessagePositionIfNeeded(reason: .viewWillDisappear)
         self.sendCanonicalGroupChatPresence(.gone)
         self.performTerminalChatResourceTeardown()
-
-        XMPPUIActionManager.shared.mam?.endLoadHistory(jid: self.jid, conversationType: conversationType)
-        AccountManager.shared.find(for: self.owner)?.mam.endLoadHistory(jid: self.jid, conversationType: conversationType)
     }
     
     
@@ -7822,7 +7556,6 @@ class ChatViewController: MessagesViewController {
         guard !self.chatObserversRegistered else {
             return
         }
-        self.synchronizeInitialFramePresentationLifecycleWithApplicationState()
         self.lastAppliedChatKeyboardLayoutSignature = nil
         self.chatObserversRegistered = true
         super.addObservers()
@@ -7898,10 +7631,6 @@ class ChatViewController: MessagesViewController {
     
     @objc
     internal func willEnterForeground() {
-        self.synchronizeInitialFramePresentationLifecycleWithApplicationState()
-        if self.initialFramePresentationApplicationStateProvider() != .background {
-            self.setInitialFramePresentationLifecycleEligible(true)
-        }
         self.handleChatSearchApplicationWillEnterForeground()
         NotifyManager.shared.currentDialog = [self.jid, self.owner].prp()
         AccountManager.shared.find(for: self.owner)?.chatMarkers.updateDeleteEphemeralMessagesTimer()
@@ -7909,12 +7638,6 @@ class ChatViewController: MessagesViewController {
 
     @objc
     internal func didBecomeActive() {
-        // `willEnterForeground` may fire while UIApplication still reports
-        // `.background`. Active is the definitive presentation admission and
-        // resumes the same prepared initial-frame continuation if it remained
-        // deferred through that transition.
-        self.setInitialFramePresentationLifecycleEligible(true)
-        self.resumeInitialBootstrapAutomaticRetryIfNeeded()
         self.sendCanonicalGroupChatPresence(.active)
         DispatchQueue.main.async { [weak self] in
             guard let self else {
@@ -8015,8 +7738,6 @@ class ChatViewController: MessagesViewController {
 
     internal func handleApplicationDidEnterBackground() {
         self.sendCanonicalGroupChatPresence(.inactive)
-        self.setInitialFramePresentationLifecycleEligible(false)
-        self.suspendInitialBootstrapAutomaticRetry()
         self.composerFirstFocusRecoveryState.noteEditingEnded()
         self.composerFirstFocusRecoveryWorkItem?.cancel()
         self.composerFirstFocusRecoveryWorkItem = nil
@@ -8250,16 +7971,13 @@ class ChatViewController: MessagesViewController {
             self.isHandlingCancelledInteractiveReappearance = true
             return
         }
+        self.ensureTimelineStoreSnapshotBindingForCurrentAppearance()
         self.bindChatInputInteractions()
         self.recordChatOpenTimingViewWillAppear()
-        self.refreshScrollBoundaryAvailabilityCache(reason: "viewWillAppear")
         self.didRunNavigationDisappearanceCleanup = false
         self.didScheduleNavigationDisappearanceCleanup = false
         do {
             try self.subscribe()
-            if self.conversationType == .group {
-                try self.groupSubscribtions()
-            }
             if self.conversationType.isEncrypted {
                 try self.encryptedSubscribtions()
             }
@@ -8275,20 +7993,6 @@ class ChatViewController: MessagesViewController {
         self.lowPrioritySubscribtions()
         self.observeScheduledMessagesForComposerButton()
         self.setupEncryptedChat()
-        self.initialHistoryAppearancePending = ChatInitialHistoryAppearancePolicy.shouldStart(
-            isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
-        )
-        self.hasRenderedStableInitialHistory = false
-        self.hasCompletedInitialHistoryViewAppearance = false
-        if ChatStackedNavigationPreparationPolicy.shouldLoadInitialDatasource(
-            isDatasourceEmpty: self.datasource.isEmpty,
-            isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
-        ) || self.pendingOpenMessageRequest != nil ||
-            self.activeAnchorExecutionState != nil {
-            self.scheduleInitialDatasourceLoadAfterNavigationStart(
-                performPendingOpenMessageRequest: !self.shouldDeferOpenMessageRequestsForNavigationTransition
-            )
-        }
         UIView.performWithoutAnimation {
             self.configureNavbar()
         }
@@ -8306,25 +8010,6 @@ class ChatViewController: MessagesViewController {
         }
     }
 
-    internal func scheduleInitialDatasourceLoadAfterNavigationStart(
-        performPendingOpenMessageRequest: Bool
-    ) {
-        self.recordChatOpenTimingInitialDatasourceLoadScheduled(
-            performPendingOpenMessageRequest: performPendingOpenMessageRequest
-        )
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.recordChatOpenTimingInitialDatasourceLoadDequeued(
-                performPendingOpenMessageRequest: performPendingOpenMessageRequest
-            )
-            self.setFloatingDateVisible(false)
-            self.loadInitialDatasource(
-                performPendingOpenMessageRequest: performPendingOpenMessageRequest
-            )
-        }
-    }
-    
-    
     internal func setupEncryptedChat() {
         if self.conversationType.isEncrypted {
             AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
@@ -8373,7 +8058,6 @@ class ChatViewController: MessagesViewController {
         // a cancelled interactive pop reports its outcome.
         if !self.isNavigationTransitionActive {
             self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = false
-            _ = self.reconcileInitialBootstrapReadinessAfterNavigationIfNeeded()
             self.flushPendingNavigationTransitionWork()
         }
         self.reconcileNavigationChromeAfterCancelledTransition()
@@ -8395,12 +8079,9 @@ class ChatViewController: MessagesViewController {
             self.refreshNavigationAvatarImage()
         }
         self.suppressScrollDownButtonVisibilityAfterAppearance()
-        self.hasCompletedInitialHistoryViewAppearance = true
         self.recordChatOpenTimingViewDidAppear()
         AccountManager.shared.find(for: self.owner)?
             .requestForegroundConnectionRecovery(trigger: .uiActionOpen)
-        self.finishInitialHistoryAppearanceIfPossible()
-        self.completeInitialLatestOpenStabilizationIfPossible()
         self.performPendingOpenMessageRequestIfNeeded()
         self.shouldChangeFrame()
         self.willUpdateFloatingDate()
@@ -8494,18 +8175,11 @@ class ChatViewController: MessagesViewController {
         }
     }
 
-    /// Clears recomputable values and speculative work only. Timeline identity,
-    /// visible geometry, pending navigation and bootstrap presentation are not
-    /// mutated, so a warning cannot produce an empty/intermediate chat frame.
+    /// Clears recomputable values and speculative work only. Timeline identity
+    /// and visible geometry remain intact.
     internal func handleChatMemoryPressure() {
         self.displayModelCache.removeAll()
-        // The initial frame is not speculative work. In particular, a fully
-        // prepared background continuation is the only owner of the consumed
-        // bootstrap receipt; cancelling its mapping generation here would
-        // leave the committed skeleton with no foreground retry path.
-        if !self.shouldPreserveInitialFramePipelineDuringMemoryPressure {
-            self.cancelDatasetMappingJobs()
-        }
+        self.cancelDatasetMappingJobs()
         self.collectionPrefetchCoordinator.cancelAll()
         (self.messagesCollectionView.collectionViewLayout as? MessagesCollectionViewFlowLayout)?
             .cache.handleMemoryWarning()
@@ -8526,26 +8200,8 @@ class ChatViewController: MessagesViewController {
     internal func performTerminalChatResourceTeardown() {
         self.cancelActiveAudioRecordingForLifecycle()
         self.cancelChatOpenPerformanceTrace()
-        self.revokeActivePostBootstrapInitialFrameAdmission()
-        self.timelineSession?.cancelInitialFramePreparations()
-        self.timelineSession?.cancelLocalPagePreparations()
-        self.clearPendingLocalHistoryPagingPreparation()
+        self.invalidateTimelineStoreSnapshotBinding()
         self.cancelDatasetMappingJobs()
-        self.initialLocalFirstFrameMappingToken = nil
-        if let attempt =
-            self.initialLocalFirstFramePresentationOwnership?.attempt {
-            self.revokeInitialFramePresentationAttempt(attempt)
-        }
-        self.initialLocalFirstFrameTerminalizingAttempt = nil
-        self.initialLocalFirstFrameLatestEffectToken = nil
-        self.initialLocalFirstFrameCoreAnimationReceiptGeneration = nil
-        self.deferredInitialLocalFirstFrameReplacement = nil
-        self.initialLocalFirstFramePhase = .idle
-        self.initialLocalFirstFrameReadinessProof = nil
-        self.initialLocalFirstFramePresentationRetryDescriptor = nil
-        self.initialLocalFirstFrameCompletions.removeAll(keepingCapacity: false)
-        self.pendingBootstrapFirstFrameReadinessCompletions.removeAll(keepingCapacity: false)
-        self.initialLocalFirstFrameShouldPerformPendingRequest = false
         self.isHandlingCancelledInteractiveReappearance = false
         self.scrollWorkScheduler.cancel()
         self.collectionPrefetchCoordinator.cancelAll()
@@ -8579,55 +8235,14 @@ class ChatViewController: MessagesViewController {
         self.defersTransientMessageHighlightAnimationForTests = false
         self.transientMessageHighlightAnimationCompletionForTests = nil
         self.mentionReadOnVisibleSchedulingObserverForTests = nil
-        self.initialFrameRollbackSnapshotWillCaptureForTests = nil
 #endif
 
-        self.cancelInitialBootstrapTimeout()
-        self.cancelInitialBootstrapLocalHistoryFallback()
-        self.cancelInitialBootstrapAutomaticRetry(resetFailureCount: true)
-        self.detachInitialBootstrapReadinessObservation()
-        self.detachConversationArchiveTerminalObservation()
-        self.consumedEmptyArchiveTerminalKey = nil
-        self.releaseInteractiveChatOpenGate()
-        self.initialBootstrapQueryId = nil
-        self.initialBootstrapLeaseKey = nil
-        self.initialBootstrapTargetFingerprint = nil
-        self.initialBootstrapPerformanceSemanticTargetFingerprint = nil
-        self.initialBootstrapFollowUpTargetOverride = nil
-        self.savedPositionFirstFrameProbeResult = nil
-        self.isInitialBootstrapArchiveRequestDeferredForSavedPositionProbe = false
-        self.initialBootstrapPresentationDeadline = nil
-        self.isInitialBootstrapInFlight = false
-        self.preservesBootstrapFailureOverlayUntilRetryCommit = false
-        if self.isViewLoaded {
-            self.setBootstrapFailureVisible(false)
-        }
-        self.initialBootstrapScopedRefreshQueryId = nil
-        self.interactiveHistoryCompletionRetryWorkItem?.cancel()
-        self.interactiveHistoryCompletionRetryWorkItem = nil
-        if let pageContext = self.interactiveHistoryPageLoadContext,
-           let performanceTraceContext = pageContext.performanceTraceContext {
-            _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
-                owner: pageContext.performanceTraceOwner ?? self.owner,
-                queryID: pageContext.queryId,
-                context: performanceTraceContext,
-                terminal: .cancelled
-            )
-        }
-        self.interactiveHistoryPageLoadContext = nil
-        self.remoteHistoryFinishingQueryId = nil
-        self.cancelPendingArchiveObserverRefresh(reason: "terminalTeardown")
         self.visibleUnreadMentionReconciliationWorkItem?.cancel()
         self.visibleUnreadMentionReconciliationWorkItem = nil
         self.readVisibleStableLayoutRetryWorkItem?.cancel()
         self.readVisibleStableLayoutRetryWorkItem = nil
         self.scrollDownButtonVisibilitySuppressionWorkItem?.cancel()
         self.scrollDownButtonVisibilitySuppressionWorkItem = nil
-        self.clearRemoteHistoryEndPageDispatchers()
-        self.remoteHistoryQueryCoordinator.cancelAll(reason: .cancelled)
-        self.remoteHistoryRequestStartedAtByQueryId.removeAll()
-        self.stopChatArchiveMainStallProbe(reason: "terminalTeardown")
-        self.endAllChatHistoryLoadActivities(reason: "terminalTeardown")
 
         self.refreshChatStateTimer?.invalidate()
         self.refreshChatStateTimer = nil
@@ -8676,31 +8291,21 @@ class ChatViewController: MessagesViewController {
             ? Self.animationCount(in: self.view.layer)
             : 0
         return ChatLifecycleResourceSnapshot(
-            timelinePreparations: self.timelineSession?.activePreparationCount ?? 0,
-            mappingJobs: self.datasetMappingJobCoordinator.ownedJobCount +
-                self.bootstrapSkeletonMappingJobCoordinator.ownedJobCount,
+            timelinePreparations: 0,
+            mappingJobs: self.datasetMappingJobCoordinator.ownedJobCount,
             scheduledScrollRequests: self.scrollWorkScheduler.pendingRequestCount,
             prefetchResources: self.collectionPrefetchCoordinator.activeResourceCount,
             anchorTransactions: anchorSnapshot.activeToken == nil ? 0 : 1,
             anchorQueries: self.anchorTransactionTokenByQueryId.count,
             anchorTimeouts: self.anchorTransactionTimeoutWorkItems.count,
             searchWorkItems: self.searchSessionDebounceWorkItem == nil ? 0 : 1,
-            bootstrapWorkItems: [
-                self.initialBootstrapTimeoutWorkItem,
-                self.initialBootstrapLocalHistoryFallbackWorkItem,
-                self.initialBootstrapAutomaticRetryWorkItem
-            ].compactMap { $0 }.count,
             retryWorkItems: [
-                self.interactiveHistoryCompletionRetryWorkItem,
-                self.archiveObserverRefreshWorkItem,
                 self.visibleUnreadMentionReconciliationWorkItem,
-                self.scrollDownButtonVisibilitySuppressionWorkItem,
-                self.chatArchiveMainStallProbeWorkItem
+                self.scrollDownButtonVisibilitySuppressionWorkItem
             ].compactMap { $0 }.count,
-            remoteDispatchers: self.remoteHistoryEndPageDispatcherTokens.count +
-                self.remoteHistoryFailureDispatcherTokens.count,
-            activeRemoteQueries: self.remoteHistoryQueryCoordinator.activeQueryCount,
-            historyLoadActivities: self.activeChatHistoryLoadActivityKeys.count,
+            remoteDispatchers: 0,
+            activeRemoteQueries: 0,
+            historyLoadActivities: 0,
             timers: [
                 self.refreshChatStateTimer,
                 self.omemoDeviceListTimer,
@@ -8783,18 +8388,16 @@ class ChatViewController: MessagesViewController {
         // this fallback touches only resources that already exist eagerly.
         self.cancelChatOpenPerformanceTrace()
         self.cancelDatasetMappingJobs()
-        self.timelineSession?.cancelInitialFramePreparations()
-        self.timelineSession?.cancelLocalPagePreparations()
         self.searchSessionDebounceWorkItem?.cancel()
-        self.initialBootstrapTimeoutWorkItem?.cancel()
-        self.initialBootstrapLocalHistoryFallbackWorkItem?.cancel()
-        self.initialBootstrapAutomaticRetryWorkItem?.cancel()
-        self.interactiveHistoryCompletionRetryWorkItem?.cancel()
-        self.archiveObserverRefreshWorkItem?.cancel()
         self.visibleUnreadMentionReconciliationWorkItem?.cancel()
         self.readVisibleStableLayoutRetryWorkItem?.cancel()
-        self.chatArchiveMainStallProbeWorkItem?.cancel()
         self.anchorTransactionTimeoutWorkItems.values.forEach { $0.cancel() }
+        self.detachArchiveEnginePresentationDemand()
+        self.archiveWindowStateTask?.cancel()
+        self.archiveLiveEdgeAdmissionTask?.cancel()
+        self.archiveLocalOutgoingAdmissionTask?.cancel()
+        self.archiveWindowActivityTask?.cancel()
+        self.archiveSearchStateTask?.cancel()
         self.scheduledMessagesComposerButtonToken?.invalidate()
         self.unsubscribe()
         self.removeObservers()
@@ -9013,20 +8616,6 @@ extension ChatViewController {
 }
 
 extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStackedNavigationPresentationPreparing {
-    internal var effectiveInitialPresentationContext:
-        ChatInitialPresentationContext {
-        guard initialPresentationContextConversationKey ==
-                chatTimelineConversationKey else {
-            return .standard
-        }
-        return initialPresentationContext
-    }
-
-    internal func prepareForNewlyCreatedGroupPresentation() {
-        initialPresentationContext = .newlyCreatedGroup
-        initialPresentationContextConversationKey = chatTimelineConversationKey
-    }
-
     func prepareForStackedNavigationPresentation(targetBounds: CGRect?) {
         self.prepareForStackedNavigationPresentation(
             targetBounds: targetBounds,
@@ -9038,7 +8627,6 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
         targetBounds: CGRect?,
         completion: @escaping () -> Void
     ) {
-        self.synchronizeInitialFramePresentationLifecycleWithApplicationState()
         self.readVisiblePresentationCoordinator.beginPresentationPreparation()
         self.beginChatOpenTimingSessionIfNeeded(
             trigger: "stackedNavigationPreparation",
@@ -9059,80 +8647,15 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
             }
         }
 
-        var shouldLoadInitialDatasource = false
         UIView.performWithoutAnimation {
             self.configureNavbar()
-            self.initialHistoryAppearancePending = ChatInitialHistoryAppearancePolicy.shouldStart(
-                isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
-            )
-            self.hasRenderedStableInitialHistory = false
-            self.hasCompletedInitialHistoryViewAppearance = false
             self.updateChatCollectionInsets()
             self.setFloatingDateVisible(false)
-            shouldLoadInitialDatasource = ChatStackedNavigationPreparationPolicy.shouldLoadInitialDatasource(
-                isDatasourceEmpty: self.datasource.isEmpty,
-                isShowingBootstrapPlaceholder: self.isShowingBootstrapPlaceholder
-            )
+            self.setSkeletonVisible(true)
         }
-
-        let finishAfterCommittedFirstFrame = { [weak self] in
-            guard let self else {
-                completion()
-                return
-            }
-            guard !self.isStackedNavigationPresentationPreparationCancelled else {
-                return
-            }
-            self.whenBootstrapFirstFramePresentationIsReady { [weak self] in
-                guard let self,
-                      !self.isStackedNavigationPresentationPreparationCancelled else {
-                    return
-                }
-                self.isPreparingStackedNavigationPresentation = false
-                completion()
-            }
-        }
-
-        guard shouldLoadInitialDatasource else {
-            finishAfterCommittedFirstFrame()
-            return
-        }
-        if ChatInitialPresentationContextPolicy.shouldUseSkeletonFirstFrame(
-            strategy: self.stackedNavigationInitialFrameStrategy,
-            context: self.effectiveInitialPresentationContext,
-            isDatasourceEmpty: self.datasource.isEmpty
-        ) {
-            // A committed deterministic skeleton is a valid first-frame
-            // receipt. Compact navigation can start immediately while the
-            // owned real frame is prepared in parallel with the push. The
-            // normal viewWillAppear request coalesces with this preparation.
-            self.applyBootstrapViewState(
-                .skeleton,
-                forceRender: true,
-                synchronousSkeletonCommit: true
-            )
-            self.whenBootstrapFirstFramePresentationIsReady { [weak self] in
-                guard let self,
-                      !self.isStackedNavigationPresentationPreparationCancelled else {
-                    return
-                }
-                self.isPreparingStackedNavigationPresentation = false
-                completion()
-                DispatchQueue.main.async { [weak self] in
-                    guard let self,
-                          !self.isStackedNavigationPresentationPreparationCancelled else {
-                        return
-                    }
-                    self.loadInitialDatasource(
-                        performPendingOpenMessageRequest: false
-                    )
-                }
-            }
-            return
-        }
-        self.loadInitialDatasource(performPendingOpenMessageRequest: false) {
-            finishAfterCommittedFirstFrame()
-        }
+        self.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        self.isPreparingStackedNavigationPresentation = false
+        completion()
     }
 
     func cancelStackedNavigationPresentationPreparation() {
@@ -9144,24 +8667,6 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
         self.readVisibleStableLayoutRetryWorkItem?.cancel()
         self.readVisibleStableLayoutRetryWorkItem = nil
         self.readVisiblePresentationCoordinator.invalidatePresentation()
-        self.revokeActivePostBootstrapInitialFrameAdmission()
-        self.timelineSession?.cancelInitialFramePreparations()
-        self.initialLocalFirstFrameMappingToken?.cancel()
-        self.initialLocalFirstFrameMappingToken = nil
-        if let attempt =
-            self.initialLocalFirstFramePresentationOwnership?.attempt {
-            self.revokeInitialFramePresentationAttempt(attempt)
-        }
-        self.initialLocalFirstFrameTerminalizingAttempt = nil
-        self.initialLocalFirstFrameLatestEffectToken = nil
-        self.initialLocalFirstFrameCoreAnimationReceiptGeneration = nil
-        self.deferredInitialLocalFirstFrameReplacement = nil
-        self.initialLocalFirstFramePhase = .idle
-        self.initialLocalFirstFrameReadinessProof = nil
-        self.initialLocalFirstFramePresentationRetryDescriptor = nil
-        self.initialLocalFirstFrameCompletions.removeAll(keepingCapacity: false)
-        self.pendingBootstrapFirstFrameReadinessCompletions.removeAll(keepingCapacity: false)
-        self.initialLocalFirstFrameShouldPerformPendingRequest = false
         self.cancelDatasetMappingJobs()
     }
 
@@ -9170,45 +8675,12 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
               !self.isStackedNavigationPresentationPreparationCancelled else {
             return
         }
-        let hadCommittedFirstFrame = self.isCommittedStackedNavigationFirstFrameReady
-        if !hadCommittedFirstFrame {
-            // A real datasource can be installed while its collection update
-            // completion is still pending. Seal those prepared rows first;
-            // the skeleton must never overwrite already available content.
-            _ = self.commitPreparedRealDatasourceAsFirstFrameSynchronouslyIfNeeded()
-        }
-        if !self.isCommittedStackedNavigationFirstFrameReady {
-            let fallback = ChatInitialPresentationContextPolicy.timeoutFallback(
-                context: self.effectiveInitialPresentationContext,
-                hasRealRows: self.datasource.contains { !$0.isFakeMessage }
-            )
-            if fallback == .empty {
-                _ = self.commitNewlyCreatedGroupEmptyFirstFrameSynchronouslyIfNeeded()
-            } else {
-                // The presentation handle completes immediately after this callback
-                // returns. Commit the bounded skeleton transaction synchronously so
-                // UIKit can never push a destination with an empty first frame.
-                self.applyBootstrapViewState(
-                    fallback,
-                    forceRender: true,
-                    synchronousSkeletonCommit: true
-                )
-            }
-        }
-        let hasCommittedFirstFrame = self.isCommittedStackedNavigationFirstFrameReady
-        // #TODO sometimes fail
-        assert(
-            hasCommittedFirstFrame,
-            "Stacked chat fallback must commit a deterministic first frame before presentation"
-        )
+        self.setSkeletonVisible(true)
+        self.loadInitialDatasource(performPendingOpenMessageRequest: false)
         self.isPreparingStackedNavigationPresentation = false
         DDLogDebug(
-            "LAST_CHATS_NAVIGATION event=destinationPreparationFallback " +
-            "hasPendingOpenMessageRequest=\(self.pendingOpenMessageRequest != nil) " +
-            "hadCommittedFirstFrame=\(hadCommittedFirstFrame) " +
-            "hasCommittedFirstFrame=\(hasCommittedFirstFrame) " +
-            "realRowCount=\(self.datasource.lazy.filter { !$0.isFakeMessage }.count) " +
-            "skeletonRowCount=\(self.datasource.lazy.filter(\.isFakeMessage).count)"
+            "LAST_CHATS_NAVIGATION event=destinationPreparationTimeout " +
+            "hasPendingOpenMessageRequest=\(self.pendingOpenMessageRequest != nil)"
         )
     }
 }

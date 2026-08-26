@@ -23,53 +23,546 @@ import XMPPFramework
 import RealmSwift
 //import Haneke
 
-internal final class VCardLazyLoadScheduleState {
-    private let lock = NSRecursiveLock()
-    private var scheduledJids: Set<String> = Set()
+internal enum VCardRequestPriority: Int, Comparable {
+    case background = 0
+    case foreground = 1
 
-    func reserveMissingJids(rosterJids: Set<String>, storedVCardJids: Set<String>) -> [String] {
-        lock.lock()
-        defer { lock.unlock() }
-
-        let missingJids = rosterJids
-            .subtracting(storedVCardJids)
-            .filter { !scheduledJids.contains($0) }
-            .sorted()
-        missingJids.forEach { scheduledJids.insert($0) }
-        return missingJids
+    static func < (lhs: VCardRequestPriority, rhs: VCardRequestPriority) -> Bool {
+        lhs.rawValue < rhs.rawValue
     }
 
-    func reserveFirstMissingJid(rosterJids: Set<String>, storedVCardJids: Set<String>) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
+    var schedulerPriority: AccountXMPPTaskScheduler.Priority {
+        switch self {
+        case .background: return .background
+        case .foreground: return .foreground
+        }
+    }
+}
 
-        guard let jid = rosterJids
-            .subtracting(storedVCardJids)
-            .filter({ !scheduledJids.contains($0) })
-            .sorted()
-            .first else {
+internal enum VCardRequestRefreshPolicy {
+    static let failureRetryCooldown: TimeInterval = 60
+
+    static func shouldRequest(
+        persistedOwner: String?,
+        requestOwner: String,
+        lastRequestFailed: Bool,
+        lastUpdateDate: Date,
+        now: Date = Date()
+    ) -> Bool {
+        // vCardStorageItem is historically keyed only by bare JID. A card
+        // written by another account must therefore be treated as a cache
+        // miss instead of suppressing this account's visible request.
+        guard persistedOwner == requestOwner else {
+            return true
+        }
+        guard lastRequestFailed else {
+            return false
+        }
+        return now.timeIntervalSince(lastUpdateDate) >= failureRetryCooldown
+    }
+}
+
+internal struct VCardPresentationIdentity: Hashable, Sendable {
+    let owner: String
+    let jid: String
+
+    init?(owner rawOwner: String, jid rawJID: String) {
+        guard let owner = XMPPJID(string: rawOwner)?.bare,
+              let jid = XMPPJID(string: rawJID)?.bare,
+              owner.isNotEmpty,
+              jid.isNotEmpty else {
             return nil
         }
-        scheduledJids.insert(jid)
-        return jid
+        self.owner = owner
+        self.jid = jid
+    }
+}
+
+/// Schema 19 keeps the historical JID-only Realm primary key for vCards.
+/// This process-local projection preserves account-scoped presentation values
+/// when two enabled accounts hydrate the same contact JID in one process.
+internal final class VCardPresentationProjectionStore {
+    static let shared = VCardPresentationProjectionStore()
+
+    private let lock = NSLock()
+    private var titlesByIdentity: [VCardPresentationIdentity: String] = [:]
+
+    @discardableResult
+    func apply(
+        owner: String,
+        jid: String,
+        title rawTitle: String
+    ) -> Bool {
+        guard let identity = VCardPresentationIdentity(owner: owner, jid: jid) else {
+            return false
+        }
+        let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard title.isNotEmpty else { return false }
+
+        lock.lock()
+        titlesByIdentity[identity] = title
+        lock.unlock()
+        return true
     }
 
-    func release(_ jid: String) {
+    func title(owner: String, jid: String) -> String? {
+        guard let identity = VCardPresentationIdentity(owner: owner, jid: jid) else {
+            return nil
+        }
         lock.lock()
-        scheduledJids.remove(jid)
+        let title = titlesByIdentity[identity]
         lock.unlock()
+        return title
     }
 
-    func contains(_ jid: String) -> Bool {
+    func titles(
+        for identities: Set<VCardPresentationIdentity>
+    ) -> [VCardPresentationIdentity: String] {
         lock.lock()
-        let result = scheduledJids.contains(jid)
+        let titles = identities.reduce(
+            into: [VCardPresentationIdentity: String]()
+        ) { result, identity in
+            result[identity] = titlesByIdentity[identity]
+        }
         lock.unlock()
-        return result
+        return titles
+    }
+
+    func removeAll(for rawOwner: String) {
+        guard let owner = XMPPJID(string: rawOwner)?.bare else { return }
+        lock.lock()
+        titlesByIdentity = titlesByIdentity.filter { $0.key.owner != owner }
+        lock.unlock()
+    }
+}
+
+internal enum VCardVisibleRetryRequestGuard {
+    static func shouldSubmit(
+        expectedManagerEpoch: UUID,
+        currentManagerEpoch: UUID,
+        expectedGeneration: UInt64,
+        currentGeneration: UInt64,
+        isCurrentAccountManager: Bool,
+        isStreamAuthenticated: Bool
+    ) -> Bool {
+        expectedManagerEpoch == currentManagerEpoch
+            && expectedGeneration == currentGeneration
+            && isCurrentAccountManager
+            && isStreamAuthenticated
+    }
+}
+
+internal struct VCardVisibleRetryProof: Hashable, Sendable {
+    let managerEpoch: UUID
+    let generation: UInt64
+}
+
+internal enum VCardVisibleRequestDisposition: Equatable {
+    case satisfied
+    case submitted(proof: VCardVisibleRetryProof)
+    case retryAfter(deadline: Date, proof: VCardVisibleRetryProof)
+    case stale
+    case unavailable
+}
+
+internal struct VCardSingleFlightRequest: Equatable {
+    let owner: String
+    let jid: String
+    let generation: UInt64
+    let elementID: String
+    let priority: VCardRequestPriority
+
+    var deduplicationKey: String {
+        "vcard.\(owner).\(generation).\(jid)"
+    }
+}
+
+internal enum VCardSingleFlightSubmission: Equatable {
+    case enqueue(VCardSingleFlightRequest)
+    case joined(VCardSingleFlightRequest)
+    case promote(VCardSingleFlightRequest)
+}
+
+/// Owns the complete account-scoped vCard request lifecycle. A scheduler
+/// transaction remains active from wire send through response persistence;
+/// queued duplicates join the same stanza and can only raise its priority.
+internal final class VCardRequestSingleFlightCoordinator {
+    typealias Completion = (VCardSingleFlightRequest, Bool) -> Void
+
+    struct ResponseReceipt: Equatable {
+        fileprivate let request: VCardSingleFlightRequest
+    }
+
+    private enum State: Equatable {
+        case queued
+        case active
+        case processingResponse
+    }
+
+    private struct Entry {
+        var request: VCardSingleFlightRequest
+        var state: State
+        var completions: [Completion]
+        var schedulerFinish: (() -> Void)?
+        var timeoutWorkItem: DispatchWorkItem?
+    }
+
+    static let responseTimeout: TimeInterval = 15
+
+    private let owner: String
+    private let timeout: TimeInterval
+    private let timeoutQueue: DispatchQueue
+    private let elementIDFactory: () -> String
+    private let lock = NSLock()
+    private var generation: UInt64 = 0
+    private var entriesByElementID: [String: Entry] = [:]
+    private var elementIDByJID: [String: String] = [:]
+
+    init(
+        owner: String,
+        timeout: TimeInterval = VCardRequestSingleFlightCoordinator.responseTimeout,
+        timeoutQueue: DispatchQueue = DispatchQueue(label: "com.xabber.vcard-single-flight.timeout"),
+        elementIDFactory: @escaping () -> String = { "vCard: \(NanoID.new(8))" }
+    ) {
+        self.owner = Self.normalizedBareJID(owner) ?? owner
+        self.timeout = max(0, timeout)
+        self.timeoutQueue = timeoutQueue
+        self.elementIDFactory = elementIDFactory
+    }
+
+    var currentGeneration: UInt64 {
+        lock.lock()
+        let value = generation
+        lock.unlock()
+        return value
+    }
+
+    var pendingCount: Int {
+        lock.lock()
+        let value = entriesByElementID.count
+        lock.unlock()
+        return value
+    }
+
+    @discardableResult
+    func streamDidPrepare() -> UInt64 {
+        advanceGeneration()
+    }
+
+    func disconnect() {
+        _ = advanceGeneration()
+    }
+
+    func submit(
+        jid rawJID: String,
+        priority: VCardRequestPriority,
+        completion: Completion? = nil
+    ) -> VCardSingleFlightSubmission? {
+        guard let jid = Self.normalizedBareJID(rawJID) else {
+            completion?(
+                VCardSingleFlightRequest(
+                    owner: owner,
+                    jid: rawJID,
+                    generation: currentGeneration,
+                    elementID: elementIDFactory(),
+                    priority: priority
+                ),
+                false
+            )
+            return nil
+        }
+
+        lock.lock()
+        if let elementID = elementIDByJID[jid],
+           var existing = entriesByElementID[elementID],
+           existing.request.generation == generation {
+            if let completion {
+                existing.completions.append(completion)
+            }
+            if priority > existing.request.priority,
+               existing.state == .queued {
+                existing.request = VCardSingleFlightRequest(
+                    owner: existing.request.owner,
+                    jid: existing.request.jid,
+                    generation: existing.request.generation,
+                    elementID: existing.request.elementID,
+                    priority: priority
+                )
+                entriesByElementID[elementID] = existing
+                lock.unlock()
+                return .promote(existing.request)
+            }
+            entriesByElementID[elementID] = existing
+            lock.unlock()
+            return .joined(existing.request)
+        }
+
+        let request = VCardSingleFlightRequest(
+            owner: owner,
+            jid: jid,
+            generation: generation,
+            elementID: elementIDFactory(),
+            priority: priority
+        )
+        entriesByElementID[request.elementID] = Entry(
+            request: request,
+            state: .queued,
+            completions: completion.map { [$0] } ?? [],
+            schedulerFinish: nil,
+            timeoutWorkItem: nil
+        )
+        elementIDByJID[jid] = request.elementID
+        lock.unlock()
+        return .enqueue(request)
+    }
+
+    @discardableResult
+    func activate(
+        _ request: VCardSingleFlightRequest,
+        schedulerFinish: @escaping () -> Void
+    ) -> Bool {
+        let timeoutWorkItem: DispatchWorkItem
+        lock.lock()
+        guard var entry = matchingEntryLocked(request),
+              entry.state == .queued else {
+            lock.unlock()
+            return false
+        }
+        entry.state = .active
+        entry.schedulerFinish = schedulerFinish
+        timeoutWorkItem = DispatchWorkItem { [weak self] in
+            self?.failIdentity(
+                elementID: request.elementID,
+                generation: request.generation
+            )
+        }
+        entry.timeoutWorkItem = timeoutWorkItem
+        entriesByElementID[request.elementID] = entry
+        lock.unlock()
+
+        timeoutQueue.asyncAfter(
+            deadline: .now() + timeout,
+            execute: timeoutWorkItem
+        )
+        return true
+    }
+
+    func matchResponse(
+        elementID: String,
+        generation responseGeneration: UInt64,
+        responseBareJID: String?
+    ) -> ResponseReceipt? {
+        lock.lock()
+        guard responseGeneration == generation,
+              var entry = entriesByElementID[elementID],
+              entry.request.generation == responseGeneration,
+              entry.state == .active else {
+            lock.unlock()
+            return nil
+        }
+
+        let normalizedResponseJID = responseBareJID.flatMap(Self.normalizedBareJID)
+        let isSelfResponseWithoutFrom = normalizedResponseJID == nil && entry.request.jid == owner
+        guard isSelfResponseWithoutFrom || normalizedResponseJID == entry.request.jid else {
+            lock.unlock()
+            return nil
+        }
+
+        // From this point the response is owned by synchronous persistence.
+        // The wire timeout must not release the scheduler lane in the middle
+        // of the Realm transaction.
+        entry.timeoutWorkItem?.cancel()
+        entry.timeoutWorkItem = nil
+        entry.state = .processingResponse
+        entriesByElementID[elementID] = entry
+        lock.unlock()
+        return ResponseReceipt(request: entry.request)
+    }
+
+    func completeResponse(_ receipt: ResponseReceipt, success: Bool) {
+        finishIdentity(
+            elementID: receipt.request.elementID,
+            generation: receipt.request.generation,
+            success: success
+        )
+    }
+
+    func fail(_ request: VCardSingleFlightRequest) {
+        finishIdentity(
+            elementID: request.elementID,
+            generation: request.generation,
+            success: false
+        )
+    }
+
+    private func matchingEntryLocked(_ request: VCardSingleFlightRequest) -> Entry? {
+        guard let entry = entriesByElementID[request.elementID],
+              entry.request.generation == request.generation,
+              entry.request.jid == request.jid else {
+            return nil
+        }
+        return entry
+    }
+
+    @discardableResult
+    private func advanceGeneration() -> UInt64 {
+        lock.lock()
+        generation &+= 1
+        let staleEntries = Array(entriesByElementID.values)
+        entriesByElementID.removeAll(keepingCapacity: true)
+        elementIDByJID.removeAll(keepingCapacity: true)
+        let nextGeneration = generation
+        lock.unlock()
+
+        staleEntries.forEach { finish($0, success: false) }
+        return nextGeneration
+    }
+
+    private func failIdentity(elementID: String, generation: UInt64) {
+        finishIdentity(elementID: elementID, generation: generation, success: false)
+    }
+
+    private func finishIdentity(elementID: String, generation: UInt64, success: Bool) {
+        lock.lock()
+        guard let entry = entriesByElementID[elementID],
+              entry.request.generation == generation else {
+            lock.unlock()
+            return
+        }
+        entriesByElementID.removeValue(forKey: elementID)
+        if elementIDByJID[entry.request.jid] == elementID {
+            elementIDByJID.removeValue(forKey: entry.request.jid)
+        }
+        lock.unlock()
+        finish(entry, success: success)
+    }
+
+    private func finish(_ entry: Entry, success: Bool) {
+        entry.timeoutWorkItem?.cancel()
+        entry.completions.forEach { $0(entry.request, success) }
+        entry.schedulerFinish?()
+    }
+
+    private static func normalizedBareJID(_ rawJID: String) -> String? {
+        let trimmed = rawJID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isNotEmpty,
+              let bare = XMPPJID(string: trimmed)?.bare,
+              bare.isNotEmpty else {
+            return nil
+        }
+        return bare
+    }
+}
+
+internal enum VCardTerminalStorageMutation {
+    static func persistFailure(
+        in realm: Realm,
+        owner: String,
+        jid: String,
+        at date: Date = Date()
+    ) {
+        if let instance = realm.object(
+            ofType: vCardStorageItem.self,
+            forPrimaryKey: jid
+        ) {
+            // `jid` is this object's Realm primary key. Realm rejects even an
+            // equal-value assignment once the object is managed.
+            instance.owner = owner
+            instance.lastUpdateDate = date
+            instance.isLastUpdateErrorOccured = true
+            return
+        }
+
+        let instance = vCardStorageItem()
+        instance.jid = jid
+        instance.owner = owner
+        instance.lastUpdateDate = date
+        instance.isLastUpdateErrorOccured = true
+        realm.add(instance)
     }
 }
 
 
 class VCardManager: AbstractXMPPManager {
+    static let didPersistVCardNotification = Notification.Name(
+        "com.xabber.vcard.didPersist"
+    )
+    static let persistedOwnerUserInfoKey = "owner"
+    static let persistedJIDUserInfoKey = "jid"
+    static let didFailVisibleVCardRequestNotification = Notification.Name(
+        "com.xabber.vcard.didFailVisibleRequest"
+    )
+    static let failedOwnerUserInfoKey = "owner"
+    static let failedJIDUserInfoKey = "jid"
+    static let failedManagerEpochUserInfoKey = "managerEpoch"
+    static let failedGenerationUserInfoKey = "generation"
+    static let failedAtUserInfoKey = "failedAt"
+
+    private let requestCoordinator: VCardRequestSingleFlightCoordinator
+    private let requestManagerEpoch: UUID
+
+    internal static func emitDidPersistVCard(
+        owner rawOwner: String,
+        jid rawJID: String,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        guard let owner = XMPPJID(string: rawOwner)?.bare,
+              let jid = XMPPJID(string: rawJID)?.bare else {
+            return
+        }
+        notificationCenter.post(
+            name: didPersistVCardNotification,
+            object: nil,
+            userInfo: [
+                persistedOwnerUserInfoKey: owner,
+                persistedJIDUserInfoKey: jid,
+            ]
+        )
+    }
+
+    internal static func emitDidFailVisibleVCardRequest(
+        owner rawOwner: String,
+        jid rawJID: String,
+        managerEpoch: UUID,
+        generation: UInt64,
+        failedAt: Date = Date(),
+        notificationCenter: NotificationCenter = .default
+    ) {
+        guard let owner = XMPPJID(string: rawOwner)?.bare,
+              let jid = XMPPJID(string: rawJID)?.bare else {
+            return
+        }
+        notificationCenter.post(
+            name: didFailVisibleVCardRequestNotification,
+            object: nil,
+            userInfo: [
+                failedOwnerUserInfoKey: owner,
+                failedJIDUserInfoKey: jid,
+                failedManagerEpochUserInfoKey: managerEpoch,
+                failedGenerationUserInfoKey: generation,
+                failedAtUserInfoKey: failedAt,
+            ]
+        )
+    }
+
+    override init(withOwner owner: String) {
+        self.requestCoordinator = VCardRequestSingleFlightCoordinator(owner: owner)
+        self.requestManagerEpoch = UUID()
+        super.init(withOwner: owner)
+    }
+
+    override func onStreamPrepared(_ stream: XMPPStream) {
+        super.onStreamPrepared(stream)
+        guard AccountManager.shared.find(for: owner)?.vcards === self else {
+            return
+        }
+        requestCoordinator.streamDidPrepare()
+    }
+
+    override func clearSession() {
+        requestCoordinator.disconnect()
+        super.clearSession()
+    }
     
     class VCardMetaItem {
         var title: String
@@ -84,8 +577,6 @@ class VCardManager: AbstractXMPPManager {
             self.childs = childs
         }
     }
-    
-    internal var queue: SynchronizedArray<String> = SynchronizedArray<String>()
     
     override func namespaces() -> [String] {
         return [
@@ -196,191 +687,223 @@ class VCardManager: AbstractXMPPManager {
         return out
     }
         
-    internal func actualizeAccountUsername() {
-        do {
-            var result: String = "\(owner.split(separator: "@").first ?? "")"
-            let realm = try  WRealm.safe()
-            if let instance = realm.object(ofType: vCardStorageItem.self,
-                                           forPrimaryKey: owner) {
-                result = instance.generatedNickname
-            }
-            AccountManager.shared.find(for: owner)?.username = result
-            if !realm.isInWriteTransaction {
-                try realm.write {
-                    realm
-                        .object(ofType: AccountStorageItem.self, forPrimaryKey: owner)?
-                        .username = result
-                }
-            }
-        } catch {
-            DDLogDebug("cant actualize username for account \(owner)")
-        }
-    }
-    
-    var missedVCardJidsList: Set<String> = Set()
-    var missedVCardLastQueryId: String? = nil
-    private let lazyLoadScheduleState = VCardLazyLoadScheduleState()
-    
     public final func lazyLoadMissedVCards(_ stream: XMPPStream) {
+        _ = stream
         do {
             let realm = try WRealm.safe()
-            let jids = Set(realm.objects(RosterStorageItem.self).filter("owner == %@", self.owner).compactMap { $0.jid })
-            let vcards = Set(realm.objects(vCardStorageItem.self).filter("owner == %@", self.owner).compactMap { $0.jid })
-
-            if let account = AccountManager.shared.find(for: self.owner) {
-                let missingJids = lazyLoadScheduleState.reserveMissingJids(
-                    rosterJids: jids,
-                    storedVCardJids: vcards
-                )
-                guard missingJids.isNotEmpty else {
-                    return
-                }
-                missingJids.forEach { jid in
-                    account.xmppTaskScheduler.enqueueAccountTask(
-                        priority: .background,
-                        resource: .vcard,
-                        deduplicationKey: "vcard.lazy.\(self.owner).\(jid)",
-                        requiresAuthenticatedStream: false
-                    ) { [weak self] _, stream, finish in
-                        guard let self else {
-                            finish()
-                            return
-                        }
-                        guard stream.isAuthenticated else {
-                            self.lazyLoadScheduleState.release(jid)
-                            finish()
-                            return
-                        }
-                        _ = self.requestItem(stream, jid: jid)
-                        finish()
-                    }
-                }
-            } else if stream.isAuthenticated,
-                      let jid = lazyLoadScheduleState.reserveFirstMissingJid(
-                        rosterJids: jids,
-                        storedVCardJids: vcards
-                      ) {
-                _ = self.requestItem(stream, jid: jid)
+            let rosterJIDs = Set(
+                realm.objects(RosterStorageItem.self)
+                    .filter("owner == %@", owner)
+                    .compactMap(\.jid)
+            )
+            guard let primaryManager = AccountManager.shared.find(for: owner)?.vcards else {
+                return
             }
+            let now = Date()
+            rosterJIDs
+                .sorted()
+                .filter { jid in
+                    let storedCard = realm.object(
+                        ofType: vCardStorageItem.self,
+                        forPrimaryKey: jid
+                    )
+                    return VCardRequestRefreshPolicy.shouldRequest(
+                        persistedOwner: storedCard?.owner,
+                        requestOwner: self.owner,
+                        lastRequestFailed: storedCard?.isLastUpdateErrorOccured == true,
+                        lastUpdateDate: storedCard?.lastUpdateDate ?? .distantPast,
+                        now: now
+                    )
+                }
+                .forEach { jid in
+                    _ = primaryManager.scheduleRequest(jid: jid, priority: .background)
+                }
         } catch {
             DDLogDebug("VCardManager: \(#function). \(error.localizedDescription)")
         }
     }
-    
-    public final func continueLazyLoadMissedVCards(_ stream: XMPPStream) {
-        if missedVCardLastQueryId != nil && missedVCardJidsList.isNotEmpty {
-            if let jid = missedVCardJidsList.popFirst() {
-                self.missedVCardLastQueryId = self.requestItem(stream, jid: jid)
-            } else {
-                self.missedVCardLastQueryId = nil
-                self.missedVCardJidsList = Set()
-            }
-        }
-    }
-    
+
     override func read(withIQ iq: XMPPIQ) -> Bool {
         guard let elementID = iq.elementID,
-            let from = iq.from?.bare,
-            let query = iq.element(forName: "vCard", xmlns: getPrimaryNamespace()) else {
-                return false
+              let receipt = requestCoordinator.matchResponse(
+                elementID: elementID,
+                generation: requestCoordinator.currentGeneration,
+                responseBareJID: iq.from?.bare
+              ) else {
+            return false
         }
-        if elementID == self.addContactVcardCheckId {
-            self.addContactVcardCheckCallback?(from, iq.iqType != .error)
+
+        let requestJID = receipt.request.jid
+        let isError = iq.iqType == .error || iq.element(forName: "error") != nil
+        let didPersist: Bool
+        let succeeded: Bool
+        if isError {
+            didPersist = persistVCardFailure(for: requestJID)
+            succeeded = false
+        } else if let query = iq.element(forName: "vCard", xmlns: getPrimaryNamespace()) {
+            didPersist = persistVCard(query, for: requestJID)
+            succeeded = didPersist
+        } else {
+            didPersist = persistVCardFailure(for: requestJID)
+            succeeded = false
         }
-        self.lazyLoadScheduleState.release(from)
-        if elementID == self.missedVCardLastQueryId {
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                user.vcards.continueLazyLoadMissedVCards(stream)
-            })
-        }
-        if iq.element(forName: "error") != nil || iq.iqType == .error {
-            do {
-                let realm = try  WRealm.safe()
-                if let instance = realm.object(ofType: vCardStorageItem.self, forPrimaryKey: from) {
-                    try realm.write {
-                        if instance.isInvalidated { return }
-                        instance.lastUpdateDate = Date()
-                        instance.isLastUpdateErrorOccured = true
-                    }
-                } else {
-                    let instance = vCardStorageItem()
-                    instance.jid = from
-                    instance.owner = self.owner
-                    instance.lastUpdateDate = Date()
-                    instance.isLastUpdateErrorOccured = true
-                    try realm.write {
-                        realm.add(instance, update: .modified)
-                    }
-                }
-            } catch {
-                DDLogDebug("VCardManager: \(#function). \(error.localizedDescription)")
-            }
+
+        guard didPersist else {
+            DDLogError("VCardManager failed to persist terminal response for \(requestJID)")
+            requestCoordinator.completeResponse(receipt, success: false)
             return true
         }
-        
-        self.getOrCreate(for: from) { instance in
-            instance.lastUpdateDate = Date()
-            instance.owner = self.owner
-            instance.isLastUpdateErrorOccured = false
-            instance.fn = self.getEscapingElementValue(element: query.element(forName: "FN"))
-            instance.family = self.getEscapingElementValue(element: query.element(forName: "N")?.element(forName: "FAMILY"))
-            instance.given = self.getEscapingElementValue(element: query.element(forName: "N")?.element(forName: "GIVEN"))
-            instance.middle = self.getEscapingElementValue(element: query.element(forName: "N")?.element(forName: "MIDDLE"))
-            instance.nickname = self.getEscapingElementValue(element: query.element(forName: "NICKNAME"))
-            instance.url = self.getEscapingElementValue(element: query.element(forName: "URL"))
-            instance.birthday = Date()
-            instance.birthdayString = self.getEscapingElementValue(element: query.element(forName: "BDAY"))
-            instance.orgname = self.getEscapingElementValue(element: query.element(forName: "ORG")?.element(forName: "ORGNAME"))
-            instance.orgunit = self.getEscapingElementValue(element: query.element(forName: "ORG")?.element(forName: "ORGUNIT"))
-            instance.title = self.getEscapingElementValue(element: query.element(forName: "TITLE"))
-            instance.role = self.getEscapingElementValue(element: query.element(forName: "ROLE"))
-            let tels = query.elements(forName: "TEL")
-            for tel in tels {
-                if tel.element(forName: "WORK") != nil {
-                    instance.telWorkVoice = self.getEscapingElementValue(element: tel.element(forName: "NUMBER"))
-                } else if tel.element(forName: "HOME") != nil {
-                    instance.telHomeVoice = self.getEscapingElementValue(element: tel.element(forName: "NUMBER"))
-                } else if tel.element(forName: "MOBILE") != nil {
-                    instance.telHomeMsg = self.getEscapingElementValue(element: tel.element(forName: "NUMBER"))
-                }
-            }
-            let adrs = query.elements(forName: "ADR")
-            for adr in adrs {
-                if adr.element(forName: "WORK") != nil {
-                    instance.adrWorkPoBox = self.getEscapingElementValue(element: adr.element(forName: "POBOX"))
-                    instance.adrWorkExtadd = self.getEscapingElementValue(element: adr.element(forName: "EXTADD"))
-                    instance.adrWorkStreet = self.getEscapingElementValue(element: adr.element(forName: "STREET"))
-                    instance.adrWorkLocality = self.getEscapingElementValue(element: adr.element(forName: "LOCALITY"))
-                    instance.adrWorkRegion = self.getEscapingElementValue(element: adr.element(forName: "REGION"))
-                    instance.adrWorkPCode = self.getEscapingElementValue(element: adr.element(forName: "PCODE"))
-                    instance.adrWorkCountry = self.getEscapingElementValue(element: adr.element(forName: "CTRY"))
-                } else if adr.element(forName: "HOME") != nil {
-                    instance.adrHomePoBox = self.getEscapingElementValue(element: adr.element(forName: "POBOX"))
-                    instance.adrHomeExtadd = self.getEscapingElementValue(element: adr.element(forName: "EXTADD"))
-                    instance.adrHomeStreet = self.getEscapingElementValue(element: adr.element(forName: "STREET"))
-                    instance.adrHomeLocality = self.getEscapingElementValue(element: adr.element(forName: "LOCALITY"))
-                    instance.adrHomeRegion = self.getEscapingElementValue(element: adr.element(forName: "REGION"))
-                    instance.adrHomePCode = self.getEscapingElementValue(element: adr.element(forName: "PCODE"))
-                    instance.adrHomeCountry = self.getEscapingElementValue(element: adr.element(forName: "CTRY"))
-                }
-            }
-            for emailElement in query.elements(forName: "EMAIL") {
-                if emailElement.element(forName: "WORK") != nil {
-                    instance.emailWork = self.getEscapingElementValue(element: emailElement.element(forName: "USERID"))
-                }
-                if emailElement.element(forName: "HOME") != nil {
-                    instance.emailHome = self.getEscapingElementValue(element: emailElement.element(forName: "USERID"))
-                }
-            }
-            
-            
-            
-            instance.jabberId = self.getEscapingElementValue(element: query.element(forName: "JABBERID"))
-            instance.descr = self.getEscapingElementValue(element: query.element(forName: "DESC"))
-            
+        if succeeded {
+            Self.emitDidPersistVCard(owner: owner, jid: requestJID)
         }
-        
+        requestCoordinator.completeResponse(receipt, success: succeeded)
         return true
+    }
+
+    private func persistVCardFailure(for jid: String) -> Bool {
+        do {
+            let realm = try WRealm.safe()
+            let update = {
+                VCardTerminalStorageMutation.persistFailure(
+                    in: realm,
+                    owner: self.owner,
+                    jid: jid
+                )
+            }
+            if realm.isInWriteTransaction {
+                update()
+            } else {
+                try realm.write(update)
+            }
+            return true
+        } catch {
+            DDLogDebug("VCardManager: \(#function). \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func persistVCard(_ query: DDXMLElement, for jid: String) -> Bool {
+        do {
+            let realm = try WRealm.safe()
+            var generatedNickname = ""
+            var rosterDisplayName: String?
+            var rosterAvatarURL: String?
+            let update = {
+                let stored = realm.object(
+                    ofType: vCardStorageItem.self,
+                    forPrimaryKey: jid
+                )
+                let instance = stored ?? vCardStorageItem()
+                if stored == nil {
+                    instance.jid = jid
+                }
+                self.apply(query, to: instance)
+                generatedNickname = instance.generatedNickname
+                if stored == nil {
+                    realm.add(instance)
+                }
+
+                if jid == self.owner {
+                    realm.object(
+                        ofType: AccountStorageItem.self,
+                        forPrimaryKey: self.owner
+                    )?.username = generatedNickname
+                } else if let roster = realm.object(
+                    ofType: RosterStorageItem.self,
+                    forPrimaryKey: [jid, self.owner].prp()
+                ) {
+                    roster.username = generatedNickname
+                    rosterDisplayName = roster.displayName
+                    rosterAvatarURL = roster.avatarUrl
+                }
+            }
+            if realm.isInWriteTransaction {
+                update()
+            } else {
+                try realm.write(update)
+            }
+
+            _ = VCardPresentationProjectionStore.shared.apply(
+                owner: owner,
+                jid: jid,
+                title: generatedNickname
+            )
+
+            if jid == owner {
+                AccountManager.shared.find(for: owner)?.updateUsername(generatedNickname)
+            } else if let rosterDisplayName {
+                CommonContactsMetadataManager.shared.update(
+                    owner: owner,
+                    jid: jid,
+                    username: rosterDisplayName,
+                    avatarUrl: rosterAvatarURL
+                )
+            }
+            return true
+        } catch {
+            DDLogDebug("VCardManager: \(#function). \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func apply(
+        _ query: DDXMLElement,
+        to instance: vCardStorageItem
+    ) {
+        instance.lastUpdateDate = Date()
+        instance.owner = owner
+        instance.isLastUpdateErrorOccured = false
+        instance.fn = getEscapingElementValue(element: query.element(forName: "FN"))
+        instance.family = getEscapingElementValue(element: query.element(forName: "N")?.element(forName: "FAMILY"))
+        instance.given = getEscapingElementValue(element: query.element(forName: "N")?.element(forName: "GIVEN"))
+        instance.middle = getEscapingElementValue(element: query.element(forName: "N")?.element(forName: "MIDDLE"))
+        instance.nickname = getEscapingElementValue(element: query.element(forName: "NICKNAME"))
+        instance.url = getEscapingElementValue(element: query.element(forName: "URL"))
+        instance.birthday = Date()
+        instance.birthdayString = getEscapingElementValue(element: query.element(forName: "BDAY"))
+        instance.orgname = getEscapingElementValue(element: query.element(forName: "ORG")?.element(forName: "ORGNAME"))
+        instance.orgunit = getEscapingElementValue(element: query.element(forName: "ORG")?.element(forName: "ORGUNIT"))
+        instance.title = getEscapingElementValue(element: query.element(forName: "TITLE"))
+        instance.role = getEscapingElementValue(element: query.element(forName: "ROLE"))
+
+        for telephone in query.elements(forName: "TEL") {
+            if telephone.element(forName: "WORK") != nil {
+                instance.telWorkVoice = getEscapingElementValue(element: telephone.element(forName: "NUMBER"))
+            } else if telephone.element(forName: "HOME") != nil {
+                instance.telHomeVoice = getEscapingElementValue(element: telephone.element(forName: "NUMBER"))
+            } else if telephone.element(forName: "MOBILE") != nil {
+                instance.telHomeMsg = getEscapingElementValue(element: telephone.element(forName: "NUMBER"))
+            }
+        }
+        for address in query.elements(forName: "ADR") {
+            if address.element(forName: "WORK") != nil {
+                instance.adrWorkPoBox = getEscapingElementValue(element: address.element(forName: "POBOX"))
+                instance.adrWorkExtadd = getEscapingElementValue(element: address.element(forName: "EXTADD"))
+                instance.adrWorkStreet = getEscapingElementValue(element: address.element(forName: "STREET"))
+                instance.adrWorkLocality = getEscapingElementValue(element: address.element(forName: "LOCALITY"))
+                instance.adrWorkRegion = getEscapingElementValue(element: address.element(forName: "REGION"))
+                instance.adrWorkPCode = getEscapingElementValue(element: address.element(forName: "PCODE"))
+                instance.adrWorkCountry = getEscapingElementValue(element: address.element(forName: "CTRY"))
+            } else if address.element(forName: "HOME") != nil {
+                instance.adrHomePoBox = getEscapingElementValue(element: address.element(forName: "POBOX"))
+                instance.adrHomeExtadd = getEscapingElementValue(element: address.element(forName: "EXTADD"))
+                instance.adrHomeStreet = getEscapingElementValue(element: address.element(forName: "STREET"))
+                instance.adrHomeLocality = getEscapingElementValue(element: address.element(forName: "LOCALITY"))
+                instance.adrHomeRegion = getEscapingElementValue(element: address.element(forName: "REGION"))
+                instance.adrHomePCode = getEscapingElementValue(element: address.element(forName: "PCODE"))
+                instance.adrHomeCountry = getEscapingElementValue(element: address.element(forName: "CTRY"))
+            }
+        }
+        for email in query.elements(forName: "EMAIL") {
+            if email.element(forName: "WORK") != nil {
+                instance.emailWork = getEscapingElementValue(element: email.element(forName: "USERID"))
+            }
+            if email.element(forName: "HOME") != nil {
+                instance.emailHome = getEscapingElementValue(element: email.element(forName: "USERID"))
+            }
+        }
+        instance.jabberId = getEscapingElementValue(element: query.element(forName: "JABBERID"))
+        instance.descr = getEscapingElementValue(element: query.element(forName: "DESC"))
     }
     
     private final func getEscapingElementValue(element: DDXMLElement?) -> String {
@@ -391,69 +914,6 @@ class VCardManager: AbstractXMPPManager {
         let vcard = DDXMLElement(name: "vCard", xmlns: "vcard-temp")
         vcard.addChild(DDXMLElement(name: "NICKNAME", stringValue: nickname))
         stream.send(XMPPIQ(iqType: .set, to: nil, elementID: stream.generateUUID, child: vcard))
-    }
-    
-    func getOrCreate(for jid: String, callback: ((vCardStorageItem)->Void)?) {
-        RunLoop.main.perform {
-            do {
-                let realm = try  WRealm.safe()
-                if let instance = realm.object(ofType: vCardStorageItem.self, forPrimaryKey: jid) {
-                    realm.writeAsync {
-                        callback?(instance)
-                        let username = instance.generatedNickname
-                        if jid == self.owner {
-                            realm.object(ofType: AccountStorageItem.self,
-                                         forPrimaryKey: self.owner)?.username = username
-                        } else {
-                            realm.object(ofType: RosterStorageItem.self,
-                                         forPrimaryKey: [jid, self.owner].prp())?
-                                .username = username
-                        }
-                        if let rosterInstance = realm.object(ofType: RosterStorageItem.self,
-                                                             forPrimaryKey: [jid, self.owner].prp()) {
-                            let username = rosterInstance.displayName
-                            let avatarUrl = rosterInstance.avatarUrl
-                            CommonContactsMetadataManager.shared.update(owner: self.owner, jid: jid, username: username, avatarUrl: avatarUrl)
-                        }
-                    }
-                } else {
-                    let instance = vCardStorageItem()
-                    instance.jid = jid
-                    callback?(instance)
-                    realm.writeAsync {
-                        realm.add(instance, update: .modified)
-                    
-                        let newUsername = instance.generatedNickname
-
-                        if jid == self.owner {
-                            realm.object(ofType: AccountStorageItem.self,
-                                         forPrimaryKey: self.owner)?.username = newUsername
-                            
-                        } else {
-                            realm.object(ofType: RosterStorageItem.self,
-                                         forPrimaryKey: [jid, self.owner].prp())?.username = newUsername
-                            if let displayName = realm
-                                .object(ofType: RosterStorageItem.self,
-                                        forPrimaryKey: [jid, self.owner].prp())?
-                                .displayName {
-                                RosterDisplayNameStorageItem.createOrUpdate(
-                                    jid: jid,
-                                    owner: self.owner,
-                                    displayName: displayName,
-                                    commitTransaction: false
-                                )
-                            }
-                        }
-                    }
-                }
-                if jid == self.owner {
-                    self.actualizeAccountUsername()
-                }
-            } catch {
-                DDLogDebug("cant save vcard instance for \(jid)")
-            }
-        }
-
     }
     
     func createFromDatasource(items: [VCardMetaItem]) {
@@ -529,34 +989,204 @@ class VCardManager: AbstractXMPPManager {
         }
     }
     
-    open var addContactVcardCheckCallback: ((String, Bool) -> Void)? = nil
-    open var addContactVcardCheckId: String? = nil
-    
     public final func requestItem(_ xmppStream: XMPPStream, jid: String, addContactVcardCheckCallback: ((String, Bool) -> Void)? = nil) -> String {
-        let elementId = "vCard: \(NanoID.new(8))"
-        let iq = XMPPIQ(
-            iqType: .get,
-            to: jid == self.owner ? nil : XMPPJID(string: jid),
-            elementID: elementId,
-            child: DDXMLElement(name: "vCard", xmlns: getPrimaryNamespace())
-        )
-        if addContactVcardCheckCallback != nil {
-            self.addContactVcardCheckCallback = addContactVcardCheckCallback
-            self.addContactVcardCheckId = elementId
+        _ = xmppStream
+        guard let primaryManager = AccountManager.shared.find(for: owner)?.vcards else {
+            addContactVcardCheckCallback?(jid, false)
+            return "vCard: \(NanoID.new(8))"
         }
-        xmppStream.send(iq)
-        return elementId
+        let completion: VCardRequestSingleFlightCoordinator.Completion? =
+            addContactVcardCheckCallback.map { callback in
+                { request, success in
+                    callback(request.jid, success)
+                }
+            }
+        return primaryManager.scheduleRequest(jid: jid, priority: .foreground, completion: completion)?.elementID
+            ?? "vCard: \(NanoID.new(8))"
     }
-    
+
     public final func requestIfMissed(_ stream: XMPPStream, jid: String) {
+        _ = stream
+        _ = requestIfNeeded(jid: jid, priority: .background)
+    }
+
+    @discardableResult
+    final func requestVisibleIfNeeded(
+        _ stream: XMPPStream,
+        jid: String
+    ) -> VCardVisibleRequestDisposition {
+        _ = stream
+        return requestIfNeeded(
+            jid: jid,
+            priority: .foreground,
+            reportsVisibleFailure: true
+        )
+    }
+
+    @discardableResult
+    final func retryVisibleIfNeeded(
+        _ stream: XMPPStream,
+        jid: String,
+        expectedProof: VCardVisibleRetryProof
+    ) -> VCardVisibleRequestDisposition {
+        let isCurrentManager = AccountManager.shared.find(for: owner)?.vcards === self
+        guard VCardVisibleRetryRequestGuard.shouldSubmit(
+            expectedManagerEpoch: expectedProof.managerEpoch,
+            currentManagerEpoch: requestManagerEpoch,
+            expectedGeneration: expectedProof.generation,
+            currentGeneration: requestCoordinator.currentGeneration,
+            isCurrentAccountManager: isCurrentManager,
+            isStreamAuthenticated: stream.isAuthenticated
+        ) else {
+            return .stale
+        }
+        return requestIfNeeded(
+            jid: jid,
+            priority: .foreground,
+            reportsVisibleFailure: true
+        )
+    }
+
+    private func requestIfNeeded(
+        jid rawJID: String,
+        priority: VCardRequestPriority,
+        reportsVisibleFailure: Bool = false,
+        now: Date = Date()
+    ) -> VCardVisibleRequestDisposition {
+        guard let jid = XMPPJID(string: rawJID)?.bare else {
+            return .unavailable
+        }
         do {
             let realm = try WRealm.safe()
-            if realm.object(ofType: vCardStorageItem.self, forPrimaryKey: jid) == nil {
-                _ = self.requestItem(stream, jid: jid)
+            let storedCard = realm.object(
+                ofType: vCardStorageItem.self,
+                forPrimaryKey: jid
+            )
+            let persistedOwner = storedCard?.owner
+            let lastRequestFailed = storedCard?.isLastUpdateErrorOccured == true
+            let lastUpdateDate = storedCard?.lastUpdateDate ?? .distantPast
+            guard VCardRequestRefreshPolicy.shouldRequest(
+                persistedOwner: persistedOwner,
+                requestOwner: owner,
+                lastRequestFailed: lastRequestFailed,
+                lastUpdateDate: lastUpdateDate,
+                now: now
+            ) else {
+                if persistedOwner == owner, lastRequestFailed {
+                    return .retryAfter(
+                        deadline: lastUpdateDate.addingTimeInterval(
+                            VCardRequestRefreshPolicy.failureRetryCooldown
+                        ),
+                        proof: VCardVisibleRetryProof(
+                            managerEpoch: requestManagerEpoch,
+                            generation: requestCoordinator.currentGeneration
+                        )
+                    )
+                }
+                return .satisfied
             }
+            guard let primaryManager = AccountManager.shared.find(for: owner)?.vcards,
+                  primaryManager === self else {
+                return .unavailable
+            }
+            let managerEpoch = requestManagerEpoch
+            let completion: VCardRequestSingleFlightCoordinator.Completion? =
+                reportsVisibleFailure
+                    ? { request, success in
+                        guard !success else { return }
+                        Self.emitDidFailVisibleVCardRequest(
+                            owner: request.owner,
+                            jid: request.jid,
+                            managerEpoch: managerEpoch,
+                            generation: request.generation
+                        )
+                    }
+                    : nil
+            guard let request = primaryManager.scheduleRequest(
+                jid: jid,
+                priority: priority,
+                completion: completion
+            ) else {
+                return .unavailable
+            }
+            return .submitted(
+                proof: VCardVisibleRetryProof(
+                    managerEpoch: requestManagerEpoch,
+                    generation: request.generation
+                )
+            )
         } catch {
             DDLogDebug("VCardManager: \(#function). \(error.localizedDescription)")
+            return .unavailable
         }
+    }
+
+    private func scheduleRequest(
+        jid: String,
+        priority: VCardRequestPriority,
+        completion: VCardRequestSingleFlightCoordinator.Completion? = nil
+    ) -> VCardSingleFlightRequest? {
+        guard let account = AccountManager.shared.find(for: owner),
+              account.vcards === self else {
+            return nil
+        }
+        guard let submission = requestCoordinator.submit(
+            jid: jid,
+            priority: priority,
+            completion: completion
+        ) else {
+            return nil
+        }
+
+        let request: VCardSingleFlightRequest
+        switch submission {
+        case .joined(let joined):
+            return joined
+        case .promote(let promoted):
+            account.xmppTaskScheduler.promotePendingTask(
+                deduplicationKey: promoted.deduplicationKey,
+                to: promoted.priority.schedulerPriority
+            )
+            return promoted
+        case .enqueue(let enqueued):
+            request = enqueued
+        }
+
+        account.xmppTaskScheduler.enqueueAccountTask(
+            priority: request.priority.schedulerPriority,
+            resource: .vcard,
+            deduplicationKey: request.deduplicationKey,
+            requiresAuthenticatedStream: true,
+            unavailable: { [weak self] in
+                self?.requestCoordinator.fail(request)
+            }
+        ) { [weak self] account, _, schedulerFinish in
+            guard let self else {
+                schedulerFinish()
+                return
+            }
+            guard self.requestCoordinator.activate(
+                request,
+                schedulerFinish: schedulerFinish
+            ) else {
+                schedulerFinish()
+                return
+            }
+
+            let iq = XMPPIQ(
+                iqType: .get,
+                to: request.jid == request.owner ? nil : XMPPJID(string: request.jid),
+                elementID: request.elementID,
+                child: DDXMLElement(name: "vCard", xmlns: self.getPrimaryNamespace())
+            )
+            if case .rejected = account.sendPrimaryStanza(
+                iq,
+                replayPolicy: .notReplayable
+            ) {
+                self.requestCoordinator.fail(request)
+            }
+        }
+        return request
     }
     
     func update(_ xmppStream: XMPPStream) {
@@ -574,6 +1204,7 @@ class VCardManager: AbstractXMPPManager {
     }
     
     static func remove(for owner: String, commitTransaction: Bool) {
+        VCardPresentationProjectionStore.shared.removeAll(for: owner)
         do {
             let realm = try  WRealm.safe()
             var collection: [vCardStorageItem] = []

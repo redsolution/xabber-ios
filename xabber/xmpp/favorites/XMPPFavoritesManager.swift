@@ -529,9 +529,16 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         instance.inlineForwards.append(objectsIn: parseInlineMessages(message, parentId: instance.primary, jid: savedServiceJid, owner: self.owner))
         instance.updateDisplayMode()
         instance.references.forEach { $0.messageId = instance.primary }
+        let pendingMediaAttachments = instance
+            .pendingMediaAttachmentsIncludingInlineForwards()
 
         try performSavedWrite(in: realm, commitTransaction: commitTransaction) {
             realm.add(instance, update: isExist ? .all : .modified)
+            MessageStorageItem.persistPendingMediaAttachments(
+                pendingMediaAttachments,
+                forMessagePrimary: instance.primary,
+                in: realm
+            )
             storeSavedForwardingStanza(for: instance, envelope: envelope, in: realm)
             updateSavedLastChatPreviewIfNeeded(
                 realm: realm,

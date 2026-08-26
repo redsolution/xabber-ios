@@ -23,8 +23,8 @@ import RealmSwift
 
 enum XabberRealmSchema {
     /// Schema 19 introduces proof-bearing conversation archive coverage.
-    /// Schema 18 ranges are imported as provisional and cannot authorize UI
-    /// until a matching completed XEP-SYNC snapshot verifies them.
+    /// Schema 18 ranges are imported as permanently provisional compatibility
+    /// data. Only current-session MAM persistence proof can authorize UI.
     static let current: UInt64 = 19
 }
 

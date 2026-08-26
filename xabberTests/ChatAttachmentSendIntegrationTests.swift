@@ -5,9 +5,12 @@ import XMPPFramework
 
 @MainActor
 final class ChatAttachmentSendIntegrationTests: XCTestCase {
+    private var previousRealmConfiguration: Realm.Configuration!
+
     override func setUp() {
         super.setUp()
 
+        previousRealmConfiguration = Realm.Configuration.defaultConfiguration
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "ChatAttachmentSendIntegrationTests-\(name)"
         )
@@ -15,6 +18,12 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         try! realm.write {
             realm.deleteAll()
         }
+    }
+
+    override func tearDown() {
+        Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        previousRealmConfiguration = nil
+        super.tearDown()
     }
 
     func testSendButtonDisabledUntilEverySelectedDraftIsPrepared() {
@@ -498,6 +507,134 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
         XCTAssertTrue(realm.objects(MessageStorageItem.self).isEmpty)
     }
 
+    func testFormForwardedMessagesAssignsRangesAfterDateSorting() throws {
+        let manager = MessageManager(withOwner: Self.context.owner, activeStream: false)
+        let olderDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let newerDate = Date(timeIntervalSince1970: 1_700_000_100)
+        let olderPrimary = try persistForwardSource(
+            messageID: "forward-range-older",
+            body: "Short & bright 😀",
+            date: olderDate
+        )
+        let newerPrimary = try persistForwardSource(
+            messageID: "forward-range-newer",
+            body: "A much longer <forwarded> body 👍🏽",
+            date: newerDate
+        )
+
+        let items = manager.formForwardedMessages([olderPrimary, newerPrimary])
+
+        XCTAssertEqual(items.map(\.date), [newerDate, olderDate])
+        var expectedBegin = 0
+        for item in items {
+            XCTAssertEqual(
+                item.referenceElement.attributeIntegerValue(forName: "begin"),
+                expectedBegin
+            )
+            expectedBegin += item.body
+                .xmlEscaping(reverse: false)
+                .unicodeScalars
+                .count + 1
+            XCTAssertEqual(
+                item.referenceElement.attributeIntegerValue(forName: "end"),
+                expectedBegin
+            )
+        }
+    }
+
+    func testFormForwardedMessagesSetsClientNamespaceOnInnerMessage() throws {
+        let manager = MessageManager(withOwner: Self.context.owner, activeStream: false)
+        let primary = try persistForwardSource(
+            messageID: "forward-inner-namespace",
+            body: "Namespace contract",
+            date: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        let item = try XCTUnwrap(manager.formForwardedMessages([primary]).first)
+        let forwarded = try XCTUnwrap(
+            item.referenceElement.element(forName: "forwarded", xmlns: "urn:xmpp:forward:0")
+        )
+        let innerMessage = try XCTUnwrap(
+            forwarded.element(forName: "message", xmlns: "jabber:client")
+        )
+
+        XCTAssertEqual(innerMessage.xmlns(), "jabber:client")
+        XCTAssertEqual(innerMessage.element(forName: "body")?.stringValue, "Namespace contract")
+    }
+
+    func testSendSimpleMessageShiftsDecorationRangesByForwardFallbackPrefix() throws {
+        let manager = MessageManager(withOwner: Self.context.owner, activeStream: false)
+        let forwardedPrimary = try persistForwardSource(
+            messageID: "forward-decoration-prefix",
+            body: "Forwarded body",
+            date: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let markup = MessageReferenceStorageItem()
+        markup.kind = .markup
+        markup.begin = 0
+        markup.end = 5
+        let mention = MessageReferenceStorageItem()
+        mention.kind = .mention
+        mention.begin = 6
+        mention.end = 13
+        mention.metadata = ["uri": "xmpp:juliet@example.com"]
+
+        let originID = manager.sendSimpleMessage(
+            "Hello @Juliet",
+            to: Self.context.jid,
+            forwarded: [forwardedPrimary],
+            conversationType: Self.context.conversationType,
+            references: [markup, mention]
+        )
+
+        let realm = try WRealm.safe()
+        let outgoingPrimary = MessageStorageItem.genPrimary(
+            messageId: originID,
+            owner: Self.context.owner
+        )
+        let storedMessage = try XCTUnwrap(
+            realm.object(ofType: MessageStorageItem.self, forPrimaryKey: outgoingPrimary)
+        )
+        XCTAssertEqual(storedMessage.references.first(where: { $0.kind == .markup })?.begin, 0)
+        XCTAssertEqual(storedMessage.references.first(where: { $0.kind == .mention })?.begin, 6)
+        let stanzaRow = try XCTUnwrap(
+            realm.object(
+                ofType: MessageStanzaStorageItem.self,
+                forPrimaryKey: "\(outgoingPrimary)_stanza"
+            )
+        )
+        let document = try DDXMLDocument(xmlString: stanzaRow.stanza, options: 0)
+        let message = try XCTUnwrap(document.rootElement())
+        let referenceElements = message
+            .elements(forName: "reference")
+            .filter { $0.xmlns() == "https://xabber.com/protocol/references" }
+        let forwardReference = try XCTUnwrap(
+            referenceElements.first {
+                $0.element(forName: "forwarded", xmlns: "urn:xmpp:forward:0") != nil
+            }
+        )
+        let fallbackPrefixLength = forwardReference.attributeIntegerValue(forName: "end")
+        let decorationReferences = referenceElements.filter {
+            $0.attributeStringValue(forName: "type") == "decoration"
+        }
+        let markupReference = try XCTUnwrap(
+            decorationReferences.first {
+                $0.element(forName: "mention", xmlns: "https://xabber.com/protocol/markup") == nil
+            }
+        )
+        let mentionReference = try XCTUnwrap(
+            decorationReferences.first {
+                $0.element(forName: "mention", xmlns: "https://xabber.com/protocol/markup") != nil
+            }
+        )
+
+        XCTAssertEqual(forwardReference.attributeIntegerValue(forName: "begin"), 0)
+        XCTAssertEqual(markupReference.attributeIntegerValue(forName: "begin"), fallbackPrefixLength)
+        XCTAssertEqual(markupReference.attributeIntegerValue(forName: "end"), fallbackPrefixLength + 5)
+        XCTAssertEqual(mentionReference.attributeIntegerValue(forName: "begin"), fallbackPrefixLength + 6)
+        XCTAssertEqual(mentionReference.attributeIntegerValue(forName: "end"), fallbackPrefixLength + 13)
+    }
+
     private func makePipeline(
         isCloudStorageAvailable: Bool = true,
         quotaRefresher: FakeTask18QuotaRefresher = FakeTask18QuotaRefresher(),
@@ -532,6 +669,45 @@ final class ChatAttachmentSendIntegrationTests: XCTestCase {
 
         wait(for: [expectation], timeout: 2)
         return capturedResult ?? .blocked(.sendFailed)
+    }
+
+    private func persistForwardSource(
+        messageID: String,
+        body: String,
+        date: Date
+    ) throws -> String {
+        let source = MessageStorageItem()
+        source.messageId = messageID
+        source.owner = Self.context.owner
+        source.opponent = "carol@example.com"
+        source.body = body
+        source.legacyBody = body
+        source.date = date
+        source.sentDate = date
+        source.outgoing = false
+        source.conversationType = .regular
+        source.updatePrimary()
+
+        let stanzaXML = """
+        <message from='carol@example.com' to='\(Self.context.owner)' type='chat' id='\(messageID)'>
+          <body>\(body.xmlEscaping(reverse: false))</body>
+        </message>
+        """
+        let stanza = MessageStanzaStorageItem()
+        stanza.set(
+            messageID,
+            for: Self.context.owner,
+            with: stanzaXML,
+            at: date,
+            primary: source.primary
+        )
+
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.add(source, update: .modified)
+            realm.add(stanza, update: .modified)
+        }
+        return source.primary
     }
 
     private static let context = ChatAttachmentFlowContext(

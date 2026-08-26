@@ -1063,6 +1063,10 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
             var retryCount = 0
             var retryAccepted = false
             var retryDestination: ChatViewController?
+            var scheduled: [() -> Void] = []
+            controller.pendingMessageNotificationAsyncScheduler = {
+                scheduled.append($0)
+            }
             controller.pendingMessageNotificationRouteRetryHandler = {
                 retryCount += 1
                 retryAccepted = controller.stackNewChat(
@@ -1103,9 +1107,20 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
                 XCTAssertEqual(navigationController.viewControllers.count, 2)
                 XCTAssertTrue(navigationController.topViewController === destination)
             case .pushing:
-                XCTFail("the synchronous observation point must be preparing or already presented")
+                XCTAssertTrue(
+                    controller.retainedCompactChatNavigationDestination?.controller === destination
+                )
+                XCTAssertEqual(navigationController.viewControllers.count, 2)
+                XCTAssertTrue(navigationController.topViewController === destination)
             }
 
+            XCTAssertTrue(waitUntil {
+                controller.chatNavigationSingleFlight.state?.phase == .presented &&
+                    navigationController.topViewController === destination &&
+                    scheduled.count == 1
+            })
+            simulateCommittedStableChatOpenPresentation(on: destination)
+            scheduled.removeFirst()()
             wait(for: [retried], timeout: 1)
             XCTAssertEqual(retryCount, 1)
             XCTAssertTrue(retryAccepted)
@@ -1157,7 +1172,11 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
                 XCTAssertEqual(navigationController.viewControllers.count, 2)
                 XCTAssertTrue(navigationController.topViewController === destination)
             case .pushing:
-                XCTFail("the synchronous observation point must be preparing or already presented")
+                XCTAssertTrue(
+                    controller.retainedCompactChatNavigationDestination?.controller === destination
+                )
+                XCTAssertEqual(navigationController.viewControllers.count, 2)
+                XCTAssertTrue(navigationController.topViewController === destination)
             }
             controller.resetChatNavigationTransaction(cancelled: true)
         }
@@ -1376,7 +1395,15 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
             target: romeo,
             archivedId: "archive-retry-visible"
         )
+        _ = destination.acceptChatOpenPerformanceTrace(
+            purpose: .notificationRoute,
+            semanticTargetFingerprint:
+                destination.chatOpenPerformanceSemanticTargetFingerprint(
+                    for: request
+                )
+        )
         destination.pendingOpenMessageRequest = request
+        simulateCommittedStableChatOpenPresentation(on: destination)
         let token = UUID()
         _ = controller.chatNavigationSingleFlight.request(target: romeo, token: token)
         XCTAssertTrue(controller.chatNavigationSingleFlight.markPushing(token: token, target: romeo))
@@ -1597,8 +1624,13 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         let host = try makeForegroundExpandedSplitHost(currentTarget: romeo)
         defer { releaseForegroundExpandedSplitHost(host) }
         let probe = ExpandedSplitChatPresentationProbe()
+        let effects = LastChatsChatOpenIntentSideEffectProbe()
         host.controller.chatNavigationRouteResolver = { _ in .splitDetailReplacement }
         host.controller.expandedSplitChatPresentationHandler = probe.present
+        host.controller.chatOpenIntentDeliveryHandler = { intent, destination in
+            effects.deliver(intent: intent, destination: destination)
+            simulateCommittedStableChatOpenPresentation(on: destination)
+        }
         let request = makeExactNotificationRequest(
             target: romeo,
             archivedId: "archive-split-stable"
@@ -1624,8 +1656,13 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         let host = try makeForegroundExpandedSplitHost(currentTarget: romeo)
         defer { releaseForegroundExpandedSplitHost(host) }
         let probe = ExpandedSplitChatPresentationProbe()
+        let effects = LastChatsChatOpenIntentSideEffectProbe()
         host.controller.chatNavigationRouteResolver = { _ in .splitDetailReplacement }
         host.controller.expandedSplitChatPresentationHandler = probe.present
+        host.controller.chatOpenIntentDeliveryHandler = { intent, destination in
+            effects.deliver(intent: intent, destination: destination)
+            simulateCommittedStableChatOpenPresentation(on: destination)
+        }
         let request = makeExactNotificationRequest(
             target: romeo,
             archivedId: "archive-split-left-menu"
@@ -1696,6 +1733,9 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
                 at: 0,
                 in: host.splitViewController
             )
+        )
+        simulateCommittedStableChatOpenPresentation(
+            on: preparedDestination
         )
 
         wait(for: [retried], timeout: 1)
@@ -1796,7 +1836,12 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         defer { releaseForegroundExpandedSplitHost(host) }
         var route: StackedNavigationRoute = .splitDetailReplacement
         var attempts: [Bool] = []
+        let controlledDestination =
+            ControlledExpandedSplitChatViewController()
         host.controller.chatNavigationRouteResolver = { _ in route }
+        host.controller.expandedSplitChatDestinationFactory = {
+            controlledDestination
+        }
         host.controller.expandedSplitPresentationAttemptObserver = {
             _, destinationWasAlreadyPrepared in
             attempts.append(destinationWasAlreadyPrepared)
@@ -1820,6 +1865,7 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         host.window.rootViewController = listNavigationController
         host.window.makeKeyAndVisible()
         listNavigationController.view.layoutIfNeeded()
+        controlledDestination.releaseNextPreparation()
 
         XCTAssertTrue(waitUntil {
             host.controller.expandedSplitChatNavigationTransaction?.phase ==
@@ -1883,9 +1929,8 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
             conversationType: mercutio.conversationType,
             openMessageRequest: firstRequest
         ))
-        XCTAssertTrue(probe.commitAttempt(at: 0, in: host.splitViewController))
+        XCTAssertTrue(probe.installAttempt(at: 0, in: host.splitViewController))
         let presentedDestination = try XCTUnwrap(probe.attempts.first?.destination)
-        host.controller.expandedSplitStableVisibilityOverride = { _ in false }
 
         XCTAssertFalse(host.controller.stackNewChat(
             owner: tybalt.owner,
@@ -1894,13 +1939,19 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
             openMessageRequest: newerRequest
         ))
         XCTAssertEqual(probe.attempts.count, 1)
-        XCTAssertTrue(host.controller.currentChatVC === presentedDestination)
+        XCTAssertTrue(host.controller.currentChatVC === host.currentChat)
+        XCTAssertTrue(
+            (host.splitViewController.viewController(for: .secondary)
+                as? UINavigationController)?.topViewController
+                === presentedDestination
+        )
         XCTAssertEqual(presentedDestination.owner, mercutio.owner)
         XCTAssertEqual(presentedDestination.jid, mercutio.jid)
         XCTAssertEqual(
             host.controller.expandedSplitChatNavigationTransaction?.phase,
-            .presented
+            .presenting
         )
+        probe.completeAttempt(at: 0, didPresent: true)
     }
 
     @MainActor
@@ -2117,6 +2168,11 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
                 name
             )
             XCTAssertEqual(effects.deliveryCount(for: request), 1, name)
+            simulateCommittedStableChatOpenPresentation(
+                on: destination,
+                file: #filePath,
+                line: #line
+            )
             XCTAssertTrue(host.controller.stackNewChat(
                 owner: mercutio.owner,
                 jid: mercutio.jid,
@@ -2279,6 +2335,7 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         defer { releaseForegroundExpandedSplitHost(host) }
         var attempts: [Bool] = []
         var stableAcknowledgementCount = 0
+        var scheduled: [() -> Void] = []
         let request = makeExactNotificationRequest(
             target: mercutio,
             archivedId: "production-show-stacked"
@@ -2286,6 +2343,9 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         host.controller.expandedSplitPresentationAttemptObserver = {
             _, destinationWasAlreadyPrepared in
             attempts.append(destinationWasAlreadyPrepared)
+        }
+        host.controller.pendingMessageNotificationAsyncScheduler = {
+            scheduled.append($0)
         }
         host.controller.pendingMessageNotificationRouteRetryHandler = {
             let accepted = host.controller.stackNewChat(
@@ -2313,8 +2373,7 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
             let secondary = host.splitViewController.viewController(for: .secondary)
             let chat = (secondary as? UINavigationController)?.topViewController
                 as? ChatViewController
-            return chat?.jid == self.mercutio.jid &&
-                stableAcknowledgementCount == 1
+            return chat?.jid == self.mercutio.jid && scheduled.count == 1
         })
         let installedSecondary = try XCTUnwrap(
             host.splitViewController.viewController(for: .secondary)
@@ -2323,6 +2382,9 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         let destination = try XCTUnwrap(
             installedSecondary.topViewController as? ChatViewController
         )
+        simulateCommittedStableChatOpenPresentation(on: destination)
+        scheduled.removeFirst()()
+        XCTAssertTrue(waitUntil { stableAcknowledgementCount == 1 })
         XCTAssertEqual(attempts, [false])
         XCTAssertEqual(stableAcknowledgementCount, 1)
         XCTAssertTrue(host.controller.currentChatVC === destination)
@@ -2344,6 +2406,7 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         )
         var presentationAttempts: [Bool] = []
         var stableAcknowledgementCount = 0
+        var scheduled: [() -> Void] = []
         let request = makeExactNotificationRequest(
             target: mercutio,
             archivedId: "phone-production-split-route"
@@ -2351,6 +2414,9 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         host.controller.expandedSplitPresentationAttemptObserver = {
             _, destinationWasAlreadyPrepared in
             presentationAttempts.append(destinationWasAlreadyPrepared)
+        }
+        host.controller.pendingMessageNotificationAsyncScheduler = {
+            scheduled.append($0)
         }
         host.controller.pendingMessageNotificationRouteRetryHandler = {
             let accepted = host.leftMenu.openChatlistWithChat(
@@ -2398,9 +2464,16 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
             let destination = (secondary as? UINavigationController)?
                 .topViewController as? ChatViewController
             return secondary !== previousSecondary &&
-                destination?.jid == self.mercutio.jid &&
-                stableAcknowledgementCount == 1
+                destination?.jid == self.mercutio.jid && scheduled.count == 1
         })
+        let destination = try XCTUnwrap(
+            (host.splitViewController.viewController(for: .secondary)
+                as? UINavigationController)?.topViewController
+                as? ChatViewController
+        )
+        simulateCommittedStableChatOpenPresentation(on: destination)
+        scheduled.removeFirst()()
+        XCTAssertTrue(waitUntil { stableAcknowledgementCount == 1 })
         XCTAssertEqual(presentationAttempts, [false])
         XCTAssertEqual(stableAcknowledgementCount, 1)
         XCTAssertTrue(
@@ -2478,8 +2551,8 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
             .presenting
         )
         XCTAssertEqual(
-            ownedOpenMessageRequest(in: controlledDestination),
-            request
+            host.controller.chatOpenIntentOwnership?.intent,
+            .message(request)
         )
         XCTAssertTrue(host.controller.currentChatVC === host.currentChat)
         XCTAssertTrue(
@@ -2519,8 +2592,8 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         XCTAssertEqual(controlledDestination.preparationCount, 1)
         XCTAssertEqual(effects.deliveryCount(for: request), 1)
         XCTAssertEqual(
-            ownedOpenMessageRequest(in: controlledDestination),
-            request
+            host.controller.chatOpenIntentOwnership?.intent,
+            .message(request)
         )
         XCTAssertEqual(stableAcknowledgementCount, 0)
         XCTAssertEqual(scheduled.count, 1)
@@ -2537,14 +2610,17 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         XCTAssertEqual(controlledDestination.preparationCount, 1)
         XCTAssertEqual(effects.deliveryCount(for: request), 1)
         XCTAssertEqual(
-            ownedOpenMessageRequest(in: controlledDestination),
-            request
+            host.controller.chatOpenIntentOwnership?.intent,
+            .message(request)
         )
         controlledDestination.completeNativeTransition(
             at: 1,
             didComplete: true
         )
         XCTAssertEqual(scheduled.count, 1)
+        simulateCommittedStableChatOpenPresentation(
+            on: controlledDestination
+        )
         scheduled.removeFirst()()
 
         XCTAssertEqual(stableAcknowledgementCount, 1)
@@ -3478,7 +3554,9 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         XCTAssertTrue(waitUntil {
             scheduled.count == 1
         }, "the real append signal plus a duplicate registry mutation coalesce")
-        scheduled.removeFirst()()
+        let materializationWake = try XCTUnwrap(scheduled.first)
+        scheduled.removeFirst()
+        materializationWake()
         XCTAssertTrue(
             host.controller.expandedSplitChatNavigationTransaction?
                 .accountEpoch.isValidForChatNavigation == true
@@ -3490,6 +3568,8 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
             )
             return (secondary as? UINavigationController)?
                 .topViewController === controlledDestination &&
+                host.controller.expandedSplitChatNavigationTransaction?.phase ==
+                    .presented &&
                 !scheduled.isEmpty
         })
         XCTAssertEqual(
@@ -3503,7 +3583,12 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
             scheduledAfterPresentation,
             "the registry observer must stop as soon as presentation succeeds"
         )
-        scheduled.removeFirst()()
+        simulateCommittedStableChatOpenPresentation(
+            on: controlledDestination
+        )
+        let stablePresentationWake = try XCTUnwrap(scheduled.first)
+        scheduled.removeFirst()
+        stablePresentationWake()
 
         XCTAssertEqual(controlledDestination.preparationCount, 1)
         XCTAssertEqual(effects.deliveryCount(for: request), 1)
@@ -3944,6 +4029,9 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         XCTAssertEqual(presentationAttempts, [false, true])
         XCTAssertEqual(controlledDestination.preparationCount, 1)
         XCTAssertEqual(effects.deliveryCount(for: request), 1)
+        simulateCommittedStableChatOpenPresentation(
+            on: controlledDestination
+        )
         scheduled.removeFirst()()
 
         XCTAssertEqual(stableAcknowledgementCount, 1)
@@ -4076,13 +4164,22 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         var route: StackedNavigationRoute = .splitDetailReplacement
         var retryCount = 0
         var stableAcknowledgementCount = 0
+        var scheduled: [() -> Void] = []
         let effects = LastChatsChatOpenIntentSideEffectProbe()
+        let controlledDestination =
+            ControlledExpandedSplitChatViewController()
         let request = makeExactNotificationRequest(
             target: mercutio,
             archivedId: "collapse-recovery"
         )
         host.controller.chatNavigationRouteResolver = { _ in route }
+        host.controller.expandedSplitChatDestinationFactory = {
+            controlledDestination
+        }
         host.controller.chatOpenIntentDeliveryHandler = effects.deliver
+        host.controller.pendingMessageNotificationAsyncScheduler = {
+            scheduled.append($0)
+        }
         host.controller.pendingMessageNotificationRouteRetryHandler = {
             retryCount += 1
             let accepted = host.controller.stackNewChat(
@@ -4116,17 +4213,30 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         host.window.rootViewController = listNavigationController
         host.window.makeKeyAndVisible()
         listNavigationController.view.layoutIfNeeded()
+        controlledDestination.releaseNextPreparation()
         XCTAssertTrue(waitUntil {
             host.controller.expandedSplitChatNavigationTransaction?.phase ==
                 .waitingForEligibility
         })
 
         host.controller.retryPendingMessageNotificationRouteOnLifecycleStability()
-
+        XCTAssertEqual(scheduled.count, 1)
+        let collapseRecoveryWake = try XCTUnwrap(scheduled.first)
+        scheduled.removeFirst()
+        collapseRecoveryWake()
         XCTAssertTrue(waitUntil(timeout: 2) {
             listNavigationController.topViewController === preparedDestination &&
-                stableAcknowledgementCount == 1
+                host.controller.chatNavigationSingleFlight.state?.phase ==
+                    .presented &&
+                !scheduled.isEmpty
         })
+        simulateCommittedStableChatOpenPresentation(
+            on: preparedDestination
+        )
+        let stablePresentationWake = try XCTUnwrap(scheduled.first)
+        scheduled.removeFirst()
+        stablePresentationWake()
+        XCTAssertEqual(stableAcknowledgementCount, 1)
         XCTAssertGreaterThanOrEqual(retryCount, 1)
         XCTAssertEqual(stableAcknowledgementCount, 1)
         XCTAssertTrue(
@@ -4337,7 +4447,13 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         host.controller.retryPendingMessageNotificationRouteOnLifecycleStability()
         host.controller.retryPendingMessageNotificationRouteOnLifecycleStability()
         XCTAssertEqual(scheduled.count, 1, file: file, line: line)
-        scheduled.removeFirst()()
+        let accountWake = try XCTUnwrap(
+            scheduled.first,
+            file: file,
+            line: line
+        )
+        scheduled.removeFirst()
+        accountWake()
 
         XCTAssertEqual(
             host.controller.expandedSplitChatNavigationTransaction?.accountEpoch,
@@ -4371,9 +4487,22 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
             )
             return (secondary as? UINavigationController)?
                 .topViewController === retainedDestination &&
+                host.controller.expandedSplitChatNavigationTransaction?.phase ==
+                    .presented &&
                 !scheduled.isEmpty
         }, file: file, line: line)
-        scheduled.removeFirst()()
+        simulateCommittedStableChatOpenPresentation(
+            on: retainedDestination,
+            file: file,
+            line: line
+        )
+        let stablePresentationWake = try XCTUnwrap(
+            scheduled.first,
+            file: file,
+            line: line
+        )
+        scheduled.removeFirst()
+        stablePresentationWake()
 
         XCTAssertEqual(stableAcknowledgementCount, 1, file: file, line: line)
         XCTAssertNil(
@@ -4442,6 +4571,8 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
             rootViewController: currentChat
         )
         let splitViewController = UISplitViewController(style: .tripleColumn)
+        splitViewController.preferredSplitBehavior = .tile
+        splitViewController.preferredDisplayMode = .twoBesideSecondary
         let leftMenu = LeftMenuViewController()
         let accountIdentity = NSObject()
         leftMenu.chatsVc = controller
@@ -4470,20 +4601,48 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
             for: .secondary
         )
         controller.currentChatVC = currentChat
-        controller.expandedSplitStableVisibilityOverride = { _ in true }
+        controller.playerViewToolbar.delegate = currentChat
+        let splitHost = ExpandedSplitFixtureViewController(
+            splitViewController: splitViewController
+        )
         let window = UIWindow(windowScene: windowScene)
         window.frame = windowScene.coordinateSpace.bounds
-        window.rootViewController = splitViewController
+        window.rootViewController = splitHost
         window.makeKeyAndVisible()
+        splitHost.loadViewIfNeeded()
         splitViewController.loadViewIfNeeded()
-        splitViewController.show(.supplementary)
         currentChat.loadViewIfNeeded()
-        splitViewController.view.layoutIfNeeded()
+        UIView.performWithoutAnimation {
+            splitViewController.show(.supplementary)
+            splitHost.view.layoutIfNeeded()
+            splitViewController.view.layoutIfNeeded()
+        }
         RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertFalse(
+            splitViewController.isCollapsed,
+            "the expanded fixture must keep distinct supplementary and detail columns"
+        )
+        XCTAssertTrue(
+            waitUntil {
+                splitViewController.transitionCoordinator == nil &&
+                    splitViewController
+                        .viewController(for: .supplementary)?
+                        .transitionCoordinator == nil &&
+                    splitViewController
+                        .viewController(for: .secondary)?
+                        .transitionCoordinator == nil
+            },
+            "the expanded fixture must settle its initial UIKit transition epoch"
+        )
+        XCTAssertTrue(
+            currentChat.viewIfLoaded?.window === window,
+            "the existing detail must be attached in the expanded fixture"
+        )
         XCTAssertFalse(
             controller.isViewLoaded,
             "the cached Last Chats activation target must begin unsubscribed"
         )
+        controller.cancelPendingMessageNotificationRouteRetry()
         return ForegroundExpandedSplitHost(
             window: window,
             splitViewController: splitViewController,
@@ -4507,6 +4666,8 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         let currentChat = makeChat(for: currentTarget)
         let detailNavigationController = UINavigationController(rootViewController: currentChat)
         let splitViewController = UISplitViewController(style: .tripleColumn)
+        splitViewController.preferredSplitBehavior = .tile
+        splitViewController.preferredDisplayMode = .twoBesideSecondary
         let leftMenu = LeftMenuViewController()
         let accountIdentity = NSObject()
         leftMenu.chatsVc = controller
@@ -4529,17 +4690,52 @@ final class LastChatsNavigationSingleFlightTests: XCTestCase {
         splitViewController.setViewController(listNavigationController, for: .supplementary)
         splitViewController.setViewController(detailNavigationController, for: .secondary)
         controller.currentChatVC = currentChat
-        controller.expandedSplitStableVisibilityOverride = { _ in true }
+        controller.playerViewToolbar.delegate = currentChat
+        let splitHost = ExpandedSplitFixtureViewController(
+            splitViewController: splitViewController
+        )
         let window = UIWindow(windowScene: windowScene)
         window.frame = windowScene.coordinateSpace.bounds
-        window.rootViewController = splitViewController
+        window.rootViewController = splitHost
         window.makeKeyAndVisible()
+        splitHost.loadViewIfNeeded()
         splitViewController.loadViewIfNeeded()
-        splitViewController.show(.supplementary)
         controller.loadViewIfNeeded()
         currentChat.loadViewIfNeeded()
-        splitViewController.view.layoutIfNeeded()
+        UIView.performWithoutAnimation {
+            splitViewController.show(.supplementary)
+            splitHost.view.layoutIfNeeded()
+            splitViewController.view.layoutIfNeeded()
+        }
         RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertFalse(
+            splitViewController.isCollapsed,
+            "the expanded fixture must keep distinct supplementary and detail columns"
+        )
+        XCTAssertTrue(
+            waitUntil {
+                splitViewController.transitionCoordinator == nil &&
+                    splitViewController
+                        .viewController(for: .supplementary)?
+                        .transitionCoordinator == nil &&
+                    splitViewController
+                        .viewController(for: .secondary)?
+                        .transitionCoordinator == nil
+            },
+            "the expanded fixture must settle its initial UIKit transition epoch"
+        )
+        XCTAssertTrue(
+            controller.viewIfLoaded?.window === window,
+            "Last Chats must be attached as the expanded supplementary column"
+        )
+        XCTAssertTrue(
+            currentChat.viewIfLoaded?.window === window,
+            "the current chat must be attached as the expanded detail column"
+        )
+        // `viewDidAppear` legitimately asks the app route owner for a retry.
+        // Tests install their own scheduler only after this helper returns, so
+        // do not leak that fixture-setup wake into the scenario under test.
+        controller.cancelPendingMessageNotificationRouteRetry()
         return ForegroundExpandedSplitHost(
             window: window,
             splitViewController: splitViewController,
@@ -4676,6 +4872,49 @@ private extension LastChatsNavigationSingleFlightCoordinator.RequestDecision {
         case .ignored:
             return .ignored
         }
+    }
+}
+
+/// A phone-hosted UIWindow cannot be resized beyond its UIWindowScene geometry.
+/// Containing the split lets the fixture model the production iPad hierarchy:
+/// a regular-width, wide split whose supplementary and secondary columns are
+/// attached to the same real foreground/key window.
+private final class ExpandedSplitFixtureViewController: UIViewController {
+    private static let splitLayoutFrame = CGRect(
+        origin: .zero,
+        size: CGSize(width: 1_200, height: 900)
+    )
+
+    private let hostedSplitViewController: UISplitViewController
+
+    init(splitViewController: UISplitViewController) {
+        hostedSplitViewController = splitViewController
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let rootView = UIView(frame: Self.splitLayoutFrame)
+        rootView.clipsToBounds = false
+        view = rootView
+
+        addChild(hostedSplitViewController)
+        setOverrideTraitCollection(
+            UITraitCollection(horizontalSizeClass: .regular),
+            forChild: hostedSplitViewController
+        )
+        hostedSplitViewController.loadViewIfNeeded()
+        rootView.addSubview(hostedSplitViewController.view)
+        hostedSplitViewController.didMove(toParent: self)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        hostedSplitViewController.view.frame = Self.splitLayoutFrame
+        hostedSplitViewController.view.layoutIfNeeded()
     }
 }
 
@@ -4837,7 +5076,7 @@ private final class ExpandedSplitChatPresentationProbe {
     }
 
     @MainActor
-    func commitAttempt(
+    func installAttempt(
         at index: Int,
         in splitViewController: UISplitViewController
     ) -> Bool {
@@ -4859,7 +5098,23 @@ private final class ExpandedSplitChatPresentationProbe {
             attempt.destination.view.layoutIfNeeded()
             installCount += 1
         }
-        attempt.completion(didCommit)
+        return didCommit
+    }
+
+    func completeAttempt(at index: Int, didPresent: Bool) {
+        attempts[index].completion(didPresent)
+    }
+
+    @MainActor
+    func commitAttempt(
+        at index: Int,
+        in splitViewController: UISplitViewController
+    ) -> Bool {
+        let didCommit = installAttempt(
+            at: index,
+            in: splitViewController
+        )
+        completeAttempt(at: index, didPresent: didCommit)
         return didCommit
     }
 }
@@ -4949,6 +5204,7 @@ private final class LastChatsChatOpenIntentSideEffectProbe {
     func simulateExecutionCompletion(on destination: ChatViewController) {
         destination.pendingOpenMessageRequest = nil
         destination.activeAnchorExecutionState = nil
+        simulateCommittedStableChatOpenPresentation(on: destination)
     }
 
     func deliveryCount(for request: ChatOpenMessageRequest) -> Int {
@@ -4964,6 +5220,52 @@ private final class LastChatsChatOpenIntentSideEffectProbe {
         XCTAssertEqual(contextMAMDispatchCount, 1, file: file, line: line)
         XCTAssertEqual(datasourceApplyCount, 1, file: file, line: line)
         XCTAssertEqual(mentionReadVisibleSchedulingCount, 1, file: file, line: line)
+    }
+}
+
+/// Navigation fixtures replace the real archive/presentation pipeline. The
+/// hard cut no longer lets route acceptance or UIKit installation imply that
+/// content is ready, so a test expecting semantic notification ACK must emit
+/// the same terminal-receipt-plus-stable-frame proof that production emits.
+private func simulateCommittedStableChatOpenPresentation(
+    on destination: ChatViewController,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    guard let context = destination.chatOpenPerformanceTraceContext,
+          let semanticTarget =
+            destination.chatOpenPerformanceTraceTargetFingerprint else {
+        XCTFail(
+            "the accepted exact intent must own a trace generation",
+            file: file,
+            line: line
+        )
+        return
+    }
+    if !destination.chatOpenPerformanceTraceLifecycle
+        .hasCommittedTerminalPresentationReceipt(context: context) {
+        XCTAssertTrue(
+            destination.chatOpenPerformanceTraceLifecycle
+                .recordPresentationReceipt(
+                    .content,
+                    context: context,
+                    schedulesStableFrame: true
+                ),
+            file: file,
+            line: line
+        )
+    }
+    if !destination.chatOpenPerformanceTraceLifecycle
+        .hasEmittedStableFrame(context: context) {
+        XCTAssertTrue(
+            destination.consumeChatOpenStableFrame(
+                context: context,
+                semanticTarget: semanticTarget,
+                eligibility: .eligible
+            ),
+            file: file,
+            line: line
+        )
     }
 }
 

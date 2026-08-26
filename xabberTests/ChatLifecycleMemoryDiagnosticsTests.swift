@@ -153,10 +153,10 @@ final class ChatLifecycleMemoryDiagnosticsTests: XCTestCase {
 
         let request = makeRequest(controller: controller, primary: "target")
         let token = ChatAnchorTransactionToken(rawValue: "teardown-token")
-        var state = ChatAnchorExecutionState(request: request, transactionToken: token)
-        state.remoteQueryId = "teardown-query"
-        state.isRemoteFetchInFlight = true
-        controller.activeAnchorExecutionState = state
+        controller.activeAnchorExecutionState = ChatAnchorExecutionState(
+            request: request,
+            transactionToken: token
+        )
         _ = controller.anchorTransactionGate.begin(token: token, requestIdentity: "target")
         _ = controller.anchorTransactionGate.acquire(.query("teardown-query"), token: token)
         controller.anchorTransactionTokenByQueryId["teardown-query"] = token
@@ -164,14 +164,7 @@ final class ChatLifecycleMemoryDiagnosticsTests: XCTestCase {
         controller.anchorTransactionTimeoutWorkItems["teardown-query"] = anchorTimeout
         let searchDebounce = DispatchWorkItem {}
         controller.searchSessionDebounceWorkItem = searchDebounce
-        let bootstrapTimeout = DispatchWorkItem {}
-        controller.initialBootstrapTimeoutWorkItem = bootstrapTimeout
-        let bootstrapFallback = DispatchWorkItem {}
-        controller.initialBootstrapLocalHistoryFallbackWorkItem = bootstrapFallback
-        controller.beginChatHistoryLoadActivity(reason: "teardown-test")
         SignatureManager.shared.delegate = controller
-        controller.registerRemoteHistoryEndPageDispatcher(queryId: "teardown-query")
-        controller.registerRemoteHistoryFailureDispatcher(queryId: "teardown-query")
         controller.scrollWorkScheduler.enqueue(
             ChatScrollWorkRequest(
                 contentOffsetY: 0,
@@ -189,9 +182,6 @@ final class ChatLifecycleMemoryDiagnosticsTests: XCTestCase {
         XCTAssertTrue(controller.chatLifecycleResourceSnapshot.isIdle)
         XCTAssertTrue(anchorTimeout.isCancelled)
         XCTAssertTrue(searchDebounce.isCancelled)
-        XCTAssertTrue(bootstrapTimeout.isCancelled)
-        XCTAssertTrue(bootstrapFallback.isCancelled)
-        XCTAssertFalse(ChatHistoryLoadActivityRegistry.hasActiveHistoryLoad)
         XCTAssertNil(SignatureManager.shared.delegate)
     }
 
@@ -210,47 +200,6 @@ final class ChatLifecycleMemoryDiagnosticsTests: XCTestCase {
         }
 
         XCTAssertNil(weakController)
-    }
-
-    @MainActor
-    func testCancellingUnpresentedStackedPreparationDropsRetainedCompletionsAndController() {
-        weak var weakController: ChatViewController?
-        weak var weakMappingToken: ChatDatasetMappingCancellationToken?
-        var callbackCount = 0
-
-        autoreleasepool {
-            var controller: ChatViewController? = ChatViewController()
-            controller?.owner = "cancelled-preparation-owner@example.com"
-            controller?.jid = "cancelled-preparation-chat@example.com"
-            controller?.conversationType = .regular
-            controller?.isPreparingStackedNavigationPresentation = true
-            let retainedController = controller
-            controller?.initialLocalFirstFrameCompletions.append {
-                _ = retainedController
-                callbackCount += 1
-            }
-            controller?.pendingBootstrapFirstFrameReadinessCompletions.append {
-                _ = retainedController
-                callbackCount += 1
-            }
-            let mappingToken = controller?.beginDatasetMappingJobForTesting()
-            controller?.initialLocalFirstFrameMappingToken = mappingToken
-            weakMappingToken = mappingToken
-            weakController = controller
-
-            controller?.cancelStackedNavigationPresentationPreparation()
-
-            XCTAssertTrue(mappingToken?.isCancelled == true)
-            XCTAssertTrue(controller?.initialLocalFirstFrameCompletions.isEmpty == true)
-            XCTAssertTrue(controller?.pendingBootstrapFirstFrameReadinessCompletions.isEmpty == true)
-            XCTAssertNil(controller?.initialLocalFirstFrameMappingToken)
-            XCTAssertFalse(controller?.isPreparingStackedNavigationPresentation == true)
-            controller = nil
-        }
-
-        XCTAssertEqual(callbackCount, 0)
-        XCTAssertNil(weakController)
-        XCTAssertNil(weakMappingToken)
     }
 
     private func makeRequest(
