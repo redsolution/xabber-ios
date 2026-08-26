@@ -518,7 +518,7 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
         XCTAssertLessThanOrEqual(diagnostics.programmaticOffsetMutationCount, 1)
     }
 
-    func testRejectedOutgoingAtomicApplyRetainsScrollIntentForWinningRetry() throws {
+    func testRejectedOutgoingAtomicApplyRetainsScrollIntentAndTargetAnchorUntilWinningRetry() throws {
         XCTAssertTrue(Thread.isMainThread)
         let controller = makeController()
         installKeyboardComposerGeometry(in: controller, keyboardHeight: 335)
@@ -534,6 +534,13 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
         )
         controller.scrollToBottom(animated: false)
         controller.messagesCollectionView.layoutIfNeeded()
+        let retainedTargetAnchor = ChatRetainedMessageAnchor(
+            primary: "opened-historical-target",
+            archivedId: "opened-historical-archive-id",
+            displayRevision: "opened-historical-revision",
+            viewportRelativeMinY: 120
+        )
+        controller.retainedMessageAnchor = retainedTargetAnchor
         controller.requestOutgoingAutoScrollAfterDatasourceUpdate()
 
         let outgoingPrimary = "rejected-outgoing-row"
@@ -564,6 +571,11 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
             controller.pendingOutgoingAutoScrollRequest,
             "A rejected UIKit apply must not consume the user's send scroll intent"
         )
+        XCTAssertEqual(
+            controller.retainedMessageAnchor,
+            retainedTargetAnchor,
+            "A rejected outgoing apply must preserve the historical target until a send is presented"
+        )
 
         var winningResult: ChatViewportTransactionResult?
         controller.applyChatDatasource(
@@ -581,6 +593,10 @@ final class ChatCollectionAnchorPreservationTests: XCTestCase {
             return XCTFail("Expected the retry to commit")
         }
         XCTAssertNil(controller.pendingOutgoingAutoScrollRequest)
+        XCTAssertNil(
+            controller.retainedMessageAnchor,
+            "The matching committed send owns the viewport and must release the historical target"
+        )
         let outgoingSection = try XCTUnwrap(
             controller.datasourceSnapshot.primaryIndex[outgoingPrimary]
         )

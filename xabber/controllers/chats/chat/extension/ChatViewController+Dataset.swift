@@ -7415,6 +7415,13 @@ extension ChatViewController {
                 // A superseded/failed UIKit attempt cannot acknowledge the
                 // user's send. Identity guarding also prevents an older apply
                 // from consuming a newer rapid-send request.
+                if case .scroll = outgoingAutoScrollDecision {
+                    // The committed outgoing row now owns the viewport, so a
+                    // retained historical target must not replay on its receipt
+                    // or metadata follow-up. A handled-no-scroll request keeps
+                    // its active anchor-navigation ownership.
+                    self.retainedMessageAnchor = nil
+                }
                 self.pendingOutgoingAutoScrollRequest = nil
             }
             let didCommitCurrentConversationContent = transactionCommitted &&
