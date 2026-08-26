@@ -473,6 +473,7 @@ enum ChatInitialTargetFirstFramePolicy {
 final class ChatInitialTargetFirstFrameContext {
     private struct AlignedFrameCommitToken {
         let request: ChatOpenMessageRequest
+        let positionedPrimary: String
         let applyGeneration: UInt64
         let datasourceGeneration: UInt64
     }
@@ -507,15 +508,34 @@ final class ChatInitialTargetFirstFrameContext {
 
     func markAlignedFrameCommitted(
         request: ChatOpenMessageRequest,
+        positionedPrimary: String,
         applyGeneration: UInt64,
         datasourceGeneration: UInt64
     ) {
-        guard self.request == request else { return }
+        guard self.request == request,
+              positionedPrimary.isNotEmpty else {
+            return
+        }
         alignedFrameCommitToken = AlignedFrameCommitToken(
             request: request,
+            positionedPrimary: positionedPrimary,
             applyGeneration: applyGeneration,
             datasourceGeneration: datasourceGeneration
         )
+    }
+
+    func committedPositionedPrimary(
+        for request: ChatOpenMessageRequest,
+        applyGeneration: UInt64,
+        datasourceGeneration: UInt64
+    ) -> String? {
+        guard alignedFrameCommitToken?.request == request,
+              alignedFrameCommitToken?.applyGeneration == applyGeneration,
+              alignedFrameCommitToken?.datasourceGeneration ==
+                datasourceGeneration else {
+            return nil
+        }
+        return alignedFrameCommitToken?.positionedPrimary
     }
 
     func hasCommittedAlignedFrame(
@@ -523,10 +543,11 @@ final class ChatInitialTargetFirstFrameContext {
         applyGeneration: UInt64,
         datasourceGeneration: UInt64
     ) -> Bool {
-        alignedFrameCommitToken?.request == request &&
-            alignedFrameCommitToken?.applyGeneration == applyGeneration &&
-            alignedFrameCommitToken?.datasourceGeneration ==
-                datasourceGeneration
+        committedPositionedPrimary(
+            for: request,
+            applyGeneration: applyGeneration,
+            datasourceGeneration: datasourceGeneration
+        ) != nil
     }
 
     func invalidateAlignedFrameCommit() {
@@ -8842,16 +8863,30 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
               self.pendingOpenMessageRequest == request,
               let context = self.initialTargetFirstFrameContext,
               context.request == request,
-              context.hasCommittedAlignedFrame(
+              let positionedPrimary = context.committedPositionedPrimary(
                 for: request,
                 applyGeneration: applyGeneration,
                 datasourceGeneration: self.scrollResidentMetadataGeneration
+              ),
+              self.finishCommittedInitialTargetFirstFramePositioningIfNeeded(
+                request: request,
+                positionedPrimary: positionedPrimary
               ) else {
             return
         }
+        // Keep first-frame ownership installed while terminal cleanup drains
+        // presentation lanes. A queued store apply must not interleave between
+        // the successful anchor terminal and navigation release.
         self.initialTargetFirstFrameContext = nil
         self.isPreparingStackedNavigationPresentation = false
+        let deferredPostProtectionDrain =
+            self.deferUntilNavigationTransitionCompletesIfNeeded { [weak self] in
+                self?.drainTimelinePresentationLanesAfterAnchorTerminal()
+            }
         _ = context.finishPreparationIfNeeded()
+        if !deferredPostProtectionDrain {
+            self.drainTimelinePresentationLanesAfterAnchorTerminal()
+        }
     }
 
     @discardableResult

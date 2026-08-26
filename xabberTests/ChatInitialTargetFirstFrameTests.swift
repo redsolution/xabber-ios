@@ -148,6 +148,7 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         controller.canLoadDatasource = true
         controller.initialTargetFirstFrameContext?.markAlignedFrameCommitted(
             request: request,
+            positionedPrimary: "target-primary",
             applyGeneration: controller.archiveWindowApplyGeneration,
             datasourceGeneration: controller.scrollResidentMetadataGeneration
         )
@@ -168,6 +169,7 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         controller.canLoadDatasource = true
         controller.initialTargetFirstFrameContext?.markAlignedFrameCommitted(
             request: request,
+            positionedPrimary: "target-primary",
             applyGeneration: controller.archiveWindowApplyGeneration,
             datasourceGeneration: controller.scrollResidentMetadataGeneration
         )
@@ -193,6 +195,7 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         }
         context.markAlignedFrameCommitted(
             request: first,
+            positionedPrimary: "target-primary",
             applyGeneration: 7,
             datasourceGeneration: 11
         )
@@ -217,6 +220,7 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         let context = ChatInitialTargetFirstFrameContext(request: request) {}
         context.markAlignedFrameCommitted(
             request: request,
+            positionedPrimary: "target-primary",
             applyGeneration: 7,
             datasourceGeneration: 11
         )
@@ -246,6 +250,7 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         }
         context.markAlignedFrameCommitted(
             request: request,
+            positionedPrimary: "target-primary",
             applyGeneration: 7,
             datasourceGeneration: 11
         )
@@ -309,6 +314,244 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
             controller.clearInitialTargetFirstFrameProtectionIfMatching(second)
         )
         XCTAssertNil(controller.initialTargetFirstFrameContext)
+    }
+
+    @MainActor
+    func testAlignedFirstFrameCommitTerminatesPendingRequestWithoutLoadedPositionReplay() throws {
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = conversationType
+        controller.ownerSender = Sender(id: owner, displayName: owner)
+        controller.opponentSender = Sender(id: jid, displayName: jid)
+        controller.loadViewIfNeeded()
+        controller.cancelStackedNavigationPresentationPreparation()
+        controller.isStackedNavigationPresentationPreparationCancelled = false
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.datasource = [makeDatasource()]
+        controller.datasourceSnapshot = ChatDatasourceCoordinator.makeSnapshot(
+            items: controller.datasource
+        )
+        controller.showSkeletonObserver.accept(false)
+        controller.loadDatasourceObserver.accept(true)
+        controller.messagesCollectionView.reloadData()
+        controller.view.layoutIfNeeded()
+
+        let request = makeRequest(archivedID: "200")
+        var preparationCompletionCount = 0
+        controller.pendingOpenMessageRequest = request
+        controller.initialTargetFirstFrameContext =
+            ChatInitialTargetFirstFrameContext(request: request) {
+                preparationCompletionCount += 1
+            }
+        controller.isPreparingStackedNavigationPresentation = true
+        controller.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = true
+        controller.initialTargetFirstFrameContext?.markAlignedFrameCommitted(
+            request: request,
+            positionedPrimary: "target-primary",
+            applyGeneration: controller.archiveWindowApplyGeneration,
+            datasourceGeneration: controller.scrollResidentMetadataGeneration
+        )
+
+        let freshness = ArchiveFreshnessToken.sessionMAM(
+            connectionGeneration: 1,
+            queryID: "initial-target-single-position"
+        )
+        let cursor = try XCTUnwrap(ArchiveCursor(rawValue: "200"))
+        let segment = try XCTUnwrap(
+            ArchiveCoverageSegment(
+                oldest: cursor,
+                newest: cursor,
+                reachesArchiveStart: true,
+                reachesLiveEdge: true,
+                fingerprint: freshness.fingerprint,
+                isVerified: true
+            )
+        )
+        controller.archiveWindowState = .verified(
+            ArchiveWindowSnapshot(
+                messagePrimaryIDs: ["target-primary"],
+                target: .archiveID(cursor),
+                verifiedSegment: segment,
+                coverageGeneration: 1,
+                freshnessToken: freshness
+            )
+        )
+        controller.archiveWindowCommittedCoverageGeneration = 1
+
+        var events: [String] = []
+        controller.activeAnchorExecutionHooks = ChatAnchorExecutionHooks(
+            direction: .up,
+            animatedScroll: false,
+            onPositioningStarted: { events.append("started") },
+            onFailed: { events.append("failed") },
+            onPositioned: { events.append("positioned") }
+        )
+        var loadedPositioningCount = 0
+        controller.loadedAnchorPositioningDriverForTests = { completion in
+            loadedPositioningCount += 1
+            completion(true)
+        }
+        var scheduledReadRequest: ChatOpenMessageRequest?
+        controller.mentionReadOnVisibleSchedulingObserverForTests = {
+            scheduledReadRequest = $0
+        }
+        var drainEvents: [ChatTimelinePresentationDrainLane] = []
+        var drainProtectionStates: [Bool] = []
+        controller.timelinePresentationLaneDrainObserverForTests = {
+            drainEvents.append($0)
+            drainProtectionStates.append(
+                controller.initialTargetFirstFrameContext != nil
+            )
+        }
+        let offsetBeforeCompletion =
+            controller.messagesCollectionView.contentOffset.y
+
+        controller.completeInitialTargetFirstFrameIfNeeded(
+            request: request,
+            applyGeneration: controller.archiveWindowApplyGeneration
+        )
+
+        XCTAssertEqual(preparationCompletionCount, 1)
+        XCTAssertEqual(events, ["started", "positioned"])
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertNil(controller.activeAnchorExecutionState)
+        XCTAssertEqual(
+            controller.anchorTransactionGate.snapshot.lastTerminalOutcome,
+            .positioned
+        )
+        XCTAssertEqual(controller.retainedMessageAnchor?.primary, "target-primary")
+        XCTAssertEqual(scheduledReadRequest, request)
+        XCTAssertEqual(loadedPositioningCount, 0)
+        XCTAssertEqual(
+            controller.messagesCollectionView.contentOffset.y,
+            offsetBeforeCompletion,
+            accuracy: 0.001,
+            "Semantic terminal completion must not reposition the committed frame"
+        )
+        XCTAssertEqual(
+            drainEvents,
+            [.store, .sensitiveReveal, .liveEdge],
+            "The first drain remains protected by first-frame ownership"
+        )
+        XCTAssertEqual(drainProtectionStates, [true, true, true])
+
+        controller.completeNavigationTransitionDeferral(cancelled: false)
+
+        XCTAssertEqual(
+            drainEvents,
+            [
+                .store, .sensitiveReveal, .liveEdge,
+                .store, .sensitiveReveal, .liveEdge
+            ],
+            "Presentation lanes must drain again after first-frame protection releases"
+        )
+        XCTAssertEqual(
+            drainProtectionStates,
+            [true, true, true, false, false, false]
+        )
+
+        controller.performPendingOpenMessageRequestIfNeeded()
+
+        XCTAssertEqual(
+            loadedPositioningCount,
+            0,
+            "Navigation-transition release must not replay loaded positioning"
+        )
+        XCTAssertEqual(
+            controller.messagesCollectionView.contentOffset.y,
+            offsetBeforeCompletion,
+            accuracy: 0.001
+        )
+    }
+
+    @MainActor
+    func testAlignedSearchFirstFramePreservesPersistentTargetSelection() {
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = conversationType
+        controller.ownerSender = Sender(id: owner, displayName: owner)
+        controller.opponentSender = Sender(id: jid, displayName: jid)
+        controller.loadViewIfNeeded()
+        controller.cancelStackedNavigationPresentationPreparation()
+        controller.isStackedNavigationPresentationPreparationCancelled = false
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.datasource = [makeDatasource()]
+        controller.datasourceSnapshot = ChatDatasourceCoordinator.makeSnapshot(
+            items: controller.datasource
+        )
+        controller.showSkeletonObserver.accept(false)
+        controller.loadDatasourceObserver.accept(true)
+        controller.messagesCollectionView.reloadData()
+        controller.view.layoutIfNeeded()
+
+        let request = makeRequest(
+            archivedID: "200",
+            highlight: true,
+            source: .search
+        )
+        controller.pendingOpenMessageRequest = request
+        controller.initialTargetFirstFrameContext =
+            ChatInitialTargetFirstFrameContext(request: request) {}
+        controller.isPreparingStackedNavigationPresentation = true
+        controller.initialTargetFirstFrameContext?.markAlignedFrameCommitted(
+            request: request,
+            positionedPrimary: "target-primary",
+            applyGeneration: controller.archiveWindowApplyGeneration,
+            datasourceGeneration: controller.scrollResidentMetadataGeneration
+        )
+        let targetCell = MessageContentCell(
+            frame: CGRect(x: 0, y: 0, width: 320, height: 80)
+        )
+        controller.transientMessageHighlightCellProviderForTests = { _ in
+            targetCell
+        }
+
+        controller.completeInitialTargetFirstFrameIfNeeded(
+            request: request,
+            applyGeneration: controller.archiveWindowApplyGeneration
+        )
+
+        XCTAssertTrue(targetCell.isSelected())
+        XCTAssertNil(controller.pendingOpenMessageRequest)
+        XCTAssertEqual(
+            controller.anchorTransactionGate.snapshot.lastTerminalOutcome,
+            .positioned
+        )
+    }
+
+    @MainActor
+    func testAlignedFirstFrameDoesNotConsumeSupersedingPendingRequest() {
+        let controller = ChatViewController()
+        controller.owner = owner
+        controller.jid = jid
+        controller.conversationType = conversationType
+        let committedRequest = makeRequest(archivedID: "200")
+        let supersedingRequest = makeRequest(archivedID: "300")
+        let context = ChatInitialTargetFirstFrameContext(
+            request: committedRequest,
+            completion: {}
+        )
+        context.markAlignedFrameCommitted(
+            request: committedRequest,
+            positionedPrimary: "target-primary",
+            applyGeneration: controller.archiveWindowApplyGeneration,
+            datasourceGeneration: controller.scrollResidentMetadataGeneration
+        )
+        controller.initialTargetFirstFrameContext = context
+        controller.pendingOpenMessageRequest = supersedingRequest
+
+        controller.completeInitialTargetFirstFrameIfNeeded(
+            request: committedRequest,
+            applyGeneration: controller.archiveWindowApplyGeneration
+        )
+
+        XCTAssertEqual(controller.pendingOpenMessageRequest, supersedingRequest)
+        XCTAssertTrue(controller.initialTargetFirstFrameContext === context)
+        XCTAssertNil(
+            controller.anchorTransactionGate.snapshot.lastTerminalOutcome
+        )
     }
 
     func testVerifiedArchiveApplyWiresTargetPlanIntoAtomicTransaction() throws {
@@ -548,7 +791,11 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
         )
     }
 
-    private func makeRequest(archivedID: String) -> ChatOpenMessageRequest {
+    private func makeRequest(
+        archivedID: String,
+        highlight: Bool = false,
+        source: ChatOpenMessageRequestSource = .savedVisiblePosition
+    ) -> ChatOpenMessageRequest {
         ChatOpenMessageRequest(
             chatJid: jid,
             owner: owner,
@@ -561,9 +808,57 @@ final class ChatInitialTargetFirstFrameTests: XCTestCase {
                 bodyFingerprint: nil,
                 sourceDate: Date(timeIntervalSince1970: 1_700_000_000)
             ),
-            highlight: false,
+            highlight: highlight,
             markReadOnVisible: false,
-            source: .savedVisiblePosition
+            source: source
+        )
+    }
+
+    private func makeDatasource() -> ChatViewController.Datasource {
+        ChatViewController.Datasource(
+            primary: "target-primary",
+            jid: jid,
+            owner: owner,
+            outgoing: false,
+            sender: Sender(id: jid, displayName: jid),
+            messageId: "target-message-id",
+            sentDate: Date(timeIntervalSince1970: 1_700_000_000),
+            editDate: nil,
+            kind: .attributedText(NSAttributedString(string: "Target")),
+            withAuthor: false,
+            withAvatar: false,
+            error: false,
+            errorType: "",
+            canPinMessage: true,
+            canEditMessage: false,
+            canDeleteMessage: true,
+            forwards: [],
+            isOutgoing: false,
+            isEdited: false,
+            groupchatAuthorRole: "",
+            groupchatAuthorId: "",
+            groupchatAuthorNickname: "",
+            groupchatAuthorBadge: "",
+            isHasAttachedMessages: false,
+            isDownloaded: true,
+            state: .deliver,
+            searchString: nil,
+            errorMetadata: nil,
+            burnDate: -1,
+            afterburnInterval: -1,
+            archivedId: "200",
+            queryIds: nil,
+            isRead: false,
+            selectedSearchResultId: nil,
+            isHadHistoryGap: false,
+            isFakeMessage: false,
+            images: [],
+            videos: [],
+            files: [],
+            audios: [],
+            timeMarkerText: NSAttributedString(string: "12:00"),
+            indicator: .none,
+            avatarUrl: nil
         )
     }
 

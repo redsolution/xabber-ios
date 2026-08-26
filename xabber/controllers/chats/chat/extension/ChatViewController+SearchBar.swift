@@ -3798,6 +3798,93 @@ extension ChatViewController {
         return true
     }
 
+    /// Completes the semantic anchor transaction for a target that the archive
+    /// transaction already placed in the committed first real frame. This path
+    /// intentionally performs no offset calculation or scroll: navigation
+    /// completion must not position the same request a second time.
+    @discardableResult
+    internal func finishCommittedInitialTargetFirstFramePositioningIfNeeded(
+        request: ChatOpenMessageRequest,
+        positionedPrimary: String
+    ) -> Bool {
+        guard Thread.isMainThread,
+              self.pendingOpenMessageRequest == request,
+              request.owner == self.owner,
+              request.chatJid == self.jid,
+              request.conversationType == self.conversationType,
+              let section = self.datasourceSnapshot
+                .primaryIndex[positionedPrimary],
+              section < self.datasource.count,
+              let target = self.datasourceItem(
+                at: IndexPath(row: 0, section: section)
+              ),
+              target.primary == positionedPrimary else {
+            return false
+        }
+
+        let indexPath = IndexPath(row: 0, section: section)
+        let executionState = self.ensureActiveAnchorExecutionState(for: request)
+        let transactionToken = executionState.transactionToken
+        let usesTransientHighlight =
+            request.source.usesTransientHighlight && request.highlight
+
+        self.isApplyingAnchorWindow = false
+        self.syncAnchorExecutionFlags()
+        self.setLoadingIndicatorVisible(false)
+        self.setArchiveLoading(false)
+        self.setDatasourceLoadingEnabled(true)
+        self.timelineInteractionState.unlock()
+
+        self.notifyAnchorPositioningStarted(token: transactionToken)
+        if request.source == .search {
+            self.setSearchResultsPanelContextLoading(false)
+        }
+        guard self.anchorTransactionGate.accept(
+                .scroll,
+                token: transactionToken
+              ) == .accepted else {
+            return false
+        }
+
+        if usesTransientHighlight {
+            self.applyTransientMessageHighlight(primary: positionedPrimary)
+        } else if request.highlight {
+            self.messagesCollectionView.visibleCells
+                .compactMap { $0 as? MessageContentCell }
+                .forEach { $0.setSelected(state: false) }
+            self.initialTargetFirstFrameMessageCell(at: indexPath)?
+                .setSelected(state: true)
+        }
+        self.retainPositionedMessageAnchor(
+            primary: positionedPrimary,
+            archivedId: target.archivedId,
+            indexPath: indexPath
+        )
+        if self.inSearchMode.value || self.xabberInputView.state == .search {
+            self.refreshVisibleSearchSelection()
+        }
+        self.scheduleMentionReadOnVisibleIfNeeded(
+            for: request,
+            positionedPrimary: positionedPrimary
+        )
+        self.finishActiveAnchorExecution(token: transactionToken)
+        return self.pendingOpenMessageRequest == nil &&
+            self.activeAnchorExecutionState == nil
+    }
+
+    private func initialTargetFirstFrameMessageCell(
+        at indexPath: IndexPath
+    ) -> MessageContentCell? {
+#if DEBUG || CHAT_PERFORMANCE_LAB
+        self.transientMessageHighlightCellProviderForTests?(indexPath) ??
+            self.messagesCollectionView.cellForItem(at: indexPath) as?
+                MessageContentCell
+#else
+        self.messagesCollectionView.cellForItem(at: indexPath) as?
+            MessageContentCell
+#endif
+    }
+
     private func initialAnchorExecutionState(
         for request: ChatOpenMessageRequest
     ) -> ChatAnchorExecutionState {

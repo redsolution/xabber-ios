@@ -151,6 +151,7 @@ private final class ChatTimelineBoundaryCommitReceipt {
     var snapshot: ChatTimelineSessionSnapshot?
     var didCommitInitialTargetFirstFrame = false
     var initialTargetFirstFrameRequest: ChatOpenMessageRequest?
+    var initialTargetFirstFramePrimary: String?
 #if DEBUG || CHAT_PERFORMANCE_LAB
     var viewportDiagnostics: ChatViewportTransactionDiagnostics?
 #endif
@@ -3501,6 +3502,8 @@ extension ChatViewController {
                 if targetFirstFramePlan.canCompletePreparation {
                     commitReceipt.initialTargetFirstFrameRequest =
                         initialTargetFirstFrameRequest
+                    commitReceipt.initialTargetFirstFramePrimary =
+                        resolvedInitialTargetPrimary
                 }
                 let presentationReceipt: ChatOpenPerformancePresentationReceipt =
                     candidate.items.isEmpty ? .empty : .content
@@ -3622,10 +3625,13 @@ extension ChatViewController {
                             self.setSkeletonVisible(false)
                             self.setDatasourceLoadingEnabled(true)
                             if let request = commitReceipt
-                                    .initialTargetFirstFrameRequest {
+                                    .initialTargetFirstFrameRequest,
+                               let positionedPrimary = commitReceipt
+                                    .initialTargetFirstFramePrimary {
                                 self.initialTargetFirstFrameContext?
                                     .markAlignedFrameCommitted(
                                         request: request,
+                                        positionedPrimary: positionedPrimary,
                                         applyGeneration: applyGeneration,
                                         datasourceGeneration:
                                             self.scrollResidentMetadataGeneration
