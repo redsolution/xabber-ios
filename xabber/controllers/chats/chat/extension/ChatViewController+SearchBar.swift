@@ -2742,6 +2742,8 @@ extension ChatViewController {
             self.isViewLoaded
         )
 #endif
+        let protectsInitialTargetFirstFrame =
+            self.protectInitialTargetFirstFrameIfNeeded(for: request)
         if let executionState = self.activeAnchorExecutionState,
            executionState.request != request {
             self.invalidateProofScopedLocalTargetPreparation()
@@ -2753,7 +2755,8 @@ extension ChatViewController {
                 invokeFailureHook: false
             )
         }
-        if self.indexPathForLoadedMessage(request: request) != nil,
+        if !protectsInitialTargetFirstFrame,
+           self.indexPathForLoadedMessage(request: request) != nil,
            self.shouldDeferLoadedAnchorForForeignTimelinePresentation() {
             if request.source == .search {
                 self.markSearchResultNavigationLoadingContext(for: request)
@@ -2764,7 +2767,8 @@ extension ChatViewController {
             self.syncAnchorExecutionFlags()
             return
         }
-        if self.performLoadedOpenMessageRequestIfPossible(request, hooks: hooks) {
+        if !protectsInitialTargetFirstFrame,
+           self.performLoadedOpenMessageRequestIfPossible(request, hooks: hooks) {
             return
         }
         if request.source == .search {
@@ -2784,6 +2788,17 @@ extension ChatViewController {
             return
         }
         let executionState = self.ensureActiveAnchorExecutionState(for: request)
+        if protectsInitialTargetFirstFrame {
+            guard canHandoffToArchive else { return }
+            if self.submitProtectedInitialTargetFirstFrameToArchive(request) {
+                return
+            }
+            self.failActiveAnchorExecution(
+                token: executionState.transactionToken,
+                failure: .targetMissing
+            )
+            return
+        }
         if self.startProofScopedLocalOpenMessageRequestIfPossible(
             request,
             transactionToken: executionState.transactionToken
@@ -3364,6 +3379,19 @@ extension ChatViewController {
               executionState.request == request else {
             return
         }
+        if self.isProtectingInitialTargetFirstFrame(request) {
+            guard self.isArchiveTargetHandoffReady(for: request) else {
+                return
+            }
+            if self.submitProtectedInitialTargetFirstFrameToArchive(request) {
+                return
+            }
+            self.failActiveAnchorExecution(
+                token: executionState.transactionToken,
+                failure: self.typedAnchorResolutionFailure(for: request)
+            )
+            return
+        }
         if self.startProofScopedLocalOpenMessageRequestIfPossible(
             request,
             transactionToken: executionState.transactionToken
@@ -3873,6 +3901,9 @@ extension ChatViewController {
               self.anchorTransactionGate.fail(token: effectiveToken, failure: failure) else {
             return
         }
+        _ = self.clearInitialTargetFirstFrameProtectionIfMatching(
+            executionState.request
+        )
         let onFailed = self.activeAnchorExecutionHooks?.onFailed
         self.cleanupAnchorExecutionResources(executionState)
         self.clearAnchorExecutionPresentationState()
@@ -3916,6 +3947,9 @@ extension ChatViewController {
               self.anchorTransactionGate.cancel(token: token, failure: failure) else {
             return
         }
+        _ = self.clearInitialTargetFirstFrameProtectionIfMatching(
+            executionState.request
+        )
         let onFailed = invokeFailureHook ? self.activeAnchorExecutionHooks?.onFailed : nil
         self.cleanupAnchorExecutionResources(executionState)
         self.clearAnchorExecutionPresentationState(

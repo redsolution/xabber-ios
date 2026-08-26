@@ -149,6 +149,8 @@ struct ChatTimelineBoundaryRequestContext {
 
 private final class ChatTimelineBoundaryCommitReceipt {
     var snapshot: ChatTimelineSessionSnapshot?
+    var didCommitInitialTargetFirstFrame = false
+    var initialTargetFirstFrameRequest: ChatOpenMessageRequest?
 #if DEBUG || CHAT_PERFORMANCE_LAB
     var viewportDiagnostics: ChatViewportTransactionDiagnostics?
 #endif
@@ -1198,6 +1200,13 @@ extension ChatViewController {
         }
         Task { await account.archiveEngine.submit(intent) }
         return true
+    }
+
+    @discardableResult
+    internal func submitProtectedInitialTargetFirstFrameToArchive(
+        _ request: ChatOpenMessageRequest
+    ) -> Bool {
+        return submitArchiveEngineTarget(request)
     }
 
     @discardableResult
@@ -3397,6 +3406,66 @@ extension ChatViewController {
                         live: liveAnchor,
                         retained: retainedAnchor
                     )
+                let currentOwnedPendingRequest =
+                    self.pendingOpenMessageRequest.flatMap { request in
+                        ChatInitialTargetFirstFramePolicy.owns(
+                            request: request,
+                            owner: self.owner,
+                            jid: self.jid,
+                            conversationType: self.conversationType
+                        ) ? request : nil
+                    }
+                if let request = currentOwnedPendingRequest {
+                    self.initialTargetFirstFrameContext?.retarget(to: request)
+                }
+                let initialTargetFirstFrameRequest =
+                    self.initialTargetFirstFrameContext.flatMap { context in
+                        currentOwnedPendingRequest == context.request
+                            ? context.request
+                            : nil
+                    }
+                let resolvedInitialTargetIndex =
+                    initialTargetFirstFrameRequest.flatMap { request in
+                        ChatLoadedMessageNavigationPolicy.index(
+                            in: mappingResult.datasource,
+                            for: request
+                        )
+                    }
+                let resolvedInitialTargetPrimary =
+                    resolvedInitialTargetIndex.flatMap { index in
+                        mappingResult.datasource.indices.contains(index)
+                            ? mappingResult.datasource[index].primary
+                            : nil
+                    }
+                let resolvedInitialTargetHeight =
+                    resolvedInitialTargetPrimary.flatMap { primary in
+                        mappingResult.layoutSnapshot
+                            .layout(forPrimary: primary)?.cellSize.height
+                    }
+                let targetFirstFramePlan =
+                    ChatInitialTargetFirstFramePolicy.plan(
+                        request: initialTargetFirstFrameRequest,
+                        owner: self.owner,
+                        jid: self.jid,
+                        conversationType: self.conversationType,
+                        resolvedTargetPrimary: resolvedInitialTargetPrimary,
+                        viewportHeight:
+                            self.messagesCollectionView.bounds.height,
+                        targetHeight: resolvedInitialTargetHeight
+                    )
+                guard targetFirstFramePlan.canPublishDatasource else {
+                    self.setSkeletonVisible(true)
+                    self.setDatasourceLoadingEnabled(false)
+                    _ = self.commitArchiveEngineOpeningSkeletonSynchronously()
+                    self.finishArchiveEngineVerifiedMaterializationFailure(
+                        snapshot: snapshot,
+                        applyGeneration: applyGeneration,
+                        session: session
+                    )
+                    return
+                }
+                let effectiveRestoreAnchor =
+                    restoreAnchor ?? targetFirstFramePlan.restoreAnchor
                 let applyPlan =
                     ChatArchiveWindowPresentationPolicy.boundaryApplyPlan(
                         for: snapshot.target,
@@ -3429,11 +3498,27 @@ extension ChatViewController {
                     ])
                 }
                 let commitReceipt = ChatTimelineBoundaryCommitReceipt()
+                if targetFirstFramePlan.canCompletePreparation {
+                    commitReceipt.initialTargetFirstFrameRequest =
+                        initialTargetFirstFrameRequest
+                }
                 let presentationReceipt: ChatOpenPerformancePresentationReceipt =
                     candidate.items.isEmpty ? .empty : .content
                 self.performArchiveEngineInitialPresentationTransactionIfNeeded(
                     for: snapshot.target,
-                    receipt: presentationReceipt
+                    receipt: presentationReceipt,
+                    onCommitted: { [weak self] in
+                        guard commitReceipt
+                                .didCommitInitialTargetFirstFrame,
+                              let request = commitReceipt
+                                .initialTargetFirstFrameRequest else {
+                            return
+                        }
+                        self?.completeInitialTargetFirstFrameIfNeeded(
+                            request: request,
+                            applyGeneration: applyGeneration
+                        )
+                    }
                 ) {
                     self.applyChatDatasource(
                         mappingResult.datasource,
@@ -3444,9 +3529,11 @@ extension ChatViewController {
                         suppressDefaultBottomScroll: effectiveForceBottom == nil,
                         forceBottomAlignmentTarget: effectiveForceBottom,
                         applyCategory: applyPlan.applyCategory,
-                        anchorRestorePhase: applyPlan.restorePhase,
-                        anchorPrimary: restoreAnchor?.primary,
-                        restoreAnchor: restoreAnchor,
+                        anchorRestorePhase: effectiveRestoreAnchor == nil
+                            ? applyPlan.restorePhase
+                            : .applyTransaction,
+                        anchorPrimary: effectiveRestoreAnchor?.primary,
+                        restoreAnchor: effectiveRestoreAnchor,
                         presentationOwner: .archiveEngine,
                         presentationCommitMode: .atomicInitialFrame,
                         transactionCommitAuthorization: { [weak self, weak session] in
@@ -3534,6 +3621,18 @@ extension ChatViewController {
                             )
                             self.setSkeletonVisible(false)
                             self.setDatasourceLoadingEnabled(true)
+                            if let request = commitReceipt
+                                    .initialTargetFirstFrameRequest {
+                                self.initialTargetFirstFrameContext?
+                                    .markAlignedFrameCommitted(
+                                        request: request,
+                                        applyGeneration: applyGeneration,
+                                        datasourceGeneration:
+                                            self.scrollResidentMetadataGeneration
+                                    )
+                            }
+                            commitReceipt.didCommitInitialTargetFirstFrame =
+                                targetFirstFramePlan.canCompletePreparation
                             var boundaryCompletionOwnedByTypedTerminal = false
                             if var request = self.timelineBoundaryRequest,
                                request.phase == .waitingRemote,
@@ -4116,6 +4215,7 @@ extension ChatViewController {
     private func performArchiveEngineInitialPresentationTransactionIfNeeded(
         for target: ArchiveWindowLocator,
         receipt: ChatOpenPerformancePresentationReceipt,
+        onCommitted: (() -> Void)? = nil,
         updates: () -> Void
     ) {
         guard ChatArchiveWindowPresentationPolicy.boundaryDirection(
@@ -4134,6 +4234,7 @@ extension ChatViewController {
             receipt: receipt,
             context: performanceTraceContext,
             schedulesStableFrame: true,
+            completion: onCommitted,
             updates: updates
         )
     }

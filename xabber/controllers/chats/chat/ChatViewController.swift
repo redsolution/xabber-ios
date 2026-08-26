@@ -394,6 +394,152 @@ struct ChatOpenMessageRequest: Equatable {
     }
 }
 
+enum ChatInitialTargetFirstFramePlan: Equatable {
+    case inactive
+    case waitingForTarget
+    case aligned(ChatViewportAnchor)
+
+    var restoreAnchor: ChatViewportAnchor? {
+        guard case .aligned(let anchor) = self else { return nil }
+        return anchor
+    }
+
+    var shouldKeepSkeleton: Bool {
+        self == .waitingForTarget
+    }
+
+    var canCompletePreparation: Bool {
+        if case .aligned = self { return true }
+        return false
+    }
+
+    var canPublishDatasource: Bool {
+        self != .waitingForTarget
+    }
+}
+
+enum ChatInitialTargetFirstFramePolicy {
+    static func owns(
+        request: ChatOpenMessageRequest?,
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType
+    ) -> Bool {
+        guard let request else { return false }
+        return request.owner == owner &&
+            request.chatJid == jid &&
+            request.conversationType == conversationType &&
+            ChatOpenMessageRequestHandlingPolicy
+                .shouldHonorMessageAnchorRequest(source: request.source)
+    }
+
+    static func plan(
+        request: ChatOpenMessageRequest?,
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType,
+        resolvedTargetPrimary: String?,
+        viewportHeight: CGFloat,
+        targetHeight: CGFloat?
+    ) -> ChatInitialTargetFirstFramePlan {
+        guard owns(
+            request: request,
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType
+        ) else {
+            return .inactive
+        }
+        guard let resolvedTargetPrimary,
+              resolvedTargetPrimary.isNotEmpty,
+              viewportHeight > 0,
+              let targetHeight,
+              targetHeight > 0 else {
+            return .waitingForTarget
+        }
+        return .aligned(
+            ChatViewportAnchor(
+                primary: resolvedTargetPrimary,
+                viewportRelativeMinY:
+                    ChatAnchorCenteringPolicy.viewportRelativeMinY(
+                        viewportHeight: viewportHeight,
+                        targetHeight: targetHeight
+                    )
+            )
+        )
+    }
+}
+
+final class ChatInitialTargetFirstFrameContext {
+    private struct AlignedFrameCommitToken {
+        let request: ChatOpenMessageRequest
+        let applyGeneration: UInt64
+        let datasourceGeneration: UInt64
+    }
+
+    private(set) var request: ChatOpenMessageRequest
+    private var preparationCompletion: (() -> Void)?
+    private var alignedFrameCommitToken: AlignedFrameCommitToken?
+
+    init(
+        request: ChatOpenMessageRequest,
+        completion: @escaping () -> Void
+    ) {
+        self.request = request
+        self.preparationCompletion = completion
+    }
+
+    var isAwaitingPreparationCompletion: Bool {
+        preparationCompletion != nil
+    }
+
+    @discardableResult
+    func finishPreparationIfNeeded() -> Bool {
+        guard let completion = preparationCompletion else { return false }
+        preparationCompletion = nil
+        completion()
+        return true
+    }
+
+    func releasePreparationCompletion() {
+        preparationCompletion = nil
+    }
+
+    func markAlignedFrameCommitted(
+        request: ChatOpenMessageRequest,
+        applyGeneration: UInt64,
+        datasourceGeneration: UInt64
+    ) {
+        guard self.request == request else { return }
+        alignedFrameCommitToken = AlignedFrameCommitToken(
+            request: request,
+            applyGeneration: applyGeneration,
+            datasourceGeneration: datasourceGeneration
+        )
+    }
+
+    func hasCommittedAlignedFrame(
+        for request: ChatOpenMessageRequest,
+        applyGeneration: UInt64,
+        datasourceGeneration: UInt64
+    ) -> Bool {
+        alignedFrameCommitToken?.request == request &&
+            alignedFrameCommitToken?.applyGeneration == applyGeneration &&
+            alignedFrameCommitToken?.datasourceGeneration ==
+                datasourceGeneration
+    }
+
+    func invalidateAlignedFrameCommit() {
+        alignedFrameCommitToken = nil
+    }
+
+    func retarget(to request: ChatOpenMessageRequest) {
+        guard self.request != request else { return }
+        self.request = request
+        alignedFrameCommitToken = nil
+    }
+}
+
 enum ChatScrollDownButtonVisibilityPolicy {
     static let contentOffsetThreshold: CGFloat = 44
 
@@ -2654,6 +2800,8 @@ class ChatViewController: MessagesViewController {
     internal var isPreparingStackedNavigationPresentation: Bool = false
     internal var isStackedNavigationPresentationPreparationCancelled: Bool = false
     internal var shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion: Bool = false
+    internal var initialTargetFirstFrameContext:
+        ChatInitialTargetFirstFrameContext?
     internal var didDeferOpenMessageRequestForNavigationTransition: Bool = false
     internal var needsNavigationChromeReconciliationAfterCancelledTransition: Bool = false
     private var hasRegisteredNavigationTransitionCompletion: Bool = false
@@ -2999,6 +3147,7 @@ class ChatViewController: MessagesViewController {
         receipt: ChatOpenPerformancePresentationReceipt,
         context explicitContext: ChatOpenPerformanceTraceContext? = nil,
         schedulesStableFrame: Bool,
+        completion: (() -> Void)? = nil,
         updates: () -> Void
     ) {
         assert(Thread.isMainThread, "Chat-open presentation must run on main")
@@ -3008,6 +3157,10 @@ class ChatViewController: MessagesViewController {
         }
         guard let context = explicitContext ?? self.chatOpenPerformanceTraceContext else {
             updates()
+            if self.hasCommittedChatOpenPerformanceReceipt(receipt),
+               let completion {
+                DispatchQueue.main.async(execute: completion)
+            }
             return
         }
 
@@ -3048,6 +3201,7 @@ class ChatViewController: MessagesViewController {
                     context: context
                 )
             }
+            completion?()
         }
         updates()
         if receipt == .skeleton,
@@ -5394,6 +5548,7 @@ class ChatViewController: MessagesViewController {
                 archiveWindowCommittedCoverageGeneration != nil,
             isShowingSkeleton: showSkeletonObserver.value,
             hasPendingArchiveApply:
+                initialTargetFirstFrameContext?.isAwaitingPreparationCompletion == true ||
                 anchorTransactionGate.snapshot.positioningStarted ||
                 archiveWindowPendingSnapshot != nil ||
                 archiveWindowAuthoritativeEmptyApplyGeneration != nil ||
@@ -5512,6 +5667,7 @@ class ChatViewController: MessagesViewController {
             )
             return
         }
+        initialTargetFirstFrameContext?.invalidateAlignedFrameCommit()
 
         let transactionCommitAuthorization: () -> Bool = {
             [weak self, weak session] in
@@ -8220,6 +8376,8 @@ class ChatViewController: MessagesViewController {
         self.currentSearchQueryId = nil
         self.currentInChatSearchQueryContext = nil
         self.pendingOpenMessageRequest = nil
+        self.initialTargetFirstFrameContext?.releasePreparationCompletion()
+        self.initialTargetFirstFrameContext = nil
         self.claimedUnreadMentionBadgeNotificationPrimary = nil
 #if DEBUG || CHAT_PERFORMANCE_LAB
         self.unreadMentionBadgeOpenResolutionObserverForTests = nil
@@ -8653,15 +8811,93 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
             self.setFloatingDateVisible(false)
             self.setSkeletonVisible(true)
         }
+        self.initialTargetFirstFrameContext?.releasePreparationCompletion()
+        self.initialTargetFirstFrameContext = nil
+        if ChatInitialTargetFirstFramePolicy.owns(
+            request: self.pendingOpenMessageRequest,
+            owner: self.owner,
+            jid: self.jid,
+            conversationType: self.conversationType
+        ), let request = self.pendingOpenMessageRequest {
+            self.initialTargetFirstFrameContext =
+                ChatInitialTargetFirstFrameContext(
+                    request: request,
+                    completion: completion
+                )
+        }
         self.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        guard self.initialTargetFirstFrameContext == nil else {
+            return
+        }
         self.isPreparingStackedNavigationPresentation = false
         completion()
+    }
+
+    internal func completeInitialTargetFirstFrameIfNeeded(
+        request: ChatOpenMessageRequest,
+        applyGeneration: UInt64
+    ) {
+        guard !self.isStackedNavigationPresentationPreparationCancelled,
+              self.archiveWindowApplyGeneration == applyGeneration,
+              self.pendingOpenMessageRequest == request,
+              let context = self.initialTargetFirstFrameContext,
+              context.request == request,
+              context.hasCommittedAlignedFrame(
+                for: request,
+                applyGeneration: applyGeneration,
+                datasourceGeneration: self.scrollResidentMetadataGeneration
+              ) else {
+            return
+        }
+        self.initialTargetFirstFrameContext = nil
+        self.isPreparingStackedNavigationPresentation = false
+        _ = context.finishPreparationIfNeeded()
+    }
+
+    @discardableResult
+    internal func protectInitialTargetFirstFrameIfNeeded(
+        for request: ChatOpenMessageRequest
+    ) -> Bool {
+        guard let context = self.initialTargetFirstFrameContext,
+              self.pendingOpenMessageRequest == context.request,
+              ChatInitialTargetFirstFramePolicy.owns(
+                request: request,
+                owner: self.owner,
+                jid: self.jid,
+                conversationType: self.conversationType
+              ) else {
+            return false
+        }
+        context.retarget(to: request)
+        return true
+    }
+
+    internal func isProtectingInitialTargetFirstFrame(
+        _ request: ChatOpenMessageRequest
+    ) -> Bool {
+        self.pendingOpenMessageRequest == request &&
+            self.initialTargetFirstFrameContext?.request == request
+    }
+
+    @discardableResult
+    internal func clearInitialTargetFirstFrameProtectionIfMatching(
+        _ request: ChatOpenMessageRequest
+    ) -> Bool {
+        guard let context = self.initialTargetFirstFrameContext,
+              context.request == request else {
+            return false
+        }
+        context.releasePreparationCompletion()
+        self.initialTargetFirstFrameContext = nil
+        return true
     }
 
     func cancelStackedNavigationPresentationPreparation() {
         self.isStackedNavigationPresentationPreparationCancelled = true
         self.isPreparingStackedNavigationPresentation = false
         self.shouldDeferPendingOpenMessageRequestUntilNavigationTransitionCompletion = false
+        self.initialTargetFirstFrameContext?.releasePreparationCompletion()
+        self.initialTargetFirstFrameContext = nil
         self.visibleUnreadMentionReconciliationWorkItem?.cancel()
         self.visibleUnreadMentionReconciliationWorkItem = nil
         self.readVisibleStableLayoutRetryWorkItem?.cancel()
@@ -8675,8 +8911,19 @@ extension ChatViewController: StackedNavigationPresentationPreparing, AsyncStack
               !self.isStackedNavigationPresentationPreparationCancelled else {
             return
         }
-        self.setSkeletonVisible(true)
-        self.loadInitialDatasource(performPendingOpenMessageRequest: false)
+        let hasCurrentAlignedFrame = self.pendingOpenMessageRequest.flatMap { request in
+            self.initialTargetFirstFrameContext?.hasCommittedAlignedFrame(
+                for: request,
+                applyGeneration: self.archiveWindowApplyGeneration,
+                datasourceGeneration: self.scrollResidentMetadataGeneration
+            )
+        } ?? false
+        if !hasCurrentAlignedFrame {
+            self.setSkeletonVisible(true)
+            self.setDatasourceLoadingEnabled(false)
+            _ = self.commitArchiveEngineOpeningSkeletonSynchronously()
+        }
+        self.initialTargetFirstFrameContext?.releasePreparationCompletion()
         self.isPreparingStackedNavigationPresentation = false
         DDLogDebug(
             "LAST_CHATS_NAVIGATION event=destinationPreparationTimeout " +
