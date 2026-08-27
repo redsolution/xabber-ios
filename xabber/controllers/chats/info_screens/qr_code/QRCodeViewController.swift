@@ -94,6 +94,28 @@ enum SettingsAccountQRCodeExportPolicy {
     }
 }
 
+enum SettingsAccountQRCodeAvatarSource {
+    static func maximumAvailableURL(
+        maxURL: String?,
+        minURL: String?,
+        legacyKey: String?
+    ) -> String? {
+        [maxURL, minURL, legacyKey].compactMap { value in
+            guard let value else { return nil }
+            let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmedValue.isEmpty ? nil : trimmedValue
+        }.first
+    }
+}
+
+enum SettingsAccountQRCodeTransition {
+    static let duration: TimeInterval = 0.32
+
+    static var isEnabled: Bool {
+        !UIAccessibility.isReduceMotionEnabled
+    }
+}
+
 private enum SettingsAccountQRCodeAppearance {
     case light
     case dark
@@ -205,11 +227,13 @@ private final class SettingsAccountQRCodeCanvasView: UIView {
         cardView.layer.shadowOpacity = 0.12
         cardView.layer.shadowRadius = 20
         cardView.layer.shadowOffset = CGSize(width: 0, height: 8)
+        cardView.accessibilityIdentifier = "settings.account_qr.card"
         addSubview(cardView)
 
         qrImageView.contentMode = .scaleAspectFit
         qrImageView.layer.magnificationFilter = .nearest
         qrImageView.layer.minificationFilter = .nearest
+        qrImageView.accessibilityIdentifier = "settings.account_qr.code"
         cardView.addSubview(qrImageView)
 
         jidLabel.textAlignment = .center
@@ -241,6 +265,33 @@ private final class SettingsAccountQRCodeCanvasView: UIView {
     }
 
     func apply(
+        theme: SettingsAccountQRCodeTheme,
+        appearance: SettingsAccountQRCodeAppearance,
+        payload: String,
+        jid: String,
+        animated: Bool = false
+    ) {
+        let updates = { [self] in
+            applyAppearance(
+                theme: theme,
+                appearance: appearance,
+                payload: payload,
+                jid: jid
+            )
+        }
+        guard animated, SettingsAccountQRCodeTransition.isEnabled else {
+            updates()
+            return
+        }
+        UIView.transition(
+            with: self,
+            duration: SettingsAccountQRCodeTransition.duration,
+            options: [.transitionCrossDissolve, .beginFromCurrentState, .allowAnimatedContent],
+            animations: updates
+        )
+    }
+
+    private func applyAppearance(
         theme: SettingsAccountQRCodeTheme,
         appearance: SettingsAccountQRCodeAppearance,
         payload: String,
@@ -288,14 +339,18 @@ private final class SettingsAccountQRCodeCanvasView: UIView {
         patternImageView.frame = bounds
 
         let safeTop = safeAreaInsets.top
-        let cardWidth = min(max(bounds.width - 40, 250), 336)
+        let targetCardWidth = min(max(bounds.width - 90, 220), 300)
+        let minimumCardY = safeTop + 45
+        let cardClearance: CGFloat = controlsReservedHeight > 0 ? 36 : 0
+        let controlsTop = bounds.height - controlsReservedHeight
+        let maximumAvailableCardHeight = max(0, controlsTop - cardClearance - minimumCardY)
+        let heightLimitedCardWidth = maximumAvailableCardHeight / 1.17
+        let cardWidth = controlsReservedHeight > 0
+            ? min(targetCardWidth, heightLimitedCardWidth)
+            : targetCardWidth
         let cardHeight = cardWidth * 1.17
-        let minimumCardY = safeTop + 74
-        let maximumCardY = max(
-            minimumCardY,
-            bounds.height - controlsReservedHeight - cardHeight - 14
-        )
-        let preferredCardY = (bounds.height * 0.455) - (cardHeight * 0.5)
+        let maximumCardY = controlsTop - cardClearance - cardHeight
+        let preferredCardY = (bounds.height * 0.437) - (cardHeight * 0.5)
         let cardY = min(max(preferredCardY, minimumCardY), maximumCardY)
         cardView.frame = CGRect(
             x: (bounds.width - cardWidth) * 0.5,
@@ -304,34 +359,39 @@ private final class SettingsAccountQRCodeCanvasView: UIView {
             height: cardHeight
         )
 
-        let avatarSize: CGFloat = 84
+        let avatarSize = cardWidth * (98 / 300)
         avatarBackdropView.frame = CGRect(
             x: cardView.frame.midX - (avatarSize * 0.5),
             y: cardView.frame.minY - (avatarSize * 0.5),
             width: avatarSize,
             height: avatarSize
         )
-        avatarImageView.frame = avatarBackdropView.bounds.insetBy(dx: 6, dy: 6)
+        let avatarInset = avatarSize * (6 / 98)
+        avatarBackdropView.layer.cornerRadius = avatarSize * 0.5
+        avatarImageView.frame = avatarBackdropView.bounds.insetBy(dx: avatarInset, dy: avatarInset)
+        avatarImageView.layer.cornerRadius = avatarImageView.bounds.width * 0.5
 
-        let qrInset: CGFloat = 30
-        let qrTop: CGFloat = 48
+        let qrInset = cardWidth * (44 / 300)
+        let qrTop = cardWidth * (40 / 300)
         let qrSize = cardWidth - (qrInset * 2)
         qrImageView.frame = CGRect(x: qrInset, y: qrTop, width: qrSize, height: qrSize)
 
-        let logoSize: CGFloat = 58
+        let logoSize = cardWidth * (50 / 300)
         logoBackdropView.frame = CGRect(
             x: qrImageView.frame.midX - (logoSize * 0.5),
             y: qrImageView.frame.midY - (logoSize * 0.5),
             width: logoSize,
             height: logoSize
         )
-        appLogoImageView.frame = logoBackdropView.bounds.insetBy(dx: 8, dy: 8)
+        logoBackdropView.layer.cornerRadius = logoSize * 0.5
+        let logoInset = logoSize * (7 / 50)
+        appLogoImageView.frame = logoBackdropView.bounds.insetBy(dx: logoInset, dy: logoInset)
 
         jidLabel.frame = CGRect(
-            x: 20,
-            y: cardHeight - 53,
-            width: cardWidth - 40,
-            height: 28
+            x: cardWidth * (18 / 300),
+            y: cardHeight - (49 / 300 * cardWidth),
+            width: cardWidth - (cardWidth * (36 / 300)),
+            height: cardWidth * (26 / 300)
         )
     }
 }
@@ -343,6 +403,7 @@ private final class SettingsAccountQRCodeThemeCell: UICollectionViewCell {
     private let patternImageView = UIImageView()
     private let miniCardView = UIView()
     private let qrSymbolImageView = UIImageView()
+    private var selectionColor: UIColor = .label
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -375,7 +436,7 @@ private final class SettingsAccountQRCodeThemeCell: UICollectionViewCell {
     override var isSelected: Bool {
         didSet {
             layer.borderWidth = isSelected ? 3 : 0
-            layer.borderColor = UIColor.label.cgColor
+            layer.borderColor = selectionColor.cgColor
             layer.cornerRadius = 16
             layer.cornerCurve = .continuous
             accessibilityTraits = isSelected ? [.button, .selected] : .button
@@ -392,6 +453,8 @@ private final class SettingsAccountQRCodeThemeCell: UICollectionViewCell {
             .resizableImage(withCapInsets: .zero, resizingMode: .tile)
         miniCardView.backgroundColor = appearance == .light ? .white : UIColor(white: 0.075, alpha: 1)
         qrSymbolImageView.tintColor = appearance == .light ? .black : .white
+        selectionColor = appearance == .light ? .label : UIColor(white: 0.72, alpha: 1)
+        layer.borderColor = selectionColor.cgColor
     }
 
     override func layoutSubviews() {
@@ -521,8 +584,8 @@ class QRCodeViewController: UIViewController {
     private lazy var settingsThemeCollectionView: UICollectionView = {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .horizontal
-        layout.itemSize = CGSize(width: 54, height: 70)
-        layout.minimumLineSpacing = 10
+        layout.itemSize = CGSize(width: 80, height: 108)
+        layout.minimumLineSpacing = 8
         layout.sectionInset = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.backgroundColor = .clear
@@ -656,7 +719,7 @@ class QRCodeViewController: UIViewController {
         )
 
         let canvasView = SettingsAccountQRCodeCanvasView(avatarImageView: avatarImageView)
-        canvasView.controlsReservedHeight = 278
+        canvasView.controlsReservedHeight = 348
         canvasView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(canvasView)
         NSLayoutConstraint.activate([
@@ -668,6 +731,7 @@ class QRCodeViewController: UIViewController {
         settingsCanvasView = canvasView
 
         settingsControlPanel.translatesAutoresizingMaskIntoConstraints = false
+        settingsControlPanel.accessibilityIdentifier = "settings.account_qr.controls"
         view.addSubview(settingsControlPanel)
 
         let topRow = UIView()
@@ -698,31 +762,46 @@ class QRCodeViewController: UIViewController {
         settingsShareButton.translatesAutoresizingMaskIntoConstraints = false
         settingsScanButton.translatesAutoresizingMaskIntoConstraints = false
 
+        let shareRow = UIView()
+        shareRow.addSubview(settingsShareButton)
+        let scanRow = UIView()
+        scanRow.addSubview(settingsScanButton)
+        NSLayoutConstraint.activate([
+            settingsShareButton.leadingAnchor.constraint(equalTo: shareRow.leadingAnchor, constant: 14),
+            settingsShareButton.trailingAnchor.constraint(equalTo: shareRow.trailingAnchor, constant: -14),
+            settingsShareButton.topAnchor.constraint(equalTo: shareRow.topAnchor),
+            settingsShareButton.bottomAnchor.constraint(equalTo: shareRow.bottomAnchor),
+            settingsScanButton.leadingAnchor.constraint(equalTo: scanRow.leadingAnchor, constant: 14),
+            settingsScanButton.trailingAnchor.constraint(equalTo: scanRow.trailingAnchor, constant: -14),
+            settingsScanButton.topAnchor.constraint(equalTo: scanRow.topAnchor),
+            settingsScanButton.bottomAnchor.constraint(equalTo: scanRow.bottomAnchor)
+        ])
+
         let controlsStack = UIStackView(arrangedSubviews: [
             topRow,
             settingsThemeCollectionView,
-            settingsShareButton,
-            settingsScanButton
+            shareRow,
+            scanRow
         ])
         controlsStack.axis = .vertical
-        controlsStack.spacing = 10
+        controlsStack.spacing = 14
         controlsStack.translatesAutoresizingMaskIntoConstraints = false
         settingsControlPanel.addSubview(controlsStack)
 
         NSLayoutConstraint.activate([
-            settingsControlPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
-            settingsControlPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
-            settingsControlPanel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
-            controlsStack.leadingAnchor.constraint(equalTo: settingsControlPanel.leadingAnchor, constant: 12),
-            controlsStack.trailingAnchor.constraint(equalTo: settingsControlPanel.trailingAnchor, constant: -12),
-            controlsStack.topAnchor.constraint(equalTo: settingsControlPanel.topAnchor, constant: 10),
-            controlsStack.bottomAnchor.constraint(equalTo: settingsControlPanel.bottomAnchor, constant: -12),
-            settingsThemeCollectionView.heightAnchor.constraint(equalToConstant: 78),
-            settingsShareButton.heightAnchor.constraint(equalToConstant: 50),
-            settingsScanButton.heightAnchor.constraint(equalToConstant: 50)
+            settingsControlPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 6),
+            settingsControlPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -6),
+            settingsControlPanel.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6),
+            controlsStack.leadingAnchor.constraint(equalTo: settingsControlPanel.leadingAnchor, constant: 16),
+            controlsStack.trailingAnchor.constraint(equalTo: settingsControlPanel.trailingAnchor, constant: -16),
+            controlsStack.topAnchor.constraint(equalTo: settingsControlPanel.topAnchor, constant: 12),
+            controlsStack.bottomAnchor.constraint(equalTo: settingsControlPanel.bottomAnchor, constant: -24),
+            settingsThemeCollectionView.heightAnchor.constraint(equalToConstant: 116),
+            shareRow.heightAnchor.constraint(equalToConstant: 52),
+            scanRow.heightAnchor.constraint(equalToConstant: 52)
         ])
 
-        applySettingsAccountTheme()
+        applySettingsAccountTheme(animated: false)
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.settingsThemes.isEmpty else { return }
             self.settingsThemeCollectionView.selectItem(
@@ -733,7 +812,7 @@ class QRCodeViewController: UIViewController {
         }
     }
 
-    private func applySettingsAccountTheme() {
+    private func applySettingsAccountTheme(animated: Bool) {
         guard settingsThemes.indices.contains(selectedSettingsThemeIndex) else {
             return
         }
@@ -742,19 +821,54 @@ class QRCodeViewController: UIViewController {
             theme: theme,
             appearance: settingsAppearance,
             payload: stringValue,
-            jid: jid
+            jid: jid,
+            animated: animated
         )
-        settingsThemeCollectionView.reloadData()
 
         let gradientColors = ChatViewController.getColorsForGradient(forColor: theme.gradient)
         let accent = UIColor(cgColor: gradientColors.last ?? UIColor.systemBlue.cgColor)
             .settingsAccountQRCodeMixed(with: .black, fraction: 0.28)
-        settingsShareButton.configuration?.baseBackgroundColor = accent
-        settingsShareButton.configuration?.baseForegroundColor = .white
-        settingsScanButton.configuration?.baseBackgroundColor = accent.withAlphaComponent(0.16)
-        settingsScanButton.configuration?.baseForegroundColor = accent
-        settingsCloseButton.tintColor = .label
-        settingsAppearanceButton.tintColor = .label
+        let updates = { [self] in
+            settingsThemeCollectionView.reloadData()
+            settingsThemeCollectionView.selectItem(
+                at: IndexPath(item: selectedSettingsThemeIndex, section: 0),
+                animated: false,
+                scrollPosition: []
+            )
+            settingsControlPanel.backgroundColor = settingsAppearance == .light
+                ? .systemBackground
+                : UIColor(white: 0.10, alpha: 1)
+            settingsTitleLabel.textColor = settingsAppearance == .light ? .label : .white
+            let roundButtonColor = settingsAppearance == .light
+                ? UIColor.secondarySystemBackground
+                : UIColor(white: 0.18, alpha: 1)
+            settingsCloseButton.backgroundColor = roundButtonColor
+            settingsAppearanceButton.backgroundColor = roundButtonColor
+            settingsCloseButton.tintColor = settingsAppearance == .light ? .label : .white
+            settingsAppearanceButton.tintColor = settingsAppearance == .light ? .label : .white
+            settingsShareButton.configuration?.baseBackgroundColor = settingsAppearance == .light
+                ? accent
+                : .white
+            settingsShareButton.configuration?.baseForegroundColor = settingsAppearance == .light
+                ? .white
+                : .black
+            settingsScanButton.configuration?.baseBackgroundColor = settingsAppearance == .light
+                ? accent.withAlphaComponent(0.16)
+                : UIColor.white.withAlphaComponent(0.12)
+            settingsScanButton.configuration?.baseForegroundColor = settingsAppearance == .light
+                ? accent
+                : .white
+        }
+        guard animated, SettingsAccountQRCodeTransition.isEnabled else {
+            updates()
+            return
+        }
+        UIView.transition(
+            with: settingsControlPanel,
+            duration: SettingsAccountQRCodeTransition.duration,
+            options: [.transitionCrossDissolve, .beginFromCurrentState, .allowAnimatedContent],
+            animations: updates
+        )
     }
 
     @objc
@@ -767,7 +881,7 @@ class QRCodeViewController: UIViewController {
         settingsAppearance = settingsAppearance == .light ? .dark : .light
         let imageName = settingsAppearance == .light ? "moon.fill" : "sun.max.fill"
         settingsAppearanceButton.setImage(UIImage(systemName: imageName), for: .normal)
-        applySettingsAccountTheme()
+        applySettingsAccountTheme(animated: true)
     }
 
     @objc
@@ -829,6 +943,22 @@ class QRCodeViewController: UIViewController {
         configure()
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard presentationMode == .settingsAccountCard,
+              let settingsCanvasView else {
+            return
+        }
+        let reservedHeight = max(0, view.bounds.maxY - settingsControlPanel.frame.minY)
+        if abs(settingsCanvasView.controlsReservedHeight - reservedHeight) > 0.5 {
+            settingsCanvasView.controlsReservedHeight = reservedHeight
+            settingsCanvasView.layoutIfNeeded()
+        }
+        settingsControlPanel.layer.cornerRadius = 32
+        settingsCloseButton.layer.cornerRadius = settingsCloseButton.bounds.height * 0.5
+        settingsAppearanceButton.layer.cornerRadius = settingsAppearanceButton.bounds.height * 0.5
+    }
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         switch presentationMode {
@@ -879,7 +1009,7 @@ extension QRCodeViewController: UICollectionViewDataSource, UICollectionViewDele
             return
         }
         selectedSettingsThemeIndex = indexPath.item
-        applySettingsAccountTheme()
+        applySettingsAccountTheme(animated: true)
         collectionView.selectItem(at: indexPath, animated: false, scrollPosition: .centeredHorizontally)
     }
 }

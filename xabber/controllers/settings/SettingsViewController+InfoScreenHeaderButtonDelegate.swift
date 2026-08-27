@@ -92,9 +92,14 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
             let realm = try Realm()
             let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)
             
-            let avatarUrl = instance?.avatarUrl
-            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 72) { image in
-                if let image = image?.resize(targetSize: CGSize(square: 72)) {
+            let avatarUrl = SettingsAccountQRCodeAvatarSource.maximumAvailableURL(
+                maxURL: instance?.avatarMaxUrl,
+                minURL: instance?.avatarMinUrl,
+                legacyKey: instance?.oldschoolAvatarKey
+            )
+            let avatarOwner = owner.isEmpty ? jid : owner
+            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: avatarOwner, size: 256) { image in
+                if let image {
                     vc.avatarImageView.image = image
                 } else {
                     vc.avatarImageView.image = UIImageView.getDefaultAvatar(

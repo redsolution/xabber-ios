@@ -77,6 +77,79 @@ final class SettingsAccountQRCodeTests: XCTestCase {
         XCTAssertNotNil(view(withIdentifier: "settings.account_qr.scan", in: controller.view))
     }
 
+    func testSettingsLayoutMatchesCompactReferenceAndClearsControls() throws {
+        let controller = makeSettingsController()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        let card = try XCTUnwrap(
+            view(withIdentifier: "settings.account_qr.card", in: controller.view)
+        )
+        let qrCode = try XCTUnwrap(
+            view(withIdentifier: "settings.account_qr.code", in: controller.view)
+        )
+        let controls = try XCTUnwrap(
+            view(withIdentifier: "settings.account_qr.controls", in: controller.view)
+        )
+        let share = try XCTUnwrap(
+            view(withIdentifier: "settings.account_qr.share", in: controller.view)
+        )
+        let cardFrame = card.convert(card.bounds, to: controller.view)
+        let qrFrame = qrCode.convert(qrCode.bounds, to: controller.view)
+        let controlsFrame = controls.convert(controls.bounds, to: controller.view)
+        let shareFrame = share.convert(share.bounds, to: controller.view)
+
+        XCTAssertEqual(cardFrame.width, 300, accuracy: 0.5)
+        XCTAssertEqual(qrFrame.width, 212, accuracy: 0.5)
+        XCTAssertGreaterThanOrEqual(controlsFrame.minY - cardFrame.maxY, 32)
+        XCTAssertEqual(controlsFrame.maxY, controller.view.bounds.maxY - 6, accuracy: 0.5)
+        XCTAssertEqual(shareFrame.width, 318, accuracy: 0.5)
+    }
+
+    func testMaximumAvailableAvatarURLWinsOverSmallerAndLegacySources() {
+        XCTAssertEqual(
+            SettingsAccountQRCodeAvatarSource.maximumAvailableURL(
+                maxURL: "https://example.com/avatar-max.jpg",
+                minURL: "https://example.com/avatar-min.jpg",
+                legacyKey: "avatar-hash"
+            ),
+            "https://example.com/avatar-max.jpg"
+        )
+        XCTAssertEqual(
+            SettingsAccountQRCodeAvatarSource.maximumAvailableURL(
+                maxURL: "",
+                minURL: "https://example.com/avatar-min.jpg",
+                legacyKey: "avatar-hash"
+            ),
+            "https://example.com/avatar-min.jpg"
+        )
+    }
+
+    func testAppearanceToggleChangesCardAndControlPanelColorsWithSmoothTiming() throws {
+        let controller = makeSettingsController()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.layoutIfNeeded()
+
+        let card = try XCTUnwrap(
+            view(withIdentifier: "settings.account_qr.card", in: controller.view)
+        )
+        let controls = try XCTUnwrap(
+            view(withIdentifier: "settings.account_qr.controls", in: controller.view)
+        )
+        let lightCardColor = card.backgroundColor
+        let lightControlsColor = controls.backgroundColor
+        let appearanceButton = try XCTUnwrap(
+            view(withIdentifier: "settings.account_qr.appearance", in: controller.view) as? UIButton
+        )
+
+        appearanceButton.sendActions(for: .touchUpInside)
+
+        XCTAssertNotEqual(card.backgroundColor, lightCardColor)
+        XCTAssertNotEqual(controls.backgroundColor, lightControlsColor)
+        XCTAssertGreaterThanOrEqual(SettingsAccountQRCodeTransition.duration, 0.25)
+    }
+
     func testScanActionReusesExistingAddContactScanner() {
         XCTAssertTrue(SettingsAccountQRCodeRoute.makeScanner() is QRCodeScannerViewController)
     }
@@ -163,6 +236,16 @@ final class SettingsAccountQRCodeTests: XCTestCase {
             .compactMap { ($0 as? CIQRCodeFeature)?.messageString }
 
         XCTAssertTrue(messages.contains("xmpp:alice@example.com"))
+    }
+
+    private func makeSettingsController() -> QRCodeViewController {
+        let controller = QRCodeViewController()
+        controller.presentationMode = .settingsAccountCard
+        controller.username = "Alice"
+        controller.jid = "alice@example.com"
+        controller.stringValue = SettingsAccountQRCodePayload.string(for: controller.jid)
+        controller.loadViewIfNeeded()
+        return controller
     }
 
     private func view(withIdentifier identifier: String, in root: UIView) -> UIView? {
