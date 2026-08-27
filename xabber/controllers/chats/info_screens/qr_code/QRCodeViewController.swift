@@ -399,29 +399,52 @@ private final class SettingsAccountQRCodeCanvasView: UIView {
 private final class SettingsAccountQRCodeThemeCell: UICollectionViewCell {
     static let reuseIdentifier = "SettingsAccountQRCodeThemeCell"
 
+    private enum Layout {
+        static let outerCornerRadius: CGFloat = 16
+        static let previewCornerRadius: CGFloat = 13
+        static let selectionBorderWidth: CGFloat = 3
+    }
+
+    private let previewView = UIView()
     private let gradientLayer = CAGradientLayer()
+    private let selectionBorderLayer = CAGradientLayer()
+    private let selectionBorderMask = CAShapeLayer()
     private let patternImageView = UIImageView()
     private let miniCardView = UIView()
     private let qrSymbolImageView = UIImageView()
-    private var selectionColor: UIColor = .label
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isAccessibilityElement = true
         accessibilityTraits = .button
-        contentView.layer.cornerRadius = 13
-        contentView.layer.cornerCurve = .continuous
+        clipsToBounds = true
+        layer.cornerRadius = Layout.outerCornerRadius
+        layer.cornerCurve = .continuous
         contentView.clipsToBounds = true
-        contentView.layer.insertSublayer(gradientLayer, at: 0)
+
+        previewView.accessibilityIdentifier = "settings.account_qr.theme_preview"
+        previewView.layer.cornerRadius = Layout.previewCornerRadius
+        previewView.layer.cornerCurve = .continuous
+        previewView.clipsToBounds = true
+        contentView.addSubview(previewView)
+        previewView.layer.insertSublayer(gradientLayer, at: 0)
+
+        selectionBorderLayer.name = "settings.account_qr.theme_selection_border"
+        selectionBorderLayer.startPoint = CGPoint(x: 0, y: 1)
+        selectionBorderLayer.endPoint = CGPoint(x: 1, y: 0)
+        selectionBorderLayer.opacity = 0
+        selectionBorderLayer.mask = selectionBorderMask
+        selectionBorderLayer.zPosition = 1
+        layer.addSublayer(selectionBorderLayer)
 
         patternImageView.alpha = 0.14
         patternImageView.tintColor = .white
         patternImageView.contentMode = .scaleAspectFill
-        contentView.addSubview(patternImageView)
+        previewView.addSubview(patternImageView)
 
         miniCardView.backgroundColor = .white
         miniCardView.layer.cornerRadius = 7
-        contentView.addSubview(miniCardView)
+        previewView.addSubview(miniCardView)
 
         qrSymbolImageView.image = UIImage(systemName: "qrcode")
         qrSymbolImageView.tintColor = .black
@@ -435,39 +458,53 @@ private final class SettingsAccountQRCodeThemeCell: UICollectionViewCell {
 
     override var isSelected: Bool {
         didSet {
-            layer.borderWidth = isSelected ? 3 : 0
-            layer.borderColor = selectionColor.cgColor
-            layer.cornerRadius = 16
-            layer.cornerCurve = .continuous
+            selectionBorderLayer.opacity = isSelected ? 1 : 0
             accessibilityTraits = isSelected ? [.button, .selected] : .button
+            setNeedsLayout()
         }
     }
 
     func apply(theme: SettingsAccountQRCodeTheme, appearance: SettingsAccountQRCodeAppearance) {
         accessibilityLabel = "\(theme.backgroundName), \(theme.gradient.rawValue)"
-        gradientLayer.colors = ChatViewController.getColorsForGradient(forColor: theme.gradient)
+        let gradientColors = ChatViewController.getColorsForGradient(forColor: theme.gradient)
+        gradientLayer.colors = gradientColors
         gradientLayer.startPoint = CGPoint(x: 0, y: 1)
         gradientLayer.endPoint = CGPoint(x: 1, y: 0)
+        selectionBorderLayer.colors = gradientColors
         patternImageView.image = UIImage(named: theme.backgroundName.lowercased())?
             .withRenderingMode(.alwaysTemplate)
             .resizableImage(withCapInsets: .zero, resizingMode: .tile)
         miniCardView.backgroundColor = appearance == .light ? .white : UIColor(white: 0.075, alpha: 1)
         qrSymbolImageView.tintColor = appearance == .light ? .black : .white
-        selectionColor = appearance == .light ? .label : UIColor(white: 0.72, alpha: 1)
-        layer.borderColor = selectionColor.cgColor
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        gradientLayer.frame = contentView.bounds
-        patternImageView.frame = contentView.bounds
+        let previewInset = isSelected ? Layout.selectionBorderWidth : 0
+        previewView.frame = contentView.bounds.insetBy(dx: previewInset, dy: previewInset)
+        gradientLayer.frame = previewView.bounds
+        patternImageView.frame = previewView.bounds
         miniCardView.frame = CGRect(
-            x: contentView.bounds.width * 0.23,
-            y: contentView.bounds.height * 0.18,
-            width: contentView.bounds.width * 0.54,
-            height: contentView.bounds.height * 0.66
+            x: previewView.bounds.width * 0.23,
+            y: previewView.bounds.height * 0.18,
+            width: previewView.bounds.width * 0.54,
+            height: previewView.bounds.height * 0.66
         )
         qrSymbolImageView.frame = miniCardView.bounds.insetBy(dx: 5, dy: 7)
+
+        selectionBorderLayer.frame = bounds
+        selectionBorderMask.frame = selectionBorderLayer.bounds
+        let halfBorderWidth = Layout.selectionBorderWidth / 2
+        selectionBorderMask.fillColor = UIColor.clear.cgColor
+        selectionBorderMask.strokeColor = UIColor.black.cgColor
+        selectionBorderMask.lineWidth = Layout.selectionBorderWidth
+        selectionBorderMask.path = UIBezierPath(
+            roundedRect: selectionBorderLayer.bounds.insetBy(
+                dx: halfBorderWidth,
+                dy: halfBorderWidth
+            ),
+            cornerRadius: Layout.outerCornerRadius - halfBorderWidth
+        ).cgPath
     }
 }
 

@@ -150,6 +150,45 @@ final class SettingsAccountQRCodeTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(SettingsAccountQRCodeTransition.duration, 0.25)
     }
 
+    func testSelectedThemeUsesGradientBorderAndClipsPreviewInsideIt() throws {
+        let controller = makeSettingsController()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.layoutIfNeeded()
+
+        let collectionView = try XCTUnwrap(
+            view(withIdentifier: "settings.account_qr.themes", in: controller.view)
+                as? UICollectionView
+        )
+        let cell = controller.collectionView(
+            collectionView,
+            cellForItemAt: IndexPath(item: 0, section: 0)
+        )
+        cell.frame = CGRect(x: 0, y: 0, width: 80, height: 108)
+        cell.isSelected = true
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+
+        let border = try XCTUnwrap(
+            cell.layer.sublayers?
+                .compactMap { $0 as? CAGradientLayer }
+                .first { $0.name == "settings.account_qr.theme_selection_border" }
+        )
+        let preview = try XCTUnwrap(
+            view(withIdentifier: "settings.account_qr.theme_preview", in: cell)
+        )
+
+        XCTAssertEqual(border.opacity, 1)
+        XCTAssertGreaterThanOrEqual(border.colors?.count ?? 0, 2)
+        XCTAssertEqual(border.startPoint, CGPoint(x: 0, y: 1))
+        XCTAssertEqual(border.endPoint, CGPoint(x: 1, y: 0))
+        XCTAssertTrue(cell.clipsToBounds)
+        XCTAssertTrue(preview.clipsToBounds)
+        XCTAssertEqual(preview.frame.minX, 3, accuracy: 0.01)
+        XCTAssertEqual(preview.frame.minY, 3, accuracy: 0.01)
+        XCTAssertEqual(preview.frame.maxX, cell.contentView.bounds.maxX - 3, accuracy: 0.01)
+        XCTAssertEqual(preview.frame.maxY, cell.contentView.bounds.maxY - 3, accuracy: 0.01)
+    }
+
     func testScanActionReusesExistingAddContactScanner() {
         XCTAssertTrue(SettingsAccountQRCodeRoute.makeScanner() is QRCodeScannerViewController)
     }
