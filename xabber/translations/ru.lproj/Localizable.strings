@@ -2310,7 +2310,8 @@
 "action_send_contact" = "Отправить контакт";
 
 
-"share_qr_code" = "Показать QR-код";
+"share_qr_code" = "Поделиться QR-кодом";
+"scan_qr_code" = "Сканировать QR-код";
 
 
 "XMPP_EXCEPTION" = "Ошибка соединения";

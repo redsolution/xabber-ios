@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		4E5A00023B4000000ABC001 /* SettingsAccountQRCodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5A00013B4000000ABC001 /* SettingsAccountQRCodeTests.swift */; };
 		CA180014CA180014CA180014 /* ArchiveCoverageStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180013CA180013CA180013 /* ArchiveCoverageStorage.swift */; };
 		CA180031CA180031CA180031 /* ArchiveTransportTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180030CA180030CA180030 /* ArchiveTransportTypes.swift */; };
 		CA180033CA180033CA180033 /* AccountArchiveEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180032CA180032CA180032 /* AccountArchiveEngine.swift */; };
@@ -1060,6 +1061,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		4E5A00013B4000000ABC001 /* SettingsAccountQRCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAccountQRCodeTests.swift; sourceTree = "<group>"; };
 		CA180013CA180013CA180013 /* ArchiveCoverageStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveCoverageStorage.swift; sourceTree = "<group>"; };
 		CA180030CA180030CA180030 /* ArchiveTransportTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveTransportTypes.swift; sourceTree = "<group>"; };
 		CA180032CA180032CA180032 /* AccountArchiveEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountArchiveEngine.swift; sourceTree = "<group>"; };
@@ -4246,6 +4248,7 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				4E5A00013B4000000ABC001 /* SettingsAccountQRCodeTests.swift */,
 				A1B2C3D4321200000ABC0001 /* LastChatsPremiumPromotionTests.swift */,
 				A1B2C3D4321200000ABC0011 /* LastChatsSpecialMessageVisibilityTests.swift */,
 				4E5039110000000000000001 /* RedmineIssue50391Tests.swift */,
@@ -6508,6 +6511,7 @@
 					66AE4E8024E189EF00FF11DC /* XabberXMPPTests.swift in Sources */,
 					66B48FDA26F858EC0088D6A4 /* Base64Extras.swift in Sources */,
 					66AE4E7824E12F7C00FF11DC /* xabberTests.swift in Sources */,
+					4E5A00023B4000000ABC001 /* SettingsAccountQRCodeTests.swift in Sources */,
 					4E4100052F6B000000ABC001 /* PushNotificationRoutingTests.swift in Sources */,
 					4E8110023B2A000000ABC001 /* PushExtensionRichContentTests.swift in Sources */,
 					4E8120023B2B000000ABC001 /* PushAvatarSnapshotPublisherTests.swift in Sources */,

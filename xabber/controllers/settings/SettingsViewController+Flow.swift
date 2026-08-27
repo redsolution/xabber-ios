@@ -24,13 +24,18 @@ import UIKit
 extension SettingsViewController {
 
     @discardableResult
-    internal func presentContainedSettingsModal(_ vc: UIViewController, replaceCurrentPresented: Bool = true) -> Bool {
+    internal func presentContainedSettingsModal(
+        _ vc: UIViewController,
+        modalPresentationStyle: UIModalPresentationStyle = .formSheet,
+        replaceCurrentPresented: Bool = true
+    ) -> Bool {
         let navigationController = UINavigationController(rootViewController: vc)
         return presentContainedNavigationModal(
             navigationController,
             rootViewController: vc,
             presentedContentViewController: vc,
             from: SettingsModalPresentationPolicy.presenter(for: self),
+            modalPresentationStyle: modalPresentationStyle,
             replaceCurrentPresented: replaceCurrentPresented,
             forwardedDelegate: self
         )

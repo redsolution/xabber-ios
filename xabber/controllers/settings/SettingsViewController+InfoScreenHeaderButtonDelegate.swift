@@ -77,29 +77,39 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
     
     @objc func onQRCode() {
         let vc = QRCodeViewController()
-        
+
+        vc.presentationMode = .settingsAccountCard
         vc.username = self.nickname
         vc.jid = self.jid
-        vc.stringValue = "xmpp:\(self.jid)"
-        
+        vc.stringValue = SettingsAccountQRCodePayload.string(for: self.jid)
+        vc.avatarImageView.image = UIImageView.getDefaultAvatar(
+            for: self.nickname,
+            owner: self.owner.isEmpty ? self.jid : self.owner,
+            size: 72
+        )
+
         do {
             let realm = try Realm()
             let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid)
             
             let avatarUrl = instance?.avatarUrl
-            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 56) { image in
-                if let image = image?.resize(targetSize: CGSize(square: 56)) {
+            DefaultAvatarManager.shared.getAvatar(url: avatarUrl, jid: jid, owner: owner, size: 72) { image in
+                if let image = image?.resize(targetSize: CGSize(square: 72)) {
                     vc.avatarImageView.image = image
                 } else {
-                    vc.avatarImageView.image = UIImageView.getDefaultAvatar(for: self.nickname, owner: self.owner, size: 56)
+                    vc.avatarImageView.image = UIImageView.getDefaultAvatar(
+                        for: self.nickname,
+                        owner: self.owner.isEmpty ? self.jid : self.owner,
+                        size: 72
+                    )
                 }
             }
             
         } catch {
             DDLogDebug("GroupchatInfoViewController: \(#function). \(error.localizedDescription)")
         }
-        
-        presentContainedSettingsModal(vc)
+
+        presentContainedSettingsModal(vc, modalPresentationStyle: .fullScreen)
     }
     
     func onChangeAvatar() {
