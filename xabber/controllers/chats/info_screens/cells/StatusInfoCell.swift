@@ -46,7 +46,14 @@ class StatusInfoCell: UITableViewCell {
         
         return label
     }()
-    
+
+    internal let leadingIconView: UIImageView = {
+        let view = UIImageView()
+        view.contentMode = .scaleAspectFit
+        view.isHidden = true
+        return view
+    }()
+
     internal let subtitleLabel: UILabel = {
         let label = UILabel()
         
@@ -120,16 +127,28 @@ class StatusInfoCell: UITableViewCell {
         
         self.statusIndicator.layoutIfNeeded()
     }
+
+    internal func configureLeadingIcon(
+        image: UIImage?,
+        tintColor: UIColor
+    ) {
+        leadingIconView.image = image
+        leadingIconView.tintColor = tintColor
+        leadingIconView.isHidden = image == nil
+    }
     
     override func prepareForReuse() {
         super.prepareForReuse()
         self.statusIndicator.isHidden = false
+        leadingIconView.image = nil
+        leadingIconView.isHidden = true
     }
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         contentView.addSubview(stack)
         stack.fillSuperview()
+        stack.addArrangedSubview(leadingIconView)
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(subtitleLabel)
         stack.addArrangedSubview(activityIndicator)

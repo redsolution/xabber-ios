@@ -148,7 +148,10 @@ extension SettingsViewController: UITableViewDataSource {
                         cell.accessoryType = .disclosureIndicator
                         if let icon = item.icon,
                            let color = item.color {
-                            cell.imageView?.image = imageLiteral(icon, dimension: 24)
+                            cell.imageView?.image = imageLiteral(
+                                icon,
+                                dimension: SettingsMenuIconMetrics.dimension
+                            )
                             cell.tintColor = color
                         }
                         return cell
@@ -161,7 +164,10 @@ extension SettingsViewController: UITableViewDataSource {
                     cell.accessoryType = .disclosureIndicator
                     if let icon = item.icon,
                        let color = item.color {
-                        cell.imageView?.image = imageLiteral(icon, dimension: 24)
+                        cell.imageView?.image = imageLiteral(
+                            icon,
+                            dimension: SettingsMenuIconMetrics.dimension
+                        )
                         cell.tintColor = color
                     }
                     return cell
@@ -181,7 +187,10 @@ extension SettingsViewController: UITableViewDataSource {
                     cell.accessoryType = .disclosureIndicator
                     if let icon = item.icon,
                        let color = item.color {
-                        cell.imageView?.image = imageLiteral(icon, dimension: 24)
+                        cell.imageView?.image = imageLiteral(
+                            icon,
+                            dimension: SettingsMenuIconMetrics.dimension
+                        )
                         cell.tintColor = color
                     }
                     return cell
@@ -210,7 +219,10 @@ extension SettingsViewController: UITableViewDataSource {
                     cell.accessoryType = .disclosureIndicator
                     if let icon = item.icon,
                        let color = item.color {
-                        cell.imageView?.image = imageLiteral(icon, dimension: 24)
+                        cell.imageView?.image = imageLiteral(
+                            icon,
+                            dimension: SettingsMenuIconMetrics.dimension
+                        )
                         cell.tintColor = color
                     }
                     return cell
@@ -224,7 +236,10 @@ extension SettingsViewController: UITableViewDataSource {
             cell.accessoryType = .disclosureIndicator
             if let icon = item.icon,
                let color = item.color {
-                cell.imageView?.image = imageLiteral(icon, dimension: 24)
+                cell.imageView?.image = imageLiteral(
+                    icon,
+                    dimension: SettingsMenuIconMetrics.dimension
+                )
                 cell.tintColor = color
             }
             return cell

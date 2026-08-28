@@ -30,6 +30,10 @@ import SwiftUI
 import CocoaLumberjack
 import MaterialComponents.MDCPalettes
 
+enum SettingsMenuIconMetrics {
+    static let dimension: CGFloat = 24
+}
+
 struct SettingsCloudStorageQuotaDisplayState: Equatable {
     let detailText: String
 
@@ -125,6 +129,8 @@ enum SettingsAccountProfileMenuFactory {
             SettingsViewController.Datasource(
                 section: .profile,
                 title: "Status".localizeString(id: "groupchat_status", arguments: []),
+                icon: "bolt.square.fill",
+                color: .systemBlue,
                 key: .accountStatus
             ),
             SettingsViewController.Datasource(

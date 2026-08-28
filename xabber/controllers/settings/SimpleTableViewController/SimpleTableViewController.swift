@@ -58,7 +58,10 @@ class SimpleTableViewController: BaseViewController {
             accessibilityIdentifier: String
         ) {
             textLabel?.text = title
-            imageView?.image = imageLiteral(icon, dimension: 24)
+            imageView?.image = imageLiteral(
+                icon,
+                dimension: SettingsMenuIconMetrics.dimension
+            )
             tintColor = color
             self.accessibilityIdentifier = accessibilityIdentifier
         }
@@ -154,6 +157,7 @@ extension SimpleTableViewController: UITableViewDataSource {
                         entity: resource.entity,
                         isTemporary: resource.isTemporary
                     )
+                    configureProfileStatusIcon(on: cell, for: menuItem)
                     return cell
                 }
                 let offline = "Offline".localizeString(id: "unavailable", arguments: [])
@@ -164,6 +168,7 @@ extension SimpleTableViewController: UITableViewDataSource {
                     entity: .contact,
                     isTemporary: false
                 )
+                configureProfileStatusIcon(on: cell, for: menuItem)
                 return cell
             
             case .accountColor:
@@ -544,6 +549,19 @@ extension SimpleTableViewController: UITableViewDelegate {
 }
 
 private extension SimpleTableViewController {
+    func configureProfileStatusIcon(
+        on cell: StatusInfoCell,
+        for item: SettingsViewController.Datasource
+    ) {
+        let image = item.icon.flatMap {
+            imageLiteral($0, dimension: SettingsMenuIconMetrics.dimension)
+        }
+        cell.configureLeadingIcon(
+            image: image,
+            tintColor: item.color ?? .systemBlue
+        )
+    }
+
     func makeProfileMenuCell(
         for item: SettingsViewController.Datasource,
         at indexPath: IndexPath

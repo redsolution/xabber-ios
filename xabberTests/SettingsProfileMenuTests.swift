@@ -43,20 +43,24 @@ final class SettingsProfileMenuTests: XCTestCase {
         let rows = sections
             .flatMap(\.childs)
             .filter { $0.key != .accountDelete }
-        let status = try XCTUnwrap(rows.first(where: { $0.key == .accountStatus }))
-        let iconRows = rows.filter { $0.key != .accountStatus }
 
         XCTAssertEqual(rows.count, 6)
-        XCTAssertNil(status.icon)
+        XCTAssertEqual(SettingsMenuIconMetrics.dimension, 24)
         XCTAssertTrue(rows.allSatisfy { $0.subtitle == nil })
-        for row in iconRows {
+        XCTAssertEqual(
+            rows.first(where: { $0.key == .accountStatus })?.icon,
+            "bolt.square.fill"
+        )
+        for row in rows {
             let icon = try XCTUnwrap(row.icon)
             XCTAssertTrue(icon.hasSuffix(".square.fill"), "Unexpected icon: \(icon)")
-            XCTAssertNotNil(imageLiteral(icon, dimension: 24))
+            XCTAssertNotNil(
+                imageLiteral(icon, dimension: SettingsMenuIconMetrics.dimension)
+            )
         }
     }
 
-    func testStatusUsesPreviousStatusInfoCellWithTextDescription() throws {
+    func testStatusUsesPreviousCellWithLeadingSettingsSizedIconAndDescription() throws {
         let controller = makeController()
         let statusIndexPath = IndexPath(row: 0, section: 0)
 
@@ -69,6 +73,15 @@ final class SettingsProfileMenuTests: XCTestCase {
 
         XCTAssertEqual(cell.titleLabel.text, "Status")
         XCTAssertEqual(cell.subtitleLabel.text, "Offline")
+        XCTAssertTrue(cell.stack.arrangedSubviews.first === cell.leadingIconView)
+        XCTAssertFalse(cell.leadingIconView.isHidden)
+        XCTAssertEqual(
+            cell.leadingIconView.image?.size,
+            imageLiteral(
+                "bolt.square.fill",
+                dimension: SettingsMenuIconMetrics.dimension
+            )?.size
+        )
         XCTAssertEqual(cell.accessoryType, .disclosureIndicator)
         XCTAssertEqual(
             controller.tableView(controller.tableView, heightForRowAt: statusIndexPath),
@@ -89,7 +102,13 @@ final class SettingsProfileMenuTests: XCTestCase {
 
         XCTAssertEqual(cell.textLabel?.text, "Profile")
         XCTAssertNil(cell.detailTextLabel)
-        XCTAssertNotNil(cell.imageView?.image)
+        XCTAssertEqual(
+            cell.imageView?.image?.size,
+            imageLiteral(
+                "custom.person.square.fill",
+                dimension: SettingsMenuIconMetrics.dimension
+            )?.size
+        )
         XCTAssertEqual(cell.accessibilityIdentifier, "settings_profile_account_vcard")
         XCTAssertEqual(
             controller.tableView(controller.tableView, heightForRowAt: profileIndexPath),
