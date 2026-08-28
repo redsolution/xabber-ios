@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		4E5A00023B4000000ABC001 /* SettingsAccountQRCodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5A00013B4000000ABC001 /* SettingsAccountQRCodeTests.swift */; };
+		B8A100023C20000000ABC001 /* SettingsProfileMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100013C20000000ABC001 /* SettingsProfileMenuTests.swift */; };
 		4E5A00043B4100000ABC001 /* QRCodeScannerPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5A00033B4100000ABC001 /* QRCodeScannerPresentationTests.swift */; };
 		CA180014CA180014CA180014 /* ArchiveCoverageStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180013CA180013CA180013 /* ArchiveCoverageStorage.swift */; };
 		CA180031CA180031CA180031 /* ArchiveTransportTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180030CA180030CA180030 /* ArchiveTransportTypes.swift */; };
@@ -355,6 +356,7 @@
 		4DB7851628911DDA007B9911 /* XMPPChangePasswordManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB7851528911DDA007B9911 /* XMPPChangePasswordManager.swift */; };
 		4DB785182893E2B6007B9911 /* XMPPAccountDeleteManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB785172893E2B6007B9911 /* XMPPAccountDeleteManager.swift */; };
 		4DC337EB285062E300D300B9 /* SimpleTableViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC337EA285062E300D300B9 /* SimpleTableViewController.swift */; };
+		B8A100043C20000000ABC001 /* AccountCirclesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100033C20000000ABC001 /* AccountCirclesViewController.swift */; };
 		4DC843C528A9FAD200F61AEE /* PasscodeEdtitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC843C428A9FAD200F61AEE /* PasscodeEdtitView.swift */; };
 		4DC843CB28AA22BC00F61AEE /* PasscodeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DC843CA28AA22BC00F61AEE /* PasscodeViewController.swift */; };
 		4DD4C5772910EAE600CD50C9 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4DD4C5762910EAE600CD50C9 /* StoreKit.framework */; };
@@ -1063,6 +1065,7 @@
 
 /* Begin PBXFileReference section */
 		4E5A00013B4000000ABC001 /* SettingsAccountQRCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAccountQRCodeTests.swift; sourceTree = "<group>"; };
+		B8A100013C20000000ABC001 /* SettingsProfileMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsProfileMenuTests.swift; sourceTree = "<group>"; };
 		4E5A00033B4100000ABC001 /* QRCodeScannerPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeScannerPresentationTests.swift; sourceTree = "<group>"; };
 		CA180013CA180013CA180013 /* ArchiveCoverageStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveCoverageStorage.swift; sourceTree = "<group>"; };
 		CA180030CA180030CA180030 /* ArchiveTransportTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveTransportTypes.swift; sourceTree = "<group>"; };
@@ -1581,6 +1584,7 @@
 		4DB7851528911DDA007B9911 /* XMPPChangePasswordManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPChangePasswordManager.swift; sourceTree = "<group>"; };
 		4DB785172893E2B6007B9911 /* XMPPAccountDeleteManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPAccountDeleteManager.swift; sourceTree = "<group>"; };
 		4DC337EA285062E300D300B9 /* SimpleTableViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimpleTableViewController.swift; sourceTree = "<group>"; };
+		B8A100033C20000000ABC001 /* AccountCirclesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountCirclesViewController.swift; sourceTree = "<group>"; };
 		4DC843C428A9FAD200F61AEE /* PasscodeEdtitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasscodeEdtitView.swift; sourceTree = "<group>"; };
 		4DC843CA28AA22BC00F61AEE /* PasscodeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasscodeViewController.swift; sourceTree = "<group>"; };
 		4DD4C5762910EAE600CD50C9 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
@@ -2457,6 +2461,7 @@
 		4D0AD0C32850A31F00C3D9DE /* SimpleTableViewController */ = {
 			isa = PBXGroup;
 			children = (
+				B8A100033C20000000ABC001 /* AccountCirclesViewController.swift */,
 				4DC337EA285062E300D300B9 /* SimpleTableViewController.swift */,
 				4DFF74FD2851E4550036AE0D /* SimpleTableViewController+SwitchCell.swift */,
 			);
@@ -4250,6 +4255,7 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				B8A100013C20000000ABC001 /* SettingsProfileMenuTests.swift */,
 				4E5A00013B4000000ABC001 /* SettingsAccountQRCodeTests.swift */,
 				4E5A00033B4100000ABC001 /* QRCodeScannerPresentationTests.swift */,
 				A1B2C3D4321200000ABC0001 /* LastChatsPremiumPromotionTests.swift */,
@@ -6105,6 +6111,7 @@
 				66BC5C7D25CD23AA00CEC418 /* NewCallSearchViewController+UITableViewDelegate.swift in Sources */,
 				66B5E7D0204E66E300D80AA2 /* RosterUtils.swift in Sources */,
 				4DC337EB285062E300D300B9 /* SimpleTableViewController.swift in Sources */,
+				B8A100043C20000000ABC001 /* AccountCirclesViewController.swift in Sources */,
 				66AD82A92386D4C10070C740 /* CreateNewGroupViewController+Delegate.swift in Sources */,
 				66465F2B2EC5E865008B9966 /* GroupchatSettingsRestrictUserViewController.swift in Sources */,
 				66A57378220030B100FBAA4C /* AbstractXMPPManager.swift in Sources */,
@@ -6514,6 +6521,7 @@
 					66AE4E8024E189EF00FF11DC /* XabberXMPPTests.swift in Sources */,
 					66B48FDA26F858EC0088D6A4 /* Base64Extras.swift in Sources */,
 					66AE4E7824E12F7C00FF11DC /* xabberTests.swift in Sources */,
+					B8A100023C20000000ABC001 /* SettingsProfileMenuTests.swift in Sources */,
 					4E5A00023B4000000ABC001 /* SettingsAccountQRCodeTests.swift in Sources */,
 					4E5A00043B4100000ABC001 /* QRCodeScannerPresentationTests.swift in Sources */,
 					4E4100052F6B000000ABC001 /* PushNotificationRoutingTests.swift in Sources */,

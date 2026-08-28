@@ -27,6 +27,47 @@ import XMPPFramework.XMPPJID
 import LocalAuthentication
 
 class SimpleTableViewController: BaseViewController {
+
+    final class ProfileMenuCell: UITableViewCell {
+        static let cellName = "SimpleTableViewControllerProfileMenuCell"
+
+        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+            super.init(style: .subtitle, reuseIdentifier: reuseIdentifier)
+            textLabel?.font = .preferredFont(forTextStyle: .body)
+            detailTextLabel?.font = .preferredFont(forTextStyle: .subheadline)
+            detailTextLabel?.textColor = .secondaryLabel
+            imageView?.contentMode = .scaleAspectFit
+            accessoryType = .disclosureIndicator
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func prepareForReuse() {
+            super.prepareForReuse()
+            textLabel?.text = nil
+            detailTextLabel?.text = nil
+            imageView?.image = nil
+            tintColor = .label
+            accessibilityIdentifier = nil
+            accessoryType = .disclosureIndicator
+        }
+
+        func configure(
+            title: String,
+            subtitle: String,
+            icon: String,
+            color: UIColor,
+            accessibilityIdentifier: String
+        ) {
+            textLabel?.text = title
+            detailTextLabel?.text = subtitle
+            imageView?.image = imageLiteral(icon, dimension: 24)
+            tintColor = color
+            self.accessibilityIdentifier = accessibilityIdentifier
+        }
+    }
     
     var datasource: SettingsViewController.Datasource?
     var resources: Results<ResourceStorageItem>? = nil
@@ -51,6 +92,7 @@ class SimpleTableViewController: BaseViewController {
         let view = UITableView(frame: .zero, style: .insetGrouped)
         view.register(SwitchCell.self, forCellReuseIdentifier: SwitchCell.cellName)
         view.register(StatusInfoCell.self, forCellReuseIdentifier: StatusInfoCell.cellName)
+        view.register(ProfileMenuCell.self, forCellReuseIdentifier: ProfileMenuCell.cellName)
         return view
     }()
     
@@ -108,19 +150,48 @@ extension SimpleTableViewController: UITableViewDataSource {
         if let key = menuItem.key {
             switch key {
             case .accountStatus:
-                let cell = StatusInfoCell()
                 if let currentResource = self.currentResource,
                     let resource = self.resources?.first(where: { $0.resource == currentResource }) {
-                    cell.configure(title: resource.displayedStatus, status: resource.status, entity: resource.entity, isTemporary: resource.isTemporary)
-                } else {
-                    cell.configure(title: "Offline".localizeString(id: "unavailable", arguments: []), status: .offline, entity: .contact, isTemporary: false)
+                    if menuItem.icon != nil {
+                        return makeProfileMenuCell(
+                            for: menuItem,
+                            subtitle: resource.displayedStatus,
+                            at: indexPath
+                        )
+                    }
+                    let cell = StatusInfoCell()
+                    cell.configure(
+                        title: resource.displayedStatus,
+                        status: resource.status,
+                        entity: resource.entity,
+                        isTemporary: resource.isTemporary
+                    )
+                    return cell
                 }
+                let offline = "Offline".localizeString(id: "unavailable", arguments: [])
+                if menuItem.icon != nil {
+                    return makeProfileMenuCell(for: menuItem, subtitle: offline, at: indexPath)
+                }
+                let cell = StatusInfoCell()
+                cell.configure(
+                    title: offline,
+                    status: .offline,
+                    entity: .contact,
+                    isTemporary: false
+                )
                 return cell
             
             case .accountColor:
+                let colorItem = AccountColorManager.shared.colorItem(for: self.jid)
+                if menuItem.icon != nil {
+                    return makeProfileMenuCell(
+                        for: menuItem,
+                        subtitle: colorItem.title,
+                        at: indexPath
+                    )
+                }
                 let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
                 cell.textLabel?.text = menuItem.title
-                let colorItem = AccountColorManager.shared.colorItem(for: self.jid)
                 cell.detailTextLabel?.text = colorItem.title
                 cell.detailTextLabel?.textColor = colorItem.primary
                 cell.accessoryType = .disclosureIndicator
@@ -165,6 +236,14 @@ extension SimpleTableViewController: UITableViewDataSource {
             default:
                 break
             }
+        }
+
+        if menuItem.icon != nil {
+            return makeProfileMenuCell(
+                for: menuItem,
+                subtitle: menuItem.subtitle ?? "",
+                at: indexPath
+            )
         }
         
         switch menuItem.itemType {
@@ -241,6 +320,10 @@ extension SimpleTableViewController: UITableViewDelegate {
         if menuItem?.key == .chatChooseBackgroundColor {
             return 150
         }
+
+        if menuItem?.icon != nil {
+            return 60
+        }
         
         if #available(iOS 26, *) {
             return 52
@@ -283,6 +366,12 @@ extension SimpleTableViewController: UITableViewDelegate {
             case .accountBlockedContacts:
                 let vc = AccountBlockListViewController()
                 vc.configure(for: jid, isGroupchatInvitation: false)
+                navigationController?.pushViewController(vc, animated: true)
+                return
+
+            case .accountCircles:
+                let vc = AccountCirclesViewController()
+                vc.configure(for: jid)
                 navigationController?.pushViewController(vc, animated: true)
                 return
                 
@@ -478,6 +567,31 @@ extension SimpleTableViewController: UITableViewDelegate {
             }
         }
         return
+    }
+}
+
+private extension SimpleTableViewController {
+    func makeProfileMenuCell(
+        for item: SettingsViewController.Datasource,
+        subtitle: String,
+        at indexPath: IndexPath
+    ) -> UITableViewCell {
+        guard let cell = tableView.dequeueReusableCell(
+            withIdentifier: ProfileMenuCell.cellName,
+            for: indexPath
+        ) as? ProfileMenuCell,
+        let icon = item.icon else {
+            return UITableViewCell()
+        }
+
+        cell.configure(
+            title: item.title ?? "",
+            subtitle: subtitle,
+            icon: icon,
+            color: item.color ?? .systemBlue,
+            accessibilityIdentifier: "settings_profile_\(item.key?.rawValue ?? "item")"
+        )
+        return cell
     }
 }
 

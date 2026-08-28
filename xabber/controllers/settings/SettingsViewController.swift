@@ -117,6 +117,101 @@ enum SettingsNavigationBarPolicy {
     }
 }
 
+enum SettingsAccountProfileMenuFactory {
+    static func makeSections(
+        accountColorLocked: Bool
+    ) -> [SettingsViewController.Datasource] {
+        var primaryRows = [
+            SettingsViewController.Datasource(
+                section: .profile,
+                title: "Status".localizeString(id: "groupchat_status", arguments: []),
+                subtitle: "Offline".localizeString(id: "unavailable", arguments: []),
+                icon: "bolt.square.fill",
+                color: .systemBlue,
+                key: .accountStatus
+            ),
+            SettingsViewController.Datasource(
+                section: .profile,
+                title: "Profile",
+                subtitle: "Edit profile".localizeString(id: "account_edit_profile", arguments: []),
+                icon: "custom.person.square.fill",
+                color: .systemBlue,
+                key: .accountVcard
+            ),
+            SettingsViewController.Datasource(
+                section: .profile,
+                title: "Password".localizeString(id: "account_password", arguments: []),
+                subtitle: "Change password".localizeString(id: "button_change_pass", arguments: []),
+                icon: "custom.key.square.fill",
+                color: .systemCyan,
+                viewController: ChangePasswordTableViewController.self,
+                key: .accountPassword
+            )
+        ]
+
+        if !accountColorLocked {
+            primaryRows.append(
+                SettingsViewController.Datasource(
+                    section: .profile,
+                    title: "Account color",
+                    subtitle: "Change account color",
+                    icon: "custom.paintpalette.square.fill",
+                    color: .systemIndigo,
+                    key: .accountColor
+                )
+            )
+        }
+
+        return [
+            SettingsViewController.Datasource(
+                section: .profile,
+                childs: primaryRows
+            ),
+            SettingsViewController.Datasource(
+                section: .blockList,
+                childs: [
+                    SettingsViewController.Datasource(
+                        section: .blockList,
+                        title: "Block list".localizeString(id: "block_list", arguments: []),
+                        subtitle: "Manage blocked contacts",
+                        icon: "custom.nosign.square.fill",
+                        color: .systemTeal,
+                        key: .accountBlockedContacts
+                    )
+                ]
+            ),
+            SettingsViewController.Datasource(
+                section: .circles,
+                childs: [
+                    SettingsViewController.Datasource(
+                        section: .circles,
+                        title: "Circles".localizeString(
+                            id: "settings_account__section_header_circles",
+                            arguments: []
+                        ),
+                        subtitle: "Manage roster groups",
+                        icon: "custom.person.2.square.fill",
+                        color: .systemGreen,
+                        viewController: AccountCirclesViewController.self,
+                        key: .accountCircles
+                    )
+                ]
+            ),
+            SettingsViewController.Datasource(
+                section: .delete,
+                subtitle: SettingsViewController.Datasource.Section.delete.secondaryDescription(),
+                childs: [
+                    SettingsViewController.Datasource(
+                        section: .delete,
+                        title: SettingsViewController.Datasource.Section.delete.description(),
+                        key: .accountDelete
+                    )
+                ]
+            )
+        ]
+    }
+}
+
 enum SettingsModalPresentationPolicy {
     static func presenter(for settingsController: UIViewController) -> UIViewController {
         settingsController.navigationController ?? settingsController
@@ -160,8 +255,10 @@ class SettingsViewController: BaseViewController {
             case premium = "premium"
             case accountStatus = "account_status"
             case accountVcard = "account_vcard"
+            case accountPassword = "account_password"
             case accountColor = "account_color"
             case accountBlockedContacts = "account_blocked_contacts"
+            case accountCircles = "account_circles"
             case accountDelete = "account_delete"
             case accountSessions = "account_sessions"
             case accountQuota = "account_quota"
@@ -220,6 +317,8 @@ class SettingsViewController: BaseViewController {
             case accountSettings
             case status
             case profile
+            case blockList
+            case circles
             case server
             case autolock
             case delete
@@ -926,48 +1025,18 @@ class SettingsViewController: BaseViewController {
                 DDLogDebug("SettingsViewController:\(#function). \(error.localizedDescription)")
             }
 
-            var profileChilds = [
-                Datasource(section: .profile, title: "Profile", key: .accountVcard),
-                Datasource(section: .profile, title: "Password", viewController: ChangePasswordTableViewController.self),
-                Datasource(section: .profile, title: "Account color", key: .accountColor),
-                Datasource(section: .profile, title: "Blocked contacts", key: .accountBlockedContacts),
-            ]
-            if CommonConfigManager.shared.config.locked_account_color.isNotEmpty {
-                profileChilds = [
-                    Datasource(section: .profile, title: "Profile", key: .accountVcard),
-                    Datasource(section: .profile, title: "Password", viewController: ChangePasswordTableViewController.self),
-                    Datasource(section: .profile, title: "Blocked contacts", key: .accountBlockedContacts),
-                ]
-            }
+            let profileSections = SettingsAccountProfileMenuFactory.makeSections(
+                accountColorLocked: CommonConfigManager.shared.config.locked_account_color.isNotEmpty
+            )
             if CommonConfigManager.shared.config.should_block_application_when_subscribtion_end {
                 datasource.append(Datasource(section: .accountSettings, childs: [
-                    Datasource(section: .accountSettings, title: "Profile, status, password", icon: "custom.person.square.fill", color: UIColor.systemBlue, viewController: SimpleTableViewController.self, childs: [
-                        Datasource(section: .status, childs: [
-                            Datasource(section: .status, title: Datasource.Section.status.description(), key: .accountStatus)
-                        ]),
-                        Datasource(section: .profile, childs: profileChilds),
-                        Datasource(section: .delete, subtitle: Datasource.Section.delete.secondaryDescription(), childs: [
-                            Datasource(section: .delete,
-                                       title: Datasource.Section.delete.description(),
-                                       key: .accountDelete)
-                        ])
-                    ]),
+                    Datasource(section: .accountSettings, title: "Profile, status, password", icon: "custom.person.square.fill", color: UIColor.systemBlue, viewController: SimpleTableViewController.self, childs: profileSections),
                     Datasource(section: .accountSettings, title: "Devices", icon: "custom.desktopcomputer.square.fill", color: UIColor.systemBlue, key: .accountSessions),
 //                    Datasource(section: .accountSettings, title: "Subscriptions", icon: "xabber.lightbulb.square.fill", color: UIColor.systemBlue, key: .subscriptions)
                 ]))
             } else {
                 datasource.append(Datasource(section: .accountSettings, childs: [
-                    Datasource(section: .accountSettings, title: "Profile, status, password", icon: "custom.person.square.fill", color: UIColor.systemBlue, viewController: SimpleTableViewController.self, childs: [
-                        Datasource(section: .status, childs: [
-                            Datasource(section: .status, title: Datasource.Section.status.description(), key: .accountStatus)
-                        ]),
-                        Datasource(section: .profile, childs: profileChilds),
-                        Datasource(section: .delete, subtitle: Datasource.Section.delete.secondaryDescription(), childs: [
-                            Datasource(section: .delete,
-                                       title: Datasource.Section.delete.description(),
-                                       key: .accountDelete)
-                        ])
-                    ]),
+                    Datasource(section: .accountSettings, title: "Profile, status, password", icon: "custom.person.square.fill", color: UIColor.systemBlue, viewController: SimpleTableViewController.self, childs: profileSections),
                     Datasource(section: .accountSettings, title: "Devices", icon: "custom.desktopcomputer.square.fill", color: UIColor.systemBlue, key: .accountSessions),
 //                    Datasource(section: .accountSettings, title: "Subscriptions", icon: "xabber.lightbulb.square.fill", color: UIColor.systemBlue, key: .subscriptions)
                 ]))
