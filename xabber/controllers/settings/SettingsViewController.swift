@@ -125,15 +125,11 @@ enum SettingsAccountProfileMenuFactory {
             SettingsViewController.Datasource(
                 section: .profile,
                 title: "Status".localizeString(id: "groupchat_status", arguments: []),
-                subtitle: "Offline".localizeString(id: "unavailable", arguments: []),
-                icon: "bolt.square.fill",
-                color: .systemBlue,
                 key: .accountStatus
             ),
             SettingsViewController.Datasource(
                 section: .profile,
                 title: "Profile",
-                subtitle: "Edit profile".localizeString(id: "account_edit_profile", arguments: []),
                 icon: "custom.person.square.fill",
                 color: .systemBlue,
                 key: .accountVcard
@@ -141,7 +137,6 @@ enum SettingsAccountProfileMenuFactory {
             SettingsViewController.Datasource(
                 section: .profile,
                 title: "Password".localizeString(id: "account_password", arguments: []),
-                subtitle: "Change password".localizeString(id: "button_change_pass", arguments: []),
                 icon: "custom.key.square.fill",
                 color: .systemCyan,
                 viewController: ChangePasswordTableViewController.self,
@@ -154,7 +149,6 @@ enum SettingsAccountProfileMenuFactory {
                 SettingsViewController.Datasource(
                     section: .profile,
                     title: "Account color",
-                    subtitle: "Change account color",
                     icon: "custom.paintpalette.square.fill",
                     color: .systemIndigo,
                     key: .accountColor
@@ -173,7 +167,6 @@ enum SettingsAccountProfileMenuFactory {
                     SettingsViewController.Datasource(
                         section: .blockList,
                         title: "Block list".localizeString(id: "block_list", arguments: []),
-                        subtitle: "Manage blocked contacts",
                         icon: "custom.nosign.square.fill",
                         color: .systemTeal,
                         key: .accountBlockedContacts
@@ -189,7 +182,6 @@ enum SettingsAccountProfileMenuFactory {
                             id: "settings_account__section_header_circles",
                             arguments: []
                         ),
-                        subtitle: "Manage roster groups",
                         icon: "custom.person.2.square.fill",
                         color: .systemGreen,
                         viewController: AccountCirclesViewController.self,

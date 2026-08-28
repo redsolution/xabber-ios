@@ -32,10 +32,8 @@ class SimpleTableViewController: BaseViewController {
         static let cellName = "SimpleTableViewControllerProfileMenuCell"
 
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-            super.init(style: .subtitle, reuseIdentifier: reuseIdentifier)
+            super.init(style: .default, reuseIdentifier: reuseIdentifier)
             textLabel?.font = .preferredFont(forTextStyle: .body)
-            detailTextLabel?.font = .preferredFont(forTextStyle: .subheadline)
-            detailTextLabel?.textColor = .secondaryLabel
             imageView?.contentMode = .scaleAspectFit
             accessoryType = .disclosureIndicator
         }
@@ -47,7 +45,6 @@ class SimpleTableViewController: BaseViewController {
         override func prepareForReuse() {
             super.prepareForReuse()
             textLabel?.text = nil
-            detailTextLabel?.text = nil
             imageView?.image = nil
             tintColor = .label
             accessibilityIdentifier = nil
@@ -56,13 +53,11 @@ class SimpleTableViewController: BaseViewController {
 
         func configure(
             title: String,
-            subtitle: String,
             icon: String,
             color: UIColor,
             accessibilityIdentifier: String
         ) {
             textLabel?.text = title
-            detailTextLabel?.text = subtitle
             imageView?.image = imageLiteral(icon, dimension: 24)
             tintColor = color
             self.accessibilityIdentifier = accessibilityIdentifier
@@ -152,13 +147,6 @@ extension SimpleTableViewController: UITableViewDataSource {
             case .accountStatus:
                 if let currentResource = self.currentResource,
                     let resource = self.resources?.first(where: { $0.resource == currentResource }) {
-                    if menuItem.icon != nil {
-                        return makeProfileMenuCell(
-                            for: menuItem,
-                            subtitle: resource.displayedStatus,
-                            at: indexPath
-                        )
-                    }
                     let cell = StatusInfoCell()
                     cell.configure(
                         title: resource.displayedStatus,
@@ -169,9 +157,6 @@ extension SimpleTableViewController: UITableViewDataSource {
                     return cell
                 }
                 let offline = "Offline".localizeString(id: "unavailable", arguments: [])
-                if menuItem.icon != nil {
-                    return makeProfileMenuCell(for: menuItem, subtitle: offline, at: indexPath)
-                }
                 let cell = StatusInfoCell()
                 cell.configure(
                     title: offline,
@@ -184,11 +169,7 @@ extension SimpleTableViewController: UITableViewDataSource {
             case .accountColor:
                 let colorItem = AccountColorManager.shared.colorItem(for: self.jid)
                 if menuItem.icon != nil {
-                    return makeProfileMenuCell(
-                        for: menuItem,
-                        subtitle: colorItem.title,
-                        at: indexPath
-                    )
+                    return makeProfileMenuCell(for: menuItem, at: indexPath)
                 }
                 let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
                 cell.textLabel?.text = menuItem.title
@@ -239,11 +220,7 @@ extension SimpleTableViewController: UITableViewDataSource {
         }
 
         if menuItem.icon != nil {
-            return makeProfileMenuCell(
-                for: menuItem,
-                subtitle: menuItem.subtitle ?? "",
-                at: indexPath
-            )
+            return makeProfileMenuCell(for: menuItem, at: indexPath)
         }
         
         switch menuItem.itemType {
@@ -321,10 +298,6 @@ extension SimpleTableViewController: UITableViewDelegate {
             return 150
         }
 
-        if menuItem?.icon != nil {
-            return 60
-        }
-        
         if #available(iOS 26, *) {
             return 52
         } else {
@@ -573,7 +546,6 @@ extension SimpleTableViewController: UITableViewDelegate {
 private extension SimpleTableViewController {
     func makeProfileMenuCell(
         for item: SettingsViewController.Datasource,
-        subtitle: String,
         at indexPath: IndexPath
     ) -> UITableViewCell {
         guard let cell = tableView.dequeueReusableCell(
@@ -586,7 +558,6 @@ private extension SimpleTableViewController {
 
         cell.configure(
             title: item.title ?? "",
-            subtitle: subtitle,
             icon: icon,
             color: item.color ?? .systemBlue,
             accessibilityIdentifier: "settings_profile_\(item.key?.rawValue ?? "item")"

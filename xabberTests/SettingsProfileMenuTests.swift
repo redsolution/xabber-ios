@@ -36,24 +36,27 @@ final class SettingsProfileMenuTests: XCTestCase {
         )
     }
 
-    func testMenuRowsUseFilledSquareIconsAndSecondaryText() throws {
+    func testMenuRowsUseFilledSquareIconsWithoutSecondaryText() throws {
         let sections = SettingsAccountProfileMenuFactory.makeSections(
             accountColorLocked: false
         )
         let rows = sections
             .flatMap(\.childs)
             .filter { $0.key != .accountDelete }
+        let status = try XCTUnwrap(rows.first(where: { $0.key == .accountStatus }))
+        let iconRows = rows.filter { $0.key != .accountStatus }
 
         XCTAssertEqual(rows.count, 6)
-        for row in rows {
+        XCTAssertNil(status.icon)
+        XCTAssertTrue(rows.allSatisfy { $0.subtitle == nil })
+        for row in iconRows {
             let icon = try XCTUnwrap(row.icon)
             XCTAssertTrue(icon.hasSuffix(".square.fill"), "Unexpected icon: \(icon)")
             XCTAssertNotNil(imageLiteral(icon, dimension: 24))
-            XCTAssertFalse(row.subtitle?.isEmpty ?? true)
         }
     }
 
-    func testProfileMenuCellRendersIconSubtitleAndReferenceHeight() throws {
+    func testStatusUsesPreviousStatusInfoCellWithTextDescription() throws {
         let controller = makeController()
         let statusIndexPath = IndexPath(row: 0, section: 0)
 
@@ -61,16 +64,36 @@ final class SettingsProfileMenuTests: XCTestCase {
             controller.tableView(
                 controller.tableView,
                 cellForRowAt: statusIndexPath
+            ) as? StatusInfoCell
+        )
+
+        XCTAssertEqual(cell.titleLabel.text, "Status")
+        XCTAssertEqual(cell.subtitleLabel.text, "Offline")
+        XCTAssertEqual(cell.accessoryType, .disclosureIndicator)
+        XCTAssertEqual(
+            controller.tableView(controller.tableView, heightForRowAt: statusIndexPath),
+            defaultRowHeight
+        )
+    }
+
+    func testProfileMenuRowsRenderAsSingleLineIconCells() throws {
+        let controller = makeController()
+        let profileIndexPath = IndexPath(row: 1, section: 0)
+
+        let cell = try XCTUnwrap(
+            controller.tableView(
+                controller.tableView,
+                cellForRowAt: profileIndexPath
             ) as? SimpleTableViewController.ProfileMenuCell
         )
 
-        XCTAssertEqual(cell.textLabel?.text, "Status")
-        XCTAssertEqual(cell.detailTextLabel?.text, "Offline")
+        XCTAssertEqual(cell.textLabel?.text, "Profile")
+        XCTAssertNil(cell.detailTextLabel)
         XCTAssertNotNil(cell.imageView?.image)
-        XCTAssertEqual(cell.accessibilityIdentifier, "settings_profile_account_status")
+        XCTAssertEqual(cell.accessibilityIdentifier, "settings_profile_account_vcard")
         XCTAssertEqual(
-            controller.tableView(controller.tableView, heightForRowAt: statusIndexPath),
-            60
+            controller.tableView(controller.tableView, heightForRowAt: profileIndexPath),
+            defaultRowHeight
         )
     }
 
@@ -156,5 +179,12 @@ final class SettingsProfileMenuTests: XCTestCase {
         )
         controller.loadViewIfNeeded()
         return controller
+    }
+
+    private var defaultRowHeight: CGFloat {
+        if #available(iOS 26, *) {
+            return 52
+        }
+        return 44
     }
 }
