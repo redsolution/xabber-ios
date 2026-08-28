@@ -51,8 +51,21 @@ class StatusInfoCell: UITableViewCell {
         let view = UIImageView()
         view.contentMode = .scaleAspectFit
         view.isHidden = true
+        view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()
+
+    internal let leadingIconSpacer: UIView = {
+        let view = UIView()
+        view.isHidden = true
+        return view
+    }()
+
+    private lazy var leadingIconSpacerWidthConstraint =
+        leadingIconSpacer.widthAnchor.constraint(equalToConstant: 0)
+
+    private lazy var leadingIconLeadingConstraint =
+        leadingIconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor)
 
     internal let subtitleLabel: UILabel = {
         let label = UILabel()
@@ -88,7 +101,10 @@ class StatusInfoCell: UITableViewCell {
             activityIndicator.heightAnchor.constraint(equalToConstant: 24),
             activityIndicator.widthAnchor.constraint(equalToConstant: 24),
             statusIndicator.heightAnchor.constraint(equalToConstant: 18),
-            statusIndicator.widthAnchor.constraint(equalToConstant: 18)
+            statusIndicator.widthAnchor.constraint(equalToConstant: 18),
+            leadingIconSpacerWidthConstraint,
+            leadingIconLeadingConstraint,
+            leadingIconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
             //titleLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.5),
             //titleLabel.widthAnchor.constraint(equalToConstant: 100),
             //subtitleLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 0.25)
@@ -130,11 +146,15 @@ class StatusInfoCell: UITableViewCell {
 
     internal func configureLeadingIcon(
         image: UIImage?,
-        tintColor: UIColor
+        tintColor: UIColor,
+        leadingInset: CGFloat
     ) {
         leadingIconView.image = image
         leadingIconView.tintColor = tintColor
         leadingIconView.isHidden = image == nil
+        leadingIconSpacerWidthConstraint.constant = image?.size.width ?? 0
+        leadingIconLeadingConstraint.constant = leadingInset
+        leadingIconSpacer.isHidden = image == nil
     }
     
     override func prepareForReuse() {
@@ -142,13 +162,17 @@ class StatusInfoCell: UITableViewCell {
         self.statusIndicator.isHidden = false
         leadingIconView.image = nil
         leadingIconView.isHidden = true
+        leadingIconSpacerWidthConstraint.constant = 0
+        leadingIconLeadingConstraint.constant = 0
+        leadingIconSpacer.isHidden = true
     }
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         contentView.addSubview(stack)
+        contentView.addSubview(leadingIconView)
         stack.fillSuperview()
-        stack.addArrangedSubview(leadingIconView)
+        stack.addArrangedSubview(leadingIconSpacer)
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(subtitleLabel)
         stack.addArrangedSubview(activityIndicator)

@@ -73,8 +73,8 @@ final class SettingsProfileMenuTests: XCTestCase {
 
         XCTAssertEqual(cell.titleLabel.text, "Status")
         XCTAssertEqual(cell.subtitleLabel.text, "Offline")
-        XCTAssertTrue(cell.stack.arrangedSubviews.first === cell.leadingIconView)
-        XCTAssertFalse(cell.leadingIconView.isHidden)
+        XCTAssertTrue(cell.stack.arrangedSubviews.first === cell.leadingIconSpacer)
+        XCTAssertFalse(cell.leadingIconSpacer.isHidden)
         XCTAssertEqual(
             cell.leadingIconView.image?.size,
             imageLiteral(
@@ -113,6 +113,44 @@ final class SettingsProfileMenuTests: XCTestCase {
         XCTAssertEqual(
             controller.tableView(controller.tableView, heightForRowAt: profileIndexPath),
             defaultRowHeight
+        )
+    }
+
+    func testStatusLeadingIconAlignsWithProfileMenuImageColumn() throws {
+        let controller = makeController()
+        let statusCell = try XCTUnwrap(
+            controller.tableView(
+                controller.tableView,
+                cellForRowAt: IndexPath(row: 0, section: 0)
+            ) as? StatusInfoCell
+        )
+        let profileCell = try XCTUnwrap(
+            controller.tableView(
+                controller.tableView,
+                cellForRowAt: IndexPath(row: 1, section: 0)
+            ) as? SimpleTableViewController.ProfileMenuCell
+        )
+
+        layout(cell: statusCell)
+        layout(cell: profileCell)
+
+        let statusIconMinX = statusCell.leadingIconView.convert(
+            statusCell.leadingIconView.bounds,
+            to: statusCell.contentView
+        ).minX
+        let profileImageView = try XCTUnwrap(profileCell.imageView)
+        let profileIconMinX = profileImageView.convert(
+            profileImageView.bounds,
+            to: profileCell.contentView
+        ).minX
+
+        XCTAssertEqual(
+            statusIconMinX,
+            profileIconMinX,
+            accuracy: 0.5,
+            "Status content margins: \(statusCell.contentView.layoutMargins); "
+                + "Profile content margins: \(profileCell.contentView.layoutMargins); "
+                + "Profile cell margins: \(profileCell.layoutMargins)"
         )
     }
 
@@ -205,5 +243,12 @@ final class SettingsProfileMenuTests: XCTestCase {
             return 52
         }
         return 44
+    }
+
+    private func layout(cell: UITableViewCell) {
+        cell.frame = CGRect(x: 0, y: 0, width: 350, height: defaultRowHeight)
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+        cell.contentView.layoutIfNeeded()
     }
 }

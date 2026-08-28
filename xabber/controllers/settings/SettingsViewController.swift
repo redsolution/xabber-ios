@@ -32,6 +32,13 @@ import MaterialComponents.MDCPalettes
 
 enum SettingsMenuIconMetrics {
     static let dimension: CGFloat = 24
+
+    static var leadingInset: CGFloat {
+        if #available(iOS 26.0, *) {
+            return 14
+        }
+        return 16
+    }
 }
 
 struct SettingsCloudStorageQuotaDisplayState: Equatable {

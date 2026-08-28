@@ -558,7 +558,8 @@ private extension SimpleTableViewController {
         }
         cell.configureLeadingIcon(
             image: image,
-            tintColor: item.color ?? .systemBlue
+            tintColor: item.color ?? .systemBlue,
+            leadingInset: SettingsMenuIconMetrics.leadingInset
         )
     }
 
