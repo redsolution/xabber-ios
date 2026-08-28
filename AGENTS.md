@@ -141,7 +141,7 @@ For any bug fix, feature, refactor, or investigation that is more than a trivial
 8. Run the new or affected tests first when practical; confirm the test protects the intended behavior before implementation when the current code can expose the failure.
 9. Implement the code change.
 10. Run the narrowest relevant verification.
-11. At the end of the task, run a build for the affected target or scheme and check the build output for errors before closing the work. A successful simulator build is sufficient; use a connected physical device only when the task specifically requires device-only validation or the user requests it.
+11. At the end of the task, ensure the affected target or scheme has been built successfully and check the build output for errors before closing the work. A successful simulator test run that builds the affected target satisfies this requirement; do not run a separate Debug build afterward. Otherwise, run a simulator build. Use a connected physical device only when the task specifically requires device-only validation or the user requests it.
 12. After each build, remove disposable logs, result bundles, archives, or temporary artifacts that are not needed for diagnosis or handoff, but preserve the Codex Xcode cache directories unless an explicit cache reset is requested.
 13. Update `decisions.md`, `shared/`, or `docs/` when the result is durable.
 14. Move the task note to the correct final state and record verification.
@@ -204,7 +204,7 @@ Rules for imported markdown:
 - If invoking `xcodebuild` directly for local verification, use the same cache flags as the wrapper: `-derivedDataPath`, `-clonedSourcePackagesDirPath`, `-packageCachePath`, `-skipPackageUpdates`, and `-onlyUsePackageVersionsFromResolvedFile`.
 - For app targets, prefer `xcodebuild` with a concrete scheme and a simulator destination for routine verification.
 - A successful simulator build satisfies the required build verification. Use a connected physical device only for device-specific behavior (for example, push delivery, hardware capabilities, signing, or performance) or when the user explicitly requests it.
-- For any completed implementation task, run at least one build for the affected target before finishing, even if narrower tests were already run.
+- For any completed implementation task, ensure the affected target was built at least once before finishing. A successful test action that builds the affected target counts as the required build verification; do not follow it with a separate Debug build. If the tests did not build the affected target, run the appropriate simulator build.
 - Always inspect the build output for actual compiler or linker errors and report the first meaningful failure if the build does not pass.
 - After each build, clean up disposable build products, logs, result bundles, archives, and temporary artifacts that are not needed for later builds or troubleshooting. Do not remove Codex cached `DerivedData`, `SourcePackages`, or `PackageCache` unless the task explicitly calls for a cache reset.
 - If a build cannot be run because of environment, signing, dependency, device, or simulator limitations, state that explicitly and record the blocker in the task note or vault notes.
