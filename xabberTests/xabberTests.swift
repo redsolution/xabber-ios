@@ -5352,7 +5352,7 @@ final class SettingsNavigationContainmentTests: XCTestCase {
         )
     }
 
-    func testRightBarPolicyPreservesExistingSettingsButtonRules() {
+    func testRightBarPolicyUsesOnlyQRForSingleAccountAndPreservesMultiAccountRules() {
         XCTAssertEqual(
             SettingsNavigationBarPolicy.rightActions(
                 multiAccounts: true,
@@ -5383,7 +5383,14 @@ final class SettingsNavigationContainmentTests: XCTestCase {
                 isEditing: false,
                 lockedAccountColor: ""
             ),
-            [.qrCode, .accountColorPalette]
+            [.qrCode]
+        )
+    }
+
+    func testQRCodeBarButtonUsesPlainStyle() {
+        XCTAssertEqual(
+            SettingsNavigationBarPolicy.barButtonStyle(for: .qrCode),
+            .plain
         )
     }
 

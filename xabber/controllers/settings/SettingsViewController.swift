@@ -87,7 +87,6 @@ enum SettingsNavigationBarRightAction: Equatable {
     case edit
     case done
     case qrCode
-    case accountColorPalette
 }
 
 enum SettingsNavigationBarPolicy {
@@ -98,15 +97,23 @@ enum SettingsNavigationBarPolicy {
     static func rightActions(
         multiAccounts: Bool,
         isEditing: Bool,
-        lockedAccountColor: String
+        lockedAccountColor _: String
     ) -> [SettingsNavigationBarRightAction] {
         if multiAccounts {
             return [isEditing ? .done : .edit]
         }
-        if lockedAccountColor.isNotEmpty {
-            return [.qrCode]
+        return [.qrCode]
+    }
+
+    static func barButtonStyle(
+        for action: SettingsNavigationBarRightAction
+    ) -> UIBarButtonItem.Style {
+        switch action {
+        case .edit, .qrCode:
+            return .plain
+        case .done:
+            return .done
         }
-        return [.qrCode, .accountColorPalette]
     }
 }
 
@@ -825,16 +832,9 @@ class SettingsViewController: BaseViewController {
         case .qrCode:
             return UIBarButtonItem(
                 image: imageLiteral( "qrcode"),
-                style: .done,
+                style: SettingsNavigationBarPolicy.barButtonStyle(for: action),
                 target: self,
                 action: #selector(self.onQRCode)
-            )
-        case .accountColorPalette:
-            return UIBarButtonItem(
-                image: imageLiteral( "paintpalette"),
-                style: .plain,
-                target: self,
-                action: #selector(self.showAccountColorViewController)
             )
         }
     }
