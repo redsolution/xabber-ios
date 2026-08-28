@@ -94,7 +94,7 @@ class AccountEditViewController: BaseViewController {
     }
     
     internal let tableView: UITableView = {
-        let view = UITableView(frame: .zero, style: .grouped)
+        let view = UITableView(frame: .zero, style: .insetGrouped)
         
         view.register(VcardEditedItem.self, forCellReuseIdentifier: VcardEditedItem.cellName)
         view.register(ProfileCell.self, forCellReuseIdentifier: ProfileCell.cellName)
@@ -105,8 +105,14 @@ class AccountEditViewController: BaseViewController {
     }()
     
     internal let doneButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(title: "Save".localizeString(id: "save", arguments: []),
-                                     style: .done, target: nil, action: nil)
+        let button = UIBarButtonItem(
+            image: UIImage(systemName: "checkmark"),
+            style: .done,
+            target: nil,
+            action: nil
+        )
+        button.accessibilityLabel = "Save".localizeString(id: "save", arguments: [])
+        button.accessibilityIdentifier = "account.edit_profile.save"
         
         return button
     }()

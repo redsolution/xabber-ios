@@ -26,6 +26,44 @@ import MaterialComponents.MDCPalettes
 extension AccountEditViewController {
     class ProfileCell: UITableViewCell {
         static let cellName = "ProfileCell"
+
+        final class AvatarActionOverlayView: UIView {
+            let gradientLayer = CAGradientLayer()
+            let cameraImageView: UIImageView = {
+                let view = UIImageView(image: UIImage(systemName: "camera.fill"))
+                view.translatesAutoresizingMaskIntoConstraints = false
+                view.tintColor = .white
+                view.contentMode = .scaleAspectFit
+                return view
+            }()
+
+            override init(frame: CGRect) {
+                super.init(frame: frame)
+                isUserInteractionEnabled = false
+                gradientLayer.colors = [
+                    UIColor.clear.cgColor,
+                    UIColor.black.withAlphaComponent(0.72).cgColor
+                ]
+                gradientLayer.locations = [0, 1]
+                layer.addSublayer(gradientLayer)
+                addSubview(cameraImageView)
+                NSLayoutConstraint.activate([
+                    cameraImageView.centerXAnchor.constraint(equalTo: centerXAnchor),
+                    cameraImageView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+                    cameraImageView.widthAnchor.constraint(equalToConstant: 24),
+                    cameraImageView.heightAnchor.constraint(equalToConstant: 20)
+                ])
+            }
+
+            required init?(coder: NSCoder) {
+                fatalError("init(coder:) has not been implemented")
+            }
+
+            override func layoutSubviews() {
+                super.layoutSubviews()
+                gradientLayer.frame = bounds
+            }
+        }
         
         internal var jid: String = ""
         
@@ -33,12 +71,12 @@ extension AccountEditViewController {
             let stack = UIStackView()
             
             stack.axis = .vertical
-            stack.alignment = .leading
+            stack.alignment = .fill
             stack.distribution = .fill
             stack.spacing = 8
             
             stack.isLayoutMarginsRelativeArrangement = true
-            stack.layoutMargins = UIEdgeInsets(top: 4, bottom: 8, left: 20, right: 0)
+            stack.layoutMargins = UIEdgeInsets(top: 4, bottom: 8, left: 20, right: 20)
             
             return stack
         }()
@@ -58,12 +96,12 @@ extension AccountEditViewController {
             let stack = UIStackView()
             
             stack.axis = .vertical
-            stack.alignment = .leading
+            stack.alignment = .fill
             stack.distribution = .fill
             stack.spacing = 8
             
             stack.isLayoutMarginsRelativeArrangement = true
-            stack.layoutMargins = UIEdgeInsets(top: 0, bottom: 0, left: 0, right: 12)
+            stack.layoutMargins = .zero
             
             return stack
         }()
@@ -79,8 +117,19 @@ extension AccountEditViewController {
             button.layer.masksToBounds = true
             button.imageView?.contentMode = .scaleAspectFill
             button.contentMode = .scaleAspectFill
+            button.isAccessibilityElement = true
+            button.accessibilityLabel = "Change profile picture".localizeString(
+                id: "account_change_profile_picture",
+                arguments: []
+            )
+            button.accessibilityHint = "Open profile picture options".localizeString(
+                id: "account_change_profile_picture_hint",
+                arguments: []
+            )
             return button
         }()
+
+        let avatarActionOverlay = AvatarActionOverlayView()
         
         var givenNameField: UITextField = {
             let field = UITextField(frame: .zero)
@@ -182,28 +231,22 @@ extension AccountEditViewController {
         
         private func activateConstraints() {
             NSLayoutConstraint.activate([
-                topStack.widthAnchor.constraint(equalTo: stack.widthAnchor, multiplier: 1),
                 avatarButton.widthAnchor.constraint(equalToConstant: 128),
                 avatarButton.heightAnchor.constraint(equalToConstant: 128),
+                avatarActionOverlay.leadingAnchor.constraint(equalTo: avatarButton.leadingAnchor),
+                avatarActionOverlay.trailingAnchor.constraint(equalTo: avatarButton.trailingAnchor),
+                avatarActionOverlay.bottomAnchor.constraint(equalTo: avatarButton.bottomAnchor),
+                avatarActionOverlay.heightAnchor.constraint(equalToConstant: 48),
                 imageActivityIndicator.centerXAnchor.constraint(equalTo: avatarButton.centerXAnchor),
                 imageActivityIndicator.centerYAnchor.constraint(equalTo: avatarButton.centerYAnchor),
                 topSeparatorView.heightAnchor.constraint(equalToConstant: 1),
-                topSeparatorView.widthAnchor.constraint(equalTo: fieldStack.widthAnchor, multiplier: 1),
                 middleSeparatorView.heightAnchor.constraint(equalToConstant: 1),
-                middleSeparatorView.widthAnchor.constraint(equalTo: fieldStack.widthAnchor, multiplier: 1),
                 givenNameField.heightAnchor.constraint(equalToConstant: 24),
-                givenNameField.trailingAnchor.constraint(equalTo: fieldStack.trailingAnchor, constant: -20),
                 middleNameField.heightAnchor.constraint(equalToConstant: 24),
-                middleNameField.trailingAnchor.constraint(equalTo: fieldStack.trailingAnchor, constant: -20),
                 familyNameField.heightAnchor.constraint(equalToConstant: 24),
-                familyNameField.trailingAnchor.constraint(equalTo: fieldStack.trailingAnchor, constant: -20),
                 fullnameField.heightAnchor.constraint(equalToConstant: 24),
-                fullnameField.trailingAnchor.constraint(equalTo: fieldStack.trailingAnchor, constant: -20),
-                bottomSeparatorView.heightAnchor.constraint(equalToConstant: 1),
-                bottomSeparatorView.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -20)
+                bottomSeparatorView.heightAnchor.constraint(equalToConstant: 1)
             ])
-            
-            
         }
         
         var currentUrl: String? = ""
@@ -261,7 +304,8 @@ extension AccountEditViewController {
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
             super.init(style: style, reuseIdentifier: reuseIdentifier)
             selectionStyle = .none
-            contentView.addSubview(avatarButton)
+            avatarActionOverlay.translatesAutoresizingMaskIntoConstraints = false
+            avatarButton.addSubview(avatarActionOverlay)
             avatarButton.addSubview(darkenedView)
             darkenedView.fillSuperview()
             avatarButton.addSubview(imageActivityIndicator)
@@ -278,8 +322,21 @@ extension AccountEditViewController {
             fieldStack.addArrangedSubview(familyNameField)
             topStack.addArrangedSubview(avatarButton)
             topStack.addArrangedSubview(fieldStack)
+
+            avatarButton.setContentHuggingPriority(.required, for: .horizontal)
+            avatarButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+            fieldStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            fieldStack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             
-            backgroundColor = .white
+            backgroundColor = .systemBackground
+            contentView.backgroundColor = .systemBackground
+            topSeparatorView.backgroundColor = .separator
+            middleSeparatorView.backgroundColor = .separator
+            bottomSeparatorView.backgroundColor = .separator
+            VCardInputPolicy.apply(to: givenNameField, key: "ci_given_name")
+            VCardInputPolicy.apply(to: middleNameField, key: "ci_middle_name")
+            VCardInputPolicy.apply(to: familyNameField, key: "ci_family_name")
+            VCardInputPolicy.apply(to: fullnameField, key: "ci_full_name")
             givenNameField.addTarget(self, action: #selector(onFieldDidChange), for: .editingChanged)
             middleNameField.addTarget(self, action: #selector(onFieldDidChange), for: .editingChanged)
             familyNameField.addTarget(self, action: #selector(onFieldDidChange), for: .editingChanged)

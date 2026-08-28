@@ -223,29 +223,31 @@ extension AccountEditViewController {
     }
     
     internal func didReceiveNewAvatar(_ image: UIImage) {
-//        let cell = self.tableView.cellForRow(at: IndexPath.init(row: 0, section: 0)) as? ProfileCell
+        let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 0)) as? ProfileCell
+        let previousImage = cell?.avatarButton.image(for: .normal)
+
         func beforeSettingAvatar() {
-//            DispatchQueue.main.async {
-//                cell?.showDarkenedView()
-//                self.tableView.reloadRows(at: [IndexPath.init(row: 0, section: 0)], with: .none)
-//            }
+            DispatchQueue.main.async {
+                cell?.setAvatar(image: image)
+                cell?.showDarkenedView()
+            }
         }
+
         func afterSettingAvatar(image: UIImage?) {
-//            DispatchQueue.main.async {
-//                if let image = image {
-//                    self.avatarImage = image
-//                }
-//                cell?.hideDarkenedView()
-//                self.tableView.reloadRows(at: [IndexPath.init(row: 0, section: 0)], with: .none)
-//            }
+            DispatchQueue.main.async {
+                cell?.setAvatar(image: image ?? previousImage)
+                cell?.hideDarkenedView()
+            }
         }
-//        if let index = datasource.firstIndex(where: { $0.kind == .profile }) {
-//            self.tableView.reloadRows(at: [IndexPath(row: index, section: 0)], with: .none)
-//        }
-        
-        AccountManager.shared.find(for: jid)?.action({ (user, stream) in
+
+        guard let account = AccountManager.shared.find(for: jid) else {
+            afterSettingAvatar(image: nil)
+            return
+        }
+
+        beforeSettingAvatar()
+        account.action({ (user, stream) in
             DispatchQueue.global(qos: .background).async {
-                beforeSettingAvatar()
                 user.avatarUploader.setAvatar(image: image, successCallback: {
                     afterSettingAvatar(image: image)
                 }, failureCallback: {

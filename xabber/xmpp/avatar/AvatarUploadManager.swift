@@ -333,8 +333,6 @@ class AvatarUploadManager: AbstractXMPPManager {
                     }
                 }
 
-                successCallback?()
-
                 if let account = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
                     try realm.write {
                         account.oldschoolAvatarKey = avatar.hash
@@ -353,9 +351,14 @@ class AvatarUploadManager: AbstractXMPPManager {
                     )
                 }
 
-                AccountManager.shared.find(for: self.owner)?.action({ (user, stream) in
-                    user.avatarUploader.sendImageMetadata(stream, avatar: avatar)
-                })
+                if let account = AccountManager.shared.find(for: self.owner) {
+                    account.action { user, stream in
+                        user.avatarUploader.sendImageMetadata(stream, avatar: avatar)
+                        successCallback?()
+                    }
+                } else {
+                    successCallback?()
+                }
 
             } catch {
                 DDLogDebug("AvatarUploadManager: \(#function). \(error.localizedDescription)")
@@ -525,10 +528,11 @@ class AvatarUploadManager: AbstractXMPPManager {
         }
         return "unknown"
     }
-    //public func sendImageMetadata(_ xmppStream: XMPPStream, mainUrl: String, hash: String, size: Int, thumbnails: [Thumbnail], jid: String? = nil) {
-    public func sendImageMetadata(_ xmppStream: XMPPStream, avatar: AvatarResponse, to: XMPPJID? = nil) {
-
-        let elementId = "Avatar: \(NanoID.new(8))"
+    func makeImageMetadataIQ(
+        avatar: AvatarResponse,
+        to: XMPPJID?,
+        elementID: String
+    ) -> XMPPIQ {
         let metadata = DDXMLElement(name: "metadata", xmlns: "urn:xmpp:avatar:metadata")
         let info = DDXMLElement(name: "info")
 
@@ -540,7 +544,7 @@ class AvatarUploadManager: AbstractXMPPManager {
         avatar.thumbnails.forEach {
             thumbnail in
             let thumbnailInfo = DDXMLElement(name: "thumbnail", xmlns: "urn:xmpp:thumbs:1")
-            thumbnailInfo.addAttribute(withName: "url", stringValue: thumbnail.url)
+            thumbnailInfo.addAttribute(withName: "uri", stringValue: thumbnail.url)
             let type = getImageTypeMetaData(url: thumbnail.url)
             thumbnailInfo.addAttribute(withName: "media-type", stringValue: type)
             thumbnailInfo.addAttribute(withName: "width", integerValue: thumbnail.width)
@@ -563,7 +567,12 @@ class AvatarUploadManager: AbstractXMPPManager {
         pubsub.addChild(publish)
         pubsub.setXmlns("http://jabber.org/protocol/pubsub")
 
-        let iq = XMPPIQ(iqType: .set, to: to, elementID: elementId, child: pubsub)
+        return XMPPIQ(iqType: .set, to: to, elementID: elementID, child: pubsub)
+    }
+
+    public func sendImageMetadata(_ xmppStream: XMPPStream, avatar: AvatarResponse, to: XMPPJID? = nil) {
+        let elementId = "Avatar: \(NanoID.new(8))"
+        let iq = makeImageMetadataIQ(avatar: avatar, to: to, elementID: elementId)
         xmppStream.send(iq)
         queryIds.insert(elementId)
     }

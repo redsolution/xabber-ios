@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		4E5A00023B4000000ABC001 /* SettingsAccountQRCodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5A00013B4000000ABC001 /* SettingsAccountQRCodeTests.swift */; };
 		B8A100023C20000000ABC001 /* SettingsProfileMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A100013C20000000ABC001 /* SettingsProfileMenuTests.swift */; };
+		B8A200023C21000000ABC001 /* AccountEditProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A200013C21000000ABC001 /* AccountEditProfileTests.swift */; };
 		4E5A00043B4100000ABC001 /* QRCodeScannerPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5A00033B4100000ABC001 /* QRCodeScannerPresentationTests.swift */; };
 		CA180014CA180014CA180014 /* ArchiveCoverageStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180013CA180013CA180013 /* ArchiveCoverageStorage.swift */; };
 		CA180031CA180031CA180031 /* ArchiveTransportTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA180030CA180030CA180030 /* ArchiveTransportTypes.swift */; };
@@ -1066,6 +1067,7 @@
 /* Begin PBXFileReference section */
 		4E5A00013B4000000ABC001 /* SettingsAccountQRCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAccountQRCodeTests.swift; sourceTree = "<group>"; };
 		B8A100013C20000000ABC001 /* SettingsProfileMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsProfileMenuTests.swift; sourceTree = "<group>"; };
+		B8A200013C21000000ABC001 /* AccountEditProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountEditProfileTests.swift; sourceTree = "<group>"; };
 		4E5A00033B4100000ABC001 /* QRCodeScannerPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeScannerPresentationTests.swift; sourceTree = "<group>"; };
 		CA180013CA180013CA180013 /* ArchiveCoverageStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveCoverageStorage.swift; sourceTree = "<group>"; };
 		CA180030CA180030CA180030 /* ArchiveTransportTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveTransportTypes.swift; sourceTree = "<group>"; };
@@ -4255,6 +4257,7 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				B8A200013C21000000ABC001 /* AccountEditProfileTests.swift */,
 				B8A100013C20000000ABC001 /* SettingsProfileMenuTests.swift */,
 				4E5A00013B4000000ABC001 /* SettingsAccountQRCodeTests.swift */,
 				4E5A00033B4100000ABC001 /* QRCodeScannerPresentationTests.swift */,
@@ -6502,6 +6505,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B8A200023C21000000ABC001 /* AccountEditProfileTests.swift in Sources */,
 				A1B2C3D4321200000ABC0002 /* LastChatsPremiumPromotionTests.swift in Sources */,
 				A1B2C3D4321200000ABC0012 /* LastChatsSpecialMessageVisibilityTests.swift in Sources */,
 				4E5039120000000000000001 /* RedmineIssue50391Tests.swift in Sources */,

@@ -171,7 +171,7 @@ class XmppAvatarManager: AbstractXMPPManager {
                 info.elements(forName: "thumbnail").forEach {
                     thumb in
                     if let thumbUrl = thumb.attributeStringValue(forName: "uri") {
-                        let width = thumb.attributeIntegerValue(forName: "witdth")
+                        let width = thumb.attributeIntegerValue(forName: "width")
                         if width >= 512 {
                             maxUrl = thumbUrl
                             return
@@ -185,7 +185,7 @@ class XmppAvatarManager: AbstractXMPPManager {
                 info.elements(forName: "thumbnail").forEach {
                     thumb in
                     if let thumbUrl = thumb.attributeStringValue(forName: "uri") {
-                        let width = thumb.attributeIntegerValue(forName: "witdth")
+                        let width = thumb.attributeIntegerValue(forName: "width")
                         if width < 256 && width >= 128 {
                             minUrl = thumbUrl
                             return
