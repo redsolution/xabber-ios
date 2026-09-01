@@ -5080,7 +5080,7 @@ final class Account: NSObject {
         APNSManager.shared.sendDeleteRequest(jid: owner, voip: true)
         APNSManager.shared.sendDeleteRequest(jid: owner, voip: false)
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         
         _ = keychain.removeObject(forKey: owner)
         _ = keychain.removeObject(forKey: [owner, "token"].prp())

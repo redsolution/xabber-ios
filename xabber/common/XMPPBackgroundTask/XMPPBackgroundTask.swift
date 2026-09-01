@@ -67,7 +67,7 @@ class XMPPBackgroundTask: NSObject {
         self.jid = jid
         self.taskType = taskType
         let uniqueServiceName = CredentialsManager.uniqueServiceName()
-        let uniqueAccessGroup = CredentialsManager.uniqueAccessGroup()
+        let uniqueAccessGroup = CredentialsManager.uniqueKeychainAccessGroup()
         let keychain = KeychainWrapper(serviceName: uniqueServiceName,
                                        accessGroup: uniqueAccessGroup)
         self.password = keychain.string(forKey: jid) ?? ""

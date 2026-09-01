@@ -39,14 +39,14 @@ class HOTPAuth {
     private func retrieveCreditionals(for key: String) -> String? {
         print(#function)
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         return keychain.string(forKey: key)
     }
     
     private func storeCreditionals(for key: String, value: String) {
         print(#function)
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         keychain.set(value, forKey: key)
     }
     

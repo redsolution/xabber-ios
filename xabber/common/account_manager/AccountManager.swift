@@ -972,7 +972,7 @@ public class AccountManager: NSObject {
         SettingManager.shared.clear(for: jid)
         self.changeNewUserState(for: jid, to: .none)
         let uniqueServiceName = CredentialsManager.uniqueServiceName()
-        let uniqueAccessGroup = CredentialsManager.uniqueAccessGroup()
+        let uniqueAccessGroup = CredentialsManager.uniqueKeychainAccessGroup()
         let keychain = KeychainWrapper(serviceName: uniqueServiceName,
                                        accessGroup: uniqueAccessGroup)
 

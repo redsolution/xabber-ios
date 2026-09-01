@@ -65,7 +65,7 @@ class XMPPActionManager: NSObject {
         self.stanzaQueue = stanzas
         self.jid = jid
         let uniqueServiceName = CredentialsManager.uniqueServiceName()
-        let uniqueAccessGroup = CredentialsManager.uniqueAccessGroup()
+        let uniqueAccessGroup = CredentialsManager.uniqueKeychainAccessGroup()
         let keychain = KeychainWrapper(serviceName: uniqueServiceName,
                                        accessGroup: uniqueAccessGroup)
         self.password = keychain.string(forKey: jid)

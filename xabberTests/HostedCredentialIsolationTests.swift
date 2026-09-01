@@ -1,7 +1,71 @@
 import XCTest
+import SwiftKeychainWrapper
 @testable import xabber
 
 final class HostedCredentialIsolationTests: XCTestCase {
+    func testKeychainAccessGroupUsesProcessedInfoValueInsteadOfApplicationGroup() {
+        let resolved = CredentialsManager.resolvedKeychainAccessGroup(
+            infoDictionary: [
+                CredentialsManager.keychainAccessGroupInfoKey: "C423LXVKU5.xabber.ios"
+            ],
+            legacyAccessGroup: "group.xabber.ios"
+        )
+
+        XCTAssertEqual(resolved, "C423LXVKU5.xabber.ios")
+        XCTAssertNotEqual(resolved, "group.xabber.ios")
+    }
+
+    func testKeychainAccessGroupFallsBackForMissingOrUnexpandedInfoValue() {
+        for infoDictionary: [String: Any] in [
+            [:],
+            [CredentialsManager.keychainAccessGroupInfoKey: ""],
+            [CredentialsManager.keychainAccessGroupInfoKey: "$(AppIdentifierPrefix)xabber.ios"]
+        ] {
+            XCTAssertEqual(
+                CredentialsManager.resolvedKeychainAccessGroup(
+                    infoDictionary: infoDictionary,
+                    legacyAccessGroup: "group.xabber.ios"
+                ),
+                "group.xabber.ios"
+            )
+        }
+    }
+
+    func testBuiltApplicationContainsResolvedKeychainAccessGroup() {
+        let configured = Bundle.main.object(
+            forInfoDictionaryKey: CredentialsManager.keychainAccessGroupInfoKey
+        ) as? String
+
+        XCTAssertNotNil(configured)
+        XCTAssertFalse(configured?.contains("$(") ?? true)
+        XCTAssertEqual(CredentialsManager.uniqueKeychainAccessGroup(), configured)
+        XCTAssertNotEqual(
+            CredentialsManager.uniqueKeychainAccessGroup(),
+            CredentialsManager.uniqueAccessGroup()
+        )
+    }
+
+    func testBuiltApplicationCanRoundTripValueInAuthorizedKeychainGroup() {
+        let keychain = KeychainWrapper(
+            serviceName: CredentialsManager.uniqueServiceName(),
+            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
+        )
+        let key = "hosted-keychain-probe-\(UUID().uuidString)"
+
+        defer {
+            _ = keychain.removeObject(forKey: key)
+        }
+
+        XCTAssertTrue(
+            keychain.set(
+                "probe",
+                forKey: key,
+                withAccessibility: .alwaysThisDeviceOnly
+            )
+        )
+        XCTAssertEqual(keychain.string(forKey: key), "probe")
+    }
+
     func testNormalApplicationLaunchKeepsBundledCredentialNamespace() {
         let base = bundledStore
 

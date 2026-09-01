@@ -376,7 +376,7 @@ class ApplicationStateManager: NSObject {
     
     public final func getApplicationBlockedDate() -> Date? {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         if let ts = keychain.double(forKey: "application_blocked_date") {
             return Date(timeIntervalSince1970: ts)
         }
@@ -386,13 +386,13 @@ class ApplicationStateManager: NSObject {
     public final func isApplicationBlocked() -> Bool {
         return isApplicationBlockedState
 //        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-//                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+//                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
 //        return keychain.bool(forKey: "application_blocked") ?? false
     }
     
     public final func unblockApplication(date: Date) {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
 //        _ = keychain.set(false, forKey: "application_blocked", withAccessibility: .always)
         self.isApplicationBlockedState = false
         _ = keychain.set(date.timeIntervalSince1970, forKey: "application_blocked_date")
@@ -400,7 +400,7 @@ class ApplicationStateManager: NSObject {
     
     public final func clearApplicationBlockedState() {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
 //        _ = keychain.set(false, forKey: "application_blocked", withAccessibility: .always)
         self.isApplicationBlockedState = false
         self.isSubscribtionsShowed = false
@@ -410,7 +410,7 @@ class ApplicationStateManager: NSObject {
     public final func blockApplication(date: Date) {
         preBlockApplication()
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
 //        _ = keychain.set(true, forKey: "application_blocked", withAccessibility: .always)
         self.isApplicationBlockedState = true
         _ = keychain.set(date.timeIntervalSince1970, forKey: "application_blocked_date")

@@ -55,6 +55,8 @@ enum HostedXCTestIsolationPolicy {
 }
 
 class CredentialsManager: NSObject {
+    static let keychainAccessGroupInfoKey = "XabberKeychainAccessGroup"
+
     private static var testDataStore: [String: Data] = [:]
     private static var testIntStore: [String: Int] = [:]
     private static let testStoreLock = NSLock()
@@ -119,6 +121,28 @@ class CredentialsManager: NSObject {
     static func uniqueAccessGroup() -> String {
         guard let base = bundledCredentialsStore() else { return "" }
         return resolvedCredentialsStore(base: base).uniqueAccessGroup
+    }
+
+    static func resolvedKeychainAccessGroup(
+        infoDictionary: [String: Any],
+        legacyAccessGroup: String
+    ) -> String {
+        guard let configured = infoDictionary[keychainAccessGroupInfoKey] as? String else {
+            return legacyAccessGroup
+        }
+        let trimmed = configured.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !trimmed.contains("$(") else {
+            return legacyAccessGroup
+        }
+        return trimmed
+    }
+
+    static func uniqueKeychainAccessGroup() -> String {
+        resolvedKeychainAccessGroup(
+            infoDictionary: Bundle.main.infoDictionary ?? [:],
+            legacyAccessGroup: uniqueAccessGroup()
+        )
     }
     
 //    var uniqueAccessGroup: String = "group.clandestino.shared.data"
@@ -461,7 +485,7 @@ class CredentialsManager: NSObject {
         @discardableResult
         private func storeCreditionals(for key: String, value: String) -> Bool {
             let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                           accessGroup: CredentialsManager.uniqueAccessGroup())
+                                           accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
             let result = keychain.set(value, forKey: key, withAccessibility: .alwaysThisDeviceOnly)
             credentialsDebugLog("CredentialsManager: credential store jidHash=\(credentialsDiagnosticHash(jid)) kind=\(kind.rawValue) success=\(result)")
             return result
@@ -469,13 +493,13 @@ class CredentialsManager: NSObject {
         
         private func retrieveCreditionals(for key: String) -> String? {
             let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                           accessGroup: CredentialsManager.uniqueAccessGroup())
+                                           accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
             return keychain.string(forKey: key)
         }
         
         private func removeCreditionals(for key: String) {
             let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                           accessGroup: CredentialsManager.uniqueAccessGroup())
+                                           accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
 
             _ = keychain.removeObject(forKey: key)
         }
@@ -491,7 +515,7 @@ class CredentialsManager: NSObject {
     
     public final func clearKeychain() {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         keychain.removeAllKeys()
     }
     
@@ -510,73 +534,73 @@ class CredentialsManager: NSObject {
     
     public func setXabberAccountUUID(for jid: String, uuid uuidString: String) {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         keychain.set(uuidString, forKey: [jid, "xabberAccountUUID"].prp(), withAccessibility: .always)
     }
     
     public static func getXabberAccountUUID(for jid: String) -> String? {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         return keychain.string(forKey: [jid, "xabberAccountUUID"].prp())
     }
     
     public func removeXabberAccountUUID(for jid: String) {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         keychain.removeObject(forKey: [jid, "xabberAccountUUID"].prp())
     }
     
     public func setXabberAccountToken(for jid: String, token: String) {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         keychain.set(token, forKey: [jid, "xabberAccountToken"].prp(), withAccessibility: .always)
     }
     
     public static func getXabberAccountToken(for jid: String) -> String? {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         return keychain.string(forKey: [jid, "xabberAccountToken"].prp())
     }
     
     public func removeXabberAccountToken(for jid: String) {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         keychain.removeObject(forKey: [jid, "xabberAccountToken"].prp())
     }
     
     public func setXabberAccountTokenExpire(for jid: String, expire: Double) {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         keychain.set(expire, forKey: [jid, "xabberAccountTokenExpire"].prp(), withAccessibility: .always)
     }
     
     public static func getXabberAccountTokenExpire(for jid: String) -> Double? {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         return keychain.double(forKey: [jid, "xabberAccountTokenExpire"].prp())
     }
     
     public func removeXabberAccountTokenExpire(for jid: String) {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         keychain.removeObject(forKey: [jid, "xabberAccountTokenExpire"].prp())
     }
     
     public func setXabberDeviceId(for jid: String, deviceId: String) {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         keychain.set(deviceId, forKey: [jid, "xabberDeviceId"].prp(), withAccessibility: .always)
     }
     
     public static func getXabberDeviceId(for jid: String) -> String? {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         return keychain.string(forKey: [jid, "xabberDeviceId"].prp())
     }
     
     public func removeXabberDeviceId(for jid: String) {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         keychain.removeObject(forKey: [jid, "xabberDeviceId"].prp())
     }
     
@@ -594,7 +618,7 @@ class CredentialsManager: NSObject {
     private final func primaryKeychain() -> KeychainWrapper {
         return KeychainWrapper(
             serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueAccessGroup()
+            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
         )
     }
     
@@ -790,32 +814,32 @@ class CredentialsManager: NSObject {
     
     public final func storeCertificate(_ data: CFData) {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         keychain.set(data as Data, forKey: "yubiko_certificate", withAccessibility: .always)
     }
     
     public final func loadCertificate() -> CFData? {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         return keychain.data(forKey: "yubiko_certificate") as CFData?
     }
     
     public final func getSignature() -> String? {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         return keychain.string(forKey: "time_signature")
     }
     
     public final func getSignatureTimestamp() -> Double? {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         return keychain.double(forKey: "time_signature_timestamp")
     }
     
 //    public final func setSignature(_ signature: String, for timestamp: TimeInterval, deviceType: YUDeviceType) {
 //        
 //        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-//                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+//                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
 //        _ = keychain.set(signature, forKey: "time_signature", withAccessibility: .always)
 //        _ = keychain.set(timestamp, forKey: "time_signature_timestamp", withAccessibility: .always)
 //        _ = keychain.set(deviceType.rawValue, forKey: "time_signature_device_type", withAccessibility: .always)
@@ -825,7 +849,7 @@ class CredentialsManager: NSObject {
     
 //    public final func getSignatureDeviceType() -> YUDeviceType? {
 //        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-//                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+//                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
 //        guard let raw = keychain.string(forKey: "time_signature_device_type"),
 //              let out = YUDeviceType(rawValue: raw) else {
 //                  return nil
@@ -836,7 +860,7 @@ class CredentialsManager: NSObject {
     
     public final func clearSignature()  {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         keychain.remove(forKey: "time_signature")
         keychain.remove(forKey: "time_signature_timestamp")
         keychain.remove(forKey: "time_signature_device_type")
@@ -845,7 +869,7 @@ class CredentialsManager: NSObject {
     
     public final func clearPincodes() {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         keychain.remove(forKey: "pincode")
         keychain.remove(forKey: "pincode_timestamp")
     }
@@ -853,7 +877,7 @@ class CredentialsManager: NSObject {
     public final func isPincodeSetted() -> Bool {
         let keychain = KeychainWrapper(
             serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueAccessGroup()
+            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
         )
         guard let pincode = keychain.string(forKey: "pincode")  else {
                   return false
@@ -864,7 +888,7 @@ class CredentialsManager: NSObject {
     public final func setPincode(_ value: String) {
         let keychain = KeychainWrapper(
             serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueAccessGroup()
+            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
         )
         _ = keychain.set(value, forKey: "pincode", withAccessibility: .always)
         _ = keychain.set(Date().timeIntervalSince1970, forKey: "pincode_timestamp", withAccessibility: .always)
@@ -872,14 +896,14 @@ class CredentialsManager: NSObject {
     
     public final func setPasscodeAttemptsLeft(_ value: Int) {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup()
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
         )
         _ = keychain.set(value, forKey: "passcode_attempts_left", withAccessibility: .always)
     }
     
     public final func getPasscodeAttemptsLeft() -> Int {
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup()
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
         )
         return keychain.integer(forKey: "passcode_attempts_left") ?? 0
     }
@@ -887,7 +911,7 @@ class CredentialsManager: NSObject {
     public final func getPincodeTimestamp() -> TimeInterval {
         let keychain = KeychainWrapper(
             serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueAccessGroup()
+            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
         )
         
         return keychain.double(forKey: "pincode_timestamp") ?? 0.0
@@ -896,7 +920,7 @@ class CredentialsManager: NSObject {
     public final func validatePincode(_ value: String) -> Bool {
         let keychain = KeychainWrapper(
             serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueAccessGroup()
+            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
         )
         
         guard let pincode = keychain.string(forKey: "pincode"),
@@ -909,7 +933,7 @@ class CredentialsManager: NSObject {
     public final func updatePincode(_ value: String) -> Bool {
         let keychain = KeychainWrapper(
             serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueAccessGroup()
+            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
         )
         
         guard let pincode = keychain.string(forKey: "pincode"),
@@ -925,7 +949,7 @@ class CredentialsManager: NSObject {
     public final func updateOnlyPincodeTimestamp() {
         let keychain = KeychainWrapper(
             serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueAccessGroup()
+            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
         )
         
         keychain.set(Date().timeIntervalSince1970, forKey: "pincode_timestamp", withAccessibility: .always)
@@ -942,7 +966,7 @@ class CredentialsManager: NSObject {
     public final func storePushCredentials(node: String, jid: String, host: String, secret: String, service: String, jwt: String) throws {
         let keychain = KeychainWrapper(
             serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueAccessGroup()
+            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
         )
         let dict: NSDictionary = [
             "jid": jid,
@@ -964,7 +988,7 @@ class CredentialsManager: NSObject {
     public final func getPushCredentials(for node: String) throws -> PushSecretData {
         let keychain = KeychainWrapper(
             serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueAccessGroup()
+            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
         )
         guard let jsonString = keychain.string(forKey: node),
               let data = jsonString.data(using: .utf8),
@@ -982,7 +1006,7 @@ class CredentialsManager: NSObject {
     public final func removePushCredentials(for node: String) {
         let keychain = KeychainWrapper(
             serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueAccessGroup()
+            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
         )
         keychain.removeObject(forKey: node)
     }
@@ -990,7 +1014,7 @@ class CredentialsManager: NSObject {
     public static func staticGetPushCredentials(for node: String) throws -> PushSecretData {
         let keychain = KeychainWrapper(
             serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueAccessGroup()
+            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
         )
         guard let jsonString = keychain.string(forKey: node),
               let data = jsonString.data(using: .utf8),
@@ -1008,7 +1032,7 @@ class CredentialsManager: NSObject {
     private final func clearKeychainFull() {
         let keychain = KeychainWrapper(
             serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueAccessGroup()
+            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
         )
         keychain.removeAllKeys()
     }

@@ -459,7 +459,7 @@ class NotificationService: UNNotificationServiceExtension {
 //        let uniqueServiceName = "clandestino.keychain"
 //        let uniqueAccessGroup = "group.clandestino"
         let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueAccessGroup())
+                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
         return keychain.string(forKey: key)
 //        return nil
     }
