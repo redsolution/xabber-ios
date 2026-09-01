@@ -240,6 +240,7 @@
 		4EB000062FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB000032FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift */; };
 		4EB000072FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB000032FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift */; };
 		4EB000082FF900000ABC001 /* ChatSearchLiveSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB000042FF900000ABC001 /* ChatSearchLiveSmokeTests.swift */; };
+		4EB600022FFF00000ABC001 /* AvatarPickerScreenUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB600012FFF00000ABC001 /* AvatarPickerScreenUITests.swift */; };
 		4EB100022FFA00000ABC001 /* AccountMissingCredentialPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB100012FFA00000ABC001 /* AccountMissingCredentialPolicyTests.swift */; };
 		4EB200022FFB00000ABC001 /* HostedCredentialIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB200012FFB00000ABC001 /* HostedCredentialIsolationTests.swift */; };
 		4EB300022FFC00000ABC001 /* ChatSearchStressStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EB300012FFC00000ABC001 /* ChatSearchStressStateTests.swift */; };
@@ -1205,6 +1206,7 @@
 		4EB000032FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchLiveQASafetyGate.swift; sourceTree = "<group>"; };
 		4EB000042FF900000ABC001 /* ChatSearchLiveSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchLiveSmokeTests.swift; sourceTree = "<group>"; };
 		4EB000052FF900000ABC001 /* xabberUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = xabberUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4EB600012FFF00000ABC001 /* AvatarPickerScreenUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarPickerScreenUITests.swift; sourceTree = "<group>"; };
 		4EB100012FFA00000ABC001 /* AccountMissingCredentialPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountMissingCredentialPolicyTests.swift; sourceTree = "<group>"; };
 		4EB200012FFB00000ABC001 /* HostedCredentialIsolationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostedCredentialIsolationTests.swift; sourceTree = "<group>"; };
 		4EAE00032FF800000ABC001 /* ChatSearchAdaptiveLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatSearchAdaptiveLayout.swift; sourceTree = "<group>"; };
@@ -2697,6 +2699,7 @@
 		4EB000092FF900000ABC001 /* xabberUITests */ = {
 			isa = PBXGroup;
 			children = (
+				4EB600012FFF00000ABC001 /* AvatarPickerScreenUITests.swift */,
 				4EB000032FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift */,
 				4EB000042FF900000ABC001 /* ChatSearchLiveSmokeTests.swift */,
 			);
@@ -6715,6 +6718,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4EB600022FFF00000ABC001 /* AvatarPickerScreenUITests.swift in Sources */,
 				4EB000072FF900000ABC001 /* ChatSearchLiveQASafetyGate.swift in Sources */,
 				4EB000082FF900000ABC001 /* ChatSearchLiveSmokeTests.swift in Sources */,
 			);

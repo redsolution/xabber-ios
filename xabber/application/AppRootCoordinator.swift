@@ -605,6 +605,7 @@ final class AppRootCoordinator: NSObject {
     private var pendingNotificationRequestList: PushNotificationRequestListDestination?
     #if DEBUG || CHAT_PERFORMANCE_LAB
     private var performanceFixtureDescriptor: ChatPerformanceUITestLaunchDescriptor?
+    private var isDebugFixtureActive = false
     #endif
 
     init(window: UIWindow, appDelegate: AppDelegate?) {
@@ -617,7 +618,16 @@ final class AppRootCoordinator: NSObject {
 
     func start(connectionOptions: UIScene.ConnectionOptions, restorationActivity: NSUserActivity?) {
         #if DEBUG || CHAT_PERFORMANCE_LAB
+        if AvatarPickerUITestLaunchPolicy.isEnabled() {
+            isDebugFixtureActive = true
+            window.rootViewController = UINavigationController(
+                rootViewController: AvatarPickerViewController()
+            )
+            applyCompatibilityReferences()
+            return
+        }
         if let descriptor = ChatPerformanceUITestLaunchPolicy.descriptor() {
+            isDebugFixtureActive = true
             performanceFixtureDescriptor = descriptor
             if ChatPerformanceManualNativeBackLaunchPolicy.isEnabled() {
                 startChatPerformanceManualNativeBackFixture(
@@ -699,7 +709,7 @@ final class AppRootCoordinator: NSObject {
 
     func sceneWillResignActive() {
         #if DEBUG || CHAT_PERFORMANCE_LAB
-        guard performanceFixtureDescriptor == nil else { return }
+        guard !isDebugFixtureActive else { return }
         #endif
         let lifecycleActions = AppRootLifecyclePolicy.actions(for: .willResignActive)
         ConnectionDiagnosticsLogger.log(
@@ -721,7 +731,7 @@ final class AppRootCoordinator: NSObject {
 
     func sceneDidEnterBackground() {
         #if DEBUG || CHAT_PERFORMANCE_LAB
-        guard performanceFixtureDescriptor == nil else { return }
+        guard !isDebugFixtureActive else { return }
         #endif
         ConnectionDiagnosticsLogger.log(
             event: "scene_lifecycle_did_enter_background",
@@ -749,7 +759,7 @@ final class AppRootCoordinator: NSObject {
 
     func sceneWillEnterForeground() {
         #if DEBUG || CHAT_PERFORMANCE_LAB
-        guard performanceFixtureDescriptor == nil else { return }
+        guard !isDebugFixtureActive else { return }
         #endif
         ConnectionDiagnosticsLogger.log(
             event: "scene_lifecycle_will_enter_foreground",
@@ -765,7 +775,7 @@ final class AppRootCoordinator: NSObject {
 
     func sceneDidBecomeActive() {
         #if DEBUG || CHAT_PERFORMANCE_LAB
-        guard performanceFixtureDescriptor == nil else { return }
+        guard !isDebugFixtureActive else { return }
         #endif
         ConnectionDiagnosticsLogger.log(
             event: "scene_lifecycle_did_become_active",

@@ -22,6 +22,35 @@ import Foundation
 import UIKit
 import MaterialComponents.MDCPalettes
 
+enum AvatarPickerAccessibilityIdentifiers {
+    static let screen = "avatar.emoji.screen"
+    static let title = "avatar.emoji.title"
+    static let subtitle = "avatar.emoji.subtitle"
+    static let preview = "avatar.emoji.preview"
+    static let edit = "avatar.emoji.edit"
+    static let save = "avatar.emoji.save"
+    static let colorPrefix = "avatar.emoji.color."
+    static let emojiPickerScreen = "avatar.emoji.picker.screen"
+    static let emojiCollection = "avatar.emoji.picker.collection"
+    static let emojiItemPrefix = "avatar.emoji.picker.item."
+    static let emojiCategoryPrefix = "avatar.emoji.picker.category."
+}
+
+#if DEBUG || CHAT_PERFORMANCE_LAB
+enum AvatarPickerUITestLaunchPolicy {
+    static let launchArgument = "--xabber-avatar-picker-ui-test"
+    static let markerEnvironmentKey = "XABBER_AVATAR_PICKER_UI_TEST"
+
+    static func isEnabled(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        environment[markerEnvironmentKey] == "1" &&
+            arguments.filter { $0 == launchArgument }.count == 1
+    }
+}
+#endif
+
 protocol AvatarPickerViewControllerDelegate {
     func onReceiveAvatar(image: UIImage, emoji: String?, currentPalette: MDCPalette?)
 }
@@ -54,6 +83,8 @@ class AvatarPickerView: UIView {
 }
 
 class AvatarPickerViewController: BaseViewController {
+    private var didSetupSubviews = false
+    private var didActivateConstraints = false
     
     class ColorPickerRoundedButton: UIButton {
         public var colorItem: AccountColorManager.ColorItem
@@ -85,6 +116,12 @@ class AvatarPickerViewController: BaseViewController {
         }
         
         public final func markAsSelected(selected: Bool) {
+            accessibilityValue = selected ? "selected" : "not selected"
+            if selected {
+                accessibilityTraits.insert(.selected)
+            } else {
+                accessibilityTraits.remove(.selected)
+            }
             UIView.animate(withDuration: 0.33, delay: 0.0, options: [.curveEaseOut]) {
                 self.selectedView.isHidden = !selected
             } completion: { _ in
@@ -170,6 +207,7 @@ class AvatarPickerViewController: BaseViewController {
         label.numberOfLines = 0
         label.textColor = .black
         label.text = "Emoji Profile Image".localizeString(id: "account_emoji_profile_image_header", arguments: [])
+        label.accessibilityIdentifier = AvatarPickerAccessibilityIdentifiers.title
         
         return label
     }()
@@ -182,6 +220,7 @@ class AvatarPickerViewController: BaseViewController {
         label.numberOfLines = 0
         label.textColor = UIColor(red: 60/255, green: 60/255, blue: 65/255, alpha: 0.6)
         label.text = "Choose an emoji and background color to use as your profile image.".localizeString(id: "account_emoji_profile_image_description", arguments: [])
+        label.accessibilityIdentifier = AvatarPickerAccessibilityIdentifiers.subtitle
         
         return label
     }()
@@ -195,6 +234,7 @@ class AvatarPickerViewController: BaseViewController {
         button.backgroundColor = .systemBlue
         button.setTitleColor(.white, for: .normal)
         button.setTitle("Save".localizeString(id: "save", arguments: []), for: .normal)
+        button.accessibilityIdentifier = AvatarPickerAccessibilityIdentifiers.save
         
         return button
     }()
@@ -211,6 +251,8 @@ class AvatarPickerViewController: BaseViewController {
         button.layer.cornerRadius = button.frame.width / 2
         button.backgroundColor = MDCPalette.grey.tint200.withAlphaComponent(0.7)
         button.tintColor = MDCPalette.grey.tint500
+        button.accessibilityIdentifier = AvatarPickerAccessibilityIdentifiers.edit
+        button.accessibilityLabel = "Choose emoji".localizeString(id: "account_emoji_profile_image_button", arguments: [])
         
         return button
     }()
@@ -264,6 +306,8 @@ class AvatarPickerViewController: BaseViewController {
     }
     
     public func activateConstraints() {
+        guard !didActivateConstraints else { return }
+        didActivateConstraints = true
         NSLayoutConstraint.activate([
             avatarBackground.widthAnchor.constraint(equalToConstant: 176),
             avatarBackground.heightAnchor.constraint(equalTo: avatarBackground.widthAnchor),
@@ -280,7 +324,14 @@ class AvatarPickerViewController: BaseViewController {
     }
     
     public func setupSubviews() {
+        guard !didSetupSubviews else { return }
+        didSetupSubviews = true
         contentView.frame = view.bounds
+        view.accessibilityIdentifier = AvatarPickerAccessibilityIdentifiers.screen
+        avatarView.isAccessibilityElement = true
+        avatarView.accessibilityIdentifier = AvatarPickerAccessibilityIdentifiers.preview
+        avatarView.accessibilityLabel = "Avatar preview"
+        avatarView.accessibilityValue = avatarView.label.text
         
         view.addSubview(contentView)
         contentView.addSubview(stack)
@@ -312,6 +363,8 @@ class AvatarPickerViewController: BaseViewController {
                 )
                 offsetX += buttonSize.width + padding
                 let button = ColorPickerRoundedButton(frame: frame, color: colors[colorIndex])
+                button.accessibilityIdentifier = AvatarPickerAccessibilityIdentifiers.colorPrefix + colors[colorIndex].key
+                button.accessibilityLabel = colors[colorIndex].title
                 colorPickerButtons.append(button)
                 colorIndex += 1
             }
@@ -463,6 +516,7 @@ extension AvatarPickerViewController: EmojiPickerViewControllerDelegate {
     func onEmojiSelected(_ emoji: String) {
         lastSettedEmoji = emoji
         avatarView.label.text = emoji
+        avatarView.accessibilityValue = emoji
         avatarView.layoutIfNeeded()
         makeButtonEnabled(true)
     }

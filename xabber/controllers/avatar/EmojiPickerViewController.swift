@@ -121,7 +121,8 @@ class EmojiPickerViewController: UIViewController {
     }
     
     public func setupSubviews() {
-        
+        view.accessibilityIdentifier = AvatarPickerAccessibilityIdentifiers.emojiPickerScreen
+        collectionView.accessibilityIdentifier = AvatarPickerAccessibilityIdentifiers.emojiCollection
         contentView.frame = view.bounds
         view.addSubview(contentView)
         contentView.addSubview(collectionView)
@@ -166,6 +167,8 @@ class EmojiPickerViewController: UIViewController {
 //                            button.backgroundColor = MDCPalette.grey.tint50
                         button.tintColor = offset == 0 ? .tintColor : .secondaryLabel
                         button.tag = offset
+                        button.accessibilityIdentifier = AvatarPickerAccessibilityIdentifiers.emojiCategoryPrefix + String(offset)
+                        button.accessibilityLabel = categoryName
                         button.addTarget(
                             self,
                             action: #selector(self.onCategorySelectorTouchUpInside),
@@ -271,6 +274,9 @@ extension EmojiPickerViewController: UICollectionViewDataSource {
         }
 
         cell.configure(datasource[selectedCategoryId].emojis[indexPath.row])
+        cell.isAccessibilityElement = true
+        cell.accessibilityIdentifier = AvatarPickerAccessibilityIdentifiers.emojiItemPrefix + "\(selectedCategoryId).\(indexPath.row)"
+        cell.accessibilityLabel = datasource[selectedCategoryId].emojis[indexPath.row]
         
         return cell
     }

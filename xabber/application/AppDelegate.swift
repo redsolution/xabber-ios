@@ -199,6 +199,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         #if DEBUG || CHAT_PERFORMANCE_LAB
+        if AvatarPickerUITestLaunchPolicy.isEnabled() {
+            return true
+        }
         if ChatPerformanceUITestLaunchPolicy.descriptor() != nil {
             return true
         }
