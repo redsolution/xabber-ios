@@ -70,10 +70,10 @@ extension AccountColorViewController {
             backgroundColor = .systemBackground
             contentView.addSubview(stack)
             stack.fillSuperview()
-            stack.addArrangedSubview(titleLabel)
             stack.addArrangedSubview(colorIndicatorView)
+            stack.addArrangedSubview(titleLabel)
             stack.addArrangedSubview(trailingSpacer)
-            stack.setCustomSpacing(0, after: colorIndicatorView)
+            stack.setCustomSpacing(0, after: titleLabel)
             NSLayoutConstraint.activate([
                 colorIndicatorView.widthAnchor.constraint(equalToConstant: 24),
                 colorIndicatorView.heightAnchor.constraint(equalToConstant: 24)

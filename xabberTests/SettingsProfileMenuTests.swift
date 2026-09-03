@@ -5,7 +5,7 @@ import XCTest
 
 final class SettingsProfileMenuTests: XCTestCase {
 
-    func testAccountColorRowsExposeTheirPaletteAsInlineCircularIndicators() throws {
+    func testAccountColorRowsExposeTheirPaletteAsLeadingCircularIndicators() throws {
         let controller = AccountColorViewController()
         controller.update()
 
@@ -31,15 +31,15 @@ final class SettingsProfileMenuTests: XCTestCase {
         XCTAssertEqual(firstCell.colorIndicatorView.bounds.width, 24, accuracy: 0.5)
         XCTAssertEqual(firstCell.colorIndicatorView.bounds.height, 24, accuracy: 0.5)
         XCTAssertEqual(firstCell.colorIndicatorView.layer.cornerRadius, 12, accuracy: 0.5)
-        XCTAssertEqual(firstCell.stack.arrangedSubviews.first, firstCell.titleLabel)
-        XCTAssertEqual(firstCell.stack.arrangedSubviews.dropFirst().first, firstCell.colorIndicatorView)
+        XCTAssertEqual(firstCell.stack.arrangedSubviews.first, firstCell.colorIndicatorView)
+        XCTAssertEqual(firstCell.stack.arrangedSubviews.dropFirst().first, firstCell.titleLabel)
         XCTAssertEqual(
             firstCell.titleLabel.bounds.width,
             firstCell.titleLabel.intrinsicContentSize.width,
             accuracy: 0.5
         )
         XCTAssertEqual(
-            firstCell.colorIndicatorView.frame.minX - firstCell.titleLabel.frame.maxX,
+            firstCell.titleLabel.frame.minX - firstCell.colorIndicatorView.frame.maxX,
             12,
             accuracy: 0.5
         )
