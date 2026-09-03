@@ -164,6 +164,16 @@ private final class CloudStorageIncreaseView: UIControl {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard isUserInteractionEnabled,
+              !isHidden,
+              alpha >= 0.01,
+              self.point(inside: point, with: event) else {
+            return nil
+        }
+        return self
+    }
+
     func configure(state: CloudStorageUpsellCardState?, action: (() -> Void)?) {
         isHidden = state == nil
         titleLabel.text = state?.title
@@ -192,12 +202,14 @@ private final class CloudStorageIncreaseView: UIControl {
         labels.axis = .vertical
         labels.alignment = .fill
         labels.spacing = 3
+        labels.isUserInteractionEnabled = false
         labels.translatesAutoresizingMaskIntoConstraints = false
 
         let chevronConfiguration = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
         let chevron = UIImageView(image: UIImage(systemName: "chevron.right", withConfiguration: chevronConfiguration))
         chevron.tintColor = .tertiaryLabel
         chevron.contentMode = .scaleAspectFit
+        chevron.isUserInteractionEnabled = false
         chevron.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(separator)

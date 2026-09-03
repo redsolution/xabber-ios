@@ -112,9 +112,44 @@ final class CloudStorageManagementTests: XCTestCase {
         XCTAssertEqual(callsTile.valueText, "12 MB")
         XCTAssertEqual(callsTile.iconSize, CGSize(width: 36, height: 36))
         XCTAssertEqual(callsTile.accessibilityIdentifier, "cloudStorage.category.calls")
+        XCTAssertEqual(callsTile.backgroundColor, .tertiarySystemGroupedBackground)
+        XCTAssertEqual(callsTile.layer.borderWidth, 1)
 
         callsTile.sendActions(for: .touchUpInside)
         XCTAssertEqual(selected, .calls)
+    }
+
+    func testWholeCategoryCardSurfaceBelongsToTileControl() throws {
+        let cell = CloudStorageCategoryGridCell(style: .default, reuseIdentifier: nil)
+        cell.configure(
+            items: [CloudStorageCategoryGridItem(category: .images, value: "12 MB")],
+            onSelect: { _ in }
+        )
+        let tile = try XCTUnwrap(cell.categoryTiles.first)
+        let fittingSize = CGSize(width: 350, height: UIView.layoutFittingCompressedSize.height)
+        let height = cell.contentView.systemLayoutSizeFitting(
+            fittingSize,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
+        cell.frame = CGRect(x: 0, y: 0, width: 350, height: height)
+        cell.contentView.frame = cell.bounds
+        cell.layoutIfNeeded()
+
+        let points = [
+            CGPoint(x: 4, y: 4),
+            CGPoint(x: 30, y: tile.bounds.midY),
+            CGPoint(x: tile.bounds.midX, y: tile.bounds.midY),
+            CGPoint(x: tile.bounds.maxX - 4, y: tile.bounds.maxY - 4)
+        ]
+
+        for point in points {
+            let hitView = tile.hitTest(point, with: nil)
+            XCTAssertTrue(
+                hitView === tile,
+                "point=\(point), bounds=\(tile.bounds), hidden=\(tile.isHidden), enabled=\(tile.isUserInteractionEnabled), alpha=\(tile.alpha), hit=\(String(describing: hitView))"
+            )
+        }
     }
 
     func testOverviewBuildsAllCategoriesInsideOneSection() {
@@ -139,6 +174,20 @@ final class CloudStorageManagementTests: XCTestCase {
     func testInlineIncreaseStorageOfferExistsOnlyWithoutPremium() {
         XCTAssertNotNil(CloudStorageUpsellCardState.inlineState(hasActivePremium: false))
         XCTAssertNil(CloudStorageUpsellCardState.inlineState(hasActivePremium: true))
+    }
+
+    func testInlineIncreaseRoutesToPremiumPurchaseScreen() throws {
+        let controller = NonPremiumCloudStorageViewController()
+        controller.jid = "owner@example.com"
+        let navigationController = UINavigationController(rootViewController: controller)
+
+        controller.openPremiumSubscription()
+
+        let purchaseController = try XCTUnwrap(
+            navigationController.topViewController as? PremiumSubscribtionViewController
+        )
+        XCTAssertEqual(purchaseController.owner, "owner@example.com")
+        XCTAssertEqual(purchaseController.jid, "owner@example.com")
     }
 
     func testCategoryGridHasDeterministicHeightAtPhoneWidth() {
@@ -306,5 +355,11 @@ final class CloudStorageManagementTests: XCTestCase {
         XCTAssertEqual(groups.compactMap { $0.first?.kind }, [
             .image, .video, .file, .voice, .avatar
         ])
+    }
+}
+
+private final class NonPremiumCloudStorageViewController: CloudStorageViewController {
+    override func currentInlineUpsellState() -> CloudStorageUpsellCardState? {
+        return .inlineState(hasActivePremium: false)
     }
 }

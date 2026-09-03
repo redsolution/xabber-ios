@@ -181,7 +181,7 @@ final class CloudStorageCategoryTile: UIControl {
 
     private let titleLabel: UILabel = {
         let label = UILabel()
-        label.font = .preferredFont(forTextStyle: .subheadline)
+        label.font = .preferredFont(forTextStyle: .headline)
         label.adjustsFontForContentSizeCategory = true
         label.textColor = .label
         label.numberOfLines = 1
@@ -191,7 +191,7 @@ final class CloudStorageCategoryTile: UIControl {
 
     private let valueLabel: UILabel = {
         let label = UILabel()
-        label.font = .preferredFont(forTextStyle: .caption1)
+        label.font = .preferredFont(forTextStyle: .subheadline)
         label.adjustsFontForContentSizeCategory = true
         label.textColor = .secondaryLabel
         label.numberOfLines = 1
@@ -200,7 +200,12 @@ final class CloudStorageCategoryTile: UIControl {
 
     override var isHighlighted: Bool {
         didSet {
-            alpha = isHighlighted ? 0.65 : 1
+            UIView.animate(withDuration: 0.12) {
+                self.alpha = self.isHighlighted ? 0.72 : 1
+                self.transform = self.isHighlighted
+                    ? CGAffineTransform(scaleX: 0.985, y: 0.985)
+                    : .identity
+            }
         }
     }
 
@@ -211,6 +216,24 @@ final class CloudStorageCategoryTile: UIControl {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard isUserInteractionEnabled,
+              !isHidden,
+              alpha >= 0.01,
+              self.point(inside: point, with: event) else {
+            return nil
+        }
+        return self
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection == nil
+            || traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
+            updateAdaptiveColors()
+        }
     }
 
     func configure(with item: CloudStorageCategoryGridItem) {
@@ -228,10 +251,12 @@ final class CloudStorageCategoryTile: UIControl {
     }
 
     private func setupViewHierarchy() {
-        backgroundColor = .secondarySystemGroupedBackground
-        layer.cornerRadius = 14
+        layer.cornerRadius = 16
         layer.cornerCurve = .continuous
+        layer.borderWidth = 1
+        layer.masksToBounds = true
         isAccessibilityElement = true
+        updateAdaptiveColors()
 
         addSubview(iconContainer)
         iconContainer.addSubview(iconView)
@@ -240,6 +265,7 @@ final class CloudStorageCategoryTile: UIControl {
         labels.axis = .vertical
         labels.alignment = .fill
         labels.spacing = 2
+        labels.isUserInteractionEnabled = false
         labels.translatesAutoresizingMaskIntoConstraints = false
         addSubview(labels)
 
@@ -262,6 +288,14 @@ final class CloudStorageCategoryTile: UIControl {
             heightAnchor.constraint(greaterThanOrEqualToConstant: 72)
         ])
     }
+
+    private func updateAdaptiveColors() {
+        backgroundColor = .tertiarySystemGroupedBackground
+        layer.borderColor = UIColor.separator
+            .withAlphaComponent(0.38)
+            .resolvedColor(with: traitCollection)
+            .cgColor
+    }
 }
 
 final class CloudStorageCategoryGridCell: UITableViewCell {
@@ -275,7 +309,7 @@ final class CloudStorageCategoryGridCell: UITableViewCell {
         let stack = UIStackView()
         stack.axis = .vertical
         stack.alignment = .fill
-        stack.spacing = 10
+        stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
     }()
@@ -311,7 +345,7 @@ final class CloudStorageCategoryGridCell: UITableViewCell {
             row.axis = .horizontal
             row.alignment = .fill
             row.distribution = .fillEqually
-            row.spacing = 10
+            row.spacing = 12
 
             for index in startIndex..<min(startIndex + 2, items.count) {
                 let tile = CloudStorageCategoryTile()

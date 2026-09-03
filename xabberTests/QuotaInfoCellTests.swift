@@ -91,4 +91,53 @@ final class QuotaInfoCellTests: XCTestCase {
 
         XCTAssertGreaterThan(basicHeight, premiumHeight + 60)
     }
+
+    func testWholeInlineIncreaseSurfaceTriggersPremiumAction() throws {
+        var actionCount = 0
+        let cell = QuotaInfoCell(style: .default, reuseIdentifier: nil)
+        cell.setup(
+            title: "Media Gallery",
+            owner: "owner@example.com",
+            displayState: .loading,
+            increaseStorage: .inlineState(hasActivePremium: false),
+            onIncreaseStorage: { actionCount += 1 }
+        )
+
+        let fittingSize = CGSize(width: 350, height: UIView.layoutFittingCompressedSize.height)
+        let height = cell.contentView.systemLayoutSizeFitting(
+            fittingSize,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
+        cell.frame = CGRect(x: 0, y: 0, width: 350, height: height)
+        cell.contentView.frame = cell.bounds
+        cell.layoutIfNeeded()
+
+        let increaseView = try XCTUnwrap(
+            findSubview(in: cell.contentView, accessibilityIdentifier: "cloudStorage.increaseStorage") as? UIControl
+        )
+        let points = [
+            CGPoint(x: 2, y: 2),
+            CGPoint(x: increaseView.bounds.midX, y: increaseView.bounds.midY),
+            CGPoint(x: increaseView.bounds.maxX - 2, y: increaseView.bounds.maxY - 2)
+        ]
+        for point in points {
+            XCTAssertTrue(increaseView.hitTest(point, with: nil) === increaseView)
+        }
+
+        increaseView.sendActions(for: .touchUpInside)
+        XCTAssertEqual(actionCount, 1)
+    }
+
+    private func findSubview(in view: UIView, accessibilityIdentifier: String) -> UIView? {
+        if view.accessibilityIdentifier == accessibilityIdentifier {
+            return view
+        }
+        for subview in view.subviews {
+            if let match = findSubview(in: subview, accessibilityIdentifier: accessibilityIdentifier) {
+                return match
+            }
+        }
+        return nil
+    }
 }
