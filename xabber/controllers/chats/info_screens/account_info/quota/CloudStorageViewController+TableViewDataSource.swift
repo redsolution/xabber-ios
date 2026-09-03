@@ -39,12 +39,36 @@ extension CloudStorageViewController: UITableViewDataSource {
         case "quota_info":
             let cell = tableView.dequeueReusableCell(withIdentifier: QuotaInfoCell.cellName, for: indexPath) as? QuotaInfoCell
             cell?.selectionStyle = .none
-            cell?.setup(title: item.title, owner: jid, displayState: currentDisplayState())
+            cell?.setup(
+                title: item.title,
+                owner: jid,
+                displayState: currentDisplayState(),
+                increaseStorage: CommonConfigManager.shared.config.support_subscribtions
+                    ? currentInlineUpsellState()
+                    : nil,
+                onIncreaseStorage: { [weak self] in
+                    self?.openPremiumSubscription()
+                }
+            )
             return cell!
-        case "storage_upsell":
-            let cell = tableView.dequeueReusableCell(withIdentifier: CloudStorageUpsellCardCell.cellName, for: indexPath) as? CloudStorageUpsellCardCell
-            cell?.configure(with: currentUpsellCardState())
-            return cell!
+        case "category_grid":
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: CloudStorageCategoryGridCell.cellName,
+                for: indexPath
+            ) as! CloudStorageCategoryGridCell
+            let valueIsLoading = currentDisplayState() == .loading
+            cell.configure(
+                items: CloudStorageOverviewCategory.allCases.map { category in
+                    CloudStorageCategoryGridItem(
+                        category: category,
+                        value: valueIsLoading ? nil : categoryValue(for: category)
+                    )
+                },
+                onSelect: { [weak self] category in
+                    self?.openStorageCategory(category)
+                }
+            )
+            return cell
         case "delete_files":
             let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
             var listContentConfiguration = cell.defaultContentConfiguration()
@@ -62,21 +86,7 @@ extension CloudStorageViewController: UITableViewDataSource {
             cell.accessibilityIdentifier = "cloudStorage.freeUpSpace"
             return cell
         default:
-            guard let key = item.key,
-                  let category = CloudStorageOverviewCategory(rawValue: key) else {
-                return UITableViewCell(style: .default, reuseIdentifier: nil)
-            }
-            let cell = tableView.dequeueReusableCell(withIdentifier: CloudStorageCategoryCell.cellName, for: indexPath) as! CloudStorageCategoryCell
-            let value = shouldShowStatSkeleton(for: item.key) ? nil : item.subtitle
-            cell.configure(category: category, value: value)
-            return cell
+            return UITableViewCell(style: .default, reuseIdentifier: nil)
         }
-    }
-
-    private func shouldShowStatSkeleton(for key: String?) -> Bool {
-        guard currentDisplayState() == .loading else {
-            return false
-        }
-        return CloudStorageOverviewCategory(rawValue: key ?? "") != nil
     }
 }

@@ -25,12 +25,9 @@ extension CloudStorageViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         let key = datasource[indexPath.section].children[indexPath.row].key
         if key == "quota_info" {
-            return 110
-        }
-        if key == "storage_upsell" {
             return UITableView.automaticDimension
         }
-        if CloudStorageOverviewCategory(rawValue: key ?? "") != nil {
+        if key == "category_grid" {
             return UITableView.automaticDimension
         }
         if #available(iOS 26, *) {
@@ -49,15 +46,6 @@ extension CloudStorageViewController: UITableViewDelegate {
         let item = datasource[indexPath.section].children[indexPath.row]
         tableView.deselectRow(at: indexPath, animated: true)
         switch item.key {
-        case "storage_upsell":
-            guard currentUpsellCardState().action == .openPremium else {
-                return
-            }
-            let vc = PremiumSubscribtionViewController()
-            vc.owner = self.jid
-            vc.jid = self.jid
-            navigationController?.pushViewController(vc, animated: true)
-            return
         case "delete_files":
             if !canFreeUpSpace() {
                 return
@@ -77,7 +65,7 @@ extension CloudStorageViewController: UITableViewDelegate {
 
             ActionSheetPresenter()
                 .present(in: self,
-                         title: "Free up space".localizeString(id: "account_delete_files_message", arguments: []),
+                         title: "Free up space",
                          message: "Select how much space you want to free up on your cloud storage:".localizeString(id: "account_which_files_to_delete", arguments: []), // "Choose how many files will be deleted to free up space (as a percentage)"
                          cancel: "Cancel".localizeString(id: "cancel", arguments: []),
                          values: deleteItems,
@@ -92,15 +80,23 @@ extension CloudStorageViewController: UITableViewDelegate {
                     showConfirmationToDelete(percent: percent)
                 }
             return
-        case let key where CloudStorageOverviewCategory(rawValue: key ?? "") != nil:
-            guard canOpenStorageSection() else { return }
-            guard let category = CloudStorageOverviewCategory(rawValue: key ?? "") else { return }
-            let viewController = CloudStorageGalleryViewController(category: category, owner: self.jid)
-            navigationController?.pushViewController(viewController, animated: true)
-            return
         default:
             break
         }
+    }
+
+    func openStorageCategory(_ category: CloudStorageOverviewCategory) {
+        guard canOpenStorageSection() else { return }
+        let viewController = CloudStorageGalleryViewController(category: category, owner: jid)
+        navigationController?.pushViewController(viewController, animated: true)
+    }
+
+    func openPremiumSubscription() {
+        guard currentInlineUpsellState() != nil else { return }
+        let viewController = PremiumSubscribtionViewController()
+        viewController.owner = jid
+        viewController.jid = jid
+        navigationController?.pushViewController(viewController, animated: true)
     }
 
     private func canOpenStorageSection() -> Bool {

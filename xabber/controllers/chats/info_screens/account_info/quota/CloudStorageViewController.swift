@@ -149,14 +149,25 @@ enum CloudStorageOverviewCategory: String, CaseIterable {
     }
 }
 
-final class CloudStorageCategoryCell: UITableViewCell {
-    static let cellName = "CloudStorageCategoryCell"
+struct CloudStorageCategoryGridItem {
+    let category: CloudStorageOverviewCategory
+    let value: String?
+}
+
+final class CloudStorageCategoryTile: UIControl {
+    static let iconDimensions = CGSize(width: 36, height: 36)
+
+    private(set) var category: CloudStorageOverviewCategory?
+    var titleText: String? { titleLabel.text }
+    var valueText: String? { valueLabel.text }
+    var iconSize: CGSize { Self.iconDimensions }
 
     private let iconContainer: UIView = {
         let view = UIView()
-        view.layer.cornerRadius = 18
+        view.layer.cornerRadius = 9
         view.layer.masksToBounds = true
         view.translatesAutoresizingMaskIntoConstraints = false
+        view.isUserInteractionEnabled = false
         return view
     }()
 
@@ -170,13 +181,15 @@ final class CloudStorageCategoryCell: UITableViewCell {
 
     private let titleLabel: UILabel = {
         let label = UILabel()
-        label.font = .preferredFont(forTextStyle: .body)
+        label.font = .preferredFont(forTextStyle: .subheadline)
         label.adjustsFontForContentSizeCategory = true
+        label.textColor = .label
         label.numberOfLines = 1
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return label
     }()
 
-    private let subtitleLabel: UILabel = {
+    private let valueLabel: UILabel = {
         let label = UILabel()
         label.font = .preferredFont(forTextStyle: .caption1)
         label.adjustsFontForContentSizeCategory = true
@@ -185,76 +198,174 @@ final class CloudStorageCategoryCell: UITableViewCell {
         return label
     }()
 
-    private let valueLabel: UILabel = {
-        let label = UILabel()
-        label.font = .preferredFont(forTextStyle: .subheadline)
-        label.adjustsFontForContentSizeCategory = true
-        label.textColor = .secondaryLabel
-        label.textAlignment = .right
-        label.numberOfLines = 1
-        label.setContentCompressionResistancePriority(.required, for: .horizontal)
-        return label
-    }()
+    override var isHighlighted: Bool {
+        didSet {
+            alpha = isHighlighted ? 0.65 : 1
+        }
+    }
 
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        setupSubviews()
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupViewHierarchy()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(category: CloudStorageOverviewCategory, value: String?) {
-        iconContainer.backgroundColor = category.tintColor
-        iconView.image = UIImage(systemName: category.systemImageName)
-        titleLabel.text = category.title
-        subtitleLabel.text = category.subtitle
-        valueLabel.text = value
-        accessoryType = .disclosureIndicator
+    func configure(with item: CloudStorageCategoryGridItem) {
+        category = item.category
+        iconContainer.backgroundColor = item.category.tintColor
+        iconView.image = UIImage(systemName: item.category.systemImageName)
+        titleLabel.text = item.category.title
+        valueLabel.text = item.value
+        valueLabel.isHidden = item.value == nil
 
-        isAccessibilityElement = true
-        accessibilityIdentifier = "cloudStorage.category.\(category.rawValue)"
-        accessibilityLabel = category.title
-        accessibilityValue = [category.subtitle, value]
-            .compactMap { $0 }
-            .joined(separator: ", ")
+        accessibilityIdentifier = "cloudStorage.category.\(item.category.rawValue)"
+        accessibilityLabel = item.category.title
+        accessibilityValue = item.value
         accessibilityTraits = .button
     }
 
-    private func setupSubviews() {
-        contentView.addSubview(iconContainer)
+    private func setupViewHierarchy() {
+        backgroundColor = .secondarySystemGroupedBackground
+        layer.cornerRadius = 14
+        layer.cornerCurve = .continuous
+        isAccessibilityElement = true
+
+        addSubview(iconContainer)
         iconContainer.addSubview(iconView)
 
-        let textStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
-        textStack.axis = .vertical
-        textStack.alignment = .fill
-        textStack.spacing = 2
-        textStack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(textStack)
-        contentView.addSubview(valueLabel)
+        let labels = UIStackView(arrangedSubviews: [titleLabel, valueLabel])
+        labels.axis = .vertical
+        labels.alignment = .fill
+        labels.spacing = 2
+        labels.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(labels)
 
         NSLayoutConstraint.activate([
-            iconContainer.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
-            iconContainer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            iconContainer.widthAnchor.constraint(equalToConstant: 36),
-            iconContainer.heightAnchor.constraint(equalToConstant: 36),
+            iconContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            iconContainer.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconContainer.widthAnchor.constraint(equalToConstant: Self.iconDimensions.width),
+            iconContainer.heightAnchor.constraint(equalToConstant: Self.iconDimensions.height),
 
             iconView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
             iconView.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 20),
             iconView.heightAnchor.constraint(equalToConstant: 20),
 
-            textStack.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
-            textStack.topAnchor.constraint(greaterThanOrEqualTo: contentView.layoutMarginsGuide.topAnchor),
-            textStack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            textStack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.layoutMarginsGuide.bottomAnchor),
+            labels.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 10),
+            labels.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            labels.centerYAnchor.constraint(equalTo: centerYAnchor),
+            labels.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 10),
+            labels.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -10),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 72)
+        ])
+    }
+}
 
-            valueLabel.leadingAnchor.constraint(greaterThanOrEqualTo: textStack.trailingAnchor, constant: 8),
-            valueLabel.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            valueLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+final class CloudStorageCategoryGridCell: UITableViewCell {
+    static let cellName = "CloudStorageCategoryGridCell"
 
-            contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 60)
+    private(set) var categoryTiles: [CloudStorageCategoryTile] = []
+    private(set) var categoryRowCount = 0
+    private var onSelect: ((CloudStorageOverviewCategory) -> Void)?
+
+    private let gridStack: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setupViewHierarchy()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        onSelect = nil
+    }
+
+    func configure(
+        items: [CloudStorageCategoryGridItem],
+        onSelect: @escaping (CloudStorageOverviewCategory) -> Void
+    ) {
+        self.onSelect = onSelect
+        gridStack.arrangedSubviews.forEach {
+            gridStack.removeArrangedSubview($0)
+            $0.removeFromSuperview()
+        }
+        categoryTiles = []
+        categoryRowCount = 0
+
+        for startIndex in stride(from: 0, to: items.count, by: 2) {
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.alignment = .fill
+            row.distribution = .fillEqually
+            row.spacing = 10
+
+            for index in startIndex..<min(startIndex + 2, items.count) {
+                let tile = CloudStorageCategoryTile()
+                tile.configure(with: items[index])
+                tile.addTarget(self, action: #selector(categoryTapped(_:)), for: .touchUpInside)
+                categoryTiles.append(tile)
+                row.addArrangedSubview(tile)
+            }
+            if row.arrangedSubviews.count == 1 {
+                row.addArrangedSubview(UIView())
+            }
+            gridStack.addArrangedSubview(row)
+            categoryRowCount += 1
+        }
+    }
+
+    @objc private func categoryTapped(_ sender: CloudStorageCategoryTile) {
+        guard let category = sender.category else { return }
+        onSelect?(category)
+    }
+
+    private func setupViewHierarchy() {
+        selectionStyle = .none
+
+        let indicator = UIView()
+        indicator.backgroundColor = .systemGreen
+        indicator.layer.cornerRadius = 6
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = UILabel()
+        titleLabel.text = "Stored in Cloud Storage"
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.adjustsFontForContentSizeCategory = true
+
+        let header = UIStackView(arrangedSubviews: [indicator, titleLabel])
+        header.axis = .horizontal
+        header.alignment = .center
+        header.spacing = 10
+        header.translatesAutoresizingMaskIntoConstraints = false
+
+        contentView.addSubview(header)
+        contentView.addSubview(gridStack)
+        NSLayoutConstraint.activate([
+            indicator.widthAnchor.constraint(equalToConstant: 12),
+            indicator.heightAnchor.constraint(equalToConstant: 12),
+
+            header.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            header.trailingAnchor.constraint(lessThanOrEqualTo: contentView.layoutMarginsGuide.trailingAnchor),
+            header.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor, constant: 2),
+
+            gridStack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            gridStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            gridStack.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 12),
+            gridStack.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor, constant: -2)
         ])
     }
 }
@@ -273,6 +384,11 @@ struct CloudStorageUpsellCardState: Equatable {
         return action != .disabled
     }
 
+    static func inlineState(hasActivePremium: Bool) -> CloudStorageUpsellCardState? {
+        guard !hasActivePremium else { return nil }
+        return resolve(hasActivePremium: false)
+    }
+
     static func resolve(hasActivePremium: Bool) -> CloudStorageUpsellCardState {
         if hasActivePremium {
             return CloudStorageUpsellCardState(
@@ -287,104 +403,6 @@ struct CloudStorageUpsellCardState: Equatable {
             body: "Upgrade to Premium to increase your cloud storage capacity and store more media.",
             action: .openPremium
         )
-    }
-}
-
-final class CloudStorageUpsellCardCell: UITableViewCell {
-    static let cellName = "CloudStorageUpsellCardCell"
-
-    private let iconContainer: UIView = {
-        let view = UIView()
-        view.layer.cornerRadius = 12
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
-    }()
-
-    private let iconView: UIImageView = {
-        let view = UIImageView()
-        view.image = UIImage(systemName: "cloud.fill")
-        view.contentMode = .scaleAspectFit
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
-    }()
-
-    private let titleLabel: UILabel = {
-        let label = UILabel()
-        label.font = .preferredFont(forTextStyle: .headline)
-        label.adjustsFontForContentSizeCategory = true
-        label.numberOfLines = 0
-        return label
-    }()
-
-    private let bodyLabel: UILabel = {
-        let label = UILabel()
-        label.font = .preferredFont(forTextStyle: .body)
-        label.adjustsFontForContentSizeCategory = true
-        label.textColor = .secondaryLabel
-        label.numberOfLines = 0
-        return label
-    }()
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        setupSubviews()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func configure(with state: CloudStorageUpsellCardState) {
-        titleLabel.text = state.title
-        bodyLabel.text = state.body
-        selectionStyle = state.isEnabled ? .default : .none
-        isUserInteractionEnabled = state.isEnabled
-
-        if state.isEnabled {
-            titleLabel.textColor = .label
-            iconContainer.backgroundColor = .systemBlue
-            iconView.tintColor = .white
-            contentView.alpha = 1.0
-        } else {
-            titleLabel.textColor = .secondaryLabel
-            iconContainer.backgroundColor = .systemGray5
-            iconView.tintColor = .secondaryLabel
-            contentView.alpha = 0.82
-        }
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        contentView.alpha = 1.0
-        isUserInteractionEnabled = true
-    }
-
-    private func setupSubviews() {
-        contentView.addSubview(iconContainer)
-        iconContainer.addSubview(iconView)
-
-        let textStack = UIStackView(arrangedSubviews: [titleLabel, bodyLabel])
-        textStack.axis = .vertical
-        textStack.spacing = 8
-        textStack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(textStack)
-
-        NSLayoutConstraint.activate([
-            iconContainer.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor, constant: 4),
-            iconContainer.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
-            iconContainer.widthAnchor.constraint(equalToConstant: 44),
-            iconContainer.heightAnchor.constraint(equalToConstant: 44),
-
-            iconView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
-            iconView.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 24),
-            iconView.heightAnchor.constraint(equalToConstant: 24),
-
-            textStack.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor, constant: 4),
-            textStack.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 16),
-            textStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            textStack.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor, constant: -4)
-        ])
     }
 }
 
@@ -437,8 +455,7 @@ class CloudStorageViewController: BaseViewController {
     let tableView: UITableView = {
         let tableView = UITableView(frame: .zero, style: .insetGrouped)
         tableView.register(QuotaInfoCell.self, forCellReuseIdentifier: QuotaInfoCell.cellName)
-        tableView.register(CloudStorageUpsellCardCell.self, forCellReuseIdentifier: CloudStorageUpsellCardCell.cellName)
-        tableView.register(CloudStorageCategoryCell.self, forCellReuseIdentifier: CloudStorageCategoryCell.cellName)
+        tableView.register(CloudStorageCategoryGridCell.self, forCellReuseIdentifier: CloudStorageCategoryGridCell.cellName)
         tableView.estimatedRowHeight = 96
         tableView.rowHeight = UITableView.automaticDimension
 
@@ -460,11 +477,11 @@ class CloudStorageViewController: BaseViewController {
         tableView.dataSource = self
     }
 
-    func currentUpsellCardState() -> CloudStorageUpsellCardState {
+    func currentInlineUpsellState() -> CloudStorageUpsellCardState? {
         let hasActivePremium = SubscribtionsManager.shared
-            .subscriptionPresentationState(for: self.jid)
+            .subscriptionPresentationState(for: jid)
             .hasActiveEntitlement
-        return CloudStorageUpsellCardState.resolve(hasActivePremium: hasActivePremium)
+        return CloudStorageUpsellCardState.inlineState(hasActivePremium: hasActivePremium)
     }
 
     func rebuildDatasource() {
@@ -475,26 +492,12 @@ class CloudStorageViewController: BaseViewController {
                        key: "quota_info")
         ]))
 
-        datasource.append(Datasource(.text, title: "", children: CloudStorageOverviewCategory.allCases.map { category in
-            Datasource(
-                .text,
-                title: category.title,
-                subtitle: categoryValue(for: category),
-                key: category.rawValue
-            )
-        }))
-
-        if CommonConfigManager.shared.config.support_subscribtions {
-            let upsellState = currentUpsellCardState()
-            datasource.append(Datasource(.text, title: "", children: [
-                Datasource(.button,
-                           title: upsellState.title,
-                           subtitle: upsellState.body,
-                           key: "storage_upsell")
-            ]))
-        }
         datasource.append(Datasource(.text, title: "", children: [
-            Datasource(.button, title: "Free up space".localizeString(id: "account_delete_files", arguments: []),
+            Datasource(.text, title: "", key: "category_grid")
+        ]))
+
+        datasource.append(Datasource(.text, title: "", children: [
+            Datasource(.button, title: "Free up space",
                        key: "delete_files")
         ]))
     }
@@ -577,7 +580,7 @@ class CloudStorageViewController: BaseViewController {
         quota = item.quotaBytes
     }
 
-    private func categoryValue(for category: CloudStorageOverviewCategory) -> String {
+    func categoryValue(for category: CloudStorageOverviewCategory) -> String {
         switch category {
         case .images: return imagesUsed
         case .videos: return videosUsed

@@ -94,15 +94,27 @@ final class CloudStorageManagementTests: XCTestCase {
         XCTAssertEqual(rows["calls"]?.sizeText, "100 KiB")
     }
 
-    func testCategoryCellCombinesDescriptionAndUsageForAccessibility() {
-        let cell = CloudStorageCategoryCell(style: .default, reuseIdentifier: nil)
+    func testCategoryGridShowsSixVisibleSquareIconTilesAndRoutesSelection() throws {
+        let cell = CloudStorageCategoryGridCell(style: .default, reuseIdentifier: nil)
+        var selected: CloudStorageOverviewCategory?
 
-        cell.configure(category: .calls, value: "12 MB")
+        cell.configure(
+            items: CloudStorageOverviewCategory.allCases.map {
+                CloudStorageCategoryGridItem(category: $0, value: "12 MB")
+            },
+            onSelect: { selected = $0 }
+        )
 
-        XCTAssertEqual(cell.accessibilityIdentifier, "cloudStorage.category.calls")
-        XCTAssertEqual(cell.accessibilityLabel, "Calls")
-        XCTAssertEqual(cell.accessibilityValue, "Call recordings, 12 MB")
-        XCTAssertEqual(cell.accessoryType, .disclosureIndicator)
+        XCTAssertEqual(cell.categoryTiles.count, 6)
+        XCTAssertEqual(cell.categoryRowCount, 3)
+        let callsTile = try XCTUnwrap(cell.categoryTiles.first { $0.category == .calls })
+        XCTAssertEqual(callsTile.titleText, "Calls")
+        XCTAssertEqual(callsTile.valueText, "12 MB")
+        XCTAssertEqual(callsTile.iconSize, CGSize(width: 36, height: 36))
+        XCTAssertEqual(callsTile.accessibilityIdentifier, "cloudStorage.category.calls")
+
+        callsTile.sendActions(for: .touchUpInside)
+        XCTAssertEqual(selected, .calls)
     }
 
     func testOverviewBuildsAllCategoriesInsideOneSection() {
@@ -110,16 +122,41 @@ final class CloudStorageManagementTests: XCTestCase {
         controller.jid = "owner@example.com"
         controller.rebuildDatasource()
 
-        let categoryKeys = Set(CloudStorageOverviewCategory.allCases.map(\.rawValue))
         let categorySections = controller.datasource.filter { section in
-            section.children.contains { categoryKeys.contains($0.key ?? "") }
+            section.children.contains { $0.key == "category_grid" }
         }
 
         XCTAssertEqual(categorySections.count, 1)
-        XCTAssertEqual(
-            categorySections.first?.children.compactMap(\.key),
-            CloudStorageOverviewCategory.allCases.map(\.rawValue)
+        XCTAssertEqual(categorySections.first?.children.count, 1)
+
+        let freeUpSpace = controller.datasource
+            .flatMap(\.children)
+            .first { $0.key == "delete_files" }
+        XCTAssertEqual(freeUpSpace?.title, "Free up space")
+        XCTAssertNil(controller.datasource.flatMap(\.children).first { $0.key == "storage_upsell" })
+    }
+
+    func testInlineIncreaseStorageOfferExistsOnlyWithoutPremium() {
+        XCTAssertNotNil(CloudStorageUpsellCardState.inlineState(hasActivePremium: false))
+        XCTAssertNil(CloudStorageUpsellCardState.inlineState(hasActivePremium: true))
+    }
+
+    func testCategoryGridHasDeterministicHeightAtPhoneWidth() {
+        let cell = CloudStorageCategoryGridCell(style: .default, reuseIdentifier: nil)
+        cell.configure(
+            items: CloudStorageOverviewCategory.allCases.map {
+                CloudStorageCategoryGridItem(category: $0, value: "12 MB")
+            },
+            onSelect: { _ in }
         )
+
+        let size = cell.contentView.systemLayoutSizeFitting(
+            CGSize(width: 350, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+
+        XCTAssertGreaterThan(size.height, 240)
     }
 
     func testPagedLoaderRequestsPagesSequentiallyAndRemovesDuplicateIDs() {

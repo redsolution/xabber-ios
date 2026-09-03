@@ -8,13 +8,12 @@
 //
 //  This program is distributed in the hope that it will be useful,
 //  but WITHOUT ANY WARRANTY; without even the implied warranty of
-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-//  General Public License for more details.
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//  GNU General Public License for more details.
 //
 //  You should have received a copy of the GNU General Public License along
 //  with this program; if not, write to the Free Software Foundation, Inc.,
 //  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-//
 //
 //
 
@@ -26,6 +25,11 @@ import RxCocoa
 import RxRealm
 
 enum QuotaInfoCellPresentation {
+    static let legendRows: [[CloudStorageOverviewCategory]] = [
+        [.images, .videos, .voice],
+        [.calls, .files, .avatars]
+    ]
+
     static func quotaText(
         used: String,
         quotaBytes: Int,
@@ -34,411 +38,458 @@ enum QuotaInfoCellPresentation {
         let displayedQuota = quotaBytes < 0 ? "Unlimited" : quotaFormatter(quotaBytes)
         return used + " of ".localizeString(id: "of", arguments: []) + displayedQuota
     }
+
+    static func usageBytes(from item: AccountQuotaStorageItem) -> [CloudStorageOverviewCategory: Int] {
+        return [
+            .images: max(0, item.imagesBytes),
+            .videos: max(0, item.videosBytes),
+            .voice: max(0, item.voicesBytes),
+            .calls: max(0, item.audioBytes),
+            .files: max(0, item.filesBytes),
+            .avatars: max(0, item.avatarsBytes)
+        ]
+    }
 }
 
-class QuotaInfoCell: UITableViewCell {
+private final class CloudStorageQuotaBarView: UIView {
+    private var usage: [CloudStorageOverviewCategory: Int] = [:]
+    private var quotaBytes = 0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        isAccessibilityElement = true
+        accessibilityLabel = "Cloud storage usage"
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(usage: [CloudStorageOverviewCategory: Int], quotaBytes: Int) {
+        self.usage = usage
+        self.quotaBytes = quotaBytes
+
+        let rawTotal = usage.values.reduce(0.0) { $0 + Double($1) }
+        let safeTotal = Int(min(rawTotal, Double(Int.max)))
+        accessibilityValue = QuotaInfoCellPresentation.quotaText(
+            used: AccountQuotaStorageItem.beautify(size: safeTotal),
+            quotaBytes: quotaBytes
+        )
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard rect.width > 0,
+              rect.height > 0,
+              let context = UIGraphicsGetCurrentContext() else {
+            return
+        }
+
+        context.saveGState()
+        UIBezierPath(roundedRect: rect, cornerRadius: 7).addClip()
+        UIColor.systemGray5.setFill()
+        context.fill(rect)
+
+        let totalUsage = usage.values.reduce(0.0) { $0 + Double($1) }
+        let denominator: Double
+        if quotaBytes > 0 {
+            denominator = Double(quotaBytes)
+        } else if quotaBytes < 0, totalUsage > 0 {
+            denominator = totalUsage
+        } else {
+            denominator = 0
+        }
+
+        guard denominator > 0 else {
+            context.restoreGState()
+            return
+        }
+
+        var currentX = rect.minX
+        for category in CloudStorageOverviewCategory.allCases {
+            let bytes = Double(usage[category] ?? 0)
+            guard bytes > 0, currentX < rect.maxX else { continue }
+
+            let proposedWidth = rect.width * CGFloat(bytes / denominator)
+            let width = min(max(1, proposedWidth), rect.maxX - currentX)
+            category.tintColor.setFill()
+            context.fill(CGRect(x: currentX, y: rect.minY, width: width, height: rect.height))
+            currentX += width
+
+            if currentX < rect.maxX {
+                UIColor.systemBackground.setFill()
+                context.fill(CGRect(x: currentX, y: rect.minY, width: 1, height: rect.height))
+                currentX += 1
+            }
+        }
+        context.restoreGState()
+    }
+}
+
+private final class CloudStorageIncreaseView: UIControl {
+    private var action: (() -> Void)?
+
+    private let titleLabel: UILabel = {
+        let label = UILabel()
+        label.font = .preferredFont(forTextStyle: .body)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .systemBlue
+        label.numberOfLines = 0
+        return label
+    }()
+
+    private let bodyLabel: UILabel = {
+        let label = UILabel()
+        label.font = .preferredFont(forTextStyle: .subheadline)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .secondaryLabel
+        label.numberOfLines = 0
+        return label
+    }()
+
+    override var isHighlighted: Bool {
+        didSet {
+            alpha = isHighlighted ? 0.6 : 1
+        }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupViewHierarchy()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(state: CloudStorageUpsellCardState?, action: (() -> Void)?) {
+        isHidden = state == nil
+        titleLabel.text = state?.title
+        bodyLabel.text = state?.body
+        self.action = action
+
+        accessibilityIdentifier = "cloudStorage.increaseStorage"
+        accessibilityLabel = state?.title
+        accessibilityValue = state?.body
+        accessibilityTraits = .button
+    }
+
+    @objc private func tapped() {
+        action?()
+    }
+
+    private func setupViewHierarchy() {
+        addTarget(self, action: #selector(tapped), for: .touchUpInside)
+        isAccessibilityElement = true
+
+        let separator = UIView()
+        separator.backgroundColor = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+
+        let labels = UIStackView(arrangedSubviews: [titleLabel, bodyLabel])
+        labels.axis = .vertical
+        labels.alignment = .fill
+        labels.spacing = 3
+        labels.translatesAutoresizingMaskIntoConstraints = false
+
+        let chevronConfiguration = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+        let chevron = UIImageView(image: UIImage(systemName: "chevron.right", withConfiguration: chevronConfiguration))
+        chevron.tintColor = .tertiaryLabel
+        chevron.contentMode = .scaleAspectFit
+        chevron.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(separator)
+        addSubview(labels)
+        addSubview(chevron)
+        NSLayoutConstraint.activate([
+            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
+            separator.topAnchor.constraint(equalTo: topAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
+
+            labels.leadingAnchor.constraint(equalTo: leadingAnchor),
+            labels.trailingAnchor.constraint(equalTo: chevron.leadingAnchor, constant: -10),
+            labels.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 12),
+            labels.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            chevron.trailingAnchor.constraint(equalTo: trailingAnchor),
+            chevron.centerYAnchor.constraint(equalTo: labels.centerYAnchor),
+            chevron.widthAnchor.constraint(equalToConstant: 8),
+            chevron.heightAnchor.constraint(equalToConstant: 14)
+        ])
+    }
+}
+
+final class QuotaInfoCell: UITableViewCell {
     static let cellName = "QuotaInfoCell-CloudStorage"
 
-    var owner = ""
+    private var owner = ""
+    private var bag = DisposeBag()
 
-    var bag: DisposeBag = DisposeBag()
-
-    var imagesWidthMultiplier: CGFloat = 0.0
-    var videosWidthMultiplier: CGFloat = 0.0
-    var filesWidthMultiplier: CGFloat = 0.0
-    var audioWidthMultiplier: CGFloat = 0.0
-    var avatarWidthMultiplier: CGFloat = 0.9
-
-    var firstDelimiterWidth: CGFloat = 1
-    var secondDelimeterWidth: CGFloat = 1
-    var thirdDelimeterWidth: CGFloat = 1
-    var fourthDelimeterWidth: CGFloat = 1
-
-
-    let labelsStack: UIStackView = {
-        let stack = UIStackView()
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.alignment = .fill
-        stack.distribution = .equalSpacing
-        stack.spacing = 4
-        stack.axis = .horizontal
-
-        return stack
-    }()
-
-    let quotaNameLabel: UILabel = {
+    private let titleLabel: UILabel = {
         let label = UILabel()
-        label.textColor = .black
-        label.textAlignment = .left
-        label.font = .systemFont(ofSize: 18)
-
+        label.font = .preferredFont(forTextStyle: .body)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .label
+        label.numberOfLines = 1
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return label
     }()
 
-    let quotaLabel: UILabel = {
+    private let quotaLabel: UILabel = {
         let label = UILabel()
-        label.textColor = .gray
+        label.font = .preferredFont(forTextStyle: .subheadline)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .secondaryLabel
         label.textAlignment = .right
-        label.font = .systemFont(ofSize: 16)
-
+        label.numberOfLines = 1
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
         return label
     }()
 
-    let progressMask: UIView = {
-        let mask = UIView()
-        mask.backgroundColor = .blue
-        mask.layer.cornerRadius = 7
-
-        return mask
-    }()
-
-    let mainProgressView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .groupTableViewBackground
-        view.translatesAutoresizingMaskIntoConstraints = false
-
-        return view
-    }()
-
-    let imagesProgressView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .systemOrange
-        view.translatesAutoresizingMaskIntoConstraints = false
-
-        return view
-    }()
-
-    let videosProgressView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .systemPurple
-        view.translatesAutoresizingMaskIntoConstraints = false
-
-        return view
-    }()
-
-    let filesProgressView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .systemGreen
-        view.translatesAutoresizingMaskIntoConstraints = false
-
-        return view
-    }()
-
-    let voiceProgressView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .systemBlue
-        view.translatesAutoresizingMaskIntoConstraints = false
-
-        return view
-    }()
-
-    let avatarProgressView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .systemRed
-        view.translatesAutoresizingMaskIntoConstraints = false
-
-        return view
-    }()
-
-    let whiteDelimeterViewFirst: UIView = {
-        let view = UIView()
-        view.backgroundColor = .white
-        view.translatesAutoresizingMaskIntoConstraints = false
-
-        return view
-    }()
-
-    let whiteDelimeterViewSecond: UIView = {
-        let view = UIView()
-        view.backgroundColor = .white
-        view.translatesAutoresizingMaskIntoConstraints = false
-
-        return view
-    }()
-
-    let whiteDelimeterViewThird: UIView = {
-        let view = UIView()
-        view.backgroundColor = .white
-        view.translatesAutoresizingMaskIntoConstraints = false
-
-        return view
-    }()
-
-
-
-    let whiteDelimeterViewFourth: UIView = {
-        let view = UIView()
-        view.backgroundColor = .white
-        view.translatesAutoresizingMaskIntoConstraints = false
-
-        return view
-    }()
-
-    let imagesIndicator: UIView = {
-        let view = UIView()
-        view.backgroundColor = .systemOrange
-        view.layer.cornerRadius = 3
-        view.translatesAutoresizingMaskIntoConstraints = false
-
-        return view
-    }()
-
-    let imagesLabel: UILabel = {
-        let label = UILabel()
-        label.text = "Images".localizeString(id: "images", arguments: [])
-        label.textAlignment = .left
-        label.font = .systemFont(ofSize: 14)
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        return label
-    }()
-
-    let videosIndicator: UIView = {
-        let view = UIView()
-        view.backgroundColor = .systemPurple
-        view.layer.cornerRadius = 3
-        view.translatesAutoresizingMaskIntoConstraints = false
-
-        return view
-    }()
-
-    let videosLabel: UILabel = {
-        let label = UILabel()
-        label.text = "Videos".localizeString(id: "videos", arguments: [])
-        label.textAlignment = .left
-        label.font = .systemFont(ofSize: 14)
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        return label
-    }()
-
-    let filesIndicator: UIView = {
-        let view = UIView()
-        view.backgroundColor = .systemGreen
-        view.layer.cornerRadius = 3
-        view.translatesAutoresizingMaskIntoConstraints = false
-
-        return view
-    }()
-
-    let filesLabel: UILabel = {
-        let label = UILabel()
-        label.text = "Files".localizeString(id: "files", arguments: [])
-        label.textAlignment = .left
-        label.font = .systemFont(ofSize: 14)
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        return label
-    }()
-
-    let voiceIndicator: UIView = {
-        let view = UIView()
-        view.backgroundColor = .systemBlue
-        view.layer.cornerRadius = 3
-        view.translatesAutoresizingMaskIntoConstraints = false
-
-        return view
-    }()
-
-    let voiceLabel: UILabel = {
-        let label = UILabel()
-        label.text = "Voice".localizeString(id: "voice", arguments: [])
-        label.textAlignment = .left
-        label.font = .systemFont(ofSize: 14)
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        return label
-    }()
-
-
-    let avatarIndicator: UIView = {
-        let view = UIView()
-        view.backgroundColor = .systemRed
-        view.layer.cornerRadius = 3
-        view.translatesAutoresizingMaskIntoConstraints = false
-
-        return view
-    }()
-
-    let avatarLabel: UILabel = {
-        let label = UILabel()
-        label.text = "Avatars".localizeString(id: "avatar", arguments: [])
-        label.textAlignment = .left
-        label.font = .systemFont(ofSize: 14)
-        label.translatesAutoresizingMaskIntoConstraints = false
-
-        return label
-    }()
-
-    let imagesStack: UIStackView = {
-        let stack = UIStackView()
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.alignment = .center
-        stack.distribution = .fill
-        stack.spacing = 8
-        stack.axis = .horizontal
-
-        return stack
-    }()
-
-    let videosStack: UIStackView = {
-        let stack = UIStackView()
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.alignment = .center
-        stack.distribution = .fill
-        stack.spacing = 8
-        stack.axis = .horizontal
-
-        return stack
-    }()
-
-    let filesStack: UIStackView = {
-        let stack = UIStackView()
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.alignment = .center
-        stack.distribution = .fill
-        stack.spacing = 8
-        stack.axis = .horizontal
-
-        return stack
-    }()
-
-    let voiceStack: UIStackView = {
-        let stack = UIStackView()
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.alignment = .center
-        stack.distribution = .fill
-        stack.spacing = 8
-        stack.axis = .horizontal
-
-        return stack
-    }()
-
-    let avatarStack: UIStackView = {
-        let stack = UIStackView()
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.alignment = .center
-        stack.distribution = .fill
-        stack.spacing = 8
-        stack.axis = .horizontal
-
-        return stack
-    }()
-
-    let activityIndicator: UIActivityIndicatorView = {
-        let view = UIActivityIndicatorView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.startAnimating()
-        view.hidesWhenStopped = true
-
-        return view
-    }()
-
+    private let headerSpacer = UIView()
+    private let quotaBar = CloudStorageQuotaBarView()
+    private let legendStack = UIStackView()
+    private let increaseView = CloudStorageIncreaseView()
     private let skeletonQuotaView = QuotaInfoCell.makeSkeletonView(width: 92, height: 16)
     private let skeletonProgressView = QuotaInfoCell.makeSkeletonView(width: 1, height: 20)
-    private let skeletonLegendStack: UIStackView = {
-        let stack = UIStackView()
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.axis = .horizontal
-        stack.alignment = .center
-        stack.distribution = .fillEqually
-        stack.spacing = 10
-        return stack
-    }()
-    private let skeletonLegendViews: [SkeletonView] = [
-        QuotaInfoCell.makeSkeletonView(width: 1, height: 12),
-        QuotaInfoCell.makeSkeletonView(width: 1, height: 12),
-        QuotaInfoCell.makeSkeletonView(width: 1, height: 12),
-        QuotaInfoCell.makeSkeletonView(width: 1, height: 12)
-    ]
+    private let skeletonLegendStack = UIStackView()
+    private var skeletonLegendViews: [SkeletonView] = []
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setupViewHierarchy()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        resetDynamicContent()
+        resetObservation()
+        increaseView.configure(state: nil, action: nil)
     }
 
-    func setup(title: String, owner: String, displayState: CloudStorageQuotaDisplayState = .loading, requiresDataFromServer: Bool = false) {
-        resetDynamicContent()
+    func setup(
+        title: String,
+        owner: String,
+        displayState: CloudStorageQuotaDisplayState = .loading,
+        requiresDataFromServer: Bool = false,
+        increaseStorage: CloudStorageUpsellCardState? = nil,
+        onIncreaseStorage: (() -> Void)? = nil
+    ) {
+        resetObservation()
         self.owner = owner
-
-        quotaNameLabel.text = title
+        titleLabel.text = title
+        increaseView.configure(state: increaseStorage, action: onIncreaseStorage)
 
         switch displayState {
         case .loading:
-            setupSkeletonViews()
-            return
+            showLoadingState()
         case .error, .unavailable:
-            setupMessageViews(title: title, message: "Cloud Storage is unavailable.")
-            return
+            showMessageState("Cloud Storage is unavailable.")
         case .content, .empty, .unlimited:
-            break
+            showContentState()
+            subscribe()
         }
-
-        addSubview(activityIndicator)
-        makeActivityIndicatorConstraints()
-
-        subscribe()
     }
 
-    func subscribe() {
+    deinit {
+        resetObservation()
+    }
+
+    private func setupViewHierarchy() {
+        selectionStyle = .none
+
+        let headerStack = UIStackView(arrangedSubviews: [
+            titleLabel,
+            headerSpacer,
+            quotaLabel,
+            skeletonQuotaView
+        ])
+        headerStack.axis = .horizontal
+        headerStack.alignment = .center
+        headerStack.spacing = 8
+
+        quotaBar.translatesAutoresizingMaskIntoConstraints = false
+        quotaBar.heightAnchor.constraint(equalToConstant: 20).isActive = true
+        skeletonProgressView.heightAnchor.constraint(equalToConstant: 20).isActive = true
+
+        configureLegendStack()
+        configureSkeletonLegendStack()
+
+        let rootStack = UIStackView(arrangedSubviews: [
+            headerStack,
+            quotaBar,
+            skeletonProgressView,
+            legendStack,
+            skeletonLegendStack,
+            increaseView
+        ])
+        rootStack.axis = .vertical
+        rootStack.alignment = .fill
+        rootStack.spacing = 12
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(rootStack)
+
+        NSLayoutConstraint.activate([
+            rootStack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            rootStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            rootStack.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
+            rootStack.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor)
+        ])
+    }
+
+    private func configureLegendStack() {
+        legendStack.axis = .vertical
+        legendStack.alignment = .fill
+        legendStack.spacing = 8
+        legendStack.accessibilityIdentifier = "cloudStorage.quota.legend"
+
+        QuotaInfoCellPresentation.legendRows.forEach { categories in
+            let row = UIStackView(arrangedSubviews: categories.map(makeLegendItem(for:)))
+            row.axis = .horizontal
+            row.alignment = .center
+            row.distribution = .fillEqually
+            row.spacing = 8
+            legendStack.addArrangedSubview(row)
+        }
+    }
+
+    private func makeLegendItem(for category: CloudStorageOverviewCategory) -> UIView {
+        let indicator = UIView()
+        indicator.backgroundColor = category.tintColor
+        indicator.layer.cornerRadius = 3
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            indicator.widthAnchor.constraint(equalToConstant: 6),
+            indicator.heightAnchor.constraint(equalToConstant: 6)
+        ])
+
+        let label = UILabel()
+        label.text = category.title
+        label.font = .preferredFont(forTextStyle: .caption1)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .label
+        label.numberOfLines = 1
+        label.minimumScaleFactor = 0.8
+        label.adjustsFontSizeToFitWidth = true
+
+        let item = UIStackView(arrangedSubviews: [indicator, label])
+        item.axis = .horizontal
+        item.alignment = .center
+        item.spacing = 6
+        item.isAccessibilityElement = true
+        item.accessibilityLabel = category.title
+        return item
+    }
+
+    private func configureSkeletonLegendStack() {
+        skeletonLegendStack.axis = .vertical
+        skeletonLegendStack.alignment = .fill
+        skeletonLegendStack.spacing = 8
+
+        QuotaInfoCellPresentation.legendRows.forEach { categories in
+            let views = categories.map { _ -> SkeletonView in
+                let view = QuotaInfoCell.makeSkeletonView(width: 1, height: 12)
+                view.heightAnchor.constraint(equalToConstant: 12).isActive = true
+                skeletonLegendViews.append(view)
+                return view
+            }
+            let row = UIStackView(arrangedSubviews: views)
+            row.axis = .horizontal
+            row.distribution = .fillEqually
+            row.spacing = 10
+            skeletonLegendStack.addArrangedSubview(row)
+        }
+    }
+
+    private func subscribe() {
         do {
             let realm = try WRealm.safe()
-            let collection = realm.objects(AccountQuotaStorageItem.self).filter("jid == %@", self.owner)
+            let collection = realm.objects(AccountQuotaStorageItem.self).filter("jid == %@", owner)
             if let item = collection.first,
-               AccountGalleryConfiguration(owner: self.owner).cachedQuotaMatchesCurrentGallery() {
-                self.setupMainInfoViews(
-                    rawImages: item.imagesBytes,
-                    rawVideos: item.videosBytes,
-                    rawFiles: item.filesBytes,
-                    rawVoices: item.voicesBytes,
-                    rawAvatars: item.avatarsBytes,
-                    quotaRaw: item.quotaBytes,
-                    used: item.total
-                )
+               AccountGalleryConfiguration(owner: owner).cachedQuotaMatchesCurrentGallery() {
+                apply(item)
             }
-            Observable.collection(from: collection).subscribe { results in
-                if let item = results.first,
-                   AccountGalleryConfiguration(owner: self.owner).cachedQuotaMatchesCurrentGallery() {
-                    self.quotaLabel.text = QuotaInfoCellPresentation.quotaText(
-                        used: item.total,
-                        quotaBytes: item.quotaBytes
-                    )
 
-                    if item.quotaBytes > 0 {
-                        self.imagesWidthMultiplier = CGFloat(item.imagesBytes) / CGFloat(item.quotaBytes)
-                        self.videosWidthMultiplier = CGFloat(item.videosBytes) / CGFloat(item.quotaBytes)
-                        self.filesWidthMultiplier = CGFloat(item.filesBytes) / CGFloat(item.quotaBytes)
-                        self.audioWidthMultiplier = CGFloat(item.voicesBytes) / CGFloat(item.quotaBytes)
-                        self.avatarWidthMultiplier = CGFloat(item.avatarsBytes) / CGFloat(item.quotaBytes)
-                    } else {
-                        self.imagesWidthMultiplier = 0
-                        self.videosWidthMultiplier = 0
-                        self.filesWidthMultiplier = 0
-                        self.audioWidthMultiplier = 0
-                        self.avatarWidthMultiplier = 0
+            Observable.collection(from: collection)
+                .observe(on: MainScheduler.instance)
+                .subscribe(onNext: { [weak self] results in
+                    guard let self,
+                          let item = results.first,
+                          AccountGalleryConfiguration(owner: self.owner).cachedQuotaMatchesCurrentGallery() else {
+                        return
                     }
-                    self.setupDelimeters()
-                    self.setupViews()
-                }
-            } onError: { _ in
-
-            } onCompleted: {
-
-            } onDisposed: {
-
-            }.disposed(by: self.bag)
-
+                    self.apply(item)
+                })
+                .disposed(by: bag)
         } catch {
             DDLogDebug("QuotaInfoCell: \(#function). \(error.localizedDescription)")
         }
     }
 
-    func unsubscribe() {
-        self.bag = DisposeBag()
+    private func apply(_ item: AccountQuotaStorageItem) {
+        quotaLabel.text = QuotaInfoCellPresentation.quotaText(
+            used: item.total,
+            quotaBytes: item.quotaBytes
+        )
+        quotaBar.configure(
+            usage: QuotaInfoCellPresentation.usageBytes(from: item),
+            quotaBytes: item.quotaBytes
+        )
     }
 
-    deinit {
-        self.unsubscribe()
+    private func showLoadingState() {
+        quotaLabel.isHidden = true
+        quotaBar.isHidden = true
+        legendStack.isHidden = true
+        skeletonQuotaView.isHidden = false
+        skeletonProgressView.isHidden = false
+        skeletonLegendStack.isHidden = false
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            ([self.skeletonQuotaView, self.skeletonProgressView] + self.skeletonLegendViews)
+                .forEach { $0.startAnimating() }
+        }
+    }
+
+    private func showContentState() {
+        stopSkeletons()
+        quotaLabel.isHidden = false
+        quotaBar.isHidden = false
+        legendStack.isHidden = false
+        skeletonQuotaView.isHidden = true
+        skeletonProgressView.isHidden = true
+        skeletonLegendStack.isHidden = true
+    }
+
+    private func showMessageState(_ message: String) {
+        stopSkeletons()
+        quotaLabel.text = message
+        quotaLabel.isHidden = false
+        quotaBar.isHidden = true
+        legendStack.isHidden = true
+        skeletonQuotaView.isHidden = true
+        skeletonProgressView.isHidden = true
+        skeletonLegendStack.isHidden = true
+    }
+
+    private func resetObservation() {
+        bag = DisposeBag()
+        stopSkeletons()
+    }
+
+    private func stopSkeletons() {
+        ([skeletonQuotaView, skeletonProgressView] + skeletonLegendViews).forEach { view in
+            if view.gradientLayer != nil {
+                view.stopAnimating()
+            }
+        }
     }
 
     private static func makeSkeletonView(width: CGFloat, height: CGFloat) -> SkeletonView {
@@ -447,414 +498,9 @@ class QuotaInfoCell: UITableViewCell {
         view.layer.cornerRadius = min(height / 2, 6)
         view.layer.masksToBounds = true
         view.translatesAutoresizingMaskIntoConstraints = false
+        if width > 1 {
+            view.widthAnchor.constraint(equalToConstant: width).isActive = true
+        }
         return view
     }
-
-    private func resetDynamicContent() {
-        unsubscribe()
-        [skeletonQuotaView, skeletonProgressView].forEach { stopSkeletonIfNeeded($0) }
-        skeletonLegendViews.forEach { stopSkeletonIfNeeded($0) }
-
-        [labelsStack, mainProgressView, imagesStack, videosStack, filesStack, voiceStack, avatarStack, activityIndicator, skeletonProgressView, skeletonLegendStack].forEach {
-            $0.removeFromSuperview()
-        }
-        [imagesProgressView, videosProgressView, filesProgressView, voiceProgressView, avatarProgressView,
-         whiteDelimeterViewFirst, whiteDelimeterViewSecond, whiteDelimeterViewThird, whiteDelimeterViewFourth].forEach {
-            $0.removeFromSuperview()
-        }
-        [labelsStack, imagesStack, videosStack, filesStack, voiceStack, avatarStack, skeletonLegendStack].forEach { stack in
-            stack.arrangedSubviews.forEach {
-                stack.removeArrangedSubview($0)
-                $0.removeFromSuperview()
-            }
-        }
-        mainProgressView.mask = nil
-        imagesWidthMultiplier = 0
-        videosWidthMultiplier = 0
-        filesWidthMultiplier = 0
-        audioWidthMultiplier = 0
-        avatarWidthMultiplier = 0
-        firstDelimiterWidth = 1
-        secondDelimeterWidth = 1
-        thirdDelimeterWidth = 1
-        fourthDelimeterWidth = 1
-    }
-
-    private func stopSkeletonIfNeeded(_ view: SkeletonView) {
-        if view.gradientLayer != nil {
-            view.stopAnimating()
-        }
-    }
-
-    private func setupSkeletonViews() {
-        labelsStack.addArrangedSubview(quotaNameLabel)
-        labelsStack.addArrangedSubview(skeletonQuotaView)
-        addSubview(labelsStack)
-        addSubview(skeletonProgressView)
-        addSubview(skeletonLegendStack)
-
-        skeletonLegendViews.forEach { skeletonLegendStack.addArrangedSubview($0) }
-        NSLayoutConstraint.activate([
-            skeletonQuotaView.widthAnchor.constraint(equalToConstant: 92),
-            skeletonQuotaView.heightAnchor.constraint(equalToConstant: 16),
-
-            labelsStack.leftAnchor.constraint(equalTo: leftAnchor, constant: 15),
-            labelsStack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            labelsStack.rightAnchor.constraint(equalTo: rightAnchor, constant: -15),
-
-            skeletonProgressView.leftAnchor.constraint(equalTo: labelsStack.leftAnchor),
-            skeletonProgressView.topAnchor.constraint(equalTo: labelsStack.bottomAnchor, constant: 15),
-            skeletonProgressView.rightAnchor.constraint(equalTo: labelsStack.rightAnchor),
-            skeletonProgressView.heightAnchor.constraint(equalToConstant: 20),
-
-            skeletonLegendStack.leftAnchor.constraint(equalTo: labelsStack.leftAnchor),
-            skeletonLegendStack.topAnchor.constraint(equalTo: skeletonProgressView.bottomAnchor, constant: 14),
-            skeletonLegendStack.rightAnchor.constraint(equalTo: labelsStack.rightAnchor),
-            skeletonLegendStack.heightAnchor.constraint(equalToConstant: 14)
-        ])
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            ([self.skeletonQuotaView, self.skeletonProgressView] + self.skeletonLegendViews).forEach { $0.startAnimating() }
-        }
-    }
-
-    private func setupMessageViews(title: String, message: String) {
-        quotaLabel.text = message
-        labelsStack.addArrangedSubview(quotaNameLabel)
-        labelsStack.addArrangedSubview(quotaLabel)
-        addSubview(labelsStack)
-        NSLayoutConstraint.activate([
-            labelsStack.leftAnchor.constraint(equalTo: leftAnchor, constant: 15),
-            labelsStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            labelsStack.rightAnchor.constraint(equalTo: rightAnchor, constant: -15)
-        ])
-    }
-
-//    func reloadData(callback: @escaping (() -> Void)) {
-////        activityIndicator.startAnimating()
-////        quotaLabel.alpha = 0
-////        mainProgressView.alpha = 0
-////        imagesStack.alpha = 0
-////        videosStack.alpha = 0
-////        filesStack.alpha = 0
-////        voiceStack.alpha = 0
-////        do {
-////
-////        }
-//        delegate?.getQuotaInfo(requiresDataFromServer: true) { [self]
-//            rawImages, rawVideos, rawFiles, rawVoices, quotaRaw, quota, used in
-//
-//            quotaLabel.text = used + " of ".localizeString(id: "of", arguments: []) + quota
-//
-//            imagesWidthMultiplier = CGFloat(rawImages) / CGFloat(quotaRaw)
-//            videosWidthMultiplier = CGFloat(rawVideos) / CGFloat(quotaRaw)
-//            filesWidthMultiplier = CGFloat(rawFiles) / CGFloat(quotaRaw)
-//            audioWidthMultiplier = CGFloat(rawVoices) / CGFloat(quotaRaw)
-//
-//            setupDelimeters()
-//            setupViews()
-//
-//            callback()
-//        }
-//    }
-
-    private func setupMainInfoViews(rawImages: Int, rawVideos: Int, rawFiles: Int, rawVoices: Int, rawAvatars: Int,
-                                    quotaRaw: Int, used: String) {
-        self.quotaLabel.text = QuotaInfoCellPresentation.quotaText(
-            used: used,
-            quotaBytes: quotaRaw
-        )
-
-        if quotaRaw > 0 {
-            imagesWidthMultiplier = CGFloat(rawImages) / CGFloat(quotaRaw)
-            videosWidthMultiplier = CGFloat(rawVideos) / CGFloat(quotaRaw)
-            filesWidthMultiplier = CGFloat(rawFiles) / CGFloat(quotaRaw)
-            audioWidthMultiplier = CGFloat(rawVoices) / CGFloat(quotaRaw)
-            avatarWidthMultiplier = CGFloat(rawAvatars) / CGFloat(quotaRaw)
-        } else {
-            imagesWidthMultiplier = 0
-            videosWidthMultiplier = 0
-            filesWidthMultiplier = 0
-            audioWidthMultiplier = 0
-            avatarWidthMultiplier = 0
-        }
-
-        addSubview(labelsStack)
-        labelsStack.addArrangedSubview(quotaNameLabel)
-        labelsStack.addArrangedSubview(quotaLabel)
-
-        setupDelimeters()
-
-        addSubview(mainProgressView)
-        makeMainConstraints()
-
-        progressMask.frame = CGRect(x: 0, y: 0, width: frame.width - 30, height: 20)
-        mainProgressView.mask = progressMask
-
-        setupViews()
-
-        activityIndicator.stopAnimating()
-    }
-
-
-    private func setupDelimeters() {
-        firstDelimiterWidth = imagesWidthMultiplier > 0
-            && (videosWidthMultiplier > 0 || filesWidthMultiplier > 0 || audioWidthMultiplier > 0 || avatarWidthMultiplier > 0) ? 1 : 0
-        secondDelimeterWidth = videosWidthMultiplier > 0
-            && (filesWidthMultiplier > 0 || audioWidthMultiplier > 0 || avatarWidthMultiplier > 0) ? 1 : 0
-        thirdDelimeterWidth = filesWidthMultiplier > 0
-            && (audioWidthMultiplier > 0 || avatarWidthMultiplier > 0) ? 1 : 0
-        fourthDelimeterWidth = audioWidthMultiplier > 0 && avatarWidthMultiplier > 0 ? 1 : 0
-    }
-
-    private func setupViews() {
-        if imagesWidthMultiplier != 0 {
-            mainProgressView.addSubview(imagesProgressView)
-            mainProgressView.addSubview(whiteDelimeterViewFirst)
-
-            addSubview(imagesStack)
-            imagesStack.addArrangedSubview(imagesIndicator)
-            imagesStack.addArrangedSubview(imagesLabel)
-            makeImagesConstraints()
-        } else {
-            mainProgressView.addSubview(whiteDelimeterViewFirst)
-            makeFirstDelimeterConstraints()
-        }
-
-        if videosWidthMultiplier != 0 {
-
-            mainProgressView.addSubview(videosProgressView)
-            mainProgressView.addSubview(whiteDelimeterViewSecond)
-
-            addSubview(videosStack)
-            videosStack.addArrangedSubview(videosIndicator)
-            videosStack.addArrangedSubview(videosLabel)
-
-            if imagesWidthMultiplier != 0 {
-                makeVideosConstraints(delimeter: whiteDelimeterViewFirst, stack: imagesStack)
-            } else {
-                makeVideosConstraints(delimeter: whiteDelimeterViewFirst, stack: self)
-            }
-        }
-
-        if filesWidthMultiplier != 0 {
-            mainProgressView.addSubview(filesProgressView)
-            mainProgressView.addSubview(whiteDelimeterViewThird)
-
-            addSubview(filesStack)
-            filesStack.addArrangedSubview(filesIndicator)
-            filesStack.addArrangedSubview(filesLabel)
-
-            if videosWidthMultiplier != 0 {
-                makeFilesConstraints(delimeter: whiteDelimeterViewSecond, stack: videosStack)
-            } else if imagesWidthMultiplier != 0 {
-                makeFilesConstraints(delimeter: whiteDelimeterViewFirst, stack: imagesStack)
-            } else {
-                makeFilesConstraints(delimeter: whiteDelimeterViewFirst, stack: self)
-            }
-        }
-
-        if audioWidthMultiplier != 0 {
-            mainProgressView.addSubview(voiceProgressView)
-            mainProgressView.addSubview(whiteDelimeterViewFourth)
-
-            addSubview(voiceStack)
-            voiceStack.addArrangedSubview(voiceIndicator)
-            voiceStack.addArrangedSubview(voiceLabel)
-
-            if filesWidthMultiplier != 0 {
-                makeVoicesConstraints(delimeter: whiteDelimeterViewThird, stack: filesStack)
-            } else if videosWidthMultiplier != 0 {
-                makeVoicesConstraints(delimeter: whiteDelimeterViewSecond, stack: videosStack)
-            } else if imagesWidthMultiplier != 0 {
-                makeVoicesConstraints(delimeter: whiteDelimeterViewFirst, stack: imagesStack)
-            } else {
-                makeVoicesConstraints(delimeter: whiteDelimeterViewFirst, stack: self)
-            }
-        }
-        if avatarWidthMultiplier != 0 {
-            mainProgressView.addSubview(avatarProgressView)
-
-            addSubview(avatarStack)
-            avatarStack.addArrangedSubview(avatarIndicator)
-            avatarStack.addArrangedSubview(avatarLabel)
-            let precedingDelimiter: UIView
-            if audioWidthMultiplier != 0 {
-                precedingDelimiter = whiteDelimeterViewFourth
-            } else if filesWidthMultiplier != 0 {
-                precedingDelimiter = whiteDelimeterViewThird
-            } else if videosWidthMultiplier != 0 {
-                precedingDelimiter = whiteDelimeterViewSecond
-            } else {
-                precedingDelimiter = whiteDelimeterViewFirst
-            }
-            NSLayoutConstraint.activate([
-                avatarProgressView.leftAnchor.constraint(equalTo: precedingDelimiter.rightAnchor),
-                avatarProgressView.topAnchor.constraint(equalTo: mainProgressView.topAnchor),
-                avatarProgressView.bottomAnchor.constraint(equalTo: mainProgressView.bottomAnchor),
-                avatarProgressView.widthAnchor.constraint(equalTo: mainProgressView.widthAnchor,
-                                                         multiplier: avatarWidthMultiplier,
-                                                         constant: -3/4),
-                avatarProgressView.widthAnchor.constraint(greaterThanOrEqualToConstant: 1),
-            ])
-            if audioWidthMultiplier != 0 {
-                makeAvatarConstraints(delimeter: whiteDelimeterViewFourth, stack: voiceStack)
-            } else if filesWidthMultiplier != 0 {
-                makeAvatarConstraints(delimeter: whiteDelimeterViewThird, stack: filesStack)
-            } else if videosWidthMultiplier != 0 {
-                makeAvatarConstraints(delimeter: whiteDelimeterViewSecond, stack: videosStack)
-            } else if imagesWidthMultiplier != 0 {
-                makeAvatarConstraints(delimeter: whiteDelimeterViewFirst, stack: imagesStack)
-            } else {
-                makeAvatarConstraints(delimeter: whiteDelimeterViewFirst, stack: self)
-            }
-        }
-    }
-
-    private func makeActivityIndicatorConstraints() {
-        NSLayoutConstraint.activate([
-            activityIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
-            activityIndicator.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 0)
-        ])
-    }
-
-    private func makeMainConstraints() {
-        NSLayoutConstraint.activate([
-            labelsStack.leftAnchor.constraint(equalTo: leftAnchor, constant: 15),
-            labelsStack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            labelsStack.rightAnchor.constraint(equalTo: rightAnchor,constant: -15),
-
-            mainProgressView.leftAnchor.constraint(equalTo: labelsStack.leftAnchor),
-            mainProgressView.topAnchor.constraint(equalTo: labelsStack.bottomAnchor, constant: 15),
-            mainProgressView.rightAnchor.constraint(equalTo: labelsStack.rightAnchor),
-            mainProgressView.heightAnchor.constraint(equalToConstant: 20),
-        ])
-    }
-
-    func makeImagesConstraints() {
-        NSLayoutConstraint.activate([
-            imagesProgressView.leftAnchor.constraint(equalTo: mainProgressView.leftAnchor),
-            imagesProgressView.topAnchor.constraint(equalTo: mainProgressView.topAnchor),
-            imagesProgressView.bottomAnchor.constraint(equalTo: mainProgressView.bottomAnchor),
-            imagesProgressView.widthAnchor.constraint(equalTo: mainProgressView.widthAnchor,
-                                                      multiplier: imagesWidthMultiplier,
-                                                      constant: -3/4),
-            imagesProgressView.widthAnchor.constraint(greaterThanOrEqualToConstant: 1),
-
-            whiteDelimeterViewFirst.leftAnchor.constraint(equalTo: imagesProgressView.rightAnchor),
-            whiteDelimeterViewFirst.topAnchor.constraint(equalTo: imagesProgressView.topAnchor),
-            whiteDelimeterViewFirst.bottomAnchor.constraint(equalTo: imagesProgressView.bottomAnchor),
-            whiteDelimeterViewFirst.widthAnchor.constraint(equalToConstant: firstDelimiterWidth),
-
-            imagesStack.leftAnchor.constraint(equalTo: leftAnchor, constant: 20),
-            imagesStack.topAnchor.constraint(equalTo: mainProgressView.bottomAnchor, constant: 12),
-
-            imagesIndicator.widthAnchor.constraint(equalToConstant: 6),
-            imagesIndicator.heightAnchor.constraint(equalToConstant: 6),
-        ])
-    }
-
-    func makeFirstDelimeterConstraints(view: UIView) {
-        NSLayoutConstraint.activate([
-
-        ])
-    }
-
-    func makeFirstDelimeterConstraints() {
-        NSLayoutConstraint.activate([
-            whiteDelimeterViewFirst.leftAnchor.constraint(equalTo: mainProgressView.leftAnchor),
-            whiteDelimeterViewFirst.topAnchor.constraint(equalTo: mainProgressView.topAnchor),
-            whiteDelimeterViewFirst.bottomAnchor.constraint(equalTo: mainProgressView.bottomAnchor),
-            whiteDelimeterViewFirst.widthAnchor.constraint(equalToConstant: firstDelimiterWidth)
-        ])
-    }
-
-    func makeVideosConstraints(delimeter: UIView, stack: UIView) {
-        NSLayoutConstraint.activate([
-            videosProgressView.leftAnchor.constraint(equalTo: delimeter.rightAnchor),
-            videosProgressView.topAnchor.constraint(equalTo: delimeter.topAnchor),
-            videosProgressView.bottomAnchor.constraint(equalTo: delimeter.bottomAnchor),
-            videosProgressView.widthAnchor.constraint(equalTo: mainProgressView.widthAnchor,
-                                                      multiplier: videosWidthMultiplier,
-                                                      constant: -3/4),
-            videosProgressView.widthAnchor.constraint(greaterThanOrEqualToConstant: 1),
-
-            whiteDelimeterViewSecond.leftAnchor.constraint(equalTo: videosProgressView.rightAnchor),
-            whiteDelimeterViewSecond.topAnchor.constraint(equalTo: videosProgressView.topAnchor),
-            whiteDelimeterViewSecond.bottomAnchor.constraint(equalTo: videosProgressView.bottomAnchor),
-            whiteDelimeterViewSecond.widthAnchor.constraint(equalToConstant: secondDelimeterWidth),
-
-            videosStack.leftAnchor.constraint(equalTo: stack.rightAnchor, constant: 20),
-            videosStack.topAnchor.constraint(equalTo: mainProgressView.bottomAnchor, constant: 12),
-
-            videosIndicator.widthAnchor.constraint(equalToConstant: 6),
-            videosIndicator.heightAnchor.constraint(equalToConstant: 6)
-        ])
-    }
-
-    func makeFilesConstraints(delimeter: UIView, stack: UIView) {
-        NSLayoutConstraint.activate([
-            filesProgressView.leftAnchor.constraint(equalTo: delimeter.rightAnchor),
-            filesProgressView.topAnchor.constraint(equalTo: delimeter.topAnchor),
-            filesProgressView.bottomAnchor.constraint(equalTo: delimeter.bottomAnchor),
-            filesProgressView.widthAnchor.constraint(equalTo: mainProgressView.widthAnchor,
-                                                     multiplier: filesWidthMultiplier,
-                                                     constant: -3/4),
-            filesProgressView.widthAnchor.constraint(greaterThanOrEqualToConstant: 1),
-
-            whiteDelimeterViewThird.leftAnchor.constraint(equalTo: filesProgressView.rightAnchor),
-            whiteDelimeterViewThird.topAnchor.constraint(equalTo: filesProgressView.topAnchor),
-            whiteDelimeterViewThird.bottomAnchor.constraint(equalTo: filesProgressView.bottomAnchor),
-            whiteDelimeterViewThird.widthAnchor.constraint(equalToConstant: thirdDelimeterWidth),
-
-            filesStack.leftAnchor.constraint(equalTo: stack.rightAnchor, constant: 20),
-            filesStack.topAnchor.constraint(equalTo: mainProgressView.bottomAnchor, constant: 12),
-
-            filesIndicator.widthAnchor.constraint(equalToConstant: 6),
-            filesIndicator.heightAnchor.constraint(equalToConstant: 6)
-        ])
-    }
-
-    func makeVoicesConstraints(delimeter: UIView, stack: UIView) {
-        NSLayoutConstraint.activate([
-            voiceProgressView.leftAnchor.constraint(equalTo: delimeter.rightAnchor),
-            voiceProgressView.topAnchor.constraint(equalTo: delimeter.topAnchor),
-            voiceProgressView.bottomAnchor.constraint(equalTo: delimeter.bottomAnchor),
-            voiceProgressView.widthAnchor.constraint(equalTo: mainProgressView.widthAnchor,
-                                                     multiplier: audioWidthMultiplier,
-                                                     constant: -3/4),
-            voiceProgressView.widthAnchor.constraint(greaterThanOrEqualToConstant: 1),
-
-            whiteDelimeterViewFourth.leftAnchor.constraint(equalTo: voiceProgressView.rightAnchor),
-            whiteDelimeterViewFourth.topAnchor.constraint(equalTo: voiceProgressView.topAnchor),
-            whiteDelimeterViewFourth.bottomAnchor.constraint(equalTo: voiceProgressView.bottomAnchor),
-            whiteDelimeterViewFourth.widthAnchor.constraint(equalToConstant: fourthDelimeterWidth),
-
-            voiceStack.leftAnchor.constraint(equalTo: stack.rightAnchor, constant: 20),
-            voiceStack.topAnchor.constraint(equalTo: mainProgressView.bottomAnchor, constant: 12),
-            voiceIndicator.widthAnchor.constraint(equalToConstant: 6),
-            voiceIndicator.heightAnchor.constraint(equalToConstant: 6)
-        ])
-    }
-
-    func makeAvatarConstraints(delimeter: UIView, stack: UIView) {
-        NSLayoutConstraint.activate([
-
-
-            avatarStack.leftAnchor.constraint(equalTo: stack.rightAnchor, constant: 20),
-            avatarStack.topAnchor.constraint(equalTo: mainProgressView.bottomAnchor, constant: 12),
-            avatarIndicator.widthAnchor.constraint(equalToConstant: 6),
-            avatarIndicator.heightAnchor.constraint(equalToConstant: 6)
-        ])
-    }
-
-    override func awakeFromNib() {
-        super.awakeFromNib()
-    }
-
-    override func setSelected(_ selected: Bool, animated: Bool) {
-        super.setSelected(selected, animated: animated)
-
-    }
-
 }
