@@ -206,7 +206,7 @@ final class SettingsProfileMenuTests: XCTestCase {
         )
     }
 
-    func testCirclesRowPushesDedicatedConfiguredPlaceholderController() throws {
+    func testCirclesRowPushesConfiguredCRUDController() throws {
         let controller = makeController(jid: "alice@example.com")
         let navigationController = UINavigationController(rootViewController: controller)
         let circlesSection = try XCTUnwrap(
@@ -224,11 +224,10 @@ final class SettingsProfileMenuTests: XCTestCase {
         circlesController.loadViewIfNeeded()
         XCTAssertEqual(circlesController.jid, "alice@example.com")
         XCTAssertEqual(circlesController.title, "Circles")
-        XCTAssertFalse(circlesController.placeholderLabel.text?.isEmpty ?? true)
-        XCTAssertEqual(
-            circlesController.placeholderLabel.accessibilityIdentifier,
-            "settings_circles_placeholder"
-        )
+        XCTAssertEqual(circlesController.tableView.style, .insetGrouped)
+        XCTAssertEqual(circlesController.tableView.accessibilityIdentifier, "settings_circles_list")
+        XCTAssertEqual(circlesController.emptyStateLabel.accessibilityIdentifier, "settings_circles_empty")
+        XCTAssertEqual(circlesController.navigationItem.rightBarButtonItem?.accessibilityIdentifier, "settings_circles_add")
     }
 
     func testLegacyRowsWithoutIconMetadataKeepTheirOriginalCells() {
