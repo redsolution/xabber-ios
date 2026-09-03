@@ -41,6 +41,7 @@ extension AccountColorViewController {
         
         let titleLabel: UILabel = {
             let label = UILabel(frame: .zero)
+            label.setContentHuggingPriority(.required, for: .horizontal)
             return label
         }()
         
@@ -51,6 +52,8 @@ extension AccountColorViewController {
             view.setContentCompressionResistancePriority(.required, for: .horizontal)
             return view
         }()
+
+        let trailingSpacer = UIView(frame: .zero)
 
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
             super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -69,6 +72,8 @@ extension AccountColorViewController {
             stack.fillSuperview()
             stack.addArrangedSubview(titleLabel)
             stack.addArrangedSubview(colorIndicatorView)
+            stack.addArrangedSubview(trailingSpacer)
+            stack.setCustomSpacing(0, after: colorIndicatorView)
             NSLayoutConstraint.activate([
                 colorIndicatorView.widthAnchor.constraint(equalToConstant: 24),
                 colorIndicatorView.heightAnchor.constraint(equalToConstant: 24)

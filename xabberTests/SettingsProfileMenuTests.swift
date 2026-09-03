@@ -5,7 +5,7 @@ import XCTest
 
 final class SettingsProfileMenuTests: XCTestCase {
 
-    func testAccountColorRowsExposeTheirPaletteAsTrailingCircularIndicators() throws {
+    func testAccountColorRowsExposeTheirPaletteAsInlineCircularIndicators() throws {
         let controller = AccountColorViewController()
         controller.update()
 
@@ -31,7 +31,18 @@ final class SettingsProfileMenuTests: XCTestCase {
         XCTAssertEqual(firstCell.colorIndicatorView.bounds.width, 24, accuracy: 0.5)
         XCTAssertEqual(firstCell.colorIndicatorView.bounds.height, 24, accuracy: 0.5)
         XCTAssertEqual(firstCell.colorIndicatorView.layer.cornerRadius, 12, accuracy: 0.5)
-        XCTAssertEqual(firstCell.stack.arrangedSubviews.last, firstCell.colorIndicatorView)
+        XCTAssertEqual(firstCell.stack.arrangedSubviews.first, firstCell.titleLabel)
+        XCTAssertEqual(firstCell.stack.arrangedSubviews.dropFirst().first, firstCell.colorIndicatorView)
+        XCTAssertEqual(
+            firstCell.titleLabel.bounds.width,
+            firstCell.titleLabel.intrinsicContentSize.width,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(
+            firstCell.colorIndicatorView.frame.minX - firstCell.titleLabel.frame.maxX,
+            12,
+            accuracy: 0.5
+        )
     }
 
     func testAccountColorCellReuseUpdatesSwatchAndSelectionWithoutDuplicatingContent() {
@@ -43,7 +54,7 @@ final class SettingsProfileMenuTests: XCTestCase {
         XCTAssertEqual(cell.titleLabel.text, "Blue")
         XCTAssertTrue(cell.colorIndicatorView.backgroundColor?.isEqual(UIColor.systemBlue) == true)
         XCTAssertEqual(cell.accessoryType, .none)
-        XCTAssertEqual(cell.stack.arrangedSubviews.count, 2)
+        XCTAssertEqual(cell.stack.arrangedSubviews.count, 3)
     }
 
     func testMenuFactorySeparatesBlockListAndPreservesAccountColorPolicy() {
