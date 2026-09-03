@@ -71,6 +71,8 @@ extension ContactInfoViewController: UITableViewDelegate {
                     onChangeNotifications()
                 case "block":
                     onBlock()
+                case ContactInfoBlockedSectionPolicy.unblockRowKey:
+                    onBlock()
                 case "delete_chat_button":
                     onDelete()
                 case "qr_code":

@@ -25,6 +25,80 @@ import RxRealm
 import RxSwift
 import CocoaLumberjack
 
+struct AccountBlockListContactPresentation {
+    let title: String
+    let jid: String
+    let avatarURL: String?
+    let groups: [String]
+    let status: ResourceStatus
+    let entity: RosterItemEntity
+}
+
+enum AccountBlockListPresentationFactory {
+    static func make(
+        blockedJID: String,
+        rosterItem: RosterStorageItem?,
+        status: ResourceStatus?,
+        entity: RosterItemEntity?
+    ) -> AccountBlockListContactPresentation {
+        AccountBlockListContactPresentation(
+            title: rosterItem?.displayName
+                ?? JidManager.shared.prepareJid(jid: blockedJID),
+            jid: blockedJID,
+            avatarURL: rosterItem?.avatarUrl,
+            groups: [],
+            status: status ?? .offline,
+            entity: entity ?? .contact
+        )
+    }
+
+    static func configure(
+        cell: ContactsViewController.ContactCell,
+        presentation: AccountBlockListContactPresentation,
+        owner: String
+    ) {
+        cell.configure(
+            title: presentation.title,
+            subtitle: presentation.jid,
+            bottomLine: nil,
+            groups: presentation.groups,
+            jid: presentation.jid,
+            owner: owner,
+            showAvatar: true,
+            avatarUrl: presentation.avatarURL,
+            entity: presentation.entity,
+            status: presentation.status
+        )
+    }
+}
+
+enum AccountBlockListRowAction: Equatable {
+    case unblock
+    case report
+}
+
+struct AccountBlockListContactRoute: Equatable {
+    let owner: String
+    let jid: String
+    let conversationType: ClientSynchronizationManager.ConversationType
+}
+
+enum AccountBlockListInteractionPolicy {
+    static let trailingActions: [AccountBlockListRowAction] = [.unblock, .report]
+
+    static func contactRoute(
+        owner: String,
+        jid: String,
+        conversationType: ClientSynchronizationManager.ConversationType = .regular
+    ) -> AccountBlockListContactRoute {
+        AccountBlockListContactRoute(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType
+        )
+    }
+}
+
 class AccountBlockListViewController: BaseViewController {
     
 //    internal var jid: String = ""
@@ -38,7 +112,13 @@ class AccountBlockListViewController: BaseViewController {
 //        let view = UITableView(frame: .zero, style: .grouped)
         let view = UITableView(frame: .zero, style: .insetGrouped)
         
-        view.register(ItemCell.self, forCellReuseIdentifier: ItemCell.cellName)
+        view.register(
+            ContactsViewController.ContactCell.self,
+            forCellReuseIdentifier: ContactsViewController.ContactCell.cellName
+        )
+        view.rowHeight = UITableView.automaticDimension
+        view.estimatedRowHeight = 84
+        view.applyContinuousSplitInsetGroupedAppearance()
         
         return view
     }()
@@ -72,8 +152,11 @@ class AccountBlockListViewController: BaseViewController {
     
     internal func subscribe() {
         bag = DisposeBag()
+        guard let datasource else {
+            return
+        }
         Observable
-            .changeset(from: datasource!)
+            .changeset(from: datasource)
             .subscribe(onNext: { (result) in
                 if result.1 != nil { self.tableView.reloadData() }
             })

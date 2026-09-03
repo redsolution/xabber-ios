@@ -20,6 +20,7 @@
 
 import Foundation
 import UIKit
+import RealmSwift
 
 extension AccountBlockListViewController: UITableViewDataSource {
     func numberOfSections(in tableView: UITableView) -> Int {
@@ -28,13 +29,40 @@ extension AccountBlockListViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         guard let item = datasource?[indexPath.row],
-            let cell = tableView.dequeueReusableCell(withIdentifier: ItemCell.cellName,
-                                                     for: indexPath) as? ItemCell
-            else {
-                return UITableViewCell(frame: .zero)
+              let cell = tableView.dequeueReusableCell(
+                withIdentifier: ContactsViewController.ContactCell.cellName,
+                for: indexPath
+              ) as? ContactsViewController.ContactCell else {
+            return UITableViewCell(frame: .zero)
         }
-        cell.configure(item.jid, owner: self.owner, enabled: false)
+
+        let rosterItem: RosterStorageItem?
+        do {
+            let realm = try WRealm.safe()
+            rosterItem = realm.object(
+                ofType: RosterStorageItem.self,
+                forPrimaryKey: RosterStorageItem.genPrimary(
+                    jid: item.jid,
+                    owner: item.owner
+                )
+            )
+        } catch {
+            rosterItem = nil
+        }
+        let resource = rosterItem?.getPrimaryResource()
+        let presentation = AccountBlockListPresentationFactory.make(
+            blockedJID: item.jid,
+            rosterItem: rosterItem,
+            status: resource?.status,
+            entity: resource?.entity
+        )
+        AccountBlockListPresentationFactory.configure(
+            cell: cell,
+            presentation: presentation,
+            owner: item.owner
+        )
         cell.setMask()
+        cell.applyPlainGroupedSystemBackground()
         return cell
     }
     

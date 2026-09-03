@@ -148,7 +148,9 @@ extension ContactInfoViewController: UITableViewDataSource {
                             contentConfig.text = "Disable notifications".localizeString(id: "groupchats_disable_notifications", arguments: [])
                         }
                         contentConfig.textProperties.color = item.isDanger ? .systemRed : .tintColor
-                        
+                    } else if item.key == ContactInfoBlockedSectionPolicy.unblockRowKey {
+                        contentConfig.textProperties.color = .systemRed
+                        cell.accessoryType = .none
                     } else {
                         cell.accessoryType = .disclosureIndicator
                     }

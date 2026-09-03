@@ -68,6 +68,48 @@ enum ContactInfoNavigationBarPolicy {
     }
 }
 
+enum ContactInfoBlockedSectionPolicy {
+    static let blockedSectionKey = "blocked_contact_section"
+    static let unblockRowKey = "unblock_contact"
+    static let safetySectionKey = "safety_section"
+
+    static func reconcile(
+        sections: [ContactInfoViewController.Datasource],
+        isBlocked: Bool
+    ) -> [ContactInfoViewController.Datasource] {
+        var reconciled = sections.filter { $0.key != blockedSectionKey }
+        guard isBlocked else {
+            return reconciled
+        }
+
+        let blockedSection = ContactInfoViewController.Datasource(
+            .text,
+            title: "Contact blocked".localizeString(
+                id: "blocked_contact_message",
+                arguments: []
+            ),
+            key: blockedSectionKey,
+            childs: [
+                ContactInfoViewController.Datasource(
+                    .button,
+                    isDanger: true,
+                    icon: "nosign",
+                    title: "Unblock".localizeString(
+                        id: "contact_bar_unblock",
+                        arguments: []
+                    ),
+                    key: unblockRowKey
+                )
+            ]
+        )
+        let insertionIndex = reconciled.firstIndex {
+            $0.key == safetySectionKey
+        } ?? reconciled.endIndex
+        reconciled.insert(blockedSection, at: insertionIndex)
+        return reconciled
+    }
+}
+
 enum ContactInfoActionExitAction: Equatable {
     case dismissThenPerform
     case performImmediately
@@ -343,6 +385,10 @@ class ContactInfoViewController: BaseViewController {
         bag = DisposeBag()
         do {
             let realm = try WRealm.safe()
+
+            let blockedItems = realm.objects(BlockStorageItem.self)
+                .filter("owner == %@ AND jid == %@", owner, jid)
+            isBlocked = !blockedItems.isEmpty
             
             
             
@@ -533,32 +579,28 @@ class ContactInfoViewController: BaseViewController {
                         Datasource(.button, title: "Voice", subtitle: String(audiosCount), key: "voice")
                     ]))
 
-                    newDatasource.append(Datasource(.text, title: "Safety".localizeString(id: "report_safety_section", arguments: []), childs: [
+                    newDatasource.append(Datasource(.text, title: "Safety".localizeString(id: "report_safety_section", arguments: []), key: ContactInfoBlockedSectionPolicy.safetySectionKey, childs: [
                         Datasource(.button, icon: "exclamationmark.circle", title: "Report User".localizeString(id: "report_user_action", arguments: []), key: "report_user")
                     ]))
                     
-                    self.datasource = newDatasource
+                    self.datasource = ContactInfoBlockedSectionPolicy.reconcile(
+                        sections: newDatasource,
+                        isBlocked: self.isBlocked
+                    )
                     self.tableView.reloadData()
                 })
                 .disposed(by: bag)
             
             
-            Observable.collection(from: realm.objects(BlockStorageItem.self)
-                    .filter("owner == %@ AND jid == %@", self.owner, self.jid))
+            Observable.collection(from: blockedItems)
                 .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in
                     self.isBlocked = !results.isEmpty
-                    if self.datasource.isNotEmpty {
-                        let section = self.datasource.count - 1
-                        guard let row = self.datasource[section]
-                            .childs
-                            .firstIndex(where: { $0.key == "block_chat_button" }) else { return }
-                        let indexPath = IndexPath(row: row, section: section)
-                        if let visibleIndexPaths = self.tableView.indexPathsForVisibleRows,
-                            visibleIndexPaths.contains(indexPath) {
-                            self.tableView.reloadRows(at: [indexPath], with: .none)
-                        }
-                    }
+                    self.datasource = ContactInfoBlockedSectionPolicy.reconcile(
+                        sections: self.datasource,
+                        isBlocked: self.isBlocked
+                    )
+                    self.tableView.reloadData()
                 })
                 .disposed(by: bag)
             
