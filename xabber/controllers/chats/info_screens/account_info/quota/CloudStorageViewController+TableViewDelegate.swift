@@ -30,6 +30,9 @@ extension CloudStorageViewController: UITableViewDelegate {
         if key == "storage_upsell" {
             return UITableView.automaticDimension
         }
+        if CloudStorageOverviewCategory(rawValue: key ?? "") != nil {
+            return UITableView.automaticDimension
+        }
         if #available(iOS 26, *) {
             return 52
         } else {
@@ -89,31 +92,12 @@ extension CloudStorageViewController: UITableViewDelegate {
                     showConfirmationToDelete(percent: percent)
                 }
             return
-        case "images":
+        case let key where CloudStorageOverviewCategory(rawValue: key ?? "") != nil:
             guard canOpenStorageSection() else { return }
-            let viewController = CloudStorageGalleryViewController(selectedType: .image, owner: self.jid)
+            guard let category = CloudStorageOverviewCategory(rawValue: key ?? "") else { return }
+            let viewController = CloudStorageGalleryViewController(category: category, owner: self.jid)
             navigationController?.pushViewController(viewController, animated: true)
             return
-        case "videos":
-            guard canOpenStorageSection() else { return }
-            let viewController = CloudStorageGalleryViewController(selectedType: .video, owner: self.jid)
-            navigationController?.pushViewController(viewController, animated: true)
-            return
-        case "audio":
-            guard canOpenStorageSection() else { return }
-            let viewController = CloudStorageGalleryViewController(selectedType: .audio, owner: self.jid)
-            navigationController?.pushViewController(viewController, animated: true)
-            return
-        case "files":
-            guard canOpenStorageSection() else { return }
-            let viewController = CloudStorageGalleryViewController(selectedType: .file, owner: self.jid)
-            navigationController?.pushViewController(viewController, animated: true)
-            return
-        case "avatars":
-            guard canOpenStorageSection() else { return }
-            let viewController = CloudStorageGalleryViewController(selectedType: .avatar, owner: self.jid)
-            navigationController?.pushViewController(viewController, animated: true)
-            break
         default:
             break
         }

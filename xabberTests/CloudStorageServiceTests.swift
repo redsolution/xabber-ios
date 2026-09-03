@@ -84,7 +84,7 @@ final class CloudStorageServiceTests: XCTestCase {
         XCTAssertEqual(client.fileCalls.count, 1)
         XCTAssertEqual(client.fileCalls.first?.baseURL, baseURL)
         XCTAssertEqual(client.fileCalls.first?.token, "basic-token")
-        XCTAssertEqual(client.fileCalls.first?.type, .audio)
+        XCTAssertEqual(client.fileCalls.first?.filter, .voice)
         XCTAssertEqual(client.fileCalls.first?.page, 4)
         switch received {
         case .success(let page):
@@ -96,6 +96,20 @@ final class CloudStorageServiceTests: XCTestCase {
         default:
             XCTFail("Expected a decoded file page")
         }
+    }
+
+    func testCallsAndVoiceUseIndependentGalleryFilters() {
+        var voiceResult: Result<CloudStorageListPage, CloudStorageListLoadError>?
+        var callsResult: Result<CloudStorageListPage, CloudStorageListLoadError>?
+
+        manager.getFilesPage(filter: .voice, page: 1) { voiceResult = $0 }
+        manager.getFilesPage(filter: .calls, page: 2) { callsResult = $0 }
+
+        XCTAssertNotNil(try? voiceResult?.get())
+        XCTAssertNotNil(try? callsResult?.get())
+        XCTAssertEqual(client.fileCalls.map(\.filter), [.voice, .calls])
+        XCTAssertEqual(client.fileCalls.map(\.filter.rawValue), ["voice", "audio"])
+        XCTAssertEqual(client.fileCalls.map(\.page), [1, 2])
     }
 
     func testAvatarPageCompletesWithEmptySuccess() {
@@ -339,7 +353,7 @@ private final class CloudStorageServiceFakeAPIClient: CloudStorageQuotaAPIClient
     struct FileCall {
         let baseURL: URL
         let token: String
-        let type: MimeIconTypes
+        let filter: CloudStorageFileFilter
         let page: Int
     }
 
@@ -400,7 +414,15 @@ private final class CloudStorageServiceFakeAPIClient: CloudStorageQuotaAPIClient
     }
 
     func getFiles(baseURL: URL, token: String, type: MimeIconTypes, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        fileCalls.append(.init(baseURL: baseURL, token: token, type: type, page: page))
+        guard let filter = CloudStorageFileFilter(legacyType: type) else {
+            completion(.failure(statusCode: nil, error: nil))
+            return
+        }
+        getFiles(baseURL: baseURL, token: token, filter: filter, page: page, completion: completion)
+    }
+
+    func getFiles(baseURL: URL, token: String, filter: CloudStorageFileFilter, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        fileCalls.append(.init(baseURL: baseURL, token: token, filter: filter, page: page))
         completion(fileResponse)
     }
 

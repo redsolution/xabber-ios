@@ -65,6 +65,10 @@ struct CloudStorageQuotaCategoryRow: Equatable {
     var detailText: String {
         return "\(max(0, count)) \u{00b7} \(AccountQuotaStorageItem.beautify(size: max(0, bytes)))"
     }
+
+    var sizeText: String {
+        return AccountQuotaStorageItem.beautify(size: max(0, bytes))
+    }
 }
 
 enum CloudStorageQuotaCategoryPresentation {
@@ -72,8 +76,9 @@ enum CloudStorageQuotaCategoryPresentation {
         return [
             "images": CloudStorageQuotaCategoryRow(count: item.imagesCount, bytes: item.imagesBytes),
             "videos": CloudStorageQuotaCategoryRow(count: item.videosCount, bytes: item.videosBytes),
+            "voice": CloudStorageQuotaCategoryRow(count: item.voicesCount, bytes: item.voicesBytes),
+            "calls": CloudStorageQuotaCategoryRow(count: item.audioCount, bytes: item.audioBytes),
             "files": CloudStorageQuotaCategoryRow(count: item.filesCount, bytes: item.filesBytes),
-            "audio": CloudStorageQuotaCategoryRow(count: item.voicesCount, bytes: item.voicesBytes),
             "avatars": CloudStorageQuotaCategoryRow(count: item.avatarsCount, bytes: item.avatarsBytes)
         ]
     }

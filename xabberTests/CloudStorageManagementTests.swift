@@ -42,7 +42,32 @@ final class CloudStorageManagementTests: XCTestCase {
         XCTAssertEqual(CloudStorageCleanupPolicy.freePercentage(quotaBytes: Int.max, usedBytes: 1), 99)
     }
 
-    func testQuotaRowsUseRawCountsAndCorrectVoiceCategory() {
+    func testOverviewCategoriesMatchReferenceOrderCopyIconsAndFilters() {
+        let categories = CloudStorageOverviewCategory.allCases
+
+        XCTAssertEqual(categories.map(\.rawValue), [
+            "images", "videos", "voice", "calls", "files", "avatars"
+        ])
+        XCTAssertEqual(categories.map(\.title), [
+            "Images", "Videos", "Voice", "Calls", "Files", "Avatars"
+        ])
+        XCTAssertEqual(categories.map(\.subtitle), [
+            "Photos and pictures",
+            "Video files",
+            "Voice messages",
+            "Call recordings",
+            "Documents and files",
+            "Account avatars"
+        ])
+        XCTAssertEqual(categories.map(\.systemImageName), [
+            "photo.fill", "film.fill", "mic.fill", "phone.fill", "doc.fill", "camera.fill"
+        ])
+        XCTAssertEqual(categories.map { $0.fileFilter?.rawValue }, [
+            "image", "video", "voice", "audio", "file", nil
+        ])
+    }
+
+    func testQuotaRowsUseRawCountsAndSeparateVoiceFromCalls() {
         let item = AccountQuotaStorageItem()
         item.imagesBytes = 1_024
         item.imagesCount = 2
@@ -61,10 +86,40 @@ final class CloudStorageManagementTests: XCTestCase {
 
         XCTAssertEqual(rows["images"], .init(count: 2, bytes: 1_024))
         XCTAssertEqual(rows["videos"], .init(count: 3, bytes: 2_048))
+        XCTAssertEqual(rows["voice"], .init(count: 5, bytes: 4_096))
+        XCTAssertEqual(rows["calls"], .init(count: 99, bytes: 99_999))
         XCTAssertEqual(rows["files"], .init(count: 4, bytes: 3_072))
-        XCTAssertEqual(rows["audio"], .init(count: 5, bytes: 4_096))
         XCTAssertEqual(rows["avatars"], .init(count: 6, bytes: 5_120))
-        XCTAssertEqual(rows["audio"]?.detailText, "5 \u{00b7} 4 KiB")
+        XCTAssertEqual(rows["voice"]?.detailText, "5 \u{00b7} 4 KiB")
+        XCTAssertEqual(rows["calls"]?.sizeText, "100 KiB")
+    }
+
+    func testCategoryCellCombinesDescriptionAndUsageForAccessibility() {
+        let cell = CloudStorageCategoryCell(style: .default, reuseIdentifier: nil)
+
+        cell.configure(category: .calls, value: "12 MB")
+
+        XCTAssertEqual(cell.accessibilityIdentifier, "cloudStorage.category.calls")
+        XCTAssertEqual(cell.accessibilityLabel, "Calls")
+        XCTAssertEqual(cell.accessibilityValue, "Call recordings, 12 MB")
+        XCTAssertEqual(cell.accessoryType, .disclosureIndicator)
+    }
+
+    func testOverviewBuildsAllCategoriesInsideOneSection() {
+        let controller = CloudStorageViewController()
+        controller.jid = "owner@example.com"
+        controller.rebuildDatasource()
+
+        let categoryKeys = Set(CloudStorageOverviewCategory.allCases.map(\.rawValue))
+        let categorySections = controller.datasource.filter { section in
+            section.children.contains { categoryKeys.contains($0.key ?? "") }
+        }
+
+        XCTAssertEqual(categorySections.count, 1)
+        XCTAssertEqual(
+            categorySections.first?.children.compactMap(\.key),
+            CloudStorageOverviewCategory.allCases.map(\.rawValue)
+        )
     }
 
     func testPagedLoaderRequestsPagesSequentiallyAndRemovesDuplicateIDs() {

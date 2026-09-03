@@ -37764,8 +37764,12 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(item.audioBytes, 50)
         XCTAssertEqual(item.audioCount, 1)
         XCTAssertEqual(
-            CloudStorageQuotaCategoryPresentation.rows(from: item)["audio"],
+            CloudStorageQuotaCategoryPresentation.rows(from: item)["voice"],
             CloudStorageQuotaCategoryRow(count: 2, bytes: 400)
+        )
+        XCTAssertEqual(
+            CloudStorageQuotaCategoryPresentation.rows(from: item)["calls"],
+            CloudStorageQuotaCategoryRow(count: 1, bytes: 50)
         )
     }
 
@@ -38865,6 +38869,7 @@ final class CloudStorageQuotaRefreshTests: XCTestCase {
         XCTAssertEqual(AlamofireCloudStorageQuotaAPIClient.fileTypeQueryValue(for: .video), "video")
         XCTAssertEqual(AlamofireCloudStorageQuotaAPIClient.fileTypeQueryValue(for: .file), "file")
         XCTAssertEqual(AlamofireCloudStorageQuotaAPIClient.fileTypeQueryValue(for: .audio), "voice")
+        XCTAssertEqual(AlamofireCloudStorageQuotaAPIClient.fileTypeQueryValue(for: .document), "document")
         XCTAssertNil(AlamofireCloudStorageQuotaAPIClient.fileTypeQueryValue(for: .avatar))
     }
 

@@ -50,27 +50,25 @@ extension CloudStorageViewController: UITableViewDataSource {
             var listContentConfiguration = cell.defaultContentConfiguration()
             listContentConfiguration.text = item.title
             listContentConfiguration.textProperties.color = .systemRed
-            listContentConfiguration.textProperties.alignment = .center
+            listContentConfiguration.image = UIImage(systemName: "trash.fill")
+            listContentConfiguration.imageProperties.tintColor = .systemRed
+            cell.selectionStyle = .default
             if !canFreeUpSpace() {
                 cell.selectionStyle = UITableViewCell.SelectionStyle.none
                 listContentConfiguration.textProperties.color = .systemGray
-            } else if freeQuotaPercentage() > 25 {
-                listContentConfiguration.textProperties.color = .systemBlue
-            } else {
-                listContentConfiguration.textProperties.color = .systemRed
+                listContentConfiguration.imageProperties.tintColor = .systemGray
             }
             cell.contentConfiguration = listContentConfiguration
+            cell.accessibilityIdentifier = "cloudStorage.freeUpSpace"
             return cell
         default:
-            if shouldShowStatSkeleton(for: item.key) {
-                let cell = tableView.dequeueReusableCell(withIdentifier: CloudStorageStatSkeletonCell.cellName, for: indexPath) as? CloudStorageStatSkeletonCell
-                cell?.configure(title: item.title)
-                return cell!
+            guard let key = item.key,
+                  let category = CloudStorageOverviewCategory(rawValue: key) else {
+                return UITableViewCell(style: .default, reuseIdentifier: nil)
             }
-            let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
-            cell.textLabel?.text = item.title
-            cell.detailTextLabel?.text = item.subtitle
-            cell.accessoryType = .disclosureIndicator
+            let cell = tableView.dequeueReusableCell(withIdentifier: CloudStorageCategoryCell.cellName, for: indexPath) as! CloudStorageCategoryCell
+            let value = shouldShowStatSkeleton(for: item.key) ? nil : item.subtitle
+            cell.configure(category: category, value: value)
             return cell
         }
     }
@@ -79,6 +77,6 @@ extension CloudStorageViewController: UITableViewDataSource {
         guard currentDisplayState() == .loading else {
             return false
         }
-        return ["images", "videos", "files", "audio", "avatars"].contains(key ?? "")
+        return CloudStorageOverviewCategory(rawValue: key ?? "") != nil
     }
 }

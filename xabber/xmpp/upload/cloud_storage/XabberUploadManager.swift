@@ -984,6 +984,42 @@ enum CloudStorageQuotaAPIResponse {
     case failure(statusCode: Int?, error: Error?, diagnostics: CloudStorageQuotaAPINetworkDiagnostics? = nil)
 }
 
+enum CloudStorageFileFilter: String, CaseIterable {
+    case images = "image"
+    case videos = "video"
+    case voice = "voice"
+    case calls = "audio"
+    case files = "file"
+
+    init?(legacyType: MimeIconTypes) {
+        switch legacyType {
+        case .image:
+            self = .images
+        case .video:
+            self = .videos
+        case .audio:
+            self = .voice
+        case .file:
+            self = .files
+        default:
+            return nil
+        }
+    }
+
+    var legacyType: MimeIconTypes {
+        switch self {
+        case .images:
+            return .image
+        case .videos:
+            return .video
+        case .voice, .calls:
+            return .audio
+        case .files:
+            return .file
+        }
+    }
+}
+
 protocol CloudStorageQuotaAPIClient {
     func getStats(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func requestSlot(baseURL: URL, token: String, request: CloudStorageUploadSlotRequest, traceID: String, timeoutInterval: TimeInterval, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
@@ -992,10 +1028,29 @@ protocol CloudStorageQuotaAPIClient {
     func deleteAvatar(baseURL: URL, token: String, fileID: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func deleteGallery(baseURL: URL, token: String, jid: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func getFiles(baseURL: URL, token: String, type: MimeIconTypes, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
+    func getFiles(baseURL: URL, token: String, filter: CloudStorageFileFilter, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func getAvatars(baseURL: URL, token: String, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func getFilesToDelete(baseURL: URL, token: String, percent: Int, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func deleteMediaFor(baseURL: URL, token: String, percent: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func deleteMediaForAll(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
+}
+
+extension CloudStorageQuotaAPIClient {
+    func getFiles(
+        baseURL: URL,
+        token: String,
+        filter: CloudStorageFileFilter,
+        page: Int,
+        completion: @escaping (CloudStorageQuotaAPIResponse) -> Void
+    ) {
+        getFiles(
+            baseURL: baseURL,
+            token: token,
+            type: filter.legacyType,
+            page: page,
+            completion: completion
+        )
+    }
 }
 
 protocol CloudStorageTokenAPIClient {
@@ -1110,9 +1165,20 @@ final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     }
 
     func getFiles(baseURL: URL, token: String, type: MimeIconTypes, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        guard let typeValue = Self.fileTypeQueryValue(for: type) else {
+            completion(.failure(statusCode: nil, error: nil))
+            return
+        }
+        requestFiles(baseURL: baseURL, token: token, typeValue: typeValue, page: page, completion: completion)
+    }
+
+    func getFiles(baseURL: URL, token: String, filter: CloudStorageFileFilter, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+        requestFiles(baseURL: baseURL, token: token, typeValue: filter.rawValue, page: page, completion: completion)
+    }
+
+    private func requestFiles(baseURL: URL, token: String, typeValue: String, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
         guard let url = Self.apiURL(baseURL: baseURL, path: "v1/files/"),
-              var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let typeValue = Self.fileTypeQueryValue(for: type) else {
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             completion(.failure(statusCode: nil, error: nil))
             return
         }
@@ -1255,14 +1321,8 @@ final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
 
     static func fileTypeQueryValue(for type: MimeIconTypes) -> String? {
         switch type {
-        case .image:
-            return "image"
-        case .video:
-            return "video"
-        case .file:
-            return "file"
         case .audio:
-            return "voice"
+            return CloudStorageFileFilter.voice.rawValue
         case .avatar:
             return nil
         default:
@@ -3401,6 +3461,28 @@ class XabberUploadManager: AbstractXMPPManager {
         let once = CompletionOnce()
 
         Self.quotaAPIClient.getFiles(baseURL: context.baseURL, token: context.token, type: type, page: page) { [weak self] response in
+            guard once.claim() else { return }
+            guard let self else {
+                completion(.failure(.unavailable))
+                return
+            }
+            completion(self.listPageResult(from: response, context: context, requestedPage: page))
+        }
+    }
+
+    func getFilesPage(
+        filter: CloudStorageFileFilter,
+        page: Int,
+        completion: @escaping (Result<CloudStorageListPage, CloudStorageListLoadError>) -> Void
+    ) {
+        guard let context = currentGalleryRequestContext() else {
+            DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
+            completion(.failure(.unavailable))
+            return
+        }
+        let once = CompletionOnce()
+
+        Self.quotaAPIClient.getFiles(baseURL: context.baseURL, token: context.token, filter: filter, page: page) { [weak self] response in
             guard once.claim() else { return }
             guard let self else {
                 completion(.failure(.unavailable))

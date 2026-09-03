@@ -67,6 +67,198 @@ enum CloudStorageGallerySwitcherPresentation {
     }
 }
 
+enum CloudStorageOverviewCategory: String, CaseIterable {
+    case images
+    case videos
+    case voice
+    case calls
+    case files
+    case avatars
+
+    var title: String {
+        switch self {
+        case .images: return "Images".localizeString(id: "images", arguments: [])
+        case .videos: return "Videos".localizeString(id: "videos", arguments: [])
+        case .voice: return "Voice".localizeString(id: "voice", arguments: [])
+        case .calls: return "Calls".localizeString(id: "chat_calls_title", arguments: [])
+        case .files: return "Files".localizeString(id: "files", arguments: [])
+        case .avatars: return "Avatars".localizeString(id: "avatars", arguments: [])
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .images: return "Photos and pictures"
+        case .videos: return "Video files"
+        case .voice: return "Voice messages"
+        case .calls: return "Call recordings"
+        case .files: return "Documents and files"
+        case .avatars: return "Account avatars"
+        }
+    }
+
+    var systemImageName: String {
+        switch self {
+        case .images: return "photo.fill"
+        case .videos: return "film.fill"
+        case .voice: return "mic.fill"
+        case .calls: return "phone.fill"
+        case .files: return "doc.fill"
+        case .avatars: return "camera.fill"
+        }
+    }
+
+    var tintColor: UIColor {
+        switch self {
+        case .images: return .systemOrange
+        case .videos: return .systemIndigo
+        case .voice: return .systemBlue
+        case .calls: return .systemRed
+        case .files: return .systemGreen
+        case .avatars: return .systemPurple
+        }
+    }
+
+    var fileFilter: CloudStorageFileFilter? {
+        switch self {
+        case .images: return .images
+        case .videos: return .videos
+        case .voice: return .voice
+        case .calls: return .calls
+        case .files: return .files
+        case .avatars: return nil
+        }
+    }
+
+    var mimeType: MimeIconTypes {
+        switch self {
+        case .images: return .image
+        case .videos: return .video
+        case .voice, .calls: return .audio
+        case .files: return .file
+        case .avatars: return .avatar
+        }
+    }
+
+    var emptyStateText: String {
+        switch self {
+        case .voice: return "No voice messages"
+        case .calls: return "No call recordings"
+        default: return "No \(title.lowercased())"
+        }
+    }
+}
+
+final class CloudStorageCategoryCell: UITableViewCell {
+    static let cellName = "CloudStorageCategoryCell"
+
+    private let iconContainer: UIView = {
+        let view = UIView()
+        view.layer.cornerRadius = 18
+        view.layer.masksToBounds = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private let iconView: UIImageView = {
+        let view = UIImageView()
+        view.contentMode = .scaleAspectFit
+        view.tintColor = .white
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private let titleLabel: UILabel = {
+        let label = UILabel()
+        label.font = .preferredFont(forTextStyle: .body)
+        label.adjustsFontForContentSizeCategory = true
+        label.numberOfLines = 1
+        return label
+    }()
+
+    private let subtitleLabel: UILabel = {
+        let label = UILabel()
+        label.font = .preferredFont(forTextStyle: .caption1)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .secondaryLabel
+        label.numberOfLines = 1
+        return label
+    }()
+
+    private let valueLabel: UILabel = {
+        let label = UILabel()
+        label.font = .preferredFont(forTextStyle: .subheadline)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .secondaryLabel
+        label.textAlignment = .right
+        label.numberOfLines = 1
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return label
+    }()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setupSubviews()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(category: CloudStorageOverviewCategory, value: String?) {
+        iconContainer.backgroundColor = category.tintColor
+        iconView.image = UIImage(systemName: category.systemImageName)
+        titleLabel.text = category.title
+        subtitleLabel.text = category.subtitle
+        valueLabel.text = value
+        accessoryType = .disclosureIndicator
+
+        isAccessibilityElement = true
+        accessibilityIdentifier = "cloudStorage.category.\(category.rawValue)"
+        accessibilityLabel = category.title
+        accessibilityValue = [category.subtitle, value]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+        accessibilityTraits = .button
+    }
+
+    private func setupSubviews() {
+        contentView.addSubview(iconContainer)
+        iconContainer.addSubview(iconView)
+
+        let textStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
+        textStack.axis = .vertical
+        textStack.alignment = .fill
+        textStack.spacing = 2
+        textStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(textStack)
+        contentView.addSubview(valueLabel)
+
+        NSLayoutConstraint.activate([
+            iconContainer.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            iconContainer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            iconContainer.widthAnchor.constraint(equalToConstant: 36),
+            iconContainer.heightAnchor.constraint(equalToConstant: 36),
+
+            iconView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 20),
+            iconView.heightAnchor.constraint(equalToConstant: 20),
+
+            textStack.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
+            textStack.topAnchor.constraint(greaterThanOrEqualTo: contentView.layoutMarginsGuide.topAnchor),
+            textStack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            textStack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.layoutMarginsGuide.bottomAnchor),
+
+            valueLabel.leadingAnchor.constraint(greaterThanOrEqualTo: textStack.trailingAnchor, constant: 8),
+            valueLabel.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            valueLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+
+            contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 60)
+        ])
+    }
+}
+
 struct CloudStorageUpsellCardState: Equatable {
     enum Action: Equatable {
         case openPremium
@@ -196,55 +388,6 @@ final class CloudStorageUpsellCardCell: UITableViewCell {
     }
 }
 
-final class CloudStorageStatSkeletonCell: UITableViewCell {
-    static let cellName = "CloudStorageStatSkeletonCell"
-
-    private let valueSkeleton: SkeletonView = {
-        let view = SkeletonView()
-        view.backgroundColor = .systemGray5
-        view.layer.cornerRadius = 6
-        view.layer.masksToBounds = true
-        view.translatesAutoresizingMaskIntoConstraints = false
-        return view
-    }()
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        setupSubviews()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func configure(title: String) {
-        textLabel?.text = title
-        detailTextLabel?.text = nil
-        selectionStyle = .none
-        accessoryType = .none
-        DispatchQueue.main.async { [weak self] in
-            self?.valueSkeleton.startAnimating()
-        }
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        if valueSkeleton.gradientLayer != nil {
-            valueSkeleton.stopAnimating()
-        }
-    }
-
-    private func setupSubviews() {
-        contentView.addSubview(valueSkeleton)
-        NSLayoutConstraint.activate([
-            valueSkeleton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            valueSkeleton.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            valueSkeleton.widthAnchor.constraint(equalToConstant: 86),
-            valueSkeleton.heightAnchor.constraint(equalToConstant: 16)
-        ])
-    }
-}
-
 class CloudStorageViewController: BaseViewController {
     class Datasource {
         enum Kind {
@@ -274,8 +417,9 @@ class CloudStorageViewController: BaseViewController {
     var isDeletingFilesEnabled: Bool = false
     var imagesUsed: String = "0 KiB"
     var videosUsed: String = "0 KiB"
+    var voiceUsed: String = "0 KiB"
+    var callsUsed: String = "0 KiB"
     var filesUsed: String = "0 KiB"
-    var audioUsed: String = "0 KiB"
     var avatarUsed: String = "0 KiB"
     private var eligibleCleanupBytes: Int = 0
     var usedQuota: Int = 0
@@ -294,7 +438,7 @@ class CloudStorageViewController: BaseViewController {
         let tableView = UITableView(frame: .zero, style: .insetGrouped)
         tableView.register(QuotaInfoCell.self, forCellReuseIdentifier: QuotaInfoCell.cellName)
         tableView.register(CloudStorageUpsellCardCell.self, forCellReuseIdentifier: CloudStorageUpsellCardCell.cellName)
-        tableView.register(CloudStorageStatSkeletonCell.self, forCellReuseIdentifier: CloudStorageStatSkeletonCell.cellName)
+        tableView.register(CloudStorageCategoryCell.self, forCellReuseIdentifier: CloudStorageCategoryCell.cellName)
         tableView.estimatedRowHeight = 96
         tableView.rowHeight = UITableView.automaticDimension
 
@@ -327,23 +471,18 @@ class CloudStorageViewController: BaseViewController {
         datasource = []
 
         datasource.append(Datasource(.text, title: "", children: [
-            Datasource(.text, title: galleryConfiguration().currentGalleryType.displayTitle,
+            Datasource(.text, title: "Media Gallery".localizeString(id: "account_media_gallery", arguments: []),
                        key: "quota_info")
         ]))
 
-        datasource.append(Datasource(.text, title: "".localizeString(id: "images", arguments: []), children: [
-            Datasource(.text, title: "Images", subtitle: imagesUsed, key: "images"),
-            Datasource(.text, title: "Videos".localizeString(id: "videos", arguments: []),
-                       subtitle: videosUsed, key: "videos"),
-            Datasource(.text, title: "Files".localizeString(id: "files", arguments: []),
-                       subtitle: filesUsed, key: "files"),
-            Datasource(.text, title: "Voice".localizeString(id: "voice", arguments: []),
-                       subtitle: audioUsed, key: "audio")
-        ]))
-
-        datasource.append(Datasource(.text, title: "", children: [
-            Datasource(.text, title: "Avatars".localizeString(id: "avatars", arguments: []),subtitle: avatarUsed,  key: "avatars")
-        ]))
+        datasource.append(Datasource(.text, title: "", children: CloudStorageOverviewCategory.allCases.map { category in
+            Datasource(
+                .text,
+                title: category.title,
+                subtitle: categoryValue(for: category),
+                key: category.rawValue
+            )
+        }))
 
         if CommonConfigManager.shared.config.support_subscribtions {
             let upsellState = currentUpsellCardState()
@@ -405,7 +544,8 @@ class CloudStorageViewController: BaseViewController {
         imagesUsed = "0 KiB"
         videosUsed = "0 KiB"
         filesUsed = "0 KiB"
-        audioUsed = "0 KiB"
+        voiceUsed = "0 KiB"
+        callsUsed = "0 KiB"
         avatarUsed = "0 KiB"
         eligibleCleanupBytes = 0
         usedQuota = 0
@@ -421,18 +561,31 @@ class CloudStorageViewController: BaseViewController {
 
         hasQuotaItem = true
         let rows = CloudStorageQuotaCategoryPresentation.rows(from: item)
-        imagesUsed = rows["images"]?.detailText ?? CloudStorageQuotaCategoryRow(count: 0, bytes: 0).detailText
-        videosUsed = rows["videos"]?.detailText ?? CloudStorageQuotaCategoryRow(count: 0, bytes: 0).detailText
-        filesUsed = rows["files"]?.detailText ?? CloudStorageQuotaCategoryRow(count: 0, bytes: 0).detailText
-        audioUsed = rows["audio"]?.detailText ?? CloudStorageQuotaCategoryRow(count: 0, bytes: 0).detailText
-        avatarUsed = rows["avatars"]?.detailText ?? CloudStorageQuotaCategoryRow(count: 0, bytes: 0).detailText
-        eligibleCleanupBytes = [item.imagesBytes, item.videosBytes, item.filesBytes, item.voicesBytes]
+        let emptySize = CloudStorageQuotaCategoryRow(count: 0, bytes: 0).sizeText
+        imagesUsed = rows["images"]?.sizeText ?? emptySize
+        videosUsed = rows["videos"]?.sizeText ?? emptySize
+        voiceUsed = rows["voice"]?.sizeText ?? emptySize
+        callsUsed = rows["calls"]?.sizeText ?? emptySize
+        filesUsed = rows["files"]?.sizeText ?? emptySize
+        avatarUsed = rows["avatars"]?.sizeText ?? emptySize
+        eligibleCleanupBytes = [item.imagesBytes, item.videosBytes, item.filesBytes, item.voicesBytes, item.audioBytes]
             .reduce(0) { partial, value in
                 let (sum, overflow) = partial.addingReportingOverflow(max(0, value))
                 return overflow ? Int.max : sum
             }
         usedQuota = item.totalBytes
         quota = item.quotaBytes
+    }
+
+    private func categoryValue(for category: CloudStorageOverviewCategory) -> String {
+        switch category {
+        case .images: return imagesUsed
+        case .videos: return videosUsed
+        case .voice: return voiceUsed
+        case .calls: return callsUsed
+        case .files: return filesUsed
+        case .avatars: return avatarUsed
+        }
     }
 
     func subscribe() {

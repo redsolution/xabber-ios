@@ -43,6 +43,7 @@ enum CloudStorageGallerySelectionPolicy {
 }
 
 class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
+    let category: CloudStorageOverviewCategory
     let selectedType: MimeIconTypes
     var datasource: [CloudStorageShowFilesViewController.Datasource] = []
     var images: [CloudStorageShowFilesViewController.Datasource] = []
@@ -85,18 +86,7 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
 
     @objc func cancelSelectButtonTapped() {
         guard !isDeletingSelectedFiles else { return }
-        switch selectedType {
-        case .image:
-            self.navigationItem.title = "Images"
-        case .audio:
-            self.navigationItem.title = "Voice"
-        case .video:
-            self.navigationItem.title = "Videos"
-        case .avatar:
-            self.navigationItem.title = "Avatars"
-        default:
-            self.navigationItem.title = "Files"
-        }
+        navigationItem.title = category.title
         
         navigationItem.setRightBarButton(optionButton, animated: true)
         navigationItem.hidesBackButton = false
@@ -137,7 +127,7 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
                 fileIDs,
                 at: 0,
                 with: user.cloudStorage,
-                isAvatar: selectedType == .avatar
+                isAvatar: category == .avatars
             )
         }
     }
@@ -286,9 +276,10 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         return view
     }()
     
-    init(selectedType: MimeIconTypes, owner: String) {
+    init(category: CloudStorageOverviewCategory, owner: String) {
         impactFeedbackGenerator = UIImpactFeedbackGenerator(style: .rigid)
-        self.selectedType = selectedType
+        self.category = category
+        self.selectedType = category.mimeType
         super.init(owner: owner)
         capturedGalleryIdentity = AccountGalleryConfiguration(owner: owner).currentGalleryIdentity
         NotificationCenter.default.addObserver(
@@ -330,10 +321,12 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         account.action { [weak self] user, _ in
             guard let self else { return }
             CloudStoragePagedLoader().loadAll(fetchPage: { page, completion in
-                if self.selectedType == .avatar {
+                if self.category == .avatars {
                     user.cloudStorage.getAvatarsPage(page: page, completion: completion)
+                } else if let filter = self.category.fileFilter {
+                    user.cloudStorage.getFilesPage(filter: filter, page: page, completion: completion)
                 } else {
-                    user.cloudStorage.getFilesPage(type: self.selectedType, page: page, completion: completion)
+                    completion(.failure(.invalidResponse))
                 }
             }, completion: { [weak self] result in
                 DispatchQueue.main.async {
@@ -383,18 +376,7 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
             datasource = [Datasource(kind: .undefined)]
         }
 
-        switch selectedType {
-        case .image:
-            navigationItem.title = "Images"
-        case .video:
-            navigationItem.title = "Videos"
-        case .audio:
-            navigationItem.title = "Voice messages"
-        case .avatar:
-            navigationItem.title = "Avatars"
-        default:
-            navigationItem.title = "Files"
-        }
+        navigationItem.title = category.title
 
         optionButton = UIBarButtonItem(
             image: UIImage(systemName: "ellipsis.circle"),
@@ -468,10 +450,8 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
             if loadError != nil {
                 cell.label.text = "Couldn't load Cloud Storage. Tap to retry."
                 cell.accessibilityIdentifier = "cloudStorage.category.retry"
-            } else if selectedType == .audio {
-                cell.label.text = "No voice messages"
             } else {
-                cell.label.text = "No \(selectedType.rawValue)s"
+                cell.label.text = category.emptyStateText
             }
             return cell
         }
