@@ -159,13 +159,12 @@ extension SettingsViewController: UITableViewDataSource {
                 case .manageStorage:
                     let cell = tableView.dequeueReusableCell(withIdentifier: SettingsValueCell.cellName, for: indexPath)
                     cell.textLabel?.text = item.title
-                    cell.detailTextLabel?.text = cloudStorageQuotaDetailText
+                    cell.detailTextLabel?.text = cloudStorageQuotaDisplayState.detailText
                     cell.detailTextLabel?.textColor = .secondaryLabel
                     cell.accessoryType = .disclosureIndicator
-                    if let icon = item.icon,
-                       let color = item.color {
+                    if let color = item.color {
                         cell.imageView?.image = imageLiteral(
-                            icon,
+                            cloudStorageQuotaDisplayState.iconName,
                             dimension: SettingsMenuIconMetrics.dimension
                         )
                         cell.tintColor = color

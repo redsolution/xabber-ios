@@ -230,6 +230,47 @@ final class SettingsProfileMenuTests: XCTestCase {
         XCTAssertEqual(circlesController.navigationItem.rightBarButtonItem?.accessibilityIdentifier, "settings_circles_add")
     }
 
+    func testCloudStorageRowShowsQuotaAndPremiumBadgeIcon() throws {
+        let controller = SettingsViewController()
+        controller.datasource = [
+            SettingsViewController.Datasource(
+                section: .accountSettings,
+                childs: [
+                    SettingsViewController.Datasource(
+                        section: .accountSettings,
+                        title: "Cloud storage",
+                        icon: SettingsCloudStorageQuotaDisplayState.basicIconName,
+                        color: .systemBlue,
+                        key: .manageStorage
+                    )
+                ]
+            )
+        ]
+        controller.cloudStorageQuotaDisplayState = .resolve(
+            hasCachedQuota: true,
+            usedBytes: 1024,
+            quotaBytes: 2048,
+            isRefreshing: false,
+            lastRefreshFailed: false,
+            isAvailable: true,
+            galleryType: .premium
+        )
+
+        let cell = controller.tableView(
+            controller.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        )
+        let expectedIcon = try XCTUnwrap(
+            imageLiteral(
+                SettingsCloudStorageQuotaDisplayState.premiumIconName,
+                dimension: SettingsMenuIconMetrics.dimension
+            )
+        )
+
+        XCTAssertEqual(cell.detailTextLabel?.text, controller.cloudStorageQuotaDisplayState.detailText)
+        XCTAssertTrue(cell.imageView?.image?.isEqual(expectedIcon) == true)
+    }
+
     func testLegacyRowsWithoutIconMetadataKeepTheirOriginalCells() {
         let controller = SimpleTableViewController()
         controller.jid = "alice@example.com"

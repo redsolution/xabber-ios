@@ -42,7 +42,11 @@ enum SettingsMenuIconMetrics {
 }
 
 struct SettingsCloudStorageQuotaDisplayState: Equatable {
+    static let basicIconName = "custom.cloud.square.fill"
+    static let premiumIconName = "custom.cloud.square.fill.badge.checkmark"
+
     let detailText: String
+    let iconName: String
 
     static func resolve(
         hasCachedQuota: Bool,
@@ -51,35 +55,30 @@ struct SettingsCloudStorageQuotaDisplayState: Equatable {
         isRefreshing: Bool,
         lastRefreshFailed: Bool,
         isAvailable: Bool,
-        galleryType: AccountGalleryType? = nil,
-        fallbackPlanText: String? = nil
+        galleryType: AccountGalleryType? = nil
     ) -> SettingsCloudStorageQuotaDisplayState {
-        func withGalleryPrefix(_ value: String) -> String {
-            guard let galleryType = galleryType else {
-                return value
-            }
-            return galleryType.displayTitle + " · " + value
-        }
+        let iconName = galleryType == .premium ? premiumIconName : basicIconName
 
-        if hasCachedQuota {
-            return SettingsCloudStorageQuotaDisplayState(
-                detailText: withGalleryPrefix(quotaText(usedBytes: usedBytes, quotaBytes: quotaBytes))
+        func state(_ detailText: String) -> SettingsCloudStorageQuotaDisplayState {
+            SettingsCloudStorageQuotaDisplayState(
+                detailText: detailText,
+                iconName: iconName
             )
         }
 
-        if lastRefreshFailed || !isAvailable {
-            return SettingsCloudStorageQuotaDisplayState(detailText: withGalleryPrefix("Unavailable"))
+        if hasCachedQuota {
+            return state(quotaText(usedBytes: usedBytes, quotaBytes: quotaBytes))
         }
 
-        if let fallbackPlanText = fallbackPlanText, fallbackPlanText.isNotEmpty {
-            return SettingsCloudStorageQuotaDisplayState(detailText: withGalleryPrefix(fallbackPlanText))
+        if lastRefreshFailed || !isAvailable {
+            return state("Unavailable")
         }
 
         if isRefreshing {
-            return SettingsCloudStorageQuotaDisplayState(detailText: withGalleryPrefix("Updating..."))
+            return state("Updating...")
         }
 
-        return SettingsCloudStorageQuotaDisplayState(detailText: withGalleryPrefix("Updating..."))
+        return state("Updating...")
     }
 
     private static func quotaText(usedBytes: Int, quotaBytes: Int) -> String {
@@ -591,7 +590,7 @@ class SettingsViewController: BaseViewController {
 
     var quota: String = ""
     var used: String = ""
-    var cloudStorageQuotaDetailText: String = SettingsCloudStorageQuotaDisplayState
+    var cloudStorageQuotaDisplayState: SettingsCloudStorageQuotaDisplayState = SettingsCloudStorageQuotaDisplayState
         .resolve(
             hasCachedQuota: false,
             usedBytes: 0,
@@ -600,7 +599,6 @@ class SettingsViewController: BaseViewController {
             lastRefreshFailed: false,
             isAvailable: true
         )
-        .detailText
     private var cloudStorageHasCachedQuota: Bool = false
     private var cloudStorageUsedBytes: Int = 0
     private var cloudStorageQuotaBytes: Int = 0
@@ -821,7 +819,7 @@ class SettingsViewController: BaseViewController {
     }
 
     private func updateCloudStorageQuotaDetailText() {
-        cloudStorageQuotaDetailText = SettingsCloudStorageQuotaDisplayState
+        cloudStorageQuotaDisplayState = SettingsCloudStorageQuotaDisplayState
             .resolve(
                 hasCachedQuota: cloudStorageHasCachedQuota,
                 usedBytes: cloudStorageUsedBytes,
@@ -829,10 +827,8 @@ class SettingsViewController: BaseViewController {
                 isRefreshing: isCloudStorageQuotaRefreshing,
                 lastRefreshFailed: cloudStorageQuotaRefreshFailed,
                 isAvailable: cloudStorageQuotaAvailable,
-                galleryType: AccountGalleryConfiguration(owner: jid).currentGalleryType,
-                fallbackPlanText: AccountGalleryConfiguration(owner: jid).currentGalleryPlanDisplayText
+                galleryType: AccountGalleryConfiguration(owner: jid).currentGalleryType
             )
-            .detailText
     }
 
     private func refreshCloudStorageQuotaForCurrentAccount() {
@@ -1048,7 +1044,13 @@ class SettingsViewController: BaseViewController {
             }
 
             if AccountManager.shared.find(for: self.jid)?.cloudStorage.isAvailable() ?? false {
-                let item = Datasource(section: .accountSettings, title: "Cloud storage", icon: "custom.cloud.square.fill", color: UIColor.systemBlue, key: .manageStorage)
+                let item = Datasource(
+                    section: .accountSettings,
+                    title: "Cloud storage",
+                    icon: SettingsCloudStorageQuotaDisplayState.basicIconName,
+                    color: UIColor.systemBlue,
+                    key: .manageStorage
+                )
                 let sectionToInsert = datasource.firstIndex(where: { $0.section == .accountSettings })
                 datasource[sectionToInsert!].childs.insert(item, at: 1)
             }

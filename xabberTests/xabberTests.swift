@@ -37248,6 +37248,7 @@ final class SettingsCloudStorageQuotaDisplayStateTests: XCTestCase {
             + " of ".localizeString(id: "of", arguments: [])
             + AccountQuotaStorageItem.beautify(size: 2048)
         XCTAssertEqual(state.detailText, expected)
+        XCTAssertEqual(state.iconName, "custom.cloud.square.fill")
     }
 
     func testRefreshingWithoutCachedQuotaShowsUpdating() {
@@ -37321,7 +37322,7 @@ final class SettingsCloudStorageQuotaDisplayStateTests: XCTestCase {
         XCTAssertEqual(state.detailText, expected)
     }
 
-    func testGalleryTypePrefixesQuotaDetail() {
+    func testPremiumGalleryUsesBadgeIconWithoutPrefixingQuotaDetail() {
         let state = SettingsCloudStorageQuotaDisplayState.resolve(
             hasCachedQuota: true,
             usedBytes: 1024,
@@ -37332,23 +37333,22 @@ final class SettingsCloudStorageQuotaDisplayStateTests: XCTestCase {
             galleryType: .premium
         )
 
-        let expected = "Premium Cloud Storage · "
-            + AccountQuotaStorageItem.beautify(size: 1024)
+        let expected = AccountQuotaStorageItem.beautify(size: 1024)
             + " of ".localizeString(id: "of", arguments: [])
             + AccountQuotaStorageItem.beautify(size: 2048)
         XCTAssertEqual(state.detailText, expected)
+        XCTAssertEqual(state.iconName, "custom.cloud.square.fill.badge.checkmark")
     }
 
-    func testPremiumPlanFallbackIsUsedOnlyWhenFreshQuotaIsMissing() {
-        let fallbackState = SettingsCloudStorageQuotaDisplayState.resolve(
+    func testPremiumWithoutFreshQuotaUsesUpdatingAndBadgeIcon() {
+        let noCacheState = SettingsCloudStorageQuotaDisplayState.resolve(
             hasCachedQuota: false,
             usedBytes: 0,
             quotaBytes: 0,
             isRefreshing: true,
             lastRefreshFailed: false,
             isAvailable: true,
-            galleryType: .premium,
-            fallbackPlanText: "3 GB plan"
+            galleryType: .premium
         )
         let cachedState = SettingsCloudStorageQuotaDisplayState.resolve(
             hasCachedQuota: true,
@@ -37357,18 +37357,18 @@ final class SettingsCloudStorageQuotaDisplayStateTests: XCTestCase {
             isRefreshing: true,
             lastRefreshFailed: false,
             isAvailable: true,
-            galleryType: .premium,
-            fallbackPlanText: "3 GB plan"
+            galleryType: .premium
         )
 
-        XCTAssertEqual(fallbackState.detailText, "Premium Cloud Storage · 3 GB plan")
+        XCTAssertEqual(noCacheState.detailText, "Updating...")
+        XCTAssertEqual(noCacheState.iconName, "custom.cloud.square.fill.badge.checkmark")
         XCTAssertEqual(
             cachedState.detailText,
-            "Premium Cloud Storage · "
-                + AccountQuotaStorageItem.beautify(size: 1024)
+            AccountQuotaStorageItem.beautify(size: 1024)
                 + " of ".localizeString(id: "of", arguments: [])
                 + AccountQuotaStorageItem.beautify(size: 2048)
         )
+        XCTAssertEqual(cachedState.iconName, "custom.cloud.square.fill.badge.checkmark")
     }
 }
 
