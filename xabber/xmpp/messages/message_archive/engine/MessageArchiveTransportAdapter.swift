@@ -579,9 +579,49 @@ private final class ArchiveTransportTransaction: @unchecked Sendable {
                                         summary: summary,
                                         conversation: self.request.conversation
                                     )
-                                ),
+                            ),
                             materializedMessages: materializedMessages
                         )
+                    ChatArchiveDebugTrace.logDiagnostic(
+                        "archiveTransportPersistenceAccounting",
+                        context: ChatArchiveDebugTrace.DiagnosticContext(
+                            owner: self.request.conversation.owner,
+                            jid: self.request.conversation.jid,
+                            conversationType:
+                                self.request.conversation.conversationType.rawValue,
+                            queryID: self.request.queryID
+                        ),
+                        [
+                            ("summaryReceived", summary.received),
+                            ("summaryQueued", summary.queued),
+                            ("summarySavedNew", summary.savedNew),
+                            ("summaryUpdatedExisting", summary.updatedExisting),
+                            ("summarySkipped", summary.skipped),
+                            ("summaryFailed", summary.failed),
+                            ("deliveredResultCount", accounting.deliveredResultCount),
+                            ("deliveredArchiveIDCount", accounting.resultArchiveIDs.count),
+                            ("wireConsumedResultCount", accounting.intentionallyConsumedResultCount),
+                            ("materializedMessageCount", materializedMessages.count),
+                            ("uniqueMaterializedPrimaryCount", Set(
+                                materializedMessages.map(\.primaryID)
+                            ).count),
+                            ("requestVisibleRowCount", summary.visibleRows(
+                                owner: self.request.conversation.owner,
+                                jid: self.request.conversation.jid,
+                                conversationType:
+                                    self.request.conversation.conversationType
+                            )),
+                            ("requestPersistedArchiveIDCount", summary.persistedArchiveIdCount(
+                                owner: self.request.conversation.owner,
+                                jid: self.request.conversation.jid,
+                                conversationType:
+                                    self.request.conversation.conversationType
+                            )),
+                            ("accountedPersistedResultCount", persistenceAccounting.persistedResultCount),
+                            ("accountedConsumedResultCount", persistenceAccounting.intentionallyConsumedResultCount),
+                            ("accountedFailedResultCount", persistenceAccounting.failedPersistenceCount)
+                        ]
+                    )
                     let receipt = ArchiveTransportReceipt(
                         queryID: queryID,
                         connectionGeneration: self.request.connectionGeneration,

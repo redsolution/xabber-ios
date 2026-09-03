@@ -8,6 +8,16 @@ enum ArchiveCoverageRepositoryError: Error, Equatable, Sendable {
     case storageFailure
 }
 
+enum ArchiveCoverageCommitDiagnosticReason: Int, Sendable {
+    case missingPersistedRows = 1
+    case persistedMessageIdentityMismatch = 2
+    case malformedPersistedArchiveID = 3
+    case coverageStorageMissing = 4
+    case admittedSegmentMissing = 5
+    case visibleWindowEmpty = 6
+    case pageMaterializationMissing = 7
+}
+
 final class RealmArchiveCoverageRepository:
     ArchiveCoverageRepository,
     ArchiveMessageMaterializationResolving,
@@ -111,23 +121,52 @@ final class RealmArchiveCoverageRepository:
                 page.deliveredResultCount > 0 &&
                 page.intentionallyConsumedResultCount == page.deliveredResultCount
             guard page.messagePrimaryIDs.isNotEmpty || isConsumedOnlyPage else {
+                Self.logCommitRejection(
+                    .pageMaterializationMissing,
+                    page: page,
+                    request: request
+                )
                 throw ArchiveCoverageRepositoryError.missingPersistedMessages
             }
             if page.messagePrimaryIDs.isNotEmpty {
                 let persistedRows = realm.objects(MessageStorageItem.self)
                     .filter("primary IN %@", page.messagePrimaryIDs)
                 guard persistedRows.count == Set(page.messagePrimaryIDs).count else {
+                    Self.logCommitRejection(
+                        .missingPersistedRows,
+                        page: page,
+                        request: request,
+                        fields: [
+                            ("persistedRowCount", persistedRows.count)
+                        ]
+                    )
                     throw ArchiveCoverageRepositoryError.missingPersistedMessages
                 }
                 for message in persistedRows {
                     guard message.owner == request.conversation.owner,
                           message.opponent == request.conversation.jid,
                           message.conversationType == request.conversation.conversationType else {
+                        Self.logCommitRejection(
+                            .persistedMessageIdentityMismatch,
+                            page: page,
+                            request: request,
+                            fields: [
+                                ("persistedRowCount", persistedRows.count)
+                            ]
+                        )
                         throw ArchiveCoverageRepositoryError.persistedMessageIdentityMismatch
                     }
                     guard let cursor = ArchiveCursor(rawValue: message.archivedId),
                           cursor >= segment.oldest,
                           cursor <= segment.newest else {
+                        Self.logCommitRejection(
+                            .malformedPersistedArchiveID,
+                            page: page,
+                            request: request,
+                            fields: [
+                                ("persistedRowCount", persistedRows.count)
+                            ]
+                        )
                         throw ArchiveCoverageRepositoryError.malformedPersistedArchiveID
                     }
                 }
@@ -161,6 +200,11 @@ final class RealmArchiveCoverageRepository:
                     conversationType: request.conversation.conversationType
                 )
             ) else {
+                Self.logCommitRejection(
+                    .coverageStorageMissing,
+                    page: page,
+                    request: request
+                )
                 throw ArchiveCoverageRepositoryError.storageFailure
             }
             if case .gap = request.locator,
@@ -184,6 +228,15 @@ final class RealmArchiveCoverageRepository:
                 realm: realm,
                 conversation: request.conversation
             ) else {
+                Self.logCommitRejection(
+                    .admittedSegmentMissing,
+                    page: page,
+                    request: request,
+                    fields: [
+                        ("verifiedSegmentCount", verifiedSegments.count),
+                        ("storedSegmentCount", storage.segments.count)
+                    ]
+                )
                 throw ArchiveCoverageRepositoryError.storageFailure
             }
             let orderedPrimaryIDs = Self.messagePrimaryIDs(
@@ -192,6 +245,24 @@ final class RealmArchiveCoverageRepository:
                 realm: realm
             )
             guard orderedPrimaryIDs.isNotEmpty || isConsumedOnlyPage else {
+                let rowDiagnostics = Self.visibleRowDiagnostics(
+                    realm: realm,
+                    messagePrimaryIDs: page.messagePrimaryIDs,
+                    segment: admittedSegment
+                )
+                Self.logCommitRejection(
+                    .visibleWindowEmpty,
+                    page: page,
+                    request: request,
+                    fields: [
+                        ("pagePersistedRowCount", rowDiagnostics.total),
+                        ("pageDeletedRowCount", rowDiagnostics.deleted),
+                        ("pageHiddenRowCount", rowDiagnostics.hidden),
+                        ("pageMalformedCursorRowCount", rowDiagnostics.malformedCursor),
+                        ("pageVisibleRowsInsideSegment", rowDiagnostics.visibleInsideSegment),
+                        ("verifiedSegmentCount", verifiedSegments.count)
+                    ]
+                )
                 throw ArchiveCoverageRepositoryError.missingPersistedMessages
             }
             return .verified(
@@ -670,6 +741,100 @@ final class RealmArchiveCoverageRepository:
         let primary: String
         let cursor: ArchiveCursor
         let date: Date
+    }
+
+    private struct VisibleRowDiagnostics {
+        let total: Int
+        let deleted: Int
+        let hidden: Int
+        let malformedCursor: Int
+        let visibleInsideSegment: Int
+    }
+
+    private static func logCommitRejection(
+        _ reason: ArchiveCoverageCommitDiagnosticReason,
+        page: ValidatedArchiveTransportPage,
+        request: ArchiveTransportRequest,
+        fields: [(String, Any?)] = []
+    ) {
+        ChatArchiveDebugTrace.logDiagnostic(
+            "archiveCoverageCommitRejected",
+            context: ChatArchiveDebugTrace.DiagnosticContext(
+                owner: request.conversation.owner,
+                jid: request.conversation.jid,
+                conversationType: request.conversation.conversationType.rawValue,
+                queryID: request.queryID
+            ),
+            [
+                ("reasonCode", reason.rawValue),
+                ("locatorCode", diagnosticLocatorCode(request.locator)),
+                ("requestComplete", page.requestComplete),
+                ("deliveredResultCount", page.deliveredResultCount),
+                ("consumedResultCount", page.intentionallyConsumedResultCount),
+                ("pagePrimaryCount", page.messagePrimaryIDs.count),
+                ("uniquePagePrimaryCount", Set(page.messagePrimaryIDs).count),
+                ("archiveResultCount", page.chronologicalArchiveIDs.count)
+            ] + fields
+        )
+    }
+
+    private static func visibleRowDiagnostics(
+        realm: Realm,
+        messagePrimaryIDs: [String],
+        segment: ArchiveCoverageSegment
+    ) -> VisibleRowDiagnostics {
+        let rows = realm.objects(MessageStorageItem.self)
+            .filter("primary IN %@", messagePrimaryIDs)
+        var deleted = 0
+        var hidden = 0
+        var malformedCursor = 0
+        var visibleInsideSegment = 0
+        rows.forEach { message in
+            if message.isDeleted {
+                deleted += 1
+            }
+            if message.isLocallyHiddenByReport {
+                hidden += 1
+            }
+            guard let cursor = ArchiveCursor(rawValue: message.archivedId) else {
+                malformedCursor += 1
+                return
+            }
+            if !message.isDeleted,
+               !message.isLocallyHiddenByReport,
+               cursor >= segment.oldest,
+               cursor <= segment.newest {
+                visibleInsideSegment += 1
+            }
+        }
+        return VisibleRowDiagnostics(
+            total: rows.count,
+            deleted: deleted,
+            hidden: hidden,
+            malformedCursor: malformedCursor,
+            visibleInsideSegment: visibleInsideSegment
+        )
+    }
+
+    private static func diagnosticLocatorCode(
+        _ locator: ArchiveWindowLocator
+    ) -> Int {
+        switch locator {
+        case .latest:
+            return 1
+        case .older:
+            return 2
+        case .newer:
+            return 3
+        case .firstUnread:
+            return 4
+        case .gap:
+            return 5
+        case .archiveID:
+            return 6
+        case .timestamp:
+            return 7
+        }
     }
 
     private static func messageIdentities(

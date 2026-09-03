@@ -1093,6 +1093,24 @@ actor AccountArchiveEngine {
                 }
                 failureCount += 1
                 let retryable = isRetryable(error)
+                ChatArchiveDebugTrace.logDiagnostic(
+                    "archiveEngineRequestRejected",
+                    context: ChatArchiveDebugTrace.DiagnosticContext(
+                        owner: request.conversation.owner,
+                        jid: request.conversation.jid,
+                        conversationType:
+                            request.conversation.conversationType.rawValue,
+                        queryID: request.queryID
+                    ),
+                    [
+                        ("errorDomainCode", diagnosticErrorDomainCode(error)),
+                        ("errorReasonCode", diagnosticErrorReasonCode(error)),
+                        ("failureCount", failureCount),
+                        ("retryable", retryable),
+                        ("willRetry", retryable && failureCount <= retryDelays.count),
+                        ("maximumRetryCount", retryDelays.count)
+                    ]
+                )
                 ArchiveEngineObservability.event(
                     .retry,
                     value: failureCount,
@@ -1508,6 +1526,69 @@ actor AccountArchiveEngine {
             return false
         }
         return true
+    }
+
+    private func diagnosticErrorDomainCode(_ error: Error) -> Int {
+        if error is ArchiveCoverageRepositoryError {
+            return 1
+        }
+        if error is ArchiveTransportValidationError {
+            return 2
+        }
+        if error is ArchiveTransportError {
+            return 3
+        }
+        if error is ArchiveConversationAdmissionError {
+            return 4
+        }
+        return 9
+    }
+
+    private func diagnosticErrorReasonCode(_ error: Error) -> Int {
+        if let error = error as? ArchiveCoverageRepositoryError {
+            switch error {
+            case .missingPersistedMessages: return 1
+            case .persistedMessageIdentityMismatch: return 2
+            case .malformedPersistedArchiveID: return 3
+            case .storageFailure: return 4
+            }
+        }
+        if let error = error as? ArchiveTransportValidationError {
+            switch error {
+            case .missingFinal: return 1
+            case .staleQuery: return 2
+            case .staleConnectionGeneration: return 3
+            case .malformedArchiveID: return 4
+            case .malformedBoundary: return 5
+            case .incompletePersistenceAccounting: return 6
+            case .persistenceFailure: return 7
+            case .nonAdvancingCursor: return 8
+            case .invalidDirection: return 9
+            }
+        }
+        if let error = error as? ArchiveTransportError {
+            switch error {
+            case .disconnected: return 1
+            case .timeout: return 2
+            case .serverError: return 3
+            case .storage: return 4
+            case .authentication: return 5
+            case .protocolViolation: return 6
+            case .malformedCursor: return 7
+            }
+        }
+        if let error = error as? ArchiveConversationAdmissionError {
+            switch error {
+            case .disconnected: return 1
+            case .staleConnection: return 2
+            case .ownerMismatch: return 3
+            case .invalidGroupJID: return 4
+            case .missingSelfMemberID: return 5
+            case .inactiveSelfMembership: return 6
+            case .tombstoned: return 7
+            }
+        }
+        return (error as NSError).code
     }
 
     private func recoveryAction(

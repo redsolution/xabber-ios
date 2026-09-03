@@ -1007,6 +1007,13 @@ final class AccountArchiveEngineTests: XCTestCase {
     }
 
     func testTransientFailureUsesSevenActorBackoffRetriesBeforePresentationAutomaticRecovery() async throws {
+        var traceLines: [String] = []
+        ChatArchiveDebugTrace.configureForTesting(
+            enabled: true,
+            sampleEvery: 100,
+            sink: { traceLines.append($0) }
+        )
+        defer { ChatArchiveDebugTrace.resetTestingConfiguration() }
         let transport = FailingArchiveEngineTransport(error: .timeout)
         let engine = AccountArchiveEngine(
             owner: conversation.owner,
@@ -1032,6 +1039,17 @@ final class AccountArchiveEngineTests: XCTestCase {
             .retry,
             "The presentation layer must re-submit this semantic request automatically"
         )
+        let retryDiagnostics = traceLines.filter {
+            $0.contains("event=archiveEngineRequestRejected")
+        }
+        XCTAssertEqual(retryDiagnostics.count, 8)
+        XCTAssertTrue(retryDiagnostics[0].contains("errorDomainCode=3"))
+        XCTAssertTrue(retryDiagnostics[0].contains("errorReasonCode=2"))
+        XCTAssertTrue(retryDiagnostics[0].contains("failureCount=1"))
+        XCTAssertTrue(retryDiagnostics[0].contains("willRetry=true"))
+        XCTAssertTrue(retryDiagnostics[7].contains("failureCount=8"))
+        XCTAssertTrue(retryDiagnostics[7].contains("willRetry=false"))
+        XCTAssertTrue(retryDiagnostics[7].contains("jid=juliet@example.org"))
     }
 
     func testProtocolFailurePublishesAutomaticRecoveryStateWithoutActorRetryLoop() async throws {

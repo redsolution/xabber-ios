@@ -98,6 +98,14 @@ struct MessageArchiveRequestFailureEvent: Equatable {
 
 enum ChatArchiveDebugTrace {
     typealias Sink = (String) -> Void
+
+    struct DiagnosticContext {
+        let owner: String
+        let jid: String
+        let conversationType: String
+        let queryID: String
+    }
+
     static let sampleEveryEnvironmentKey = "XABBER_CHAT_ARCHIVE_TRACE_SAMPLE_EVERY"
     static let productionSampleEvery = 8
 
@@ -197,6 +205,53 @@ enum ChatArchiveDebugTrace {
         #endif
     }
 
+    /// Failure diagnostics bypass ordinary event sampling so a single live
+    /// reproduction always contains the complete archive rejection chain.
+    /// Explicit request context is accepted only through `DiagnosticContext`;
+    /// arbitrary string fields (including message bodies and stanza XML) are
+    /// still dropped by `privacySafeValue`.
+    @inline(__always)
+    static func logDiagnostic(
+        _ event: @autoclosure () -> String,
+        context: @autoclosure () -> DiagnosticContext? = nil,
+        _ fields: @autoclosure () -> [(String, Any?)] = []
+    ) {
+        #if DEBUG
+        guard let sink = sinkForDiagnostic() else {
+            return
+        }
+
+        var parts = [
+            "CHAT_ARCHIVE_TRACE",
+            "event=\(sanitizedLabel(event(), fallback: "invalid-event"))",
+            "thread=\(Thread.isMainThread ? "main" : "background")"
+        ]
+        if let context = context() {
+            [
+                ("owner", context.owner),
+                ("jid", context.jid),
+                ("conversationType", context.conversationType),
+                ("queryId", context.queryID)
+            ].forEach { key, value in
+                guard let formatted = diagnosticContextValue(value) else {
+                    return
+                }
+                parts.append("\(key)=\(formatted)")
+            }
+        }
+        for (key, optionalValue) in fields() {
+            guard let value = optionalValue,
+                  let formattedValue = privacySafeValue(value) else {
+                continue
+            }
+            parts.append(
+                "\(sanitizedLabel(key, fallback: "metric"))=\(formattedValue)"
+            )
+        }
+        sink(parts.joined(separator: " "))
+        #endif
+    }
+
     static func configureForTesting(
         enabled: Bool,
         sampleEvery: Int,
@@ -250,6 +305,15 @@ enum ChatArchiveDebugTrace {
         return configuration.sink
     }
 
+    private static func sinkForDiagnostic() -> Sink? {
+        configurationLock.lock()
+        defer { configurationLock.unlock() }
+        guard configuration.enabled else {
+            return nil
+        }
+        return configuration.sink
+    }
+
     private static func privacySafeValue(_ value: Any) -> String? {
         switch value {
         case let value as Bool:
@@ -277,6 +341,21 @@ enum ChatArchiveDebugTrace {
             return fallback
         }
         return value
+    }
+
+    private static func diagnosticContextValue(_ value: String) -> String? {
+        guard value.isNotEmpty else {
+            return nil
+        }
+        let allowed = CharacterSet.alphanumerics.union(
+            CharacterSet(charactersIn: "-_.@:/#")
+        )
+        let sanitized = String(
+            value.prefix(256).unicodeScalars.map { scalar in
+                allowed.contains(scalar) ? Character(String(scalar)) : "_"
+            }
+        )
+        return sanitized.isNotEmpty ? sanitized : nil
     }
     #endif
 }

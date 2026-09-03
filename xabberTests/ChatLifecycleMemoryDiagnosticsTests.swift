@@ -83,6 +83,76 @@ final class ChatLifecycleMemoryDiagnosticsTests: XCTestCase {
         ].forEach { XCTAssertFalse(output.contains($0), "leaked: \($0)") }
     }
 
+    func testCriticalArchiveDiagnosticBypassesSamplingAndIncludesExplicitContextOnly() {
+        var lines: [String] = []
+        ChatArchiveDebugTrace.configureForTesting(
+            enabled: true,
+            sampleEvery: 100,
+            sink: { lines.append($0) }
+        )
+
+        ChatArchiveDebugTrace.logDiagnostic(
+            "archiveCoverageCommitRejected",
+            context: ChatArchiveDebugTrace.DiagnosticContext(
+                owner: "private-owner@example.com",
+                jid: "private-chat@example.com",
+                conversationType: "urn:xabber:chat",
+                queryID: "archive.engine.private-query"
+            ),
+            [
+                ("body", "private body that must never be logged"),
+                ("reasonCode", 1),
+                ("retryable", true)
+            ]
+        )
+
+        XCTAssertEqual(lines.count, 1)
+        let output = try! XCTUnwrap(lines.first)
+        XCTAssertTrue(output.contains("event=archiveCoverageCommitRejected"))
+        XCTAssertTrue(output.contains("owner=private-owner@example.com"))
+        XCTAssertTrue(output.contains("jid=private-chat@example.com"))
+        XCTAssertTrue(output.contains("conversationType=urn:xabber:chat"))
+        XCTAssertTrue(output.contains("queryId=archive.engine.private-query"))
+        XCTAssertTrue(output.contains("reasonCode=1"))
+        XCTAssertTrue(output.contains("retryable=true"))
+        XCTAssertFalse(output.contains("private body"))
+    }
+
+    func testDisabledCriticalArchiveDiagnosticDoesNotEvaluateContextOrMetrics() {
+        var eventEvaluated = false
+        var contextEvaluated = false
+        var metricsEvaluated = false
+        ChatArchiveDebugTrace.configureForTesting(
+            enabled: false,
+            sampleEvery: 1,
+            sink: { _ in XCTFail("Disabled diagnostics must not emit") }
+        )
+
+        ChatArchiveDebugTrace.logDiagnostic(
+            {
+                eventEvaluated = true
+                return "archiveCoverageCommitRejected"
+            }(),
+            context: {
+                contextEvaluated = true
+                return ChatArchiveDebugTrace.DiagnosticContext(
+                    owner: "owner@example.com",
+                    jid: "chat@example.com",
+                    conversationType: "chat",
+                    queryID: "query"
+                )
+            }(),
+            {
+                metricsEvaluated = true
+                return [("rowCount", 80)]
+            }()
+        )
+
+        XCTAssertFalse(eventEvaluated)
+        XCTAssertFalse(contextEvaluated)
+        XCTAssertFalse(metricsEvaluated)
+    }
+
     func testArchiveTraceSampleRateCanBeMadeDeterministicForManualAcceptance() {
         XCTAssertEqual(
             ChatArchiveDebugTrace.resolvedSampleEvery(environment: [

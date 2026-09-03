@@ -22,9 +22,55 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
     }
 
     override func tearDown() {
+        ChatArchiveDebugTrace.resetTestingConfiguration()
         retainedRealm = nil
         configuration = nil
         super.tearDown()
+    }
+
+    func testMissingPersistedRowsEmitExactUnsampledCommitDiagnostic() async throws {
+        var traceLines: [String] = []
+        ChatArchiveDebugTrace.configureForTesting(
+            enabled: true,
+            sampleEvery: 100,
+            sink: { traceLines.append($0) }
+        )
+        let repository = makeRepository()
+        let request = makeRequest(queryID: "private-query-missing-rows")
+        let page = try validatedPage(
+            request: request,
+            primaryIDs: ["private-primary-20", "private-primary-10"]
+        )
+
+        do {
+            _ = try await repository.commit(
+                page,
+                request: request,
+                freshnessToken: .sessionMAM(
+                    connectionGeneration: 1,
+                    queryID: request.queryID
+                )
+            )
+            XCTFail("Coverage must reject a page whose primary rows are absent")
+        } catch {
+            XCTAssertEqual(
+                error as? ArchiveCoverageRepositoryError,
+                .missingPersistedMessages
+            )
+        }
+
+        let rejection = try XCTUnwrap(
+            traceLines.first {
+                $0.contains("event=archiveCoverageCommitRejected")
+            }
+        )
+        XCTAssertTrue(rejection.contains("reasonCode=1"))
+        XCTAssertTrue(rejection.contains("pagePrimaryCount=2"))
+        XCTAssertTrue(rejection.contains("uniquePagePrimaryCount=2"))
+        XCTAssertTrue(rejection.contains("persistedRowCount=0"))
+        XCTAssertTrue(rejection.contains("queryId=private-query-missing-rows"))
+        XCTAssertTrue(rejection.contains("jid=juliet@example.org"))
+        XCTAssertFalse(rejection.contains("private-primary"))
     }
 
     func testCommitRequiresPersistedConversationMessagesBeforeCoverageProof() async throws {
