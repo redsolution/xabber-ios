@@ -37234,27 +37234,34 @@ private final class FakeAccountNetworkPathMonitor: AccountNetworkPathMonitoring 
 }
 
 final class SettingsCloudStorageQuotaDisplayStateTests: XCTestCase {
-    func testCachedQuotaFormatsUsedOfTotal() {
+    func testCachedQuotaShowsOnlyMaximumInDecimalMegabytes() {
         let state = SettingsCloudStorageQuotaDisplayState.resolve(
             hasCachedQuota: true,
-            usedBytes: 1024,
-            quotaBytes: 2048,
+            quotaBytes: 300_000_000,
             isRefreshing: false,
             lastRefreshFailed: false,
             isAvailable: true
         )
 
-        let expected = AccountQuotaStorageItem.beautify(size: 1024)
-            + " of ".localizeString(id: "of", arguments: [])
-            + AccountQuotaStorageItem.beautify(size: 2048)
-        XCTAssertEqual(state.detailText, expected)
+        XCTAssertEqual(state.detailText, "300 MB")
         XCTAssertEqual(state.iconName, "custom.cloud.square.fill")
+    }
+
+    func testCachedQuotaShowsOnlyMaximumInDecimalGigabytes() {
+        let state = SettingsCloudStorageQuotaDisplayState.resolve(
+            hasCachedQuota: true,
+            quotaBytes: 3_000_000_000,
+            isRefreshing: false,
+            lastRefreshFailed: false,
+            isAvailable: true
+        )
+
+        XCTAssertEqual(state.detailText, "3 GB")
     }
 
     func testRefreshingWithoutCachedQuotaShowsUpdating() {
         let state = SettingsCloudStorageQuotaDisplayState.resolve(
             hasCachedQuota: false,
-            usedBytes: 0,
             quotaBytes: 0,
             isRefreshing: true,
             lastRefreshFailed: false,
@@ -37267,7 +37274,6 @@ final class SettingsCloudStorageQuotaDisplayStateTests: XCTestCase {
     func testUnavailableWithoutCachedQuotaShowsUnavailable() {
         let state = SettingsCloudStorageQuotaDisplayState.resolve(
             hasCachedQuota: false,
-            usedBytes: 0,
             quotaBytes: 0,
             isRefreshing: false,
             lastRefreshFailed: false,
@@ -37280,7 +37286,6 @@ final class SettingsCloudStorageQuotaDisplayStateTests: XCTestCase {
     func testFailedRefreshWithoutCachedQuotaShowsUnavailable() {
         let state = SettingsCloudStorageQuotaDisplayState.resolve(
             hasCachedQuota: false,
-            usedBytes: 0,
             quotaBytes: 0,
             isRefreshing: false,
             lastRefreshFailed: true,
@@ -37293,57 +37298,44 @@ final class SettingsCloudStorageQuotaDisplayStateTests: XCTestCase {
     func testUnlimitedQuotaFormatsWithoutNegativeByteString() {
         let state = SettingsCloudStorageQuotaDisplayState.resolve(
             hasCachedQuota: true,
-            usedBytes: 1024,
             quotaBytes: -1,
             isRefreshing: false,
             lastRefreshFailed: false,
             isAvailable: true
         )
 
-        let expected = AccountQuotaStorageItem.beautify(size: 1024)
-            + " of ".localizeString(id: "of", arguments: [])
-            + "Unlimited"
-        XCTAssertEqual(state.detailText, expected)
+        XCTAssertEqual(state.detailText, "Unlimited")
     }
 
     func testZeroQuotaFormatsWithoutPercentageMath() {
         let state = SettingsCloudStorageQuotaDisplayState.resolve(
             hasCachedQuota: true,
-            usedBytes: 0,
             quotaBytes: 0,
             isRefreshing: false,
             lastRefreshFailed: false,
             isAvailable: true
         )
 
-        let expected = AccountQuotaStorageItem.beautify(size: 0)
-            + " of ".localizeString(id: "of", arguments: [])
-            + AccountQuotaStorageItem.beautify(size: 0)
-        XCTAssertEqual(state.detailText, expected)
+        XCTAssertEqual(state.detailText, "0 MB")
     }
 
     func testPremiumGalleryUsesBadgeIconWithoutPrefixingQuotaDetail() {
         let state = SettingsCloudStorageQuotaDisplayState.resolve(
             hasCachedQuota: true,
-            usedBytes: 1024,
-            quotaBytes: 2048,
+            quotaBytes: 300_000_000,
             isRefreshing: false,
             lastRefreshFailed: false,
             isAvailable: true,
             galleryType: .premium
         )
 
-        let expected = AccountQuotaStorageItem.beautify(size: 1024)
-            + " of ".localizeString(id: "of", arguments: [])
-            + AccountQuotaStorageItem.beautify(size: 2048)
-        XCTAssertEqual(state.detailText, expected)
+        XCTAssertEqual(state.detailText, "300 MB")
         XCTAssertEqual(state.iconName, "custom.cloud.square.fill.badge.checkmark")
     }
 
     func testPremiumWithoutFreshQuotaUsesUpdatingAndBadgeIcon() {
         let noCacheState = SettingsCloudStorageQuotaDisplayState.resolve(
             hasCachedQuota: false,
-            usedBytes: 0,
             quotaBytes: 0,
             isRefreshing: true,
             lastRefreshFailed: false,
@@ -37352,8 +37344,7 @@ final class SettingsCloudStorageQuotaDisplayStateTests: XCTestCase {
         )
         let cachedState = SettingsCloudStorageQuotaDisplayState.resolve(
             hasCachedQuota: true,
-            usedBytes: 1024,
-            quotaBytes: 2048,
+            quotaBytes: 3_000_000_000,
             isRefreshing: true,
             lastRefreshFailed: false,
             isAvailable: true,
@@ -37364,9 +37355,7 @@ final class SettingsCloudStorageQuotaDisplayStateTests: XCTestCase {
         XCTAssertEqual(noCacheState.iconName, "custom.cloud.square.fill.badge.checkmark")
         XCTAssertEqual(
             cachedState.detailText,
-            AccountQuotaStorageItem.beautify(size: 1024)
-                + " of ".localizeString(id: "of", arguments: [])
-                + AccountQuotaStorageItem.beautify(size: 2048)
+            "3 GB"
         )
         XCTAssertEqual(cachedState.iconName, "custom.cloud.square.fill.badge.checkmark")
     }

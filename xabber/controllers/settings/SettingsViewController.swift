@@ -50,7 +50,6 @@ struct SettingsCloudStorageQuotaDisplayState: Equatable {
 
     static func resolve(
         hasCachedQuota: Bool,
-        usedBytes: Int,
         quotaBytes: Int,
         isRefreshing: Bool,
         lastRefreshFailed: Bool,
@@ -67,7 +66,7 @@ struct SettingsCloudStorageQuotaDisplayState: Equatable {
         }
 
         if hasCachedQuota {
-            return state(quotaText(usedBytes: usedBytes, quotaBytes: quotaBytes))
+            return state(maximumQuotaText(quotaBytes: quotaBytes))
         }
 
         if lastRefreshFailed || !isAvailable {
@@ -81,10 +80,22 @@ struct SettingsCloudStorageQuotaDisplayState: Equatable {
         return state("Updating...")
     }
 
-    private static func quotaText(usedBytes: Int, quotaBytes: Int) -> String {
-        let used = AccountQuotaStorageItem.beautify(size: usedBytes)
-        let quota = quotaBytes < 0 ? "Unlimited" : AccountQuotaStorageItem.beautify(size: quotaBytes)
-        return used + " of ".localizeString(id: "of", arguments: []) + quota
+    private static func maximumQuotaText(quotaBytes: Int) -> String {
+        guard quotaBytes >= 0 else {
+            return "Unlimited"
+        }
+        guard quotaBytes > 0 else {
+            return "0 MB"
+        }
+
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.countStyle = .decimal
+        return formatter
+            .string(fromByteCount: Int64(quotaBytes))
+            .replacingOccurrences(of: ",", with: ".")
+            .replacingOccurrences(of: "ГБ", with: "GB")
+            .replacingOccurrences(of: "МБ", with: "MB")
     }
 }
 
@@ -593,14 +604,12 @@ class SettingsViewController: BaseViewController {
     var cloudStorageQuotaDisplayState: SettingsCloudStorageQuotaDisplayState = SettingsCloudStorageQuotaDisplayState
         .resolve(
             hasCachedQuota: false,
-            usedBytes: 0,
             quotaBytes: 0,
             isRefreshing: false,
             lastRefreshFailed: false,
             isAvailable: true
         )
     private var cloudStorageHasCachedQuota: Bool = false
-    private var cloudStorageUsedBytes: Int = 0
     private var cloudStorageQuotaBytes: Int = 0
     private var isCloudStorageQuotaRefreshing: Bool = false
     private var cloudStorageQuotaRefreshFailed: Bool = false
@@ -801,13 +810,11 @@ class SettingsViewController: BaseViewController {
         if let item = item,
            AccountGalleryConfiguration(owner: jid).cachedQuotaMatchesCurrentGallery() {
             cloudStorageHasCachedQuota = true
-            cloudStorageUsedBytes = item.totalBytes
             cloudStorageQuotaBytes = item.quotaBytes
             used = item.total
             quota = item.quotaBytes < 0 ? "Unlimited" : item.quota
         } else {
             cloudStorageHasCachedQuota = false
-            cloudStorageUsedBytes = 0
             cloudStorageQuotaBytes = 0
             used = ""
             quota = ""
@@ -822,7 +829,6 @@ class SettingsViewController: BaseViewController {
         cloudStorageQuotaDisplayState = SettingsCloudStorageQuotaDisplayState
             .resolve(
                 hasCachedQuota: cloudStorageHasCachedQuota,
-                usedBytes: cloudStorageUsedBytes,
                 quotaBytes: cloudStorageQuotaBytes,
                 isRefreshing: isCloudStorageQuotaRefreshing,
                 lastRefreshFailed: cloudStorageQuotaRefreshFailed,

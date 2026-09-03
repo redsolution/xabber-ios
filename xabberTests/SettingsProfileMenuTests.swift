@@ -248,8 +248,7 @@ final class SettingsProfileMenuTests: XCTestCase {
         ]
         controller.cloudStorageQuotaDisplayState = .resolve(
             hasCachedQuota: true,
-            usedBytes: 1024,
-            quotaBytes: 2048,
+            quotaBytes: 300_000_000,
             isRefreshing: false,
             lastRefreshFailed: false,
             isAvailable: true,
@@ -267,7 +266,7 @@ final class SettingsProfileMenuTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(cell.detailTextLabel?.text, controller.cloudStorageQuotaDisplayState.detailText)
+        XCTAssertEqual(cell.detailTextLabel?.text, "300 MB")
         XCTAssertTrue(cell.imageView?.image?.isEqual(expectedIcon) == true)
     }
 
