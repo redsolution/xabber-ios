@@ -997,7 +997,10 @@ final class RosterCircleCell: UITableViewCell {
         label.font = .preferredFont(forTextStyle: .body)
         label.adjustsFontForContentSizeCategory = true
         label.textColor = .label
-        label.numberOfLines = 0
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
+        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return label
     }()
 
@@ -1008,9 +1011,11 @@ final class RosterCircleCell: UITableViewCell {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         accessoryType = .disclosureIndicator
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.axis = .vertical
-        stack.alignment = .leading
-        stack.spacing = 6
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = 12
+        avatarStrip.setContentHuggingPriority(.required, for: .horizontal)
+        avatarStrip.setContentCompressionResistancePriority(.required, for: .horizontal)
         contentView.addSubview(stack)
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(avatarStrip)

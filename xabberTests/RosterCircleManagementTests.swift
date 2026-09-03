@@ -720,6 +720,20 @@ final class RosterCircleViewControllerTests: XCTestCase {
         XCTAssertEqual(cell.accessoryType, .disclosureIndicator)
     }
 
+    func testCircleNameAndAvatarStripShareOneHorizontalRow() {
+        let members = (0..<3).map {
+            circleMember("user\($0)@example.com", name: "User \($0)", groups: ["Work"])
+        }
+        let cell = RosterCircleCell(style: .default, reuseIdentifier: nil)
+        cell.configure(circle: RosterCircleSnapshot(name: "Work", members: members))
+        cell.frame = CGRect(x: 0, y: 0, width: 390, height: 60)
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+
+        XCTAssertEqual(cell.titleLabel.frame.midY, cell.avatarStrip.frame.midY, accuracy: 1)
+        XCTAssertGreaterThan(cell.avatarStrip.frame.minX, cell.titleLabel.frame.maxX)
+    }
+
     func testMemberListReusesContactLayoutWithoutCircleTagsAndRowTapDoesNotNavigate() throws {
         let member = circleMember(
             "alice@example.com",
