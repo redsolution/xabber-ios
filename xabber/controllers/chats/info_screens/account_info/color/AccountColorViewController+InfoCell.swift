@@ -27,44 +27,70 @@ extension AccountColorViewController {
         
         static let cellName = "InfoCell"
         
-        var stack: UIStackView = {
+        let stack: UIStackView = {
             let stack = UIStackView()
             
             stack.axis = .horizontal
             stack.alignment = .center
-            stack.spacing = 4
+            stack.spacing = 12
             stack.isLayoutMarginsRelativeArrangement = true
             stack.layoutMargins = UIEdgeInsets(top: 4, bottom: 4, left: 20, right: 16)
             
             return stack
         }()
         
-        var titleLabel: UILabel = {
+        let titleLabel: UILabel = {
             let label = UILabel(frame: .zero)
             return label
         }()
         
-        private func activateConstraints() {
-            
+        let colorIndicatorView: UIView = {
+            let view = UIView(frame: .zero)
+            view.isUserInteractionEnabled = false
+            view.setContentHuggingPriority(.required, for: .horizontal)
+            view.setContentCompressionResistancePriority(.required, for: .horizontal)
+            return view
+        }()
+
+        override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+            super.init(style: style, reuseIdentifier: reuseIdentifier)
+            setupView()
         }
-        
-        func configure(for title: String, active: Bool) {
-            selectionStyle = .blue //?
-            addSubview(stack)
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            setupView()
+        }
+
+        private func setupView() {
+            selectionStyle = .blue
+            backgroundColor = .systemBackground
+            contentView.addSubview(stack)
             stack.fillSuperview()
             stack.addArrangedSubview(titleLabel)
-            backgroundColor = .white
-            titleLabel.text = title
-            if active {
-                accessoryType = .checkmark
-            } else {
-                accessoryType = .none
-            }
-            activateConstraints()
+            stack.addArrangedSubview(colorIndicatorView)
+            NSLayoutConstraint.activate([
+                colorIndicatorView.widthAnchor.constraint(equalToConstant: 24),
+                colorIndicatorView.heightAnchor.constraint(equalToConstant: 24)
+            ])
         }
-        
-        override func awakeFromNib() {
-            super.awakeFromNib()
+
+        func configure(for title: String, color: UIColor, active: Bool) {
+            titleLabel.text = title
+            colorIndicatorView.backgroundColor = color
+            accessoryType = active ? .checkmark : .none
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            colorIndicatorView.layer.cornerRadius = colorIndicatorView.bounds.height / 2
+        }
+
+        override func prepareForReuse() {
+            super.prepareForReuse()
+            titleLabel.text = nil
+            colorIndicatorView.backgroundColor = .clear
+            accessoryType = .none
         }
         
         override func setSelected(_ selected: Bool, animated: Bool) {

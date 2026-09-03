@@ -27,7 +27,7 @@ extension AccountColorViewController: UITableViewDataSource {
             return UITableViewCell(frame: .zero)
         }
         let item = datasource[indexPath.row]
-        cell.configure(for: item.title, active: item.active)
+        cell.configure(for: item.title, color: item.color, active: item.active)
         return cell
     }
     

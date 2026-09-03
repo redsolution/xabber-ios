@@ -27,11 +27,13 @@ class AccountColorViewController: BaseViewController {
     class Datasource {
         var key: String
         var title: String
+        var color: UIColor
         var active: Bool
         
-        init(_ key: String, title: String, active: Bool) {
+        init(_ key: String, title: String, color: UIColor, active: Bool) {
             self.key = key
             self.title = title
+            self.color = color
             self.active = active
         }
     }
@@ -58,7 +60,12 @@ class AccountColorViewController: BaseViewController {
     
     internal func update() {
         datasource = AccountColorManager.colors.map({ (item) -> Datasource in
-            return Datasource(item.key, title: item.title, active: item.key == activeColor)
+            return Datasource(
+                item.key,
+                title: item.title,
+                color: item.primary,
+                active: item.key == activeColor
+            )
         })
     }
     

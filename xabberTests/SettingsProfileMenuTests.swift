@@ -5,6 +5,47 @@ import XCTest
 
 final class SettingsProfileMenuTests: XCTestCase {
 
+    func testAccountColorRowsExposeTheirPaletteAsTrailingCircularIndicators() throws {
+        let controller = AccountColorViewController()
+        controller.update()
+
+        XCTAssertEqual(controller.datasource.count, AccountColorManager.colors.count)
+
+        for (row, colorItem) in zip(controller.datasource, AccountColorManager.colors) {
+            XCTAssertTrue(row.color.isEqual(colorItem.primary))
+        }
+
+        let firstCell = try XCTUnwrap(
+            controller.tableView(
+                controller.tableView,
+                cellForRowAt: IndexPath(row: 0, section: 0)
+            ) as? AccountColorViewController.InfoCell
+        )
+        layout(cell: firstCell)
+
+        XCTAssertTrue(
+            firstCell.colorIndicatorView.backgroundColor?.isEqual(
+                AccountColorManager.colors[0].primary
+            ) == true
+        )
+        XCTAssertEqual(firstCell.colorIndicatorView.bounds.width, 24, accuracy: 0.5)
+        XCTAssertEqual(firstCell.colorIndicatorView.bounds.height, 24, accuracy: 0.5)
+        XCTAssertEqual(firstCell.colorIndicatorView.layer.cornerRadius, 12, accuracy: 0.5)
+        XCTAssertEqual(firstCell.stack.arrangedSubviews.last, firstCell.colorIndicatorView)
+    }
+
+    func testAccountColorCellReuseUpdatesSwatchAndSelectionWithoutDuplicatingContent() {
+        let cell = AccountColorViewController.InfoCell(style: .default, reuseIdentifier: nil)
+
+        cell.configure(for: "Red", color: .systemRed, active: true)
+        cell.configure(for: "Blue", color: .systemBlue, active: false)
+
+        XCTAssertEqual(cell.titleLabel.text, "Blue")
+        XCTAssertTrue(cell.colorIndicatorView.backgroundColor?.isEqual(UIColor.systemBlue) == true)
+        XCTAssertEqual(cell.accessoryType, .none)
+        XCTAssertEqual(cell.stack.arrangedSubviews.count, 2)
+    }
+
     func testMenuFactorySeparatesBlockListAndPreservesAccountColorPolicy() {
         let unlockedSections = SettingsAccountProfileMenuFactory.makeSections(
             accountColorLocked: false
