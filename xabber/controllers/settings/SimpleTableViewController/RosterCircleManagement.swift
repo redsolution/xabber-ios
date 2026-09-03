@@ -46,7 +46,7 @@ struct RosterCircleSnapshot: Equatable {
 }
 
 struct RosterCircleAvatarSummary: Equatable {
-    static let maximumVisibleCount = 5
+    static let maximumVisibleCount = 3
 
     let visibleMembers: [RosterCircleMemberSnapshot]
     let overflowCount: Int

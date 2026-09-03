@@ -43,15 +43,17 @@ final class RosterCircleManagementTests: XCTestCase {
         XCTAssertFalse(circles.map(\.name).contains(RosterGroupStorageItem.notInRosterGroupName))
     }
 
-    func testAvatarSummaryUsesZeroOneFiveAndFivePlusOverflow() {
+    func testAvatarSummaryUsesAtMostThreeAvatarsAndOverflow() {
         let members = (0..<8).map { member("user\($0)@example.com", name: "User \($0)") }
 
         XCTAssertEqual(RosterCircleAvatarSummary(members: []).visibleMembers.count, 0)
         XCTAssertEqual(RosterCircleAvatarSummary(members: []).overflowCount, 0)
         XCTAssertEqual(RosterCircleAvatarSummary(members: Array(members.prefix(1))).visibleMembers.count, 1)
-        XCTAssertEqual(RosterCircleAvatarSummary(members: Array(members.prefix(5))).visibleMembers.count, 5)
-        XCTAssertEqual(RosterCircleAvatarSummary(members: members).visibleMembers.count, 5)
-        XCTAssertEqual(RosterCircleAvatarSummary(members: members).overflowCount, 3)
+        XCTAssertEqual(RosterCircleAvatarSummary(members: Array(members.prefix(3))).visibleMembers.count, 3)
+        XCTAssertEqual(RosterCircleAvatarSummary(members: Array(members.prefix(5))).visibleMembers.count, 3)
+        XCTAssertEqual(RosterCircleAvatarSummary(members: Array(members.prefix(5))).overflowCount, 2)
+        XCTAssertEqual(RosterCircleAvatarSummary(members: members).visibleMembers.count, 3)
+        XCTAssertEqual(RosterCircleAvatarSummary(members: members).overflowCount, 5)
     }
 
     func testNameValidationTrimsAndComparesCaseAndDiacriticsInsensitively() {
@@ -686,7 +688,7 @@ final class RosterCircleManagementTests: XCTestCase {
 
 @MainActor
 final class RosterCircleViewControllerTests: XCTestCase {
-    func testCircleListUsesInsetGroupedRowsFiveAvatarsOverflowAndSafeSwipeOrder() throws {
+    func testCircleListUsesInsetGroupedRowsThreeAvatarsOverflowAndSafeSwipeOrder() throws {
         let members = (0..<8).map {
             circleMember("user\($0)@example.com", name: "User \($0)", groups: ["Work"])
         }
@@ -706,10 +708,10 @@ final class RosterCircleViewControllerTests: XCTestCase {
             ) as? RosterCircleCell
         )
         XCTAssertEqual(cell.titleLabel.text, "Work")
-        XCTAssertEqual(cell.avatarStrip.subviews.compactMap { $0 as? UIImageView }.count, 5)
+        XCTAssertEqual(cell.avatarStrip.subviews.compactMap { $0 as? UIImageView }.count, 3)
         XCTAssertEqual(
             cell.avatarStrip.subviews.compactMap { ($0 as? UILabel)?.text }.first,
-            "+3 more"
+            "+5 more"
         )
         let swipe = try XCTUnwrap(controller.tableView(
             controller.tableView,
@@ -732,6 +734,12 @@ final class RosterCircleViewControllerTests: XCTestCase {
 
         XCTAssertEqual(cell.titleLabel.frame.midY, cell.avatarStrip.frame.midY, accuracy: 1)
         XCTAssertGreaterThan(cell.avatarStrip.frame.minX, cell.titleLabel.frame.maxX)
+        let avatarFrame = cell.avatarStrip.convert(cell.avatarStrip.bounds, to: cell.contentView)
+        XCTAssertEqual(
+            avatarFrame.maxX,
+            cell.contentView.layoutMarginsGuide.layoutFrame.maxX,
+            accuracy: 1
+        )
     }
 
     func testMemberListReusesContactLayoutWithoutCircleTagsAndRowTapDoesNotNavigate() throws {

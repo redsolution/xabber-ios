@@ -1022,7 +1022,7 @@ final class RosterCircleCell: UITableViewCell {
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
             stack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.layoutMarginsGuide.trailingAnchor),
+            stack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
             stack.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor)
         ])
     }
