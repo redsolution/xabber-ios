@@ -113,7 +113,8 @@ final class CloudStorageManagementTests: XCTestCase {
         XCTAssertEqual(callsTile.iconSize, CGSize(width: 36, height: 36))
         XCTAssertEqual(callsTile.accessibilityIdentifier, "cloudStorage.category.calls")
         XCTAssertEqual(callsTile.backgroundColor, .tertiarySystemGroupedBackground)
-        XCTAssertEqual(callsTile.layer.borderWidth, 1)
+        XCTAssertEqual(callsTile.layer.borderWidth, 0)
+        XCTAssertNil(callsTile.layer.borderColor)
 
         callsTile.sendActions(for: .touchUpInside)
         XCTAssertEqual(selected, .calls)

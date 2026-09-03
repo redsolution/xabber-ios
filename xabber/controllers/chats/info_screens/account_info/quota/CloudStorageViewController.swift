@@ -253,7 +253,8 @@ final class CloudStorageCategoryTile: UIControl {
     private func setupViewHierarchy() {
         layer.cornerRadius = 16
         layer.cornerCurve = .continuous
-        layer.borderWidth = 1
+        layer.borderWidth = 0
+        layer.borderColor = nil
         layer.masksToBounds = true
         isAccessibilityElement = true
         updateAdaptiveColors()
@@ -291,10 +292,6 @@ final class CloudStorageCategoryTile: UIControl {
 
     private func updateAdaptiveColors() {
         backgroundColor = .tertiarySystemGroupedBackground
-        layer.borderColor = UIColor.separator
-            .withAlphaComponent(0.38)
-            .resolvedColor(with: traitCollection)
-            .cgColor
     }
 }
 
