@@ -345,6 +345,10 @@ private final class AppearanceThemeMiniControl: UIControl {
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         incoming.layer.cornerRadius = 9
         outgoing.layer.cornerRadius = 9
+        gradient.isUserInteractionEnabled = false
+        incoming.isUserInteractionEnabled = false
+        outgoing.isUserInteractionEnabled = false
+        nameLabel.isUserInteractionEnabled = false
         nameLabel.font = .preferredFont(forTextStyle: .caption2)
         nameLabel.adjustsFontForContentSizeCategory = true
         nameLabel.textAlignment = .center

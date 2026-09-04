@@ -302,7 +302,20 @@ final class InterfaceAppearanceTests: XCTestCase {
             ) as? UIControl
         )
 
-        themeControl.sendActions(for: .touchUpInside)
+        themeControl.removeFromSuperview()
+        themeControl.translatesAutoresizingMaskIntoConstraints = true
+        themeControl.frame = CGRect(x: 0, y: 0, width: 86, height: 105)
+        themeControl.setNeedsLayout()
+        themeControl.layoutIfNeeded()
+        let hitView = themeControl.hitTest(CGPoint(x: 20, y: 20), with: nil)
+
+        XCTAssertTrue(
+            hitView === themeControl,
+            "Expected theme control, got \(String(describing: hitView)); " +
+            "bounds=\(themeControl.bounds), enabled=\(themeControl.isEnabled), " +
+            "interactive=\(themeControl.isUserInteractionEnabled), alpha=\(themeControl.alpha)"
+        )
+        (hitView as? UIControl)?.sendActions(for: .touchUpInside)
 
         XCTAssertEqual(navigationController.viewControllers.count, 1)
         XCTAssertTrue(navigationController.topViewController === controller)
