@@ -278,6 +278,53 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
+    func testOverviewThemeTapCommitsImmediatelyWithoutNavigation() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
+        let navigationController = UINavigationController(rootViewController: controller)
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+        let original = coordinator.document.profile
+        let theme = try XCTUnwrap(
+            AppearanceThemeCatalog.builtInThemes.first(where: { $0.id != original.themeID })
+        )
+        let overviewCell = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        )
+        let themeControl = try XCTUnwrap(
+            descendant(
+                in: overviewCell,
+                accessibilityIdentifier: "interface.theme.mini.\(theme.id)"
+            ) as? UIControl
+        )
+
+        themeControl.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(navigationController.viewControllers.count, 1)
+        XCTAssertTrue(navigationController.topViewController === controller)
+        XCTAssertEqual(coordinator.document.profile.themeID, theme.id)
+        XCTAssertNil(coordinator.document.profile.accentOverride)
+        XCTAssertEqual(store.load().profile.themeID, theme.id)
+
+        let refreshedCell = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        )
+        let selectedControl = try XCTUnwrap(
+            descendant(
+                in: refreshedCell,
+                accessibilityIdentifier: "interface.theme.mini.\(theme.id)"
+            ) as? UIControl
+        )
+        XCTAssertEqual(selectedControl.accessibilityValue, "Selected")
+        XCTAssertTrue(selectedControl.accessibilityTraits.contains(.selected))
+    }
+
+    @MainActor
     func testThemeEditorUsesNavigationControllerBackButton() {
         let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         let controller = AppearanceThemeEditorViewController(
@@ -405,5 +452,23 @@ final class InterfaceAppearanceTests: XCTestCase {
 
         XCTAssertEqual(cache.data(for: reference), payload)
         XCTAssertTrue(cache.fileURL(for: reference).lastPathComponent.contains("deadbeef"))
+    }
+
+    private func descendant(
+        in root: UIView,
+        accessibilityIdentifier: String
+    ) -> UIView? {
+        if root.accessibilityIdentifier == accessibilityIdentifier {
+            return root
+        }
+        for subview in root.subviews {
+            if let match = descendant(
+                in: subview,
+                accessibilityIdentifier: accessibilityIdentifier
+            ) {
+                return match
+            }
+        }
+        return nil
     }
 }

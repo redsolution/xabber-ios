@@ -27,7 +27,14 @@ final class InterfaceSettingsViewController: BaseViewController {
     }
 
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+    private var appearanceCoordinator = AppearanceCoordinator.shared
     private var document = AppearanceCoordinator.shared.document
+
+    convenience init(appearanceCoordinator: AppearanceCoordinator) {
+        self.init()
+        self.appearanceCoordinator = appearanceCoordinator
+        document = appearanceCoordinator.document
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -65,12 +72,12 @@ final class InterfaceSettingsViewController: BaseViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        document = AppearanceCoordinator.shared.document
+        document = appearanceCoordinator.document
         tableView.reloadData()
     }
 
     @objc private func appearanceChanged() {
-        document = AppearanceCoordinator.shared.document
+        document = appearanceCoordinator.document
         tableView.reloadData()
     }
 
@@ -144,6 +151,32 @@ final class InterfaceSettingsViewController: BaseViewController {
     private func pushEditor(_ controller: UIViewController) {
         navigationController?.pushViewController(controller, animated: true)
     }
+
+    private func applyOverviewTheme(_ theme: AppearanceTheme) {
+        var updated = appearanceCoordinator.document
+        guard updated.profile.themeID != theme.id else {
+            document = updated
+            tableView.reloadData()
+            return
+        }
+        updated.profile.apply(
+            theme: theme,
+            preserveWallpaper: CommonConfigManager.shared.config.locked_background.isNotEmpty
+        )
+        do {
+            _ = try appearanceCoordinator.commit(updated)
+            document = appearanceCoordinator.document
+            tableView.reloadData()
+        } catch {
+            let alert = UIAlertController(
+                title: "Couldn’t apply theme",
+                message: error.localizedDescription,
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
+        }
+    }
 }
 
 extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDelegate {
@@ -175,9 +208,7 @@ extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDel
             ) as? AppearanceOverviewCell else { return UITableViewCell() }
             cell.configure(document: document, traits: traitCollection)
             cell.onThemeTap = { [weak self] theme in
-                guard let self else { return }
-                let controller = AppearanceThemePreviewViewController(document: self.document, theme: theme)
-                self.navigationController?.pushViewController(controller, animated: true)
+                self?.applyOverviewTheme(theme)
             }
             return cell
         }
