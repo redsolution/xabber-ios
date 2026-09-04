@@ -1195,10 +1195,14 @@ struct ChatDisplayModelCacheContext: Hashable {
     let bodyFontName: String
     let bodyFontPointSize: CGFloat
     let interfaceStyleRawValue: Int
+    var appearancePaintSignature: String = "legacy"
 
     static func current(searchText: String?, traitCollection: UITraitCollection) -> ChatDisplayModelCacheContext {
-        let bodyFont = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
-        return ChatDisplayModelCacheContext(
+        let bodyFont = AppearanceTypography.currentFont(
+            textStyle: .body,
+            compatibleWith: traitCollection
+        )
+        var context = ChatDisplayModelCacheContext(
             searchText: searchText?.isEmpty == true ? nil : searchText,
             localeIdentifier: Locale.current.identifier,
             contentSizeCategory: traitCollection.preferredContentSizeCategory.rawValue,
@@ -1206,6 +1210,18 @@ struct ChatDisplayModelCacheContext: Hashable {
             bodyFontPointSize: bodyFont.pointSize,
             interfaceStyleRawValue: traitCollection.userInterfaceStyle.rawValue
         )
+        if let document = AppearanceSettingsStore()?.load() {
+            let snapshot = AppearanceResolver.resolve(
+                document: document,
+                traitStyle: traitCollection.userInterfaceStyle
+            )
+            context.appearancePaintSignature = [
+                snapshot.theme.id,
+                String(describing: snapshot.palette),
+                String(describing: snapshot.accent)
+            ].joined(separator: "|")
+        }
+        return context
     }
 }
 
@@ -1224,6 +1240,8 @@ struct ChatDatasourceMappingContext {
     var inSearchMode: Bool
     var displayCacheContext: ChatDisplayModelCacheContext
     let bodyTextAttributes: [NSAttributedString.Key: Any]
+    let incomingBodyTextAttributes: [NSAttributedString.Key: Any]
+    let outgoingBodyTextAttributes: [NSAttributedString.Key: Any]
     let systemTextAttributes: [NSAttributedString.Key: Any]
     let dateSeparatorAttributes: [NSAttributedString.Key: Any]
     let timeMarkerAttributes: [NSAttributedString.Key: Any]
@@ -1235,6 +1253,10 @@ struct ChatDatasourceMappingContext {
     let layoutReuseSnapshot: ChatMessageLayoutSnapshot
     let layoutCacheCapacity: Int
     let layoutOperationCounter: ChatMessageLayoutOperationCounter?
+
+    func bodyTextAttributes(outgoing: Bool) -> [NSAttributedString.Key: Any] {
+        outgoing ? outgoingBodyTextAttributes : incomingBodyTextAttributes
+    }
 }
 
 enum ChatLayoutViewportRestoration: Equatable {
@@ -5344,9 +5366,20 @@ extension ChatViewController {
         ]
             .compactMap { $0 }
             .first { $0.isFinite && $0 > 1 } ?? 1
-        let bodyFont = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
+        let bodyFont = AppearanceTypography.currentFont(
+            textStyle: .body,
+            compatibleWith: traitCollection
+        )
         let captionFont = UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: traitCollection)
+        let appearance = (AppearanceSettingsStore()?.load()).map {
+            AppearanceResolver.resolve(
+                document: $0,
+                traitStyle: traitCollection.userInterfaceStyle
+            )
+        }
         let bodyColor = UIColor.label.resolvedColor(with: traitCollection)
+        let incomingBodyColor = appearance?.palette.incomingText.uiColor ?? bodyColor
+        let outgoingBodyColor = appearance?.palette.outgoingText.uiColor ?? bodyColor
         let searchHighlightColor = ChatSearchHighlightStyle
             .telegram(for: traitCollection)
             .backgroundColor
@@ -5368,6 +5401,14 @@ extension ChatViewController {
             ),
             bodyTextAttributes: [
                 .foregroundColor: bodyColor,
+                .font: bodyFont
+            ],
+            incomingBodyTextAttributes: [
+                .foregroundColor: incomingBodyColor,
+                .font: bodyFont
+            ],
+            outgoingBodyTextAttributes: [
+                .foregroundColor: outgoingBodyColor,
                 .font: bodyFont
             ],
             systemTextAttributes: [
@@ -5393,7 +5434,14 @@ extension ChatViewController {
                 interfaceStyleRawValue: traitCollection.userInterfaceStyle.rawValue,
                 messageStyle: self.messageCorner.rawValue,
                 cornerRadius: self.cornerRadius,
-                avatarMode: self.avatarVerticalPosition
+                avatarMode: self.avatarVerticalPosition,
+                appearanceSignature: (AppearanceSettingsStore()?.load())
+                    .map {
+                        AppearanceResolver.resolve(
+                            document: $0,
+                            traitStyle: traitCollection.userInterfaceStyle
+                        ).layoutSignature
+                    } ?? "legacy"
             ),
             layoutReuseSnapshot: flowLayout?.cache.reuseSnapshot() ?? .empty,
             layoutCacheCapacity: flowLayout?.cache.capacity ?? ChatPerformanceResourceBudgets.layoutCount,
@@ -5411,7 +5459,7 @@ extension ChatViewController {
                 attributedString: descriptor.text
             )
             text.addAttributes(
-                context.bodyTextAttributes,
+                context.bodyTextAttributes(outgoing: descriptor.outgoing),
                 range: NSRange(location: 0, length: text.length)
             )
             return Datasource(
@@ -6575,7 +6623,7 @@ extension ChatViewController {
             textMessage: ChatMessageDisplaySnapshot.attributedForwardBody(
                 body: attachment.body,
                 references: attachment.references,
-                attributes: context.bodyTextAttributes,
+                attributes: context.bodyTextAttributes(outgoing: attachment.isOutgoing),
                 authorJid: attachment.forwardJid,
                 searchedText: context.searchText,
                 searchedTextColor: context.searchHighlightColor
@@ -6657,7 +6705,9 @@ extension ChatViewController {
         case .text:
             return .attributedText(
                 snapshot.attributedBody(
-                    attributes: context.bodyTextAttributes,
+                    attributes: context.bodyTextAttributes(
+                        outgoing: snapshot.presentation.displayOutgoing
+                    ),
                     searchedText: context.searchText,
                     searchedTextColor: context.searchHighlightColor
                 )

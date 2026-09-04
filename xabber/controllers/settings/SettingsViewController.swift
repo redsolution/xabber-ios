@@ -1062,60 +1062,6 @@ class SettingsViewController: BaseViewController {
             }
         }
 
-        var interfaceChilds = [
-            Datasource(section: .chat, title: Datasource.Section.chat.description(), childs: [
-                Datasource(section: .chat, title: "Background color", itemType: .plain,
-                           current: (dict[Datasource.Keys.chatChooseBackgroundColor.rawValue] as? String) ?? "purple",
-                           key: .chatChooseBackgroundColor),
-                Datasource(section: .chat, title: "Background image", itemType: .selector,
-                           values: ["None", "Honeycomb", "Aliens", "Summer", "Cats", "Flowers", "Flowers-daisy", "Hearts"],
-                           current: (dict[Datasource.Keys.chatChooseBackground.rawValue] as? String) ?? "None",
-                           key: .chatChooseBackground),
-                Datasource(section: .contactList, title: "Corner style", itemType: .selector,
-                           values: MessageStyleConfig.MessageBubbleContainer.verboseNames(),
-                           current: (dict[Datasource.Keys.messageCornerStyle.rawValue] as? String) ?? "No tail",
-                           key: .messageCornerStyle),
-                Datasource(section: .contactList, title: "Corner radius", itemType: .selector,
-                           values: MessageStyleConfig.MessageRadius.getRadiusList(),
-                           current: (dict[Datasource.Keys.messageCornerRadius.rawValue] as? String) ?? "16",
-                           key: .messageCornerRadius),
-                Datasource(section: .contactList, title: "Avatar position", itemType: .selector,
-                           values: ["Top", "Bottom"],
-                           current: (dict[Datasource.Keys.avatarChatPosition.rawValue] as? String) ?? "Bottom",
-                           key: .avatarChatPosition)
-            ]),
-            Datasource(section: .contactList, title: Datasource.Section.contactList.description(), childs: [
-                Datasource(section: .contactList, title: "Avatars", itemType: .selector,
-                           values: AccountMasksManager.shared.masksList(),
-                           current: (dict[Datasource.Keys.avatarMasksCurrentAvatarMask.rawValue] as? String) ?? "None",
-                           key: .avatarMasksCurrentAvatarMask)
-            ])
-        ]
-        if CommonConfigManager.shared.config.locked_background.isNotEmpty {
-            interfaceChilds = [
-                Datasource(section: .chat, title: Datasource.Section.chat.description(), childs: [
-                    Datasource(section: .contactList, title: "Corner style", itemType: .selector,
-                               values: MessageStyleConfig.MessageBubbleContainer.verboseNames(),
-                               current: (dict[Datasource.Keys.messageCornerStyle.rawValue] as? String) ?? "No tail",
-                               key: .messageCornerStyle),
-                    Datasource(section: .contactList, title: "Corner radius", itemType: .selector,
-                               values: MessageStyleConfig.MessageRadius.getRadiusList(),
-                               current: (dict[Datasource.Keys.messageCornerRadius.rawValue] as? String) ?? "16",
-                               key: .messageCornerRadius),
-                    Datasource(section: .contactList, title: "Avatar position", itemType: .selector,
-                               values: ["Top", "Bottom"],
-                               current: (dict[Datasource.Keys.avatarChatPosition.rawValue] as? String) ?? "Bottom",
-                               key: .avatarChatPosition)
-                ]),
-                Datasource(section: .contactList, title: Datasource.Section.contactList.description(), childs: [
-                    Datasource(section: .contactList, title: "Avatars", itemType: .selector,
-                               values: AccountMasksManager.shared.masksList(),
-                               current: (dict[Datasource.Keys.avatarMasksCurrentAvatarMask.rawValue] as? String) ?? "None",
-                               key: .avatarMasksCurrentAvatarMask)
-                ])
-            ]
-        }
-
         datasource.append(Datasource(section: .settings, title: Datasource.Section.settings.description(), childs: [
             Datasource(
                 section: .privacy,
@@ -1127,7 +1073,7 @@ class SettingsViewController: BaseViewController {
                 viewController: PrivacySettingsViewController.self,
                 childs: []
               ),
-            Datasource(section: .interface, title: "Interface", icon: "custom.paintpalette.square.fill", color: UIColor.systemGreen, viewController: SimpleTableViewController.self, childs: interfaceChilds),
+            Datasource(section: .interface, title: "Interface", icon: "custom.paintpalette.square.fill", color: UIColor.systemGreen, viewController: InterfaceSettingsViewController.self),
             Datasource(section: .settings, title: "Notifications", icon: "custom.bell.square.fill", color: UIColor.systemGreen, viewController: SimpleTableViewController.self, childs: [
                         Datasource(section: .chat, title: "Notifications Sound", childs: [
                             Datasource(section: .chat, title: "Incoming massages", itemType: .selector,

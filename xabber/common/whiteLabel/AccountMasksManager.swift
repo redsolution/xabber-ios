@@ -61,6 +61,9 @@ class AccountMasksManager {
     }
     
     public func load() -> String? {
+        if let mask = AppearanceSettingsStore()?.load().profile.avatarMask.rawValue {
+            return mask
+        }
         guard let currentMask = SettingManager.shared.getKey(for: "", scope: .avatarMasks, key: "current_avatar_mask") else { return nil }
         return currentMask
     }
@@ -74,7 +77,16 @@ class AccountMasksManager {
     }
     
     public func save(mask: String) {
+        if let resolvedMask = AppearanceAvatarMask(rawValue: mask),
+           let store = AppearanceSettingsStore() {
+            var document = store.load()
+            document.profile.avatarMask = resolvedMask
+            _ = try? store.commit(document)
+        }
         SettingManager.shared.saveItem(for: "", scope: .avatarMasks, key: "current_avatar_mask", value: mask)
         update(mask: mask)
+        Task { @MainActor in
+            AppearanceCoordinator.shared.reloadAndApply()
+        }
     }
 }

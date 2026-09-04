@@ -1,0 +1,356 @@
+//
+//  InterfaceAppearanceTests.swift
+//  xabberTests
+//
+//  Created by Codex on 04.09.2026.
+//
+
+import XCTest
+import UIKit
+@testable import xabber
+
+final class InterfaceAppearanceTests: XCTestCase {
+    private var suiteName: String!
+    private var defaults: UserDefaults!
+
+    override func setUp() {
+        super.setUp()
+        suiteName = "InterfaceAppearanceTests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults = nil
+        suiteName = nil
+        super.tearDown()
+    }
+
+    func testFirstProfileUsesSystemModeAndConfiguredAccent() {
+        let store = AppearanceSettingsStore(
+            defaults: defaults,
+            defaultAccentHex: "#7B42F6"
+        )
+
+        let document = store.load()
+
+        XCTAssertEqual(document.version, AppearanceSettingsDocument.currentVersion)
+        XCTAssertEqual(document.profile.interfaceStyle, .system)
+        XCTAssertEqual(document.profile.accentOverride, AppearanceColor(hex: "#7B42F6"))
+        XCTAssertTrue(document.customThemes.isEmpty)
+    }
+
+    func testInvalidConfiguredAccentFallsBackToSystemBlue() {
+        let store = AppearanceSettingsStore(
+            defaults: defaults,
+            defaultAccentHex: "definitely-not-a-color"
+        )
+
+        XCTAssertEqual(store.load().profile.accentOverride, .systemBlue)
+    }
+
+    func testLegacySettingsAreMigratedAndClamped() {
+        defaults.set("Hearts", forKey: "chat_chooseBackground")
+        defaults.set("greenBlue", forKey: "chat_chooseBackgroundColor")
+        defaults.set("Curvy", forKey: "message_corner_style")
+        defaults.set("48", forKey: "message_corner_radius")
+        defaults.set("Top", forKey: "avatar_chat_vertical_position")
+        defaults.set("pentagon", forKey: "avatar_masks_current_avatar_mask_")
+
+        let profile = AppearanceSettingsStore(
+            defaults: defaults,
+            defaultAccentHex: "#0088CC"
+        ).load().profile
+
+        XCTAssertEqual(profile.wallpaper, .builtIn(name: "Hearts"))
+        XCTAssertEqual(profile.themeID, "builtin.greenBlue")
+        XCTAssertEqual(profile.bubbleStyle, .curvy)
+        XCTAssertEqual(profile.bubbleRadius, 16)
+        XCTAssertEqual(profile.avatarPosition, .top)
+        XCTAssertEqual(profile.avatarMask, .pentagon)
+    }
+
+    func testCorruptedPayloadFallsBackWithoutCrashing() {
+        defaults.set(Data("{broken".utf8), forKey: AppearanceSettingsStore.storageKey)
+
+        let profile = AppearanceSettingsStore(
+            defaults: defaults,
+            defaultAccentHex: "#0099FF"
+        ).load().profile
+
+        XCTAssertEqual(profile.interfaceStyle, .system)
+        XCTAssertEqual(profile.bubbleRadius, 16)
+        XCTAssertEqual(profile.textSize, .system)
+    }
+
+    func testDecodedPayloadDropsCustomThemeWhoseNameCollidesWithBuiltInCatalog() throws {
+        let builtIn = AppearanceThemeCatalog.builtInThemes[0]
+        var colliding = builtIn
+        colliding.id = "custom.collision"
+        colliding.isBuiltIn = false
+        colliding.name = builtIn.name.folding(options: .diacriticInsensitive, locale: .current).uppercased()
+        let document = AppearanceSettingsDocument(
+            profile: .default(accent: .systemBlue),
+            customThemes: [colliding]
+        )
+        defaults.set(try JSONEncoder().encode(document), forKey: AppearanceSettingsStore.storageKey)
+
+        let loaded = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF").load()
+
+        XCTAssertTrue(loaded.customThemes.isEmpty)
+    }
+
+    func testCommitPersistsOneDocumentAndMirrorsLegacyKeys() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        var document = store.load()
+        document.profile.bubbleStyle = .smooth
+        document.profile.bubbleRadius = 7
+        document.profile.avatarPosition = .top
+        document.profile.avatarMask = .roundedSquare
+        document.profile.wallpaper = .builtIn(name: "Cats")
+
+        let changes = try store.commit(document)
+
+        XCTAssertTrue(changes.contains(.layout))
+        XCTAssertTrue(changes.contains(.paint))
+        XCTAssertNotNil(defaults.data(forKey: AppearanceSettingsStore.storageKey))
+        XCTAssertEqual(defaults.string(forKey: "message_corner_style"), "Smooth")
+        XCTAssertEqual(defaults.string(forKey: "message_corner_radius"), "7")
+        XCTAssertEqual(defaults.string(forKey: "avatar_chat_vertical_position"), "Top")
+        XCTAssertEqual(defaults.string(forKey: "avatar_masks_current_avatar_mask_"), "rounded_square")
+        XCTAssertEqual(defaults.string(forKey: "chat_chooseBackground"), "Cats")
+    }
+
+    func testThemeCRUDRejectsCaseAndDiacriticDuplicates() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let first = try store.createCustomTheme(named: "Crème", basedOn: AppearanceThemeCatalog.builtInThemes[0])
+
+        XCTAssertThrowsError(
+            try store.createCustomTheme(named: " creme ", basedOn: AppearanceThemeCatalog.builtInThemes[1])
+        ) { error in
+            XCTAssertEqual(error as? AppearanceStoreError, .duplicateThemeName)
+        }
+
+        let renamed = try store.renameCustomTheme(id: first.id, to: "Evening")
+        XCTAssertEqual(renamed.name, "Evening")
+        try store.deleteCustomTheme(id: first.id)
+        XCTAssertTrue(store.load().customThemes.isEmpty)
+    }
+
+    func testEditingActiveCustomThemeIsReportedAsPaintChange() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let custom = try store.createCustomTheme(
+            named: "Nightfall",
+            basedOn: AppearanceThemeCatalog.builtInThemes[0]
+        )
+        var document = store.load()
+        document.profile.apply(theme: custom)
+        _ = try store.commit(document)
+
+        var edited = store.load()
+        let index = try XCTUnwrap(edited.customThemes.firstIndex(where: { $0.id == custom.id }))
+        edited.customThemes[index].lightPalette.accent = AppearanceColor(hex: "#FF5500")!
+
+        let changes = try store.commit(edited)
+
+        XCTAssertTrue(changes.contains(.paint))
+        XCTAssertFalse(changes.contains(.layout))
+    }
+
+    func testApplyingThemePreservesIndependentLayoutSettingsAndReplacesAccentOverride() {
+        var profile = AppearanceProfile.default(accent: AppearanceColor(hex: "#FF00FF")!)
+        profile.textSize = .points20
+        profile.bubbleStyle = .wedge
+        profile.bubbleRadius = 3
+        profile.avatarMask = .octagon
+        profile.avatarPosition = .top
+        let theme = AppearanceThemeCatalog.builtInThemes[2]
+
+        profile.apply(theme: theme)
+
+        XCTAssertEqual(profile.themeID, theme.id)
+        XCTAssertEqual(profile.wallpaper, theme.wallpaper)
+        XCTAssertNil(profile.accentOverride)
+        XCTAssertEqual(profile.textSize, .points20)
+        XCTAssertEqual(profile.bubbleStyle, .wedge)
+        XCTAssertEqual(profile.bubbleRadius, 3)
+        XCTAssertEqual(profile.avatarMask, .octagon)
+        XCTAssertEqual(profile.avatarPosition, .top)
+    }
+
+    func testApplyingThemeCanPreserveWallpaperForLockedWhiteLabel() {
+        var profile = AppearanceProfile.default(accent: .systemBlue)
+        profile.wallpaper = .builtIn(name: "Hearts")
+
+        profile.apply(theme: AppearanceThemeCatalog.builtInThemes[3], preserveWallpaper: true)
+
+        XCTAssertEqual(profile.themeID, AppearanceThemeCatalog.builtInThemes[3].id)
+        XCTAssertEqual(profile.wallpaper, .builtIn(name: "Hearts"))
+        XCTAssertNil(profile.accentOverride)
+    }
+
+    func testResolverUsesExplicitLightAndDarkPalettes() {
+        let theme = AppearanceThemeCatalog.builtInThemes[0]
+        var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        document.profile.themeID = theme.id
+        document.profile.accentOverride = nil
+
+        let light = AppearanceResolver.resolve(document: document, traitStyle: .light)
+        let dark = AppearanceResolver.resolve(document: document, traitStyle: .dark)
+
+        XCTAssertEqual(light.palette, theme.lightPalette)
+        XCTAssertEqual(dark.palette, theme.darkPalette)
+        XCTAssertEqual(light.accent, theme.lightPalette.accent)
+        XCTAssertEqual(dark.accent, theme.darkPalette.accent)
+    }
+
+    func testLayoutSignatureChangesForEveryGeometrySetting() {
+        let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        let base = AppearanceResolver.resolve(document: document, traitStyle: .light).layoutSignature
+
+        let mutations: [(inout AppearanceProfile) -> Void] = [
+            { $0.textSize = .points22 },
+            { $0.bubbleStyle = .curvy },
+            { $0.bubbleRadius = 0 },
+            { $0.avatarMask = .star },
+            { $0.avatarPosition = .top }
+        ]
+
+        for mutate in mutations {
+            var changed = document
+            mutate(&changed.profile)
+            XCTAssertNotEqual(
+                AppearanceResolver.resolve(document: changed, traitStyle: .light).layoutSignature,
+                base
+            )
+        }
+    }
+
+    func testDraftDoesNotMutateOriginalUntilCommit() {
+        let original = AppearanceProfile.default(accent: .systemBlue)
+        var draft = AppearanceDraft(profile: original)
+
+        draft.profile.bubbleRadius = 4
+
+        XCTAssertTrue(draft.isDirty)
+        XCTAssertEqual(original.bubbleRadius, 16)
+        XCTAssertEqual(draft.changeSet, [.layout])
+        draft.reset()
+        XCTAssertFalse(draft.isDirty)
+    }
+
+    func testPremiumPolicyMatchesExactFreeMatrix() {
+        let free = AppearancePremiumPolicy(isEntitled: false, subscriptionsEnabled: true)
+        let paid = AppearancePremiumPolicy(isEntitled: true, subscriptionsEnabled: true)
+
+        XCTAssertEqual(Set(free.visibleBubbleStyles), Set(AppearanceBubbleStyle.allCases))
+        XCTAssertTrue(free.canSelect(.noTail, currentlyApplied: .wedge))
+        XCTAssertFalse(free.canSelect(.wedge, currentlyApplied: .noTail))
+        XCTAssertTrue(free.canSelect(.wedge, currentlyApplied: .wedge))
+        XCTAssertFalse(free.canSelect(.star, currentlyApplied: .circle))
+        XCTAssertTrue(paid.canSelect(.star, currentlyApplied: .circle))
+        XCTAssertTrue(paid.canSelect(.transparent, currentlyApplied: .noTail))
+    }
+
+    func testDisabledSubscriptionsHidePremiumOptions() {
+        let policy = AppearancePremiumPolicy(isEntitled: false, subscriptionsEnabled: false)
+
+        XCTAssertEqual(Set(policy.visibleBubbleStyles), Set(AppearanceBubbleStyle.freeCases))
+        XCTAssertEqual(Set(policy.visibleAvatarMasks), Set(AppearanceAvatarMask.freeCases))
+    }
+
+    func testChangeSetSeparatesPaintLayoutAndInterfaceStyle() {
+        let old = AppearanceProfile.default(accent: .systemBlue)
+        var paint = old
+        paint.accentOverride = AppearanceColor(hex: "#FF5500")
+        var layout = old
+        layout.textSize = .points22
+        var style = old
+        style.interfaceStyle = .dark
+
+        XCTAssertEqual(AppearanceChangeSet.between(old, paint), [.paint])
+        XCTAssertEqual(AppearanceChangeSet.between(old, layout), [.layout])
+        XCTAssertEqual(AppearanceChangeSet.between(old, style), [.paint, .interfaceStyle])
+    }
+
+    @MainActor
+    func testPaintCommitInvalidatesOpenChatPresentation() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        var document = store.load()
+        document.profile.accentOverride = AppearanceColor(hex: "#FF5500")
+        let notification = expectation(forNotification: .chatInterfaceChanged, object: coordinator)
+
+        let changes = try coordinator.commit(document)
+
+        XCTAssertTrue(changes.contains(.paint))
+        wait(for: [notification], timeout: 0.1)
+    }
+
+    func testCloudOwnerPrefersReadyPremiumThenAccountOrder() {
+        let candidates = [
+            AppearanceCloudOwnerCandidate(owner: "first@example.test", galleryIdentity: "basic", isEnabled: true, isPremium: false, isReady: true),
+            AppearanceCloudOwnerCandidate(owner: "second@example.test", galleryIdentity: "premium", isEnabled: true, isPremium: true, isReady: true),
+            AppearanceCloudOwnerCandidate(owner: "third@example.test", galleryIdentity: "premium", isEnabled: true, isPremium: true, isReady: true)
+        ]
+
+        XCTAssertEqual(AppearanceCloudOwnerSelector.select(from: candidates)?.owner, "second@example.test")
+        XCTAssertEqual(
+            AppearanceCloudOwnerSelector.select(from: Array(candidates.prefix(1)))?.owner,
+            "first@example.test"
+        )
+    }
+
+    func testCloudOwnerExcludesDisabledOrUnreadyAccounts() {
+        let candidates = [
+            AppearanceCloudOwnerCandidate(owner: "disabled@example.test", galleryIdentity: "premium", isEnabled: false, isPremium: true, isReady: true),
+            AppearanceCloudOwnerCandidate(owner: "unready@example.test", galleryIdentity: "premium", isEnabled: true, isPremium: true, isReady: false)
+        ]
+
+        XCTAssertNil(AppearanceCloudOwnerSelector.select(from: candidates))
+    }
+
+    func testTypographyExposesSevenFixedStepsAndSystem() {
+        XCTAssertEqual(AppearanceTextSize.fixedCases.map(\.points), [14, 15, 16, 17, 18, 20, 22])
+        XCTAssertNil(AppearanceTextSize.system.points)
+    }
+
+    func testWallpaperPhotoProcessorConstrainsLongEdgeAndProducesJPEG() throws {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 4200, height: 2100))
+        let source = renderer.image { context in
+            UIColor.systemPink.setFill()
+            context.fill(CGRect(origin: .zero, size: CGSize(width: 4200, height: 2100)))
+        }
+
+        let asset = try AppearanceWallpaperPhotoProcessor.process(source)
+        let decoded = try XCTUnwrap(UIImage(data: asset.data))
+
+        XCTAssertEqual(decoded.size.width, 3072, accuracy: 1)
+        XCTAssertEqual(decoded.size.height, 1536, accuracy: 1)
+        XCTAssertEqual(asset.mimeType, "image/jpeg")
+        XCTAssertEqual(asset.filename, "chat-wallpaper-\(asset.hash.prefix(12)).jpg")
+    }
+
+    func testWallpaperCacheRoundTripsByCloudIdentity() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("InterfaceAppearanceTests-\(UUID().uuidString)", isDirectory: true)
+        let cache = AppearanceWallpaperCache(rootDirectory: root)
+        let reference = CloudWallpaperReference(
+            owner: "wallpaper@example.test",
+            galleryIdentity: "gallery-a",
+            fileID: "42",
+            url: "https://example.test/file.jpg",
+            thumbnailURL: nil,
+            hash: "deadbeef",
+            mimeType: "image/jpeg"
+        )
+        let payload = Data("image-payload".utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try cache.store(payload, for: reference)
+
+        XCTAssertEqual(cache.data(for: reference), payload)
+        XCTAssertTrue(cache.fileURL(for: reference).lastPathComponent.contains("deadbeef"))
+    }
+}

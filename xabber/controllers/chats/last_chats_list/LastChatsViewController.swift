@@ -5283,6 +5283,10 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(reloadDatasource),
+                                               name: .appearanceDidChange,
+                                               object: nil)
         NotificationCenter
             .default
             .addObserver(self,

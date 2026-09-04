@@ -1519,6 +1519,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
         self.window = window
         self.rootCoordinator = coordinator
+        AppearanceCoordinator.shared.apply(to: window)
         window.makeKeyAndVisible()
     }
 

@@ -162,7 +162,7 @@ final class InputTextView: UITextView {
     /// Sets up the default properties
     final func setup() {
         
-        font = UIFont.preferredFont(forTextStyle: .body)
+        font = AppearanceTypography.currentFont(textStyle: .body)
 //        textContainerInset = UIEdgeInsets(top: 7, left: 8, bottom: 9, right: 13)
         textContainerInset = UIEdgeInsets(top: 7, left: 4, bottom: 9, right: 8)
         scrollIndicatorInsets = UIEdgeInsets(top: .leastNonzeroMagnitude,
@@ -225,6 +225,18 @@ final class InputTextView: UITextView {
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(InputTextView.redrawTextAttachments),
                                                name: UIDevice.orientationDidChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appearanceDidChange),
+            name: .appearanceDidChange,
+            object: nil
+        )
+    }
+
+    @objc private func appearanceDidChange() {
+        font = AppearanceTypography.currentFont(textStyle: .body)
+        setNeedsLayout()
+        invalidateIntrinsicContentSize()
     }
     
     /// Updates the placeholderLabels constraint constants to match the placeholderLabelInsets

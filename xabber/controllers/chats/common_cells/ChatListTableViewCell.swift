@@ -394,6 +394,11 @@ class ChatListTableViewCell: UITableViewCell {
                                 hasErrorInChat: Bool,
                                 verAction: Bool) {
 
+        usernameLabel.font = AppearanceTypography.currentFont(textStyle: .body, weight: .medium)
+        subtitleLabel.font = AppearanceTypography.currentFont(textStyle: .subheadline)
+        messageLabel.font = AppearanceTypography.currentFont(textStyle: .subheadline)
+        dateLabel.font = AppearanceTypography.currentFont(textStyle: .subheadline)
+
         if conversationType == .saved {
             self.avatarRequestKey = nil
             self.appliedAvatarRequestKey = nil
@@ -452,7 +457,7 @@ class ChatListTableViewCell: UITableViewCell {
         usernameLabel.sizeToFit()
         
         subtitleLabel.text = groupchatNickname
-        subtitleLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+        subtitleLabel.font = AppearanceTypography.currentFont(textStyle: .subheadline)
         if let groupchatNickname = groupchatNickname?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            groupchatNickname.isNotEmpty {
@@ -761,16 +766,16 @@ fileprivate extension UILabel {
         var textString: NSMutableAttributedString
         if isSystem {
             textString = NSMutableAttributedString(string: text, attributes: [
-                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 14).italic()
+                NSAttributedString.Key.font: AppearanceTypography.currentFont(textStyle: .subheadline).italic()
             ])
         } else {
             textString = NSMutableAttributedString(string: text, attributes: [
-                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 14)
+                NSAttributedString.Key.font: AppearanceTypography.currentFont(textStyle: .subheadline)
             ])
         }
         if isDraft {
             textString = NSMutableAttributedString(string: ["Draft".localizeString(id: "draft", arguments: []), text].joined(separator: "\n"), attributes: [
-                NSAttributedString.Key.font: UIFont.systemFont(ofSize: 14)
+                NSAttributedString.Key.font: AppearanceTypography.currentFont(textStyle: .subheadline)
             ])
         }
         let textRange = NSRange(location: 0, length: textString.length)

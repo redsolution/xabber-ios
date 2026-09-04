@@ -2492,6 +2492,10 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                                                selector: #selector(reloadDatasource),
                                                name: .newMaskSelected,
                                                object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(reloadDatasource),
+                                               name: .appearanceDidChange,
+                                               object: nil)
         configureBars(animated: false)
         if self.category == nil {
             if isGroup {

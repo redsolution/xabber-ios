@@ -30,6 +30,29 @@ enum QRCodePresentationMode {
 struct SettingsAccountQRCodeTheme: Equatable {
     let gradient: ChatViewController.BackgroundColor
     let backgroundName: String
+    let lightColors: [AppearanceColor]?
+    let darkColors: [AppearanceColor]?
+    let wallpaper: AppearanceWallpaper?
+
+    init(
+        gradient: ChatViewController.BackgroundColor,
+        backgroundName: String,
+        lightColors: [AppearanceColor]? = nil,
+        darkColors: [AppearanceColor]? = nil,
+        wallpaper: AppearanceWallpaper? = nil
+    ) {
+        self.gradient = gradient
+        self.backgroundName = backgroundName
+        self.lightColors = lightColors
+        self.darkColors = darkColors
+        self.wallpaper = wallpaper
+    }
+
+    func gradientColors(dark: Bool) -> [CGColor] {
+        let colors = dark ? darkColors : lightColors
+        return colors?.map { $0.uiColor.cgColor }
+            ?? ChatViewController.getColorsForGradient(forColor: gradient)
+    }
 }
 
 enum SettingsAccountQRCodePayload {
@@ -53,11 +76,28 @@ enum SettingsAccountQRCodeThemeCatalog {
     ]
 
     static func currentTheme() -> SettingsAccountQRCodeTheme {
-        let rawGradient = SettingManager.shared.getString(for: "chat_chooseBackgroundColor") ?? "purple"
+        let document = AppearanceSettingsStore()?.load()
+            ?? AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        let appearanceTheme = AppearanceThemeCatalog.theme(
+            id: document.profile.themeID,
+            customThemes: document.customThemes
+        )
+        let rawGradient = appearanceTheme.id.replacingOccurrences(of: "builtin.", with: "")
         let gradient = ChatViewController.BackgroundColor(rawValue: rawGradient) ?? .purple
-        let savedBackground = SettingManager.shared.getString(for: "chat_chooseBackground") ?? chatBackgroundNames[0]
+        let savedBackground: String
+        if case .builtIn(let name) = document.profile.wallpaper {
+            savedBackground = name
+        } else {
+            savedBackground = chatBackgroundNames[0]
+        }
         let background = chatBackgroundNames.contains(savedBackground) ? savedBackground : chatBackgroundNames[0]
-        return SettingsAccountQRCodeTheme(gradient: gradient, backgroundName: background)
+        return SettingsAccountQRCodeTheme(
+            gradient: gradient,
+            backgroundName: background,
+            lightColors: appearanceTheme.lightPalette.backgroundStops,
+            darkColors: appearanceTheme.darkPalette.backgroundStops,
+            wallpaper: document.profile.wallpaper
+        )
     }
 
     static func themes(
@@ -297,15 +337,43 @@ private final class SettingsAccountQRCodeCanvasView: UIView {
         payload: String,
         jid: String
     ) {
-        let gradientColors = ChatViewController.getColorsForGradient(forColor: theme.gradient)
+        var gradientColors = theme.gradientColors(dark: appearance == .dark)
+        if case .some(.gradient(let stops, _, _)) = theme.wallpaper, !stops.isEmpty {
+            gradientColors = stops.map { $0.uiColor.cgColor }
+        }
         gradientLayer.colors = gradientColors
         gradientLayer.startPoint = CGPoint(x: 0, y: 1)
         gradientLayer.endPoint = CGPoint(x: 1, y: 0)
 
-        patternImageView.image = UIImage(named: theme.backgroundName.lowercased())?
-            .withRenderingMode(.alwaysTemplate)
-            .resizableImage(withCapInsets: .zero, resizingMode: .tile)
-        patternImageView.tintColor = appearance == .light ? .white : .black
+        patternImageView.alpha = 0.12
+        patternImageView.transform = .identity
+        switch theme.wallpaper {
+        case .some(.none):
+            patternImageView.image = nil
+        case .some(.builtIn(let name)):
+            patternImageView.image = UIImage(named: name.lowercased())?
+                .withRenderingMode(.alwaysTemplate)
+                .resizableImage(withCapInsets: .zero, resizingMode: .tile)
+            patternImageView.tintColor = appearance == .light ? .white : .black
+        case .some(.gradient(_, let pattern, let intensity)):
+            patternImageView.image = pattern.flatMap { UIImage(named: $0.lowercased()) }?
+                .withRenderingMode(.alwaysTemplate)
+                .resizableImage(withCapInsets: .zero, resizingMode: .tile)
+            patternImageView.tintColor = appearance == .light ? .white : .black
+            patternImageView.alpha = CGFloat(intensity) / 100
+        case .some(.cloud(let reference, _, let motion)):
+            patternImageView.image = AppearanceWallpaperCache().image(for: reference)
+            patternImageView.tintColor = nil
+            patternImageView.alpha = 1
+            if motion && !UIAccessibility.isReduceMotionEnabled {
+                patternImageView.transform = CGAffineTransform(scaleX: 1.06, y: 1.06)
+            }
+        case nil:
+            patternImageView.image = UIImage(named: theme.backgroundName.lowercased())?
+                .withRenderingMode(.alwaysTemplate)
+                .resizableImage(withCapInsets: .zero, resizingMode: .tile)
+            patternImageView.tintColor = appearance == .light ? .white : .black
+        }
 
         let cardColor: UIColor
         let foregroundColor: UIColor
@@ -466,14 +534,40 @@ private final class SettingsAccountQRCodeThemeCell: UICollectionViewCell {
 
     func apply(theme: SettingsAccountQRCodeTheme, appearance: SettingsAccountQRCodeAppearance) {
         accessibilityLabel = "\(theme.backgroundName), \(theme.gradient.rawValue)"
-        let gradientColors = ChatViewController.getColorsForGradient(forColor: theme.gradient)
+        var gradientColors = theme.gradientColors(dark: appearance == .dark)
+        if case .some(.gradient(let stops, _, _)) = theme.wallpaper, !stops.isEmpty {
+            gradientColors = stops.map { $0.uiColor.cgColor }
+        }
         gradientLayer.colors = gradientColors
         gradientLayer.startPoint = CGPoint(x: 0, y: 1)
         gradientLayer.endPoint = CGPoint(x: 1, y: 0)
         selectionBorderLayer.colors = gradientColors
-        patternImageView.image = UIImage(named: theme.backgroundName.lowercased())?
-            .withRenderingMode(.alwaysTemplate)
-            .resizableImage(withCapInsets: .zero, resizingMode: .tile)
+        patternImageView.alpha = 0.14
+        patternImageView.transform = .identity
+        switch theme.wallpaper {
+        case .some(.none):
+            patternImageView.image = nil
+        case .some(.builtIn(let name)):
+            patternImageView.image = UIImage(named: name.lowercased())?
+                .withRenderingMode(.alwaysTemplate)
+                .resizableImage(withCapInsets: .zero, resizingMode: .tile)
+        case .some(.gradient(_, let pattern, let intensity)):
+            patternImageView.image = pattern.flatMap { UIImage(named: $0.lowercased()) }?
+                .withRenderingMode(.alwaysTemplate)
+                .resizableImage(withCapInsets: .zero, resizingMode: .tile)
+            patternImageView.alpha = CGFloat(intensity) / 100
+        case .some(.cloud(let reference, _, let motion)):
+            patternImageView.image = AppearanceWallpaperCache().image(for: reference)
+            patternImageView.alpha = 1
+            if motion && !UIAccessibility.isReduceMotionEnabled {
+                patternImageView.transform = CGAffineTransform(scaleX: 1.06, y: 1.06)
+            }
+        case nil:
+            patternImageView.image = UIImage(named: theme.backgroundName.lowercased())?
+                .withRenderingMode(.alwaysTemplate)
+                .resizableImage(withCapInsets: .zero, resizingMode: .tile)
+        }
+        patternImageView.tintColor = appearance == .light ? .white : .black
         miniCardView.backgroundColor = appearance == .light ? .white : UIColor(white: 0.075, alpha: 1)
         qrSymbolImageView.tintColor = appearance == .light ? .black : .white
     }

@@ -201,6 +201,9 @@ extension ContactsViewController {
         }
 
         open func configure(title: String, subtitle: String, bottomLine: String?, groups: [String], jid: String, owner: String, showAvatar: Bool, avatarUrl: String?, entity: RosterItemEntity, status: ResourceStatus) {
+            titleLabel.font = AppearanceTypography.currentFont(textStyle: .body)
+            subtitleLabel.font = AppearanceTypography.currentFont(textStyle: .caption1)
+            bottomLineLabel.font = AppearanceTypography.currentFont(textStyle: .caption1)
             titleLabel.text = title
             subtitleLabel.text = subtitle
             subtitleLabel.isHidden = subtitle.isEmpty

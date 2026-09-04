@@ -18,6 +18,7 @@ struct ChatMessageLayoutContext: Hashable {
     let messageStyle: String
     let cornerRadius: String
     let avatarMode: String
+    var appearanceSignature: String = "legacy"
 
     var normalizedWidth: CGFloat {
         (max(1, width) * 100).rounded(.toNearestOrAwayFromZero) / 100
@@ -39,7 +40,8 @@ struct ChatMessageLayoutKey: Hashable {
             interfaceStyleRawValue: context.interfaceStyleRawValue,
             messageStyle: context.messageStyle,
             cornerRadius: context.cornerRadius,
-            avatarMode: context.avatarMode
+            avatarMode: context.avatarMode,
+            appearanceSignature: context.appearanceSignature
         )
     }
 

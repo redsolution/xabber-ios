@@ -5155,6 +5155,7 @@ class ChatViewController: MessagesViewController {
     internal let gradient = CAGradientLayer()
     internal let backgroundView = UIView()
     internal let backgroundImage = UIImageView()
+    private let backgroundBlurView = UIVisualEffectView(effect: nil)
     internal let gradientView = UIView()
     private let localChatBackdropView = ChatBackgroundBackdropView()
     
@@ -6000,7 +6001,7 @@ class ChatViewController: MessagesViewController {
     }
     
     final func configureBackground() {
-        if backgroundPresentationMode == .sharedSplitBackdrop {
+        if backgroundPresentationMode == .sharedSplitBackdrop && !conversationType.isEncrypted {
             backgroundView.removeFromSuperview()
             localChatBackdropView.removeFromSuperview()
             messagesCollectionView.backgroundColor = .clear
@@ -6009,11 +6010,12 @@ class ChatViewController: MessagesViewController {
             return
         }
 
-        if backgroundPresentationMode == .localChatBackdrop {
+        if backgroundPresentationMode == .localChatBackdrop ||
+            (backgroundPresentationMode == .sharedSplitBackdrop && conversationType.isEncrypted) {
             backgroundView.removeFromSuperview()
             localChatBackdropView.frame = view.bounds
             localChatBackdropView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            localChatBackdropView.reloadFromSettings()
+            localChatBackdropView.reload(encrypted: conversationType.isEncrypted)
             if localChatBackdropView.superview !== view {
                 view.addSubview(localChatBackdropView)
             }
@@ -6038,6 +6040,7 @@ class ChatViewController: MessagesViewController {
         view.isOpaque = true
         backgroundView.frame = self.view.bounds
         backgroundImage.frame = self.backgroundView.bounds
+        backgroundBlurView.frame = self.backgroundView.bounds
         
         gradientView.frame = self.backgroundView.bounds
         gradient.frame = self.gradientView.bounds
@@ -6051,7 +6054,9 @@ class ChatViewController: MessagesViewController {
         gradientView.layer.addSublayer(gradient)
         backgroundView.addSubview(gradientView)
         backgroundView.addSubview(backgroundImage)
+        backgroundView.addSubview(backgroundBlurView)
         backgroundView.bringSubviewToFront(backgroundImage)
+        backgroundView.bringSubviewToFront(backgroundBlurView)
         self.messagesCollectionView.backgroundColor = .clear
         self.view.addSubview(backgroundView)
         self.view.sendSubviewToBack(backgroundView)
@@ -6756,6 +6761,7 @@ class ChatViewController: MessagesViewController {
             size: self.view.bounds.size
         )
         backgroundImage.frame = self.view.bounds
+        backgroundBlurView.frame = self.view.bounds
         
         gradientView.frame = self.view.bounds
         
@@ -8062,28 +8068,58 @@ class ChatViewController: MessagesViewController {
     }
     
     @objc func updateBackground() {
-        localChatBackdropView.reloadFromSettings()
-        let backgroundResourceName = SettingManager.shared.getString(for: "chat_chooseBackground") ?? "None"
-        if backgroundResourceName != "None" {
-            backgroundImage.image = UIImage(named: backgroundResourceName.lowercased())?
+        localChatBackdropView.reload(encrypted: conversationType.isEncrypted)
+        let document = AppearanceSettingsStore()?.load()
+            ?? AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        let snapshot = AppearanceResolver.resolve(
+            document: document,
+            traitStyle: traitCollection.userInterfaceStyle
+        )
+        backgroundImage.transform = .identity
+        backgroundBlurView.effect = nil
+
+        if conversationType.isEncrypted {
+            backgroundImage.image = nil
+            gradient.colors = [
+                UIColor(red: 253 / 255, green: 216 / 255, blue: 25 / 255, alpha: 1).cgColor,
+                UIColor(red: 232 / 255, green: 5 / 255, blue: 5 / 255, alpha: 1).cgColor
+            ]
+            return
+        }
+
+        gradient.colors = snapshot.palette.backgroundStops.map { $0.uiColor.cgColor }
+        switch document.profile.wallpaper {
+        case .none:
+            backgroundImage.image = nil
+        case .builtIn(let name):
+            backgroundImage.image = UIImage(named: name.lowercased())?
                 .withRenderingMode(.alwaysTemplate)
                 .resizableImage(withCapInsets: UIEdgeInsets.zero,
                                 resizingMode: .tile)
             backgroundImage.tintColor = .systemBackground
             backgroundImage.alpha = 0.1
             backgroundImage.contentMode = .scaleAspectFill
-        } else {
-            backgroundImage.image = nil
-        }
-        
-        if conversationType.isEncrypted {
-            gradient.colors = [
-                CGColor(red: 253/255, green: 216/255, blue: 25/255, alpha: 1.0),
-                CGColor(red: 232/255, green: 5/255, blue: 5/255, alpha: 1.0)
-            ]
-        } else {
-            let backgroundResourceColor = SettingManager.shared.getString(for: "chat_chooseBackgroundColor") ?? "None"
-            gradient.colors = ChatViewController.getColorsForGradient(forColor: BackgroundColor(rawValue: backgroundResourceColor) ?? .purple)
+        case .gradient(let stops, let pattern, let intensity):
+            if !stops.isEmpty {
+                gradient.colors = stops.map { $0.uiColor.cgColor }
+            }
+            backgroundImage.image = pattern.flatMap { UIImage(named: $0.lowercased()) }?
+                .withRenderingMode(.alwaysTemplate)
+                .resizableImage(withCapInsets: .zero, resizingMode: .tile)
+            backgroundImage.tintColor = .systemBackground
+            backgroundImage.alpha = CGFloat(intensity) / 100
+            backgroundImage.contentMode = .scaleAspectFill
+        case .cloud(let reference, let blurred, let motion):
+            backgroundImage.image = AppearanceWallpaperCache().image(for: reference)
+            backgroundImage.tintColor = nil
+            backgroundImage.alpha = 1
+            backgroundImage.contentMode = .scaleAspectFill
+            if motion && !UIAccessibility.isReduceMotionEnabled {
+                backgroundImage.transform = CGAffineTransform(scaleX: 1.06, y: 1.06)
+            }
+            if blurred {
+                backgroundBlurView.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+            }
         }
     }
     

@@ -352,6 +352,8 @@ enum ContinuousSplitBackgroundExperiment {
 final class ChatBackgroundBackdropView: UIView {
     private let gradientLayer = CAGradientLayer()
     private let patternImageView = UIImageView()
+    private let blurView = UIVisualEffectView(effect: nil)
+    private var usesEncryptedPalette = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -363,6 +365,8 @@ final class ChatBackgroundBackdropView: UIView {
         patternImageView.alpha = 0.1
         patternImageView.tintColor = .systemBackground
         patternImageView.contentMode = .scaleAspectFill
+        patternImageView.clipsToBounds = true
+        addSubview(blurView)
     }
 
     required init?(coder: NSCoder) {
@@ -373,23 +377,76 @@ final class ChatBackgroundBackdropView: UIView {
         super.layoutSubviews()
         gradientLayer.frame = bounds
         patternImageView.frame = bounds
+        blurView.frame = bounds
     }
 
     @objc
     func reloadFromSettings() {
-        let rawColor = SettingManager.shared.getString(for: "chat_chooseBackgroundColor") ?? "purple"
-        let color = ChatViewController.BackgroundColor(rawValue: rawColor) ?? .purple
-        gradientLayer.colors = ChatViewController.getColorsForGradient(forColor: color)
+        reload(encrypted: usesEncryptedPalette)
+    }
+
+    func reload(encrypted: Bool) {
+        usesEncryptedPalette = encrypted
+        let document = AppearanceSettingsStore()?.load()
+            ?? AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        let snapshot = AppearanceResolver.resolve(
+            document: document,
+            traitStyle: traitCollection.userInterfaceStyle
+        )
+        gradientLayer.colors = encrypted
+            ? [
+                UIColor(red: 253 / 255, green: 216 / 255, blue: 25 / 255, alpha: 1).cgColor,
+                UIColor(red: 232 / 255, green: 5 / 255, blue: 5 / 255, alpha: 1).cgColor
+            ]
+            : snapshot.palette.backgroundStops.map { $0.uiColor.cgColor }
         gradientLayer.startPoint = CGPoint(x: 0.0, y: 1.0)
         gradientLayer.endPoint = CGPoint(x: 1.0, y: 0.0)
+        patternImageView.transform = .identity
+        blurView.effect = nil
 
-        let backgroundName = SettingManager.shared.getString(for: "chat_chooseBackground") ?? "None"
-        if backgroundName == "None" {
+        guard !encrypted else {
             patternImageView.image = nil
-        } else {
-            patternImageView.image = UIImage(named: backgroundName.lowercased())?
+            return
+        }
+
+        switch document.profile.wallpaper {
+        case .none:
+            patternImageView.image = nil
+        case .builtIn(let name):
+            patternImageView.image = UIImage(named: name.lowercased())?
                 .withRenderingMode(.alwaysTemplate)
                 .resizableImage(withCapInsets: .zero, resizingMode: .tile)
+            patternImageView.tintColor = .systemBackground
+            patternImageView.alpha = 0.1
+            patternImageView.contentMode = .scaleAspectFill
+        case .gradient(let stops, let pattern, let intensity):
+            if !stops.isEmpty {
+                gradientLayer.colors = stops.map { $0.uiColor.cgColor }
+            }
+            patternImageView.image = pattern.flatMap { UIImage(named: $0.lowercased()) }?
+                .withRenderingMode(.alwaysTemplate)
+                .resizableImage(withCapInsets: .zero, resizingMode: .tile)
+            patternImageView.tintColor = .systemBackground
+            patternImageView.alpha = CGFloat(intensity) / 100
+            patternImageView.contentMode = .scaleAspectFill
+        case .cloud(let reference, let blurred, let motion):
+            patternImageView.image = AppearanceWallpaperCache().image(for: reference)
+            patternImageView.tintColor = nil
+            patternImageView.alpha = 1
+            patternImageView.contentMode = .scaleAspectFill
+            if blurred {
+                blurView.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+            }
+            if motion && !UIAccessibility.isReduceMotionEnabled {
+                patternImageView.transform = CGAffineTransform(scaleX: 1.06, y: 1.06)
+            }
+        }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.hasDifferentColorAppearance(comparedTo: traitCollection) == true {
+            reloadFromSettings()
         }
     }
 }

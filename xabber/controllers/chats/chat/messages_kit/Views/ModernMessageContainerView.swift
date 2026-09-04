@@ -168,6 +168,15 @@ open class ModernMessageContainerView: UIView {
             lastBackgroundSignature = nil
             return
         }
+        let document = AppearanceSettingsStore()?.load()
+            ?? AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        let palette = AppearanceResolver.resolve(
+            document: document,
+            traitStyle: traitCollection.userInterfaceStyle
+        ).palette
+        bubble.backgroundColor = side == .left
+            ? palette.incomingBubble.uiColor
+            : palette.outgoingBubble.uiColor
         let signature = BackgroundSignature(
             size: bounds.size,
             radius1: radius1,
@@ -207,8 +216,6 @@ open class ModernMessageContainerView: UIView {
             self.bubble.layer.mask = bubbleMaskLayer
         }
         self.bubble.layer.masksToBounds = true
-//        self.bubble.layer.backgroundColor = side == .left ? UIColor.systemRed.cgColor : UIColor.systemBlue.cgColor
-        self.bubble.layer.backgroundColor = side == .left ? UIColor(red: 227.0 / 255.0, green: 242.0 / 255.0, blue: 253.0 / 255.0, alpha: 1).cgColor : UIColor.white.cgColor
         if side == .left {
             if topCorner {
                 self.bubble.transform = CGAffineTransform(scaleX: -1, y: -1)
@@ -328,6 +335,14 @@ open class ModernMessageContainerView: UIView {
     open override func layoutSubviews() {
         super.layoutSubviews()
         setupBackground()
+    }
+
+    open override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if previousTraitCollection?.hasDifferentColorAppearance(comparedTo: traitCollection) == true {
+            lastBackgroundSignature = nil
+            setupBackground()
+        }
     }
     
     
