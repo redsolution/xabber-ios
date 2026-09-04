@@ -106,6 +106,26 @@ final class ChatWaveformRenderingTests: XCTestCase {
         XCTAssertTrue(view.iconButton.isPulseActive)
     }
 
+    func testAudioViewBuildsStaticWaveformAfterReceivingDeferredWidth() {
+        let view = InlineAudiosGridView.AudioView(frame: .zero, url: nil)
+        view.palette = .blue
+        view.configure(
+            "voice-deferred-width",
+            filename: "voice",
+            size: "10 KB",
+            duration: 12,
+            pcm: [0.15, 0.45, 0.85, 0.35]
+        )
+
+        XCTAssertEqual(ChatWaveformRenderInstrumentation.snapshot.staticPathBuildCount, 0)
+
+        view.frame = CGRect(x: 0, y: 0, width: 280, height: 44)
+        view.layoutSubviews()
+
+        XCTAssertGreaterThan(view.waveform.bounds.width, 0)
+        XCTAssertEqual(ChatWaveformRenderInstrumentation.snapshot.staticPathBuildCount, 1)
+    }
+
     func testGridRoutesStateOnlyToMatchingReference() throws {
         let grid = InlineAudiosGridView(frame: CGRect(x: 0, y: 0, width: 320, height: 88))
         grid.configure(

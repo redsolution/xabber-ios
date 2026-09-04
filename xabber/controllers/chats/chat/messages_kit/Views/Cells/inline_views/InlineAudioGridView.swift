@@ -469,6 +469,8 @@ public class InlineAudiosGridView: InlineAttachmentView {
         public override func layoutSubviews() {
             super.layoutSubviews()
             layoutAudioContent()
+            waveform.setNeedsLayout()
+            waveform.layoutIfNeeded()
             updateDownloadProgressPath()
         }
 
