@@ -373,6 +373,53 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
+    func testOverviewThemeMiniatureUsesPlainRoundedMessagePictograms() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
+        controller.overrideUserInterfaceStyle = .light
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+        let rose = try XCTUnwrap(
+            AppearanceThemeCatalog.builtInThemes.first(where: { $0.name == "Rose" })
+        )
+        let overviewCell = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        )
+        let themeControl = try XCTUnwrap(
+            descendant(
+                in: overviewCell,
+                accessibilityIdentifier: "interface.theme.mini.\(rose.id)"
+            )
+        )
+        let incoming = try XCTUnwrap(
+            descendant(
+                in: themeControl,
+                accessibilityIdentifier: "interface.theme.bubble.incoming.\(rose.id)"
+            )
+        )
+        let outgoing = try XCTUnwrap(
+            descendant(
+                in: themeControl,
+                accessibilityIdentifier: "interface.theme.bubble.outgoing.\(rose.id)"
+            )
+        )
+        let palette = rose.palette(for: .light)
+
+        XCTAssertFalse(incoming is ModernMessageContainerView)
+        XCTAssertFalse(outgoing is ModernMessageContainerView)
+        XCTAssertNil(incoming.layer.mask)
+        XCTAssertNil(outgoing.layer.mask)
+        XCTAssertEqual(incoming.layer.cornerRadius, 9)
+        XCTAssertEqual(outgoing.layer.cornerRadius, 9)
+        XCTAssertEqual(incoming.backgroundColor, palette.incomingBubble.uiColor)
+        XCTAssertEqual(outgoing.backgroundColor, palette.outgoingBubble.uiColor)
+    }
+
+    @MainActor
     func testAppearancePreviewUsesProductionChatCellsAndBubbleGeometry() throws {
         var profile = AppearanceProfile.default(accent: .systemBlue)
         profile.bubbleStyle = .smooth

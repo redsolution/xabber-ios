@@ -330,8 +330,8 @@ private final class AppearanceOverviewCell: UITableViewCell {
 
 private final class AppearanceThemeMiniControl: UIControl {
     private let background = ChatBackgroundBackdropView()
-    private let incoming = ModernMessageContainerView()
-    private let outgoing = ModernMessageContainerView()
+    private let incoming = UIView()
+    private let outgoing = UIView()
     private let nameLabel = UILabel()
 
     override init(frame: CGRect) {
@@ -344,8 +344,12 @@ private final class AppearanceThemeMiniControl: UIControl {
         incoming.translatesAutoresizingMaskIntoConstraints = false
         outgoing.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        incoming.setup()
-        outgoing.setup()
+        incoming.layer.cornerRadius = 9
+        incoming.layer.cornerCurve = .continuous
+        incoming.clipsToBounds = true
+        outgoing.layer.cornerRadius = 9
+        outgoing.layer.cornerCurve = .continuous
+        outgoing.clipsToBounds = true
         background.isUserInteractionEnabled = false
         incoming.isUserInteractionEnabled = false
         outgoing.isUserInteractionEnabled = false
@@ -397,30 +401,12 @@ private final class AppearanceThemeMiniControl: UIControl {
             document: themeDocument,
             traitStyle: traits.userInterfaceStyle
         )
-        let radius = appearanceMessageRadius(
-            style: snapshot.profile.bubbleStyle,
-            value: snapshot.profile.bubbleRadius
-        )
         background.configure(document: themeDocument)
         background.accessibilityIdentifier = "interface.theme.wallpaper.\(theme.id)"
-        incoming.appearancePaletteOverride = snapshot.palette
-        incoming.configure(
-            tail: snapshot.profile.bubbleStyle.messageTailIdentifier,
-            side: .left,
-            radiusLU: radius.leftUpper,
-            radiusRU: radius.rightUpper,
-            radiusRB: radius.rightBottom,
-            radiusLB: radius.leftBottom
-        )
-        outgoing.appearancePaletteOverride = snapshot.palette
-        outgoing.configure(
-            tail: snapshot.profile.bubbleStyle.messageTailIdentifier,
-            side: .right,
-            radiusLU: radius.leftUpper,
-            radiusRU: radius.rightUpper,
-            radiusRB: radius.rightBottom,
-            radiusLB: radius.leftBottom
-        )
+        incoming.backgroundColor = snapshot.palette.incomingBubble.uiColor
+        incoming.accessibilityIdentifier = "interface.theme.bubble.incoming.\(theme.id)"
+        outgoing.backgroundColor = snapshot.palette.outgoingBubble.uiColor
+        outgoing.accessibilityIdentifier = "interface.theme.bubble.outgoing.\(theme.id)"
         nameLabel.text = theme.name
         layer.borderWidth = selected ? 3 : 0
         layer.borderColor = accent.cgColor
