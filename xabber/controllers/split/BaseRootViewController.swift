@@ -354,6 +354,10 @@ final class ChatBackgroundBackdropView: UIView {
     private let patternImageView = UIImageView()
     private let blurView = UIVisualEffectView(effect: nil)
     private var usesEncryptedPalette = false
+    private var configuredDocument: AppearanceSettingsDocument?
+
+    private(set) var representedWallpaper: AppearanceWallpaper?
+    var hasVisibleWallpaperImage: Bool { patternImageView.image != nil }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -386,9 +390,24 @@ final class ChatBackgroundBackdropView: UIView {
     }
 
     func reload(encrypted: Bool) {
+        configuredDocument = nil
         usesEncryptedPalette = encrypted
         let document = AppearanceSettingsStore()?.load()
             ?? AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        render(document: document, encrypted: encrypted)
+    }
+
+    /// Renders an explicit appearance document for settings previews while
+    /// keeping the production chat background renderer as the single source
+    /// of truth for gradients, tiled assets, cloud images, blur and motion.
+    func configure(document: AppearanceSettingsDocument, encrypted: Bool = false) {
+        configuredDocument = document
+        usesEncryptedPalette = encrypted
+        render(document: document, encrypted: encrypted)
+    }
+
+    private func render(document: AppearanceSettingsDocument, encrypted: Bool) {
+        representedWallpaper = encrypted ? nil : document.profile.wallpaper
         let snapshot = AppearanceResolver.resolve(
             document: document,
             traitStyle: traitCollection.userInterfaceStyle
@@ -446,7 +465,11 @@ final class ChatBackgroundBackdropView: UIView {
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         if previousTraitCollection?.hasDifferentColorAppearance(comparedTo: traitCollection) == true {
-            reloadFromSettings()
+            if let configuredDocument {
+                render(document: configuredDocument, encrypted: usesEncryptedPalette)
+            } else {
+                reloadFromSettings()
+            }
         }
     }
 }

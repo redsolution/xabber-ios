@@ -338,6 +338,89 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
+    func testOverviewThemeMiniatureRendersItsWallpaper() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        let document = coordinator.document
+        let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+        let rose = try XCTUnwrap(
+            AppearanceThemeCatalog.builtInThemes.first(where: { $0.name == "Rose" })
+        )
+        let overviewCell = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        )
+        let themeControl = try XCTUnwrap(
+            descendant(
+                in: overviewCell,
+                accessibilityIdentifier: "interface.theme.mini.\(rose.id)"
+            )
+        )
+        let wallpaper = try XCTUnwrap(
+            descendant(
+                in: themeControl,
+                accessibilityIdentifier: "interface.theme.wallpaper.\(rose.id)"
+            ) as? ChatBackgroundBackdropView
+        )
+
+        XCTAssertEqual(wallpaper.representedWallpaper, rose.wallpaper)
+        XCTAssertTrue(wallpaper.hasVisibleWallpaperImage)
+        XCTAssertNotEqual(document.profile.themeID, rose.id)
+    }
+
+    @MainActor
+    func testAppearancePreviewUsesProductionChatCellsAndBubbleGeometry() throws {
+        var profile = AppearanceProfile.default(accent: .systemBlue)
+        profile.bubbleStyle = .smooth
+        profile.bubbleRadius = 9
+        let document = AppearanceSettingsDocument(profile: profile)
+        let preview = AppearancePreviewView(frame: CGRect(x: 0, y: 0, width: 360, height: 210))
+
+        preview.configure(
+            document: document,
+            traits: UITraitCollection(userInterfaceStyle: .light),
+            animated: false
+        )
+        preview.setNeedsLayout()
+        preview.layoutIfNeeded()
+
+        let incoming = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.preview.message.incoming"
+            ) as? TextMessageCell
+        )
+        let outgoing = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.preview.message.outgoing"
+            ) as? TextMessageCell
+        )
+        let expectedRadius = CommonConfigManager.shared.messageStyleConfig
+            .messageBubbles.smooth.message.bubble.getRadiusFor(index: "9")
+        let snapshot = AppearanceResolver.resolve(document: document, traitStyle: .light)
+
+        XCTAssertEqual(incoming.messageContainerView.tail, "smooth")
+        XCTAssertEqual(outgoing.messageContainerView.tail, "smooth")
+        XCTAssertEqual(incoming.messageContainerView.radius1, expectedRadius.leftUpper)
+        XCTAssertEqual(incoming.messageContainerView.radius2, expectedRadius.rightUpper)
+        XCTAssertEqual(incoming.messageContainerView.radius3, expectedRadius.rightBottom)
+        XCTAssertEqual(incoming.messageContainerView.radius4, expectedRadius.leftBottom)
+        XCTAssertEqual(
+            incoming.messageContainerView.bubble.backgroundColor,
+            snapshot.palette.incomingBubble.uiColor
+        )
+        XCTAssertEqual(
+            outgoing.messageContainerView.bubble.backgroundColor,
+            snapshot.palette.outgoingBubble.uiColor
+        )
+    }
+
+    @MainActor
     func testThemeEditorUsesNavigationControllerBackButton() {
         let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         let controller = AppearanceThemeEditorViewController(

@@ -135,6 +135,12 @@ open class ModernMessageContainerView: UIView {
     var tail: String = "none"
     var side: MessageSide = .left
     var topCorner: Bool = false
+    var appearancePaletteOverride: AppearancePalette? {
+        didSet {
+            lastBackgroundSignature = nil
+            setNeedsLayout()
+        }
+    }
     
     internal let bubble: UIView = {
         let view = UIView(frame: .zero)
@@ -168,12 +174,17 @@ open class ModernMessageContainerView: UIView {
             lastBackgroundSignature = nil
             return
         }
-        let document = AppearanceSettingsStore()?.load()
-            ?? AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
-        let palette = AppearanceResolver.resolve(
-            document: document,
-            traitStyle: traitCollection.userInterfaceStyle
-        ).palette
+        let palette: AppearancePalette
+        if let appearancePaletteOverride {
+            palette = appearancePaletteOverride
+        } else {
+            let document = AppearanceSettingsStore()?.load()
+                ?? AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+            palette = AppearanceResolver.resolve(
+                document: document,
+                traitStyle: traitCollection.userInterfaceStyle
+            ).palette
+        }
         bubble.backgroundColor = side == .left
             ? palette.incomingBubble.uiColor
             : palette.outgoingBubble.uiColor

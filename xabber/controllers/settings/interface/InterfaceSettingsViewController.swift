@@ -319,7 +319,8 @@ private final class AppearanceOverviewCell: UITableViewCell {
                 theme: theme,
                 selected: theme.id == document.profile.themeID,
                 accent: snapshot.accent.uiColor,
-                traits: traits
+                traits: traits,
+                document: document
             )
             control.addAction(UIAction { [weak self] _ in self?.onThemeTap?(theme) }, for: .touchUpInside)
             themesStack.addArrangedSubview(control)
@@ -328,9 +329,9 @@ private final class AppearanceOverviewCell: UITableViewCell {
 }
 
 private final class AppearanceThemeMiniControl: UIControl {
-    private let gradient = AppearanceGradientView()
-    private let incoming = UIView()
-    private let outgoing = UIView()
+    private let background = ChatBackgroundBackdropView()
+    private let incoming = ModernMessageContainerView()
+    private let outgoing = ModernMessageContainerView()
     private let nameLabel = UILabel()
 
     override init(frame: CGRect) {
@@ -339,13 +340,13 @@ private final class AppearanceThemeMiniControl: UIControl {
         layer.cornerRadius = 14
         layer.cornerCurve = .continuous
         clipsToBounds = true
-        gradient.translatesAutoresizingMaskIntoConstraints = false
+        background.translatesAutoresizingMaskIntoConstraints = false
         incoming.translatesAutoresizingMaskIntoConstraints = false
         outgoing.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        incoming.layer.cornerRadius = 9
-        outgoing.layer.cornerRadius = 9
-        gradient.isUserInteractionEnabled = false
+        incoming.setup()
+        outgoing.setup()
+        background.isUserInteractionEnabled = false
         incoming.isUserInteractionEnabled = false
         outgoing.isUserInteractionEnabled = false
         nameLabel.isUserInteractionEnabled = false
@@ -353,16 +354,16 @@ private final class AppearanceThemeMiniControl: UIControl {
         nameLabel.adjustsFontForContentSizeCategory = true
         nameLabel.textAlignment = .center
         nameLabel.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.88)
-        addSubview(gradient)
+        addSubview(background)
         addSubview(incoming)
         addSubview(outgoing)
         addSubview(nameLabel)
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 86),
-            gradient.leadingAnchor.constraint(equalTo: leadingAnchor),
-            gradient.trailingAnchor.constraint(equalTo: trailingAnchor),
-            gradient.topAnchor.constraint(equalTo: topAnchor),
-            gradient.bottomAnchor.constraint(equalTo: bottomAnchor),
+            background.leadingAnchor.constraint(equalTo: leadingAnchor),
+            background.trailingAnchor.constraint(equalTo: trailingAnchor),
+            background.topAnchor.constraint(equalTo: topAnchor),
+            background.bottomAnchor.constraint(equalTo: bottomAnchor),
             incoming.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             incoming.topAnchor.constraint(equalTo: topAnchor, constant: 14),
             incoming.widthAnchor.constraint(equalToConstant: 52),
@@ -380,11 +381,46 @@ private final class AppearanceThemeMiniControl: UIControl {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func configure(theme: AppearanceTheme, selected: Bool, accent: UIColor, traits: UITraitCollection) {
-        let palette = theme.palette(for: traits.userInterfaceStyle)
-        gradient.colors = palette.backgroundStops.map(\.uiColor)
-        incoming.backgroundColor = palette.incomingBubble.uiColor
-        outgoing.backgroundColor = palette.outgoingBubble.uiColor
+    func configure(
+        theme: AppearanceTheme,
+        selected: Bool,
+        accent: UIColor,
+        traits: UITraitCollection,
+        document: AppearanceSettingsDocument
+    ) {
+        var themeDocument = document
+        themeDocument.profile.apply(
+            theme: theme,
+            preserveWallpaper: CommonConfigManager.shared.config.locked_background.isNotEmpty
+        )
+        let snapshot = AppearanceResolver.resolve(
+            document: themeDocument,
+            traitStyle: traits.userInterfaceStyle
+        )
+        let radius = appearanceMessageRadius(
+            style: snapshot.profile.bubbleStyle,
+            value: snapshot.profile.bubbleRadius
+        )
+        background.configure(document: themeDocument)
+        background.accessibilityIdentifier = "interface.theme.wallpaper.\(theme.id)"
+        incoming.appearancePaletteOverride = snapshot.palette
+        incoming.configure(
+            tail: snapshot.profile.bubbleStyle.messageTailIdentifier,
+            side: .left,
+            radiusLU: radius.leftUpper,
+            radiusRU: radius.rightUpper,
+            radiusRB: radius.rightBottom,
+            radiusLB: radius.leftBottom
+        )
+        outgoing.appearancePaletteOverride = snapshot.palette
+        outgoing.configure(
+            tail: snapshot.profile.bubbleStyle.messageTailIdentifier,
+            side: .right,
+            radiusLU: radius.leftUpper,
+            radiusRU: radius.rightUpper,
+            radiusRB: radius.rightBottom,
+            radiusLB: radius.leftBottom
+        )
         nameLabel.text = theme.name
         layer.borderWidth = selected ? 3 : 0
         layer.borderColor = accent.cgColor
@@ -396,8 +432,7 @@ private final class AppearanceThemeMiniControl: UIControl {
 }
 
 final class AppearancePreviewView: UIView {
-    private let backgroundView = AppearanceGradientView()
-    private let wallpaperImageView = UIImageView()
+    private let backgroundView = ChatBackgroundBackdropView()
     private let contentStack = UIStackView()
     private var currentDocument: AppearanceSettingsDocument?
 
@@ -409,24 +444,16 @@ final class AppearancePreviewView: UIView {
         layer.cornerCurve = .continuous
         clipsToBounds = true
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
-        wallpaperImageView.translatesAutoresizingMaskIntoConstraints = false
-        wallpaperImageView.contentMode = .scaleAspectFill
-        wallpaperImageView.alpha = 0.18
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.axis = .vertical
         contentStack.spacing = 8
         addSubview(backgroundView)
-        addSubview(wallpaperImageView)
         addSubview(contentStack)
         NSLayoutConstraint.activate([
             backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
             backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
             backgroundView.topAnchor.constraint(equalTo: topAnchor),
             backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            wallpaperImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            wallpaperImageView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            wallpaperImageView.topAnchor.constraint(equalTo: topAnchor),
-            wallpaperImageView.bottomAnchor.constraint(equalTo: bottomAnchor),
             contentStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             contentStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             contentStack.centerYAnchor.constraint(equalTo: centerYAnchor)
@@ -446,8 +473,7 @@ final class AppearancePreviewView: UIView {
         currentDocument = document
         let changes = {
             let snapshot = AppearanceResolver.resolve(document: document, traitStyle: traits.userInterfaceStyle)
-            self.backgroundView.colors = snapshot.palette.backgroundStops.map(\.uiColor)
-            self.configureWallpaper(document.profile.wallpaper)
+            self.backgroundView.configure(document: document)
             self.configureContent(snapshot: snapshot)
         }
         if animated && !UIAccessibility.isReduceMotionEnabled {
@@ -464,32 +490,6 @@ final class AppearancePreviewView: UIView {
         configure(document: currentDocument, traits: traitCollection, animated: true)
     }
 
-    private func configureWallpaper(_ wallpaper: AppearanceWallpaper) {
-        wallpaperImageView.layer.filters = nil
-        wallpaperImageView.transform = .identity
-        wallpaperImageView.alpha = 0.18
-        wallpaperImageView.tintColor = nil
-        switch wallpaper {
-        case .none:
-            wallpaperImageView.image = nil
-        case .gradient(let stops, let pattern, let intensity):
-            if !stops.isEmpty {
-                backgroundView.colors = stops.map(\.uiColor)
-            }
-            wallpaperImageView.image = pattern.flatMap { UIImage(named: $0.lowercased()) }
-            wallpaperImageView.alpha = CGFloat(intensity) / 100
-        case .builtIn(let name):
-            wallpaperImageView.image = UIImage(named: name)
-        case .cloud(let reference, let blurred, let motion):
-            wallpaperImageView.image = AppearanceWallpaperCache().image(for: reference)
-            wallpaperImageView.alpha = 1
-            wallpaperImageView.layer.filters = blurred ? [CIFilter(name: "CIGaussianBlur") as Any] : nil
-            wallpaperImageView.transform = motion && !UIAccessibility.isReduceMotionEnabled
-                ? CGAffineTransform(scaleX: 1.08, y: 1.08)
-                : .identity
-        }
-    }
-
     private func configureContent(snapshot: ResolvedAppearanceSnapshot) {
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         if showsChatList {
@@ -497,64 +497,13 @@ final class AppearancePreviewView: UIView {
                 contentStack.addArrangedSubview(makeChatRow(index: index, snapshot: snapshot))
             }
         } else {
-            let incoming = makeBubble(
-                "Good morning! 👋",
-                fill: snapshot.palette.incomingBubble.uiColor,
-                text: snapshot.palette.incomingText.uiColor,
-                radius: snapshot.profile.bubbleRadius,
-                outgoing: false,
-                font: AppearanceTypography.font(textStyle: .body, appearanceSize: snapshot.profile.textSize)
-            )
-            let outgoing = makeBubble(
-                "It’s morning in Tokyo 😎  23:20 ✓✓",
-                fill: snapshot.palette.outgoingBubble.uiColor,
-                text: snapshot.palette.outgoingText.uiColor,
-                radius: snapshot.profile.bubbleRadius,
-                outgoing: true,
-                font: AppearanceTypography.font(textStyle: .body, appearanceSize: snapshot.profile.textSize)
-            )
+            let incoming = AppearanceChatMessagePreviewHostView()
+            incoming.configure(text: "Good morning! 👋", outgoing: false, snapshot: snapshot)
+            let outgoing = AppearanceChatMessagePreviewHostView()
+            outgoing.configure(text: "It’s morning in Tokyo 😎", outgoing: true, snapshot: snapshot)
             contentStack.addArrangedSubview(incoming)
             contentStack.addArrangedSubview(outgoing)
         }
-    }
-
-    private func makeBubble(
-        _ text: String,
-        fill: UIColor,
-        text textColor: UIColor,
-        radius: Int,
-        outgoing: Bool,
-        font: UIFont
-    ) -> UIView {
-        let container = UIView()
-        let bubble = AppearanceInsetLabel()
-        bubble.translatesAutoresizingMaskIntoConstraints = false
-        bubble.text = text
-        bubble.font = font
-        bubble.adjustsFontForContentSizeCategory = true
-        bubble.textColor = textColor
-        bubble.backgroundColor = fill
-        bubble.numberOfLines = 2
-        bubble.layer.cornerRadius = CGFloat(radius)
-        bubble.layer.cornerCurve = .continuous
-        bubble.clipsToBounds = true
-        container.addSubview(bubble)
-        NSLayoutConstraint.activate([
-            bubble.topAnchor.constraint(equalTo: container.topAnchor),
-            bubble.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            bubble.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, multiplier: 0.88),
-            bubble.leadingAnchor.constraint(
-                equalTo: outgoing ? container.leadingAnchor : container.leadingAnchor,
-                constant: outgoing ? 58 : 0
-            ),
-            bubble.trailingAnchor.constraint(
-                equalTo: container.trailingAnchor,
-                constant: outgoing ? 0 : -58
-            ),
-            bubble.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
-        ])
-        bubble.textInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-        return container
     }
 
     private func makeChatRow(index: Int, snapshot: ResolvedAppearanceSnapshot) -> UIView {
@@ -608,21 +557,193 @@ final class AppearancePreviewView: UIView {
     }
 }
 
-private final class AppearanceInsetLabel: UILabel {
-    var textInsets = UIEdgeInsets.zero {
-        didSet { invalidateIntrinsicContentSize() }
+private extension AppearanceBubbleStyle {
+    var messageTailIdentifier: String {
+        switch self {
+        case .noTail:
+            return MessageStyleConfig.MessageBubbleContainer.CodingKeys.noTail.rawValue
+        case .smooth:
+            return MessageStyleConfig.MessageBubbleContainer.CodingKeys.smooth.rawValue
+        case .bubble:
+            return MessageStyleConfig.MessageBubbleContainer.CodingKeys.bubble.rawValue
+        case .bubbles:
+            return MessageStyleConfig.MessageBubbleContainer.CodingKeys.bubbles.rawValue
+        case .curvy:
+            return MessageStyleConfig.MessageBubbleContainer.CodingKeys.curvy.rawValue
+        case .stripes:
+            return MessageStyleConfig.MessageBubbleContainer.CodingKeys.stripes.rawValue
+        case .transparent:
+            return MessageStyleConfig.MessageBubbleContainer.CodingKeys.transparent.rawValue
+        case .wedge:
+            return MessageStyleConfig.MessageBubbleContainer.CodingKeys.wedge.rawValue
+        }
+    }
+}
+
+private func appearanceMessageRadius(
+    style: AppearanceBubbleStyle,
+    value: Int
+) -> MessageStyleConfig.MessageRadius.Radius {
+    let bubbles = CommonConfigManager.shared.messageStyleConfig.messageBubbles
+    let index = String(value)
+    switch style {
+    case .noTail: return bubbles.noTail.message.bubble.getRadiusFor(index: index)
+    case .smooth: return bubbles.smooth.message.bubble.getRadiusFor(index: index)
+    case .bubble: return bubbles.bubble.message.bubble.getRadiusFor(index: index)
+    case .bubbles: return bubbles.bubbles.message.bubble.getRadiusFor(index: index)
+    case .curvy: return bubbles.curvy.message.bubble.getRadiusFor(index: index)
+    case .stripes: return bubbles.stripes.message.bubble.getRadiusFor(index: index)
+    case .transparent: return bubbles.transparent.message.bubble.getRadiusFor(index: index)
+    case .wedge: return bubbles.wedge.message.bubble.getRadiusFor(index: index)
+    }
+}
+
+private struct AppearancePreviewMessage: MessageType {
+    let primary: String
+    let jid = "preview@example.invalid"
+    let owner = "preview-owner@example.invalid"
+    let sender: Sender
+    let messageId: String
+    let sentDate = Date(timeIntervalSince1970: 1_700_000_000)
+    let editDate: Date? = nil
+    let kind: MessageKind
+    let withAuthor = false
+    let withAvatar = false
+    let error = false
+    let errorType = ""
+    let canPinMessage = false
+    let canEditMessage = false
+    let canDeleteMessage = false
+    let forwards: [MessageAttachment] = []
+    let isOutgoing: Bool
+    let isEdited = false
+    let groupchatAuthorNickname = ""
+    let groupchatAuthorBadge = ""
+    let groupchatAuthorId = ""
+    let isHasAttachedMessages = false
+    let afterburnInterval: Double = 0
+    let tailed = true
+    let images: [ImageAttachment] = []
+    let videos: [VideoAttachment] = []
+    let locations: [LocationAttachment] = []
+    let contacts: [ContactAttachment] = []
+    let files: [FileAttachment] = []
+    let audios: [AudioAttachment] = []
+    let messageWarningText: String? = nil
+    let timeMarkerText: NSAttributedString
+    let indicator: IndicatorType
+    let avatarUrl: String? = nil
+    let attributedAuthor: NSAttributedString? = nil
+
+    init(text: String, outgoing: Bool, snapshot: ResolvedAppearanceSnapshot) {
+        primary = "appearance-preview-\(outgoing ? "outgoing" : "incoming")"
+        sender = Sender(id: outgoing ? "me" : "contact", displayName: outgoing ? "Me" : "Contact")
+        messageId = primary
+        isOutgoing = outgoing
+        indicator = outgoing ? .read : .none
+        let textColor = outgoing
+            ? snapshot.palette.outgoingText.uiColor
+            : snapshot.palette.incomingText.uiColor
+        kind = .attributedText(
+            NSAttributedString(
+                string: text,
+                attributes: [
+                    .font: AppearanceTypography.font(
+                        textStyle: .body,
+                        appearanceSize: snapshot.profile.textSize
+                    ),
+                    .foregroundColor: textColor
+                ]
+            )
+        )
+        timeMarkerText = NSAttributedString(
+            string: "23:20",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 10, weight: .regular),
+                .foregroundColor: UIColor.secondaryLabel
+            ]
+        )
+    }
+}
+
+/// Hosts the production text-message cell and production layout calculator,
+/// so the settings preview cannot drift from real chat bubble geometry.
+private final class AppearanceChatMessagePreviewHostView: UIView {
+    private let messageCell = TextMessageCell(frame: .zero)
+    private var message: AppearancePreviewMessage?
+    private var snapshot: ResolvedAppearanceSnapshot?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        clipsToBounds = false
+        isUserInteractionEnabled = false
+        addSubview(messageCell)
     }
 
-    override func drawText(in rect: CGRect) {
-        super.drawText(in: rect.inset(by: textInsets))
-    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override var intrinsicContentSize: CGSize {
-        let size = super.intrinsicContentSize
-        return CGSize(
-            width: size.width + textInsets.left + textInsets.right,
-            height: size.height + textInsets.top + textInsets.bottom
+        CGSize(width: UIView.noIntrinsicMetric, height: 68)
+    }
+
+    func configure(text: String, outgoing: Bool, snapshot: ResolvedAppearanceSnapshot) {
+        let message = AppearancePreviewMessage(text: text, outgoing: outgoing, snapshot: snapshot)
+        self.message = message
+        self.snapshot = snapshot
+        messageCell.messagePrimary = message.primary
+        messageCell.accessibilityIdentifier = outgoing
+            ? "interface.preview.message.outgoing"
+            : "interface.preview.message.incoming"
+        if case .attributedText(let text) = message.kind {
+            messageCell.messageLabel.attributedText = text
+        }
+        messageCell.authorView.attributedText = nil
+        messageCell.timeMarker.configure(
+            text: message.timeMarkerText,
+            indicator: message.indicator,
+            withBackplate: false
         )
+        messageCell.messageContainerView.appearancePaletteOverride = snapshot.palette
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.width > 0, let message, let snapshot else { return }
+        let interfaceStyle: UIUserInterfaceStyle
+        switch snapshot.profile.interfaceStyle {
+        case .system: interfaceStyle = traitCollection.userInterfaceStyle
+        case .light: interfaceStyle = .light
+        case .dark: interfaceStyle = .dark
+        }
+        let context = ChatMessageLayoutContext(
+            width: bounds.width,
+            contentSizeCategory: traitCollection.preferredContentSizeCategory.rawValue,
+            localeIdentifier: Locale.current.identifier,
+            interfaceStyleRawValue: interfaceStyle.rawValue,
+            messageStyle: snapshot.profile.bubbleStyle.messageTailIdentifier,
+            cornerRadius: String(snapshot.profile.bubbleRadius),
+            avatarMode: snapshot.profile.avatarPosition.rawValue,
+            appearanceSignature: snapshot.layoutSignature
+        )
+        let layout = ChatMessageLayoutCalculator.measure(message, context: context)
+        let originY = max(0, (bounds.height - layout.cellSize.height) / 2)
+        messageCell.frame = CGRect(
+            x: 0,
+            y: originY,
+            width: bounds.width,
+            height: layout.cellSize.height
+        )
+        messageCell.contentView.frame = messageCell.bounds
+        let attributes = MessagesCollectionViewLayoutAttributes(
+            forCellWith: IndexPath(item: 0, section: 0)
+        )
+        layout.apply(to: attributes)
+        attributes.frame = CGRect(origin: .zero, size: layout.cellSize)
+        messageCell.messageContainerView.appearancePaletteOverride = snapshot.palette
+        messageCell.apply(attributes)
+        messageCell.setNeedsLayout()
+        messageCell.layoutIfNeeded()
     }
 }
 
