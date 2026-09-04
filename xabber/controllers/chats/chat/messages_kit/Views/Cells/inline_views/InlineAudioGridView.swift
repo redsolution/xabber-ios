@@ -424,18 +424,7 @@ public class InlineAudiosGridView: InlineAttachmentView {
         private(set) var renderedState: VoiceMessagePlaybackState = .notDownloaded
         
         internal func setup() {
-            iconButton.frame = CGRect(
-                origin: CGPoint(x: 4, y: 4),
-                size: CGSize(width: 36, height: 36)
-            )
-            waveform.frame = CGRect(
-                origin: CGPoint(x: 48, y: 2),
-                size: CGSize(width: self.frame.width - 48 - 4, height: 26)
-            )
-            durationLabel.frame = CGRect(
-                origin: CGPoint(x: 48, y: 28),
-                size: CGSize(width: self.frame.width - 48 - 4, height: 12)
-            )
+            layoutAudioContent()
             addSubview(iconButton)
             addSubview(waveform)
             addSubview(durationLabel)
@@ -455,6 +444,22 @@ public class InlineAudiosGridView: InlineAttachmentView {
 //                durationLabel.heightAnchor.constraint(equalToConstant: 20)
 //            ])
         }
+
+        private func layoutAudioContent() {
+            iconButton.frame = CGRect(
+                origin: CGPoint(x: 4, y: 4),
+                size: CGSize(width: 36, height: 36)
+            )
+            let contentWidth = max(0, bounds.width - 52)
+            waveform.frame = CGRect(
+                origin: CGPoint(x: 48, y: 2),
+                size: CGSize(width: contentWidth, height: 26)
+            )
+            durationLabel.frame = CGRect(
+                origin: CGPoint(x: 48, y: 28),
+                size: CGSize(width: contentWidth, height: 12)
+            )
+        }
         
         var duration: TimeInterval = 0
         var primary: String = ""
@@ -463,6 +468,7 @@ public class InlineAudiosGridView: InlineAttachmentView {
         
         public override func layoutSubviews() {
             super.layoutSubviews()
+            layoutAudioContent()
             updateDownloadProgressPath()
         }
 

@@ -1722,7 +1722,7 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
             videos: [],
             files: [],
             audios: [],
-            timeMarker: NSAttributedString(string: "23:20"),
+            timeMarker: NSAttributedString(string: ""),
             subforwards: []
         )
         addMessage(
@@ -2068,6 +2068,7 @@ final class AppearanceThemePreviewViewController: BaseViewController {
     private var document: AppearanceSettingsDocument
     private let theme: AppearanceTheme
     private let preview = AppearanceThemePagedPreviewView()
+    private let applyGlass = UIVisualEffectView()
     private let applyButton = UIButton(type: .system)
 
     init(document: AppearanceSettingsDocument, theme: AppearanceTheme) {
@@ -2089,13 +2090,25 @@ final class AppearanceThemePreviewViewController: BaseViewController {
         navigationItem.scrollEdgeAppearance = navigationAppearance
         navigationItem.compactAppearance = navigationAppearance
         preview.translatesAutoresizingMaskIntoConstraints = false
+        applyGlass.translatesAutoresizingMaskIntoConstraints = false
+        applyGlass.isUserInteractionEnabled = false
+        applyGlass.accessibilityIdentifier = "interface.themePreview.applyGlass"
+        XabberGlassStyle.applySurface(
+            to: applyGlass,
+            role: .sheet,
+            cornerStyle: .capsule,
+            interactive: true
+        )
         applyButton.configuration = makeApplyButtonConfiguration()
+        applyButton.tintColor = .label
+        applyButton.backgroundColor = .clear
         applyButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
         applyButton.titleLabel?.adjustsFontForContentSizeCategory = true
         applyButton.addTarget(self, action: #selector(applyTheme), for: .touchUpInside)
         applyButton.accessibilityIdentifier = "interface.themePreview.apply"
         applyButton.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(preview)
+        view.addSubview(applyGlass)
         view.addSubview(applyButton)
         NSLayoutConstraint.activate([
             preview.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -2105,22 +2118,19 @@ final class AppearanceThemePreviewViewController: BaseViewController {
             applyButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
             applyButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
             applyButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
-            applyButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 56)
+            applyButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 56),
+            applyGlass.leadingAnchor.constraint(equalTo: applyButton.leadingAnchor),
+            applyGlass.trailingAnchor.constraint(equalTo: applyButton.trailingAnchor),
+            applyGlass.topAnchor.constraint(equalTo: applyButton.topAnchor),
+            applyGlass.bottomAnchor.constraint(equalTo: applyButton.bottomAnchor)
         ])
         refreshPreview()
     }
 
     private func makeApplyButtonConfiguration() -> UIButton.Configuration {
-        var configuration: UIButton.Configuration
-        if #available(iOS 26.0, *) {
-            configuration = .prominentGlass()
-        } else {
-            configuration = .filled()
-            configuration.baseBackgroundColor = .secondarySystemBackground
-            configuration.baseForegroundColor = .label
-            configuration.background.visualEffect = UIBlurEffect(style: .systemMaterial)
-        }
+        var configuration = UIButton.Configuration.plain()
         configuration.title = "Apply for All Chats"
+        configuration.baseForegroundColor = .label
         configuration.cornerStyle = .capsule
         configuration.contentInsets = NSDirectionalEdgeInsets(
             top: 15,
@@ -2140,10 +2150,6 @@ final class AppearanceThemePreviewViewController: BaseViewController {
         var previewDocument = document
         previewDocument.profile = profile
         preview.configure(document: previewDocument, traits: traitCollection)
-        applyButton.tintColor = AppearanceResolver.resolve(
-            document: previewDocument,
-            traitStyle: traitCollection.userInterfaceStyle
-        ).accent.uiColor
     }
 
     @objc private func applyTheme() {

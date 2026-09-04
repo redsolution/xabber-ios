@@ -1086,6 +1086,7 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
             reuseInlineViews: false,
             configuresInteractiveContent: false
         )
+        forwardsContainer.inlineViews.forEach { $0.timeMarker.isHidden = true }
     }
 
     private func applyTextVisualContent(

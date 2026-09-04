@@ -495,6 +495,12 @@ final class InterfaceAppearanceTests: XCTestCase {
                 accessibilityIdentifier: "interface.themePreview.apply"
             ) as? UIButton
         )
+        let applyGlass = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.themePreview.applyGlass"
+            ) as? UIVisualEffectView
+        )
         let textMessageIDs = [
             "opening", "answer", "question", "confirmation", "reply", "voice", "quoted", "closing"
         ]
@@ -534,8 +540,32 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertEqual(pagesFrame.minY, controller.view.bounds.minY, accuracy: 0.5)
         XCTAssertEqual(pagesFrame.maxY, controller.view.bounds.maxY, accuracy: 0.5)
         XCTAssertTrue(pagesFrame.intersects(applyFrame))
+        XCTAssertEqual(applyGlass.frame, applyButton.frame)
+        XCTAssertEqual(applyButton.tintColor, UIColor.label)
+        if #available(iOS 26.0, *) {
+            XCTAssertTrue(applyGlass.effect is UIGlassEffect)
+        } else {
+            XCTAssertTrue(applyGlass.effect is UIBlurEffect)
+        }
         XCTAssertEqual(textCells.count, 8)
         XCTAssertEqual(voiceCell.audiosView.views.count, 1)
+        let voiceView = try XCTUnwrap(voiceCell.audiosView.views.first)
+        voiceView.setNeedsLayout()
+        voiceView.layoutIfNeeded()
+        XCTAssertGreaterThan(voiceView.bounds.width, 0)
+        XCTAssertGreaterThan(voiceView.waveform.frame.width, 0)
+        XCTAssertGreaterThanOrEqual(
+            voiceView.waveform.frame.minX,
+            voiceView.iconButton.frame.maxX
+        )
+        XCTAssertLessThanOrEqual(
+            voiceView.waveform.frame.maxX,
+            voiceView.bounds.maxX + 0.5
+        )
+        XCTAssertLessThanOrEqual(
+            voiceView.durationLabel.frame.maxX,
+            voiceView.bounds.maxX + 0.5
+        )
         XCTAssertEqual(quotedCell.forwardsContainer.inlineViews.count, 1)
         XCTAssertEqual(quotedCell.frame.minY, 0, accuracy: 0.5)
         XCTAssertEqual(
@@ -544,6 +574,7 @@ final class InterfaceAppearanceTests: XCTestCase {
             accuracy: 0.5
         )
         let forwardedView = try XCTUnwrap(quotedCell.forwardsContainer.inlineViews.first)
+        XCTAssertTrue(forwardedView.timeMarker.isHidden)
         XCTAssertGreaterThan(forwardedView.authorLabel.frame.height, 0)
         XCTAssertGreaterThan(forwardedView.messageLabel.frame.height, 0)
         XCTAssertGreaterThanOrEqual(
