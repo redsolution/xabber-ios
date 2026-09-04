@@ -468,6 +468,68 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
+    func testThemePreviewProvidesFullConversationAndProductionChatListPages() throws {
+        let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        let theme = try XCTUnwrap(AppearanceThemeCatalog.builtInThemes.first)
+        let controller = AppearanceThemePreviewViewController(document: document, theme: theme)
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        let pages = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.themePreview.pages"
+            ) as? UIScrollView
+        )
+        let pageControl = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.themePreview.pageControl"
+            ) as? UIPageControl
+        )
+        let textMessageIDs = [
+            "opening", "answer", "question", "confirmation", "reply", "voice", "quoted", "closing"
+        ]
+        let textCells = try textMessageIDs.map { identifier in
+            try XCTUnwrap(
+                descendant(
+                    in: controller.view,
+                    accessibilityIdentifier: "interface.themePreview.chat.message.\(identifier)"
+                ) as? TextMessageCell
+            )
+        }
+        let chatRows = try (0..<7).map { index in
+            try XCTUnwrap(
+                descendant(
+                    in: controller.view,
+                    accessibilityIdentifier: "interface.themePreview.chats.row.\(index)"
+                ) as? ChatListTableViewCell
+            )
+        }
+        let voiceCell = try XCTUnwrap(
+            textCells.first {
+                $0.accessibilityIdentifier == "interface.themePreview.chat.message.voice"
+            }
+        )
+        let quotedCell = try XCTUnwrap(
+            textCells.first {
+                $0.accessibilityIdentifier == "interface.themePreview.chat.message.quoted"
+            }
+        )
+
+        XCTAssertTrue(pages.isPagingEnabled)
+        XCTAssertEqual(pageControl.numberOfPages, 2)
+        XCTAssertEqual(textCells.count, 8)
+        XCTAssertEqual(voiceCell.audiosView.views.count, 1)
+        XCTAssertEqual(quotedCell.forwardsContainer.inlineViews.count, 1)
+        XCTAssertEqual(chatRows.count, 7)
+        XCTAssertEqual(chatRows.first?.usernameLabel.text, "Alicia Torreaux")
+        XCTAssertEqual(chatRows.last?.usernameLabel.text, "Jennie Alpha")
+    }
+
+    @MainActor
     func testThemeEditorUsesNavigationControllerBackButton() {
         let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         let controller = AppearanceThemeEditorViewController(
