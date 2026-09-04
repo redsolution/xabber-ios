@@ -1066,6 +1066,33 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
     private func applyTextContent(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView, reuseInlineViews: Bool) {
         self.messagePrimary = message.primary
         super.configure(with: message, at: indexPath, and: messagesCollectionView)
+        applyTextVisualContent(
+            with: message,
+            reuseInlineViews: reuseInlineViews,
+            configuresInteractiveContent: true
+        )
+    }
+
+    /// Binds the same text and inline-attachment presentation used by Chat,
+    /// without requiring an interactive `MessagesCollectionView` data source.
+    /// Appearance previews apply the normal production layout attributes after
+    /// this call, so forwarded/reply content cannot drift into a parallel path.
+    func configureForAppearancePreview(with message: MessageType) {
+        self.messagePrimary = message.primary
+        contentView.backgroundColor = .clear
+        avatarView.isHidden = true
+        applyTextVisualContent(
+            with: message,
+            reuseInlineViews: false,
+            configuresInteractiveContent: false
+        )
+    }
+
+    private func applyTextVisualContent(
+        with message: MessageType,
+        reuseInlineViews: Bool,
+        configuresInteractiveContent: Bool
+    ) {
         messageLabel.configure {
             switch message.kind {
                 case .attributedText(let text):
@@ -1121,9 +1148,11 @@ public class TextMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
             self.videosView.configure(message.videos, representedBy: message.primary)
         }
         self.imagesView.layer.backgroundColor = MDCPalette.grey.tint100.cgColor
-        
-        ensureLongPressGestureInstalled()
-        configureAvatar(for: message)
+
+        if configuresInteractiveContent {
+            ensureLongPressGestureInstalled()
+            configureAvatar(for: message)
+        }
     }
 
     private func usesTimeMarkerBackplate(for message: MessageType) -> Bool {

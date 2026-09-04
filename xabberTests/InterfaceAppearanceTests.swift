@@ -489,6 +489,12 @@ final class InterfaceAppearanceTests: XCTestCase {
                 accessibilityIdentifier: "interface.themePreview.pageControl"
             ) as? UIPageControl
         )
+        let applyButton = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.themePreview.apply"
+            ) as? UIButton
+        )
         let textMessageIDs = [
             "opening", "answer", "question", "confirmation", "reply", "voice", "quoted", "closing"
         ]
@@ -521,10 +527,35 @@ final class InterfaceAppearanceTests: XCTestCase {
 
         XCTAssertTrue(pages.isPagingEnabled)
         XCTAssertEqual(pageControl.numberOfPages, 2)
+        let pagesFrame = pages.convert(pages.bounds, to: controller.view)
+        let applyFrame = applyButton.convert(applyButton.bounds, to: controller.view)
+        XCTAssertEqual(pagesFrame.minX, controller.view.bounds.minX, accuracy: 0.5)
+        XCTAssertEqual(pagesFrame.maxX, controller.view.bounds.maxX, accuracy: 0.5)
+        XCTAssertEqual(pagesFrame.minY, controller.view.bounds.minY, accuracy: 0.5)
+        XCTAssertEqual(pagesFrame.maxY, controller.view.bounds.maxY, accuracy: 0.5)
+        XCTAssertTrue(pagesFrame.intersects(applyFrame))
         XCTAssertEqual(textCells.count, 8)
         XCTAssertEqual(voiceCell.audiosView.views.count, 1)
         XCTAssertEqual(quotedCell.forwardsContainer.inlineViews.count, 1)
+        XCTAssertEqual(quotedCell.frame.minY, 0, accuracy: 0.5)
+        XCTAssertEqual(
+            quotedCell.frame.height,
+            quotedCell.superview?.bounds.height ?? 0,
+            accuracy: 0.5
+        )
+        let forwardedView = try XCTUnwrap(quotedCell.forwardsContainer.inlineViews.first)
+        XCTAssertGreaterThan(forwardedView.authorLabel.frame.height, 0)
+        XCTAssertGreaterThan(forwardedView.messageLabel.frame.height, 0)
+        XCTAssertGreaterThanOrEqual(
+            forwardedView.messageLabel.frame.minY,
+            forwardedView.authorLabel.frame.maxY - 0.5
+        )
+        XCTAssertLessThanOrEqual(
+            forwardedView.timeMarker.frame.maxX,
+            forwardedView.containerView.bounds.maxX + 0.5
+        )
         XCTAssertEqual(chatRows.count, 7)
+        XCTAssertTrue(chatRows.allSatisfy(\.accountIndicator.isHidden))
         XCTAssertEqual(chatRows.first?.usernameLabel.text, "Alicia Torreaux")
         XCTAssertEqual(chatRows.last?.usernameLabel.text, "Jennie Alpha")
     }

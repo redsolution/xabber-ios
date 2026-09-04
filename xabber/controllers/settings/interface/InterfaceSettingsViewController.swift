@@ -668,27 +668,24 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
     private let messageCell = TextMessageCell(frame: .zero)
     private var message: AppearancePreviewMessage?
     private var snapshot: ResolvedAppearanceSnapshot?
-    private var preferredHeight: CGFloat = 68
+    private var measuredHeightConstraint: NSLayoutConstraint!
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = false
         isUserInteractionEnabled = false
         addSubview(messageCell)
+        measuredHeightConstraint = heightAnchor.constraint(equalToConstant: 1)
+        measuredHeightConstraint.isActive = true
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: preferredHeight)
-    }
 
     func configure(
         text: String,
         outgoing: Bool,
         snapshot: ResolvedAppearanceSnapshot,
         identifier: String? = nil,
-        preferredHeight: CGFloat = 68,
         forwards: [MessageAttachment] = [],
         audios: [AudioAttachment] = []
     ) {
@@ -702,9 +699,6 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         )
         self.message = message
         self.snapshot = snapshot
-        self.preferredHeight = preferredHeight
-        invalidateIntrinsicContentSize()
-        messageCell.messagePrimary = message.primary
         if let identifier {
             messageCell.accessibilityIdentifier = "interface.themePreview.chat.message.\(identifier)"
         } else {
@@ -712,55 +706,25 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
                 ? "interface.preview.message.outgoing"
                 : "interface.preview.message.incoming"
         }
-        if case .attributedText(let text) = message.kind {
-            messageCell.messageLabel.attributedText = text
-        }
-        messageCell.authorView.attributedText = nil
-        messageCell.timeMarker.configure(
-            text: message.timeMarkerText,
-            indicator: message.indicator,
-            withBackplate: false
-        )
         messageCell.messageContainerView.appearancePaletteOverride = snapshot.palette
-        messageCell.audiosView.configure(
-            message.audios,
-            palette: ChatViewController.getUsernamePalette(for: message.jid)
-        )
-        messageCell.forwardsContainer.configure(
-            message.forwards,
-            palette: ChatViewController.getUsernamePalette(for: message.jid),
-            delegate: nil
-        )
+        messageCell.configureForAppearancePreview(with: message)
         setNeedsLayout()
+    }
+
+    func updateLayoutWidth(_ width: CGFloat) {
+        guard width > 0, let layout = measuredLayout(for: width) else { return }
+        if abs(measuredHeightConstraint.constant - layout.cellSize.height) > 0.5 {
+            measuredHeightConstraint.constant = layout.cellSize.height
+        }
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard bounds.width > 0, let message, let snapshot else { return }
-        let interfaceStyle: UIUserInterfaceStyle
-        switch snapshot.profile.interfaceStyle {
-        case .system: interfaceStyle = traitCollection.userInterfaceStyle
-        case .light: interfaceStyle = .light
-        case .dark: interfaceStyle = .dark
-        }
-        let context = ChatMessageLayoutContext(
-            width: bounds.width,
-            contentSizeCategory: traitCollection.preferredContentSizeCategory.rawValue,
-            localeIdentifier: Locale.current.identifier,
-            interfaceStyleRawValue: interfaceStyle.rawValue,
-            messageStyle: snapshot.profile.bubbleStyle.messageTailIdentifier,
-            cornerRadius: String(snapshot.profile.bubbleRadius),
-            avatarMode: snapshot.profile.avatarPosition.rawValue,
-            appearanceSignature: snapshot.layoutSignature
-        )
-        let layout = ChatMessageLayoutCalculator.measure(message, context: context)
-        let originY = max(0, (bounds.height - layout.cellSize.height) / 2)
-        messageCell.frame = CGRect(
-            x: 0,
-            y: originY,
-            width: bounds.width,
-            height: layout.cellSize.height
-        )
+        guard bounds.width > 0,
+              let layout = measuredLayout(for: bounds.width),
+              let snapshot else { return }
+        updateLayoutWidth(bounds.width)
+        messageCell.frame = CGRect(origin: .zero, size: layout.cellSize)
         messageCell.contentView.frame = messageCell.bounds
         let attributes = MessagesCollectionViewLayoutAttributes(
             forCellWith: IndexPath(item: 0, section: 0)
@@ -769,17 +733,29 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         attributes.frame = CGRect(origin: .zero, size: layout.cellSize)
         messageCell.messageContainerView.appearancePaletteOverride = snapshot.palette
         messageCell.apply(attributes)
-        messageCell.audiosView.configure(
-            message.audios,
-            palette: ChatViewController.getUsernamePalette(for: message.jid)
-        )
-        messageCell.forwardsContainer.configure(
-            message.forwards,
-            palette: ChatViewController.getUsernamePalette(for: message.jid),
-            delegate: nil
-        )
         messageCell.setNeedsLayout()
         messageCell.layoutIfNeeded()
+    }
+
+    private func measuredLayout(for width: CGFloat) -> ChatMessageLayout? {
+        guard let message, let snapshot else { return nil }
+        let interfaceStyle: UIUserInterfaceStyle
+        switch snapshot.profile.interfaceStyle {
+        case .system: interfaceStyle = traitCollection.userInterfaceStyle
+        case .light: interfaceStyle = .light
+        case .dark: interfaceStyle = .dark
+        }
+        let context = ChatMessageLayoutContext(
+            width: width,
+            contentSizeCategory: traitCollection.preferredContentSizeCategory.rawValue,
+            localeIdentifier: Locale.current.identifier,
+            interfaceStyleRawValue: interfaceStyle.rawValue,
+            messageStyle: snapshot.profile.bubbleStyle.messageTailIdentifier,
+            cornerRadius: String(snapshot.profile.bubbleRadius),
+            avatarMode: snapshot.profile.avatarPosition.rawValue,
+            appearanceSignature: snapshot.layoutSignature
+        )
+        return ChatMessageLayoutCalculator.measure(message, context: context)
     }
 }
 
@@ -1654,9 +1630,11 @@ private final class AppearanceThemeCell: UICollectionViewCell {
 }
 
 private final class AppearanceThemeConversationPreviewPage: UIView {
+    private let baseTopContentInset: CGFloat = 12
     private let backgroundView = ChatBackgroundBackdropView()
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
+    private var messageHosts: [AppearanceChatMessagePreviewHostView] = []
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1664,10 +1642,11 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceVertical = true
-        scrollView.contentInset = UIEdgeInsets(top: 12, left: 0, bottom: 42, right: 0)
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.contentInset = UIEdgeInsets(top: baseTopContentInset, left: 0, bottom: 112, right: 0)
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.axis = .vertical
-        contentStack.spacing = 3
+        contentStack.spacing = 0
         addSubview(backgroundView)
         addSubview(scrollView)
         scrollView.addSubview(contentStack)
@@ -1691,37 +1670,45 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let topInset = safeAreaInsets.top + baseTopContentInset
+        if abs(scrollView.contentInset.top - topInset) > 0.5 {
+            scrollView.contentInset.top = topInset
+            scrollView.verticalScrollIndicatorInsets.top = topInset
+        }
+        let messageWidth = max(1, bounds.width - 16)
+        messageHosts.forEach { $0.updateLayoutWidth(messageWidth) }
+    }
+
     func configure(document: AppearanceSettingsDocument, snapshot: ResolvedAppearanceSnapshot) {
         backgroundView.configure(document: document)
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        messageHosts.removeAll(keepingCapacity: true)
         contentStack.addArrangedSubview(makeDateMarker(snapshot: snapshot))
 
         addMessage(
             id: "opening",
             text: "For relaxing times, make it Suntory time. 😎",
             outgoing: true,
-            height: 76,
             snapshot: snapshot
         )
         addMessage(
             id: "answer",
             text: "Turn toward the camera, please.",
             outgoing: false,
-            height: 68,
             snapshot: snapshot
         )
         addMessage(
             id: "question",
             text: "That’s all?",
             outgoing: true,
-            height: 58,
             snapshot: snapshot
         )
         addMessage(
             id: "confirmation",
             text: "Yes, look at the camera.",
             outgoing: false,
-            height: 58,
             snapshot: snapshot
         )
 
@@ -1742,7 +1729,6 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
             id: "reply",
             text: "Does he want me to turn from the right or the left? 🤔",
             outgoing: true,
-            height: 78,
             snapshot: snapshot
         )
 
@@ -1764,7 +1750,6 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
             id: "voice",
             text: "",
             outgoing: false,
-            height: 84,
             snapshot: snapshot,
             audios: [voice]
         )
@@ -1772,7 +1757,6 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
             id: "quoted",
             text: "Right side. And, uh, with intensity.",
             outgoing: false,
-            height: 126,
             snapshot: snapshot,
             forwards: [reply]
         )
@@ -1780,7 +1764,6 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
             id: "closing",
             text: "Is that everything? It seemed like he said quite a bit more than that. 😮",
             outgoing: true,
-            height: 88,
             snapshot: snapshot
         )
     }
@@ -1789,7 +1772,6 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
         id: String,
         text: String,
         outgoing: Bool,
-        height: CGFloat,
         snapshot: ResolvedAppearanceSnapshot,
         forwards: [MessageAttachment] = [],
         audios: [AudioAttachment] = []
@@ -1800,11 +1782,14 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
             outgoing: outgoing,
             snapshot: snapshot,
             identifier: id,
-            preferredHeight: height,
             forwards: forwards,
             audios: audios
         )
+        messageHosts.append(host)
         contentStack.addArrangedSubview(host)
+        if bounds.width > 16 {
+            host.updateLayoutWidth(bounds.width - 16)
+        }
     }
 
     private func makeDateMarker(snapshot: ResolvedAppearanceSnapshot) -> UIView {
@@ -1837,6 +1822,7 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
 }
 
 private final class AppearanceThemeChatsPreviewPage: UIView {
+    private let baseTopContentInset: CGFloat = 4
     private struct Fixture {
         let name: String
         let message: String
@@ -1868,7 +1854,8 @@ private final class AppearanceThemeChatsPreviewPage: UIView {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceVertical = true
-        scrollView.contentInset = UIEdgeInsets(top: 4, left: 0, bottom: 42, right: 0)
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.contentInset = UIEdgeInsets(top: baseTopContentInset, left: 0, bottom: 112, right: 0)
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.axis = .vertical
         contentStack.spacing = 0
@@ -1889,6 +1876,15 @@ private final class AppearanceThemeChatsPreviewPage: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let topInset = safeAreaInsets.top + baseTopContentInset
+        if abs(scrollView.contentInset.top - topInset) > 0.5 {
+            scrollView.contentInset.top = topInset
+            scrollView.verticalScrollIndicatorInsets.top = topInset
+        }
+    }
 
     func configure(snapshot: ResolvedAppearanceSnapshot) {
         backgroundColor = snapshot.profile.interfaceStyle == .dark
@@ -1917,7 +1913,7 @@ private final class AppearanceThemeChatsPreviewPage: UIView {
                 conversationType: fixture.conversationType,
                 unread: fixture.unread,
                 unreadString: fixture.unread > 0 ? String(fixture.unread) : nil,
-                indicator: snapshot.accent.uiColor,
+                indicator: .clear,
                 isDraft: false,
                 isAttachment: false,
                 groupchatNickname: fixture.author,
@@ -1929,6 +1925,7 @@ private final class AppearanceThemeChatsPreviewPage: UIView {
                 verAction: false
             )
             cell.dateLabel.text = fixture.time
+            cell.accountIndicator.isHidden = true
             cell.accessibilityIdentifier = "interface.themePreview.chats.row.\(index)"
             cell.accessibilityLabel = "\(fixture.name), \(fixture.message), \(fixture.time)"
             contentStack.addArrangedSubview(AppearanceThemeChatListPreviewRow(cell: cell))
@@ -1990,12 +1987,11 @@ private final class AppearanceThemePagedPreviewView: UIView, UIScrollViewDelegat
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = true
-        layer.cornerRadius = 28
-        layer.cornerCurve = .continuous
         pagesScrollView.translatesAutoresizingMaskIntoConstraints = false
         pagesScrollView.isPagingEnabled = true
         pagesScrollView.showsHorizontalScrollIndicator = false
         pagesScrollView.bounces = true
+        pagesScrollView.contentInsetAdjustmentBehavior = .never
         pagesScrollView.delegate = self
         pagesScrollView.accessibilityIdentifier = "interface.themePreview.pages"
         pagesStack.translatesAutoresizingMaskIntoConstraints = false
@@ -2026,7 +2022,7 @@ private final class AppearanceThemePagedPreviewView: UIView, UIScrollViewDelegat
             conversationPage.widthAnchor.constraint(equalTo: pagesScrollView.frameLayoutGuide.widthAnchor),
             chatsPage.widthAnchor.constraint(equalTo: pagesScrollView.frameLayoutGuide.widthAnchor),
             pageControl.centerXAnchor.constraint(equalTo: centerXAnchor),
-            pageControl.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
+            pageControl.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -84)
         ])
     }
 
@@ -2072,6 +2068,7 @@ final class AppearanceThemePreviewViewController: BaseViewController {
     private var document: AppearanceSettingsDocument
     private let theme: AppearanceTheme
     private let preview = AppearanceThemePagedPreviewView()
+    private let applyButton = UIButton(type: .system)
 
     init(document: AppearanceSettingsDocument, theme: AppearanceTheme) {
         self.document = document
@@ -2084,13 +2081,17 @@ final class AppearanceThemePreviewViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = theme.name
-        view.backgroundColor = .black
+        view.backgroundColor = .systemBackground
+        let navigationAppearance = UINavigationBarAppearance()
+        navigationAppearance.configureWithTransparentBackground()
+        navigationAppearance.shadowColor = .clear
+        navigationItem.standardAppearance = navigationAppearance
+        navigationItem.scrollEdgeAppearance = navigationAppearance
+        navigationItem.compactAppearance = navigationAppearance
         preview.translatesAutoresizingMaskIntoConstraints = false
-        let applyButton = UIButton(type: .system)
-        applyButton.configuration = .filled()
-        applyButton.configuration?.title = "Apply for All Chats"
-        applyButton.configuration?.cornerStyle = .capsule
+        applyButton.configuration = makeApplyButtonConfiguration()
         applyButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+        applyButton.titleLabel?.adjustsFontForContentSizeCategory = true
         applyButton.addTarget(self, action: #selector(applyTheme), for: .touchUpInside)
         applyButton.accessibilityIdentifier = "interface.themePreview.apply"
         applyButton.translatesAutoresizingMaskIntoConstraints = false
@@ -2099,14 +2100,35 @@ final class AppearanceThemePreviewViewController: BaseViewController {
         NSLayoutConstraint.activate([
             preview.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             preview.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            preview.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            preview.bottomAnchor.constraint(equalTo: applyButton.topAnchor, constant: -12),
+            preview.topAnchor.constraint(equalTo: view.topAnchor),
+            preview.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             applyButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
             applyButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
-            applyButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            applyButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
             applyButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 56)
         ])
         refreshPreview()
+    }
+
+    private func makeApplyButtonConfiguration() -> UIButton.Configuration {
+        var configuration: UIButton.Configuration
+        if #available(iOS 26.0, *) {
+            configuration = .prominentGlass()
+        } else {
+            configuration = .filled()
+            configuration.baseBackgroundColor = .secondarySystemBackground
+            configuration.baseForegroundColor = .label
+            configuration.background.visualEffect = UIBlurEffect(style: .systemMaterial)
+        }
+        configuration.title = "Apply for All Chats"
+        configuration.cornerStyle = .capsule
+        configuration.contentInsets = NSDirectionalEdgeInsets(
+            top: 15,
+            leading: 20,
+            bottom: 15,
+            trailing: 20
+        )
+        return configuration
     }
 
     private func refreshPreview() {
@@ -2118,6 +2140,10 @@ final class AppearanceThemePreviewViewController: BaseViewController {
         var previewDocument = document
         previewDocument.profile = profile
         preview.configure(document: previewDocument, traits: traitCollection)
+        applyButton.tintColor = AppearanceResolver.resolve(
+            document: previewDocument,
+            traitStyle: traitCollection.userInterfaceStyle
+        ).accent.uiColor
     }
 
     @objc private func applyTheme() {
