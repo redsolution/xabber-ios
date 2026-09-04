@@ -240,6 +240,59 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertFalse(draft.isDirty)
     }
 
+    @MainActor
+    func testDraftEditorUsesNavigationControllerBackAndDiscardsUnsavedChanges() {
+        let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        let controller = AppearanceDraftViewController(document: document, title: "Editor")
+        let navigationController = UINavigationController(rootViewController: UIViewController())
+        navigationController.pushViewController(controller, animated: false)
+        controller.loadViewIfNeeded()
+
+        XCTAssertFalse(controller.navigationItem.hidesBackButton)
+        XCTAssertNil(controller.navigationItem.leftBarButtonItem)
+
+        controller.draft.profile.bubbleRadius = 3
+        XCTAssertTrue(controller.draft.isDirty)
+
+        let popped = navigationController.popViewController(animated: false)
+
+        XCTAssertTrue(popped === controller)
+        XCTAssertEqual(controller.draft.profile, document.profile)
+        XCTAssertFalse(controller.draft.isDirty)
+    }
+
+    @MainActor
+    func testInterfaceEditorRoutePushesOntoExistingNavigationStack() throws {
+        let controller = InterfaceSettingsViewController()
+        let navigationController = UINavigationController(rootViewController: controller)
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+
+        controller.tableView(tableView, didSelectRowAt: IndexPath(row: 0, section: 2))
+
+        XCTAssertEqual(navigationController.viewControllers.count, 2)
+        XCTAssertTrue(navigationController.topViewController is AppearanceDraftViewController)
+        XCTAssertNil(navigationController.topViewController?.navigationItem.leftBarButtonItem)
+    }
+
+    @MainActor
+    func testThemeEditorUsesNavigationControllerBackButton() {
+        let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        let controller = AppearanceThemeEditorViewController(
+            document: document,
+            theme: AppearanceThemeCatalog.builtInThemes[0]
+        )
+        let navigationController = UINavigationController(rootViewController: UIViewController())
+        navigationController.pushViewController(controller, animated: false)
+
+        controller.loadViewIfNeeded()
+
+        XCTAssertFalse(controller.navigationItem.hidesBackButton)
+        XCTAssertNil(controller.navigationItem.leftBarButtonItem)
+    }
+
     func testPremiumPolicyMatchesExactFreeMatrix() {
         let free = AppearancePremiumPolicy(isEntitled: false, subscriptionsEnabled: true)
         let paid = AppearancePremiumPolicy(isEntitled: true, subscriptionsEnabled: true)

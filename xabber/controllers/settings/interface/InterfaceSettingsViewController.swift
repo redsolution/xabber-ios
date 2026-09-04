@@ -141,14 +141,8 @@ final class InterfaceSettingsViewController: BaseViewController {
         }
     }
 
-    private func presentEditor(_ controller: UIViewController) {
-        let navigation = UINavigationController(rootViewController: controller)
-        navigation.modalPresentationStyle = .pageSheet
-        if let sheet = navigation.sheetPresentationController {
-            sheet.detents = [.large()]
-            sheet.prefersGrabberVisible = true
-        }
-        present(navigation, animated: true)
+    private func pushEditor(_ controller: UIViewController) {
+        navigationController?.pushViewController(controller, animated: true)
     }
 }
 
@@ -214,17 +208,17 @@ extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDel
                 animated: true
             )
         case .wallpaper:
-            presentEditor(AppearanceWallpaperViewController(document: document))
+            pushEditor(AppearanceWallpaperViewController(document: document))
         case .accent:
-            presentEditor(AppearanceAccentViewController(document: document))
+            pushEditor(AppearanceAccentViewController(document: document))
         case .mode:
-            presentEditor(AppearanceModeViewController(document: document))
+            pushEditor(AppearanceModeViewController(document: document))
         case .textSize:
-            presentEditor(AppearanceTextSizeViewController(document: document))
+            pushEditor(AppearanceTextSizeViewController(document: document))
         case .bubbles:
-            presentEditor(AppearanceBubbleViewController(document: document))
+            pushEditor(AppearanceBubbleViewController(document: document))
         case .avatars:
-            presentEditor(AppearanceAvatarViewController(document: document))
+            pushEditor(AppearanceAvatarViewController(document: document))
         }
     }
 }
@@ -620,7 +614,7 @@ private final class AppearanceGradientView: UIView {
     }
 }
 
-private class AppearanceDraftViewController: BaseViewController {
+class AppearanceDraftViewController: BaseViewController {
     var document: AppearanceSettingsDocument
     var draft: AppearanceDraft
     let preview = AppearancePreviewView()
@@ -637,12 +631,6 @@ private class AppearanceDraftViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemGroupedBackground
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            title: "Cancel",
-            style: .plain,
-            target: self,
-            action: #selector(cancelTapped)
-        )
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             image: UIImage(systemName: "checkmark"),
             style: .done,
@@ -651,6 +639,13 @@ private class AppearanceDraftViewController: BaseViewController {
         )
         navigationItem.rightBarButtonItem?.accessibilityIdentifier = "interface.editor.set"
         refreshSetButton()
+    }
+
+    override func didMove(toParent parent: UIViewController?) {
+        super.didMove(toParent: parent)
+        if parent == nil {
+            draft.reset()
+        }
     }
 
     func updatePreview() {
@@ -662,34 +657,18 @@ private class AppearanceDraftViewController: BaseViewController {
 
     func refreshSetButton() {
         navigationItem.rightBarButtonItem?.isEnabled = draft.isDirty
-        isModalInPresentation = draft.isDirty
     }
 
     @objc func setTapped() {
-        commitAndDismiss()
+        commitAndPop()
     }
 
-    @objc func cancelTapped() {
-        guard draft.isDirty else {
-            dismiss(animated: true)
-            return
-        }
-        let alert = UIAlertController(title: "Discard changes?", message: nil, preferredStyle: .actionSheet)
-        alert.addAction(UIAlertAction(title: "Continue Editing", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Apply", style: .default) { [weak self] _ in self?.commitAndDismiss() })
-        alert.addAction(UIAlertAction(title: "Discard", style: .destructive) { [weak self] _ in self?.dismiss(animated: true) })
-        if let popover = alert.popoverPresentationController {
-            popover.barButtonItem = navigationItem.leftBarButtonItem
-        }
-        present(alert, animated: true)
-    }
-
-    func commitAndDismiss() {
+    func commitAndPop() {
         document.profile = draft.profile
         do {
             _ = try AppearanceCoordinator.shared.commit(document)
             draft.accept()
-            dismiss(animated: true)
+            navigationController?.popViewController(animated: true)
         } catch {
             showError(error.localizedDescription)
         }
@@ -1562,7 +1541,7 @@ final class AppearanceThemePreviewViewController: BaseViewController {
     }
 }
 
-private final class AppearanceThemeEditorViewController: BaseViewController, UIColorPickerViewControllerDelegate {
+final class AppearanceThemeEditorViewController: BaseViewController, UIColorPickerViewControllerDelegate {
     private enum EditorTab: String {
         case background = "Background"
         case accent = "Accent"
@@ -1589,6 +1568,13 @@ private final class AppearanceThemeEditorViewController: BaseViewController, UIC
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    override func didMove(toParent parent: UIViewController?) {
+        super.didMove(toParent: parent)
+        if parent == nil {
+            theme = original
+        }
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Edit \(theme.name)"
@@ -1598,13 +1584,6 @@ private final class AppearanceThemeEditorViewController: BaseViewController, UIC
             style: .done,
             target: self,
             action: #selector(save)
-        )
-        navigationItem.hidesBackButton = true
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "chevron.backward"),
-            style: .plain,
-            target: self,
-            action: #selector(backTapped)
         )
         tabs.selectedSegmentIndex = 0
         tabs.addTarget(self, action: #selector(tabChanged), for: .valueChanged)
@@ -1627,23 +1606,6 @@ private final class AppearanceThemeEditorViewController: BaseViewController, UIC
         ])
         updateButtonTitle()
         refreshPreview()
-    }
-
-    @objc private func backTapped() {
-        guard theme != original else {
-            navigationController?.popViewController(animated: true)
-            return
-        }
-        let alert = UIAlertController(title: "Discard changes?", message: nil, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Continue Editing", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Apply", style: .default) { [weak self] _ in
-            guard let self else { return }
-            self.persist(self.theme)
-        })
-        alert.addAction(UIAlertAction(title: "Discard", style: .destructive) { [weak self] _ in
-            self?.navigationController?.popViewController(animated: true)
-        })
-        present(alert, animated: true)
     }
 
     @objc private func tabChanged() { updateButtonTitle() }
