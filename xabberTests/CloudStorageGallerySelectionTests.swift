@@ -3,6 +3,26 @@ import UIKit
 @testable import xabber
 
 final class CloudStorageGallerySelectionTests: XCTestCase {
+    func testPageRefreshPreservesSelectionModeNavigationControls() {
+        let controller = CloudStorageGalleryViewController(
+            category: .images,
+            owner: "paging-selection@example.com"
+        )
+        let deleteButton = UIBarButtonItem(
+            barButtonSystemItem: .trash,
+            target: nil,
+            action: nil
+        )
+        controller.deleteSelectedFilesButton = deleteButton
+        controller.navigationItem.setRightBarButton(deleteButton, animated: false)
+        controller.collectionView.isEditing = true
+
+        controller.configureCollections()
+
+        XCTAssertTrue(controller.navigationItem.rightBarButtonItem === deleteButton)
+        XCTAssertTrue(controller.collectionView.isEditing)
+    }
+
     func testPartialDeleteRestoresOnlyRemainingSelectedIDsAfterRowsShift() {
         var remainingSelectedIDs: Set<Int> = [101, 202, 303]
         remainingSelectedIDs.remove(101)

@@ -143,6 +143,7 @@ extension Notification.Name {
     static let cloudStorageQuotaRefreshDidFinish = Notification.Name("CloudStorageQuotaRefreshDidFinish")
     static let cloudStorageGalleryDidChange = Notification.Name("CloudStorageGalleryDidChange")
     static let cloudStorageGalleryTokenDidChange = Notification.Name("CloudStorageGalleryTokenDidChange")
+    static let cloudStorageContentDidChange = Notification.Name("CloudStorageContentDidChange")
     static let premiumEntitlementDidChange = Notification.Name("PremiumEntitlementDidChange")
 }
 
@@ -1033,6 +1034,9 @@ protocol CloudStorageQuotaAPIClient {
     func getFilesToDelete(baseURL: URL, token: String, percent: Int, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func deleteMediaFor(baseURL: URL, token: String, percent: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
     func deleteMediaForAll(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void)
+    func startFilesRequest(baseURL: URL, token: String, type: MimeIconTypes, page: Int, traceID: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) -> CloudStorageRequestCancelling?
+    func startFilesRequest(baseURL: URL, token: String, filter: CloudStorageFileFilter, page: Int, traceID: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) -> CloudStorageRequestCancelling?
+    func startAvatarsRequest(baseURL: URL, token: String, page: Int, traceID: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) -> CloudStorageRequestCancelling?
 }
 
 extension CloudStorageQuotaAPIClient {
@@ -1050,6 +1054,154 @@ extension CloudStorageQuotaAPIClient {
             page: page,
             completion: completion
         )
+    }
+
+    func startFilesRequest(
+        baseURL: URL,
+        token: String,
+        type: MimeIconTypes,
+        page: Int,
+        traceID: String,
+        completion: @escaping (CloudStorageQuotaAPIResponse) -> Void
+    ) -> CloudStorageRequestCancelling? {
+        getFiles(baseURL: baseURL, token: token, type: type, page: page, completion: completion)
+        return nil
+    }
+
+    func startFilesRequest(
+        baseURL: URL,
+        token: String,
+        filter: CloudStorageFileFilter,
+        page: Int,
+        traceID: String,
+        completion: @escaping (CloudStorageQuotaAPIResponse) -> Void
+    ) -> CloudStorageRequestCancelling? {
+        getFiles(baseURL: baseURL, token: token, filter: filter, page: page, completion: completion)
+        return nil
+    }
+
+    func startAvatarsRequest(
+        baseURL: URL,
+        token: String,
+        page: Int,
+        traceID: String,
+        completion: @escaping (CloudStorageQuotaAPIResponse) -> Void
+    ) -> CloudStorageRequestCancelling? {
+        getAvatars(baseURL: baseURL, token: token, page: page, completion: completion)
+        return nil
+    }
+}
+
+protocol CloudStorageRequestCancelling: AnyObject {
+    func cancel()
+}
+
+final class CloudStorageDeferredRequestCancellation: CloudStorageRequestCancelling {
+    private let lock = NSLock()
+    private var installedRequest: CloudStorageRequestCancelling?
+    private var isCancelled = false
+
+    func install(_ request: CloudStorageRequestCancelling?) {
+        lock.lock()
+        if isCancelled {
+            lock.unlock()
+            request?.cancel()
+            return
+        }
+        installedRequest = request
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        isCancelled = true
+        let request = installedRequest
+        installedRequest = nil
+        lock.unlock()
+        request?.cancel()
+    }
+}
+
+enum CloudStorageListRequestPolicy {
+    static let timeoutInterval: TimeInterval = 15
+    static let resourceTimeoutInterval: TimeInterval = 35
+    static let retryLimit = 1
+    static let retryableStatusCodes = Set([408, 429, 500, 502, 503, 504])
+    static let retryableURLErrorCodes: Set<URLError.Code> = [
+        .timedOut,
+        .cannotFindHost,
+        .cannotConnectToHost,
+        .dnsLookupFailed,
+        .networkConnectionLost,
+        .notConnectedToInternet,
+        .secureConnectionFailed,
+        .resourceUnavailable,
+        .dataNotAllowed
+    ]
+
+    static func shouldRetry(
+        method: HTTPMethod?,
+        statusCode: Int?,
+        urlErrorCode: URLError.Code?,
+        retryCount: Int
+    ) -> Bool {
+        guard method == .get, retryCount < retryLimit else { return false }
+        if let statusCode {
+            return retryableStatusCodes.contains(statusCode)
+        }
+        if let urlErrorCode {
+            return retryableURLErrorCodes.contains(urlErrorCode)
+        }
+        return false
+    }
+
+    static func retryDelay(randomUnit: Double) -> TimeInterval {
+        let boundedUnit = min(1, max(0, randomUnit))
+        return 0.4 + boundedUnit * 0.4
+    }
+
+    static func makeSessionConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.af.default
+        configuration.timeoutIntervalForRequest = timeoutInterval
+        configuration.timeoutIntervalForResource = resourceTimeoutInterval
+        configuration.waitsForConnectivity = false
+        return configuration
+    }
+}
+
+private final class CloudStorageListRetryPolicy: RequestInterceptor, @unchecked Sendable {
+    func retry(
+        _ request: Request,
+        for session: Session,
+        dueTo error: Error,
+        completion: @escaping @Sendable (RetryResult) -> Void
+    ) {
+        let urlErrorCode = (error as? URLError)?.code
+            ?? (error.asAFError?.underlyingError as? URLError)?.code
+        guard CloudStorageListRequestPolicy.shouldRetry(
+            method: request.request?.method,
+            statusCode: request.response?.statusCode,
+            urlErrorCode: urlErrorCode,
+            retryCount: request.retryCount
+        ) else {
+            completion(.doNotRetry)
+            return
+        }
+        completion(.retryWithDelay(
+            CloudStorageListRequestPolicy.retryDelay(randomUnit: Double.random(in: 0...1))
+        ))
+    }
+}
+
+private final class AlamofireCloudStorageRequestCancellation: CloudStorageRequestCancelling {
+    private let request: DataRequest
+
+    init(request: DataRequest) {
+        self.request = request
+    }
+
+    func cancel() {
+        request.cancel()
     }
 }
 
@@ -1092,20 +1244,46 @@ final class AlamofireCloudStorageTokenAPIClient: CloudStorageTokenAPIClient {
 
 final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
     private static let traceHeaderName = "X-Xabber-Trace-ID"
+    private static let defaultListSession = Session(
+        configuration: CloudStorageListRequestPolicy.makeSessionConfiguration(),
+        interceptor: CloudStorageListRetryPolicy()
+    )
+    private let listSession: Session
+
+    init(listSession: Session = AlamofireCloudStorageQuotaAPIClient.defaultListSession) {
+        self.listSession = listSession
+    }
 
     func getStats(baseURL: URL, token: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        guard let url = Self.apiURL(baseURL: baseURL, path: "v1/files/stats/") else {
+        let traceID = UUID().uuidString
+        guard let request = Self.statsRequest(
+            baseURL: baseURL,
+            token: token,
+            traceID: traceID
+        ) else {
             completion(.failure(statusCode: nil, error: nil))
             return
         }
 
-        AF.request(
-            url,
-            method: .get,
-            parameters: nil,
-            encoding: JSONEncoding.default,
-            headers: Self.authHeaders(token)
-        ).responseJSON { Self.complete($0, completion: completion) }
+        let dataRequest = listSession.request(request).validate(statusCode: 200..<300)
+        dataRequest.responseJSON { [weak dataRequest, weak self] response in
+            guard let self else {
+                completion(.failure(statusCode: nil, error: URLError(.cancelled)))
+                return
+            }
+            self.logListResponse(
+                response,
+                category: "stats",
+                page: 0,
+                traceID: traceID,
+                retryCount: dataRequest?.retryCount ?? 0
+            )
+            Self.complete(
+                response,
+                sessionConfiguration: self.listSession.sessionConfiguration,
+                completion: completion
+            )
+        }
     }
 
     func requestSlot(baseURL: URL, token: String, request: CloudStorageUploadSlotRequest, traceID: String, timeoutInterval: TimeInterval, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
@@ -1169,51 +1347,155 @@ final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
             completion(.failure(statusCode: nil, error: nil))
             return
         }
-        requestFiles(baseURL: baseURL, token: token, typeValue: typeValue, page: page, completion: completion)
+        _ = startFilesRequest(
+            baseURL: baseURL,
+            token: token,
+            typeValue: typeValue,
+            page: page,
+            traceID: UUID().uuidString,
+            completion: completion
+        )
     }
 
     func getFiles(baseURL: URL, token: String, filter: CloudStorageFileFilter, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        requestFiles(baseURL: baseURL, token: token, typeValue: filter.rawValue, page: page, completion: completion)
+        _ = startFilesRequest(
+            baseURL: baseURL,
+            token: token,
+            typeValue: filter.rawValue,
+            page: page,
+            traceID: UUID().uuidString,
+            completion: completion
+        )
     }
 
-    private func requestFiles(baseURL: URL, token: String, typeValue: String, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        guard let url = Self.apiURL(baseURL: baseURL, path: "v1/files/"),
-              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+    func startFilesRequest(
+        baseURL: URL,
+        token: String,
+        type: MimeIconTypes,
+        page: Int,
+        traceID: String,
+        completion: @escaping (CloudStorageQuotaAPIResponse) -> Void
+    ) -> CloudStorageRequestCancelling? {
+        guard let typeValue = Self.fileTypeQueryValue(for: type) else {
             completion(.failure(statusCode: nil, error: nil))
-            return
+            return nil
+        }
+        return startFilesRequest(
+            baseURL: baseURL,
+            token: token,
+            typeValue: typeValue,
+            page: page,
+            traceID: traceID,
+            completion: completion
+        )
+    }
+
+    func startFilesRequest(
+        baseURL: URL,
+        token: String,
+        filter: CloudStorageFileFilter,
+        page: Int,
+        traceID: String,
+        completion: @escaping (CloudStorageQuotaAPIResponse) -> Void
+    ) -> CloudStorageRequestCancelling? {
+        return startFilesRequest(
+            baseURL: baseURL,
+            token: token,
+            typeValue: filter.rawValue,
+            page: page,
+            traceID: traceID,
+            completion: completion
+        )
+    }
+
+    private func startFilesRequest(
+        baseURL: URL,
+        token: String,
+        typeValue: String,
+        page: Int,
+        traceID: String,
+        completion: @escaping (CloudStorageQuotaAPIResponse) -> Void
+    ) -> CloudStorageRequestCancelling? {
+        guard let request = Self.filesRequest(
+            baseURL: baseURL,
+            token: token,
+            typeValue: typeValue,
+            page: page,
+            traceID: traceID
+        ) else {
+            completion(.failure(statusCode: nil, error: nil))
+            return nil
         }
 
-        components.queryItems = [
-            URLQueryItem(name: "type", value: typeValue),
-            URLQueryItem(name: "page", value: String(page))
-        ]
-
-        AF.request(
-            components,
-            method: .get,
-            parameters: nil,
-            encoding: JSONEncoding.default,
-            headers: Self.authHeaders(token)
-        ).validate(statusCode: 200..<300)
-            .responseJSON { Self.complete($0, completion: completion) }
+        let dataRequest = listSession.request(request).validate(statusCode: 200..<300)
+        dataRequest.responseJSON { [weak dataRequest, weak self] response in
+            guard let self else {
+                completion(.failure(statusCode: nil, error: URLError(.cancelled)))
+                return
+            }
+            self.logListResponse(
+                response,
+                category: typeValue,
+                page: page,
+                traceID: traceID,
+                retryCount: dataRequest?.retryCount ?? 0
+            )
+            Self.complete(
+                response,
+                sessionConfiguration: self.listSession.sessionConfiguration,
+                completion: completion
+            )
+        }
+        return AlamofireCloudStorageRequestCancellation(request: dataRequest)
     }
 
     func getAvatars(baseURL: URL, token: String, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        guard let url = Self.apiURL(baseURL: baseURL, path: "v1/avatar/"),
-              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+        _ = startAvatarsRequest(
+            baseURL: baseURL,
+            token: token,
+            page: page,
+            traceID: UUID().uuidString,
+            completion: completion
+        )
+    }
+
+    func startAvatarsRequest(
+        baseURL: URL,
+        token: String,
+        page: Int,
+        traceID: String,
+        completion: @escaping (CloudStorageQuotaAPIResponse) -> Void
+    ) -> CloudStorageRequestCancelling? {
+        guard let request = Self.avatarsRequest(
+            baseURL: baseURL,
+            token: token,
+            page: page,
+            traceID: traceID
+        ) else {
             completion(.failure(statusCode: nil, error: nil))
-            return
+            return nil
         }
 
-        components.queryItems = [URLQueryItem(name: "page", value: String(page))]
-        AF.request(
-            components,
-            method: .get,
-            parameters: nil,
-            encoding: JSONEncoding.default,
-            headers: Self.authHeaders(token)
-        ).validate(statusCode: 200..<300)
-            .responseJSON { Self.complete($0, completion: completion) }
+        let dataRequest = listSession.request(request).validate(statusCode: 200..<300)
+        dataRequest.responseJSON { [weak dataRequest, weak self] response in
+            guard let self else {
+                completion(.failure(statusCode: nil, error: URLError(.cancelled)))
+                return
+            }
+            self.logListResponse(
+                response,
+                category: "avatars",
+                page: page,
+                traceID: traceID,
+                retryCount: dataRequest?.retryCount ?? 0
+            )
+            Self.complete(
+                response,
+                sessionConfiguration: self.listSession.sessionConfiguration,
+                completion: completion
+            )
+        }
+        return AlamofireCloudStorageRequestCancellation(request: dataRequest)
     }
 
     func getFilesToDelete(baseURL: URL, token: String, percent: Int, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
@@ -1338,6 +1620,136 @@ final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
         return HTTPHeaders(headers)
     }
 
+    static func filesRequest(
+        baseURL: URL,
+        token: String,
+        filter: CloudStorageFileFilter,
+        page: Int,
+        traceID: String
+    ) -> URLRequest? {
+        return filesRequest(
+            baseURL: baseURL,
+            token: token,
+            typeValue: filter.rawValue,
+            page: page,
+            traceID: traceID
+        )
+    }
+
+    static func statsRequest(
+        baseURL: URL,
+        token: String,
+        traceID: String
+    ) -> URLRequest? {
+        guard let url = apiURL(baseURL: baseURL, path: "v1/files/stats/"),
+              var request = try? URLRequest(
+                url: url,
+                method: .get,
+                headers: authHeaders(token, traceID: traceID)
+              ) else {
+            return nil
+        }
+        request.timeoutInterval = CloudStorageListRequestPolicy.timeoutInterval
+        return request
+    }
+
+    private static func filesRequest(
+        baseURL: URL,
+        token: String,
+        typeValue: String,
+        page: Int,
+        traceID: String
+    ) -> URLRequest? {
+        guard page > 0,
+              let url = apiURL(baseURL: baseURL, path: "v1/files/"),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        components.queryItems = [
+            URLQueryItem(name: "type", value: typeValue),
+            URLQueryItem(name: "page", value: String(page))
+        ]
+        guard let requestURL = components.url,
+              var request = try? URLRequest(
+                url: requestURL,
+                method: .get,
+                headers: authHeaders(token, traceID: traceID)
+              ) else {
+            return nil
+        }
+        request.timeoutInterval = CloudStorageListRequestPolicy.timeoutInterval
+        return request
+    }
+
+    private static func avatarsRequest(
+        baseURL: URL,
+        token: String,
+        page: Int,
+        traceID: String
+    ) -> URLRequest? {
+        guard page > 0,
+              let url = apiURL(baseURL: baseURL, path: "v1/avatar/"),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        components.queryItems = [URLQueryItem(name: "page", value: String(page))]
+        guard let requestURL = components.url,
+              var request = try? URLRequest(
+                url: requestURL,
+                method: .get,
+                headers: authHeaders(token, traceID: traceID)
+              ) else {
+            return nil
+        }
+        request.timeoutInterval = CloudStorageListRequestPolicy.timeoutInterval
+        return request
+    }
+
+    private func logListResponse(
+        _ response: AFDataResponse<Any>,
+        category: String,
+        page: Int,
+        traceID: String,
+        retryCount: Int
+    ) {
+        let metrics = response.metrics
+        let transaction = metrics?.transactionMetrics.last
+        let totalMs = Self.milliseconds(metrics?.taskInterval.duration)
+        let dnsMs = Self.milliseconds(
+            from: transaction?.domainLookupStartDate,
+            to: transaction?.domainLookupEndDate
+        )
+        let connectMs = Self.milliseconds(
+            from: transaction?.connectStartDate,
+            to: transaction?.connectEndDate
+        )
+        let tlsMs = Self.milliseconds(
+            from: transaction?.secureConnectionStartDate,
+            to: transaction?.secureConnectionEndDate
+        )
+        let firstByteMs = Self.milliseconds(
+            from: transaction?.requestStartDate,
+            to: transaction?.responseStartDate
+        )
+        let statusCode = (response.response?.statusCode).map(String.init) ?? "none"
+        let outcome = response.error == nil ? "success" : "failure"
+        DDLogInfo(
+            "CLOUD_STORAGE_LIST_TRACE event=request_completed category=\(category) page=\(page) "
+                + "traceID=\(traceID) outcome=\(outcome) statusCode=\(statusCode) retries=\(retryCount) "
+                + "durationMs=\(totalMs) dnsMs=\(dnsMs) connectMs=\(connectMs) tlsMs=\(tlsMs) firstByteMs=\(firstByteMs)"
+        )
+    }
+
+    private static func milliseconds(_ duration: TimeInterval?) -> Int {
+        guard let duration, duration >= 0 else { return -1 }
+        return Int((duration * 1_000).rounded())
+    }
+
+    private static func milliseconds(from start: Date?, to end: Date?) -> Int {
+        guard let start, let end else { return -1 }
+        return milliseconds(end.timeIntervalSince(start))
+    }
+
     private func requestDelete(baseURL: URL, token: String, path: String, parameters: [String: Any], completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
         guard let url = Self.apiURL(baseURL: baseURL, path: path) else {
             completion(.failure(statusCode: nil, error: nil))
@@ -1356,13 +1768,17 @@ final class AlamofireCloudStorageQuotaAPIClient: CloudStorageQuotaAPIClient {
             }
     }
 
-    static func complete(_ response: AFDataResponse<Any>, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
+    static func complete(
+        _ response: AFDataResponse<Any>,
+        sessionConfiguration: URLSessionConfiguration = AF.sessionConfiguration,
+        completion: @escaping (CloudStorageQuotaAPIResponse) -> Void
+    ) {
         let diagnostics = CloudStorageQuotaAPINetworkDiagnostics(
             request: response.request,
             response: response.response,
             metrics: response.metrics,
             error: response.error,
-            sessionConfiguration: AF.sessionConfiguration
+            sessionConfiguration: sessionConfiguration
         )
         switch response.result {
         case .success(let value):
@@ -2198,6 +2614,26 @@ class XabberUploadManager: AbstractXMPPManager {
         refreshQuota(reason: reason, force: force)
     }
 
+    private func postCloudStorageContentDidChange(_ context: CloudStorageGalleryRequestContext) {
+        guard isCurrent(context) else { return }
+        NotificationCenter.default.post(
+            name: .cloudStorageContentDidChange,
+            object: self,
+            userInfo: [
+                "jid": context.owner,
+                "galleryIdentity": context.identity
+            ]
+        )
+    }
+
+    private func isSuccessfulGalleryResponse(_ response: CloudStorageQuotaAPIResponse) -> Bool {
+        guard case .response(let statusCode, _, _) = response,
+              let statusCode else {
+            return false
+        }
+        return (200..<300).contains(statusCode)
+    }
+
     private struct GalleryTokenRequestTarget {
         let owner: String
         let galleryType: AccountGalleryType
@@ -2312,7 +2748,12 @@ class XabberUploadManager: AbstractXMPPManager {
                         completion: responseCompletion
                     )
                 },
-                completion: completion
+                completion: { [weak self] response in
+                    if self?.isSuccessfulGalleryResponse(response) == true {
+                        self?.postCloudStorageContentDidChange(context)
+                    }
+                    completion(response)
+                }
             )
         }
     }
@@ -2437,6 +2878,7 @@ class XabberUploadManager: AbstractXMPPManager {
                             ("used", used)
                         ]))
                         successCallback(fileUrl, thumbnailUrl, fileID, name, hash, uploadURL, quota, used)
+                        self.postCloudStorageContentDidChange(context)
                         self.refreshQuotaIfCurrent(context, reason: .uploadCompleted, force: true)
                     } else {
                         if code == 401 {
@@ -3440,6 +3882,8 @@ class XabberUploadManager: AbstractXMPPManager {
             case .response(let code, _, _):
                 if code == 401 {
                     self.tokenWasExpired(context)
+                } else if let code, (200..<300).contains(code) {
+                    self.postCloudStorageContentDidChange(context)
                 }
             case .failure(let code, let error, _):
                 DDLogDebug("XabberUploadManager: \(#function). \(error?.localizedDescription ?? "Unknown error")")
@@ -3448,19 +3892,21 @@ class XabberUploadManager: AbstractXMPPManager {
         }
     }
 
+    @discardableResult
     func getFilesPage(
         type: MimeIconTypes,
         page: Int,
         completion: @escaping (Result<CloudStorageListPage, CloudStorageListLoadError>) -> Void
-    ) {
+    ) -> CloudStorageRequestCancelling? {
         guard let context = currentGalleryRequestContext() else {
             DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
             completion(.failure(.unavailable))
-            return
+            return nil
         }
         let once = CompletionOnce()
+        let traceID = UUID().uuidString
 
-        Self.quotaAPIClient.getFiles(baseURL: context.baseURL, token: context.token, type: type, page: page) { [weak self] response in
+        return Self.quotaAPIClient.startFilesRequest(baseURL: context.baseURL, token: context.token, type: type, page: page, traceID: traceID) { [weak self] response in
             guard once.claim() else { return }
             guard let self else {
                 completion(.failure(.unavailable))
@@ -3470,19 +3916,21 @@ class XabberUploadManager: AbstractXMPPManager {
         }
     }
 
+    @discardableResult
     func getFilesPage(
         filter: CloudStorageFileFilter,
         page: Int,
         completion: @escaping (Result<CloudStorageListPage, CloudStorageListLoadError>) -> Void
-    ) {
+    ) -> CloudStorageRequestCancelling? {
         guard let context = currentGalleryRequestContext() else {
             DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
             completion(.failure(.unavailable))
-            return
+            return nil
         }
         let once = CompletionOnce()
+        let traceID = UUID().uuidString
 
-        Self.quotaAPIClient.getFiles(baseURL: context.baseURL, token: context.token, filter: filter, page: page) { [weak self] response in
+        return Self.quotaAPIClient.startFilesRequest(baseURL: context.baseURL, token: context.token, filter: filter, page: page, traceID: traceID) { [weak self] response in
             guard once.claim() else { return }
             guard let self else {
                 completion(.failure(.unavailable))
@@ -3492,18 +3940,20 @@ class XabberUploadManager: AbstractXMPPManager {
         }
     }
 
+    @discardableResult
     func getAvatarsPage(
         page: Int,
         completion: @escaping (Result<CloudStorageListPage, CloudStorageListLoadError>) -> Void
-    ) {
+    ) -> CloudStorageRequestCancelling? {
         guard let context = currentGalleryRequestContext() else {
             DDLogDebug("XabberUploadManager (\(#function) is unavailable.")
             completion(.failure(.unavailable))
-            return
+            return nil
         }
         let once = CompletionOnce()
+        let traceID = UUID().uuidString
 
-        Self.quotaAPIClient.getAvatars(baseURL: context.baseURL, token: context.token, page: page) { [weak self] response in
+        return Self.quotaAPIClient.startAvatarsRequest(baseURL: context.baseURL, token: context.token, page: page, traceID: traceID) { [weak self] response in
             guard once.claim() else { return }
             guard let self else {
                 completion(.failure(.unavailable))
@@ -3585,6 +4035,7 @@ class XabberUploadManager: AbstractXMPPManager {
             }
             let result = self.mutationResult(from: response, context: plan.context)
             if case .success = result {
+                self.postCloudStorageContentDidChange(plan.context)
                 self.refreshQuotaIfCurrent(plan.context, reason: .manual, force: true)
             }
             completion(result)
@@ -3609,6 +4060,7 @@ class XabberUploadManager: AbstractXMPPManager {
             }
             let result = self.mutationResult(from: response, context: context)
             if case .success = result {
+                self.postCloudStorageContentDidChange(context)
                 self.refreshQuotaIfCurrent(context, reason: .manual, force: true)
             }
             completion(result)

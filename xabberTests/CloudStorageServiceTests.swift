@@ -347,6 +347,36 @@ final class CloudStorageServiceTests: XCTestCase {
         XCTAssertEqual(client.fileDeleteCalls.map(\.isAvatar), [true, false])
         XCTAssertEqual(client.statsCallCount, 1)
     }
+
+    func testDeleteGalleryInvalidatesCacheOnlyAfterSuccessfulMutation() {
+        var invalidations: [(owner: String, galleryIdentity: String)] = []
+        let observer = NotificationCenter.default.addObserver(
+            forName: .cloudStorageContentDidChange,
+            object: manager,
+            queue: nil
+        ) { notification in
+            guard let owner = notification.userInfo?["jid"] as? String,
+                  let galleryIdentity = notification.userInfo?["galleryIdentity"] as? String else {
+                return
+            }
+            invalidations.append((owner, galleryIdentity))
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        client.galleryDeleteResponse = .failure(statusCode: 503, error: nil)
+        manager.deleteGallery(jid: owner)
+        XCTAssertTrue(invalidations.isEmpty)
+
+        client.galleryDeleteResponse = .response(statusCode: 204, value: nil)
+        manager.deleteGallery(jid: owner)
+
+        XCTAssertEqual(invalidations.count, 1)
+        XCTAssertEqual(invalidations.first?.owner, owner)
+        XCTAssertEqual(
+            invalidations.first?.galleryIdentity,
+            AccountGalleryConfiguration(owner: owner).currentGalleryIdentity
+        )
+    }
 }
 
 private final class CloudStorageServiceFakeAPIClient: CloudStorageQuotaAPIClient {
@@ -375,6 +405,7 @@ private final class CloudStorageServiceFakeAPIClient: CloudStorageQuotaAPIClient
     var cleanupResponse: CloudStorageQuotaAPIResponse = .response(statusCode: 200, value: ["items": []])
     var holdCleanupResponse = false
     var fileDeleteResponse: CloudStorageQuotaAPIResponse = .response(statusCode: 204, value: nil)
+    var galleryDeleteResponse: CloudStorageQuotaAPIResponse = .failure(statusCode: nil, error: nil)
     var deleteResponseHandler: (@escaping (CloudStorageQuotaAPIResponse) -> Void) -> Void = {
         $0(.response(statusCode: 204, value: [:]))
     }
@@ -410,7 +441,7 @@ private final class CloudStorageServiceFakeAPIClient: CloudStorageQuotaAPIClient
     }
 
     func deleteGallery(baseURL: URL, token: String, jid: String, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {
-        completion(.failure(statusCode: nil, error: nil))
+        completion(galleryDeleteResponse)
     }
 
     func getFiles(baseURL: URL, token: String, type: MimeIconTypes, page: Int, completion: @escaping (CloudStorageQuotaAPIResponse) -> Void) {

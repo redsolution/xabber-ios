@@ -204,6 +204,324 @@ final class CloudStoragePagedLoader {
     }
 }
 
+struct CloudStorageGalleryCacheKey: Hashable {
+    let owner: String
+    let galleryIdentity: String
+    let categoryRawValue: String
+
+    init(owner: String, galleryIdentity: String, category: CloudStorageOverviewCategory) {
+        self.owner = owner
+        self.galleryIdentity = galleryIdentity
+        self.categoryRawValue = category.rawValue
+    }
+}
+
+struct CloudStorageGalleryCacheSnapshot {
+    let items: [NSDictionary]
+    let currentPage: Int
+    let totalPages: Int
+}
+
+final class CloudStorageGalleryMemoryCache {
+    static let shared = CloudStorageGalleryMemoryCache(
+        maximumAge: 5 * 60,
+        notificationCenter: .default
+    )
+
+    private struct Entry {
+        let snapshot: CloudStorageGalleryCacheSnapshot
+        let storedAt: Date
+    }
+
+    private let maximumAge: TimeInterval
+    private let now: () -> Date
+    private let notificationCenter: NotificationCenter?
+    private let lock = NSLock()
+    private var entries: [CloudStorageGalleryCacheKey: Entry] = [:]
+    private var observers: [NSObjectProtocol] = []
+
+    init(
+        maximumAge: TimeInterval,
+        now: @escaping () -> Date = Date.init,
+        notificationCenter: NotificationCenter? = nil
+    ) {
+        self.maximumAge = max(0, maximumAge)
+        self.now = now
+        self.notificationCenter = notificationCenter
+
+        if let notificationCenter {
+            observers.append(notificationCenter.addObserver(
+                forName: .cloudStorageContentDidChange,
+                object: nil,
+                queue: nil
+            ) { [weak self] notification in
+                guard let owner = notification.userInfo?["jid"] as? String else { return }
+                self?.invalidate(
+                    owner: owner,
+                    galleryIdentity: notification.userInfo?["galleryIdentity"] as? String
+                )
+            })
+            observers.append(notificationCenter.addObserver(
+                forName: .cloudStorageGalleryDidChange,
+                object: nil,
+                queue: nil
+            ) { [weak self] notification in
+                guard let owner = notification.userInfo?["jid"] as? String else { return }
+                self?.invalidate(owner: owner, galleryIdentity: nil)
+            })
+        }
+    }
+
+    deinit {
+        observers.forEach { notificationCenter?.removeObserver($0) }
+    }
+
+    func snapshot(for key: CloudStorageGalleryCacheKey) -> CloudStorageGalleryCacheSnapshot? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let entry = entries[key] else { return nil }
+        guard now().timeIntervalSince(entry.storedAt) <= maximumAge else {
+            entries.removeValue(forKey: key)
+            return nil
+        }
+        return entry.snapshot
+    }
+
+    func store(_ snapshot: CloudStorageGalleryCacheSnapshot, for key: CloudStorageGalleryCacheKey) {
+        lock.lock()
+        entries[key] = Entry(snapshot: snapshot, storedAt: now())
+        lock.unlock()
+    }
+
+    func invalidate(owner: String, galleryIdentity: String?) {
+        lock.lock()
+        entries.keys
+            .filter { key in
+                key.owner == owner
+                    && (galleryIdentity == nil || key.galleryIdentity == galleryIdentity)
+            }
+            .forEach { entries.removeValue(forKey: $0) }
+        lock.unlock()
+    }
+}
+
+enum CloudStorageGalleryPagingIndicator: Equatable {
+    case none
+    case initialLoading
+    case initialRetry
+    case nextPageLoading
+    case nextPageRetry
+    case refreshRetry
+}
+
+final class CloudStorageIncrementalPager {
+    struct State {
+        fileprivate(set) var items: [NSDictionary] = []
+        fileprivate(set) var currentPage = 0
+        fileprivate(set) var totalPages = 1
+        fileprivate(set) var loadingPage: Int?
+        fileprivate(set) var failedPage: Int?
+        fileprivate(set) var error: CloudStorageListLoadError?
+        fileprivate(set) var isShowingCachedContent = false
+
+        var isLoading: Bool {
+            return loadingPage != nil
+        }
+
+        var canLoadNextPage: Bool {
+            return !isLoading
+                && failedPage == nil
+                && currentPage > 0
+                && currentPage < totalPages
+        }
+
+        var indicator: CloudStorageGalleryPagingIndicator {
+            if loadingPage == 1, items.isEmpty {
+                return .initialLoading
+            }
+            if failedPage == 1, items.isEmpty {
+                return .initialRetry
+            }
+            if let loadingPage, loadingPage > 1 {
+                return .nextPageLoading
+            }
+            if let failedPage, !items.isEmpty {
+                return failedPage == 1 ? .refreshRetry : .nextPageRetry
+            }
+            return .none
+        }
+    }
+
+    typealias FetchPage = (
+        Int,
+        @escaping (Result<CloudStorageListPage, CloudStorageListLoadError>) -> Void
+    ) -> CloudStorageRequestCancelling?
+
+    private let cacheKey: CloudStorageGalleryCacheKey
+    private let cache: CloudStorageGalleryMemoryCache
+    private let fetchPage: FetchPage
+    private var requestGeneration = 0
+    private var activeRequest: CloudStorageRequestCancelling?
+    private var waitingForPage: Int?
+
+    var onStateChange: ((State) -> Void)?
+    private(set) var state = State()
+
+    init(
+        cacheKey: CloudStorageGalleryCacheKey,
+        cache: CloudStorageGalleryMemoryCache = .shared,
+        fetchPage: @escaping FetchPage
+    ) {
+        self.cacheKey = cacheKey
+        self.cache = cache
+        self.fetchPage = fetchPage
+    }
+
+    deinit {
+        activeRequest?.cancel()
+    }
+
+    func start() {
+        activeRequest?.cancel()
+        activeRequest = nil
+        requestGeneration += 1
+        waitingForPage = nil
+
+        if let cached = cache.snapshot(for: cacheKey) {
+            state.items = cached.items
+            state.currentPage = max(0, cached.currentPage)
+            state.totalPages = max(1, cached.totalPages)
+            state.isShowingCachedContent = cached.items.isNotEmpty
+        } else {
+            state = State()
+        }
+        state.failedPage = nil
+        state.error = nil
+        publish()
+        request(page: 1)
+    }
+
+    func loadNextPageIfNeeded() {
+        guard state.canLoadNextPage else { return }
+        request(page: state.currentPage + 1)
+    }
+
+    func retryFailedPage() {
+        guard let failedPage = state.failedPage, !state.isLoading else { return }
+        request(page: failedPage)
+    }
+
+    func cancel() {
+        requestGeneration += 1
+        activeRequest?.cancel()
+        activeRequest = nil
+        waitingForPage = nil
+        state.loadingPage = nil
+        publish()
+    }
+
+    func removeItems(fileIDs: Set<Int>) {
+        guard fileIDs.isNotEmpty else { return }
+        state.items.removeAll { payload in
+            guard let fileID = Self.fileID(from: payload["id"]) else { return false }
+            return fileIDs.contains(fileID)
+        }
+        storeSnapshot()
+        publish()
+    }
+
+    private func request(page: Int) {
+        guard page > 0, waitingForPage == nil else { return }
+        state.failedPage = nil
+        state.error = nil
+        state.loadingPage = page
+        waitingForPage = page
+        publish()
+
+        let generation = requestGeneration
+        let cancellation = fetchPage(page) { [weak self] result in
+            self?.receive(result, requestedPage: page, generation: generation)
+        }
+        if requestGeneration == generation, waitingForPage == page {
+            activeRequest = cancellation
+        } else {
+            cancellation?.cancel()
+        }
+    }
+
+    private func receive(
+        _ result: Result<CloudStorageListPage, CloudStorageListLoadError>,
+        requestedPage: Int,
+        generation: Int
+    ) {
+        guard generation == requestGeneration, waitingForPage == requestedPage else { return }
+        waitingForPage = nil
+        activeRequest = nil
+        state.loadingPage = nil
+
+        switch result {
+        case .failure(let error):
+            state.failedPage = requestedPage
+            state.error = error
+
+        case .success(let page):
+            guard page.page == requestedPage else {
+                state.failedPage = requestedPage
+                state.error = .invalidResponse
+                publish()
+                return
+            }
+            if requestedPage == 1 {
+                state.items = Self.uniqueItems(page.items)
+            } else {
+                state.items = Self.uniqueItems(state.items + page.items)
+            }
+            state.currentPage = requestedPage
+            state.totalPages = max(requestedPage, max(1, page.totalPages))
+            state.failedPage = nil
+            state.error = nil
+            state.isShowingCachedContent = false
+            storeSnapshot()
+        }
+        publish()
+    }
+
+    private func storeSnapshot() {
+        cache.store(
+            CloudStorageGalleryCacheSnapshot(
+                items: state.items,
+                currentPage: state.currentPage,
+                totalPages: state.totalPages
+            ),
+            for: cacheKey
+        )
+    }
+
+    private func publish() {
+        onStateChange?(state)
+    }
+
+    private static func uniqueItems(_ items: [NSDictionary]) -> [NSDictionary] {
+        var seen = Set<String>()
+        return items.filter { item in
+            guard let identity = identity(for: item) else { return true }
+            return seen.insert(identity).inserted
+        }
+    }
+
+    private static func identity(for item: NSDictionary) -> String? {
+        guard let fileID = fileID(from: item["id"]) else { return nil }
+        return "id:\(fileID)"
+    }
+
+    private static func fileID(from value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        if let value = value as? String { return Int(value) }
+        return nil
+    }
+}
+
 class CloudStorageShowFilesViewController: BaseViewController {
     struct Datasource {
         enum Kind: Equatable {

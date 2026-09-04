@@ -296,6 +296,324 @@ final class CloudStorageManagementTests: XCTestCase {
         XCTAssertEqual(receivedError, .server(statusCode: 500))
     }
 
+    func testIncrementalPagerPublishesFirstPageWithoutRequestingTheNextPage() {
+        let cache = CloudStorageGalleryMemoryCache(maximumAge: 300)
+        let key = CloudStorageGalleryCacheKey(
+            owner: "owner@example.com",
+            galleryIdentity: "basic|gallery.example",
+            category: .images
+        )
+        var requestedPages: [Int] = []
+        let pager = CloudStorageIncrementalPager(cacheKey: key, cache: cache) { page, completion in
+            requestedPages.append(page)
+            completion(.success(.init(
+                items: [["id": 1], ["id": 2]],
+                totalObjects: 4,
+                objectsPerPage: 2,
+                totalPages: 2,
+                page: page
+            )))
+            return nil
+        }
+
+        pager.start()
+
+        XCTAssertEqual(requestedPages, [1])
+        XCTAssertEqual(pager.state.items.compactMap { $0["id"] as? Int }, [1, 2])
+        XCTAssertEqual(pager.state.currentPage, 1)
+        XCTAssertEqual(pager.state.totalPages, 2)
+        XCTAssertTrue(pager.state.canLoadNextPage)
+        XCTAssertEqual(pager.state.indicator, .none)
+    }
+
+    func testIncrementalPagerAppendsAndDeduplicatesOnlyWhenNextPageIsRequested() {
+        let cache = CloudStorageGalleryMemoryCache(maximumAge: 300)
+        let key = CloudStorageGalleryCacheKey(
+            owner: "owner@example.com",
+            galleryIdentity: "basic|gallery.example",
+            category: .images
+        )
+        var requestedPages: [Int] = []
+        let pager = CloudStorageIncrementalPager(cacheKey: key, cache: cache) { page, completion in
+            requestedPages.append(page)
+            let values: [NSDictionary] = page == 1
+                ? [["id": 1], ["id": 2]]
+                : [["id": 2], ["id": 3]]
+            completion(.success(.init(
+                items: values,
+                totalObjects: 3,
+                objectsPerPage: 2,
+                totalPages: 2,
+                page: page
+            )))
+            return nil
+        }
+
+        pager.start()
+        pager.loadNextPageIfNeeded()
+
+        XCTAssertEqual(requestedPages, [1, 2])
+        XCTAssertEqual(pager.state.items.compactMap { $0["id"] as? Int }, [1, 2, 3])
+        XCTAssertFalse(pager.state.canLoadNextPage)
+    }
+
+    func testIncrementalPagerKeepsLoadedItemsAndRetriesOnlyFailedLaterPage() {
+        let cache = CloudStorageGalleryMemoryCache(maximumAge: 300)
+        let key = CloudStorageGalleryCacheKey(
+            owner: "owner@example.com",
+            galleryIdentity: "basic|gallery.example",
+            category: .files
+        )
+        var requestedPages: [Int] = []
+        var pageTwoAttempts = 0
+        let pager = CloudStorageIncrementalPager(cacheKey: key, cache: cache) { page, completion in
+            requestedPages.append(page)
+            if page == 1 {
+                completion(.success(.init(
+                    items: [["id": 1]],
+                    totalObjects: 2,
+                    objectsPerPage: 1,
+                    totalPages: 2,
+                    page: page
+                )))
+            } else {
+                pageTwoAttempts += 1
+                if pageTwoAttempts == 1 {
+                    completion(.failure(.transport))
+                } else {
+                    completion(.success(.init(
+                        items: [["id": 2]],
+                        totalObjects: 2,
+                        objectsPerPage: 1,
+                        totalPages: 2,
+                        page: page
+                    )))
+                }
+            }
+            return nil
+        }
+
+        pager.start()
+        pager.loadNextPageIfNeeded()
+
+        XCTAssertEqual(pager.state.items.compactMap { $0["id"] as? Int }, [1])
+        XCTAssertEqual(pager.state.failedPage, 2)
+        XCTAssertEqual(pager.state.indicator, .nextPageRetry)
+
+        pager.retryFailedPage()
+
+        XCTAssertEqual(requestedPages, [1, 2, 2])
+        XCTAssertEqual(pager.state.items.compactMap { $0["id"] as? Int }, [1, 2])
+        XCTAssertNil(pager.state.failedPage)
+    }
+
+    func testIncrementalPagerShowsCachedContentWhileRefreshingFirstPage() throws {
+        var now = Date(timeIntervalSince1970: 100)
+        let cache = CloudStorageGalleryMemoryCache(maximumAge: 300, now: { now })
+        let key = CloudStorageGalleryCacheKey(
+            owner: "owner@example.com",
+            galleryIdentity: "premium|gallery.example",
+            category: .videos
+        )
+        cache.store(
+            .init(items: [["id": 7]], currentPage: 1, totalPages: 2),
+            for: key
+        )
+        var heldCompletion: ((Result<CloudStorageListPage, CloudStorageListLoadError>) -> Void)?
+        let pager = CloudStorageIncrementalPager(cacheKey: key, cache: cache) { _, completion in
+            heldCompletion = completion
+            return nil
+        }
+
+        now.addTimeInterval(10)
+        pager.start()
+
+        XCTAssertEqual(pager.state.items.compactMap { $0["id"] as? Int }, [7])
+        XCTAssertTrue(pager.state.isShowingCachedContent)
+        XCTAssertEqual(pager.state.loadingPage, 1)
+        XCTAssertEqual(pager.state.indicator, .none)
+
+        try XCTUnwrap(heldCompletion)(.failure(.transport))
+
+        XCTAssertEqual(pager.state.items.compactMap { $0["id"] as? Int }, [7])
+        XCTAssertEqual(pager.state.failedPage, 1)
+        XCTAssertEqual(pager.state.indicator, .refreshRetry)
+    }
+
+    func testIncrementalPagerCancellationCancelsTransportAndRejectsLateCompletion() throws {
+        let cache = CloudStorageGalleryMemoryCache(maximumAge: 300)
+        let key = CloudStorageGalleryCacheKey(
+            owner: "owner@example.com",
+            galleryIdentity: "basic|gallery.example",
+            category: .avatars
+        )
+        let cancellation = CloudStorageGalleryTestCancellation()
+        var heldCompletion: ((Result<CloudStorageListPage, CloudStorageListLoadError>) -> Void)?
+        let pager = CloudStorageIncrementalPager(cacheKey: key, cache: cache) { _, completion in
+            heldCompletion = completion
+            return cancellation
+        }
+
+        pager.start()
+        pager.cancel()
+        try XCTUnwrap(heldCompletion)(.success(.init(
+            items: [["id": 99]],
+            totalObjects: 1,
+            objectsPerPage: 50,
+            totalPages: 1,
+            page: 1
+        )))
+
+        XCTAssertTrue(cancellation.wasCancelled)
+        XCTAssertTrue(pager.state.items.isEmpty)
+        XCTAssertFalse(pager.state.isLoading)
+    }
+
+    func testGalleryCacheIsScopedAndExpires() {
+        var now = Date(timeIntervalSince1970: 100)
+        let cache = CloudStorageGalleryMemoryCache(maximumAge: 30, now: { now })
+        let images = CloudStorageGalleryCacheKey(
+            owner: "owner@example.com",
+            galleryIdentity: "basic|gallery.example",
+            category: .images
+        )
+        let videos = CloudStorageGalleryCacheKey(
+            owner: "owner@example.com",
+            galleryIdentity: "basic|gallery.example",
+            category: .videos
+        )
+        cache.store(.init(items: [["id": 1]], currentPage: 1, totalPages: 1), for: images)
+
+        XCTAssertEqual(cache.snapshot(for: images)?.items.count, 1)
+        XCTAssertNil(cache.snapshot(for: videos))
+
+        now.addTimeInterval(31)
+        XCTAssertNil(cache.snapshot(for: images))
+    }
+
+    func testGalleryCacheInvalidatesAffectedGalleryAndThenAllOwnerGalleries() {
+        let notificationCenter = NotificationCenter()
+        let cache = CloudStorageGalleryMemoryCache(
+            maximumAge: 300,
+            notificationCenter: notificationCenter
+        )
+        let basicImages = CloudStorageGalleryCacheKey(
+            owner: "owner@example.com",
+            galleryIdentity: "basic|gallery.example",
+            category: .images
+        )
+        let premiumImages = CloudStorageGalleryCacheKey(
+            owner: "owner@example.com",
+            galleryIdentity: "premium|gallery.example",
+            category: .images
+        )
+        cache.store(.init(items: [["id": 1]], currentPage: 1, totalPages: 1), for: basicImages)
+        cache.store(.init(items: [["id": 2]], currentPage: 1, totalPages: 1), for: premiumImages)
+
+        notificationCenter.post(
+            name: .cloudStorageContentDidChange,
+            object: nil,
+            userInfo: [
+                "jid": "owner@example.com",
+                "galleryIdentity": "basic|gallery.example"
+            ]
+        )
+
+        XCTAssertNil(cache.snapshot(for: basicImages))
+        XCTAssertNotNil(cache.snapshot(for: premiumImages))
+
+        notificationCenter.post(
+            name: .cloudStorageGalleryDidChange,
+            object: nil,
+            userInfo: ["jid": "owner@example.com"]
+        )
+
+        XCTAssertNil(cache.snapshot(for: premiumImages))
+    }
+
+    func testDeferredCancellationCancelsRequestInstalledAfterOwnerCancellation() {
+        let deferred = CloudStorageDeferredRequestCancellation()
+        let request = CloudStorageGalleryTestCancellation()
+
+        deferred.cancel()
+        deferred.install(request)
+
+        XCTAssertTrue(request.wasCancelled)
+    }
+
+    func testCloudStorageListRequestPolicyIsBoundedAndNeverRetries4xxOrCancellation() {
+        XCTAssertEqual(CloudStorageListRequestPolicy.timeoutInterval, 15)
+        XCTAssertEqual(CloudStorageListRequestPolicy.retryLimit, 1)
+        XCTAssertTrue(CloudStorageListRequestPolicy.shouldRetry(
+            method: .get,
+            statusCode: 503,
+            urlErrorCode: nil,
+            retryCount: 0
+        ))
+        XCTAssertTrue(CloudStorageListRequestPolicy.shouldRetry(
+            method: .get,
+            statusCode: nil,
+            urlErrorCode: .timedOut,
+            retryCount: 0
+        ))
+        XCTAssertFalse(CloudStorageListRequestPolicy.shouldRetry(
+            method: .get,
+            statusCode: 401,
+            urlErrorCode: nil,
+            retryCount: 0
+        ))
+        XCTAssertFalse(CloudStorageListRequestPolicy.shouldRetry(
+            method: .get,
+            statusCode: nil,
+            urlErrorCode: .cancelled,
+            retryCount: 0
+        ))
+        XCTAssertFalse(CloudStorageListRequestPolicy.shouldRetry(
+            method: .post,
+            statusCode: 503,
+            urlErrorCode: nil,
+            retryCount: 0
+        ))
+        XCTAssertFalse(CloudStorageListRequestPolicy.shouldRetry(
+            method: .get,
+            statusCode: 503,
+            urlErrorCode: nil,
+            retryCount: 1
+        ))
+        XCTAssertEqual(CloudStorageListRequestPolicy.retryDelay(randomUnit: 0), 0.4)
+        XCTAssertEqual(CloudStorageListRequestPolicy.retryDelay(randomUnit: 1), 0.8)
+    }
+
+    func testCloudStorageFilesRequestCarriesBoundedTimeoutPaginationAndCorrelation() throws {
+        let request = try XCTUnwrap(AlamofireCloudStorageQuotaAPIClient.filesRequest(
+            baseURL: URL(string: "https://storage.example/api/")!,
+            token: "secret-token",
+            filter: .images,
+            page: 3,
+            traceID: "trace-123"
+        ))
+
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertEqual(request.timeoutInterval, 15)
+        XCTAssertEqual(request.url?.absoluteString, "https://storage.example/api/v1/files/?type=image&page=3")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer secret-token")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Xabber-Trace-ID"), "trace-123")
+    }
+
+    func testCloudStorageStatsRequestCarriesBoundedTimeoutAndCorrelation() throws {
+        let request = try XCTUnwrap(AlamofireCloudStorageQuotaAPIClient.statsRequest(
+            baseURL: URL(string: "https://storage.example/api/")!,
+            token: "secret-token",
+            traceID: "stats-trace-123"
+        ))
+
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertEqual(request.timeoutInterval, 15)
+        XCTAssertEqual(request.url?.absoluteString, "https://storage.example/api/v1/files/stats/")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer secret-token")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Xabber-Trace-ID"), "stats-trace-123")
+    }
+
     func testItemMapperHandlesNSNumberSizeAndClassifiesContextBeforeMime() throws {
         let payload: NSDictionary = [
             "id": NSNumber(value: 42),
@@ -356,6 +674,14 @@ final class CloudStorageManagementTests: XCTestCase {
         XCTAssertEqual(groups.compactMap { $0.first?.kind }, [
             .image, .video, .file, .voice, .avatar
         ])
+    }
+}
+
+private final class CloudStorageGalleryTestCancellation: CloudStorageRequestCancelling {
+    private(set) var wasCancelled = false
+
+    func cancel() {
+        wasCancelled = true
     }
 }
 

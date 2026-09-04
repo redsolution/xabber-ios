@@ -42,6 +42,71 @@ enum CloudStorageGallerySelectionPolicy {
     }
 }
 
+final class CloudStorageGalleryPagingFooterView: UICollectionReusableView {
+    static let reuseIdentifier = "CloudStorageGalleryPagingFooterView"
+
+    private let spinner = UIActivityIndicatorView(style: .medium)
+    private let retryButton = UIButton(type: .system)
+    var onRetry: (() -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        retryButton.translatesAutoresizingMaskIntoConstraints = false
+        retryButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .subheadline)
+        retryButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        retryButton.addTarget(self, action: #selector(retryTapped), for: .touchUpInside)
+        addSubview(spinner)
+        addSubview(retryButton)
+        NSLayoutConstraint.activate([
+            spinner.centerXAnchor.constraint(equalTo: centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: centerYAnchor),
+            retryButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            retryButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            retryButton.topAnchor.constraint(equalTo: topAnchor),
+            retryButton.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        accessibilityIdentifier = "cloudStorage.category.pagingFooter"
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        onRetry = nil
+        configure(indicator: .none)
+    }
+
+    func configure(indicator: CloudStorageGalleryPagingIndicator) {
+        spinner.stopAnimating()
+        retryButton.isHidden = true
+        retryButton.setTitle(nil, for: .normal)
+
+        switch indicator {
+        case .nextPageLoading:
+            spinner.startAnimating()
+            accessibilityLabel = "Loading more Cloud Storage files"
+        case .nextPageRetry:
+            retryButton.isHidden = false
+            retryButton.setTitle("Couldn't load more. Tap to retry.", for: .normal)
+            accessibilityLabel = retryButton.title(for: .normal)
+        case .refreshRetry:
+            retryButton.isHidden = false
+            retryButton.setTitle("Couldn't refresh. Tap to retry.", for: .normal)
+            accessibilityLabel = retryButton.title(for: .normal)
+        default:
+            accessibilityLabel = nil
+        }
+    }
+
+    @objc private func retryTapped() {
+        onRetry?()
+    }
+}
+
 class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
     let category: CloudStorageOverviewCategory
     let selectedType: MimeIconTypes
@@ -54,6 +119,8 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
     var isSelectModeEnabled: Bool = false
     private var capturedGalleryIdentity: String?
     private var loadError: CloudStorageListLoadError?
+    private var pagingState = CloudStorageIncrementalPager.State()
+    private var pager: CloudStorageIncrementalPager!
     private var remainingSelectedFileIDs = Set<Int>()
     private var isDeletingSelectedFiles = false
     let impactFeedbackGenerator: UIImpactFeedbackGenerator
@@ -155,18 +222,12 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
                 DispatchQueue.main.async {
                     let deletedFileID = fileIDs[index]
                     self.remainingSelectedFileIDs.remove(deletedFileID)
-                    self.datasource.removeAll { $0.fileId == deletedFileID }
-                    if self.datasource.isEmpty {
-                        self.datasource = [Datasource(kind: .undefined)]
-                    }
+                    self.pager.removeItems(fileIDs: [deletedFileID])
                     self.reloadCollectionRestoringRemainingSelection()
                     self.deleteNextFile(fileIDs, at: index + 1, with: manager, isAvatar: isAvatar)
                 }
             case .failure:
                 DispatchQueue.main.async {
-                    if self.datasource.isEmpty {
-                        self.datasource = [Datasource(kind: .undefined)]
-                    }
                     self.isDeletingSelectedFiles = false
                     self.collectionView.isUserInteractionEnabled = true
                     self.cancelSelectButton?.isEnabled = true
@@ -272,6 +333,11 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         view.register(FilesMediaCollectionCell.self, forCellWithReuseIdentifier: FilesMediaCollectionCell.cellName)
         view.register(VoiceMediaCollectionCell.self, forCellWithReuseIdentifier: VoiceMediaCollectionCell.cellName)
         view.register(NoFilesMediaCollectionCell.self, forCellWithReuseIdentifier: NoFilesMediaCollectionCell.cellName)
+        view.register(
+            CloudStorageGalleryPagingFooterView.self,
+            forSupplementaryViewOfKind: UICollectionView.elementKindSectionFooter,
+            withReuseIdentifier: CloudStorageGalleryPagingFooterView.reuseIdentifier
+        )
         view.backgroundColor = .systemGroupedBackground
         return view
     }()
@@ -282,6 +348,7 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         self.selectedType = category.mimeType
         super.init(owner: owner)
         capturedGalleryIdentity = AccountGalleryConfiguration(owner: owner).currentGalleryIdentity
+        pager = makePager()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(cloudStorageGalleryDidChange(_:)),
@@ -291,7 +358,51 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
     }
 
     deinit {
+        pager?.cancel()
         NotificationCenter.default.removeObserver(self, name: .cloudStorageGalleryDidChange, object: nil)
+    }
+
+    private func makePager() -> CloudStorageIncrementalPager {
+        let key = CloudStorageGalleryCacheKey(
+            owner: owner,
+            galleryIdentity: capturedGalleryIdentity ?? "",
+            category: category
+        )
+        return CloudStorageIncrementalPager(cacheKey: key) { [weak self] page, completion in
+            guard let self,
+                  self.gallerySelectionIsCurrent(),
+                  let account = AccountManager.shared.find(for: self.owner) else {
+                completion(.failure(.unavailable))
+                return nil
+            }
+
+            let deferredCancellation = CloudStorageDeferredRequestCancellation()
+            account.action { [weak self] user, _ in
+                guard let self else { return }
+                guard self.gallerySelectionIsCurrent() else {
+                    completion(.failure(.staleSelection))
+                    return
+                }
+                let cancellation: CloudStorageRequestCancelling?
+                if self.category == .avatars {
+                    cancellation = user.cloudStorage.getAvatarsPage(
+                        page: page,
+                        completion: completion
+                    )
+                } else if let filter = self.category.fileFilter {
+                    cancellation = user.cloudStorage.getFilesPage(
+                        filter: filter,
+                        page: page,
+                        completion: completion
+                    )
+                } else {
+                    completion(.failure(.invalidResponse))
+                    cancellation = nil
+                }
+                deferredCancellation.install(cancellation)
+            }
+            return deferredCancellation
+        }
     }
 
     private func gallerySelectionIsCurrent() -> Bool {
@@ -300,6 +411,7 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
 
     @objc private func cloudStorageGalleryDidChange(_ notification: Notification) {
         guard notification.userInfo?["jid"] as? String == owner else { return }
+        pager.cancel()
         items.removeAll()
         datasource.removeAll()
         collectionView.reloadData()
@@ -307,33 +419,7 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
     }
 
     private func loadFiles() {
-        loadError = nil
-        items.removeAll()
-        datasource.removeAll()
-        collectionView.reloadData()
-        showLoadingIndicator()
-
-        guard let account = AccountManager.shared.find(for: owner) else {
-            finishLoading(.failure(.unavailable))
-            return
-        }
-
-        account.action { [weak self] user, _ in
-            guard let self else { return }
-            CloudStoragePagedLoader().loadAll(fetchPage: { page, completion in
-                if self.category == .avatars {
-                    user.cloudStorage.getAvatarsPage(page: page, completion: completion)
-                } else if let filter = self.category.fileFilter {
-                    user.cloudStorage.getFilesPage(filter: filter, page: page, completion: completion)
-                } else {
-                    completion(.failure(.invalidResponse))
-                }
-            }, completion: { [weak self] result in
-                DispatchQueue.main.async {
-                    self?.finishLoading(result)
-                }
-            })
-        }
+        pager.start()
     }
 
     private func showLoadingIndicator() {
@@ -347,20 +433,20 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         }
     }
 
-    private func finishLoading(_ result: Result<[NSDictionary], CloudStorageListLoadError>) {
-        spinner.stopAnimating()
-        spinner.removeFromSuperview()
+    private func applyPagingState(_ state: CloudStorageIncrementalPager.State) {
         guard gallerySelectionIsCurrent() else { return }
+        pagingState = state
+        items = state.items
+        loadError = state.error
 
-        switch result {
-        case .success(let items):
-            self.items = items
-            loadError = nil
-        case .failure(let error):
-            items.removeAll()
-            loadError = error
+        if state.indicator == .initialLoading {
+            showLoadingIndicator()
+        } else {
+            spinner.stopAnimating()
+            spinner.removeFromSuperview()
         }
         configureCollections()
+        collectionView.collectionViewLayout.invalidateLayout()
     }
     
     required init?(coder: NSCoder) {
@@ -372,21 +458,24 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
             CloudStorageItemPresentation.make(from: $0, preferredType: selectedType)
         }
         datasource.sort { ($0.dateFormatted ?? .distantPast) > ($1.dateFormatted ?? .distantPast) }
-        if datasource.isEmpty {
+        if datasource.isEmpty, pagingState.indicator != .initialLoading {
             datasource = [Datasource(kind: .undefined)]
         }
 
-        navigationItem.title = category.title
-
-        optionButton = UIBarButtonItem(
-            image: UIImage(systemName: "ellipsis.circle"),
-            style: .plain,
-            target: self,
-            action: #selector(optionButtonTapped)
-        )
-        optionButton?.isEnabled = loadError == nil && datasource.first?.kind != .undefined
-        navigationItem.setRightBarButton(optionButton, animated: false)
-        collectionView.reloadData()
+        if collectionView.isEditing {
+            reloadCollectionRestoringRemainingSelection()
+        } else {
+            navigationItem.title = category.title
+            optionButton = UIBarButtonItem(
+                image: UIImage(systemName: "ellipsis.circle"),
+                style: .plain,
+                target: self,
+                action: #selector(optionButtonTapped)
+            )
+            optionButton?.isEnabled = datasource.contains { $0.kind != .undefined }
+            navigationItem.setRightBarButton(optionButton, animated: false)
+            collectionView.reloadData()
+        }
     }
 
     override func viewDidLoad() {
@@ -400,6 +489,16 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         collectionView.allowsMultipleSelection = true
         collectionView.accessibilityIdentifier = "cloudStorage.category.list"
         infoVCDelegate = self
+        pager.onStateChange = { [weak self] state in
+            guard let self else { return }
+            if Thread.isMainThread {
+                self.applyPagingState(state)
+            } else {
+                DispatchQueue.main.async { [weak self] in
+                    self?.applyPagingState(state)
+                }
+            }
+        }
         loadFiles()
     }
     
@@ -419,6 +518,13 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         
         impactFeedbackGenerator.prepare()
         
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if isMovingFromParent || navigationController?.isBeingDismissed == true {
+            pager.cancel()
+        }
     }
     
     override func setEditing(_ editing: Bool, animated: Bool) {
@@ -442,6 +548,27 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
         return datasource.count
     }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        viewForSupplementaryElementOfKind kind: String,
+        at indexPath: IndexPath
+    ) -> UICollectionReusableView {
+        guard kind == UICollectionView.elementKindSectionFooter,
+              let footer = collectionView.dequeueReusableSupplementaryView(
+                ofKind: kind,
+                withReuseIdentifier: CloudStorageGalleryPagingFooterView.reuseIdentifier,
+                for: indexPath
+              ) as? CloudStorageGalleryPagingFooterView else {
+            return UICollectionReusableView()
+        }
+        footer.configure(indicator: pagingState.indicator)
+        footer.onRetry = { [weak self] in
+            self?.pager.retryFailedPage()
+        }
+        return footer
+    }
+
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let item = datasource[indexPath.row]
         if item.kind == .undefined {
@@ -576,6 +703,31 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
 }
 
 extension CloudStorageGalleryViewController: UICollectionViewDelegateFlowLayout {
+    func collectionView(
+        _ collectionView: UICollectionView,
+        layout collectionViewLayout: UICollectionViewLayout,
+        referenceSizeForFooterInSection section: Int
+    ) -> CGSize {
+        switch pagingState.indicator {
+        case .nextPageLoading, .nextPageRetry, .refreshRetry:
+            return CGSize(width: collectionView.bounds.width, height: 56)
+        default:
+            return .zero
+        }
+    }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        willDisplay cell: UICollectionViewCell,
+        forItemAt indexPath: IndexPath
+    ) {
+        guard datasource[indexPath.item].kind != .undefined else { return }
+        let threshold = max(0, datasource.count - 6)
+        if indexPath.item >= threshold {
+            pager.loadNextPageIfNeeded()
+        }
+    }
+
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
         if datasource[indexPath.item].kind == .undefined {
             return CGSize(
@@ -612,8 +764,8 @@ extension CloudStorageGalleryViewController: UICollectionViewDelegateFlowLayout 
         guard datasource.indices.contains(indexPath.item) else { return }
         if datasource[indexPath.item].kind == .undefined {
             collectionView.deselectItem(at: indexPath, animated: true)
-            if loadError != nil {
-                loadFiles()
+            if pagingState.failedPage != nil {
+                pager.retryFailedPage()
             }
             return
         }
