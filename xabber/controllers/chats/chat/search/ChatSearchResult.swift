@@ -20,6 +20,70 @@
 
 import Foundation
 
+/// Namespaced in-chat-search selection identities. The string is stored by
+/// legacy UIKit state, so its namespace keeps a raw stanza ID from colliding
+/// with an explicit outer MAM result ID or a local primary key.
+enum ChatSearchSelectionIdentity {
+    private static let mamPrefix = "mam:"
+    private static let primaryPrefix = "primary:"
+    private static let rawPrefix = "raw:"
+
+    static func make(
+        mamArchiveId: String?,
+        primary: String?,
+        archivedId: String?
+    ) -> String? {
+        if let mamArchiveId = normalizedMAMArchiveID(mamArchiveId) {
+            return mamPrefix + mamArchiveId
+        }
+        if let primary, primary.isNotEmpty {
+            return primaryPrefix + primary
+        }
+        if let archivedId, archivedId.isNotEmpty {
+            return rawPrefix + archivedId
+        }
+        return nil
+    }
+
+    static func matches(
+        _ selectedID: String?,
+        mamArchiveId: String?,
+        primary: String?,
+        archivedId: String?
+    ) -> Bool {
+        guard let selectedID, selectedID.isNotEmpty else {
+            return false
+        }
+        if let payload = payload(in: selectedID, prefix: primaryPrefix) {
+            return primary == payload
+        }
+        if let payload = payload(in: selectedID, prefix: mamPrefix) {
+            return normalizedMAMArchiveID(mamArchiveId) == payload
+        }
+        if let payload = payload(in: selectedID, prefix: rawPrefix) {
+            return archivedId == payload
+        }
+
+        // Read transient pre-namespace selection state deterministically while
+        // all newly created identities remain namespaced.
+        return primary == selectedID ||
+            normalizedMAMArchiveID(mamArchiveId) == selectedID ||
+            archivedId == selectedID
+    }
+
+    private static func normalizedMAMArchiveID(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isNotEmpty ? normalized : nil
+    }
+
+    private static func payload(in value: String, prefix: String) -> String? {
+        guard value.hasPrefix(prefix) else { return nil }
+        let payload = String(value.dropFirst(prefix.count))
+        return payload.isNotEmpty ? payload : nil
+    }
+}
+
 struct ChatSearchResult: Equatable, Sendable {
     enum ID: Hashable, Sendable {
         case archived(String)
@@ -34,10 +98,31 @@ struct ChatSearchResult: Equatable, Sendable {
 
     struct Anchor: Equatable, Sendable {
         let primary: String
+        /// Opaque local/protocol identity retained for local resolution.
         let archivedId: String
+        /// Verified outer MAM result ID, when this result originated from a
+        /// current archive row or archive-search response. It is intentionally
+        /// absent for legacy rows that only have a protocol stanza ID.
+        let archiveCursorID: String?
         let messageId: String
         let authorId: String?
         let date: Date
+
+        init(
+            primary: String,
+            archivedId: String,
+            archiveCursorID: String? = nil,
+            messageId: String,
+            authorId: String?,
+            date: Date
+        ) {
+            self.primary = primary
+            self.archivedId = archivedId
+            self.archiveCursorID = archiveCursorID
+            self.messageId = messageId
+            self.authorId = authorId
+            self.date = date
+        }
     }
 
     enum DeliveryState: Equatable, Sendable {
@@ -105,10 +190,13 @@ enum ChatSearchResultMapper {
         }
 
         let primary = item.primary
-        let archivedId = item.archivedId
+        // Only an explicit outer MAM result ID may define the diffable
+        // archive identity. `mamArchiveCursorID` falls back to the raw stanza
+        // ID, which can numerically collide with another message's MAM ID.
+        let selectionArchiveID = item.mamArchiveId
         let id: ChatSearchResult.ID
-        if archivedId.isNotEmpty {
-            id = .archived(archivedId)
+        if selectionArchiveID.isNotEmpty {
+            id = .archived(selectionArchiveID)
         } else if primary.isNotEmpty {
             id = .primary(primary)
         } else {
@@ -122,7 +210,13 @@ enum ChatSearchResultMapper {
             scope: context.scope,
             anchor: ChatSearchResult.Anchor(
                 primary: primary,
-                archivedId: archivedId,
+                // The local anchor must retain the protocol stanza identity.
+                // `archiveCursorID` separately carries the verified outer
+                // MAM result id when one is present.
+                archivedId: item.archivedId,
+                archiveCursorID: item.mamArchiveId.isNotEmpty
+                    ? item.mamArchiveId
+                    : nil,
                 messageId: item.messageId,
                 authorId: item.groupchatAuthorId,
                 date: item.date
@@ -205,6 +299,9 @@ enum ChatSearchResultMapper {
             anchor: ChatSearchResult.Anchor(
                 primary: message.primaryID,
                 archivedId: message.archiveID,
+                archiveCursorID: message.archiveID.isNotEmpty
+                    ? message.archiveID
+                    : nil,
                 messageId: message.messageID,
                 authorId: message.groupAuthorID,
                 date: message.date

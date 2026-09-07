@@ -39,6 +39,7 @@ struct ChatSearchCalendarDateRequest: Equatable, Sendable {
 
 enum ChatAnchorLookupMatchSource: String, Equatable {
     case primary = "primary"
+    case archiveCursor = "archive-cursor"
     case archivedId = "archived-id"
     case messageId = "message-id"
     case unreadBoundaryAfter = "unread-boundary-after"
@@ -231,24 +232,50 @@ enum ChatUnreadBoundaryTargetPolicy {
         fallback: Candidate,
         loadedMessages: [Candidate]
     ) -> Candidate {
-        guard let boundaryValue = Double(boundaryArchivedId) else {
-            return fallback
+        firstIncoming(
+            in: loadedMessages,
+            after: boundaryArchivedId,
+            archivedId: { $0.archivedId },
+            isOutgoing: { $0.isOutgoing }
+        ) ?? fallback
+    }
+
+    /// XEP-SYNC `unread@after` is a protocol stanza ID. It is intentionally
+    /// compared only with `MessageStorageItem.archivedId`, never with an outer
+    /// MAM result cursor.
+    static func firstIncoming<T>(
+        in candidates: [T],
+        after boundaryArchivedId: String,
+        archivedId: (T) -> String?,
+        isOutgoing: (T) -> Bool
+    ) -> T? {
+        guard let boundary = numericValue(boundaryArchivedId) else {
+            return nil
         }
 
-        return loadedMessages
+        return candidates
             .filter { candidate in
-                guard !candidate.isOutgoing,
-                      let archivedId = candidate.archivedId,
-                      let archivedValue = Double(archivedId) else {
+                guard !isOutgoing(candidate),
+                      let value = numericValue(archivedId(candidate)) else {
                     return false
                 }
-
-                return archivedValue > boundaryValue
+                return value > boundary
             }
             .min { lhs, rhs in
-                (Double(lhs.archivedId ?? "") ?? .greatestFiniteMagnitude)
-                    < (Double(rhs.archivedId ?? "") ?? .greatestFiniteMagnitude)
-            } ?? fallback
+                (numericValue(archivedId(lhs)) ?? .max)
+                    < (numericValue(archivedId(rhs)) ?? .max)
+            }
+    }
+
+    static func numericValue(_ rawProtocolStanzaId: String?) -> UInt64? {
+        guard let rawProtocolStanzaId = rawProtocolStanzaId?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+              ),
+              let value = UInt64(rawProtocolStanzaId),
+              value > 0 else {
+            return nil
+        }
+        return value
     }
 }
 
@@ -537,8 +564,7 @@ enum ChatProofScopedOpenTargetAdmission {
               request.chatJid == verifiedScope.conversationKey.jid,
               request.conversationType ==
                 verifiedScope.conversationKey.conversationType,
-              let rawArchiveID = request.anchor.archivedId,
-              let cursor = ArchiveCursor(rawValue: rawArchiveID),
+              let cursor = request.anchor.archiveCursor,
               verifiedScope.contains(cursor) else {
             return .remote
         }
@@ -594,10 +620,21 @@ enum ChatLoadedMessageNavigationPolicy {
             return match.offset
         }
 
-        if let archivedId = anchor.archivedId,
-           archivedId.isNotEmpty,
-           let match = anchorableItems.first(where: { $0.element.archivedId == archivedId }) {
+        if let archiveCursor = anchor.archiveCursor,
+           let match = anchorableItems.first(where: {
+               $0.element.mamArchiveId.flatMap(ArchiveCursor.init(rawValue:)) == archiveCursor
+           }) {
             return match.offset
+        }
+
+        if let archivedId = anchor.archivedId,
+           archivedId.isNotEmpty {
+            let matches = anchorableItems.filter {
+                $0.element.archivedId == archivedId
+            }
+            if matches.count == 1, let match = matches.first {
+                return match.offset
+            }
         }
 
         if let messageId = anchor.messageId,
@@ -623,10 +660,21 @@ enum ChatLoadedMessageNavigationPolicy {
             return match.offset
         }
 
-        if let archivedId = anchor.archivedId,
-           archivedId.isNotEmpty,
-           let match = anchorableItems.first(where: { $0.element.archivedId == archivedId }) {
+        if let archiveCursor = anchor.archiveCursor,
+           let match = anchorableItems.first(where: {
+               $0.element.mamArchiveId.flatMap(ArchiveCursor.init(rawValue:)) == archiveCursor
+           }) {
             return match.offset
+        }
+
+        if let archivedId = anchor.archivedId,
+           archivedId.isNotEmpty {
+            let matches = anchorableItems.filter {
+                $0.element.archivedId == archivedId
+            }
+            if matches.count == 1, let match = matches.first {
+                return match.offset
+            }
         }
 
         if let messageId = anchor.messageId,
@@ -683,26 +731,15 @@ enum ChatLoadedMessageNavigationPolicy {
         in items: [ChatViewController.Datasource],
         boundaryArchivedId: String
     ) -> Int? {
-        guard let boundary = Double(boundaryArchivedId) else {
-            return nil
+        let anchorableItems = items.enumerated().filter { _, item in
+            isAnchorable(item)
         }
-
-        return items.enumerated()
-            .filter { _, item in
-                guard isAnchorable(item),
-                      !item.isOutgoing,
-                      let archivedId = item.archivedId,
-                      let value = Double(archivedId) else {
-                    return false
-                }
-
-                return value > boundary
-            }
-            .min { lhs, rhs in
-                (Double(lhs.element.archivedId ?? "") ?? .greatestFiniteMagnitude)
-                    < (Double(rhs.element.archivedId ?? "") ?? .greatestFiniteMagnitude)
-            }?
-            .offset
+        return ChatUnreadBoundaryTargetPolicy.firstIncoming(
+            in: anchorableItems,
+            after: boundaryArchivedId,
+            archivedId: { $0.element.archivedId },
+            isOutgoing: { $0.element.isOutgoing }
+        )?.offset
     }
 
     private static func isAnchorable(_ item: ChatViewController.Datasource) -> Bool {
@@ -1253,7 +1290,10 @@ extension ChatViewController {
             let archivedId = result.anchor.archivedId.isNotEmpty
                 ? result.anchor.archivedId
                 : nil
-            let primary = archivedId == nil && result.anchor.primary.isNotEmpty
+            let archiveCursor = result.anchor.archiveCursorID.flatMap {
+                ArchiveCursor(rawValue: $0)
+            }
+            let primary = result.anchor.primary.isNotEmpty
                 ? result.anchor.primary
                 : nil
             guard archivedId != nil || primary != nil else {
@@ -1267,6 +1307,7 @@ extension ChatViewController {
                 anchor: ChatMessageAnchorRef(
                     messagePrimary: primary,
                     archivedId: archivedId,
+                    archiveCursor: archiveCursor,
                     messageId: result.anchor.messageId.isNotEmpty
                         ? result.anchor.messageId
                         : nil,
@@ -1285,7 +1326,8 @@ extension ChatViewController {
         let archivedId = legacyItem.archivedId.isNotEmpty
             ? legacyItem.archivedId
             : nil
-        let primary = archivedId == nil && legacyItem.primary.isNotEmpty
+        let archiveCursor = ArchiveCursor(rawValue: legacyItem.mamArchiveId)
+        let primary = legacyItem.primary.isNotEmpty
             ? legacyItem.primary
             : nil
         guard archivedId != nil || primary != nil else { return nil }
@@ -1296,6 +1338,7 @@ extension ChatViewController {
             anchor: ChatMessageAnchorRef(
                 messagePrimary: primary,
                 archivedId: archivedId,
+                archiveCursor: archiveCursor,
                 messageId: legacyItem.messageId.isNotEmpty
                     ? legacyItem.messageId
                     : nil,
@@ -1933,7 +1976,11 @@ extension ChatViewController {
     private static func legacySearchMessage(_ result: ChatSearchResult) -> MessageStorageItem {
         let item = MessageStorageItem()
         item.primary = result.anchor.primary
+        // Preserve opaque local/protocol identity separately from a verified
+        // MAM cursor. Legacy search results must not gain MAM authority merely
+        // because their raw stanza ID happens to be numeric.
         item.archivedId = result.anchor.archivedId
+        item.mamArchiveId = result.anchor.archiveCursorID ?? ""
         item.messageId = result.anchor.messageId
         item.owner = result.scope.owner
         item.opponent = result.scope.jid
@@ -2008,15 +2055,16 @@ extension ChatViewController {
     }
 
     internal func searchResultSelectionIdentity(for item: MessageStorageItem) -> String? {
-        if item.archivedId.isNotEmpty {
-            return item.archivedId
-        }
-        return item.primary.isNotEmpty ? item.primary : nil
+        ChatSearchSelectionIdentity.make(
+            mamArchiveId: item.mamArchiveId,
+            primary: item.primary,
+            archivedId: item.archivedId
+        )
     }
 
     internal func searchResultIdentity(for item: MessageStorageItem) -> ChatSearchResult.ID? {
-        if item.archivedId.isNotEmpty {
-            return .archived(item.archivedId)
+        if item.mamArchiveId.isNotEmpty {
+            return .archived(item.mamArchiveId)
         }
         return item.primary.isNotEmpty ? .primary(item.primary) : nil
     }
@@ -2025,32 +2073,24 @@ extension ChatViewController {
         _ item: MessageStorageItem,
         matchesSelection selectedId: String?
     ) -> Bool {
-        guard let selectedId,
-              selectedId.isNotEmpty else {
-            return false
-        }
-        if item.archivedId.isNotEmpty,
-           item.archivedId == selectedId {
-            return true
-        }
-        return item.primary == selectedId
+        ChatSearchSelectionIdentity.matches(
+            selectedId,
+            mamArchiveId: item.mamArchiveId,
+            primary: item.primary,
+            archivedId: item.archivedId
+        )
     }
 
     internal func chatDatasourceItem(
         _ item: Datasource,
         matchesSearchSelection selectedId: String?
     ) -> Bool {
-        guard let selectedId,
-              selectedId.isNotEmpty else {
-            return false
-        }
-
-        if let archivedId = item.archivedId,
-           archivedId.isNotEmpty,
-           archivedId == selectedId {
-            return true
-        }
-        return item.primary == selectedId
+        ChatSearchSelectionIdentity.matches(
+            selectedId,
+            mamArchiveId: item.mamArchiveId,
+            primary: item.primary,
+            archivedId: item.archivedId
+        )
     }
 
     internal func refreshVisibleSearchSelection() {
@@ -2392,8 +2432,10 @@ extension ChatViewController {
     internal func markSearchResultNavigationLoadingContext(for request: ChatOpenMessageRequest) {
         guard request.source == .search,
               let index = searchMessagesQueue.firstIndex(where: { item in
-                  item.archivedId == request.anchor.archivedId ||
                   item.primary == request.anchor.messagePrimary ||
+                  (request.anchor.archiveCursor != nil &&
+                      item.mamArchiveId == request.anchor.archiveCursor?.rawValue) ||
+                  item.archivedId == request.anchor.archivedId ||
                   (item.messageId.isNotEmpty && item.messageId == request.anchor.messageId)
               }) else {
             return
@@ -3085,7 +3127,7 @@ extension ChatViewController {
             return
         }
         guard let target = candidate.items.first(where: { item in
-            ArchiveCursor(rawValue: item.archivedId) == context.archiveCursor &&
+            ArchiveCursor(rawValue: item.mamArchiveId) == context.archiveCursor &&
                 (context.request.anchor.messagePrimary.map {
                     item.primary == $0
                 } ?? true)
@@ -3577,7 +3619,7 @@ extension ChatViewController {
 
             return ChatVisiblePositionPolicy.Candidate(
                 primary: item.primary,
-                archivedId: item.archivedId,
+                archivedId: item.mamArchiveCursorID,
                 messageId: item.messageId,
                 sentDate: item.sentDate,
                 rowKind: ChatVisiblePositionPolicy.rowKind(for: item.kind),
@@ -4081,7 +4123,9 @@ extension ChatViewController {
     private func unreadBoundaryCandidate(for message: MessageStorageItem) -> ChatUnreadBoundaryTargetPolicy.Candidate {
         ChatUnreadBoundaryTargetPolicy.Candidate(
             primary: message.primary,
-            archivedId: message.archivedId.isNotEmpty ? message.archivedId : nil,
+            archivedId: message.archivedId.isNotEmpty
+                ? message.archivedId
+                : nil,
             messageId: message.messageId.isNotEmpty ? message.messageId : nil,
             sourceDate: message.date,
             isOutgoing: message.outgoing
@@ -4129,26 +4173,13 @@ extension ChatViewController {
            let normalizedBoundaryArchivedId =
             RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
                 boundaryArchivedId
-            ),
-           let boundaryDate = ChatInitialPositionPolicy.archiveDate(
-                from: normalizedBoundaryArchivedId
-           ) {
-            let boundaryPosition = ChatTimelinePositionKey(
-                boundary: ChatTimelineBoundary(
-                    primary: normalizedBoundaryArchivedId,
-                    archivedId: normalizedBoundaryArchivedId,
-                    messageId: nil,
-                    date: boundaryDate
-                )
-            )
-            if let message = snapshot.items.first(where: {
-                !$0.isDeleted &&
-                    !$0.outgoing &&
-                    RegularChatArchiveSyncStateStorageItem
-                        .normalizedArchiveId($0.archivedId) !=
-                        normalizedBoundaryArchivedId &&
-                    ChatTimelinePositionKey(message: $0) > boundaryPosition
-            }) {
+            ) {
+            if let message = ChatUnreadBoundaryTargetPolicy.firstIncoming(
+                in: snapshot.items.filter { !$0.isDeleted },
+                after: normalizedBoundaryArchivedId,
+                archivedId: { $0.archivedId },
+                isOutgoing: { $0.outgoing }
+            ) {
                 return (message, .unreadBoundaryAfter)
             }
             return nil
@@ -4156,12 +4187,24 @@ extension ChatViewController {
 
         if request.source == .search {
             let anchor = request.anchor
-            let lookups: [(ChatAnchorLookupMatchSource, String?, String?, String?)] = [
-                (.primary, anchor.messagePrimary, nil, nil),
+            if let messagePrimary = anchor.messagePrimary,
+               messagePrimary.isNotEmpty,
+               let message = snapshot.item(primary: messagePrimary),
+               !message.isDeleted {
+                return (message, .primary)
+            }
+            if let archiveCursor = anchor.archiveCursor,
+               let message = snapshot.item(
+                   primary: nil,
+                   archiveCursor: archiveCursor
+               ), !message.isDeleted {
+                return (message, .archiveCursor)
+            }
+            let fallbackLookups: [(ChatAnchorLookupMatchSource, String?, String?, String?)] = [
                 (.archivedId, nil, anchor.archivedId, nil),
                 (.messageId, nil, nil, anchor.messageId)
             ]
-            for (source, primary, archivedId, messageId) in lookups {
+            for (source, primary, archivedId, messageId) in fallbackLookups {
                 guard primary?.isNotEmpty == true ||
                         archivedId?.isNotEmpty == true ||
                         messageId?.isNotEmpty == true else {
@@ -4179,8 +4222,19 @@ extension ChatViewController {
         }
 
         let anchor = request.anchor
+        if let messagePrimary = anchor.messagePrimary,
+           messagePrimary.isNotEmpty,
+           let message = snapshot.item(primary: messagePrimary) {
+            return (message, .primary)
+        }
+        if let archiveCursor = anchor.archiveCursor,
+           let message = snapshot.item(
+               primary: nil,
+               archiveCursor: archiveCursor
+           ) {
+            return (message, .archiveCursor)
+        }
         let orderedLookups: [(ChatAnchorLookupMatchSource, String?, String?, String?)] = [
-            (.primary, anchor.messagePrimary, nil, nil),
             (.archivedId, nil, anchor.archivedId, nil),
             (.messageId, nil, nil, anchor.messageId)
         ]
@@ -4289,7 +4343,9 @@ extension ChatViewController {
         }
 
         guard let scrollIndex = self.datasourceSnapshot.primaryIndex[primary]
-            ?? archivedId.flatMap({ self.datasourceSnapshot.archivedIdIndex[$0] }) else {
+            ?? archivedId.flatMap({ requestedArchiveID in
+                self.datasourceSnapshot.archivedIdIndex[requestedArchiveID]
+            }) else {
             self.preventHidingDate = false
             self.setDatasourceLoadingEnabled(true)
             self.timelineInteractionState.unlock()
@@ -4455,15 +4511,9 @@ extension ChatViewController {
         guard let request = self.pendingOpenMessageRequest else {
             return false
         }
-        let requestedTarget: ArchiveWindowLocator?
-        if let rawArchiveID = request.anchor.archivedId,
-           let cursor = ArchiveCursor(rawValue: rawArchiveID) {
-            requestedTarget = .archiveID(cursor)
-        } else if let date = request.anchor.sourceDate {
-            requestedTarget = .timestamp(date)
-        } else {
-            requestedTarget = nil
-        }
+        let requestedTarget = ChatAnchorArchiveLocatorPolicy.locator(
+            for: request.anchor
+        )
         let action = ChatAuthoritativeEmptyPendingTargetPolicy.action(
             emptyTarget: target,
             requestedTarget: requestedTarget
@@ -5002,7 +5052,7 @@ extension ChatViewController {
         }
         self.positionMessage(
             primary: self.datasource[scrollIndex].primary,
-            archivedId: archivedId,
+            archivedId: self.datasource[scrollIndex].archivedId,
             highlight: true,
             animated: true
         )
@@ -5272,15 +5322,19 @@ extension ChatViewController {
         let item = self.searchMessagesQueue[index]
         self.selectedSearchResultId = self.searchResultSelectionIdentity(for: item)
         self.refreshVisibleSearchSelection()
-        let archivedId = item.archivedId.isNotEmpty ? item.archivedId : nil
+        let archivedId = item.archivedId.isNotEmpty
+            ? item.archivedId
+            : nil
+        let archiveCursor = ArchiveCursor(rawValue: item.mamArchiveId)
         self.queueOpenMessageRequest(
             ChatOpenMessageRequest(
                 chatJid: self.jid,
                 owner: self.owner,
                 conversationType: self.conversationType,
                 anchor: ChatMessageAnchorRef(
-                    messagePrimary: archivedId == nil ? item.primary : nil,
+                    messagePrimary: item.primary.isNotEmpty ? item.primary : nil,
                     archivedId: archivedId,
+                    archiveCursor: archiveCursor,
                     messageId: item.messageId.isNotEmpty ? item.messageId : nil,
                     authorId: item.groupchatAuthorId,
                     bodyFingerprint: nil,

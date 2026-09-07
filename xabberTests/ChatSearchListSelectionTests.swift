@@ -123,7 +123,7 @@ final class ChatSearchListSelectionTests: XCTestCase {
         XCTAssertFalse(request.markReadOnVisible)
         XCTAssertTrue(request.highlight)
         XCTAssertEqual(request.anchor.archivedId, "archive-42")
-        XCTAssertNil(request.anchor.messagePrimary)
+        XCTAssertEqual(request.anchor.messagePrimary, result.anchor.primary)
         XCTAssertEqual(request.anchor.messageId, result.anchor.messageId)
         XCTAssertEqual(request.anchor.authorId, result.anchor.authorId)
         XCTAssertEqual(request.anchor.sourceDate, result.anchor.date)
@@ -148,6 +148,55 @@ final class ChatSearchListSelectionTests: XCTestCase {
         XCTAssertEqual(request.anchor.sourceDate, result.anchor.date)
         XCTAssertEqual(request.source, ChatOpenMessageRequestSource.search)
         XCTAssertFalse(request.markReadOnVisible)
+    }
+
+    func testLegacySearchFallbackKeepsProtocolStanzaIDSeparateFromMAMCursor() throws {
+        let controller = makeLoadedController()
+        let legacyItem = MessageStorageItem()
+        legacyItem.primary = "message-primary"
+        legacyItem.archivedId = "protocol-stanza-id"
+        legacyItem.mamArchiveId = "1700000000000001"
+        legacyItem.messageId = "message-id"
+        legacyItem.owner = controller.owner
+        legacyItem.opponent = controller.jid
+        legacyItem.conversationType = controller.conversationType
+        legacyItem.date = Date(timeIntervalSince1970: 1_700_000_001)
+        controller.searchMessagesQueue = [legacyItem]
+        controller.searchResultPresentations = []
+
+        let request = try XCTUnwrap(controller.makeSearchResultOpenMessageRequest(at: 0))
+
+        XCTAssertEqual(request.anchor.archivedId, "protocol-stanza-id")
+        XCTAssertEqual(
+            request.anchor.archiveCursor,
+            ArchiveCursor(rawValue: "1700000000000001")
+        )
+        XCTAssertEqual(request.anchor.messagePrimary, "message-primary")
+        XCTAssertEqual(request.anchor.messageId, "message-id")
+    }
+
+    func testLegacyScrollToSearchResultKeepsRawStanzaIDAndTypedCursor() throws {
+        let controller = makeLoadedController()
+        let item = MessageStorageItem()
+        item.primary = "message-primary"
+        item.archivedId = "protocol-stanza-id"
+        item.mamArchiveId = "1700000000000001"
+        item.messageId = "message-id"
+        item.owner = controller.owner
+        item.opponent = controller.jid
+        item.conversationType = controller.conversationType
+        item.date = Date(timeIntervalSince1970: 1_700_000_001)
+        controller.searchMessagesQueue = [item]
+
+        controller.scrollToMessageAtIndex(0)
+
+        let request = try XCTUnwrap(controller.pendingOpenMessageRequest)
+        XCTAssertEqual(request.anchor.archivedId, "protocol-stanza-id")
+        XCTAssertEqual(
+            request.anchor.archiveCursor,
+            ArchiveCursor(rawValue: "1700000000000001")
+        )
+        XCTAssertEqual(request.anchor.messagePrimary, "message-primary")
     }
 
     func testSelectionKeepsCommittedCounterUntilPositioningSuccessAndFailureIsRecoverable() {
@@ -243,6 +292,7 @@ final class ChatSearchListSelectionTests: XCTestCase {
         let item = MessageStorageItem()
         item.primary = result.anchor.primary
         item.archivedId = result.anchor.archivedId
+        item.mamArchiveId = result.anchor.archiveCursorID ?? ""
         item.messageId = result.anchor.messageId
         item.owner = result.scope.owner
         item.opponent = result.scope.jid
@@ -272,6 +322,7 @@ final class ChatSearchListSelectionTests: XCTestCase {
             anchor: ChatSearchResult.Anchor(
                 primary: primary,
                 archivedId: archivedID,
+                archiveCursorID: archivedID.isEmpty ? nil : archivedID,
                 messageId: "message-\(index)",
                 authorId: index.isMultiple(of: 2) ? "author-\(index)" : nil,
                 date: Date(timeIntervalSince1970: 1_800_000_000 - TimeInterval(index * 60))
@@ -292,8 +343,10 @@ final class ChatSearchListSelectionTests: XCTestCase {
 
     private func stableToken(_ id: ChatSearchResult.ID) -> String {
         switch id {
-        case .archived(let value), .primary(let value):
-            return value
+        case .archived(let value):
+            return "mam:\(value)"
+        case .primary(let value):
+            return "primary:\(value)"
         }
     }
 }

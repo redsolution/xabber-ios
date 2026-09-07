@@ -13,22 +13,36 @@ struct ArchiveTransportPersistenceAccounting: Equatable, Sendable {
         explicitlyConsumedArchiveIDs: Set<String>,
         materializedMessages: [ArchiveMaterializedMessageIdentity]
     ) -> ArchiveTransportPersistenceAccounting {
-        var materializedByArchiveID: [String: String] = [:]
-        materializedMessages.forEach { identity in
-            materializedByArchiveID[identity.archiveID] = identity.primaryID
-        }
         let deliveredIDs = Set(deliveredArchiveIDs.filter(\.isNotEmpty))
-        let materializedIDs = Set(materializedByArchiveID.keys)
+        let materializedByArchiveID = Dictionary(
+            grouping: materializedMessages,
+            by: \.archiveID
+        )
+        let duplicateMaterializedIDs = Set(
+            materializedByArchiveID.compactMap { archiveID, identities in
+                Set(identities.map(\.primaryID)).count > 1 ? archiveID : nil
+            }
+        ).intersection(deliveredIDs)
+        let uniquePrimaryByArchiveID = materializedByArchiveID.reduce(
+            into: [String: String]()
+        ) { result, entry in
+            guard Set(entry.value.map(\.primaryID)).count == 1,
+                  let primaryID = entry.value.first?.primaryID else {
+                return
+            }
+            result[entry.key] = primaryID
+        }
+        let materializedIDs = Set(uniquePrimaryByArchiveID.keys)
             .intersection(deliveredIDs)
         let unresolvedIDs = deliveredIDs.subtracting(materializedIDs)
         let consumedWithoutRows = unresolvedIDs.intersection(
             explicitlyConsumedArchiveIDs
         )
-        let unaccountedIDs = unresolvedIDs.subtracting(
-            explicitlyConsumedArchiveIDs
-        )
+        let unaccountedIDs = unresolvedIDs
+            .subtracting(explicitlyConsumedArchiveIDs)
+            .union(duplicateMaterializedIDs)
         let orderedPrimaryIDs = deliveredArchiveIDs.compactMap {
-            materializedByArchiveID[$0]
+            uniquePrimaryByArchiveID[$0]
         }
         return ArchiveTransportPersistenceAccounting(
             messagePrimaryIDs: orderedPrimaryIDs,
@@ -65,6 +79,17 @@ enum ArchiveTransportShadowConsumptionPolicy {
 }
 
 enum ArchiveSearchTransportRowPolicy {
+    static func strictMAMArchiveID(for item: MessageStorageItem) -> String? {
+        let archiveID = item.mamArchiveId
+        let normalized = archiveID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard normalized.isNotEmpty else {
+            return nil
+        }
+        return normalized
+    }
+
     static func accepts(
         owner: String,
         conversationJID: String,
@@ -97,6 +122,41 @@ enum ArchiveSearchTransportRowPolicy {
             message.conversationTypeRaw,
             rowIdentity,
         ].joined(separator: "\u{1F}")
+    }
+}
+
+enum ArchiveSearchTransportRowInsertResult: Equatable {
+    case inserted
+    case duplicate
+    case conflictingPrimary
+}
+
+/// Collects callback-delivered search rows while preserving the one-to-one
+/// relationship between an outer MAM result id and its local message primary.
+/// The transaction owns synchronization; this value intentionally has no lock.
+struct ArchiveSearchTransportRowAccumulator {
+    private(set) var messages: [ArchiveSearchMessage] = []
+    private var primaryIDByIdentityKey: [String: String] = [:]
+    private(set) var hasConflictingArchiveIdentity = false
+
+    mutating func insert(
+        _ message: ArchiveSearchMessage
+    ) -> ArchiveSearchTransportRowInsertResult {
+        guard let identityKey = ArchiveSearchTransportRowPolicy.identityKey(
+            for: message
+        ) else {
+            return .duplicate
+        }
+        if let existingPrimaryID = primaryIDByIdentityKey[identityKey] {
+            guard existingPrimaryID == message.primaryID else {
+                hasConflictingArchiveIdentity = true
+                return .conflictingPrimary
+            }
+            return .duplicate
+        }
+        primaryIDByIdentityKey[identityKey] = message.primaryID
+        messages.append(message)
+        return .inserted
     }
 }
 
@@ -868,8 +928,7 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
     private let lock = NSLock()
     private let requestTerminalGate: ArchivePersistenceTerminalGate
     private let persistenceGate: ArchivePersistenceTerminalGate
-    private var messages: [ArchiveSearchMessage] = []
-    private var messageKeys: Set<String> = []
+    private var searchRows = ArchiveSearchTransportRowAccumulator()
     private var didStartTerminal = false
     private var didFinish = false
     private var failureToken: MessageArchiveRequestFailureDispatcher.Token?
@@ -977,9 +1036,19 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
               ) else {
             return
         }
+        guard let archiveID = ArchiveSearchTransportRowPolicy.strictMAMArchiveID(
+            for: item
+        ) else {
+            ChatArchiveDebugTrace.log("archiveSearchRowRejected", [
+                ("owner", item.owner),
+                ("queryId", queryID),
+                ("reason", "missingVerifiedMAMResultID")
+            ])
+            return
+        }
         let message = ArchiveSearchMessage(
             primaryID: item.primary,
-            archiveID: item.archivedId,
+            archiveID: archiveID,
             messageID: item.messageId,
             owner: item.owner,
             conversationJID: item.opponent,
@@ -992,17 +1061,20 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
             groupAuthorNickname: item.groupchatAuthorNickname,
             groupAuthorAvatarURL: item.groupchatAuthorAvatarURL
         )
-        guard let key = ArchiveSearchTransportRowPolicy.identityKey(
-            for: message
-        ) else { return }
         lock.lock()
-        guard !didStartTerminal,
-              messageKeys.insert(key).inserted else {
+        guard !didStartTerminal else {
             lock.unlock()
             return
         }
-        messages.append(message)
+        let insertResult = searchRows.insert(message)
         lock.unlock()
+        if insertResult == .conflictingPrimary {
+            ChatArchiveDebugTrace.log("archiveSearchRowRejected", [
+                ("owner", item.owner),
+                ("queryId", queryID),
+                ("reason", "conflictingMAMResultPrimary")
+            ])
+        }
     }
 
     private func handleFinal(
@@ -1059,13 +1131,24 @@ private final class ArchiveSearchTransportTransaction: @unchecked Sendable {
                 return
             }
             self.lock.lock()
-            let messages = self.messages
+            let messages = self.searchRows.messages
+            let hasConflictingArchiveIdentity =
+                self.searchRows.hasConflictingArchiveIdentity
             self.lock.unlock()
             ArchiveEngineObservability.event(
                 .persistence,
                 value: summary.persistedRows,
                 auxiliary: summary.failed + summary.skipped
             )
+            guard !hasConflictingArchiveIdentity else {
+                ChatArchiveDebugTrace.log("archiveSearchTransactionRejected", [
+                    ("owner", self.request.scope.owner),
+                    ("queryId", queryID),
+                    ("reason", "conflictingMAMResultPrimary")
+                ])
+                self.finish(.failure(ArchiveTransportError.protocolViolation))
+                return
+            }
             self.finish(
                 .success(
                     ArchiveSearchTransportReceipt(

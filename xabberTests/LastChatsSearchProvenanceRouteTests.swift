@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import xabber
 
 final class LastChatsSearchProvenanceRouteTests: XCTestCase {
@@ -43,6 +44,26 @@ final class LastChatsSearchProvenanceRouteTests: XCTestCase {
         XCTAssertNotEqual(first.stableID, second.stableID)
     }
 
+    func testTypedMAMCursorAndRawStanzaIDDoNotShareStableIdentityNamespace() throws {
+        let typedMAM = makeMessageProvenance(
+            primary: nil,
+            archivedId: nil,
+            archiveCursor: try XCTUnwrap(ArchiveCursor(rawValue: "200")),
+            messageId: nil,
+            sourceDate: nil,
+            fingerprint: nil
+        )
+        let rawStanza = makeMessageProvenance(
+            primary: nil,
+            archivedId: "200",
+            messageId: nil,
+            sourceDate: nil,
+            fingerprint: nil
+        )
+
+        XCTAssertNotEqual(typedMAM.stableID, rawStanza.stableID)
+    }
+
     func testExactRoutePreservesEveryMessageIdentityAndOptionalDate() throws {
         let provenance = makeMessageProvenance(
             primary: "message-primary",
@@ -69,6 +90,39 @@ final class LastChatsSearchProvenanceRouteTests: XCTestCase {
         XCTAssertNil(request.anchor.sourceDate)
         XCTAssertEqual(request.source, .search)
         XCTAssertFalse(request.markReadOnVisible)
+    }
+
+    func testLegacySearchResultKeepsArchiveIDOpaqueWithoutTypedProvenance() {
+        let request = SearchResultOpenRequestFactory.request(
+            for: makeLegacySearchDatasource(messageArchiveId: "200")
+        )
+
+        XCTAssertEqual(request?.anchor.archivedId, "200")
+        XCTAssertNil(request?.anchor.archiveCursor)
+    }
+
+    func testNumericLegacyStanzaIDRemainsOpaqueSearchProvenance() {
+        let item = storageMessage(
+            primary: "legacy-primary",
+            owner: conversation.owner,
+            jid: conversation.jid,
+            archivedId: "100",
+            messageId: "legacy-message-id",
+            body: "legacy body",
+            date: date
+        )
+        let provenance = SearchResultMessageProvenanceFactory.make(for: item)
+        var datasource = makeLegacySearchDatasource(
+            messageArchiveId: SearchResultMessageProvenanceFactory.strictMAMArchiveID(for: item)
+        )
+        datasource.searchProvenance = provenance
+
+        let request = SearchResultOpenRequestFactory.request(for: datasource)
+
+        XCTAssertEqual(provenance.archivedId, "100")
+        XCTAssertNil(provenance.archiveCursor)
+        XCTAssertEqual(request?.anchor.archivedId, "100")
+        XCTAssertNil(request?.anchor.archiveCursor)
     }
 
     func testContactResultRoutesToLatestExplicitly() {
@@ -401,6 +455,7 @@ final class LastChatsSearchProvenanceRouteTests: XCTestCase {
     private func makeMessageProvenance(
         primary: String?,
         archivedId: String?,
+        archiveCursor: ArchiveCursor? = nil,
         messageId: String? = "message-id",
         authorId: String? = "author-id",
         sourceDate: Date? = Date(timeIntervalSince1970: 1_711_283_200),
@@ -412,12 +467,48 @@ final class LastChatsSearchProvenanceRouteTests: XCTestCase {
             conversation: conversation,
             messagePrimary: primary,
             archivedId: archivedId,
+            archiveCursor: archiveCursor,
             messageId: messageId,
             authorId: authorId,
             sourceDate: sourceDate,
             bodyFingerprint: fingerprint,
             provider: .localMessages,
             queryGeneration: generation
+        )
+    }
+
+    private func makeLegacySearchDatasource(
+        messageArchiveId: String?
+    ) -> SearchResultsViewController.Datasource {
+        SearchResultsViewController.Datasource(
+            jid: "room@example.com",
+            owner: "owner@example.com",
+            username: "Room",
+            attributedUsername: nil,
+            message: "matching message",
+            date: date,
+            state: nil,
+            isMute: false,
+            isSynced: true,
+            status: .offline,
+            entity: .contact,
+            conversationType: .group,
+            unread: 0,
+            unreadString: nil,
+            hasUnreadMention: false,
+            color: .clear,
+            isDraft: false,
+            hasAttachment: false,
+            userNickname: nil,
+            isSystemMessage: false,
+            isPinned: false,
+            subRequest: false,
+            isEncrypted: false,
+            avatarUrl: nil,
+            hasErrorInChat: false,
+            updateTS: 0,
+            isVerificationActionRequired: false,
+            messageArchiveId: messageArchiveId
         )
     }
 

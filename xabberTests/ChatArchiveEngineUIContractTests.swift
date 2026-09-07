@@ -165,6 +165,19 @@ final class ChatArchiveEngineUIContractTests: XCTestCase {
         )
     }
 
+    func testInitialArchiveWindowDoesNotPromoteSyncUnreadAfterToMAMFirstUnreadCursor() throws {
+        let source = try archiveEngineSource()
+        let initialIntent = try sourceMethod(
+            named: "private func makeInitialArchiveWindowIntent()",
+            in: source
+        )
+
+        XCTAssertTrue(initialIntent.contains("ChatAnchorArchiveLocatorPolicy.locator("))
+        XCTAssertFalse(initialIntent.contains("syncUnreadAfterId"))
+        XCTAssertFalse(initialIntent.contains(".firstUnread(after:"))
+        XCTAssertFalse(initialIntent.contains("ArchiveCursor(rawValue: rawUnreadBoundary)"))
+    }
+
     func testTerminalRetryableFailureSchedulesEngineOwnedAutomaticRetry() throws {
         let source = try archiveEngineSource()
 

@@ -1460,7 +1460,9 @@ final class InfoCardSearchAccessibilityTests: XCTestCase {
             makeSearchMessage(index: 0),
             makeSearchMessage(index: 1)
         ]
-        controller.selectedSearchResultId = controller.searchMessagesQueue[1].archivedId
+        controller.selectedSearchResultId = controller.searchResultSelectionIdentity(
+            for: controller.searchMessagesQueue[1]
+        )
         controller.applySearchResultsPanelState(isLoadingContext: true)
         assertSearchPanelIdentifiers(searchPanel)
 
@@ -1986,7 +1988,7 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
         _ = try XCTUnwrap(controller.beginInChatSearchQueryIfNeeded(text: "needle", queryId: "query-1"))
         let result = makeMessage(owner: controller.owner, jid: controller.jid, conversationType: controller.conversationType)
         controller.searchMessagesQueue = [result]
-        controller.selectedSearchResultId = result.archivedId
+        controller.selectedSearchResultId = controller.searchResultSelectionIdentity(for: result)
 
         controller.clearInChatSearchQuery(clearResults: true)
 
@@ -2007,14 +2009,17 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
         _ = try XCTUnwrap(controller.beginInChatSearchQueryIfNeeded(text: "needle", queryId: "query-1"))
         let result = makeMessage(owner: controller.owner, jid: controller.jid, conversationType: controller.conversationType)
         controller.searchMessagesQueue = [result]
-        controller.selectedSearchResultId = result.archivedId
+        controller.selectedSearchResultId = controller.searchResultSelectionIdentity(for: result)
 
         controller.clearInChatSearchQuery(clearResults: false)
 
         XCTAssertNil(controller.currentSearchQueryId)
         XCTAssertNil(controller.currentInChatSearchQueryContext)
         XCTAssertEqual(controller.searchMessagesQueue.map(\.primary), [result.primary])
-        XCTAssertEqual(controller.selectedSearchResultId, result.archivedId)
+        XCTAssertEqual(
+            controller.selectedSearchResultId,
+            controller.searchResultSelectionIdentity(for: result)
+        )
     }
 
     func testEmptySubmitClearsResultsAndLoadingState() throws {
@@ -2177,6 +2182,7 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
                 date: Date(timeIntervalSince1970: 1_783_493_923)
             )
         ]
+        serverChronologicalResults.forEach { $0.mamArchiveId = $0.archivedId }
 
         let normalized = controller.normalizedInChatSearchResultsForDisplay(serverChronologicalResults)
 
@@ -2185,28 +2191,33 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
             [newestArchivedId, middleArchivedId, oldestArchivedId]
         )
         XCTAssertEqual(normalized.first?.archivedId, newestArchivedId)
-        XCTAssertEqual(controller.searchResultSelectionIdentity(for: try XCTUnwrap(normalized.first)), newestArchivedId)
+        XCTAssertEqual(
+            controller.searchResultSelectionIdentity(for: try XCTUnwrap(normalized.first)),
+            "mam:\(newestArchivedId)"
+        )
     }
 
-    func testSearchResultSelectionIdentityPrefersArchivedIdAndFallsBackToPrimary() {
+    func testSearchResultSelectionIdentityUsesTypedMAMAndLegacyPrimary() {
         let controller = makeController()
-        let archivedResult = makeMessage(
+        let typedMAMResult = makeMessage(
             owner: controller.owner,
             jid: controller.jid,
             conversationType: controller.conversationType,
             primary: "primary-with-archive",
             archivedId: "archive-from-server"
         )
-        let localOnlyResult = makeMessage(
+        typedMAMResult.mamArchiveId = "archive-from-server"
+        let legacyRawResult = makeMessage(
             owner: controller.owner,
             jid: controller.jid,
             conversationType: controller.conversationType,
             primary: "primary-fallback",
-            archivedId: ""
+            archivedId: "archive-from-legacy-row"
         )
+        legacyRawResult.mamArchiveId = ""
 
-        XCTAssertEqual(controller.searchResultSelectionIdentity(for: archivedResult), "archive-from-server")
-        XCTAssertEqual(controller.searchResultSelectionIdentity(for: localOnlyResult), "primary-fallback")
+        XCTAssertEqual(controller.searchResultSelectionIdentity(for: typedMAMResult), "mam:archive-from-server")
+        XCTAssertEqual(controller.searchResultSelectionIdentity(for: legacyRawResult), "primary:primary-fallback")
     }
 
     func testApplySearchResultsRoutesInitialResultThroughNavigationStateMachine() throws {
@@ -2276,7 +2287,10 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
         try XCTUnwrap(controller.activeAnchorExecutionHooks?.onPositioned)()
 
         XCTAssertEqual(controller.searchResultNavigationState, .idle)
-        XCTAssertEqual(controller.selectedSearchResultId, newestArchivedId)
+        XCTAssertEqual(
+            controller.selectedSearchResultId,
+            controller.searchResultSelectionIdentity(for: controller.searchMessagesQueue[0])
+        )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
             .results(current: 0, total: 2, isLoadingContext: false)
@@ -2394,6 +2408,7 @@ final class ChatInChatSearchQueryLifecycleTests: XCTestCase {
         message.conversationType = conversationType
         message.messageType = MessageStorageItem.MessageDisplayType.text.rawValue
         message.archivedId = archivedId ?? "archive-\(primary)"
+        message.mamArchiveId = message.archivedId
         message.messageId = "message-\(primary)"
         message.date = date
         return message
@@ -2412,7 +2427,10 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         controller.onSearchPanelSeekUp()
 
         XCTAssertEqual(controller.searchResultNavigationState, .pending(index: 1, scrollDirection: .up))
-        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[0].archivedId)
+        XCTAssertEqual(
+            controller.selectedSearchResultId,
+            controller.searchResultSelectionIdentity(for: controller.searchMessagesQueue[0])
+        )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
             .results(current: 0, total: 4, isLoadingContext: true)
@@ -2421,7 +2439,10 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         controller.onSearchPanelSeekUp()
 
         XCTAssertEqual(controller.searchResultNavigationState, .pending(index: 2, scrollDirection: .up))
-        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[0].archivedId)
+        XCTAssertEqual(
+            controller.selectedSearchResultId,
+            controller.searchResultSelectionIdentity(for: controller.searchMessagesQueue[0])
+        )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
             .results(current: 0, total: 4, isLoadingContext: true)
@@ -2438,7 +2459,10 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         controller.onSearchPanelSeekUp()
 
         XCTAssertEqual(controller.searchResultNavigationState, .pending(index: 3, scrollDirection: .up))
-        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[0].archivedId)
+        XCTAssertEqual(
+            controller.selectedSearchResultId,
+            controller.searchResultSelectionIdentity(for: controller.searchMessagesQueue[0])
+        )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
             .results(current: 0, total: 5, isLoadingContext: true)
@@ -2447,7 +2471,10 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         controller.onSearchPanelSeekDown()
 
         XCTAssertEqual(controller.searchResultNavigationState, .pending(index: 2, scrollDirection: .down))
-        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[0].archivedId)
+        XCTAssertEqual(
+            controller.selectedSearchResultId,
+            controller.searchResultSelectionIdentity(for: controller.searchMessagesQueue[0])
+        )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
             .results(current: 0, total: 5, isLoadingContext: true)
@@ -2464,7 +2491,10 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         controller.markSearchResultNavigationPositioningStarted(index: 2)
 
         XCTAssertEqual(controller.searchResultNavigationState, .positioning(index: 2))
-        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[0].archivedId)
+        XCTAssertEqual(
+            controller.selectedSearchResultId,
+            controller.searchResultSelectionIdentity(for: controller.searchMessagesQueue[0])
+        )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
             .results(current: 0, total: 4, isLoadingContext: true)
@@ -2473,7 +2503,10 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         controller.commitSearchResultNavigationPositioned(index: 2)
 
         XCTAssertEqual(controller.searchResultNavigationState, .idle)
-        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[2].archivedId)
+        XCTAssertEqual(
+            controller.selectedSearchResultId,
+            controller.searchResultSelectionIdentity(for: controller.searchMessagesQueue[2])
+        )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
             .results(current: 2, total: 4, isLoadingContext: false)
@@ -2517,7 +2550,8 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         try XCTUnwrap(positioningCompletion)(true)
         XCTAssertTrue(waitForSearchTestCondition {
             controller.searchResultNavigationState == .idle &&
-            controller.selectedSearchResultId == controller.searchMessagesQueue[1].archivedId &&
+            controller.selectedSearchResultId ==
+                controller.searchResultSelectionIdentity(for: controller.searchMessagesQueue[1]) &&
             controller.xabberInputView.searchPanel.renderState == .results(current: 1, total: 3, isLoadingContext: false)
         })
     }
@@ -2714,7 +2748,10 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         controller.onSearchPanelSeekUp()
 
         XCTAssertEqual(controller.searchResultNavigationState, .idle)
-        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[16].archivedId)
+        XCTAssertEqual(
+            controller.selectedSearchResultId,
+            controller.searchResultSelectionIdentity(for: controller.searchMessagesQueue[16])
+        )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
             .results(current: 16, total: 17, isLoadingContext: false)
@@ -2731,7 +2768,10 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         controller.onSearchPanelSeekDown()
 
         XCTAssertEqual(controller.searchResultNavigationState, .idle)
-        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[0].archivedId)
+        XCTAssertEqual(
+            controller.selectedSearchResultId,
+            controller.searchResultSelectionIdentity(for: controller.searchMessagesQueue[0])
+        )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
             .results(current: 0, total: 17, isLoadingContext: false)
@@ -2751,7 +2791,10 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         controller.onSearchPanelSeekUp()
 
         XCTAssertEqual(controller.searchResultNavigationState, .idle)
-        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[16].archivedId)
+        XCTAssertEqual(
+            controller.selectedSearchResultId,
+            controller.searchResultSelectionIdentity(for: controller.searchMessagesQueue[16])
+        )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
             .results(current: 16, total: 17, isLoadingContext: false)
@@ -2777,7 +2820,10 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         })
         XCTAssertEqual(controller.searchResultNavigationState, .loadingContext(index: 0))
         XCTAssertEqual(controller.chatScrollDirection, .down)
-        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[16].archivedId)
+        XCTAssertEqual(
+            controller.selectedSearchResultId,
+            controller.searchResultSelectionIdentity(for: controller.searchMessagesQueue[16])
+        )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
             .results(current: 16, total: 17, isLoadingContext: true)
@@ -2878,7 +2924,10 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         controller.completeSearchResultNavigation(index: 2)
 
         XCTAssertEqual(controller.searchResultNavigationState, .idle)
-        XCTAssertEqual(controller.selectedSearchResultId, controller.searchMessagesQueue[0].archivedId)
+        XCTAssertEqual(
+            controller.selectedSearchResultId,
+            controller.searchResultSelectionIdentity(for: controller.searchMessagesQueue[0])
+        )
         XCTAssertEqual(
             controller.xabberInputView.searchPanel.renderState,
             .results(current: 0, total: 4, isLoadingContext: false)
@@ -2907,7 +2956,10 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
     func testSearchModeIdentityFallsBackToPrimaryWithoutWholeCellWash() {
         let controller = makeControllerWithSearchResults(count: 2, selectedIndex: 0)
         controller.searchMessagesQueue[1].archivedId = ""
-        controller.selectedSearchResultId = controller.searchMessagesQueue[1].primary
+        controller.searchMessagesQueue[1].mamArchiveId = ""
+        controller.selectedSearchResultId = controller.searchResultSelectionIdentity(
+            for: controller.searchMessagesQueue[1]
+        )
         controller.inSearchMode.accept(true)
 
         XCTAssertFalse(controller.isSelected(primary: "primary-0"))
@@ -2933,7 +2985,9 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         controller.searchMessagesQueue = (0..<count).map { index in
             makeMessage(index: index)
         }
-        controller.selectedSearchResultId = controller.searchMessagesQueue[selectedIndex].archivedId
+        controller.selectedSearchResultId = controller.searchResultSelectionIdentity(
+            for: controller.searchMessagesQueue[selectedIndex]
+        )
         var presentationState = ChatSearchPresentationState.inactive
         presentationState.reduce(.activate)
         presentationState.reduce(.queryChanged("needle"))
@@ -2984,6 +3038,7 @@ final class ChatSearchResultNavigationStateTests: XCTestCase {
         message.conversationType = .regular
         message.messageType = MessageStorageItem.MessageDisplayType.text.rawValue
         message.archivedId = archiveID(index: index)
+        message.mamArchiveId = message.archivedId
         message.messageId = "message-\(index)"
         message.date = Date(timeIntervalSince1970: TimeInterval(1_711_283_200 + index))
         return message
@@ -15902,7 +15957,7 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
     }
 
     func testChatDatasourceSnapshotBuildsLookupMaps() {
-        let first = ChatViewController.Datasource(
+        var first = ChatViewController.Datasource(
             primary: "first",
             jid: "romeo@example.com",
             owner: "owner@example.com",
@@ -15949,7 +16004,7 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
             avatarUrl: nil,
             attributedAuthor: nil
         )
-        let second = ChatViewController.Datasource(
+        var second = ChatViewController.Datasource(
             primary: "second",
             jid: "juliet@example.com",
             owner: "owner@example.com",
@@ -15997,12 +16052,28 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
             attributedAuthor: nil
         )
 
-        let snapshot = ChatDatasourceCoordinator.makeSnapshot(items: [first, second])
+        first.mamArchiveId = "m1"
+        second.mamArchiveId = "m2"
+        var legacyRaw = first
+        legacyRaw.primary = "legacy-raw"
+        legacyRaw.archivedId = "m1"
+        legacyRaw.mamArchiveId = nil
+
+        let snapshot = ChatDatasourceCoordinator.makeSnapshot(
+            items: [first, second, legacyRaw]
+        )
 
         XCTAssertEqual(snapshot.primaryIndex["first"], 0)
         XCTAssertEqual(snapshot.primaryIndex["second"], 1)
+        XCTAssertEqual(snapshot.mamArchiveIdIndex["m1"], 0)
+        XCTAssertEqual(snapshot.mamArchiveIdIndex["m2"], 1)
         XCTAssertEqual(snapshot.archivedIdIndex["a1"], 0)
         XCTAssertEqual(snapshot.archivedIdIndex["a2"], 1)
+        XCTAssertEqual(
+            snapshot.archivedIdIndex["m1"],
+            2,
+            "Raw stanza IDs must not alias the typed MAM cursor index"
+        )
     }
 
     func testChatDatasourceSnapshotHandlesDuplicateArchivedIdsWithoutCrashing() {
@@ -16062,7 +16133,10 @@ final class ChatDatasetPerformanceHelpersTests: XCTestCase {
         let snapshot = ChatDatasourceCoordinator.makeSnapshot(items: [first, second])
 
         XCTAssertTrue(snapshot.hasDuplicateArchivedIds)
-        XCTAssertEqual(snapshot.archivedIdIndex["shared-archived-id"], 1)
+        XCTAssertNil(
+            snapshot.archivedIdIndex["shared-archived-id"],
+            "An ambiguous raw stanza ID must not choose the last datasource row"
+        )
         XCTAssertFalse(
             ChatDatasourceCoordinator.compatibleForTargetedApply(
                 old: snapshot,
@@ -17883,6 +17957,111 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
         XCTAssertEqual(completionCount, 1)
     }
 
+    func testConcurrentCancelAndPreparedFailureCompleteArchiveCallbackExactlyOnce() {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = CapturingXMPPStream()
+        let queryId = "MAM bootstrap: concurrent-terminal-cleanup"
+        let callbackDelivered = expectation(
+            description: "archive callback completes once"
+        )
+        callbackDelivered.assertForOverFulfill = true
+        let callbackCountLock = NSLock()
+        var callbackCount = 0
+        let preparationLock = NSLock()
+        var preparationAcknowledgement: (() -> Void)?
+
+        let preparationToken =
+            MessageArchiveRequestFailurePreparationDispatcher.register(
+                owner: owner,
+                queryId: queryId
+            ) { _, acknowledgement in
+                preparationLock.lock()
+                preparationAcknowledgement = acknowledgement
+                preparationLock.unlock()
+            }
+        defer {
+            MessageArchiveRequestFailurePreparationDispatcher.unregister(
+                preparationToken
+            )
+        }
+
+        manager.requestArchive(
+            stream,
+            jid: "romeo@example.com",
+            isContinues: false,
+            conversationType: .regular,
+            purpose: .bootstrap,
+            queryId: queryId,
+            flipPage: true,
+            nextPage: "",
+            callback: {
+                callbackCountLock.lock()
+                callbackCount += 1
+                callbackCountLock.unlock()
+                callbackDelivered.fulfill()
+            }
+        )
+
+        XCTAssertTrue(manager.queryIds.contains(queryId))
+        XCTAssertTrue(
+            manager.callbackQueueContains { $0.elementId == queryId }
+        )
+
+        _ = manager.publishPendingArchiveRequestFailures(
+            streamKind: .primary,
+            reason: .uiActionDisconnect,
+            errorDescription: "concurrent terminal cleanup"
+        )
+
+        preparationLock.lock()
+        let acknowledgement = preparationAcknowledgement
+        preparationLock.unlock()
+        XCTAssertNotNil(acknowledgement)
+
+        let ready = DispatchGroup()
+        let finished = DispatchGroup()
+        let start = DispatchSemaphore(value: 0)
+        let terminalQueue = DispatchQueue(
+            label: "MessageArchiveQueryCallbackTests.concurrent-terminal",
+            attributes: .concurrent
+        )
+
+        for _ in 0..<32 {
+            ready.enter()
+            finished.enter()
+            terminalQueue.async {
+                ready.leave()
+                start.wait()
+                _ = manager.cancelPendingArchiveRequest(queryId: queryId)
+                finished.leave()
+            }
+        }
+        ready.enter()
+        finished.enter()
+        terminalQueue.async {
+            ready.leave()
+            start.wait()
+            acknowledgement?()
+            finished.leave()
+        }
+
+        XCTAssertEqual(ready.wait(timeout: .now() + 1), .success)
+        for _ in 0..<33 {
+            start.signal()
+        }
+        XCTAssertEqual(finished.wait(timeout: .now() + 3), .success)
+
+        wait(for: [callbackDelivered], timeout: 2)
+        callbackCountLock.lock()
+        let recordedCallbackCount = callbackCount
+        callbackCountLock.unlock()
+        XCTAssertEqual(recordedCallbackCount, 1)
+        XCTAssertFalse(manager.queryIds.contains(queryId))
+        XCTAssertFalse(
+            manager.callbackQueueContains { $0.elementId == queryId }
+        )
+    }
+
     func testSearchMamRequestPublishesTypedFailureAndCleansUpOnDisconnect() {
         let manager = MessageArchiveManager(withOwner: owner)
         let stream = CapturingXMPPStream()
@@ -18071,7 +18250,8 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
     func testMessageCallbackFiresOnlyForMatchingQuery() throws {
         let manager = MessageArchiveManager(withOwner: owner)
         let stream = XMPPStream()
-        var received: [String] = []
+        var receivedProtocolStanzaIDs: [String] = []
+        var receivedMAMResultIDs: [String] = []
         let callbackExpectation = expectation(description: "matching message callback")
 
         let matchingQuery = "engine-search-matching"
@@ -18087,7 +18267,8 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             max: 20,
             requestCallbacks: .init(
                 onMessage: { item, _ in
-                    received.append(item.archivedId)
+                    receivedProtocolStanzaIDs.append(item.archivedId)
+                    receivedMAMResultIDs.append(item.mamArchiveId)
                     callbackExpectation.fulfill()
                 },
                 onEndPage: nil
@@ -18105,7 +18286,7 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
             max: 20,
             requestCallbacks: .init(
                 onMessage: { item, _ in
-                    received.append("unexpected-\(item.archivedId)")
+                    receivedProtocolStanzaIDs.append("unexpected-\(item.archivedId)")
                 },
                 onEndPage: nil
             )
@@ -18113,11 +18294,11 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
 
         let message = try makeMessage(xml: """
         <message to='\(owner)' from='\(owner)'>
-          <result xmlns='urn:xmpp:mam:2' queryid='\(matchingQuery)'>
+          <result xmlns='urn:xmpp:mam:2' queryid='\(matchingQuery)' id='200'>
             <forwarded xmlns='urn:xmpp:forward:0'>
               <message xmlns='jabber:client' to='\(owner)' from='romeo@example.com' type='chat' id='message-1'>
-                <archived xmlns='urn:xmpp:mam:tmp' by='\(owner)' id='archived-1'/>
-                <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='archived-1'/>
+                <archived xmlns='urn:xmpp:mam:tmp' by='\(owner)' id='100'/>
+                <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='100'/>
                 <time xmlns='https://xabber.com/protocol/delivery' by='\(owner)' stamp='2026-03-31T10:00:00Z'/>
                 <origin-id xmlns='urn:xmpp:sid:0' id='message-1'/>
                 <body>Hello</body>
@@ -18130,7 +18311,52 @@ final class MessageArchiveQueryCallbackTests: XCTestCase {
 
         XCTAssertTrue(manager.readMessage(message))
         wait(for: [callbackExpectation], timeout: 1.0)
-        XCTAssertEqual(received, ["archived-1"])
+        XCTAssertEqual(receivedProtocolStanzaIDs, ["100"])
+        XCTAssertEqual(receivedMAMResultIDs, ["200"])
+    }
+
+    func testSearchMAMResultWithoutOuterIDIsConsumedWithoutCallback() throws {
+        let manager = MessageArchiveManager(withOwner: owner)
+        let stream = XMPPStream()
+        let queryID = "engine-search-missing-outer-result-id"
+        let callbackExpectation = expectation(
+            description: "malformed MAM result must not become a search row"
+        )
+        callbackExpectation.isInverted = true
+
+        manager.requestArchive(
+            stream,
+            jid: "romeo@example.com",
+            isContinues: false,
+            conversationType: .regular,
+            purpose: .engineSearchPage,
+            queryId: queryID,
+            searchText: "hello",
+            flipPage: false,
+            max: 20,
+            requestCallbacks: .init(
+                onMessage: { _, _ in callbackExpectation.fulfill() },
+                onEndPage: nil
+            )
+        )
+
+        let message = try makeMessage(xml: """
+        <message to='\(owner)' from='\(owner)'>
+          <result xmlns='urn:xmpp:mam:2' queryid='\(queryID)'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <message xmlns='jabber:client' to='\(owner)' from='romeo@example.com' type='chat' id='message-1'>
+                <archived xmlns='urn:xmpp:mam:tmp' by='\(owner)' id='100'/>
+                <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='100'/>
+                <body>Hello</body>
+              </message>
+              <delay xmlns='urn:xmpp:delay' from='example.com' stamp='2026-03-31T10:00:00Z'/>
+            </forwarded>
+          </result>
+        </message>
+        """)
+
+        XCTAssertTrue(manager.readMessage(message))
+        wait(for: [callbackExpectation], timeout: 0.2)
     }
 
 }
@@ -18925,6 +19151,10 @@ final class ChatInitialPositionPolicyTests: XCTestCase {
 
         XCTAssertEqual(request.source, .initialUnreadBoundary)
         XCTAssertEqual(request.anchor.archivedId, "1711283295000000")
+        XCTAssertNil(
+            request.anchor.archiveCursor,
+            "XEP-SYNC unread@after is a raw protocol stanza ID, not a MAM/RSM cursor"
+        )
         XCTAssertEqual(request.targetResolution, .firstIncomingAfterBoundary("1711283295000000"))
         XCTAssertFalse(request.highlight)
         XCTAssertFalse(request.markReadOnVisible)
@@ -19454,11 +19684,12 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
     private func makeDatasource(
         primary: String = "message-1",
         archivedId: String? = "archived-1",
+        mamArchiveId: String? = nil,
         messageId: String = "message-id-1",
         kind: MessageKind = .attributedText(NSAttributedString(string: "Hello")),
         isFakeMessage: Bool = false
     ) -> ChatViewController.Datasource {
-        ChatViewController.Datasource(
+        var datasource = ChatViewController.Datasource(
             primary: primary,
             jid: "group@xabber.example",
             owner: "owner@example.com",
@@ -19505,6 +19736,8 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
             avatarUrl: nil,
             attributedAuthor: nil
         )
+        datasource.mamArchiveId = mamArchiveId
+        return datasource
     }
 
     private func makeStoredMessage(
@@ -19536,11 +19769,13 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
     private func makeAnchor(
         messagePrimary: String? = nil,
         archivedId: String? = nil,
+        archiveCursor: ArchiveCursor? = nil,
         messageId: String? = nil
     ) -> ChatMessageAnchorRef {
         ChatMessageAnchorRef(
             messagePrimary: messagePrimary,
             archivedId: archivedId,
+            archiveCursor: archiveCursor,
             messageId: messageId,
             authorId: nil,
             bodyFingerprint: nil,
@@ -19788,6 +20023,31 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         XCTAssertEqual(position?.archivedId, "200")
     }
 
+    func testVisiblePositionUsesMAMCursorBeforeProtocolStanzaID() {
+        var datasource = makeDatasource(
+            primary: "message-1",
+            archivedId: "100"
+        )
+        datasource.mamArchiveId = "200"
+
+        let position = ChatVisiblePositionPolicy.savedPosition(
+            candidates: [
+                ChatVisiblePositionPolicy.Candidate(
+                    primary: datasource.primary,
+                    archivedId: datasource.mamArchiveCursorID,
+                    messageId: datasource.messageId,
+                    sentDate: datasource.sentDate,
+                    rowKind: .message,
+                    isFakeMessage: false,
+                    frame: CGRect(x: 0, y: 200, width: 320, height: 60)
+                )
+            ],
+            viewportCenterY: 230
+        )
+
+        XCTAssertEqual(position?.archivedId, "200")
+    }
+
     func testVisiblePositionPersistenceClearsSavedAnchorAtLiveBottom() {
         let candidates = [
             visibleCandidate(primary: "newest", archivedId: "300", frame: CGRect(x: 0, y: 360, width: 320, height: 70))
@@ -19990,6 +20250,176 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         )
     }
 
+    func testLoadedMessageLookupRejectsAmbiguousRawArchivedId() {
+        let items = [
+            makeDatasource(primary: "first", archivedId: "raw-duplicate", messageId: "message-1"),
+            makeDatasource(primary: "second", archivedId: "raw-duplicate", messageId: "message-2")
+        ]
+        let anchor = ChatMessageAnchorRef(
+            messagePrimary: nil,
+            archivedId: "raw-duplicate",
+            messageId: nil,
+            authorId: nil,
+            bodyFingerprint: nil,
+            sourceDate: nil
+        )
+
+        XCTAssertNil(ChatLoadedMessageNavigationPolicy.index(in: items, for: anchor))
+
+        let searchRequest = ChatOpenMessageRequest(
+            chatJid: "group@xabber.example",
+            owner: "owner@example.com",
+            conversationType: .group,
+            anchor: anchor,
+            highlight: true,
+            markReadOnVisible: false,
+            source: .search
+        )
+        XCTAssertNil(ChatLoadedMessageNavigationPolicy.index(in: items, for: searchRequest))
+    }
+
+    func testLoadedMessageLookupMatchesTypedMAMCursorBeforeProtocolStanzaID() throws {
+        let items = [
+            makeDatasource(
+                primary: "message-1",
+                archivedId: "100",
+                mamArchiveId: "200"
+            )
+        ]
+
+        XCTAssertEqual(
+            ChatLoadedMessageNavigationPolicy.index(
+                in: items,
+                for: makeAnchor(
+                    archiveCursor: try XCTUnwrap(ArchiveCursor(rawValue: "200"))
+                )
+            ),
+            0
+        )
+    }
+
+    func testSearchLoadedMessageLookupMatchesTypedMAMCursorBeforeProtocolStanzaID() throws {
+        let items = [
+            makeDatasource(
+                primary: "message-1",
+                archivedId: "100",
+                mamArchiveId: "200"
+            )
+        ]
+        let request = ChatOpenMessageRequest(
+            chatJid: "group@xabber.example",
+            owner: "owner@example.com",
+            conversationType: .group,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: "200",
+                archiveCursor: try XCTUnwrap(ArchiveCursor(rawValue: "200")),
+                messageId: nil,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: nil
+            ),
+            highlight: true,
+            markReadOnVisible: false,
+            source: .search
+        )
+
+        XCTAssertEqual(
+            ChatLoadedMessageNavigationPolicy.index(in: items, for: request),
+            0
+        )
+    }
+
+    func testLoadedUnreadBoundaryUsesProtocolStanzaIDBeforeMAMCursor() {
+        let items = [
+            makeDatasource(
+                primary: "first-after-boundary",
+                archivedId: "151",
+                mamArchiveId: "300"
+            ),
+            makeDatasource(
+                primary: "later",
+                archivedId: "200",
+                mamArchiveId: "200"
+            )
+        ]
+        let request = ChatOpenMessageRequest(
+            chatJid: "group@xabber.example",
+            owner: "owner@example.com",
+            conversationType: .group,
+            anchor: makeAnchor(archivedId: "150"),
+            highlight: false,
+            markReadOnVisible: false,
+            source: .initialUnreadBoundary,
+            targetResolution: .firstIncomingAfterBoundary("150")
+        )
+
+        XCTAssertEqual(
+            ChatLoadedMessageNavigationPolicy.index(in: items, for: request),
+            0,
+            "Unread boundaries compare raw sync stanza IDs; outer MAM result IDs are unrelated cursor evidence"
+        )
+    }
+
+    func testResidentIndexKeepsTypedMAMCursorSeparateFromRawProtocolStanzaID() throws {
+        let typedMAM = makeStoredMessage(
+            primary: "typed-mam",
+            archivedId: "100"
+        )
+        typedMAM.mamArchiveId = "200"
+        let rawStanza = makeStoredMessage(
+            primary: "raw-stanza",
+            archivedId: "200"
+        )
+
+        let index = ChatTimelineResidentIndex(items: [typedMAM, rawStanza])
+
+        XCTAssertEqual(
+            index.index(archiveCursor: try XCTUnwrap(ArchiveCursor(rawValue: "200"))),
+            0
+        )
+        XCTAssertEqual(index.index(archivedId: "200"), 1)
+        XCTAssertEqual(index.index(archivedId: "100"), 0)
+    }
+
+    func testResidentIndexRejectsAmbiguousRawAndTypedMAMIdentifiers() throws {
+        let first = makeStoredMessage(primary: "first", archivedId: "raw-duplicate")
+        first.mamArchiveId = "300"
+        let second = makeStoredMessage(primary: "second", archivedId: "raw-duplicate")
+        second.mamArchiveId = "300"
+
+        let index = ChatTimelineResidentIndex(items: [first, second])
+
+        XCTAssertNil(index.index(archivedId: "raw-duplicate"))
+        XCTAssertNil(
+            index.index(archiveCursor: try XCTUnwrap(ArchiveCursor(rawValue: "300")))
+        )
+    }
+
+    func testSearchResultMapperUsesMAMCursorBeforeProtocolStanzaID() {
+        let item = makeStoredMessage(
+            primary: "message-1",
+            archivedId: "100",
+            conversationType: .regular
+        )
+        item.mamArchiveId = "200"
+        let context = ChatSearchResultMappingContext(
+            scope: ChatSearchResult.Scope(
+                owner: "owner@example.com",
+                jid: "group@xabber.example",
+                conversationTypeRawValue: ClientSynchronizationManager.ConversationType.regular.rawValue
+            ),
+            localizedYou: "You",
+            contactDisplayName: "Group"
+        )
+
+        let result = ChatSearchResultMapper.map(item, context: context)
+
+        XCTAssertEqual(result?.id, .archived("200"))
+        XCTAssertEqual(result?.anchor.archivedId, "100")
+        XCTAssertEqual(result?.anchor.archiveCursorID, "200")
+    }
+
     func testLoadedMessageLookupIgnoresNonAnchorRows() {
         let dateRow = makeDatasource(
             primary: "date-row",
@@ -20179,6 +20609,7 @@ final class ChatMessageAnchorPolicyTests: XCTestCase {
         target.conversationType = controller.conversationType
         target.messageType = MessageStorageItem.MessageDisplayType.text.rawValue
         target.archivedId = "1711283295000000"
+        target.mamArchiveId = "1711283295000000"
         target.messageId = "direct-open-message"
         target.date = Date(timeIntervalSince1970: 1_711_283_295)
         try installVerifiedSearchTimelineFixture(on: controller, items: [target])
@@ -20603,7 +21034,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
     }
 
     private func makeMessage(index: Int) throws -> XMPPMessage {
-        try XMPPMessage(from: makeElement(xml: """
+        return try XMPPMessage(from: makeElement(xml: """
         <message from='romeo@example.com' to='owner@example.com' type='chat' id='message-\(index)'>
           <origin-id xmlns='urn:xmpp:sid:0' id='message-\(index)'/>
           <body>\(index)</body>
@@ -20628,14 +21059,21 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         )
     }
 
-    private func makeArchivedMessage(index: Int, queryId: String) throws -> XMPPMessage {
-        try XMPPMessage(from: makeElement(xml: """
+    private func makeArchivedMessage(
+        index: Int,
+        queryId: String,
+        resultID: String? = nil,
+        stanzaID: String? = nil
+    ) throws -> XMPPMessage {
+        let resultID = resultID ?? "archive-\(index)"
+        let stanzaID = stanzaID ?? resultID
+        return try XMPPMessage(from: makeElement(xml: """
         <message to='owner@example.com' from='owner@example.com'>
-          <result xmlns='urn:xmpp:mam:2' queryid='\(queryId)' id='archive-\(index)'>
+          <result xmlns='urn:xmpp:mam:2' queryid='\(queryId)' id='\(resultID)'>
             <forwarded xmlns='urn:xmpp:forward:0'>
               <message xmlns='jabber:client' from='romeo@example.com' to='owner@example.com' type='chat' id='message-\(index)'>
-                <archived xmlns='urn:xmpp:mam:tmp' by='owner@example.com' id='archive-\(index)'/>
-                <stanza-id xmlns='urn:xmpp:sid:0' by='owner@example.com' id='archive-\(index)'/>
+                <archived xmlns='urn:xmpp:mam:tmp' by='owner@example.com' id='\(stanzaID)'/>
+                <stanza-id xmlns='urn:xmpp:sid:0' by='owner@example.com' id='\(stanzaID)'/>
                 <origin-id xmlns='urn:xmpp:sid:0' id='message-\(index)'/>
                 <body>\(index)</body>
               </message>
@@ -22346,7 +22784,12 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         streamReceiver.archiveQueryIdPersistenceResolver = { $0 == queryId }
 
         OmemoManager.persistDecryptedArchivedMessage(
-            try makeArchivedMessage(index: 1, queryId: queryId),
+            try makeArchivedMessage(
+                index: 1,
+                queryId: queryId,
+                resultID: "200",
+                stanzaID: "100"
+            ),
             preferredReceiver: streamReceiver,
             fallbackReceiver: primary
         )
@@ -22357,6 +22800,13 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         XCTAssertEqual(summary.received, 1)
         XCTAssertEqual(summary.queued, 1)
         XCTAssertEqual(summary.persistedRows, 1)
+        let stored = try XCTUnwrap(
+            try WRealm.safe().objects(MessageStorageItem.self)
+                .filter("messageId == %@", "message-1")
+                .first
+        )
+        XCTAssertEqual(stored.archivedId, "100")
+        XCTAssertEqual(stored.mamArchiveId, "200")
         XCTAssertFalse(primary.hasPendingMessages(forQueryId: queryId))
     }
 
@@ -22598,6 +23048,138 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
         )
         XCTAssertTrue(stored.queryIds?.contains("initial-query") == true)
         XCTAssertTrue(stored.queryIds?.contains("duplicate-query") == true)
+    }
+
+    func testArchivedMAMResultIDReconcilesTrustedExistingRowWithoutReplacingProtocolStanzaID() throws {
+        let initialQueryID = "initial-mam-identity-query"
+        let replayQueryID = "replay-mam-identity-query"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = {
+            $0 == initialQueryID || $0 == replayQueryID
+        }
+
+        manager.receiveArchived(try makeArchivedMessage(
+            index: 1,
+            queryId: initialQueryID,
+            resultID: "100",
+            stanzaID: "100"
+        ))
+        _ = manager.storeMessagesNowSummary(forQueryId: initialQueryID)
+
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.objects(MessageStorageItem.self)
+                .filter("messageId == %@", "message-1")
+                .first?
+                .trustedSource = true
+        }
+
+        manager.receiveArchived(try makeArchivedMessage(
+            index: 1,
+            queryId: replayQueryID,
+            resultID: "200",
+            stanzaID: "100"
+        ))
+        let summary = manager.storeMessagesNowSummary(forQueryId: replayQueryID)
+
+        let stored = try XCTUnwrap(
+            realm.objects(MessageStorageItem.self)
+                .filter("messageId == %@", "message-1")
+                .first
+        )
+        XCTAssertEqual(stored.archivedId, "100")
+        XCTAssertEqual(stored.mamArchiveId, "200")
+        XCTAssertEqual(summary.savedNew, 0)
+        XCTAssertEqual(summary.updatedExisting, 1)
+        XCTAssertEqual(summary.failed, 0)
+        XCTAssertEqual(
+            summary.persistedArchiveIds(
+                owner: "owner@example.com",
+                jid: "romeo@example.com",
+                conversationType: .regular
+            ),
+            Set(["200"])
+        )
+    }
+
+    func testArchivedMAMReplayDoesNotTreatLegacyRawIDAsOuterResultCollision() throws {
+        let queryID = "legacy-mam-collision-query"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryID }
+
+        let realm = try WRealm.safe()
+        let legacy = MessageStorageItem()
+        legacy.primary = "legacy-mam-collision"
+        legacy.owner = "owner@example.com"
+        legacy.opponent = "romeo@example.com"
+        legacy.conversationType = .regular
+        legacy.archivedId = "200"
+        legacy.messageId = "legacy-mam-collision"
+        try realm.write {
+            realm.add(legacy)
+        }
+
+        manager.receiveArchived(try makeArchivedMessage(
+            index: 1,
+            queryId: queryID,
+            resultID: "200",
+            stanzaID: "100"
+        ))
+        let summary = manager.storeMessagesNowSummary(forQueryId: queryID)
+
+        XCTAssertEqual(summary.received, 1)
+        XCTAssertEqual(summary.failed, 0)
+        XCTAssertEqual(summary.persistedRows, 1)
+        XCTAssertEqual(
+            realm.objects(MessageStorageItem.self)
+                .filter(
+                    "owner == %@ AND opponent == %@ AND conversationType_ == %@",
+                    "owner@example.com",
+                    "romeo@example.com",
+                    ClientSynchronizationManager.ConversationType.regular.rawValue
+                )
+                .count,
+            2
+        )
+        XCTAssertEqual(
+            realm.objects(MessageStorageItem.self)
+                .filter("mamArchiveId == %@", "200")
+                .count,
+            1
+        )
+    }
+
+    func testArchivedMAMResultWithoutOuterResultIDFailsPersistenceAccounting() throws {
+        let queryID = "missing-mam-result-id-query"
+        let manager = MessageManager(withOwner: "owner@example.com", activeStream: false)
+        manager.unsubscribeReceiver()
+        manager.archiveQueryIdPersistenceResolver = { $0 == queryID }
+
+        manager.receiveArchived(try makeArchivedMessage(
+            index: 1,
+            queryId: queryID,
+            resultID: "",
+            stanzaID: "100"
+        ))
+        let summary = manager.storeMessagesNowSummary(forQueryId: queryID)
+
+        XCTAssertEqual(summary.received, 1)
+        XCTAssertEqual(summary.failed, 1)
+        XCTAssertEqual(summary.persistedRows, 0)
+        XCTAssertTrue(try WRealm.safe().objects(MessageStorageItem.self).isEmpty)
+    }
+
+    func testMAMResultIDIgnoresNonMAMResultElement() throws {
+        let message = try XMPPMessage(from: makeElement(xml: """
+        <message from='romeo@example.com' to='owner@example.com' type='chat'>
+          <result xmlns='https://example.com/not-mam' id='200' queryid='query-1'/>
+        </message>
+        """))
+
+        XCTAssertNil(getMAMResultID(message))
+        XCTAssertNil(getMAMQueryId(message))
     }
 
     func testArchivePersistenceSummaryPerformanceSnapshotIsPrivacySafe() throws {
@@ -30239,7 +30821,8 @@ final class FavoritesFeatureTests: XCTestCase {
         XCTAssertEqual(messages.count, 1)
         let stored = try XCTUnwrap(messages.first)
         XCTAssertEqual(stored.messageId, originId)
-        XCTAssertEqual(stored.archivedId, "archive-\(originId)")
+        XCTAssertEqual(stored.archivedId, "")
+        XCTAssertEqual(stored.mamArchiveId, "archive-\(originId)")
     }
 
     func testMissingFavoritesServiceDoesNotExposeSavedForwardTarget() throws {
@@ -30333,7 +30916,7 @@ final class FavoritesFeatureTests: XCTestCase {
         XCTAssertEqual(envelope.sentDate, "2026-03-24T12:34:56+0000".xmppDate)
     }
 
-    func testSavedParserPreservesOuterArchiveId() throws {
+    func testSavedParserSeparatesMAMResultIDFromProtocolArchiveID() throws {
         let direct = try makeDirectSavedMessage(id: "parser-archive-1")
         let result = try makeMamResult(message: direct, archiveId: "outer-archive-1", queryId: "saved-query-archive")
 
@@ -30341,8 +30924,67 @@ final class FavoritesFeatureTests: XCTestCase {
             SavedMessageParser.parse(messageContainer: XMPPMessage(from: result), owner: owner, favoritesNode: favoritesJid)
         )
 
-        XCTAssertEqual(envelope.outerArchiveId, "outer-archive-1")
+        XCTAssertNil(envelope.outerArchiveId)
+        XCTAssertEqual(envelope.mamArchiveId, "outer-archive-1")
         XCTAssertEqual(envelope.messageId, "parser-archive-1")
+    }
+
+    func testSavedMAMPreservesProtocolStanzaIDSeparatelyFromResultID() throws {
+        let saved = try makeDirectSavedMessage(
+            id: "saved-mam-identity-1",
+            children: "<stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='100'/>"
+        )
+        let result = try makeMamResult(
+            message: saved,
+            archiveId: "200",
+            queryId: "saved-mam-identity-query"
+        )
+
+        favoritesManager().receiveSaved(message: XMPPMessage(from: result))
+
+        let stored = try XCTUnwrap(
+            try WRealm.safe().object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: MessageStorageItem.genPrimary(
+                    messageId: "saved-mam-identity-1",
+                    owner: owner
+                )
+            )
+        )
+        XCTAssertEqual(stored.archivedId, "100")
+        XCTAssertEqual(stored.mamArchiveId, "200")
+    }
+
+    func testSavedMAMWithoutProtocolStanzaIDDoesNotUseResultIDForMutationIdentity() throws {
+        let saved = try makeDirectSavedMessage(id: "saved-mam-no-protocol-id")
+        let result = try makeMamResult(
+            message: saved,
+            archiveId: "200",
+            queryId: "saved-mam-no-protocol-id-query"
+        )
+        let envelope = try XCTUnwrap(
+            SavedMessageParser.parse(
+                messageContainer: XMPPMessage(from: result),
+                owner: owner,
+                favoritesNode: favoritesJid
+            )
+        )
+
+        XCTAssertNil(envelope.outerArchiveId)
+        XCTAssertEqual(envelope.mamArchiveId, "200")
+
+        favoritesManager().receiveSaved(message: XMPPMessage(from: result))
+        let stored = try XCTUnwrap(
+            try WRealm.safe().object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: MessageStorageItem.genPrimary(
+                    messageId: "saved-mam-no-protocol-id",
+                    owner: owner
+                )
+            )
+        )
+        XCTAssertEqual(stored.archivedId, "")
+        XCTAssertEqual(stored.mamArchiveId, "200")
     }
 
     func testSavedParserPreservesInnerOriginIdAndStanzaIds() throws {
@@ -30382,7 +31024,8 @@ final class FavoritesFeatureTests: XCTestCase {
         )
         XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 1)
         assertStoredAsSavedServiceConversation(stored)
-        XCTAssertEqual(stored.archivedId, "archive-receive-live-mam-1")
+        XCTAssertEqual(stored.archivedId, "")
+        XCTAssertEqual(stored.mamArchiveId, "archive-receive-live-mam-1")
     }
 
     func testSavedReceiveCarbonAndMamDedupeByStableMessageIdentity() throws {
@@ -30403,7 +31046,8 @@ final class FavoritesFeatureTests: XCTestCase {
         )
         XCTAssertEqual(realm.objects(MessageStorageItem.self).count, 1)
         assertStoredAsSavedServiceConversation(stored)
-        XCTAssertEqual(stored.archivedId, "archive-receive-carbon-mam-1")
+        XCTAssertEqual(stored.archivedId, "")
+        XCTAssertEqual(stored.mamArchiveId, "archive-receive-carbon-mam-1")
     }
 
     func testSavedReceiveDoesNotBypassArchiveIdPersistence() throws {
@@ -30415,7 +31059,8 @@ final class FavoritesFeatureTests: XCTestCase {
         let stored = try XCTUnwrap(try WRealm.safe().objects(MessageStorageItem.self).first)
         assertStoredAsSavedServiceConversation(stored)
         XCTAssertEqual(stored.messageId, "receive-archive-persist-1")
-        XCTAssertEqual(stored.archivedId, "archive-persist-1")
+        XCTAssertEqual(stored.archivedId, "")
+        XCTAssertEqual(stored.mamArchiveId, "archive-persist-1")
     }
 
     func testSavedStorageRepairMovesInnerParticipantRowsToFavoritesServiceJid() throws {
@@ -30546,7 +31191,8 @@ final class FavoritesFeatureTests: XCTestCase {
         let stored = try XCTUnwrap(try WRealm.safe().objects(MessageStorageItem.self).first)
         assertStoredAsSavedServiceConversation(stored)
         XCTAssertEqual(stored.messageId, "web-created-saved-1")
-        XCTAssertEqual(stored.archivedId, "archive-web-created-saved-1")
+        XCTAssertEqual(stored.archivedId, "")
+        XCTAssertEqual(stored.mamArchiveId, "archive-web-created-saved-1")
     }
 
     func testSavedStorageRepairPreservesMessagePrimaryAndReferences() throws {
@@ -31115,7 +31761,8 @@ final class FavoritesFeatureTests: XCTestCase {
         )
 
         XCTAssertEqual(stored.state, .sending)
-        XCTAssertEqual(stored.archivedId, "archive-state-\(originId)")
+        XCTAssertEqual(stored.archivedId, "")
+        XCTAssertEqual(stored.mamArchiveId, "archive-state-\(originId)")
         XCTAssertTrue(state.showsDeliveryIndicator)
         XCTAssertEqual(state.effectiveState, .read)
     }
@@ -33406,6 +34053,25 @@ final class ChatScrollDownButtonPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(target, .unreadBoundary("300"))
+    }
+
+    @MainActor
+    func testUnreadBoundaryRequestDoesNotPromoteRawSyncStanzaIdToMAMCursor() {
+        let controller = ChatViewController()
+        controller.owner = "owner@example.com"
+        controller.jid = "romeo@example.com"
+        controller.conversationType = .regular
+
+        let request = controller.makeScrollDownUnreadBoundaryRequest(
+            boundaryId: "1711283295000000"
+        )
+
+        XCTAssertEqual(request.anchor.archivedId, "1711283295000000")
+        XCTAssertNil(request.anchor.archiveCursor)
+        XCTAssertEqual(
+            request.targetResolution,
+            .firstIncomingAfterBoundary("1711283295000000")
+        )
     }
 
     func testTargetPolicyFallsBackToLatestWhenVisibleRealMessageHasNonNumericArchiveId() {

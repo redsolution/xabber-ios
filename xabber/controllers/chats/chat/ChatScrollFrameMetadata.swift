@@ -467,7 +467,7 @@ extension ChatViewController {
             let position = sessionSnapshot?.item(primary: item.primary).map(ChatTimelinePositionKey.init(message:))
                 ?? ChatTimelinePositionKey(
                     primary: item.primary,
-                    archivedId: item.archivedId,
+                    archivedId: item.mamArchiveCursorID,
                     messageId: item.messageId,
                     date: item.sentDate
                 )

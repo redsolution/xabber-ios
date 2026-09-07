@@ -309,6 +309,7 @@ final class ChatSearchModeSwitchingTests: XCTestCase {
         let item = MessageStorageItem()
         item.primary = result.anchor.primary
         item.archivedId = result.anchor.archivedId
+        item.mamArchiveId = result.anchor.archiveCursorID ?? ""
         item.messageId = result.anchor.messageId
         item.owner = result.scope.owner
         item.opponent = result.scope.jid
@@ -331,6 +332,7 @@ final class ChatSearchModeSwitchingTests: XCTestCase {
                 anchor: ChatSearchResult.Anchor(
                     primary: "primary-\(token)",
                     archivedId: token,
+                    archiveCursorID: token,
                     messageId: "message-\(token)",
                     authorId: nil,
                     date: Date(timeIntervalSince1970: 1_800_000_000 - TimeInterval(index * 60))
@@ -352,8 +354,10 @@ final class ChatSearchModeSwitchingTests: XCTestCase {
 
     private func stableToken(_ id: ChatSearchResult.ID) -> String {
         switch id {
-        case .archived(let value), .primary(let value):
-            return value
+        case .archived(let value):
+            return "mam:\(value)"
+        case .primary(let value):
+            return "primary:\(value)"
         }
     }
 }

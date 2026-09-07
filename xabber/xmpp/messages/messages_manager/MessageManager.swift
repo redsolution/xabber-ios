@@ -86,6 +86,7 @@ enum SavedMessageStatePolicy {
     }
 
     private static func hasArchiveOrServiceProof(_ item: MessageStorageItem) -> Bool {
+        item.mamArchiveId.isNotEmpty ||
         item.archivedId.isNotEmpty ||
         item.state == .none ||
         item.state == .sended ||

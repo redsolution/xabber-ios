@@ -103,6 +103,31 @@ class SearchChatListViewController: SimpleBaseViewController {
     public var searchResultsIds: [String] = []
     public var selectedSearchResultId: String? = nil
 
+    private func searchResultSelectionIdentity(
+        for item: MessageStorageItem
+    ) -> String? {
+        ChatSearchSelectionIdentity.make(
+            mamArchiveId: item.mamArchiveId,
+            primary: item.primary,
+            archivedId: item.archivedId
+        )
+    }
+
+    private func selectedSearchResultIndex() -> Int? {
+        guard let selectedSearchResultId,
+              selectedSearchResultId.isNotEmpty else {
+            return nil
+        }
+        return messagesQueue.firstIndex {
+            ChatSearchSelectionIdentity.matches(
+                selectedSearchResultId,
+                mamArchiveId: $0.mamArchiveId,
+                primary: $0.primary,
+                archivedId: $0.archivedId
+            )
+        }
+    }
+
     
     var chatController: ChatViewController? = nil
     
@@ -228,7 +253,7 @@ class SearchChatListViewController: SimpleBaseViewController {
         if vcs.count > 1 {
             let vc = vcs[vcs.count - 2] as? ChatViewController
             vc?.searchMessagesQueue = self.messagesQueue.sorted(by: { $0.date > $1.date })
-            guard let newIndex = self.messagesQueue.firstIndex(where: { $0.archivedId == self.selectedSearchResultId }) else {
+            guard let newIndex = self.selectedSearchResultIndex() else {
                 return
             }
             vc?.xabberInputView.searchPanel.updateResults(current: newIndex, total: self.messagesQueue.count)
@@ -473,7 +498,7 @@ class SearchChatListViewController: SimpleBaseViewController {
                 do {
                     self.datasource = try self.mapDatasource(self.messagesQueue)
                     self.tableView.reloadData()
-                    let index = self.messagesQueue.firstIndex(where: { $0.archivedId == self.selectedSearchResultId }) ?? -1
+                    let index = self.selectedSearchResultIndex() ?? -1
                     self.searchPanel.updateResults(current: index, total: self.datasource.count)
                     self.tableView.selectRow(at: IndexPath(row: index, section: 0), animated: true, scrollPosition: .none)
                 } catch {
@@ -485,7 +510,7 @@ class SearchChatListViewController: SimpleBaseViewController {
     }
     
     internal func onSearchPanelSeekUp() {
-        guard let index = self.messagesQueue.firstIndex(where: { $0.archivedId == self.selectedSearchResultId }) else {
+        guard let index = self.selectedSearchResultIndex() else {
             return
         }
         
@@ -494,13 +519,15 @@ class SearchChatListViewController: SimpleBaseViewController {
             newIndex = self.messagesQueue.count - 1
         }
         self.searchPanel.updateResults(current: newIndex, total: self.messagesQueue.count)
-        self.selectedSearchResultId = self.messagesQueue[newIndex].archivedId
+        self.selectedSearchResultId = self.searchResultSelectionIdentity(
+            for: self.messagesQueue[newIndex]
+        )
         self.tableView.deselectRow(at: IndexPath(row: index, section: 0), animated: true)
         self.tableView.selectRow(at: IndexPath(row: newIndex, section: 0), animated: true, scrollPosition: .top)
     }
     
     internal func onSearchPanelSeekDown() {
-        guard let index = self.messagesQueue.firstIndex(where: { $0.archivedId == self.selectedSearchResultId }) else {
+        guard let index = self.selectedSearchResultIndex() else {
             return
         }
         var newIndex = index + 1
@@ -508,7 +535,9 @@ class SearchChatListViewController: SimpleBaseViewController {
             newIndex = 0
         }
         self.searchPanel.updateResults(current: newIndex, total: self.messagesQueue.count)
-        self.selectedSearchResultId = self.messagesQueue[newIndex].archivedId
+        self.selectedSearchResultId = self.searchResultSelectionIdentity(
+            for: self.messagesQueue[newIndex]
+        )
         self.tableView.deselectRow(at: IndexPath(row: index, section: 0), animated: true)
         self.tableView.selectRow(at: IndexPath(row: newIndex, section: 0), animated: true, scrollPosition: .top)
         if newIndex >= max(0, self.messagesQueue.count - 8) {

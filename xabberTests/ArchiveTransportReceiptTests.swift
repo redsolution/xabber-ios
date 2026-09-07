@@ -403,6 +403,123 @@ final class ArchiveTransportReceiptTests: XCTestCase {
         )
     }
 
+    func testSearchTransportUsesOnlyVerifiedOuterMAMResultID() {
+        let item = MessageStorageItem()
+        item.archivedId = "100"
+
+        XCTAssertNil(ArchiveSearchTransportRowPolicy.strictMAMArchiveID(for: item))
+
+        item.mamArchiveId = "200"
+
+        XCTAssertEqual(
+            ArchiveSearchTransportRowPolicy.strictMAMArchiveID(for: item),
+            "200"
+        )
+
+        item.mamArchiveId = "  300  "
+
+        XCTAssertEqual(
+            ArchiveSearchTransportRowPolicy.strictMAMArchiveID(for: item),
+            "300"
+        )
+
+        item.mamArchiveId = " \n "
+
+        XCTAssertNil(ArchiveSearchTransportRowPolicy.strictMAMArchiveID(for: item))
+    }
+
+    func testMAMReplayDoesNotTreatLegacyRawIDAsOuterResultCollision() throws {
+        let owner = "mam-replay-owner@example.org"
+        let jid = "juliet@example.org"
+        let previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ArchiveTransportReceiptTests-legacy-raw-replay"
+        )
+        defer {
+            Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+        }
+
+        let legacy = MessageStorageItem()
+        legacy.primary = "legacy-primary"
+        legacy.owner = owner
+        legacy.opponent = jid
+        legacy.conversationType = .regular
+        legacy.archivedId = "200"
+        legacy.mamArchiveId = ""
+        legacy.messageId = "legacy-message"
+        legacy.body = "legacy"
+        legacy.date = Date(timeIntervalSince1970: 1)
+        legacy.sentDate = legacy.date
+
+        let realm = try WRealm.safe()
+        try realm.write {
+            realm.add(legacy)
+        }
+
+        let replay = MessageStorageItem()
+        replay.primary = "replay-primary"
+        replay.owner = owner
+        replay.opponent = jid
+        replay.conversationType = .regular
+        replay.archivedId = "100"
+        replay.mamArchiveId = "200"
+        replay.shouldReconcileMAMArchiveIdentity = true
+        replay.messageId = "replay-message"
+        replay.body = "replayed"
+        replay.date = Date(timeIntervalSince1970: 2)
+        replay.sentDate = replay.date
+
+        let summary = MessageManager(withOwner: owner, activeStream: false).save(
+            MessageManager.ProcessedQueueBatch(
+                messages: [replay],
+                readStateRequests: []
+            ),
+            silentNotifications: true
+        )
+
+        XCTAssertEqual(summary.persistedRows, 1)
+        realm.refresh()
+        XCTAssertEqual(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: "legacy-primary"
+            )?.mamArchiveId,
+            ""
+        )
+        XCTAssertEqual(
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: "replay-primary"
+            )?.mamArchiveId,
+            "200"
+        )
+    }
+
+    func testSearchRowAccumulatorRejectsConflictingPrimaryForSameMAMResultID() {
+        var accumulator = ArchiveSearchTransportRowAccumulator()
+        let first = makeSearchMessage(
+            archiveID: "42",
+            conversationJID: "juliet@example.org",
+            primaryID: "first-primary"
+        )
+        let replay = makeSearchMessage(
+            archiveID: "42",
+            conversationJID: "juliet@example.org",
+            primaryID: "first-primary"
+        )
+        let conflicting = makeSearchMessage(
+            archiveID: "42",
+            conversationJID: "juliet@example.org",
+            primaryID: "conflicting-primary"
+        )
+
+        XCTAssertEqual(accumulator.insert(first), .inserted)
+        XCTAssertEqual(accumulator.insert(replay), .duplicate)
+        XCTAssertEqual(accumulator.insert(conflicting), .conflictingPrimary)
+        XCTAssertTrue(accumulator.hasConflictingArchiveIdentity)
+        XCTAssertEqual(accumulator.messages, [first])
+    }
+
     func testDuplicateSearchFinalDeliveryWaitsForPersistenceAndCompletesExactlyOnce() throws {
         let owner = "duplicate-search-final-owner@example.org"
         let queryID = "duplicate-search-final-page"
@@ -534,12 +651,144 @@ final class ArchiveTransportReceiptTests: XCTestCase {
         XCTAssertEqual(receipt.persistedResultCount, 0)
     }
 
+    func testConflictingSearchMAMResultPrimaryFailsAfterPersistenceBarrier() throws {
+        let owner = "conflicting-search-result-owner@example.org"
+        let queryID = "conflicting-search-result-page"
+        let previousRealmConfiguration = Realm.Configuration.defaultConfiguration
+        Realm.Configuration.defaultConfiguration = Realm.Configuration(
+            inMemoryIdentifier: "ArchiveTransportReceiptTests-conflicting-search-result"
+        )
+        MessageArchiveEndPageDispatcher.resetForTests()
+        MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
+        MessageArchiveRequestFailureDispatcher.resetForTests()
+        defer {
+            Realm.Configuration.defaultConfiguration = previousRealmConfiguration
+            MessageArchiveEndPageDispatcher.resetForTests()
+            MessageArchiveRequestFailurePreparationDispatcher.resetForTests()
+            MessageArchiveRequestFailureDispatcher.resetForTests()
+        }
+
+        let account = Account(
+            jid: owner,
+            queue: DispatchQueue(
+                label: "ArchiveTransportReceiptTests.conflicting-search-result-account"
+            )
+        )
+        let stream = MalformedFinalAuthenticatedXMPPStream()
+        stream.myJID = XMPPJID(string: owner, resource: "archive-test")
+        account.xmppStream = stream
+        account.sendReadiness.markStreamManagementEnabled()
+        let adapter = MessageArchiveTransportAdapter(
+            account: account,
+            materializationResolver: EmptyArchiveMaterializationResolver(),
+            requestTerminalTimeout: 2,
+            persistenceTerminalTimeout: 2
+        )
+        let request = ArchiveSearchTransportRequest(
+            queryID: queryID,
+            conversation: ArchiveConversationKey(
+                owner: owner,
+                jid: "juliet@example.org",
+                conversationType: .regular
+            ),
+            query: "needle",
+            connectionGeneration: 1,
+            pageCursor: nil,
+            pageSize: ArchivePageSizing.search
+        )
+        let terminal = expectation(
+            description: "conflicting search result reaches a terminal error"
+        )
+        let resultBox = LockedArchiveSearchTransportResult()
+
+        Task {
+            let result: Result<ArchiveSearchTransportReceipt, Error>
+            do {
+                result = .success(
+                    try await adapter.searchPage(
+                        request,
+                        priority: .searchCurrentPage
+                    )
+                )
+            } catch {
+                result = .failure(error)
+            }
+            resultBox.append(result)
+            terminal.fulfill()
+        }
+
+        let requestDeadline = Date().addingTimeInterval(2)
+        while Date() < requestDeadline,
+              !account.mam.callbackQueueContains(where: {
+                  $0.elementId == queryID
+              }) {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(
+            account.mam.callbackQueueContains {
+                $0.elementId == queryID && $0.task.purpose == .engineSearchPage
+            }
+        )
+
+        let first = try makeSearchMAMResult(
+            owner: owner,
+            queryID: queryID,
+            resultID: "200",
+            stanzaID: "100",
+            messageID: "first-message"
+        )
+        let conflicting = try makeSearchMAMResult(
+            owner: owner,
+            queryID: queryID,
+            resultID: "200",
+            stanzaID: "101",
+            messageID: "conflicting-message"
+        )
+        for message in [first, conflicting] {
+            XCTAssertTrue(account.mam.recordDeferredArchiveResultDelivery(message))
+            XCTAssertTrue(account.mam.readMessage(message))
+            XCTAssertTrue(
+                account.mam.recordDeferredArchiveControlConsumption(message)
+            )
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+
+        let final = try XMPPIQ(
+            from: XCTUnwrap(
+                DDXMLDocument(
+                    xmlString: """
+                    <iq type='result' id='\(queryID)'>
+                      <fin xmlns='urn:xmpp:mam:2' complete='true' queryid='\(queryID)'>
+                        <set xmlns='http://jabber.org/protocol/rsm'>
+                          <count>1</count>
+                          <first>200</first>
+                          <last>200</last>
+                        </set>
+                      </fin>
+                    </iq>
+                    """,
+                    options: 0
+                ).rootElement()
+            )
+        )
+        XCTAssertTrue(account.mam.read(stream, withIQ: final))
+
+        wait(for: [terminal], timeout: 3)
+
+        let result = try XCTUnwrap(resultBox.results.first)
+        guard case .failure(let error) = result else {
+            return XCTFail("A conflicting outer MAM result id must not produce a partial page")
+        }
+        XCTAssertEqual(error as? ArchiveTransportError, .protocolViolation)
+    }
+
     private func makeSearchMessage(
         archiveID: String,
-        conversationJID: String
+        conversationJID: String,
+        primaryID: String? = nil
     ) -> ArchiveSearchMessage {
         ArchiveSearchMessage(
-            primaryID: "\(conversationJID)-\(archiveID)",
+            primaryID: primaryID ?? "\(conversationJID)-\(archiveID)",
             archiveID: archiveID,
             messageID: "message-\(archiveID)",
             owner: "romeo@example.org",
@@ -553,6 +802,37 @@ final class ArchiveTransportReceiptTests: XCTestCase {
             groupAuthorID: nil,
             groupAuthorNickname: nil,
             groupAuthorAvatarURL: nil
+        )
+    }
+
+    private func makeSearchMAMResult(
+        owner: String,
+        queryID: String,
+        resultID: String,
+        stanzaID: String,
+        messageID: String
+    ) throws -> XMPPMessage {
+        try XMPPMessage(
+            from: XCTUnwrap(
+                DDXMLDocument(
+                    xmlString: """
+                    <message to='\(owner)' from='\(owner)'>
+                      <result xmlns='urn:xmpp:mam:2' queryid='\(queryID)' id='\(resultID)'>
+                        <forwarded xmlns='urn:xmpp:forward:0'>
+                          <message xmlns='jabber:client' to='\(owner)' from='juliet@example.org' type='chat' id='\(messageID)'>
+                            <archived xmlns='urn:xmpp:mam:tmp' by='\(owner)' id='\(stanzaID)'/>
+                            <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='\(stanzaID)'/>
+                            <origin-id xmlns='urn:xmpp:sid:0' id='\(messageID)'/>
+                            <body>needle</body>
+                          </message>
+                          <delay xmlns='urn:xmpp:delay' from='example.com' stamp='2026-03-31T10:00:00Z'/>
+                        </forwarded>
+                      </result>
+                    </message>
+                    """,
+                    options: 0
+                ).rootElement()
+            )
         )
     }
 
@@ -1169,6 +1449,28 @@ final class ArchiveTransportReceiptTests: XCTestCase {
         XCTAssertEqual(accounting.persistedResultCount, 1)
         XCTAssertEqual(accounting.messagePrimaryIDs, ["p10"])
         XCTAssertEqual(accounting.failedPersistenceCount, 0)
+    }
+
+    func testPersistenceAccountingRejectsDuplicateMaterializedMAMResultID() {
+        let accounting = ArchiveTransportPersistenceAccounting.make(
+            summary: MessageManager.ArchivePersistenceSummary(),
+            deliveredArchiveIDs: ["20"],
+            explicitlyConsumedArchiveIDs: [],
+            materializedMessages: [
+                ArchiveMaterializedMessageIdentity(
+                    archiveID: "20",
+                    primaryID: "legacy-p20"
+                ),
+                ArchiveMaterializedMessageIdentity(
+                    archiveID: "20",
+                    primaryID: "replayed-p20"
+                )
+            ]
+        )
+
+        XCTAssertEqual(accounting.persistedResultCount, 0)
+        XCTAssertEqual(accounting.messagePrimaryIDs, [])
+        XCTAssertEqual(accounting.failedPersistenceCount, 1)
     }
 
     func testPersistenceAccountingCountsOnlyConsumedResultsWithoutDurableRows() {

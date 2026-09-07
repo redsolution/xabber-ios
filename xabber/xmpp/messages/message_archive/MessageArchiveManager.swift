@@ -1206,30 +1206,40 @@ class MessageArchiveManager: AbstractXMPPManager {
 
     @discardableResult
     internal func upsertCallbackQueueItem(_ item: CallbackQueueItem) -> CallbackQueueItem? {
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
         callbacksQueueLock.lock()
         defer { callbacksQueueLock.unlock() }
         return callbacksQueue.update(with: item)
     }
 
     internal func firstCallbackQueueItem(where predicate: (CallbackQueueItem) -> Bool) -> CallbackQueueItem? {
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
         callbacksQueueLock.lock()
         defer { callbacksQueueLock.unlock() }
         return callbacksQueue.first(where: predicate)
     }
 
     internal func callbackQueueContains(where predicate: (CallbackQueueItem) -> Bool) -> Bool {
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
         callbacksQueueLock.lock()
         defer { callbacksQueueLock.unlock() }
         return callbacksQueue.contains(where: predicate)
     }
 
     internal func callbackQueueItems(where predicate: (CallbackQueueItem) -> Bool = { _ in true }) -> [CallbackQueueItem] {
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
         callbacksQueueLock.lock()
         defer { callbacksQueueLock.unlock() }
         return callbacksQueue.filter(predicate)
     }
 
     internal func removeCallbackQueueItem(_ item: CallbackQueueItem) {
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
         callbacksQueueLock.lock()
         defer { callbacksQueueLock.unlock() }
         callbacksQueue.remove(item)
@@ -1237,11 +1247,31 @@ class MessageArchiveManager: AbstractXMPPManager {
 
     @discardableResult
     internal func drainCallbackQueueItems() -> [CallbackQueueItem] {
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
         callbacksQueueLock.lock()
         defer { callbacksQueueLock.unlock() }
         let items = Array(callbacksQueue)
         callbacksQueue.removeAll()
         return items
+    }
+
+    /// Claims and removes a callback item under the same lifecycle lock used
+    /// for request registration and reset. A terminal can therefore own a
+    /// request exactly once even when timeout, disconnect and MAM failure
+    /// paths arrive concurrently.
+    private func takeCallbackQueueItem(
+        where predicate: (CallbackQueueItem) -> Bool
+    ) -> CallbackQueueItem? {
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
+        callbacksQueueLock.lock()
+        defer { callbacksQueueLock.unlock() }
+        guard let item = callbacksQueue.first(where: predicate) else {
+            return nil
+        }
+        callbacksQueue.remove(item)
+        return item
     }
 
     private struct FallbackEndPageCallbackKey: Hashable {
@@ -1379,6 +1409,40 @@ class MessageArchiveManager: AbstractXMPPManager {
         DispatchQueue.main.async {
             callback?()
         }
+    }
+
+    private func incrementPersistedMessageCount(queryId: String) {
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
+        persistedMessageCountsByQueryId[queryId, default: 0] += 1
+    }
+
+    private func takePersistedMessageCount(queryId: String) -> Int {
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
+        return persistedMessageCountsByQueryId.removeValue(forKey: queryId) ?? 0
+    }
+
+    private func registerSearchResultQuery(_ queryId: String) {
+        guard queryId.isNotEmpty else { return }
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
+        searchResultsQueries.insert(queryId)
+    }
+
+    private func isSearchResultQuery(_ queryId: String) -> Bool {
+        guard queryId.isNotEmpty else { return false }
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
+        return searchResultsQueries.contains(queryId)
+    }
+
+    private func removeSearchResultQueryState(queryId: String) {
+        guard queryId.isNotEmpty else { return }
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
+        searchResultsQueries.remove(queryId)
+        persistedMessageCountsByQueryId.removeValue(forKey: queryId)
     }
 
     private static func registerFallbackEndPageCallbacks(owner: String, queryId: String, callbacks: RequestCallbacks) {
@@ -1577,7 +1641,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
 
     private func notifyDidReceiveMessage(_ item: MessageStorageItem, queryId: String, callbacks: RequestCallbacks) {
-        self.persistedMessageCountsByQueryId[queryId, default: 0] += 1
+        self.incrementPersistedMessageCount(queryId: queryId)
         DispatchQueue.main.async {
             callbacks.onMessage?(item, queryId)
         }
@@ -1663,13 +1727,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 queryID: event.queryId,
                 terminal: .failed
             )
-            if item.task.purpose == .timestampLookup ||
-                item.task.purpose == .engineSearchPage {
-                self.notifyDidFailRequest(item.requestCallbacks, event: event)
-            } else if item.task.conversationType == .notifications,
-                      !item.task.purpose.isArchiveHistoryProducing {
-                self.notifyDidFailRequest(item.requestCallbacks, event: event)
-            } else if item.task.purpose.isArchiveHistoryProducing {
+            if item.task.purpose.isArchiveHistoryProducing {
                 self.beginPendingArchiveFailure(
                     item: item,
                     event: event,
@@ -1677,7 +1735,17 @@ class MessageArchiveManager: AbstractXMPPManager {
                 )
                 return
             }
-            self.removePendingArchiveRequestAfterFailure(item)
+            guard let claimedItem = self.finishPendingArchiveRequestAfterFailure(
+                queryId: item.elementId
+            ) else {
+                return
+            }
+            if claimedItem.task.purpose == .timestampLookup ||
+                claimedItem.task.purpose == .engineSearchPage ||
+                (claimedItem.task.conversationType == .notifications &&
+                    !claimedItem.task.purpose.isArchiveHistoryProducing) {
+                self.notifyDidFailRequest(claimedItem.requestCallbacks, event: event)
+            }
             self.publishPendingArchiveFailureEvent(event)
         }
 
@@ -1756,8 +1824,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
         pendingArchiveFailureLock.unlock()
 
-        if let currentItem = firstCallbackQueueItem(where: { $0.elementId == queryId }) {
-            removePendingArchiveRequestAfterFailure(currentItem)
+        if self.finishPendingArchiveRequestAfterFailure(queryId: queryId) != nil {
         } else {
             removeArchiveRequestStateAfterFailure(queryId: fallbackItem.elementId)
             if let taskQueryId = fallbackItem.task.queryId,
@@ -1796,14 +1863,33 @@ class MessageArchiveManager: AbstractXMPPManager {
         }
     }
 
-    private func removePendingArchiveRequestAfterFailure(_ item: CallbackQueueItem) {
-        self.completeCallback(item.callback)
-        self.removeCallbackQueueItem(item)
-        self.removeArchiveRequestStateAfterFailure(queryId: item.elementId)
+    /// Atomically claims the terminal owner, clears every request-scoped
+    /// registry entry, and invokes the request callback after the claim has
+    /// become visible. A second terminal observes no item and cannot invoke
+    /// the callback again.
+    @discardableResult
+    private func finishPendingArchiveRequestAfterFailure(
+        queryId: String
+    ) -> CallbackQueueItem? {
+        guard queryId.isNotEmpty else { return nil }
+
+        archiveRequestLifecycleLock.lock()
+        defer { archiveRequestLifecycleLock.unlock() }
+        callbacksQueueLock.lock()
+        guard let item = callbacksQueue.first(where: { $0.elementId == queryId }) else {
+            callbacksQueueLock.unlock()
+            return nil
+        }
+        callbacksQueue.remove(item)
+        callbacksQueueLock.unlock()
+
+        removeArchiveRequestStateAfterFailureLocked(queryId: item.elementId)
         if let taskQueryId = item.task.queryId,
            taskQueryId != item.elementId {
-            self.removeArchiveRequestStateAfterFailure(queryId: taskQueryId)
+            removeArchiveRequestStateAfterFailureLocked(queryId: taskQueryId)
         }
+        completeCallback(item.callback)
+        return item
     }
 
     private func notifyDidFailRequest(
@@ -1821,13 +1907,12 @@ class MessageArchiveManager: AbstractXMPPManager {
             return false
         }
 
-        if let item = self.firstCallbackQueueItem(where: { $0.elementId == queryId }) {
+        if self.finishPendingArchiveRequestAfterFailure(queryId: queryId) != nil {
             _ = ChatArchivePerformanceTraceRegistry.shared.terminate(
                 owner: self.owner,
                 queryID: queryId,
                 terminal: .cancelled
             )
-            self.removePendingArchiveRequestAfterFailure(item)
             return true
         }
 
@@ -1846,6 +1931,16 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
 
     private func removeArchiveRequestStateAfterFailure(queryId: String) {
+        guard queryId.isNotEmpty else {
+            return
+        }
+        archiveRequestLifecycleLock.lock()
+        removeArchiveRequestStateAfterFailureLocked(queryId: queryId)
+        archiveRequestLifecycleLock.unlock()
+    }
+
+    /// Must be called while `archiveRequestLifecycleLock` is held.
+    private func removeArchiveRequestStateAfterFailureLocked(queryId: String) {
         guard queryId.isNotEmpty else {
             return
         }
@@ -1952,7 +2047,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         rawComplete: Bool = false,
         serverResultCount: Int? = nil
     ) -> MessageArchivePageEndState {
-        let persistedMessageCount = self.persistedMessageCountsByQueryId.removeValue(forKey: queryId) ?? 0
+        let persistedMessageCount = self.takePersistedMessageCount(queryId: queryId)
         return MessageArchivePageEndState(
             queryExhausted: queryExhausted,
             archiveEnded: queryExhausted,
@@ -2244,8 +2339,12 @@ class MessageArchiveManager: AbstractXMPPManager {
                     )
                     return true
                 }
-                self.notifyDidFailRequest(item.requestCallbacks, event: event)
-                self.removePendingArchiveRequestAfterFailure(item)
+                guard let claimedItem = self.finishPendingArchiveRequestAfterFailure(
+                    queryId: elementId
+                ) else {
+                    return true
+                }
+                self.notifyDidFailRequest(claimedItem.requestCallbacks, event: event)
                 let delivered = MessageArchiveRequestFailureDispatcher.publish(event)
                 if !delivered {
                     ChatArchiveDebugTrace.log("mamErrorRequestFailureDropNoHandler", [
@@ -2274,9 +2373,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 pendingQueryCount: 1
             )
             let failureRouted = Self.routeUnroutedRequestFailure(event)
-            self.persistedMessageCountsByQueryId.removeValue(forKey: elementId)
-            self.unregisterArchiveQueryId(elementId)
-            self.queryIds.remove(elementId)
+            self.removeArchiveRequestStateAfterFailure(queryId: elementId)
             ChatArchiveDebugTrace.log("mamOrphanErrorHandled", [
                 ("localQueryRegistered", localQueryRegistered),
                 ("failureRouted", failureRouted)
@@ -2318,10 +2415,13 @@ class MessageArchiveManager: AbstractXMPPManager {
                     terminal: {}
                 )
                 return true
-            } else {
-                self.notifyDidFailRequest(item.requestCallbacks, event: event)
             }
-            self.removePendingArchiveRequestAfterFailure(item)
+            guard let claimedItem = self.finishPendingArchiveRequestAfterFailure(
+                queryId: elementId
+            ) else {
+                return true
+            }
+            self.notifyDidFailRequest(claimedItem.requestCallbacks, event: event)
             _ = MessageArchiveRequestFailureDispatcher.publish(event)
             return true
         }
@@ -2386,7 +2486,7 @@ class MessageArchiveManager: AbstractXMPPManager {
             ("last", last)
         ])
 //        DispatchQueue.global().async {
-            if let item = self.firstCallbackQueueItem(where: { $0.elementId == elementId }) {
+            if let item = self.takeCallbackQueueItem(where: { $0.elementId == elementId }) {
                 let nextPage = set.element(forName: "last")?.stringValue
                 let pageDisposition = item.task.isContinues
                     ? Self.archivePageFinalDisposition(
@@ -2416,7 +2516,6 @@ class MessageArchiveManager: AbstractXMPPManager {
                     )
                 }
                 self.unregisterArchiveQueryId(queryId)
-                self.removeCallbackQueueItem(item)
                 self.queryIds.remove(elementId)
                 self.notifyDidReceiveEndPage(
                     item.requestCallbacks,
@@ -2448,7 +2547,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                 let pageEndState = MessageArchivePageEndState(
                     queryExhausted: count == 0 || complete,
                     archiveEnded: count == 0 || complete,
-                    persistedMessageCount: self.persistedMessageCountsByQueryId.removeValue(forKey: queryId) ?? 0,
+                    persistedMessageCount: self.takePersistedMessageCount(
+                        queryId: queryId
+                    ),
                     requestCursorId: nil
                 )
                 if dispatcherRegistered ||
@@ -2552,7 +2653,6 @@ class MessageArchiveManager: AbstractXMPPManager {
             callback: nil,
             requestCallbacks: requestCallbacks
         )
-        self.searchResultsQueries.insert(queryId)
         return queryId
     }
 
@@ -2759,8 +2859,7 @@ class MessageArchiveManager: AbstractXMPPManager {
 
     internal func finishEngineSearchPage(queryId: String) {
         guard queryId.isNotEmpty else { return }
-        searchResultsQueries.remove(queryId)
-        persistedMessageCountsByQueryId.removeValue(forKey: queryId)
+        removeSearchResultQueryState(queryId: queryId)
         unregisterFallbackEndPageCallbacks(queryId: queryId)
     }
 
@@ -2771,6 +2870,7 @@ class MessageArchiveManager: AbstractXMPPManager {
         // request the expensive counter implicitly.
         let requestsAuthoritativeCounter = withCounter
         let elementId = queryId ?? "MAM: \(NanoID.new(8))"
+        let shouldTrackSearchResults = searchText != nil || purpose == .media
         let dateConstraint = self.archiveDateConstraint(
             conversationType: conversationType,
             requestedStart: start,
@@ -2868,7 +2968,6 @@ class MessageArchiveManager: AbstractXMPPManager {
             stElement.addAttribute(withName: "var", stringValue: "withtext")
             stElement.addChild(DDXMLElement(name: "value", stringValue: searchText))
             x.addChild(stElement)
-            self.searchResultsQueries.insert(elementId)
         }
         if let ids,
            ids.isNotEmpty {
@@ -2927,6 +3026,9 @@ class MessageArchiveManager: AbstractXMPPManager {
                 requestCallbacks: requestCallbacks
             )
         )
+        if shouldTrackSearchResults {
+            self.registerSearchResultQuery(elementId)
+        }
         Self.registerFallbackEndPageCallbacks(owner: self.owner, queryId: elementId, callbacks: requestCallbacks)
         autoreleasepool {
             self.queryIds.insert(elementId)
@@ -3051,8 +3153,20 @@ class MessageArchiveManager: AbstractXMPPManager {
         guard let queryId = message.element(forName: "result")?.attributeStringValue(forName: "queryid") else {
             return false
         }
-        if !self.searchResultsQueries.contains(queryId) {
+        if !self.isSearchResultQuery(queryId) {
             return false
+        }
+        guard let mamResultID = getMAMResultID(message) else {
+            // This manager bypasses CommonReceiver for engine-search rows.
+            // An outer MAM result id is the only authoritative archive/RSM
+            // cursor, so consume malformed envelopes without materializing a
+            // row from their forwarded stanza-id.
+            ChatArchiveDebugTrace.log("archiveSearchResultRejected", [
+                ("owner", owner),
+                ("queryId", queryId),
+                ("reason", "missingVerifiedMAMResultID")
+            ])
+            return true
         }
         if let date = getDelayedDate(message),
             let messageBare = getArchivedMessageContainer(message) {
@@ -3062,7 +3176,8 @@ class MessageArchiveManager: AbstractXMPPManager {
                                      isRead: true,
                                      date: getDeliveryTime(messageBare, owner: owner) ?? date,
                                      state: .deliver,
-                                     queryId: getMAMQueryId(message))
+                                     queryId: getMAMQueryId(message),
+                                     mamResultID: mamResultID)
 
 
 
@@ -3157,6 +3272,10 @@ class MessageArchiveManager: AbstractXMPPManager {
 
             }
             instance.envelopeContainer = envelopeContainer
+            if let mamResultID = item.mamResultID,
+               mamResultID.isNotEmpty {
+                instance.mamArchiveId = mamResultID
+            }
             instance.updatePrimary()
             if afterburnInterval > 0 {
                 instance.applyAutoDeleteTTL(afterburnInterval, startsAt: item.date)

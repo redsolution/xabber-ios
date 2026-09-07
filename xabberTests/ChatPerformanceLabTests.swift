@@ -1959,6 +1959,7 @@ final class ChatPerformanceLabTests: XCTestCase {
     func testGroupMentionBulkPlanHasIdenticalCostAtSmallAndMillionLogicalScale() {
         let messageIndexes = Set(MessageStorageItem.indexedProperties())
         XCTAssertTrue(messageIndexes.contains("archivedId"))
+        XCTAssertTrue(messageIndexes.contains("mamArchiveId"))
         XCTAssertTrue(messageIndexes.contains("messageId"))
 
         let requests = (0..<80).map { index in
@@ -2063,6 +2064,17 @@ final class ChatPerformanceLabTests: XCTestCase {
         XCTAssertFalse(
             lookup.contains("timelineSession.firstIncoming("),
             "unread admission must not use the session method whose miss path queries Realm"
+        )
+        let primaryLookup = try XCTUnwrap(
+            lookup.range(of: "if let messagePrimary = anchor.messagePrimary")
+        )
+        let typedMAMLookup = try XCTUnwrap(
+            lookup.range(of: "if let archiveCursor = anchor.archiveCursor")
+        )
+        XCTAssertLessThan(
+            primaryLookup.lowerBound,
+            typedMAMLookup.lowerBound,
+            "A known primary must win before a typed MAM cursor can resolve a resident row"
         )
     }
 

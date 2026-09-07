@@ -42,6 +42,7 @@ struct SavedMessageEnvelope {
     let originalFromJid: String
     let originalToJid: String
     let outerArchiveId: String?
+    let mamArchiveId: String?
     let originId: String?
     let innerOriginId: String?
     let innerStanzaIds: [String]
@@ -129,10 +130,10 @@ enum SavedMessageParser {
             originalToJid: originalToJid,
             outerArchiveId: archiveId(
                 wrapperMessage: messageContainer,
-                normalizedInput: normalizedInput,
                 outerMessage: outerMessage,
                 owner: owner
             ),
+            mamArchiveId: normalizedInput.wrapperArchiveId,
             originId: getOriginId(outerMessage),
             innerOriginId: innerMessage.flatMap { getOriginId($0) },
             innerStanzaIds: innerMessage.map(stanzaIds(from:)) ?? [],
@@ -146,7 +147,7 @@ enum SavedMessageParser {
         if let archivedMessage = getArchivedMessageContainer(message) {
             return NormalizedInput(
                 message: archivedMessage,
-                wrapperArchiveId: message.element(forName: "result")?.attributeStringValue(forName: "id")
+                wrapperArchiveId: getMAMResultID(message)
             )
         }
 
@@ -163,17 +164,12 @@ enum SavedMessageParser {
 
     private static func archiveId(
         wrapperMessage: XMPPMessage,
-        normalizedInput: NormalizedInput,
         outerMessage: XMPPMessage,
         owner: String
     ) -> String? {
         let outerStanzaId = getStanzaId(outerMessage, owner: owner)
         if outerStanzaId.isNotEmpty {
             return outerStanzaId
-        }
-
-        if let wrapperArchiveId = normalizedInput.wrapperArchiveId, wrapperArchiveId.isNotEmpty {
-            return wrapperArchiveId
         }
 
         let wrapperStanzaId = getStanzaId(wrapperMessage, owner: owner)
@@ -498,6 +494,11 @@ class XMPPFavoritesManager: AbstractXMPPManager {
                             instance: existedInstance
                         )
                     }
+                    if let mamArchiveId = envelope.mamArchiveId,
+                       mamArchiveId.isNotEmpty,
+                       existedInstance.mamArchiveId != mamArchiveId {
+                        existedInstance.mamArchiveId = mamArchiveId
+                    }
                     storeSavedForwardingStanza(for: existedInstance, envelope: envelope, in: realm)
                 }
                 return
@@ -518,6 +519,7 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         instance.legacyBody = message.body ?? ""
         instance.sentDate = envelope.sentDate
         instance.archivedId = envelope.outerArchiveId ?? ""
+        instance.mamArchiveId = envelope.mamArchiveId ?? ""
         instance.previousId = getPreviousId(envelope.outerMessage)
         instance.originalStanza = envelope.isForwardedSaved ? envelope.storageMessage : envelope.outerMessage
         instance.isSavedForward = envelope.isForwardedSaved

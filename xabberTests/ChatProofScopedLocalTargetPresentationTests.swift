@@ -118,8 +118,42 @@ final class ChatProofScopedLocalTargetPresentationTests: XCTestCase {
             in: archiveSource,
             endingBefore: "internal func canRequestTimelineBoundary("
         )
-        XCTAssertTrue(remote.contains("locator = .archiveID(cursor)"))
+        XCTAssertTrue(remote.contains("ChatAnchorArchiveLocatorPolicy.locator("))
         XCTAssertTrue(remote.contains("account.archiveEngine.submit(intent)"))
+    }
+
+    func testProtocolStanzaAnchorNeverBecomesMAMArchiveLocator() throws {
+        let scope = try makeScope(oldest: "100", newest: "900")
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let request = ChatOpenMessageRequest(
+            chatJid: "juliet@example.org",
+            owner: "romeo@example.org",
+            conversationType: .regular,
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: "250",
+                archiveCursor: nil,
+                messageId: "protocol-stanza-id",
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: date
+            ),
+            highlight: true,
+            markReadOnVisible: false,
+            source: .pushNotification
+        )
+
+        XCTAssertEqual(
+            ChatProofScopedOpenTargetAdmission.route(
+                request: request,
+                verifiedScope: scope
+            ),
+            .remote
+        )
+        XCTAssertEqual(
+            ChatAnchorArchiveLocatorPolicy.locator(for: request.anchor),
+            .timestamp(date)
+        )
     }
 
     func testStaleOrDisconnectedPreparationCannotCommitAndKeepsPendingTargetForFreshProof() throws {
@@ -207,6 +241,7 @@ final class ChatProofScopedLocalTargetPresentationTests: XCTestCase {
             anchor: ChatMessageAnchorRef(
                 messagePrimary: "primary-\(archiveID)",
                 archivedId: archiveID,
+                archiveCursor: ArchiveCursor(rawValue: archiveID),
                 messageId: "message-\(archiveID)",
                 authorId: nil,
                 bodyFingerprint: nil,

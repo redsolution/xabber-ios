@@ -215,11 +215,12 @@ final class ChatSearchLifecycleTests: XCTestCase {
         let item = MessageStorageItem()
         item.primary = result.anchor.primary
         item.archivedId = result.anchor.archivedId
+        item.mamArchiveId = result.anchor.archiveCursorID ?? ""
         item.messageId = result.anchor.messageId
         controller.searchMessagesQueue = [item]
         let generation = controller.searchPresentationState.generation
         controller.reduceSearchPresentationState(.resultsReceived(count: 1, generation: generation))
-        controller.selectedSearchResultId = result.anchor.archivedId
+        controller.selectedSearchResultId = controller.searchResultSelectionIdentity(for: item)
         controller.reduceSearchPresentationState(.resultCommitted(index: 0, generation: generation))
         controller.inSearchMode.accept(true)
         controller.xabberInputView.changeState(to: .search)
@@ -236,6 +237,7 @@ final class ChatSearchLifecycleTests: XCTestCase {
             anchor: .init(
                 primary: "primary-\(suffix)",
                 archivedId: "archive-\(suffix)",
+                archiveCursorID: "archive-\(suffix)",
                 messageId: "message-\(suffix)",
                 authorId: nil,
                 date: Date(timeIntervalSince1970: TimeInterval(1_700_000_000 + suffix))

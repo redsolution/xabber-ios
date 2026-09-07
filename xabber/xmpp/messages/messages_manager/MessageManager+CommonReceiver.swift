@@ -106,7 +106,7 @@ extension MessageManager {
         let owner: String
         let opponent: String
         let conversationType: ClientSynchronizationManager.ConversationType
-        let archivedId: String
+        let archiveCursorID: String
         let isDeleted: Bool
         let outcome: ArchivePersistenceOutcome
     }
@@ -159,7 +159,7 @@ extension MessageManager {
                         }
                         if item.outcome == .savedNew || item.outcome == .updatedExisting {
                             summary.recordPersistedArchiveId(
-                                item.archivedId,
+                                item.archiveCursorID,
                                 owner: item.owner,
                                 jid: item.opponent,
                                 conversationType: item.conversationType
@@ -174,7 +174,7 @@ extension MessageManager {
             $0.queryIds.isEmpty &&
                 ($0.outcome == .savedNew || $0.outcome == .updatedExisting) &&
                 !$0.isDeleted &&
-                ArchiveCursor(rawValue: $0.archivedId) != nil
+                ArchiveCursor(rawValue: $0.archiveCursorID) != nil
         }
         liveRows.forEach { row in
             let conversation = ArchiveConversationKey(
@@ -1157,7 +1157,9 @@ extension MessageManager {
         static func == (lhs: MessageQueueItem, rhs: MessageQueueItem) -> Bool {
             return lhs.message.xmlString == rhs.message.xmlString &&
                 lhs.date == rhs.date &&
-                lhs.queryId == rhs.queryId
+                lhs.queryId == rhs.queryId &&
+                lhs.mamResultID == rhs.mamResultID &&
+                lhs.isMAMArchiveResult == rhs.isMAMArchiveResult
         }
         
         var isRead: Bool = true
@@ -1170,13 +1172,15 @@ extension MessageManager {
         var forceUnreadState: Bool? = nil
         var clientSyncMessage: Bool = false
         var queryId: String? = nil
+        var mamResultID: String? = nil
+        var isMAMArchiveResult: Bool = false
         var groupchatUserCard: DDXMLElement? = nil
         var readDate: Date? = nil
         var messageId: String? = nil
         var shouldPersistArchiveQueryId: Bool = false
         var countsAsRuntimeUnread: Bool = false
         
-        init(_ message: XMPPMessage, messageId: String?, archivedFrom: String?, isRead: Bool, date: Date, state: MessageStorageItem.MessageSendingState, forceUnreadState: Bool? = nil, clientSyncMessage: Bool = false, queryId: String?, shouldPersistArchiveQueryId: Bool = false, countsAsRuntimeUnread: Bool = false, groupchatUserCard: DDXMLElement? = nil, readDate: Date? = nil) {
+        init(_ message: XMPPMessage, messageId: String?, archivedFrom: String?, isRead: Bool, date: Date, state: MessageStorageItem.MessageSendingState, forceUnreadState: Bool? = nil, clientSyncMessage: Bool = false, queryId: String?, mamResultID: String? = nil, isMAMArchiveResult: Bool = false, shouldPersistArchiveQueryId: Bool = false, countsAsRuntimeUnread: Bool = false, groupchatUserCard: DDXMLElement? = nil, readDate: Date? = nil) {
             self.message = message
             self.archivedFrom = archivedFrom
             self.isRead = isRead
@@ -1186,6 +1190,8 @@ extension MessageManager {
             self.clientSyncMessage = clientSyncMessage
             self.groupchatUserCard = groupchatUserCard
             self.queryId = queryId
+            self.mamResultID = mamResultID
+            self.isMAMArchiveResult = isMAMArchiveResult
             self.shouldPersistArchiveQueryId = shouldPersistArchiveQueryId
             self.countsAsRuntimeUnread = countsAsRuntimeUnread
             self.readDate = readDate
@@ -1196,6 +1202,8 @@ extension MessageManager {
             hasher.combine(message.xmlString)
             hasher.combine(date)
             hasher.combine(queryId)
+            hasher.combine(mamResultID)
+            hasher.combine(isMAMArchiveResult)
         }
     }
 
@@ -1330,6 +1338,8 @@ extension MessageManager {
             forceUnreadState: isRead,
             clientSyncMessage: true,
             queryId: getMAMQueryId(message),
+            mamResultID: getMAMResultID(message),
+            isMAMArchiveResult: isArchivedMessage(message),
             groupchatUserCard: groupchatUserCard,
             readDate: readDate
         )
@@ -1344,7 +1354,9 @@ extension MessageManager {
                                  state: state,
                                  forceUnreadState: isRead,
                                  clientSyncMessage: true,
-                                 queryId: getMAMQueryId(message)))
+                                 queryId: getMAMQueryId(message),
+                                 mamResultID: getMAMResultID(message),
+                                 isMAMArchiveResult: isArchivedMessage(message)))
         
     }
     
@@ -1358,17 +1370,23 @@ extension MessageManager {
                                      date: getDeliveryTime(messageBare, owner: owner) ?? date,
                                      state: .deliver,
                                      clientSyncMessage: true,
-                                     queryId: getMAMQueryId(message))
+                                     queryId: getMAMQueryId(message),
+                                     mamResultID: getMAMResultID(message),
+                                     isMAMArchiveResult: isArchivedMessage(message))
         }
         return nil
     }
     
     public func receiveArchived(_ message: XMPPMessage) {
+        guard isArchivedMessage(message) else {
+            return
+        }
         let queryId = getMAMQueryId(message)
+        let mamResultID = getMAMResultID(message)
         ChatArchiveDebugTrace.log("mamResultMessageReceived", [
             ("owner", self.owner),
             ("queryId", queryId ?? "-"),
-            ("wrapperId", message.element(forName: "result")?.attributeStringValue(forName: "id") ?? "-"),
+            ("wrapperId", mamResultID ?? "-"),
             ("from", message.from?.bare ?? "-"),
             ("hasArchivedContainer", getArchivedMessageContainer(message) != nil)
         ])
@@ -1427,6 +1445,8 @@ extension MessageManager {
                 ) ?? delayedDate,
                 state: .deliver,
                 queryId: queryId,
+                mamResultID: mamResultID,
+                isMAMArchiveResult: isArchivedMessage(message),
                 shouldPersistArchiveQueryId:
                     shouldPersistArchiveQueryId
             ))
@@ -1735,6 +1755,13 @@ extension MessageManager {
                 
             }
             instance.envelopeContainer = envelopeContainer
+            if item.isMAMArchiveResult {
+                instance.shouldReconcileMAMArchiveIdentity = true
+                if let mamResultID = item.mamResultID,
+                   mamResultID.isNotEmpty {
+                    instance.mamArchiveId = mamResultID
+                }
+            }
             instance.updatePrimary()
             if afterburnInterval > 0 {
                 instance.applyAutoDeleteTTL(afterburnInterval, startsAt: item.date)
@@ -2060,7 +2087,7 @@ extension MessageManager {
                 summary.updatedExisting += 1
             case .skipped:
                 summary.skipped += 1
-                summary.recordSkippedArchiveId(item.archivedId)
+                summary.recordSkippedArchiveId(item.archiveCursorID)
             case .failed:
                 summary.failed += 1
             }
@@ -2076,7 +2103,7 @@ extension MessageManager {
             }
             if item.outcome == .savedNew || item.outcome == .updatedExisting {
                 summary.recordPersistedArchiveId(
-                    item.archivedId,
+                    item.archiveCursorID,
                     owner: item.owner,
                     jid: item.opponent,
                     conversationType: item.conversationType
@@ -2116,8 +2143,54 @@ extension MessageManager {
         runtimeQueryIds: [String]?
     ) -> (ArchivePersistenceOutcomeItem, MessageStorageItem.SaveSideEffects?) {
         message.updatePrimary()
-        let existedBefore = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: message.primary) != nil
         let queryIds = self.archiveQueryIds(for: message, runtimeQueryIds: runtimeQueryIds)
+        let existing = realm.object(
+            ofType: MessageStorageItem.self,
+            forPrimaryKey: message.primary
+        )
+        let existedBefore = existing != nil
+        let expectedMAMArchiveID = message.shouldReconcileMAMArchiveIdentity
+            ? message.mamArchiveId
+            : nil
+
+        if let expectedMAMArchiveID {
+            guard expectedMAMArchiveID.isNotEmpty else {
+                ChatArchiveDebugTrace.log("mamArchiveIdentityRejected", [
+                    ("owner", message.owner),
+                    ("reason", "missingResultID")
+                ])
+                return (failedOutcome(for: message, runtimeQueryIds: queryIds), nil)
+            }
+            if let existing,
+               (existing.owner != message.owner ||
+                existing.opponent != message.opponent ||
+                existing.conversationType != message.conversationType) {
+                ChatArchiveDebugTrace.log("mamArchiveIdentityRejected", [
+                    ("owner", message.owner),
+                    ("reason", "primaryScopeMismatch")
+                ])
+                return (failedOutcome(for: message, runtimeQueryIds: queryIds), nil)
+            }
+            let conflictingPrimary = realm.objects(MessageStorageItem.self)
+                .filter(
+                    "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND mamArchiveId == %@ AND primary != %@",
+                    message.owner,
+                    message.opponent,
+                    message.conversationType.rawValue,
+                    expectedMAMArchiveID,
+                    message.primary
+                )
+                .first?
+                .primary
+            if conflictingPrimary != nil {
+                ChatArchiveDebugTrace.log("mamArchiveIdentityRejected", [
+                    ("owner", message.owner),
+                    ("reason", "duplicateResultID")
+                ])
+                return (failedOutcome(for: message, runtimeQueryIds: queryIds), nil)
+            }
+        }
+
         let sideEffects = message.applyMessagePersistence(in: realm, silentNotifications: silentNotifications)
 
         if sideEffects?.shouldStoreStanza == true {
@@ -2136,6 +2209,37 @@ extension MessageManager {
             outcome = existedBefore ? .updatedExisting : .skipped
         }
 
+        let durable = realm.object(
+            ofType: MessageStorageItem.self,
+            forPrimaryKey: message.primary
+        )
+        if outcome == .savedNew || outcome == .updatedExisting {
+            guard let durable else {
+                return (failedOutcome(for: message, runtimeQueryIds: queryIds), nil)
+            }
+            if let expectedMAMArchiveID,
+               durable.mamArchiveId != expectedMAMArchiveID {
+                ChatArchiveDebugTrace.log("mamArchiveIdentityRejected", [
+                    ("owner", message.owner),
+                    ("reason", "durableResultIDMismatch")
+                ])
+                return (failedOutcome(for: message, runtimeQueryIds: queryIds), nil)
+            }
+            return (
+                ArchivePersistenceOutcomeItem(
+                    queryIds: queryIds,
+                    primaryID: durable.primary,
+                    owner: durable.owner,
+                    opponent: durable.opponent,
+                    conversationType: durable.conversationType,
+                    archiveCursorID: durable.mamArchiveCursorID,
+                    isDeleted: durable.isDeleted,
+                    outcome: outcome
+                ),
+                sideEffects
+            )
+        }
+
         return (
             ArchivePersistenceOutcomeItem(
                 queryIds: queryIds,
@@ -2143,7 +2247,7 @@ extension MessageManager {
                 owner: message.owner,
                 opponent: message.opponent,
                 conversationType: message.conversationType,
-                archivedId: message.archivedId,
+                archiveCursorID: message.mamArchiveCursorID,
                 isDeleted: message.isDeleted,
                 outcome: outcome
             ),
@@ -2158,7 +2262,9 @@ extension MessageManager {
             owner: message.owner,
             opponent: message.opponent,
             conversationType: message.conversationType,
-            archivedId: message.archivedId,
+            archiveCursorID: message.shouldReconcileMAMArchiveIdentity
+                ? message.mamArchiveId
+                : message.mamArchiveCursorID,
             isDeleted: message.isDeleted,
             outcome: .failed
         )

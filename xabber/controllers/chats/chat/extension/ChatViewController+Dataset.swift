@@ -38,26 +38,38 @@ struct ChatDatasourceSnapshot {
     static let empty = ChatDatasourceSnapshot(
         items: [],
         primaryIndex: [:],
+        mamArchiveIdIndex: [:],
         archivedIdIndex: [:],
         hasDuplicatePrimaries: false,
+        hasDuplicateMAMArchiveIds: false,
         hasDuplicateArchivedIds: false
     )
 
     let items: [ChatViewController.Datasource]
     let primaryIndex: [String: Int]
+    /// Explicit outer MAM result IDs. Raw stanza IDs never enter this index.
+    let mamArchiveIdIndex: [String: Int]
+    /// Opaque local/protocol stanza IDs used by local positioning only.
     let archivedIdIndex: [String: Int]
     let hasDuplicatePrimaries: Bool
+    let hasDuplicateMAMArchiveIds: Bool
     let hasDuplicateArchivedIds: Bool
 
     var hasDuplicateKeys: Bool {
-        hasDuplicatePrimaries || hasDuplicateArchivedIds
+        hasDuplicatePrimaries ||
+            hasDuplicateMAMArchiveIds ||
+            hasDuplicateArchivedIds
     }
 
     init(items: [ChatViewController.Datasource]) {
         self.items = items
         var primaryIndex: [String: Int] = [:]
+        var mamArchiveIdIndex: [String: Int] = [:]
         var archivedIdIndex: [String: Int] = [:]
+        var ambiguousMAMArchiveIds = Set<String>()
+        var ambiguousArchivedIds = Set<String>()
         var duplicatePrimaryCount = 0
+        var duplicateMAMArchiveIdCount = 0
         var duplicateArchivedIdCount = 0
 
         for (offset, item) in items.enumerated() {
@@ -65,21 +77,43 @@ struct ChatDatasourceSnapshot {
                 duplicatePrimaryCount += 1
             }
 
-            guard let archivedId = item.archivedId, archivedId.isNotEmpty else { continue }
+            if let mamArchiveId = item.mamArchiveId?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ), mamArchiveId.isNotEmpty {
+                if mamArchiveIdIndex[mamArchiveId] != nil {
+                    duplicateMAMArchiveIdCount += 1
+                    mamArchiveIdIndex.removeValue(forKey: mamArchiveId)
+                    ambiguousMAMArchiveIds.insert(mamArchiveId)
+                } else if !ambiguousMAMArchiveIds.contains(mamArchiveId) {
+                    mamArchiveIdIndex[mamArchiveId] = offset
+                }
+            }
 
-            if archivedIdIndex.updateValue(offset, forKey: archivedId) != nil {
-                duplicateArchivedIdCount += 1
+            if let archivedId = item.archivedId?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ), archivedId.isNotEmpty {
+                if archivedIdIndex[archivedId] != nil {
+                    duplicateArchivedIdCount += 1
+                    archivedIdIndex.removeValue(forKey: archivedId)
+                    ambiguousArchivedIds.insert(archivedId)
+                } else if !ambiguousArchivedIds.contains(archivedId) {
+                    archivedIdIndex[archivedId] = offset
+                }
             }
         }
 
         self.primaryIndex = primaryIndex
+        self.mamArchiveIdIndex = mamArchiveIdIndex
         self.archivedIdIndex = archivedIdIndex
         self.hasDuplicatePrimaries = duplicatePrimaryCount > 0
+        self.hasDuplicateMAMArchiveIds = duplicateMAMArchiveIdCount > 0
         self.hasDuplicateArchivedIds = duplicateArchivedIdCount > 0
 
-        if duplicatePrimaryCount > 0 || duplicateArchivedIdCount > 0 {
+        if duplicatePrimaryCount > 0 ||
+            duplicateMAMArchiveIdCount > 0 ||
+            duplicateArchivedIdCount > 0 {
             DDLogWarn(
-                "ChatDatasourceSnapshot detected duplicate keys. primary duplicates: \(duplicatePrimaryCount); archivedId duplicates: \(duplicateArchivedIdCount)"
+                "ChatDatasourceSnapshot detected duplicate keys. primary duplicates: \(duplicatePrimaryCount); MAM archive ID duplicates: \(duplicateMAMArchiveIdCount); raw archived ID duplicates: \(duplicateArchivedIdCount)"
             )
         }
     }
@@ -87,14 +121,18 @@ struct ChatDatasourceSnapshot {
     init(
         items: [ChatViewController.Datasource],
         primaryIndex: [String: Int],
+        mamArchiveIdIndex: [String: Int],
         archivedIdIndex: [String: Int],
         hasDuplicatePrimaries: Bool,
+        hasDuplicateMAMArchiveIds: Bool,
         hasDuplicateArchivedIds: Bool
     ) {
         self.items = items
         self.primaryIndex = primaryIndex
+        self.mamArchiveIdIndex = mamArchiveIdIndex
         self.archivedIdIndex = archivedIdIndex
         self.hasDuplicatePrimaries = hasDuplicatePrimaries
+        self.hasDuplicateMAMArchiveIds = hasDuplicateMAMArchiveIds
         self.hasDuplicateArchivedIds = hasDuplicateArchivedIds
     }
 }
@@ -920,7 +958,7 @@ struct ChatMessageDisplaySnapshot {
     func statePresentation(
         currentUserJid: String,
         state: MessageStorageItem.MessageSendingState,
-        archivedId: String
+        archiveCursorID: String
     ) -> SavedMessageStatePolicy.Presentation {
         guard conversationType == .saved else {
             return SavedMessageStatePolicy.Presentation(
@@ -931,7 +969,7 @@ struct ChatMessageDisplaySnapshot {
         }
 
         let authoredByCurrentUser = presentation.isDirectSavedNote || Self.isSameBareJid(presentation.displayAuthorJid, currentUserJid)
-        let hasProof = archivedId.isNotEmpty ||
+        let hasProof = archiveCursorID.isNotEmpty ||
             state == .none ||
             state == .sended ||
             state == .deliver ||
@@ -2211,17 +2249,23 @@ struct ChatDatasetWindow: Equatable {
 struct ChatTimelineBoundary: Equatable {
     let primary: String
     let archivedId: String?
+    /// A verified outer MAM result cursor, if the boundary came from one.
+    /// `archivedId` remains a compatibility/local-history identity and must
+    /// never be promoted into archive paging authority.
+    let archiveCursor: ArchiveCursor?
     let messageId: String?
     let date: Date
 
     init(
         primary: String,
         archivedId: String?,
+        archiveCursor: ArchiveCursor? = nil,
         messageId: String?,
         date: Date
     ) {
         self.primary = primary
         self.archivedId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(archivedId)
+        self.archiveCursor = archiveCursor
         self.messageId = messageId?.isNotEmpty == true ? messageId : nil
         self.date = date
     }
@@ -2229,7 +2273,8 @@ struct ChatTimelineBoundary: Equatable {
     init(message: MessageStorageItem) {
         self.init(
             primary: message.primary,
-            archivedId: message.archivedId,
+            archivedId: message.mamArchiveCursorID,
+            archiveCursor: ArchiveCursor(rawValue: message.mamArchiveId),
             messageId: message.messageId,
             date: message.date
         )
@@ -2272,7 +2317,7 @@ struct ChatTimelinePositionKey: Comparable, Equatable {
     init(message: MessageStorageItem) {
         self.init(
             primary: message.primary,
-            archivedId: message.archivedId,
+            archivedId: message.mamArchiveCursorID,
             messageId: message.messageId,
             date: message.date
         )
@@ -2295,8 +2340,16 @@ struct ChatTimelinePositionKey: Comparable, Equatable {
 enum ChatTimelineMessageIdentity {
     static func keys(for item: MessageStorageItem) -> [String] {
         var keys: [String] = []
-        if let archivedId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(item.archivedId) {
-            keys.append("archive:\(archivedId)")
+        let mamArchiveId = item.mamArchiveId.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        if mamArchiveId.isNotEmpty {
+            keys.append("mam:\(mamArchiveId)")
+        }
+        if let archivedId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
+            item.archivedId
+        ) {
+            keys.append("raw:\(archivedId)")
         }
         if item.messageId.isNotEmpty {
             keys.append("message:\(item.messageId)")
@@ -2851,9 +2904,10 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
         }
 
         let scoped = baseQuery()
-        if let archivedId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(archivedId),
-           let item = scoped.filter("archivedId == %@", archivedId).first {
-            return item
+        if let archivedId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(archivedId) {
+            if let item = scoped.filter("archivedId == %@", archivedId).first {
+                return item
+            }
         }
 
         if let messageId,
@@ -2886,8 +2940,26 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
 
         let scoped = baseQuery()
         var deferredFailure: ChatAnchorTransactionFailure?
+        if let archiveCursor = anchor.archiveCursor {
+            let candidates = Array(scoped.filter(
+                "mamArchiveId == %@",
+                archiveCursor.rawValue
+            ).prefix(2))
+            diagnostics?.record(
+                operation: "search-mam-cursor",
+                candidateCount: candidates.count
+            )
+            if candidates.count == 1 {
+                return .found(candidates[0])
+            }
+            if candidates.count > 1 {
+                return .failed(.ambiguous(candidateCount: candidates.count))
+            }
+        }
         if let archivedId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(anchor.archivedId) {
-            let candidates = Array(scoped.filter("archivedId == %@", archivedId).prefix(2))
+            let candidates = Array(
+                scoped.filter("archivedId == %@", archivedId).prefix(2)
+            )
             diagnostics?.record(operation: "search-archive", candidateCount: candidates.count)
             if candidates.count == 1 {
                 return .found(candidates[0])
@@ -2959,25 +3031,43 @@ final class ChatLocalHistoryPageProvider: ChatTimelinePageProviding {
     }
 
     func firstIncoming(afterArchiveBoundaryId boundaryArchivedId: String) -> MessageStorageItem? {
-        guard let boundaryDate = ChatInitialPositionPolicy.archiveDate(from: boundaryArchivedId) else {
+        guard let numericBoundary = ChatUnreadBoundaryTargetPolicy.numericValue(
+                boundaryArchivedId
+              ),
+              numericBoundary <= UInt64(Int64.max) else {
             return nil
         }
 
-        let boundary = ChatTimelineBoundary(
-            primary: boundaryArchivedId,
-            archivedId: boundaryArchivedId,
-            messageId: nil,
-            date: boundaryDate
-        )
+        // XEP-SYNC `unread@after` is a raw protocol stanza ID. Do not route it
+        // through `historyPositionOrdinal`, which is deliberately MAM-cursor
+        // based after the outer-result-ID migration. Realm does not support a
+        // numeric comparison against the source string, so use its indexed,
+        // raw-ID-only signed projection and recheck the raw value in-memory.
         return boundedCandidateWindow(
             operation: "firstIncoming",
             scoped: baseQuery()
-                .filter(Self.cursorPredicate(after: boundary))
-                .filter("outgoing == false"),
-            sortDescriptors: Self.sortDescriptors(ascending: true),
+                .filter(
+                    "outgoing == false AND rawProtocolStanzaIDNumericValue > %@",
+                    NSNumber(value: Int64(numericBoundary))
+                ),
+            sortDescriptors: [
+                RealmSwift.SortDescriptor(
+                    keyPath: "rawProtocolStanzaIDNumericValue",
+                    ascending: true
+                ),
+                RealmSwift.SortDescriptor(
+                    keyPath: "primary",
+                    ascending: true
+                )
+            ],
             requestedLimit: 1
         ) { candidates in
-            Array(Self.deduplicatedChronologicalItems(candidates).prefix(1))
+            ChatUnreadBoundaryTargetPolicy.firstIncoming(
+                in: candidates,
+                after: boundaryArchivedId,
+                archivedId: { $0.archivedId },
+                isOutgoing: { $0.outgoing }
+            ).map { [$0] } ?? []
         }.first
     }
 
@@ -4725,6 +4815,7 @@ enum ChatMessageUpdatePolicy {
             oldMessage.errorType != newMessage.errorType ||
             oldMessage.isRead != newMessage.isRead ||
             oldMessage.archivedId != newMessage.archivedId ||
+            oldMessage.mamArchiveId != newMessage.mamArchiveId ||
             oldMessage.queryIds != newMessage.queryIds ||
             oldMessage.messageWarningText != newMessage.messageWarningText ||
             oldMessage.editDate != newMessage.editDate ||
@@ -4842,6 +4933,7 @@ enum ChatObserverModelOnlyAssimilationPolicy {
                   old.diffId == new.diffId,
                   old.messageId == new.messageId,
                   old.archivedId == new.archivedId,
+                  old.mamArchiveId == new.mamArchiveId,
                   old.queryIds == new.queryIds else {
                 return .requiresUIKitApply
             }
@@ -4950,6 +5042,7 @@ enum ChatObserverModelOnlyAssimilationPolicy {
             lhs.burnDate == rhs.burnDate &&
             lhs.afterburnInterval == rhs.afterburnInterval &&
             lhs.archivedId == rhs.archivedId &&
+            lhs.mamArchiveId == rhs.mamArchiveId &&
             lhs.queryIds == rhs.queryIds &&
             lhs.isRead == rhs.isRead &&
             lhs.selectedSearchResultId == rhs.selectedSearchResultId &&
@@ -8893,7 +8986,7 @@ extension ChatViewController {
             let statePresentation = snapshot.statePresentation(
                 currentUserJid: context.owner,
                 state: item.state,
-                archivedId: item.archivedId
+                archiveCursorID: item.mamArchiveCursorID
             )
             let effectiveState = statePresentation.effectiveState
             let indicator = Self.messageIndicator(
@@ -8945,6 +9038,7 @@ extension ChatViewController {
                 burnDate: snapshot.burnDate,
                 afterburnInterval: snapshot.afterburnInterval,
                 archivedId: item.archivedId,
+                mamArchiveId: item.mamArchiveId,
                 queryIds: item.queryIds,
                 isRead: item.isRead,
                 selectedSearchResultId: nil,//item.archivedId == self.selectedSearchResultId ? self.selectedSearchResultId : nil,

@@ -23,14 +23,25 @@ import RealmSwift
 @testable import xabber
 
 final class ChatSearchResultPresentationTests: XCTestCase {
-    func testArchivedIdIsPrimaryStableIdentity() throws {
+    func testLegacyRawArchivedIdUsesPrimaryStableIdentity() throws {
         let item = makeMessage(primary: "local-1", archivedId: "archive-1")
 
         let result = try XCTUnwrap(ChatSearchResultMapper.map(item, context: regularContext))
 
-        XCTAssertEqual(result.id, .archived("archive-1"))
+        XCTAssertEqual(result.id, .primary("local-1"))
         XCTAssertEqual(result.anchor.primary, "local-1")
         XCTAssertEqual(result.anchor.archivedId, "archive-1")
+    }
+
+    func testMAMSearchAnchorKeepsRawStanzaIDSeparateFromTypedCursor() throws {
+        let item = makeMessage(primary: "local-1", archivedId: "stanza-100")
+        item.mamArchiveId = "mam-200"
+
+        let result = try XCTUnwrap(ChatSearchResultMapper.map(item, context: regularContext))
+
+        XCTAssertEqual(result.id, .archived("mam-200"))
+        XCTAssertEqual(result.anchor.archivedId, "stanza-100")
+        XCTAssertEqual(result.anchor.archiveCursorID, "mam-200")
     }
 
     func testEmptyArchivedIdFallsBackToPrimaryWithoutBodyOrDateIdentity() throws {
@@ -61,6 +72,9 @@ final class ChatSearchResultPresentationTests: XCTestCase {
         let tieArchiveHigh = makeMessage(primary: "a-primary", archivedId: "20", date: Date(timeIntervalSince1970: 20))
         let tiePrimaryHigh = makeMessage(primary: "primary-z", archivedId: "", date: Date(timeIntervalSince1970: 20))
         let tiePrimaryLow = makeMessage(primary: "primary-a", archivedId: "", date: Date(timeIntervalSince1970: 20))
+        older.mamArchiveId = "9"
+        tieArchiveLow.mamArchiveId = "10"
+        tieArchiveHigh.mamArchiveId = "20"
         let mapped = try [older, tieArchiveLow, tieArchiveHigh, tiePrimaryLow, tiePrimaryHigh].map {
             try XCTUnwrap(ChatSearchResultMapper.map($0, context: regularContext))
         }
@@ -192,13 +206,15 @@ final class ChatSearchResultPresentationTests: XCTestCase {
         }
 
         XCTAssertEqual(result.body, "before")
-        XCTAssertEqual(result.id, .archived("1"))
+        XCTAssertEqual(result.id, .primary("detached"))
         XCTAssertEqual(result.anchor.archivedId, "1")
     }
 
-    func testDuplicateArchiveIdentityKeepsMoreCompleteResult() throws {
+    func testDuplicateTypedMAMIdentityKeepsMoreCompleteResult() throws {
         let sparse = makeMessage(primary: "sparse", archivedId: "duplicate", body: "")
         let complete = makeMessage(primary: "complete", archivedId: "duplicate", body: "complete body")
+        sparse.mamArchiveId = "200"
+        complete.mamArchiveId = "200"
         complete.state = .read
         let mapped = try [sparse, complete].map {
             try XCTUnwrap(ChatSearchResultMapper.map($0, context: regularContext))
@@ -210,6 +226,55 @@ final class ChatSearchResultPresentationTests: XCTestCase {
         XCTAssertEqual(results.first?.anchor.primary, "complete")
         XCTAssertEqual(results.first?.body, "complete body")
         XCTAssertEqual(results.first?.deliveryState, .read)
+    }
+
+    func testLegacyRawAndTypedMAMIdentityCollisionKeepsBothResults() throws {
+        let legacy = makeMessage(primary: "legacy", archivedId: "200")
+        let typedMAM = makeMessage(primary: "typed-mam", archivedId: "100")
+        typedMAM.mamArchiveId = "200"
+
+        let results = ChatSearchResultCollection.orderedAndDeduplicated(
+            try [legacy, typedMAM].map {
+                try XCTUnwrap(ChatSearchResultMapper.map($0, context: regularContext))
+            }
+        )
+
+        XCTAssertEqual(results.map(\.id).count, 2)
+        XCTAssertTrue(results.contains { $0.id == .primary("legacy") })
+        XCTAssertTrue(results.contains { $0.id == .archived("200") })
+    }
+
+    func testSearchSelectionNamespacesKeepMAMAndPrimaryCollisionsDistinct() {
+        let typedMAM = ChatSearchSelectionIdentity.make(
+            mamArchiveId: "200",
+            primary: "typed-mam",
+            archivedId: "100"
+        )
+        let legacyPrimary = ChatSearchSelectionIdentity.make(
+            mamArchiveId: nil,
+            primary: "200",
+            archivedId: "200"
+        )
+
+        XCTAssertEqual(typedMAM, "mam:200")
+        XCTAssertEqual(legacyPrimary, "primary:200")
+        XCTAssertNotEqual(typedMAM, legacyPrimary)
+        XCTAssertTrue(
+            ChatSearchSelectionIdentity.matches(
+                typedMAM,
+                mamArchiveId: "200",
+                primary: "typed-mam",
+                archivedId: "100"
+            )
+        )
+        XCTAssertFalse(
+            ChatSearchSelectionIdentity.matches(
+                typedMAM,
+                mamArchiveId: nil,
+                primary: "200",
+                archivedId: "200"
+            )
+        )
     }
 
     func testPositionFormatterRejectsZeroAndOutOfBoundsPositions() {

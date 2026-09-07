@@ -150,6 +150,41 @@ final class ChatCursorNativeHistoryProviderTests: XCTestCase {
         XCTAssertNil(provider.message(primary: "out-of-scope", archivedId: "archive-other", messageId: "message-other"))
     }
 
+    func testSearchResolutionUsesTypedMAMCursorBeforeRawStanzaID() throws {
+        let realm = try WRealm.safe()
+        let target = makeMessage(
+            primary: "typed-mam-target",
+            archivedId: "100",
+            messageId: "target-message"
+        )
+        target.mamArchiveId = "200"
+        let legacyRawCollision = makeMessage(
+            primary: "legacy-raw-collision",
+            archivedId: "100",
+            messageId: "legacy-message"
+        )
+        try realm.write {
+            realm.add([target, legacyRawCollision])
+        }
+        let provider = try provider(
+            diagnostics: ChatLocalHistoryPageProviderDiagnostics()
+        )
+
+        let resolved = provider.searchMessage(
+            anchor: ChatMessageAnchorRef(
+                messagePrimary: nil,
+                archivedId: "100",
+                archiveCursor: try XCTUnwrap(ArchiveCursor(rawValue: "200")),
+                messageId: nil,
+                authorId: nil,
+                bodyFingerprint: nil,
+                sourceDate: nil
+            )
+        )
+
+        XCTAssertEqual(resolved?.primary, target.primary)
+    }
+
     func testCancelledProviderDoesNotIssueOrMaterializeQuery() throws {
         try insertSameTimestampMessages(count: 100)
         let diagnostics = ChatLocalHistoryPageProviderDiagnostics()

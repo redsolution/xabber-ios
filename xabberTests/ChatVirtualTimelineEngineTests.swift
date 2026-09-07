@@ -118,6 +118,93 @@ final class ChatVirtualTimelineEngineTests: XCTestCase {
         XCTAssertEqual(engine.currentSnapshot().items.map(\.primary), primaryIDs(101...200))
     }
 
+    func testVerifiedScopeUsesMAMResultCursorWhenProtocolStanzaIDDiffers() throws {
+        let item = makeMessages(1...1)[0]
+        item.archivedId = "100"
+        item.mamArchiveId = "200"
+        let provider = VirtualTimelinePageProvider(messages: [item])
+        let scope = try makeScope(oldest: 200, newest: 200)
+        var engine = makeEngine(provider: provider, scope: scope)
+
+        let snapshot = try XCTUnwrap(engine.installVerified(
+            items: [item],
+            expectedPrimaryIDs: [item.primary],
+            direction: nil,
+            scope: scope
+        ))
+
+        XCTAssertEqual(snapshot.state.oldest?.archivedId, "200")
+        XCTAssertEqual(snapshot.state.newest?.archivedId, "200")
+        XCTAssertEqual(snapshot.state.residentArchivedIds, ["200"])
+    }
+
+    func testVerifiedScopeRejectsLegacyRawProtocolIDWithoutMAMResultID() throws {
+        let item = makeMessages(1...1)[0]
+        item.archivedId = "200"
+        item.mamArchiveId = ""
+        let provider = VirtualTimelinePageProvider(messages: [item])
+        let scope = try makeScope(oldest: 200, newest: 200)
+        var engine = makeEngine(provider: provider, scope: scope)
+
+        XCTAssertNil(engine.installVerified(
+            items: [item],
+            expectedPrimaryIDs: [item.primary],
+            direction: nil,
+            scope: scope
+        ))
+    }
+
+    func testDedupKeepsRawStanzaAndTypedMAMRowsWhenIDsCollide() {
+        let typedMAM = makeMessages(1...1)[0]
+        typedMAM.primary = "typed-mam"
+        typedMAM.archivedId = "100"
+        typedMAM.mamArchiveId = "200"
+
+        let rawStanza = makeMessages(2...2)[0]
+        rawStanza.primary = "raw-stanza"
+        rawStanza.archivedId = "200"
+        rawStanza.mamArchiveId = ""
+
+        let deduplicated = ChatTimelineOrdering.deduplicatedChronological(
+            [typedMAM, rawStanza]
+        )
+
+        XCTAssertEqual(Set(deduplicated.map(\.primary)), ["typed-mam", "raw-stanza"])
+    }
+
+    func testPagingRejectsRawBoundaryWithoutTypedMAMCursor() throws {
+        let item = makeMessages(200...200)[0]
+        let scope = try makeScope(oldest: 200, newest: 200)
+        let rawOnlyBoundary = ChatTimelineBoundary(
+            primary: item.primary,
+            archivedId: "200",
+            messageId: item.messageId,
+            date: item.date
+        )
+        let state = ChatVirtualTimelineState(
+            conversationKey: conversationKey,
+            segments: [
+                .loadedRange(oldestArchiveId: "200", newestArchiveId: "200"),
+                .liveTail,
+            ],
+            oldest: rawOnlyBoundary,
+            newest: rawOnlyBoundary,
+            residentPrimaryKeys: [item.primary],
+            residentArchivedIds: ["200"],
+            isResidentAtLiveTail: true
+        )
+        var engine = ChatVirtualTimelineEngine(
+            provider: VirtualTimelinePageProvider(messages: [item]),
+            pageSize: 100,
+            state: state,
+            verifiedScope: scope
+        )
+
+        guard case .invalidProof = engine.page(.older) else {
+            return XCTFail("Raw boundary identity cannot authorize verified paging")
+        }
+    }
+
     func testHiddenExactScopeEdgeExhaustsLocalProofAndRequestsScopeExpansion() throws {
         let hiddenEdge = makeMessages(1...1)[0]
         hiddenEdge.isLocallyHiddenByReport = true
@@ -303,6 +390,7 @@ final class ChatVirtualTimelineEngineTests: XCTestCase {
             item.owner = owner
             item.opponent = jid
             item.archivedId = String(value)
+            item.mamArchiveId = String(value)
             item.messageId = "message-\(value)"
             item.date = Date(timeIntervalSince1970: TimeInterval(value))
             item.sentDate = item.date

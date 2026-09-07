@@ -156,7 +156,7 @@ final class RealmArchiveCoverageRepository:
                         )
                         throw ArchiveCoverageRepositoryError.persistedMessageIdentityMismatch
                     }
-                    guard let cursor = ArchiveCursor(rawValue: message.archivedId),
+                    guard let cursor = Self.archiveCursor(for: message),
                           cursor >= segment.oldest,
                           cursor <= segment.newest else {
                         Self.logCommitRejection(
@@ -430,16 +430,16 @@ final class RealmArchiveCoverageRepository:
         let requested = Set(archiveIDs.filter(\.isNotEmpty))
         guard requested.isNotEmpty else { return [] }
         return try await perform { realm in
-            realm.objects(MessageStorageItem.self)
+            let materialized = realm.objects(MessageStorageItem.self)
                 .filter(
-                    "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND archivedId IN %@",
+                    "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND mamArchiveId IN %@",
                     conversation.owner,
                     conversation.jid,
                     conversation.conversationType.rawValue,
                     Array(requested)
                 )
                 .compactMap { message -> (ArchiveMaterializedMessageIdentity, ArchiveCursor)? in
-                    guard let cursor = ArchiveCursor(rawValue: message.archivedId) else {
+                    guard let cursor = Self.archiveCursor(for: message) else {
                         return nil
                     }
                     return (
@@ -450,6 +450,16 @@ final class RealmArchiveCoverageRepository:
                         cursor
                     )
                 }
+            let hasDuplicateArchiveIdentity = Dictionary(
+                grouping: materialized,
+                by: { $0.0.archiveID }
+            ).values.contains { identities in
+                Set(identities.map { $0.0.primaryID }).count > 1
+            }
+            guard !hasDuplicateArchiveIdentity else {
+                throw ArchiveCoverageRepositoryError.persistedMessageIdentityMismatch
+            }
+            return materialized
                 .sorted { $0.1 < $1.1 }
                 .map(\.0)
         }
@@ -509,7 +519,7 @@ final class RealmArchiveCoverageRepository:
                           row.conversationType == intent.conversation.conversationType else {
                         throw ArchiveCoverageRepositoryError.persistedMessageIdentityMismatch
                     }
-                    guard let archiveID = ArchiveCursor(rawValue: row.archivedId),
+                    guard let archiveID = Self.archiveCursor(for: row),
                           allowedArchiveIDs.contains(archiveID.rawValue) else {
                         throw ArchiveCoverageRepositoryError.malformedPersistedArchiveID
                     }
@@ -524,7 +534,7 @@ final class RealmArchiveCoverageRepository:
                   exactMessage.owner == intent.conversation.owner,
                   exactMessage.opponent == intent.conversation.jid,
                   exactMessage.conversationType == intent.conversation.conversationType,
-                  ArchiveCursor(rawValue: exactMessage.archivedId) == anchor.cursor else {
+                  Self.archiveCursor(for: exactMessage) == anchor.cursor else {
                 throw ArchiveCoverageRepositoryError.missingPersistedMessages
             }
             if let older = olderPage.segment, older.newest >= anchor.cursor {
@@ -603,7 +613,7 @@ final class RealmArchiveCoverageRepository:
                message.conversationType == intent.conversation.conversationType,
                !message.isDeleted,
                !message.isLocallyHiddenByReport,
-               let cursor = ArchiveCursor(rawValue: message.archivedId),
+               let cursor = Self.archiveCursor(for: message),
                let storage = realm.object(
                    ofType: ConversationArchiveCoverageStorageItem.self,
                    forPrimaryKey: ConversationArchiveCoverageStorageItem.genPrimary(
@@ -796,7 +806,7 @@ final class RealmArchiveCoverageRepository:
             if message.isLocallyHiddenByReport {
                 hidden += 1
             }
-            guard let cursor = ArchiveCursor(rawValue: message.archivedId) else {
+            guard let cursor = archiveCursor(for: message) else {
                 malformedCursor += 1
                 return
             }
@@ -814,6 +824,15 @@ final class RealmArchiveCoverageRepository:
             malformedCursor: malformedCursor,
             visibleInsideSegment: visibleInsideSegment
         )
+    }
+
+    private static func archiveCursor(
+        for message: MessageStorageItem
+    ) -> ArchiveCursor? {
+        guard message.mamArchiveId.isNotEmpty else {
+            return nil
+        }
+        return ArchiveCursor(rawValue: message.mamArchiveId)
     }
 
     private static func diagnosticLocatorCode(
@@ -843,13 +862,13 @@ final class RealmArchiveCoverageRepository:
     ) -> [MessageIdentity] {
         realm.objects(MessageStorageItem.self)
             .filter(
-                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND archivedId != '' AND isDeleted == false AND isLocallyHiddenByReport == false",
+                "owner == %@ AND opponent == %@ AND conversationType_ == %@ AND mamArchiveId != '' AND isDeleted == false AND isLocallyHiddenByReport == false",
                 conversation.owner,
                 conversation.jid,
                 conversation.conversationType.rawValue
             )
             .compactMap { message in
-                guard let cursor = ArchiveCursor(rawValue: message.archivedId) else { return nil }
+                guard let cursor = archiveCursor(for: message) else { return nil }
                 return MessageIdentity(
                     primary: message.primary,
                     cursor: cursor,
@@ -923,7 +942,7 @@ final class RealmArchiveCoverageRepository:
         realm.objects(MessageStorageItem.self)
             .filter("primary IN %@", primaryIDs)
             .compactMap { message -> (String, ArchiveCursor)? in
-                guard let cursor = ArchiveCursor(rawValue: message.archivedId) else { return nil }
+                guard let cursor = archiveCursor(for: message) else { return nil }
                 return (message.primary, cursor)
             }
             .sorted { $0.1 < $1.1 }

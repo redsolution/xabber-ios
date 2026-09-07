@@ -3209,6 +3209,9 @@ final class ChatPerformanceFixtureViewController: ChatViewController {
                     ? nil
                     : openPrimary(targetOrdinal),
                 archivedId: openArchiveId(targetOrdinal),
+                archiveCursor: ArchiveCursor(
+                    rawValue: openArchiveId(targetOrdinal)
+                ),
                 messageId:
                     descriptor.openScenario == .searchExactRemote &&
                     source == .search

@@ -22,7 +22,7 @@ final class ChatHistoryRealmMigrationTests: XCTestCase {
     }
 
     func testCurrentSchemaIsNonDestructiveAndIndexesActualHistoryPredicates() {
-        XCTAssertEqual(XabberRealmSchema.current, 19)
+        XCTAssertEqual(XabberRealmSchema.current, 21)
         let configuration = makeRealmMigrationConfiguration(
             scheme: XabberRealmSchema.current
         )
@@ -35,6 +35,8 @@ final class ChatHistoryRealmMigrationTests: XCTestCase {
             "isDeleted",
             "date",
             "archivedId",
+            "rawProtocolStanzaIDNumericValue",
+            "mamArchiveId",
             "messageId",
             "historyPositionOrdinal",
             "historyPositionKind",
@@ -49,6 +51,49 @@ final class ChatHistoryRealmMigrationTests: XCTestCase {
             "associatedJid",
             "date"
         ]))
+    }
+
+    func testSchema20RebuildsRawProtocolStanzaNumericValueWithoutChangingMAMIdentity() throws {
+        var legacyConfiguration = makeRealmMigrationConfiguration(scheme: 20)
+        legacyConfiguration.fileURL = realmURL
+        legacyConfiguration.deleteRealmIfMigrationNeeded = false
+        autoreleasepool {
+            let realm = try! Realm(configuration: legacyConfiguration)
+            let message = self.message(
+                primary: "schema-20-raw-protocol-id",
+                archivedId: "1700000000000151",
+                messageId: "schema-20-message",
+                timestamp: 1_700_000_000,
+                isDeleted: false,
+                deleteState: .visible
+            )
+            message.mamArchiveId = "1700000000000300"
+            message.rawProtocolStanzaIDNumericValue = 1
+            try! realm.write {
+                realm.add(message)
+            }
+        }
+
+        var upgradedConfiguration = makeRealmMigrationConfiguration(
+            scheme: XabberRealmSchema.current
+        )
+        upgradedConfiguration.fileURL = realmURL
+        upgradedConfiguration.deleteRealmIfMigrationNeeded = false
+        try autoreleasepool {
+            let realm = try Realm(configuration: upgradedConfiguration)
+            let migrated = try XCTUnwrap(
+                realm.object(
+                    ofType: MessageStorageItem.self,
+                    forPrimaryKey: "schema-20-raw-protocol-id"
+                )
+            )
+            XCTAssertEqual(
+                migrated.rawProtocolStanzaIDNumericValue,
+                1_700_000_000_000_151
+            )
+            XCTAssertEqual(migrated.archivedId, "1700000000000151")
+            XCTAssertEqual(migrated.mamArchiveId, "1700000000000300")
+        }
     }
 
     func testSchema18CoverageMigratesAsProvisionalAndRejectsMalformedRanges() throws {
@@ -123,6 +168,240 @@ final class ChatHistoryRealmMigrationTests: XCTestCase {
                 ofType: RegularChatArchiveSyncStateStorageItem.self,
                 forPrimaryKey: primary
             ))
+        }
+    }
+
+    func testSchema19LeavesMAMArchiveIDEmptyForSafeReplayReconciliation() throws {
+        var legacyConfiguration = makeRealmMigrationConfiguration(scheme: 19)
+        legacyConfiguration.fileURL = realmURL
+        legacyConfiguration.deleteRealmIfMigrationNeeded = false
+        autoreleasepool {
+            let realm = try! Realm(configuration: legacyConfiguration)
+            let message = self.message(
+                primary: "legacy-mam-identity",
+                archivedId: "100",
+                messageId: "legacy-message",
+                timestamp: 100,
+                isDeleted: false,
+                deleteState: .visible
+            )
+            message.mamArchiveId = "must-not-survive-schema-20-migration"
+            try! realm.write {
+                realm.add(message)
+            }
+        }
+
+        var upgradedConfiguration = makeRealmMigrationConfiguration(
+            scheme: XabberRealmSchema.current
+        )
+        upgradedConfiguration.fileURL = realmURL
+        upgradedConfiguration.deleteRealmIfMigrationNeeded = false
+        try autoreleasepool {
+            let realm = try Realm(configuration: upgradedConfiguration)
+            let migrated = try XCTUnwrap(
+                realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "legacy-mam-identity")
+            )
+            XCTAssertEqual(migrated.archivedId, "100")
+            XCTAssertEqual(migrated.mamArchiveId, "")
+            XCTAssertEqual(migrated.mamArchiveCursorID, "100")
+        }
+    }
+
+    func testSchema19VerifiedCoverageAndLegacyProjectionInvalidateWhenMAMIDsAreUnavailable() throws {
+        let owner = "coverage-migration-owner"
+        let jid = "coverage-migration-peer"
+        let conversationType = ClientSynchronizationManager.ConversationType.regular
+        let primary = ConversationArchiveCoverageStorageItem.genPrimary(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType
+        )
+        let verifiedSegment = try XCTUnwrap(
+            ArchiveCoverageSegment(
+                oldest: try XCTUnwrap(ArchiveCursor(rawValue: "100")),
+                newest: try XCTUnwrap(ArchiveCursor(rawValue: "200")),
+                reachesArchiveStart: true,
+                reachesLiveEdge: true,
+                fingerprint: "session:19",
+                isVerified: true
+            )
+        )
+
+        var legacyConfiguration = makeRealmMigrationConfiguration(scheme: 19)
+        legacyConfiguration.fileURL = realmURL
+        legacyConfiguration.deleteRealmIfMigrationNeeded = false
+        autoreleasepool {
+            let realm = try! Realm(configuration: legacyConfiguration)
+            try! realm.write {
+                let message = MessageStorageItem()
+                message.primary = "legacy-covered-message"
+                message.owner = owner
+                message.opponent = jid
+                message.conversationType = conversationType
+                message.archivedId = "100"
+                message.mamArchiveId = "old-result-id"
+                message.messageId = "legacy-message"
+                message.date = Date(timeIntervalSince1970: 100)
+                realm.add(message)
+
+                let coverage = ConversationArchiveCoverageStorageItem()
+                coverage.primary = primary
+                coverage.owner = owner
+                coverage.jid = jid
+                coverage.conversationType = conversationType
+                coverage.segments = [verifiedSegment]
+                coverage.coverageGeneration = 7
+                coverage.archiveFreshnessFingerprint = "session:19"
+                realm.add(coverage)
+
+                let legacy = RegularChatArchiveSyncStateStorageItem()
+                legacy.primary = primary
+                legacy.owner = owner
+                legacy.jid = jid
+                legacy.conversationType = conversationType
+                legacy.loadedRanges = [
+                    RegularChatArchiveIDRange(
+                        oldestArchiveId: "100",
+                        newestArchiveId: "200"
+                    )
+                ]
+                legacy.olderArchiveEndReached = true
+                legacy.newerLiveEdgeReached = true
+                legacy.recomputeBoundsAndGaps()
+                realm.add(legacy)
+
+                let chat = LastChatsStorageItem()
+                chat.primary = primary
+                chat.owner = owner
+                chat.jid = jid
+                chat.conversationType = conversationType
+                chat.isSynced = true
+                chat.isInitialArchiveLoaded = true
+                chat.fullArchiveLoaded = true
+                chat.lastLoadedMessageHistoryId = "100"
+                realm.add(chat)
+            }
+        }
+
+        var upgradedConfiguration = makeRealmMigrationConfiguration(
+            scheme: XabberRealmSchema.current
+        )
+        upgradedConfiguration.fileURL = realmURL
+        upgradedConfiguration.deleteRealmIfMigrationNeeded = false
+        try autoreleasepool {
+            let realm = try Realm(configuration: upgradedConfiguration)
+
+            let message = try XCTUnwrap(
+                realm.object(ofType: MessageStorageItem.self, forPrimaryKey: "legacy-covered-message")
+            )
+            XCTAssertEqual(message.archivedId, "100")
+            XCTAssertEqual(message.mamArchiveId, "")
+
+            let coverage = try XCTUnwrap(
+                realm.object(ofType: ConversationArchiveCoverageStorageItem.self, forPrimaryKey: primary)
+            )
+            XCTAssertEqual(coverage.segments, [])
+            XCTAssertEqual(coverage.coverageGeneration, 0)
+            XCTAssertNil(coverage.archiveFreshnessFingerprint)
+
+            let legacy = try XCTUnwrap(
+                realm.object(ofType: RegularChatArchiveSyncStateStorageItem.self, forPrimaryKey: primary)
+            )
+            XCTAssertEqual(legacy.loadedRanges, [])
+            XCTAssertEqual(legacy.knownGaps, [])
+            XCTAssertNil(legacy.oldestLoadedArchiveId)
+            XCTAssertNil(legacy.newestLoadedArchiveId)
+            XCTAssertFalse(legacy.olderArchiveEndReached)
+            XCTAssertFalse(legacy.newerLiveEdgeReached)
+
+            let chat = try XCTUnwrap(
+                realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary)
+            )
+            XCTAssertFalse(chat.isSynced)
+            XCTAssertFalse(chat.isInitialArchiveLoaded)
+            XCTAssertFalse(chat.fullArchiveLoaded)
+            XCTAssertNil(chat.lastLoadedMessageHistoryId)
+        }
+    }
+
+    func testSchema19AuthoritativeEmptyCoverageInvalidatesItsLegacyProjection() throws {
+        let owner = "empty-coverage-migration-owner"
+        let jid = "empty-coverage-migration-peer"
+        let conversationType = ClientSynchronizationManager.ConversationType.regular
+        let primary = ConversationArchiveCoverageStorageItem.genPrimary(
+            owner: owner,
+            jid: jid,
+            conversationType: conversationType
+        )
+
+        var legacyConfiguration = makeRealmMigrationConfiguration(scheme: 19)
+        legacyConfiguration.fileURL = realmURL
+        legacyConfiguration.deleteRealmIfMigrationNeeded = false
+        autoreleasepool {
+            let realm = try! Realm(configuration: legacyConfiguration)
+            try! realm.write {
+                let coverage = ConversationArchiveCoverageStorageItem()
+                coverage.primary = primary
+                coverage.owner = owner
+                coverage.jid = jid
+                coverage.conversationType = conversationType
+                coverage.segments = []
+                coverage.coverageGeneration = 5
+                coverage.archiveFreshnessFingerprint = "session:19"
+                realm.add(coverage)
+
+                let legacy = RegularChatArchiveSyncStateStorageItem()
+                legacy.primary = primary
+                legacy.owner = owner
+                legacy.jid = jid
+                legacy.conversationType = conversationType
+                legacy.olderArchiveEndReached = true
+                legacy.newerLiveEdgeReached = true
+                realm.add(legacy)
+
+                let chat = LastChatsStorageItem()
+                chat.primary = primary
+                chat.owner = owner
+                chat.jid = jid
+                chat.conversationType = conversationType
+                chat.isSynced = true
+                chat.isInitialArchiveLoaded = true
+                chat.fullArchiveLoaded = true
+                realm.add(chat)
+            }
+        }
+
+        var upgradedConfiguration = makeRealmMigrationConfiguration(
+            scheme: XabberRealmSchema.current
+        )
+        upgradedConfiguration.fileURL = realmURL
+        upgradedConfiguration.deleteRealmIfMigrationNeeded = false
+        try autoreleasepool {
+            let realm = try Realm(configuration: upgradedConfiguration)
+            let coverage = try XCTUnwrap(
+                realm.object(ofType: ConversationArchiveCoverageStorageItem.self, forPrimaryKey: primary)
+            )
+            XCTAssertEqual(coverage.segments, [])
+            XCTAssertEqual(coverage.coverageGeneration, 0)
+            XCTAssertNil(coverage.archiveFreshnessFingerprint)
+
+            let legacy = try XCTUnwrap(
+                realm.object(ofType: RegularChatArchiveSyncStateStorageItem.self, forPrimaryKey: primary)
+            )
+            XCTAssertEqual(legacy.loadedRanges, [])
+            XCTAssertEqual(legacy.knownGaps, [])
+            XCTAssertNil(legacy.oldestLoadedArchiveId)
+            XCTAssertNil(legacy.newestLoadedArchiveId)
+            XCTAssertFalse(legacy.olderArchiveEndReached)
+            XCTAssertFalse(legacy.newerLiveEdgeReached)
+
+            let chat = try XCTUnwrap(
+                realm.object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary)
+            )
+            XCTAssertFalse(chat.isSynced)
+            XCTAssertFalse(chat.isInitialArchiveLoaded)
+            XCTAssertFalse(chat.fullArchiveLoaded)
+            XCTAssertNil(chat.lastLoadedMessageHistoryId)
         }
     }
 

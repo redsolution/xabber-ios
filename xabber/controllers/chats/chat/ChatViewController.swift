@@ -322,11 +322,49 @@ enum ChatOpenMessageTargetResolution: Equatable {
 
 struct ChatMessageAnchorRef: Equatable {
     let messagePrimary: String?
+    /// Opaque protocol/stanza identity for local matching and message actions.
+    /// It is never implicitly promoted to a MAM/RSM cursor.
     let archivedId: String?
+    /// A verified outer XEP-0313 result ID parsed as an archive cursor. Only
+    /// this typed value may be used to target MAM window materialization.
+    let archiveCursor: ArchiveCursor?
     let messageId: String?
     let authorId: String?
     let bodyFingerprint: String?
     let sourceDate: Date?
+
+    init(
+        messagePrimary: String?,
+        archivedId: String?,
+        archiveCursor: ArchiveCursor? = nil,
+        messageId: String?,
+        authorId: String?,
+        bodyFingerprint: String?,
+        sourceDate: Date?
+    ) {
+        self.messagePrimary = messagePrimary
+        self.archivedId = archivedId
+        self.archiveCursor = archiveCursor
+        self.messageId = messageId
+        self.authorId = authorId
+        self.bodyFingerprint = bodyFingerprint
+        self.sourceDate = sourceDate
+    }
+}
+
+/// MAM target construction is deliberately type-gated. A numeric protocol
+/// stanza ID may coincide with an archive cursor, but it is not proof that the
+/// cursor belongs to this message or conversation.
+enum ChatAnchorArchiveLocatorPolicy {
+    static func locator(for anchor: ChatMessageAnchorRef) -> ArchiveWindowLocator? {
+        if let archiveCursor = anchor.archiveCursor {
+            return .archiveID(archiveCursor)
+        }
+        if let sourceDate = anchor.sourceDate {
+            return .timestamp(sourceDate)
+        }
+        return nil
+    }
 }
 
 struct ChatOpenMessageRequest: Equatable {
@@ -377,6 +415,7 @@ struct ChatOpenMessageRequest: Equatable {
             anchor: ChatMessageAnchorRef(
                 messagePrimary: nil,
                 archivedId: archivedId,
+                archiveCursor: nil,
                 messageId: nil,
                 authorId: nil,
                 bodyFingerprint: nil,
@@ -2458,6 +2497,12 @@ class ChatViewController: MessagesViewController {
         var burnDate: Double
         var afterburnInterval: Double
         var archivedId:  String?
+        /// Outer MAM result ID used only for archive-window navigation.
+        /// `archivedId` remains the protocol identity for message actions.
+        var mamArchiveId: String? = nil
+        var mamArchiveCursorID: String? {
+            mamArchiveId?.isNotEmpty == true ? mamArchiveId : archivedId
+        }
         var queryIds: String?
         var isRead: Bool
         var selectedSearchResultId: String? = nil
@@ -2494,6 +2539,7 @@ class ChatViewController: MessagesViewController {
                 a.searchString == b.searchString &&
                 a.burnDate == b.burnDate &&
                 a.archivedId == b.archivedId &&
+                a.mamArchiveId == b.mamArchiveId &&
                 a.isRead == b.isRead &&
                 ChatViewController.Datasource.iconForMetadata(for: a.errorMetadata) == ChatViewController.Datasource.iconForMetadata(for: b.errorMetadata) &&
                 a.messageWarningText == b.messageWarningText &&

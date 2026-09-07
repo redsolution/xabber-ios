@@ -195,6 +195,94 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         )
     }
 
+    func testMaterializedMessagesRequireMAMResultID() async throws {
+        try persistMessage(primary: "p200", archivedID: "100", mamArchiveID: "200")
+        try persistMessage(primary: "legacy-p300", archivedID: "300", mamArchiveID: "")
+        let repository = makeRepository()
+
+        let materialized = try await repository.materializedMessages(
+            conversation: conversation,
+            archiveIDs: ["200", "300"]
+        )
+
+        XCTAssertEqual(
+            materialized,
+            [
+                ArchiveMaterializedMessageIdentity(archiveID: "200", primaryID: "p200")
+            ]
+        )
+    }
+
+    func testMaterializedMessagesIgnoreLegacyRawRowThatCollidesWithMAMResultID() async throws {
+        try persistMessage(primary: "legacy-p200", archivedID: "200", mamArchiveID: "")
+        try persistMessage(primary: "replayed-p200", archivedID: "100", mamArchiveID: "200")
+
+        let materialized = try await makeRepository().materializedMessages(
+            conversation: conversation,
+            archiveIDs: ["200"]
+        )
+
+        XCTAssertEqual(
+            materialized,
+            [
+                ArchiveMaterializedMessageIdentity(
+                    archiveID: "200",
+                    primaryID: "replayed-p200"
+                )
+            ]
+        )
+    }
+
+    func testCommitRejectsLegacyRawArchiveIDWithoutMAMResultID() async throws {
+        try persistMessage(primary: "legacy-p20", archivedID: "20", mamArchiveID: "")
+        try persistMessage(primary: "p10", archivedID: "10", mamArchiveID: "10")
+        let request = makeRequest(queryID: "q-legacy-raw-id")
+        let page = try validatedPage(
+            request: request,
+            primaryIDs: ["legacy-p20", "p10"]
+        )
+
+        do {
+            _ = try await makeRepository().commit(
+                page,
+                request: request,
+                freshnessToken: .sessionMAM(
+                    connectionGeneration: request.connectionGeneration,
+                    queryID: request.queryID
+                )
+            )
+            XCTFail("A raw protocol stanza ID cannot authorize MAM coverage")
+        } catch {
+            XCTAssertEqual(
+                error as? ArchiveCoverageRepositoryError,
+                .malformedPersistedArchiveID
+            )
+        }
+    }
+
+    func testCommitUsesMAMResultIDsWhenProtocolStanzaIDsDiffer() async throws {
+        try persistMessage(primary: "p20", archivedID: "100", mamArchiveID: "20")
+        try persistMessage(primary: "p10", archivedID: "50", mamArchiveID: "10")
+        let request = makeRequest(queryID: "q-mam-result-identity")
+        let page = try validatedPage(request: request, primaryIDs: ["p20", "p10"])
+
+        let result = try await makeRepository().commit(
+            page,
+            request: request,
+            freshnessToken: .sessionMAM(
+                connectionGeneration: request.connectionGeneration,
+                queryID: request.queryID
+            )
+        )
+
+        guard case .verified(let snapshot) = result else {
+            return XCTFail("Expected MAM result IDs to satisfy the coverage proof")
+        }
+        XCTAssertEqual(snapshot.messagePrimaryIDs, ["p10", "p20"])
+        XCTAssertEqual(snapshot.verifiedSegment.oldest.rawValue, "10")
+        XCTAssertEqual(snapshot.verifiedSegment.newest.rawValue, "20")
+    }
+
     func testNewSessionCommitReplacesStaleSessionCoverageInsteadOfAccumulatingIt() async throws {
         try persistMessage(primary: "p10", archivedID: "10")
         try persistMessage(primary: "p20", archivedID: "20")
@@ -828,7 +916,11 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         )
     }
 
-    private func persistMessage(primary: String, archivedID: String) throws {
+    private func persistMessage(
+        primary: String,
+        archivedID: String,
+        mamArchiveID: String? = nil
+    ) throws {
         let realm = try Realm(configuration: configuration)
         try realm.write {
             let message = MessageStorageItem()
@@ -837,6 +929,7 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
             message.opponent = conversation.jid
             message.conversationType = conversation.conversationType
             message.archivedId = archivedID
+            message.mamArchiveId = mamArchiveID ?? archivedID
             message.messageId = "m\(archivedID)"
             message.date = Date(timeIntervalSince1970: TimeInterval(archivedID) ?? 0)
             realm.add(message, update: .modified)

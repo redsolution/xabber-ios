@@ -553,6 +553,9 @@ class SearchResultsViewController: SimpleBaseViewController {
                 ]))
                 attributedUsername = attributedTitle as NSAttributedString
             }
+            let searchProvenance = SearchResultMessageProvenanceFactory.make(
+                for: messageItem
+            )
             return Datasource(
                 jid: messageItem.opponent,//item.jid,
                 owner: messageItem.owner,
@@ -581,7 +584,9 @@ class SearchResultsViewController: SimpleBaseViewController {
                 hasErrorInChat: false,
                 updateTS: item.updateTS,
                 isVerificationActionRequired: false,
-                messageArchiveId: messageItem.archivedId
+                messageArchiveId: SearchResultMessageProvenanceFactory
+                    .strictMAMArchiveID(for: messageItem),
+                searchProvenance: searchProvenance
             )
         }
         self.updateSections()
@@ -1009,6 +1014,7 @@ enum LastChatsSearchRouteFactory {
                     anchor: ChatMessageAnchorRef(
                         messagePrimary: provenance.messagePrimary,
                         archivedId: provenance.archivedId,
+                        archiveCursor: provenance.archiveCursor,
                         messageId: provenance.messageId,
                         authorId: provenance.authorId,
                         bodyFingerprint: provenance.bodyFingerprint,
@@ -1058,6 +1064,45 @@ struct LastChatsSearchUnavailablePresentation: Equatable {
     }
 }
 
+enum SearchResultMessageProvenanceFactory {
+    static func strictMAMArchiveID(for item: MessageStorageItem) -> String? {
+        let archiveID = item.mamArchiveId
+        guard archiveID.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isNotEmpty else {
+            return nil
+        }
+        // Preserve the server-provided outer result id exactly. Its typed
+        // cursor normalization, when possible, belongs to ArchiveCursor.
+        return archiveID
+    }
+
+    static func make(
+        for item: MessageStorageItem,
+        provider: LastChatsSearchProviderID = .localMessages,
+        queryGeneration: UInt64 = 0
+    ) -> LastChatsSearchResultProvenance {
+        let archiveID = strictMAMArchiveID(for: item)
+        return LastChatsSearchResultProvenance(
+            targetKind: .message,
+            conversation: LastChatsSearchConversation(
+                owner: item.owner,
+                jid: item.opponent,
+                conversationTypeRawValue: item.conversationType.rawValue
+            ),
+            messagePrimary: item.primary,
+            archivedId: item.archivedId,
+            archiveCursor: archiveID.flatMap(ArchiveCursor.init(rawValue:)),
+            messageId: item.messageId,
+            authorId: item.groupchatAuthorId,
+            sourceDate: item.date,
+            bodyFingerprint: item.displayedBody(),
+            provider: provider,
+            queryGeneration: queryGeneration
+        )
+    }
+}
+
 enum SearchResultOpenRequestFactory {
     static func outcome(
         for item: SearchResultsViewController.Datasource,
@@ -1101,6 +1146,11 @@ enum SearchResultOpenRequestFactory {
             conversation: conversation,
             messagePrimary: nil,
             archivedId: item.messageArchiveId,
+            // A provenance-less legacy datasource cannot establish that its
+            // historical `messageArchiveId` is an outer MAM `<result id>`.
+            // Keep it available for local/raw resolution only; MAM/RSM
+            // navigation must be backed by explicit typed provenance.
+            archiveCursor: nil,
             messageId: nil,
             authorId: nil,
             sourceDate: item.date,
@@ -1830,6 +1880,8 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating {
                 attributedUsername = attributedTitle as NSAttributedString
             }
 
+            let searchProvenance = provenanceByPrimary[messageItem.primary]
+                ?? SearchResultMessageProvenanceFactory.make(for: messageItem)
             return Datasource(
                 jid: messageItem.opponent,
                 owner: messageItem.owner,
@@ -1858,8 +1910,9 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating {
                 hasErrorInChat: false,
                 updateTS: item.updateTS,
                 isVerificationActionRequired: false,
-                messageArchiveId: messageItem.archivedId,
-                searchProvenance: provenanceByPrimary[messageItem.primary]
+                messageArchiveId: SearchResultMessageProvenanceFactory
+                    .strictMAMArchiveID(for: messageItem),
+                searchProvenance: searchProvenance
             )
         }
         updateSections()

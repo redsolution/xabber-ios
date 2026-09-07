@@ -112,10 +112,26 @@ func getStanzaIdAuthor(_ message: XMPPMessage) -> String? {
 }
 
 func getMAMQueryId(_ message: XMPPMessage) -> String? {
-//    print(#function, message.prettyXMLString!)
+    guard isArchivedMessage(message) else {
+        return nil
+    }
     return message
         .element(forName: "result")?
         .attributeStringValue(forName: "queryid")
+}
+
+/// The outer XEP-0313 result ID is the archive/RSM cursor. It must not be
+/// conflated with the forwarded stanza's `stanza-id`, which remains a protocol
+/// identity for mutations and receipts.
+func getMAMResultID(_ message: XMPPMessage) -> String? {
+    guard isArchivedMessage(message) else {
+        return nil
+    }
+    let resultID = message
+        .element(forName: "result")?
+        .attributeStringValue(forName: "id")?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return resultID?.isNotEmpty == true ? resultID : nil
 }
 
 func getPreviousId(_ message: XMPPMessage) -> String? {

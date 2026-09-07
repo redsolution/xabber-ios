@@ -1573,6 +1573,24 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
         )
     }
 
+    func testVerifiedTimelineFactoryRejectsLegacyRawProtocolIDWithoutMAMResultID() throws {
+        let segment = try makeSegment(oldest: "20", newest: "20")
+        let key = ChatTimelineConversationKey(
+            owner: conversation.owner,
+            jid: conversation.jid,
+            conversationType: conversation.conversationType
+        )
+        let legacy = message(primary: "legacy-p20", archiveID: "20")
+        legacy.mamArchiveId = ""
+
+        XCTAssertNil(ChatArchiveVerifiedTimelineStateFactory.make(
+            items: [legacy],
+            expectedPrimaryIDs: [legacy.primary],
+            segment: segment,
+            conversationKey: key
+        ))
+    }
+
     func testVerifiedTimelineFactoryOrdersRowsAndRepresentsBothUnknownEdges() throws {
         let segment = try makeSegment(
             oldest: "10",
@@ -2532,6 +2550,7 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
         value.opponent = conversation.jid
         value.conversationType = conversation.conversationType
         value.archivedId = archiveID
+        value.mamArchiveId = archiveID
         value.date = Date(timeIntervalSince1970: TimeInterval(archiveID) ?? 0)
         return value
     }

@@ -43,7 +43,11 @@ struct LastChatsSearchResultProvenance: Hashable, Sendable {
     let targetKind: LastChatsSearchResultTargetKind
     let conversation: LastChatsSearchConversation
     let messagePrimary: String?
+    /// Opaque local/protocol identity. It is not sufficient to target MAM.
     let archivedId: String?
+    /// Verified outer XEP-0313 cursor, when available from a current archive
+    /// row or archive-search response.
+    let archiveCursor: ArchiveCursor?
     let messageId: String?
     let authorId: String?
     let sourceDate: Date?
@@ -56,6 +60,7 @@ struct LastChatsSearchResultProvenance: Hashable, Sendable {
         conversation: LastChatsSearchConversation,
         messagePrimary: String?,
         archivedId: String?,
+        archiveCursor: ArchiveCursor? = nil,
         messageId: String?,
         authorId: String?,
         sourceDate: Date?,
@@ -67,6 +72,7 @@ struct LastChatsSearchResultProvenance: Hashable, Sendable {
         self.conversation = conversation
         self.messagePrimary = Self.nonEmpty(messagePrimary)
         self.archivedId = Self.nonEmpty(archivedId)
+        self.archiveCursor = archiveCursor
         self.messageId = Self.nonEmpty(messageId)
         self.authorId = Self.nonEmpty(authorId)
         self.sourceDate = sourceDate
@@ -102,8 +108,10 @@ struct LastChatsSearchResultProvenance: Hashable, Sendable {
             let identity: String
             if let messagePrimary {
                 identity = "primary:\(messagePrimary)"
+            } else if let archiveCursor {
+                identity = "mam:\(archiveCursor.rawValue)"
             } else if let archivedId {
-                identity = "archive:\(archivedId)"
+                identity = "raw:\(archivedId)"
             } else if let messageId {
                 identity = "message:\([authorId ?? "", messageId].prp())"
             } else if let sourceDate, let bodyFingerprint {
@@ -117,6 +125,7 @@ struct LastChatsSearchResultProvenance: Hashable, Sendable {
 
     var hasMessageIdentity: Bool {
         messagePrimary != nil
+            || archiveCursor != nil
             || archivedId != nil
             || messageId != nil
             || (sourceDate != nil && bodyFingerprint != nil)
@@ -157,6 +166,7 @@ enum LastChatsSearchRouteUnavailableReason: Equatable, Sendable {
 struct LastChatsSearchLocalCandidate: Equatable, Sendable {
     let primary: String
     let archivedId: String?
+    let archiveCursor: ArchiveCursor?
     let messageId: String?
     let authorId: String?
     let sourceDate: Date?
@@ -165,6 +175,7 @@ struct LastChatsSearchLocalCandidate: Equatable, Sendable {
     init(
         primary: String,
         archivedId: String?,
+        archiveCursor: ArchiveCursor? = nil,
         messageId: String?,
         authorId: String?,
         sourceDate: Date?,
@@ -172,6 +183,7 @@ struct LastChatsSearchLocalCandidate: Equatable, Sendable {
     ) {
         self.primary = primary
         self.archivedId = archivedId
+        self.archiveCursor = archiveCursor
         self.messageId = messageId
         self.authorId = authorId
         self.sourceDate = sourceDate
@@ -206,6 +218,13 @@ enum LastChatsSearchLocalResolver {
         if let primary = provenance.messagePrimary,
            let candidate = candidates.first(where: { $0.primary == primary }) {
             return .matched(candidate, source: .primary)
+        }
+
+        if let archiveCursor = provenance.archiveCursor,
+           let candidate = candidates.first(where: {
+               $0.archiveCursor == archiveCursor
+           }) {
+            return .matched(candidate, source: .archivedID)
         }
 
         if let archivedId = provenance.archivedId,
@@ -1074,6 +1093,7 @@ struct LastChatsSearchLocalPageLoader: @unchecked Sendable {
                 ),
                 messagePrimary: item.primary,
                 archivedId: item.archivedId,
+                archiveCursor: ArchiveCursor(rawValue: item.mamArchiveId),
                 messageId: item.messageId,
                 authorId: item.groupchatAuthorId,
                 sourceDate: item.date,
@@ -1115,6 +1135,7 @@ struct LastChatsSearchLocalPageLoader: @unchecked Sendable {
             ),
             messagePrimary: message.primaryID,
             archivedId: message.archiveID,
+            archiveCursor: ArchiveCursor(rawValue: message.archiveID),
             messageId: message.messageID,
             authorId: message.groupAuthorID,
             sourceDate: message.date,

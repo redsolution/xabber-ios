@@ -22,10 +22,11 @@ import Foundation
 import RealmSwift
 
 enum XabberRealmSchema {
-    /// Schema 19 introduces proof-bearing conversation archive coverage.
-    /// Schema 18 ranges are imported as permanently provisional compatibility
-    /// data. Only current-session MAM persistence proof can authorize UI.
-    static let current: UInt64 = 19
+    /// Schema 20 stores the outer XEP-0313 result ID separately from the
+    /// protocol stanza ID. Schema 21 adds a signed numeric projection of the
+    /// raw stanza ID for XEP-SYNC unread-boundary lookups; only current-session
+    /// MAM persistence proof can authorize UI.
+    static let current: UInt64 = 21
 }
 
 
@@ -313,6 +314,116 @@ func makeRealmMigrationConfiguration(
                             "updatedAt": now,
                         ]
                     )
+                }
+            }
+            if oldSchemaVersion < 20 {
+                // Do not backfill from `archivedId`: old rows overload that
+                // field with protocol stanza IDs, so doing so would fabricate
+                // unverified MAM cursor evidence. A subsequent MAM replay
+                // reconciles the outer result ID safely.
+                migration.enumerateObjects(
+                    ofType: MessageStorageItem.className()
+                ) { _, newObject in
+                    newObject?["mamArchiveId"] = ""
+                }
+
+                // Schema-19 coverage was built from the legacy archive-ID
+                // projection. Once schema 20 removes that projection as a
+                // source of MAM/RSM identity, any persisted verified proof
+                // (including an authoritative-empty proof) must be made
+                // ineligible for admission until a new MAM replay proves it.
+                // Keep the message and chat rows themselves intact.
+                var staleCoveragePrimaryIDs = Set<String>()
+                migration.enumerateObjects(
+                    ofType: ConversationArchiveCoverageStorageItem.className()
+                ) { oldObject, newObject in
+                    let primary = (
+                        oldObject?["primary"] as? String
+                        ?? newObject?["primary"] as? String
+                        ?? ""
+                    ).trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard primary.isNotEmpty else { return }
+
+                    let coverageGeneration = (
+                        oldObject?["coverageGeneration"] as? NSNumber
+                    )?.int64Value ?? 0
+                    let fingerprint = (
+                        oldObject?["lastObservedXEPSYNCFingerprint"] as? String
+                        ?? newObject?["lastObservedXEPSYNCFingerprint"] as? String
+                        ?? ""
+                    ).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let segmentsJSON = (
+                        oldObject?["segmentsJSON"] as? String
+                        ?? newObject?["segmentsJSON"] as? String
+                        ?? "[]"
+                    )
+                    let containsVerifiedSegment = segmentsJSON.data(using: .utf8)
+                        .flatMap { try? JSONDecoder().decode([ArchiveCoverageSegment].self, from: $0) }
+                        .map { segments in segments.contains(where: { $0.isVerified }) } ?? false
+                    let hasSessionProof = fingerprint.hasPrefix("session:")
+                    guard coverageGeneration > 0 || hasSessionProof || containsVerifiedSegment else {
+                        return
+                    }
+
+                    staleCoveragePrimaryIDs.insert(primary)
+                    newObject?["segmentsJSON"] = "[]"
+                    newObject?["coverageGeneration"] = Int64(0)
+                    newObject?["lastObservedXEPSYNCFingerprint"] = nil
+                    newObject?["updatedAt"] = Date()
+                }
+
+                if staleCoveragePrimaryIDs.isNotEmpty {
+                    migration.enumerateObjects(
+                        ofType: RegularChatArchiveSyncStateStorageItem.className()
+                    ) { oldObject, newObject in
+                        let primary = (
+                            oldObject?["primary"] as? String
+                            ?? newObject?["primary"] as? String
+                            ?? ""
+                        ).trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard staleCoveragePrimaryIDs.contains(primary) else { return }
+
+                        newObject?["oldestLoadedArchiveId"] = nil
+                        newObject?["newestLoadedArchiveId"] = nil
+                        newObject?["loadedRangesJSON"] = "[]"
+                        newObject?["knownGapsJSON"] = "[]"
+                        newObject?["olderArchiveEndReached"] = false
+                        newObject?["newerLiveEdgeReached"] = false
+                        newObject?["updatedAt"] = Date()
+                    }
+
+                    migration.enumerateObjects(
+                        ofType: LastChatsStorageItem.className()
+                    ) { oldObject, newObject in
+                        let primary = (
+                            oldObject?["primary"] as? String
+                            ?? newObject?["primary"] as? String
+                            ?? ""
+                        ).trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard staleCoveragePrimaryIDs.contains(primary) else { return }
+
+                        newObject?["isSynced"] = false
+                        newObject?["isInitialArchiveLoaded"] = false
+                        newObject?["fullArchiveLoaded"] = false
+                        newObject?["lastLoadedMessageHistoryId"] = nil
+                    }
+                }
+            }
+            if oldSchemaVersion < 21 {
+                // XEP-SYNC `unread@after` is a raw protocol stanza ID, not a
+                // MAM cursor. Keep an indexed numeric projection so the local
+                // lookup is both valid in Realm and independent of MAM order.
+                migration.enumerateObjects(
+                    ofType: MessageStorageItem.className()
+                ) { oldObject, newObject in
+                    let archivedID = (
+                        oldObject?["archivedId"] as? String
+                        ?? newObject?["archivedId"] as? String
+                    )
+                    newObject?["rawProtocolStanzaIDNumericValue"] =
+                        MessageStorageItem.rawProtocolStanzaIDNumericValue(
+                            from: archivedID
+                        )
                 }
             }
         },

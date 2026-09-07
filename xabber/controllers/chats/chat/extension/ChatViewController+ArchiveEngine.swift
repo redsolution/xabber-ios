@@ -648,15 +648,16 @@ enum ChatArchiveVerifiedTimelineStateFactory {
             guard item.owner == conversationKey.owner,
                   item.opponent == conversationKey.jid,
                   item.conversationType == conversationKey.conversationType,
-                  let cursor = ArchiveCursor(rawValue: item.archivedId),
+                  item.mamArchiveId.isNotEmpty,
+                  let cursor = ArchiveCursor(rawValue: item.mamArchiveId),
                   cursor >= segment.oldest,
                   cursor <= segment.newest else {
                 return nil
             }
             return item
         }.sorted {
-            guard let lhs = ArchiveCursor(rawValue: $0.archivedId),
-                  let rhs = ArchiveCursor(rawValue: $1.archivedId) else {
+            guard let lhs = ArchiveCursor(rawValue: $0.mamArchiveId),
+                  let rhs = ArchiveCursor(rawValue: $1.mamArchiveId) else {
                 return $0.date < $1.date
             }
             return lhs < rhs
@@ -687,7 +688,7 @@ enum ChatArchiveVerifiedTimelineStateFactory {
             newest: newest,
             residentPrimaryKeys: ordered.map(\.primary),
             residentArchivedIds: ordered.compactMap {
-                RegularChatArchiveSyncStateStorageItem.normalizedArchiveId($0.archivedId)
+                RegularChatArchiveSyncStateStorageItem.normalizedArchiveId($0.mamArchiveId)
             },
             isResidentAtLiveTail: segment.reachesLiveEdge
         )
@@ -1218,13 +1219,9 @@ extension ChatViewController {
               let account = AccountManager.shared.find(for: owner) else {
             return false
         }
-        let locator: ArchiveWindowLocator
-        if let rawArchiveID = request.anchor.archivedId,
-           let cursor = ArchiveCursor(rawValue: rawArchiveID) {
-            locator = .archiveID(cursor)
-        } else if let date = request.anchor.sourceDate {
-            locator = .timestamp(date)
-        } else {
+        guard let locator = ChatAnchorArchiveLocatorPolicy.locator(
+            for: request.anchor
+        ) else {
             return false
         }
         let intent = ArchiveWindowIntent(
@@ -1277,14 +1274,12 @@ extension ChatViewController {
         let state = session.snapshot.state
         switch direction {
         case .older:
-            guard let rawCursor = state.oldest?.archivedId,
-                  let residentCursor = ArchiveCursor(rawValue: rawCursor) else {
+            guard let residentCursor = state.oldest?.archiveCursor else {
                 return false
             }
             return residentCursor > scope.oldest || !scope.reachesArchiveStart
         case .newer:
-            guard let rawCursor = state.newest?.archivedId,
-                  let residentCursor = ArchiveCursor(rawValue: rawCursor) else {
+            guard let residentCursor = state.newest?.archiveCursor else {
                 return false
             }
             return residentCursor < scope.newest || !scope.reachesLiveEdge
@@ -2234,20 +2229,12 @@ extension ChatViewController {
            request.owner == owner,
            request.chatJid == jid,
            request.conversationType == conversationType {
-            if let rawArchiveID = request.anchor.archivedId,
-               let cursor = ArchiveCursor(rawValue: rawArchiveID) {
+            if let locator = ChatAnchorArchiveLocatorPolicy.locator(
+                for: request.anchor
+            ) {
                 return ArchiveWindowIntent(
                     conversation: conversation,
-                    locator: .archiveID(cursor),
-                    contextBefore: ArchivePageSizing.anchorBefore,
-                    contextAfter: ArchivePageSizing.anchorAfter,
-                    priority: .target
-                )
-            }
-            if let date = request.anchor.sourceDate {
-                return ArchiveWindowIntent(
-                    conversation: conversation,
-                    locator: .timestamp(date),
+                    locator: locator,
                     contextBefore: ArchivePageSizing.anchorBefore,
                     contextAfter: ArchivePageSizing.anchorAfter,
                     priority: .target
@@ -2255,26 +2242,6 @@ extension ChatViewController {
             }
         }
 
-        if let realm = try? WRealm.safe(),
-           let chat = realm.object(
-                ofType: LastChatsStorageItem.self,
-                forPrimaryKey: LastChatsStorageItem.genPrimary(
-                    jid: jid,
-                    owner: owner,
-                    conversationType: conversationType
-                )
-           ),
-           chat.syncUnreadCount > 0,
-           let rawUnreadBoundary = chat.syncUnreadAfterId,
-           let boundary = ArchiveCursor(rawValue: rawUnreadBoundary) {
-            return ArchiveWindowIntent(
-                conversation: conversation,
-                locator: .firstUnread(after: boundary),
-                contextBefore: ArchivePageSizing.anchorBefore,
-                contextAfter: ArchivePageSizing.initial,
-                priority: .visibleIntegrity
-            )
-        }
         return ArchiveWindowIntent(
             conversation: conversation,
             locator: .latest,

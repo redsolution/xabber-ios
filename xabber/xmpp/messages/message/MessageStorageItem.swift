@@ -256,7 +256,7 @@ struct MessageHistoryOrderKey: Comparable, Equatable {
     init(message: MessageStorageItem) {
         self.init(
             primary: message.primary,
-            archivedId: message.archivedId,
+            archivedId: message.mamArchiveCursorID,
             messageId: message.messageId,
             date: message.date
         )
@@ -456,7 +456,8 @@ class MessageStorageItem: Object {
     
     override static func indexedProperties() -> [String] {
         return [
-            "opponent", "owner", "date", "conversationType_", "archivedId", "messageId",
+            "opponent", "owner", "date", "conversationType_", "archivedId",
+            "rawProtocolStanzaIDNumericValue", "mamArchiveId", "messageId",
             "isDeleted", "deleteState_", "historyPositionOrdinal", "historyPositionKind",
             "historyPositionHigh", "historyPositionLow", "historyPositionDiscriminator"
         ]
@@ -491,6 +492,25 @@ class MessageStorageItem: Object {
     @objc dynamic var queryIds: String? = nil
     
     @objc dynamic var archivedId: String = "" {
+        didSet {
+            rawProtocolStanzaIDNumericValue = Self.rawProtocolStanzaIDNumericValue(
+                from: archivedId
+            )
+            refreshHistoryPositionComponents()
+        }
+    }
+
+    /// Numeric projection of the raw protocol stanza ID in `archivedId`.
+    /// It is intentionally separate from `mamArchiveId`: XEP-SYNC unread
+    /// boundaries are compared against the former, while MAM/RSM cursors use
+    /// only the latter. Zero means the raw ID is absent, nonnumeric, or cannot
+    /// fit in Realm's signed integer storage.
+    @objc dynamic var rawProtocolStanzaIDNumericValue: Int64 = 0
+
+    /// The outer XEP-0313 `<result id>` assigned by the archive. Unlike
+    /// `archivedId`, this is not used for stanza mutation, markers or delivery
+    /// receipts; it is solely the durable MAM/RSM cursor identity.
+    @objc dynamic var mamArchiveId: String = "" {
         didSet { refreshHistoryPositionComponents() }
     }
 
@@ -634,7 +654,7 @@ class MessageStorageItem: Object {
     func refreshHistoryPositionComponents() {
         let components = MessageHistoryPositionComponents.make(
             primary: primary,
-            archivedId: archivedId,
+            archivedId: mamArchiveCursorID,
             messageId: messageId,
             date: date
         )
@@ -781,7 +801,25 @@ class MessageStorageItem: Object {
     var forceUnreadState: Bool? = nil
     var isInvite: Bool = false
     var shouldPersistArchiveQueryId: Bool = false
+    var shouldReconcileMAMArchiveIdentity: Bool = false
     var countsAsRuntimeUnread: Bool = false
+
+    /// New rows use the outer MAM result ID. Legacy rows intentionally fall
+    /// back to their protocol stanza ID until a MAM replay repairs them,
+    /// because a migration cannot prove that an old stanza ID was a MAM cursor.
+    var mamArchiveCursorID: String {
+        mamArchiveId.isNotEmpty ? mamArchiveId : archivedId
+    }
+
+    static func rawProtocolStanzaIDNumericValue(from rawValue: String?) -> Int64 {
+        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let numericValue = UInt64(rawValue),
+              numericValue > 0,
+              numericValue <= UInt64(Int64.max) else {
+            return 0
+        }
+        return Int64(numericValue)
+    }
     var groupMentionIntent: GroupMessageMentionIntent? {
         get { GroupMessageMentionsCodec.intent(fromStorageValue: groupMentionIntent_) }
         set { groupMentionIntent_ = GroupMessageMentionsCodec.storageValue(for: newValue) }
@@ -797,6 +835,7 @@ class MessageStorageItem: Object {
             "forceUnreadState",
             "isInvite",
             "shouldPersistArchiveQueryId",
+            "shouldReconcileMAMArchiveIdentity",
             "countsAsRuntimeUnread",
             "groupMentionIntent",
             "groupMentionSenderRole"
@@ -1794,6 +1833,11 @@ class MessageStorageItem: Object {
         self.updatePrimary()
 
         if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.primary) {
+            if shouldReconcileMAMArchiveIdentity,
+               mamArchiveId.isNotEmpty,
+               instance.mamArchiveId != mamArchiveId {
+                instance.mamArchiveId = mamArchiveId
+            }
             if self.trustedSource && !instance.trustedSource {
                 if self.archivedId.isNotEmpty {
                     instance.archivedId = self.archivedId

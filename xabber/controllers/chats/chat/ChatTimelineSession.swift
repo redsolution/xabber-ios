@@ -317,7 +317,8 @@ protocol ChatTimelineSessionStore: ChatTimelinePageProviding, AnyObject {
 
 struct ChatTimelineResidentIndex {
     private let primaryPositions: [String: Int]
-    private let archivedIdPositions: [String: Int]
+    private let mamArchiveCursorPositions: [String: Int]
+    private let protocolStanzaIdPositions: [String: Int]
     private let messageIdPositions: [String: Int]
 
     var count: Int {
@@ -330,18 +331,39 @@ struct ChatTimelineResidentIndex {
 
     init(items: [MessageStorageItem]) {
         var primaryPositions: [String: Int] = [:]
-        var archivedIdPositions: [String: Int] = [:]
+        var mamArchiveCursorPositions: [String: Int] = [:]
+        var protocolStanzaIdPositions: [String: Int] = [:]
         var messageIdPositions: [String: Int] = [:]
+        var ambiguousMAMArchiveCursorIDs = Set<String>()
+        var ambiguousProtocolStanzaIDs = Set<String>()
         primaryPositions.reserveCapacity(items.count)
-        archivedIdPositions.reserveCapacity(items.count)
+        mamArchiveCursorPositions.reserveCapacity(items.count)
+        protocolStanzaIdPositions.reserveCapacity(items.count)
         messageIdPositions.reserveCapacity(items.count)
 
         for (index, item) in items.enumerated() {
             if item.primary.isNotEmpty {
                 primaryPositions[item.primary] = index
             }
-            if let archivedId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(item.archivedId) {
-                archivedIdPositions[archivedId] = index
+            if let archiveCursor = ArchiveCursor(rawValue: item.mamArchiveId) {
+                let archiveID = archiveCursor.rawValue
+                if mamArchiveCursorPositions[archiveID] != nil {
+                    mamArchiveCursorPositions.removeValue(forKey: archiveID)
+                    ambiguousMAMArchiveCursorIDs.insert(archiveID)
+                } else if !ambiguousMAMArchiveCursorIDs.contains(archiveID) {
+                    mamArchiveCursorPositions[archiveID] = index
+                }
+            }
+            if let protocolStanzaId =
+                RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
+                    item.archivedId
+                ) {
+                if protocolStanzaIdPositions[protocolStanzaId] != nil {
+                    protocolStanzaIdPositions.removeValue(forKey: protocolStanzaId)
+                    ambiguousProtocolStanzaIDs.insert(protocolStanzaId)
+                } else if !ambiguousProtocolStanzaIDs.contains(protocolStanzaId) {
+                    protocolStanzaIdPositions[protocolStanzaId] = index
+                }
             }
             if item.messageId.isNotEmpty {
                 messageIdPositions[item.messageId] = index
@@ -349,7 +371,8 @@ struct ChatTimelineResidentIndex {
         }
 
         self.primaryPositions = primaryPositions
-        self.archivedIdPositions = archivedIdPositions
+        self.mamArchiveCursorPositions = mamArchiveCursorPositions
+        self.protocolStanzaIdPositions = protocolStanzaIdPositions
         self.messageIdPositions = messageIdPositions
     }
 
@@ -358,11 +381,16 @@ struct ChatTimelineResidentIndex {
         return primaryPositions[primary]
     }
 
+    func index(archiveCursor: ArchiveCursor?) -> Int? {
+        guard let archiveCursor else { return nil }
+        return mamArchiveCursorPositions[archiveCursor.rawValue]
+    }
+
     func index(archivedId: String?) -> Int? {
         guard let archivedId = RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(archivedId) else {
             return nil
         }
-        return archivedIdPositions[archivedId]
+        return protocolStanzaIdPositions[archivedId]
     }
 
     func index(messageId: String?) -> Int? {
@@ -370,8 +398,16 @@ struct ChatTimelineResidentIndex {
         return messageIdPositions[messageId]
     }
 
-    func index(primary: String?, archivedId: String?, messageId: String?) -> Int? {
-        index(primary: primary) ?? index(archivedId: archivedId) ?? index(messageId: messageId)
+    func index(
+        primary: String?,
+        archiveCursor: ArchiveCursor? = nil,
+        archivedId: String?,
+        messageId: String?
+    ) -> Int? {
+        index(primary: primary) ??
+            index(archiveCursor: archiveCursor) ??
+            index(archivedId: archivedId) ??
+            index(messageId: messageId)
     }
 }
 
@@ -469,9 +505,15 @@ struct ChatTimelineSessionSnapshot {
         )
     }
 
-    func item(primary: String?, archivedId: String? = nil, messageId: String? = nil) -> MessageStorageItem? {
+    func item(
+        primary: String?,
+        archiveCursor: ArchiveCursor? = nil,
+        archivedId: String? = nil,
+        messageId: String? = nil
+    ) -> MessageStorageItem? {
         guard let index = residentIndex.index(
             primary: primary,
+            archiveCursor: archiveCursor,
             archivedId: archivedId,
             messageId: messageId
         ), items.indices.contains(index) else {
@@ -1881,6 +1923,15 @@ final class ChatTimelineSession {
                 ? .failed(.targetDeleted)
                 : .found(resident)
         }
+        if let archiveCursor = anchor.archiveCursor,
+           let resident = snapshot.item(
+               primary: nil,
+               archiveCursor: archiveCursor
+           ) {
+            return resident.isDeleted
+                ? .failed(.targetDeleted)
+                : .found(resident)
+        }
         return store.searchMessageResolution(anchor: anchor)
     }
 
@@ -1890,27 +1941,13 @@ final class ChatTimelineSession {
                 boundaryArchivedId
             )
         if let normalizedBoundaryArchivedId,
-           let boundaryDate = ChatInitialPositionPolicy.archiveDate(
-               from: normalizedBoundaryArchivedId
+           let resident = ChatUnreadBoundaryTargetPolicy.firstIncoming(
+               in: snapshot.items.filter { !$0.isDeleted },
+               after: normalizedBoundaryArchivedId,
+               archivedId: { $0.archivedId },
+               isOutgoing: { $0.outgoing }
            ) {
-            let boundaryPosition = ChatTimelinePositionKey(
-                boundary: ChatTimelineBoundary(
-                    primary: normalizedBoundaryArchivedId,
-                    archivedId: normalizedBoundaryArchivedId,
-                    messageId: nil,
-                    date: boundaryDate
-                )
-            )
-            if let resident = snapshot.items.first(where: {
-                !$0.isDeleted &&
-                    !$0.outgoing &&
-                    RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-                        $0.archivedId
-                    ) != normalizedBoundaryArchivedId &&
-                    ChatTimelinePositionKey(message: $0) > boundaryPosition
-            }) {
-                return resident
-            }
+            return resident
         }
         return store.firstIncoming(
             afterArchiveBoundaryId:
@@ -2183,7 +2220,7 @@ final class ChatTimelineSession {
             newest: newest,
             residentPrimaryKeys: bounded.map(\.primary),
             residentArchivedIds: bounded.compactMap {
-                RegularChatArchiveSyncStateStorageItem.normalizedArchiveId($0.archivedId)
+                RegularChatArchiveSyncStateStorageItem.normalizedArchiveId($0.mamArchiveCursorID)
             },
             isResidentAtLiveTail: state.isResidentAtLiveTail
         )

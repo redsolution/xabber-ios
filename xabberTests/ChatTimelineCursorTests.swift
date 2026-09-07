@@ -124,6 +124,43 @@ final class ChatTimelineCursorTests: XCTestCase {
         XCTAssertEqual(Set(items.map(\.primary)).count, 2)
     }
 
+    func testFirstIncomingUnreadUsesRawProtocolStanzaIdRatherThanMAMCursor() throws {
+        let boundary = "1700000000000150"
+        try insertMessages([
+            spec(
+                "raw-before-boundary",
+                archivedId: "1700000000000149",
+                mamArchiveId: "1700000000000900",
+                date: sharedDate
+            ),
+            spec(
+                "outgoing-after-boundary",
+                archivedId: "1700000000000151",
+                mamArchiveId: "1700000000000100",
+                outgoing: true,
+                date: sharedDate
+            ),
+            spec(
+                "raw-first",
+                archivedId: "1700000000000152",
+                mamArchiveId: "1700000000000300",
+                date: sharedDate
+            ),
+            spec(
+                "mam-first",
+                archivedId: "1700000000000200",
+                mamArchiveId: "1700000000000200",
+                date: sharedDate
+            )
+        ])
+
+        XCTAssertEqual(
+            try provider().firstIncoming(afterArchiveBoundaryId: boundary)?.primary,
+            "raw-first",
+            "sync unread@after is compared to raw stanza IDs, never outer MAM result IDs"
+        )
+    }
+
     private func provider() throws -> ChatLocalHistoryPageProvider {
         ChatLocalHistoryPageProvider(
             realm: try WRealm.safe(),
@@ -149,14 +186,39 @@ final class ChatTimelineCursorTests: XCTestCase {
     private func spec(
         _ primary: String,
         archivedId: String,
+        mamArchiveId: String? = nil,
         messageId: String? = nil,
+        outgoing: Bool = false,
         date: Date
-    ) -> (primary: String, archivedId: String, messageId: String, date: Date) {
-        (primary, archivedId, messageId ?? "message-\(primary)", date)
+    ) -> (
+        primary: String,
+        archivedId: String,
+        mamArchiveId: String?,
+        messageId: String,
+        outgoing: Bool,
+        date: Date
+    ) {
+        (
+            primary,
+            archivedId,
+            mamArchiveId,
+            messageId ?? "message-\(primary)",
+            outgoing,
+            date
+        )
     }
 
     private func insertMessages(
-        _ specs: [(primary: String, archivedId: String, messageId: String, date: Date)]
+        _ specs: [
+            (
+                primary: String,
+                archivedId: String,
+                mamArchiveId: String?,
+                messageId: String,
+                outgoing: Bool,
+                date: Date
+            )
+        ]
     ) throws {
         let realm = try WRealm.safe()
         try realm.write {
@@ -167,7 +229,9 @@ final class ChatTimelineCursorTests: XCTestCase {
                 message.opponent = jid
                 message.conversationType = .regular
                 message.archivedId = spec.archivedId
+                message.mamArchiveId = spec.mamArchiveId ?? ""
                 message.messageId = spec.messageId
+                message.outgoing = spec.outgoing
                 message.date = spec.date
                 message.sentDate = spec.date
                 message.body = spec.primary

@@ -53,10 +53,11 @@ struct ChatTimelineVerifiedScope: Equatable, Sendable {
     func archiveCursor(for message: MessageStorageItem) -> ArchiveCursor? {
         guard message.owner == conversationKey.owner,
               message.opponent == conversationKey.jid,
-              message.conversationType == conversationKey.conversationType else {
+              message.conversationType == conversationKey.conversationType,
+              message.mamArchiveId.isNotEmpty else {
             return nil
         }
-        return ArchiveCursor(rawValue: message.archivedId)
+        return ArchiveCursor(rawValue: message.mamArchiveId)
     }
 
     func canExtend(
@@ -172,8 +173,7 @@ struct ChatVirtualTimelineEngine {
         guard let boundary = direction == .older
                 ? state.oldest
                 : state.newest,
-              let boundaryArchiveID = boundary.archivedId,
-              let boundaryCursor = ArchiveCursor(rawValue: boundaryArchiveID),
+              let boundaryCursor = boundary.archiveCursor,
               verifiedScope.contains(boundaryCursor) else {
             return .invalidProof
         }
@@ -235,7 +235,7 @@ struct ChatVirtualTimelineEngine {
             messageId: nil
         ),
         verifiedScope.contains(anchor),
-        ArchiveCursor(rawValue: anchor.archivedId) == archiveCursor,
+        verifiedScope.archiveCursor(for: anchor) == archiveCursor,
         normalizedPrimary.map({ anchor.primary == $0 }) ?? true else {
             return .invalidProof
         }
@@ -303,12 +303,8 @@ struct ChatVirtualTimelineEngine {
         )
         let oldest = bounded.first.map(ChatTimelineBoundary.init(message:))
         let newest = bounded.last.map(ChatTimelineBoundary.init(message:))
-        let oldestCursor = bounded.first.flatMap {
-            ArchiveCursor(rawValue: $0.archivedId)
-        }
-        let newestCursor = bounded.last.flatMap {
-            ArchiveCursor(rawValue: $0.archivedId)
-        }
+        let oldestCursor = bounded.first.flatMap { verifiedScope.archiveCursor(for: $0) }
+        let newestCursor = bounded.last.flatMap { verifiedScope.archiveCursor(for: $0) }
         let isAtArchiveStart = verifiedScope.reachesArchiveStart && (
             bounded.isEmpty || oldestCursor == verifiedScope.oldest
         )
@@ -338,7 +334,7 @@ struct ChatVirtualTimelineEngine {
             residentPrimaryKeys: bounded.map(\.primary),
             residentArchivedIds: bounded.compactMap {
                 RegularChatArchiveSyncStateStorageItem.normalizedArchiveId(
-                    $0.archivedId
+                    $0.mamArchiveId
                 )
             },
             isResidentAtLiveTail: isAtLiveTail
