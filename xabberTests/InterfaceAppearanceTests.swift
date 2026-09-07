@@ -262,7 +262,7 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testInterfaceEditorRoutePushesOntoExistingNavigationStack() throws {
+    func testInterfaceLayoutEditorRoutePushesOntoExistingNavigationStack() throws {
         let controller = InterfaceSettingsViewController()
         let navigationController = UINavigationController(rootViewController: controller)
         controller.loadViewIfNeeded()
@@ -270,11 +270,74 @@ final class InterfaceAppearanceTests: XCTestCase {
             controller.view.subviews.compactMap { $0 as? UITableView }.first
         )
 
-        controller.tableView(tableView, didSelectRowAt: IndexPath(row: 0, section: 2))
+        controller.tableView(tableView, didSelectRowAt: IndexPath(row: 0, section: 3))
 
         XCTAssertEqual(navigationController.viewControllers.count, 2)
         XCTAssertTrue(navigationController.topViewController is AppearanceDraftViewController)
         XCTAssertNil(navigationController.topViewController?.navigationItem.leftBarButtonItem)
+    }
+
+    @MainActor
+    func testInterfaceSettingsShowsOnlyInlineSystemLightDarkAppearanceChoices() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+
+        let cell = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 0, section: 2)
+        )
+
+        XCTAssertEqual(Set(AppearanceInterfaceStyle.allCases), [.system, .light, .dark])
+        XCTAssertEqual(controller.tableView(tableView, titleForHeaderInSection: 2), "Appearance")
+        XCTAssertEqual(cell.accessibilityIdentifier, "interface.settings.appearance")
+        XCTAssertEqual(cell.selectionStyle, .none)
+        XCTAssertEqual(cell.accessoryType, .none)
+        XCTAssertNotNil(descendant(in: cell, accessibilityIdentifier: "interface.mode.system") as? UIControl)
+        XCTAssertNotNil(descendant(in: cell, accessibilityIdentifier: "interface.mode.light") as? UIControl)
+        XCTAssertNotNil(descendant(in: cell, accessibilityIdentifier: "interface.mode.dark") as? UIControl)
+        XCTAssertNil(descendant(in: cell, accessibilityIdentifier: "interface.mode.automatic"))
+        XCTAssertNil(descendant(in: cell, accessibilityIdentifier: "interface.settings.mode"))
+    }
+
+    @MainActor
+    func testInlineAppearanceChoiceCommitsTappedModeWithoutNavigation() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
+        let navigationController = UINavigationController(rootViewController: controller)
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+        let cell = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 0, section: 2)
+        )
+        let dark = try XCTUnwrap(
+            descendant(in: cell, accessibilityIdentifier: "interface.mode.dark") as? UIControl
+        )
+
+        dark.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(navigationController.viewControllers.count, 1)
+        XCTAssertTrue(navigationController.topViewController === controller)
+        XCTAssertEqual(coordinator.document.profile.interfaceStyle, .dark)
+        XCTAssertEqual(store.load().profile.interfaceStyle, .dark)
+
+        let refreshedCell = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 0, section: 2)
+        )
+        let selectedDark = try XCTUnwrap(
+            descendant(in: refreshedCell, accessibilityIdentifier: "interface.mode.dark") as? UIControl
+        )
+        XCTAssertEqual(selectedDark.accessibilityValue, "Selected")
+        XCTAssertTrue(selectedDark.accessibilityTraits.contains(.selected))
     }
 
     @MainActor

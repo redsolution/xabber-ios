@@ -20,7 +20,6 @@ final class InterfaceSettingsViewController: BaseViewController {
         case themes
         case wallpaper
         case accent
-        case mode
         case textSize
         case bubbles
         case avatars
@@ -45,6 +44,7 @@ final class InterfaceSettingsViewController: BaseViewController {
         tableView.dataSource = self
         tableView.delegate = self
         tableView.register(AppearanceOverviewCell.self, forCellReuseIdentifier: AppearanceOverviewCell.reuseIdentifier)
+        tableView.register(AppearanceModeSelectionCell.self, forCellReuseIdentifier: AppearanceModeSelectionCell.reuseIdentifier)
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "AppearanceValueCell")
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 56
@@ -99,7 +99,7 @@ final class InterfaceSettingsViewController: BaseViewController {
         switch section {
         case .preview: return nil
         case .theme: return themeRows[indexPath.row]
-        case .mode: return .mode
+        case .mode: return nil
         case .layout: return [.textSize, .bubbles, .avatars][indexPath.row]
         }
     }
@@ -117,7 +117,6 @@ final class InterfaceSettingsViewController: BaseViewController {
             case .cloud: return "Photo"
             }
         case .accent: return nil
-        case .mode: return profile.interfaceStyle.displayName
         case .textSize: return profile.textSize.displayName
         case .bubbles: return profile.bubbleStyle.displayName
         case .avatars: return "\(profile.avatarMask.displayName), \(profile.avatarPosition.displayName)"
@@ -129,7 +128,6 @@ final class InterfaceSettingsViewController: BaseViewController {
         case .themes: return "Chat Themes"
         case .wallpaper: return "Chat Wallpaper"
         case .accent: return "Application Color"
-        case .mode: return "Appearance Mode"
         case .textSize: return "Text Size"
         case .bubbles: return "Message Bubbles"
         case .avatars: return "Avatars"
@@ -141,7 +139,6 @@ final class InterfaceSettingsViewController: BaseViewController {
         case .themes: return "interface.settings.chatThemes"
         case .wallpaper: return "interface.settings.wallpaper"
         case .accent: return "interface.settings.applicationColor"
-        case .mode: return "interface.settings.mode"
         case .textSize: return "interface.settings.textSize"
         case .bubbles: return "interface.settings.bubbles"
         case .avatars: return "interface.settings.avatars"
@@ -177,6 +174,28 @@ final class InterfaceSettingsViewController: BaseViewController {
             present(alert, animated: true)
         }
     }
+
+    private func applyInterfaceStyle(_ style: AppearanceInterfaceStyle) {
+        var updated = appearanceCoordinator.document
+        guard updated.profile.interfaceStyle != style else {
+            document = updated
+            tableView.reloadSections(IndexSet(integer: Section.mode.rawValue), with: .none)
+            return
+        }
+        updated.profile.interfaceStyle = style
+        do {
+            _ = try appearanceCoordinator.commit(updated)
+            document = appearanceCoordinator.document
+        } catch {
+            let alert = UIAlertController(
+                title: "Couldn’t apply appearance",
+                message: error.localizedDescription,
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
+        }
+    }
 }
 
 extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDelegate {
@@ -195,6 +214,7 @@ extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDel
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch Section(rawValue: section) {
         case .theme: return "Color Theme"
+        case .mode: return "Appearance"
         case .layout: return "Chat Appearance"
         default: return nil
         }
@@ -209,6 +229,25 @@ extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDel
             cell.configure(document: document, traits: traitCollection)
             cell.onThemeTap = { [weak self] theme in
                 self?.applyOverviewTheme(theme)
+            }
+            return cell
+        }
+        if Section(rawValue: indexPath.section) == .mode {
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: AppearanceModeSelectionCell.reuseIdentifier,
+                for: indexPath
+            ) as? AppearanceModeSelectionCell else { return UITableViewCell() }
+            let snapshot = AppearanceResolver.resolve(
+                document: document,
+                traitStyle: traitCollection.userInterfaceStyle
+            )
+            cell.configure(
+                selectedStyle: document.profile.interfaceStyle,
+                accent: snapshot.accent.uiColor,
+                traitStyle: traitCollection.userInterfaceStyle
+            )
+            cell.onSelection = { [weak self] style in
+                self?.applyInterfaceStyle(style)
             }
             return cell
         }
@@ -242,8 +281,6 @@ extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDel
             pushEditor(AppearanceWallpaperViewController(document: document))
         case .accent:
             pushEditor(AppearanceAccentViewController(document: document))
-        case .mode:
-            pushEditor(AppearanceModeViewController(document: document))
         case .textSize:
             pushEditor(AppearanceTextSizeViewController(document: document))
         case .bubbles:
@@ -265,6 +302,219 @@ private final class AppearanceColorIndicator: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
+private final class AppearanceModeSelectionCell: UITableViewCell {
+    static let reuseIdentifier = "AppearanceModeSelectionCell"
+
+    var onSelection: ((AppearanceInterfaceStyle) -> Void)?
+
+    private let optionsStack = UIStackView()
+    private var controls: [AppearanceInterfaceStyle: AppearanceModeOptionControl] = [:]
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        isAccessibilityElement = false
+        accessibilityIdentifier = "interface.settings.appearance"
+        contentView.directionalLayoutMargins = NSDirectionalEdgeInsets(
+            top: 18,
+            leading: 16,
+            bottom: 16,
+            trailing: 16
+        )
+        optionsStack.translatesAutoresizingMaskIntoConstraints = false
+        optionsStack.axis = .horizontal
+        optionsStack.alignment = .top
+        optionsStack.distribution = .fillEqually
+        optionsStack.spacing = 12
+        contentView.addSubview(optionsStack)
+        NSLayoutConstraint.activate([
+            optionsStack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            optionsStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            optionsStack.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
+            optionsStack.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor)
+        ])
+
+        for style in AppearanceInterfaceStyle.allCases {
+            let control = AppearanceModeOptionControl()
+            control.addAction(UIAction { [weak self] _ in
+                self?.onSelection?(style)
+            }, for: .touchUpInside)
+            controls[style] = control
+            optionsStack.addArrangedSubview(control)
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(
+        selectedStyle: AppearanceInterfaceStyle,
+        accent: UIColor,
+        traitStyle: UIUserInterfaceStyle
+    ) {
+        for style in AppearanceInterfaceStyle.allCases {
+            controls[style]?.configure(
+                style: style,
+                selected: style == selectedStyle,
+                accent: accent,
+                traitStyle: traitStyle
+            )
+        }
+    }
+}
+
+private final class AppearanceModeOptionControl: UIControl {
+    private let contentStack = UIStackView()
+    private let preview = AppearanceModePreviewCard()
+    private let titleLabel = UILabel()
+    private let selectionIndicator = UIImageView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        translatesAutoresizingMaskIntoConstraints = false
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.axis = .vertical
+        contentStack.alignment = .center
+        contentStack.spacing = 8
+        contentStack.isUserInteractionEnabled = false
+        preview.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .preferredFont(forTextStyle: .subheadline)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 1
+        titleLabel.minimumScaleFactor = 0.78
+        titleLabel.adjustsFontSizeToFitWidth = true
+        titleLabel.isAccessibilityElement = false
+        selectionIndicator.translatesAutoresizingMaskIntoConstraints = false
+        selectionIndicator.contentMode = .scaleAspectFit
+        selectionIndicator.isAccessibilityElement = false
+        preview.isAccessibilityElement = false
+        contentStack.addArrangedSubview(preview)
+        contentStack.addArrangedSubview(titleLabel)
+        contentStack.addArrangedSubview(selectionIndicator)
+        addSubview(contentStack)
+        NSLayoutConstraint.activate([
+            contentStack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentStack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentStack.topAnchor.constraint(equalTo: topAnchor),
+            contentStack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            preview.widthAnchor.constraint(equalTo: contentStack.widthAnchor, multiplier: 0.76),
+            preview.heightAnchor.constraint(equalTo: preview.widthAnchor, multiplier: 1.55),
+            titleLabel.widthAnchor.constraint(lessThanOrEqualTo: contentStack.widthAnchor),
+            selectionIndicator.widthAnchor.constraint(equalToConstant: 30),
+            selectionIndicator.heightAnchor.constraint(equalTo: selectionIndicator.widthAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(
+        style: AppearanceInterfaceStyle,
+        selected: Bool,
+        accent: UIColor,
+        traitStyle: UIUserInterfaceStyle
+    ) {
+        preview.configure(style: style, traitStyle: traitStyle)
+        titleLabel.text = style.displayName
+        selectionIndicator.image = UIImage(
+            systemName: selected ? "checkmark.circle.fill" : "circle",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 28, weight: .medium)
+        )
+        selectionIndicator.tintColor = selected ? accent : .tertiaryLabel
+        accessibilityIdentifier = "interface.mode.\(style.rawValue)"
+        accessibilityLabel = "\(style.displayName) appearance"
+        accessibilityValue = selected ? "Selected" : nil
+        accessibilityHint = "Applies this appearance to the app"
+        accessibilityTraits = selected ? [.button, .selected] : .button
+    }
+}
+
+private final class AppearanceModePreviewCard: UIView {
+    private let gradientLayer = CAGradientLayer()
+    private let timeLabel = UILabel()
+    private let notificationsStack = UIStackView()
+    private let firstNotification = UIView()
+    private let secondNotification = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        layer.cornerRadius = 18
+        layer.cornerCurve = .continuous
+        clipsToBounds = true
+        gradientLayer.startPoint = CGPoint(x: 0, y: 0)
+        gradientLayer.endPoint = CGPoint(x: 1, y: 1)
+        layer.insertSublayer(gradientLayer, at: 0)
+
+        timeLabel.translatesAutoresizingMaskIntoConstraints = false
+        timeLabel.text = "09:41"
+        timeLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
+        timeLabel.textAlignment = .center
+        timeLabel.isAccessibilityElement = false
+
+        notificationsStack.translatesAutoresizingMaskIntoConstraints = false
+        notificationsStack.axis = .vertical
+        notificationsStack.spacing = 6
+        notificationsStack.isAccessibilityElement = false
+        [firstNotification, secondNotification].forEach { notification in
+            notification.translatesAutoresizingMaskIntoConstraints = false
+            notification.layer.cornerRadius = 8
+            notification.layer.cornerCurve = .continuous
+            notification.isAccessibilityElement = false
+            notification.heightAnchor.constraint(equalToConstant: 20).isActive = true
+            notificationsStack.addArrangedSubview(notification)
+        }
+        addSubview(timeLabel)
+        addSubview(notificationsStack)
+        NSLayoutConstraint.activate([
+            timeLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            timeLabel.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            notificationsStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            notificationsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            notificationsStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        gradientLayer.frame = bounds
+    }
+
+    func configure(style: AppearanceInterfaceStyle, traitStyle: UIUserInterfaceStyle) {
+        let effectiveStyle: UIUserInterfaceStyle
+        switch style {
+        case .system:
+            effectiveStyle = traitStyle == .dark ? .dark : .light
+        case .light:
+            effectiveStyle = .light
+        case .dark:
+            effectiveStyle = .dark
+        }
+        let palette: [UIColor]
+        switch effectiveStyle {
+        case .dark:
+            palette = [
+                UIColor(red: 0.04, green: 0.12, blue: 0.30, alpha: 1),
+                UIColor(red: 0.04, green: 0.43, blue: 0.61, alpha: 1),
+                UIColor(red: 0.01, green: 0.10, blue: 0.22, alpha: 1)
+            ]
+        default:
+            palette = [
+                UIColor(red: 0.69, green: 0.95, blue: 0.96, alpha: 1),
+                UIColor(red: 0.12, green: 0.65, blue: 0.73, alpha: 1),
+                UIColor(red: 0.06, green: 0.30, blue: 0.70, alpha: 1)
+            ]
+        }
+        gradientLayer.colors = palette.map { $0.cgColor }
+        timeLabel.textColor = .white
+        let notificationColor = UIColor.white.withAlphaComponent(effectiveStyle == .dark ? 0.18 : 0.52)
+        firstNotification.backgroundColor = notificationColor
+        secondNotification.backgroundColor = notificationColor
+        accessibilityIdentifier = "interface.mode.preview.\(style.rawValue)"
+    }
 }
 
 private final class AppearanceOverviewCell: UITableViewCell {
@@ -846,47 +1096,6 @@ class AppearanceDraftViewController: BaseViewController {
         let alert = UIAlertController(title: "Couldn’t apply appearance", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)
-    }
-}
-
-private final class AppearanceModeViewController: AppearanceDraftViewController, UITableViewDataSource, UITableViewDelegate {
-    private let tableView = UITableView(frame: .zero, style: .insetGrouped)
-
-    init(document: AppearanceSettingsDocument) {
-        super.init(document: document, title: "Appearance Mode")
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        tableView.translatesAutoresizingMaskIntoConstraints = false
-        tableView.dataSource = self
-        tableView.delegate = self
-        view.addSubview(tableView)
-        NSLayoutConstraint.activate([
-            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.topAnchor.constraint(equalTo: view.topAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
-    }
-
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { AppearanceInterfaceStyle.allCases.count }
-
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let value = AppearanceInterfaceStyle.allCases[indexPath.row]
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        cell.textLabel?.text = value.displayName
-        cell.accessoryType = draft.profile.interfaceStyle == value ? .checkmark : .none
-        cell.accessibilityIdentifier = "interface.mode.\(value.rawValue)"
-        return cell
-    }
-
-    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        draft.profile.interfaceStyle = AppearanceInterfaceStyle.allCases[indexPath.row]
-        tableView.reloadData()
-        updatePreview()
     }
 }
 
