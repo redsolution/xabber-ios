@@ -2345,13 +2345,13 @@ final class AppearanceWallpaperViewController: AppearanceDraftViewController, UI
         collectionView.accessibilityIdentifier = "interface.wallpaper.builtInGrid"
         collectionView.register(AppearanceWallpaperCell.self, forCellWithReuseIdentifier: AppearanceWallpaperCell.reuseIdentifier)
         let colorButton = makeAction(
-            title: "Set a Color",
+            title: "Color",
             symbol: "paintpalette.fill",
             accessibilityIdentifier: "interface.wallpaper.setColor",
             selector: #selector(setColor)
         )
         let photoButton = makeAction(
-            title: "Choose from iPhone",
+            title: "Gallery",
             symbol: "photo.on.rectangle",
             accessibilityIdentifier: "interface.wallpaper.chooseFromIPhone",
             selector: #selector(choosePhoto)
@@ -2521,9 +2521,8 @@ final class AppearanceWallpaperViewController: AppearanceDraftViewController, UI
 
     private func selectCloudOwner() -> AppearanceCloudOwnerCandidate? {
         let candidates = AccountManager.shared.users.map { account -> AppearanceCloudOwnerCandidate in
-            AppearanceCloudOwnerCandidate.fromUploadRequestContext(
+            AppearanceCloudOwnerCandidate.fromLoadedEnabledAccount(
                 owner: account.jid,
-                isEnabled: AccountManager.shared.activeUsers.value.contains(account.jid),
                 isPremium: SubscribtionsManager.shared.hasActiveSubsription(for: account.jid),
                 requestContext: CloudStorageGalleryRequestContext.resolve(owner: account.jid)
             )

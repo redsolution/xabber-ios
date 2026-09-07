@@ -698,6 +698,25 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertEqual(AppearanceCloudOwnerSelector.select(from: [candidate])?.owner, context.owner)
     }
 
+    func testCloudOwnerUsesLoadedEnabledAccountWithoutConnectionRelay() throws {
+        let context = CloudStorageGalleryRequestContext.make(
+            owner: "wallpaper@example.test",
+            galleryType: .basic,
+            baseURL: try XCTUnwrap(URL(string: "https://gallery.example.test/api/")),
+            token: "gallery-token"
+        )
+
+        let candidate = AppearanceCloudOwnerCandidate.fromLoadedEnabledAccount(
+            owner: context.owner,
+            isPremium: false,
+            requestContext: context
+        )
+
+        XCTAssertTrue(candidate.isEnabled)
+        XCTAssertTrue(candidate.isReady)
+        XCTAssertEqual(AppearanceCloudOwnerSelector.select(from: [candidate])?.owner, context.owner)
+    }
+
     @MainActor
     func testWallpaperEditorPlacesActionsBelowBuiltInsAndUsesSelectedBackgroundForTiles() throws {
         let selectedColor = try XCTUnwrap(AppearanceColor(hex: "#2456A6"))
@@ -735,6 +754,8 @@ final class InterfaceAppearanceTests: XCTestCase {
 
         XCTAssertLessThanOrEqual(builtIns.frame.maxY, colorAction.frame.minY)
         XCTAssertLessThanOrEqual(builtIns.frame.maxY, photoAction.frame.minY)
+        XCTAssertEqual(colorAction.configuration?.title, "Color")
+        XCTAssertEqual(photoAction.configuration?.title, "Gallery")
         XCTAssertNil(descendant(in: controller.view, accessibilityIdentifier: "interface.wallpaper.blurred"))
         XCTAssertNil(descendant(in: controller.view, accessibilityIdentifier: "interface.wallpaper.motion"))
         guard case .gradient(let stops, let pattern, let intensity) = tileDocument.profile.wallpaper else {

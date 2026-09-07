@@ -143,6 +143,22 @@ enum AppearanceCloudWallpaperError: LocalizedError {
 }
 
 extension AppearanceCloudOwnerCandidate {
+    /// `AccountManager.users` contains only accounts that are currently enabled.
+    /// Do not consult `activeUsers` here: it is an asynchronously populated
+    /// connection relay and can legitimately be empty while Settings is ready.
+    static func fromLoadedEnabledAccount(
+        owner: String,
+        isPremium: Bool,
+        requestContext: CloudStorageGalleryRequestContext?
+    ) -> AppearanceCloudOwnerCandidate {
+        fromUploadRequestContext(
+            owner: owner,
+            isEnabled: true,
+            isPremium: isPremium,
+            requestContext: requestContext
+        )
+    }
+
     /// A resolved request context carries the currently selected Gallery URL and
     /// its scoped token. It is the source of truth for whether a photo upload
     /// can start; the availability relay is only presentation state and can
