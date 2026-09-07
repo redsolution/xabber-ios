@@ -142,6 +142,27 @@ enum AppearanceCloudWallpaperError: LocalizedError {
     }
 }
 
+extension AppearanceCloudOwnerCandidate {
+    /// A resolved request context carries the currently selected Gallery URL and
+    /// its scoped token. It is the source of truth for whether a photo upload
+    /// can start; the availability relay is only presentation state and can
+    /// lag a valid context during a reconnect or quota refresh.
+    static func fromUploadRequestContext(
+        owner: String,
+        isEnabled: Bool,
+        isPremium: Bool,
+        requestContext: CloudStorageGalleryRequestContext?
+    ) -> AppearanceCloudOwnerCandidate {
+        AppearanceCloudOwnerCandidate(
+            owner: owner,
+            galleryIdentity: requestContext?.identity ?? "",
+            isEnabled: isEnabled,
+            isPremium: isPremium,
+            isReady: requestContext != nil
+        )
+    }
+}
+
 final class XabberAppearanceCloudWallpaperClient: AppearanceCloudWallpaperClient {
     private let cache: AppearanceWallpaperCache
 

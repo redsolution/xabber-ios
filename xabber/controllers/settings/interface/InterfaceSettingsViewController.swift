@@ -2312,13 +2312,13 @@ final class AppearanceThemeEditorViewController: BaseViewController, UIColorPick
     }
 }
 
-private final class AppearanceWallpaperViewController: AppearanceDraftViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout, PHPickerViewControllerDelegate {
+final class AppearanceWallpaperViewController: AppearanceDraftViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout, PHPickerViewControllerDelegate {
+    private let scrollView = UIScrollView()
     private let collectionView: UICollectionView
     private let activity = UIActivityIndicatorView(style: .medium)
-    private let blurSwitch = UISwitch()
-    private let motionSwitch = UISwitch()
     private let uploader: AppearanceCloudWallpaperClient
     private var pendingUploadAsset: AppearanceProcessedWallpaperAsset?
+    private var builtInGridHeightConstraint: NSLayoutConstraint?
     private let builtIns = ["None", "Honeycomb", "Aliens", "Summer", "Cats", "Flowers", "Flowers-daisy", "Hearts"]
 
     init(document: AppearanceSettingsDocument, uploader: AppearanceCloudWallpaperClient = XabberAppearanceCloudWallpaperClient()) {
@@ -2335,54 +2335,75 @@ private final class AppearanceWallpaperViewController: AppearanceDraftViewContro
     override func viewDidLoad() {
         super.viewDidLoad()
         preview.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.alwaysBounceVertical = true
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = .clear
+        collectionView.isScrollEnabled = false
         collectionView.dataSource = self
         collectionView.delegate = self
+        collectionView.accessibilityIdentifier = "interface.wallpaper.builtInGrid"
         collectionView.register(AppearanceWallpaperCell.self, forCellWithReuseIdentifier: AppearanceWallpaperCell.reuseIdentifier)
-        let colorButton = makeAction(title: "Set a Color", symbol: "paintpalette.fill", selector: #selector(setColor))
-        let photoButton = makeAction(title: "Choose from Photos", symbol: "photo.on.rectangle", selector: #selector(choosePhoto))
+        let colorButton = makeAction(
+            title: "Set a Color",
+            symbol: "paintpalette.fill",
+            accessibilityIdentifier: "interface.wallpaper.setColor",
+            selector: #selector(setColor)
+        )
+        let photoButton = makeAction(
+            title: "Choose from iPhone",
+            symbol: "photo.on.rectangle",
+            accessibilityIdentifier: "interface.wallpaper.chooseFromIPhone",
+            selector: #selector(choosePhoto)
+        )
         activity.hidesWhenStopped = true
-        let actions = UIStackView(arrangedSubviews: [colorButton, photoButton, activity])
+        let actions = UIStackView(arrangedSubviews: [colorButton, photoButton])
         actions.axis = .horizontal
         actions.spacing = 12
         actions.alignment = .center
-        let blurLabel = UILabel()
-        blurLabel.text = "Blurred"
-        let motionLabel = UILabel()
-        motionLabel.text = "Motion"
-        blurSwitch.addTarget(self, action: #selector(effectChanged), for: .valueChanged)
-        motionSwitch.addTarget(self, action: #selector(effectChanged), for: .valueChanged)
-        blurSwitch.accessibilityIdentifier = "interface.wallpaper.blurred"
-        motionSwitch.accessibilityIdentifier = "interface.wallpaper.motion"
-        let effects = UIStackView(arrangedSubviews: [blurLabel, blurSwitch, UIView(), motionLabel, motionSwitch])
-        effects.axis = .horizontal
-        effects.spacing = 10
-        effects.alignment = .center
-        let stack = UIStackView(arrangedSubviews: [preview, actions, effects, collectionView])
+        actions.distribution = .fillEqually
+        let stack = UIStackView(arrangedSubviews: [preview, collectionView, actions, activity])
         stack.axis = .vertical
         stack.spacing = 16
         stack.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(stack)
+        view.addSubview(scrollView)
+        scrollView.addSubview(stack)
+        let gridHeight = collectionView.heightAnchor.constraint(equalToConstant: 0)
+        builtInGridHeightConstraint = gridHeight
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-            stack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            scrollView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 12),
+            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -12),
+            stack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32),
             preview.heightAnchor.constraint(equalToConstant: 250),
-            collectionView.heightAnchor.constraint(greaterThanOrEqualToConstant: 280)
+            gridHeight
         ])
         updatePreview()
-        refreshEffects()
     }
 
-    private func makeAction(title: String, symbol: String, selector: Selector) -> UIButton {
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateBuiltInGridHeightIfNeeded()
+    }
+
+    private func makeAction(
+        title: String,
+        symbol: String,
+        accessibilityIdentifier: String,
+        selector: Selector
+    ) -> UIButton {
         let button = UIButton(type: .system)
         button.configuration = .bordered()
         button.configuration?.title = title
         button.configuration?.image = UIImage(systemName: symbol)
         button.configuration?.imagePadding = 6
         button.addTarget(self, action: selector, for: .touchUpInside)
+        button.accessibilityIdentifier = accessibilityIdentifier
         return button
     }
 
@@ -2395,7 +2416,12 @@ private final class AppearanceWallpaperViewController: AppearanceDraftViewContro
         else if case .builtIn(let current) = draft.profile.wallpaper { selected = current == name }
         else { selected = false }
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: AppearanceWallpaperCell.reuseIdentifier, for: indexPath) as! AppearanceWallpaperCell
-        cell.configure(name: name, selected: selected, accent: view.tintColor)
+        cell.configure(
+            name: name,
+            selected: selected,
+            accent: view.tintColor,
+            document: builtInPreviewDocument(for: name)
+        )
         return cell
     }
 
@@ -2403,13 +2429,26 @@ private final class AppearanceWallpaperViewController: AppearanceDraftViewContro
         let name = builtIns[indexPath.item]
         draft.profile.wallpaper = name == "None" ? .none : .builtIn(name: name)
         collectionView.reloadData()
-        refreshEffects()
         updatePreview()
     }
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        let width = floor((collectionView.bounds.width - 20) / 3)
+        let width = wallpaperTileWidth(for: collectionView.bounds.width)
         return CGSize(width: width, height: width * 1.25)
+    }
+
+    private func wallpaperTileWidth(for availableWidth: CGFloat) -> CGFloat {
+        floor(max(0, availableWidth - 20) / 3)
+    }
+
+    private func updateBuiltInGridHeightIfNeeded() {
+        let tileWidth = wallpaperTileWidth(for: collectionView.bounds.width)
+        guard tileWidth > 0 else { return }
+        let rows = ceil(CGFloat(builtIns.count) / 3)
+        let height = rows * tileWidth * 1.25 + max(0, rows - 1) * 10
+        guard abs((builtInGridHeightConstraint?.constant ?? 0) - height) > 0.5 else { return }
+        builtInGridHeightConstraint?.constant = height
+        collectionView.collectionViewLayout.invalidateLayout()
     }
 
     @objc private func setColor() {
@@ -2472,7 +2511,7 @@ private final class AppearanceWallpaperViewController: AppearanceDraftViewContro
                 self.pendingUploadAsset = nil
                 self.activity.stopAnimating()
                 self.draft.profile.wallpaper = .cloud(reference: reference, blurred: false, motion: false)
-                self.refreshEffects()
+                self.collectionView.reloadData()
                 self.updatePreview()
             case .failure(let error):
                 self.uploadFailed(error)
@@ -2482,18 +2521,38 @@ private final class AppearanceWallpaperViewController: AppearanceDraftViewContro
 
     private func selectCloudOwner() -> AppearanceCloudOwnerCandidate? {
         let candidates = AccountManager.shared.users.map { account -> AppearanceCloudOwnerCandidate in
-            let configuration = AccountGalleryConfiguration(owner: account.jid)
-            let ready: Bool
-            if case .ready = account.cloudStorage.availabilityRelay.value { ready = true } else { ready = false }
-            return AppearanceCloudOwnerCandidate(
+            AppearanceCloudOwnerCandidate.fromUploadRequestContext(
                 owner: account.jid,
-                galleryIdentity: configuration.currentGalleryIdentity,
                 isEnabled: AccountManager.shared.activeUsers.value.contains(account.jid),
                 isPremium: SubscribtionsManager.shared.hasActiveSubsription(for: account.jid),
-                isReady: ready
+                requestContext: CloudStorageGalleryRequestContext.resolve(owner: account.jid)
             )
         }
         return AppearanceCloudOwnerSelector.select(from: candidates)
+    }
+
+    /// Built-in artwork is transparent. Render it through the same backdrop as
+    /// a chat, while retaining a manually selected color/gradient underneath.
+    func builtInPreviewDocument(for name: String) -> AppearanceSettingsDocument {
+        var tileDocument = document
+        tileDocument.profile = draft.profile
+        let snapshot = AppearanceResolver.resolve(
+            document: tileDocument,
+            traitStyle: traitCollection.userInterfaceStyle
+        )
+        let backgroundStops: [AppearanceColor]
+        if case .gradient(let stops, _, _) = draft.profile.wallpaper,
+           !stops.isEmpty {
+            backgroundStops = stops
+        } else {
+            backgroundStops = snapshot.palette.backgroundStops
+        }
+        tileDocument.profile.wallpaper = .gradient(
+            stops: backgroundStops,
+            pattern: name == "None" ? nil : name.lowercased(),
+            intensity: 10
+        )
+        return tileDocument
     }
 
     private func uploadFailed(_ error: Error) {
@@ -2515,30 +2574,6 @@ private final class AppearanceWallpaperViewController: AppearanceDraftViewContro
         present(alert, animated: true)
     }
 
-    @objc private func effectChanged() {
-        guard case .cloud(let reference, _, _) = draft.profile.wallpaper else { return }
-        let motion = motionSwitch.isOn && !UIAccessibility.isReduceMotionEnabled
-        draft.profile.wallpaper = .cloud(
-            reference: reference,
-            blurred: blurSwitch.isOn,
-            motion: motion
-        )
-        updatePreview()
-    }
-
-    private func refreshEffects() {
-        if case .cloud(_, let blurred, let motion) = draft.profile.wallpaper {
-            blurSwitch.isEnabled = true
-            blurSwitch.isOn = blurred
-            motionSwitch.isEnabled = !UIAccessibility.isReduceMotionEnabled
-            motionSwitch.isOn = motion && !UIAccessibility.isReduceMotionEnabled
-        } else {
-            blurSwitch.isEnabled = false
-            blurSwitch.isOn = false
-            motionSwitch.isEnabled = false
-            motionSwitch.isOn = false
-        }
-    }
 }
 
 extension AppearanceWallpaperViewController: UIColorPickerViewControllerDelegate {
@@ -2549,15 +2584,14 @@ extension AppearanceWallpaperViewController: UIColorPickerViewControllerDelegate
             pattern: nil,
             intensity: 100
         )
-        refreshEffects()
         updatePreview()
         collectionView.reloadData()
     }
 }
 
-private final class AppearanceWallpaperCell: UICollectionViewCell {
+final class AppearanceWallpaperCell: UICollectionViewCell {
     static let reuseIdentifier = "AppearanceWallpaperCell"
-    private let imageView = UIImageView()
+    private let backdrop = ChatBackgroundBackdropView()
     private let nameLabel = UILabel()
 
     override init(frame: CGRect) {
@@ -2565,21 +2599,22 @@ private final class AppearanceWallpaperCell: UICollectionViewCell {
         contentView.layer.cornerRadius = 16
         contentView.layer.cornerCurve = .continuous
         contentView.clipsToBounds = true
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.contentMode = .scaleAspectFill
-        imageView.backgroundColor = .secondarySystemGroupedBackground
+        backdrop.translatesAutoresizingMaskIntoConstraints = false
+        backdrop.isUserInteractionEnabled = false
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.font = .preferredFont(forTextStyle: .caption1)
         nameLabel.adjustsFontForContentSizeCategory = true
         nameLabel.textAlignment = .center
-        nameLabel.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.9)
-        contentView.addSubview(imageView)
+        nameLabel.textColor = .white
+        nameLabel.shadowColor = UIColor.black.withAlphaComponent(0.6)
+        nameLabel.shadowOffset = CGSize(width: 0, height: 1)
+        contentView.addSubview(backdrop)
         contentView.addSubview(nameLabel)
         NSLayoutConstraint.activate([
-            imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            imageView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            backdrop.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            backdrop.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            backdrop.topAnchor.constraint(equalTo: contentView.topAnchor),
+            backdrop.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             nameLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             nameLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             nameLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
@@ -2589,8 +2624,14 @@ private final class AppearanceWallpaperCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func configure(name: String, selected: Bool, accent: UIColor) {
-        imageView.image = name == "None" ? nil : UIImage(named: name)
+    func configure(
+        name: String,
+        selected: Bool,
+        accent: UIColor,
+        document: AppearanceSettingsDocument
+    ) {
+        backdrop.configure(document: document)
+        backdrop.accessibilityIdentifier = "interface.wallpaper.backdrop.\(name)"
         nameLabel.text = name
         contentView.layer.borderWidth = selected ? 3 : 0
         contentView.layer.borderColor = accent.cgColor

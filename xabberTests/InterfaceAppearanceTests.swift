@@ -678,6 +678,90 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertNil(AppearanceCloudOwnerSelector.select(from: candidates))
     }
 
+    func testCloudOwnerUsesResolvedGalleryRequestContextForWallpaperUpload() throws {
+        let context = CloudStorageGalleryRequestContext.make(
+            owner: "wallpaper@example.test",
+            galleryType: .basic,
+            baseURL: try XCTUnwrap(URL(string: "https://gallery.example.test/api/")),
+            token: "gallery-token"
+        )
+
+        let candidate = AppearanceCloudOwnerCandidate.fromUploadRequestContext(
+            owner: "wallpaper@example.test",
+            isEnabled: true,
+            isPremium: false,
+            requestContext: context
+        )
+
+        XCTAssertTrue(candidate.isReady)
+        XCTAssertEqual(candidate.galleryIdentity, context.identity)
+        XCTAssertEqual(AppearanceCloudOwnerSelector.select(from: [candidate])?.owner, context.owner)
+    }
+
+    @MainActor
+    func testWallpaperEditorPlacesActionsBelowBuiltInsAndUsesSelectedBackgroundForTiles() throws {
+        let selectedColor = try XCTUnwrap(AppearanceColor(hex: "#2456A6"))
+        var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        document.profile.wallpaper = .gradient(
+            stops: [selectedColor],
+            pattern: nil,
+            intensity: 100
+        )
+        let controller = AppearanceWallpaperViewController(document: document)
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        let builtIns = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.wallpaper.builtInGrid"
+            ) as? UICollectionView
+        )
+        let colorAction = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.wallpaper.setColor"
+            ) as? UIButton
+        )
+        let photoAction = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.wallpaper.chooseFromIPhone"
+            ) as? UIButton
+        )
+        let tileDocument = controller.builtInPreviewDocument(for: "Honeycomb")
+
+        XCTAssertLessThanOrEqual(builtIns.frame.maxY, colorAction.frame.minY)
+        XCTAssertLessThanOrEqual(builtIns.frame.maxY, photoAction.frame.minY)
+        XCTAssertNil(descendant(in: controller.view, accessibilityIdentifier: "interface.wallpaper.blurred"))
+        XCTAssertNil(descendant(in: controller.view, accessibilityIdentifier: "interface.wallpaper.motion"))
+        guard case .gradient(let stops, let pattern, let intensity) = tileDocument.profile.wallpaper else {
+            return XCTFail("Expected a gradient-backed built-in tile")
+        }
+        XCTAssertEqual(stops, [selectedColor])
+        XCTAssertEqual(pattern, "honeycomb")
+        XCTAssertEqual(intensity, 10)
+
+        let cell = AppearanceWallpaperCell(frame: CGRect(x: 0, y: 0, width: 120, height: 150))
+        cell.configure(
+            name: "Honeycomb",
+            selected: false,
+            accent: .systemBlue,
+            document: tileDocument
+        )
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+        let tileBackdrop = try XCTUnwrap(
+            descendant(
+                in: cell,
+                accessibilityIdentifier: "interface.wallpaper.backdrop.Honeycomb"
+            ) as? ChatBackgroundBackdropView
+        )
+        XCTAssertTrue(tileBackdrop.hasVisibleWallpaperImage)
+    }
+
     func testTypographyExposesSevenFixedStepsAndSystem() {
         XCTAssertEqual(AppearanceTextSize.fixedCases.map(\.points), [14, 15, 16, 17, 18, 20, 22])
         XCTAssertNil(AppearanceTextSize.system.points)
