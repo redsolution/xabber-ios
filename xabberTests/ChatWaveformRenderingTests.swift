@@ -126,6 +126,23 @@ final class ChatWaveformRenderingTests: XCTestCase {
         XCTAssertEqual(ChatWaveformRenderInstrumentation.snapshot.staticPathBuildCount, 1)
     }
 
+    func testAudioGridReflowsVoiceAndBuildsWaveformAfterReceivingDeferredWidth() throws {
+        let grid = InlineAudiosGridView(frame: .zero)
+        grid.configure([attachment(primary: "voice-grid-deferred", pcm: [0.2, 0.8])], palette: .blue)
+
+        let audioView = try XCTUnwrap(grid.views.first)
+        XCTAssertEqual(audioView.bounds.width, 0)
+        XCTAssertEqual(ChatWaveformRenderInstrumentation.snapshot.staticPathBuildCount, 0)
+
+        grid.frame = CGRect(x: 0, y: 0, width: 280, height: 44)
+        grid.setNeedsLayout()
+        grid.layoutIfNeeded()
+
+        XCTAssertEqual(audioView.bounds.width, 280, accuracy: 0.001)
+        XCTAssertGreaterThan(audioView.waveform.bounds.width, 0)
+        XCTAssertEqual(ChatWaveformRenderInstrumentation.snapshot.staticPathBuildCount, 1)
+    }
+
     func testGridRoutesStateOnlyToMatchingReference() throws {
         let grid = InlineAudiosGridView(frame: CGRect(x: 0, y: 0, width: 320, height: 88))
         grid.configure(

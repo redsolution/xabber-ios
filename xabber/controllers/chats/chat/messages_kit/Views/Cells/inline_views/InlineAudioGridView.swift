@@ -691,17 +691,31 @@ public class InlineAudiosGridView: InlineAttachmentView {
     public var views: [AudioView] = []
     var stateProvider: ((AudioAttachment) -> VoiceMessagePlaybackState)?
     
-    func prepareGrid(_ attachments: [AudioAttachment]) -> [CGRect] {
-        let frame = self.frame
+    private func audioFrames(itemCount: Int) -> [CGRect] {
         let padding: CGFloat = 0
         let height: CGFloat = CommonMessageSizeCalculator.inlineFileViewHeight//MessageSizeCalculator.fileViewHeight
         var offset: CGFloat = padding
-        return attachments
-            .compactMap { _ in
-                let rect = CGRect(x: 0, y: offset, width: frame.width, height: height)
+        return (0..<itemCount)
+            .map { _ in
+                let rect = CGRect(x: 0, y: offset, width: bounds.width, height: height)
                 offset += height + padding
                 return rect
             }
+    }
+
+    func prepareGrid(_ attachments: [AudioAttachment]) -> [CGRect] {
+        audioFrames(itemCount: attachments.count)
+    }
+
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+
+        let frames = audioFrames(itemCount: views.count)
+        for (view, frame) in zip(views, frames) where view.frame != frame {
+            view.frame = frame
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+        }
     }
     
     var palette: MDCPalette = .amber
