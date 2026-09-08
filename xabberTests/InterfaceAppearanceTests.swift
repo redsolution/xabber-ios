@@ -910,6 +910,105 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testAvatarEditorUsesWhiteChatRowsInsteadOfTheLegacyGridAndPositionControl() throws {
+        var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        document.profile.wallpaper = .builtIn(name: "Honeycomb")
+        document.profile.avatarMask = .rounded
+        let controller = AppearanceAvatarViewController(document: document)
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        let galleryBackdrop = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.avatars.background"
+            ) as? ChatBackgroundBackdropView
+        )
+        let listBackground = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.avatars.listBackground"
+            )
+        )
+        XCTAssertTrue(galleryBackdrop.isHidden)
+        XCTAssertEqual(
+            controller.view.backgroundColor?.resolvedColor(with: .init(userInterfaceStyle: .light)),
+            .white
+        )
+        XCTAssertEqual(
+            listBackground.backgroundColor?.resolvedColor(with: .init(userInterfaceStyle: .light)),
+            .white
+        )
+        XCTAssertNil(firstSubview(of: UICollectionView.self, in: controller.view))
+        XCTAssertNil(descendant(in: controller.view, accessibilityIdentifier: "interface.avatars.position"))
+        XCTAssertFalse(labels(in: controller.view).contains { $0.text == "Group message position" })
+
+        let row = try XCTUnwrap(
+            descendant(in: controller.view, accessibilityIdentifier: "interface.avatar.rounded")
+        )
+        let indicator = try XCTUnwrap(
+            descendant(
+                in: row,
+                accessibilityIdentifier: "interface.avatar.rounded.selection"
+            )
+        )
+        let avatar = try XCTUnwrap(
+            descendant(
+                in: row,
+                accessibilityIdentifier: "interface.avatar.rounded.preview"
+            )
+        )
+        let indicatorFrame = indicator.convert(indicator.bounds, to: row)
+        let avatarFrame = avatar.convert(avatar.bounds, to: row)
+        XCTAssertEqual(indicatorFrame.midY, avatarFrame.midY, accuracy: 0.5)
+        XCTAssertEqual(indicator.accessibilityValue, "Selected")
+    }
+
+    @MainActor
+    func testAvatarGalleryDeliversTheTappedMaskAndKeepsEachPreviewMaskSpecific() throws {
+        let gallery = AppearanceAvatarMaskGalleryView(frame: CGRect(x: 0, y: 0, width: 358, height: 560))
+        let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        gallery.configure(
+            document: document,
+            traits: .init(userInterfaceStyle: .light),
+            masks: AppearanceAvatarMask.allCases,
+            selectedMask: .circle,
+            lockedMasks: [.star]
+        )
+        gallery.setNeedsLayout()
+        gallery.layoutIfNeeded()
+
+        var selectedMask: AppearanceAvatarMask?
+        gallery.onMaskSelected = { selectedMask = $0 }
+        let octagonRow = try XCTUnwrap(
+            descendant(in: gallery, accessibilityIdentifier: "interface.avatar.octagon") as? UIControl
+        )
+        octagonRow.sendActions(for: .touchUpInside)
+        XCTAssertEqual(selectedMask, .octagon)
+
+        let squarePreview = try XCTUnwrap(
+            descendant(
+                in: gallery,
+                accessibilityIdentifier: "interface.avatar.square.preview"
+            )
+        )
+        let starPreview = try XCTUnwrap(
+            descendant(
+                in: gallery,
+                accessibilityIdentifier: "interface.avatar.star.preview"
+            )
+        )
+        XCTAssertNil(squarePreview.mask)
+        XCTAssertNotNil(starPreview.mask)
+        XCTAssertEqual(
+            descendant(in: gallery, accessibilityIdentifier: "interface.avatar.star")?.accessibilityValue,
+            "Premium"
+        )
+    }
+
     func testChangeSetSeparatesPaintLayoutAndInterfaceStyle() {
         let old = AppearanceProfile.default(accent: .systemBlue)
         var paint = old

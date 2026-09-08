@@ -1814,6 +1814,11 @@ private final class AppearanceBubbleStyleRow: UIControl {
 private final class AppearanceBubbleSelectionIndicatorView: UIView {
     private let checkmarkView = UIImageView(image: UIImage(systemName: "checkmark"))
 
+    convenience init(accessibilityLabel: String) {
+        self.init(frame: .zero)
+        self.accessibilityLabel = accessibilityLabel
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         checkmarkView.translatesAutoresizingMaskIntoConstraints = false
@@ -1845,9 +1850,9 @@ private final class AppearanceBubbleSelectionIndicatorView: UIView {
     }
 }
 
-private final class AppearanceAvatarViewController: AppearanceDraftViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
-    private let collectionView: UICollectionView
-    private let positionControl = UISegmentedControl(items: ["Top", "Bottom"])
+final class AppearanceAvatarViewController: AppearanceDraftViewController {
+    private let scrollView = UIScrollView()
+    private let gallery = AppearanceAvatarMaskGalleryView()
     private var policy: AppearancePremiumPolicy {
         let provider = LiveAppearanceEntitlementProvider()
         return AppearancePremiumPolicy(
@@ -1857,10 +1862,6 @@ private final class AppearanceAvatarViewController: AppearanceDraftViewControlle
     }
 
     init(document: AppearanceSettingsDocument) {
-        let layout = UICollectionViewFlowLayout()
-        layout.minimumInteritemSpacing = 12
-        layout.minimumLineSpacing = 12
-        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         super.init(document: document, title: "Avatars")
     }
 
@@ -1868,34 +1869,29 @@ private final class AppearanceAvatarViewController: AppearanceDraftViewControlle
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        preview.translatesAutoresizingMaskIntoConstraints = false
-        preview.showsChatList = true
-        collectionView.translatesAutoresizingMaskIntoConstraints = false
-        collectionView.backgroundColor = .clear
-        collectionView.dataSource = self
-        collectionView.delegate = self
-        collectionView.register(AppearanceOptionCell.self, forCellWithReuseIdentifier: AppearanceOptionCell.reuseIdentifier)
-        positionControl.selectedSegmentIndex = draft.profile.avatarPosition == .top ? 0 : 1
-        positionControl.addTarget(self, action: #selector(positionChanged), for: .valueChanged)
-        positionControl.accessibilityIdentifier = "interface.avatars.position"
-        let positionLabel = UILabel()
-        positionLabel.text = "Group message position"
-        positionLabel.font = .preferredFont(forTextStyle: .body)
-        positionLabel.adjustsFontForContentSizeCategory = true
-        let stack = UIStackView(arrangedSubviews: [preview, collectionView, positionLabel, positionControl])
-        stack.axis = .vertical
-        stack.spacing = 14
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(stack)
+        view.backgroundColor = .systemBackground
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.backgroundColor = .systemBackground
+        scrollView.alwaysBounceVertical = true
+        gallery.translatesAutoresizingMaskIntoConstraints = false
+        gallery.showsBackground = false
+        gallery.onMaskSelected = { [weak self] mask in
+            self?.select(mask)
+        }
+        view.addSubview(scrollView)
+        scrollView.addSubview(gallery)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-            stack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
-            preview.heightAnchor.constraint(equalToConstant: 250),
-            collectionView.heightAnchor.constraint(greaterThanOrEqualToConstant: 220)
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            gallery.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
+            gallery.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
+            gallery.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 12),
+            gallery.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -12),
+            gallery.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32)
         ])
-        updatePreview()
+        updateGallery()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(entitlementChanged),
@@ -1904,102 +1900,306 @@ private final class AppearanceAvatarViewController: AppearanceDraftViewControlle
         )
     }
 
-    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        policy.visibleAvatarMasks.count
-    }
-
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let value = policy.visibleAvatarMasks[indexPath.item]
-        let locked = !policy.canSelect(value, currentlyApplied: document.profile.avatarMask)
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: AppearanceOptionCell.reuseIdentifier, for: indexPath) as! AppearanceOptionCell
-        cell.configure(
-            title: value.displayName,
-            symbol: value.systemSymbolName,
-            selected: value == draft.profile.avatarMask,
-            locked: locked,
-            accent: AppearanceResolver.resolve(document: document, traitStyle: traitCollection.userInterfaceStyle).accent.uiColor
-        )
-        cell.accessibilityIdentifier = "interface.avatar.\(value.rawValue)"
-        return cell
-    }
-
-    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        let value = policy.visibleAvatarMasks[indexPath.item]
+    private func select(_ value: AppearanceAvatarMask) {
         guard policy.canSelect(value, currentlyApplied: document.profile.avatarMask) else {
             SubscribtionsPresenter().present(animated: true, parent: self)
             return
         }
         draft.profile.avatarMask = value
-        collectionView.reloadData()
-        updatePreview()
-    }
-
-    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        CGSize(width: floor((collectionView.bounds.width - 12) / 2), height: 72)
-    }
-
-    @objc private func positionChanged() {
-        draft.profile.avatarPosition = positionControl.selectedSegmentIndex == 0 ? .top : .bottom
-        updatePreview()
+        updateGallery()
+        refreshSetButton()
     }
 
     @objc private func entitlementChanged() {
-        collectionView.reloadData()
+        updateGallery()
+    }
+
+    private func updateGallery() {
+        var updated = document
+        updated.profile = draft.profile
+        let lockedMasks = Set(policy.visibleAvatarMasks.filter {
+            !policy.canSelect($0, currentlyApplied: document.profile.avatarMask)
+        })
+        gallery.configure(
+            document: updated,
+            traits: traitCollection,
+            masks: policy.visibleAvatarMasks,
+            selectedMask: draft.profile.avatarMask,
+            lockedMasks: lockedMasks
+        )
     }
 }
 
-private final class AppearanceOptionCell: UICollectionViewCell {
-    static let reuseIdentifier = "AppearanceOptionCell"
-    private let symbolView = UIImageView()
-    private let titleLabel = UILabel()
-    private let lockView = UIImageView(image: UIImage(systemName: "lock.fill"))
+/// A chat-list choice surface for avatar masks. Each row uses the actual mask
+/// asset that runtime avatar views use, making the selected form easy to see
+/// in context instead of asking the user to infer it from a symbol grid.
+final class AppearanceAvatarMaskGalleryView: UIView {
+    private enum Metrics {
+        static let rowHeight: CGFloat = 72
+        static let verticalInset: CGFloat = 10
+        static let horizontalInset: CGFloat = 10
+    }
+
+    var onMaskSelected: ((AppearanceAvatarMask) -> Void)?
+    var showsBackground = true {
+        didSet {
+            backgroundView.isHidden = !showsBackground
+        }
+    }
+
+    private let backgroundView = ChatBackgroundBackdropView()
+    private let rowsContainer = UIView()
+    private var rows: [AppearanceAvatarMask: AppearanceAvatarMaskRow] = [:]
+    private var orderedMasks: [AppearanceAvatarMask] = []
+    private var minimumHeight: CGFloat = 0
+    private var rowsContainerHeightConstraint: NSLayoutConstraint!
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: minimumHeight)
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        contentView.backgroundColor = .secondarySystemGroupedBackground
-        contentView.layer.cornerRadius = 16
-        contentView.layer.cornerCurve = .continuous
-        symbolView.translatesAutoresizingMaskIntoConstraints = false
-        symbolView.contentMode = .scaleAspectFit
-        symbolView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 24, weight: .medium)
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .preferredFont(forTextStyle: .subheadline)
-        titleLabel.adjustsFontForContentSizeCategory = true
-        lockView.translatesAutoresizingMaskIntoConstraints = false
-        lockView.tintColor = .systemYellow
-        contentView.addSubview(symbolView)
-        contentView.addSubview(titleLabel)
-        contentView.addSubview(lockView)
+        layer.cornerRadius = 22
+        layer.cornerCurve = .continuous
+        clipsToBounds = true
+        backgroundView.translatesAutoresizingMaskIntoConstraints = false
+        backgroundView.accessibilityIdentifier = "interface.avatars.background"
+        rowsContainer.translatesAutoresizingMaskIntoConstraints = false
+        rowsContainer.backgroundColor = .systemBackground
+        rowsContainer.accessibilityIdentifier = "interface.avatars.listBackground"
+        rowsContainer.clipsToBounds = true
+        addSubview(backgroundView)
+        addSubview(rowsContainer)
+        rowsContainerHeightConstraint = rowsContainer.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
-            symbolView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 14),
-            symbolView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            symbolView.widthAnchor.constraint(equalToConstant: 30),
-            symbolView.heightAnchor.constraint(equalToConstant: 30),
-            titleLabel.leadingAnchor.constraint(equalTo: symbolView.trailingAnchor, constant: 10),
-            titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: lockView.leadingAnchor, constant: -6),
-            lockView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -10),
-            lockView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            lockView.widthAnchor.constraint(equalToConstant: 16),
-            lockView.heightAnchor.constraint(equalToConstant: 16)
+            backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            backgroundView.topAnchor.constraint(equalTo: topAnchor),
+            backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            rowsContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.horizontalInset),
+            rowsContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.horizontalInset),
+            rowsContainer.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.verticalInset),
+            rowsContainer.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -Metrics.verticalInset),
+            rowsContainerHeightConstraint
         ])
+        accessibilityIdentifier = "interface.avatars.gallery"
+        accessibilityLabel = "Avatar shapes"
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func configure(title: String, symbol: String, selected: Bool, locked: Bool, accent: UIColor) {
-        titleLabel.text = title
-        symbolView.image = UIImage(systemName: symbol)
-        symbolView.tintColor = selected ? accent : .secondaryLabel
-        lockView.isHidden = !locked
-        contentView.layer.borderWidth = selected ? 3 : 0
-        contentView.layer.borderColor = accent.cgColor
-        accessibilityLabel = title
-        accessibilityValue = [selected ? "Selected" : nil, locked ? "Premium" : nil]
-            .compactMap { $0 }.joined(separator: ", ")
+    func configure(
+        document: AppearanceSettingsDocument,
+        traits: UITraitCollection,
+        masks: [AppearanceAvatarMask],
+        selectedMask: AppearanceAvatarMask,
+        lockedMasks: Set<AppearanceAvatarMask>
+    ) {
+        backgroundView.configure(document: document)
+        rebuildRowsIfNeeded(for: masks)
+        let snapshot = AppearanceResolver.resolve(document: document, traitStyle: traits.userInterfaceStyle)
+        rowsContainer.backgroundColor = .systemBackground
+        for (index, mask) in masks.enumerated() {
+            rows[mask]?.configure(
+                mask: mask,
+                title: Self.samples[index % Self.samples.count].title,
+                subtitle: Self.samples[index % Self.samples.count].subtitle,
+                accent: snapshot.accent.uiColor,
+                selected: mask == selectedMask,
+                locked: lockedMasks.contains(mask),
+                avatarColor: Self.avatarColors[index % Self.avatarColors.count],
+                showsSeparator: index < masks.count - 1
+            )
+        }
+        setNeedsLayout()
+    }
+
+    private func rebuildRowsIfNeeded(for masks: [AppearanceAvatarMask]) {
+        guard orderedMasks != masks else { return }
+        rowsContainer.subviews.forEach { $0.removeFromSuperview() }
+        rows.removeAll(keepingCapacity: true)
+        orderedMasks = masks
+        for mask in masks {
+            let row = AppearanceAvatarMaskRow()
+            row.onSelect = { [weak self] mask in
+                self?.onMaskSelected?(mask)
+            }
+            rows[mask] = row
+            rowsContainer.addSubview(row)
+        }
+        let height = CGFloat(masks.count) * Metrics.rowHeight
+        rowsContainerHeightConstraint.constant = height
+        minimumHeight = height + Metrics.verticalInset * 2
+        invalidateIntrinsicContentSize()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        for (index, mask) in orderedMasks.enumerated() {
+            rows[mask]?.frame = CGRect(
+                x: 0,
+                y: CGFloat(index) * Metrics.rowHeight,
+                width: rowsContainer.bounds.width,
+                height: Metrics.rowHeight
+            )
+        }
+    }
+
+    private static let samples: [(title: String, subtitle: String)] = [
+        ("Alicia Torreaux", "Bob says hi. 😊 ❤️ 😱"),
+        ("Roberto", "••• typing"),
+        ("Campus Public Chat", "Jennie Alpha · We just reached 2,500 members!"),
+        ("Veronica", "Table for four, 2PM. Be there."),
+        ("Animal Videos", "Vote now! Moar cat videos in this channel?"),
+        ("Little Sister", "Don't tell mom yet, but I got the job!"),
+        ("Jennie Alpha", "🖼️ Check these out")
+    ]
+
+    private static let avatarColors: [UIColor] = [
+        .systemOrange, .systemIndigo, .systemGreen, .systemTeal,
+        .systemBlue, .systemPink, .systemPurple
+    ]
+}
+
+private final class AppearanceAvatarMaskRow: UIControl {
+    private enum Metrics {
+        static let selectionLeading: CGFloat = 10
+        static let selectionWidth: CGFloat = 26
+        static let selectionToAvatarSpacing: CGFloat = 10
+        static let avatarSide: CGFloat = 46
+        static let avatarToTextSpacing: CGFloat = 12
+    }
+
+    var onSelect: ((AppearanceAvatarMask) -> Void)?
+
+    private let selectionIndicator = AppearanceBubbleSelectionIndicatorView(
+        accessibilityLabel: "Avatar shape selection"
+    )
+    private let avatarView = UIView()
+    private let avatarLabel = UILabel()
+    private let maskImageView = UIImageView()
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+    private let premiumLabel = UILabel()
+    private let lockView = UIImageView(image: UIImage(systemName: "lock.fill"))
+    private let separator = UIView()
+    private var selectedMask: AppearanceAvatarMask?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        selectionIndicator.translatesAutoresizingMaskIntoConstraints = false
+        avatarView.translatesAutoresizingMaskIntoConstraints = false
+        avatarView.clipsToBounds = true
+        avatarLabel.translatesAutoresizingMaskIntoConstraints = false
+        avatarLabel.font = .systemFont(ofSize: 22, weight: .medium)
+        avatarLabel.textColor = .white
+        avatarLabel.adjustsFontForContentSizeCategory = true
+        maskImageView.contentMode = .scaleToFill
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .preferredFont(forTextStyle: .body)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.numberOfLines = 1
+        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        subtitleLabel.font = .preferredFont(forTextStyle: .caption1)
+        subtitleLabel.adjustsFontForContentSizeCategory = true
+        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.numberOfLines = 1
+        premiumLabel.translatesAutoresizingMaskIntoConstraints = false
+        premiumLabel.font = .preferredFont(forTextStyle: .caption1)
+        premiumLabel.adjustsFontForContentSizeCategory = true
+        premiumLabel.textColor = .systemPurple
+        premiumLabel.text = "Premium"
+        lockView.translatesAutoresizingMaskIntoConstraints = false
+        lockView.tintColor = .systemPurple
+        lockView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.backgroundColor = .separator
+        addSubview(selectionIndicator)
+        addSubview(avatarView)
+        avatarView.addSubview(avatarLabel)
+        addSubview(titleLabel)
+        addSubview(subtitleLabel)
+        addSubview(premiumLabel)
+        addSubview(lockView)
+        addSubview(separator)
+        NSLayoutConstraint.activate([
+            selectionIndicator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.selectionLeading),
+            selectionIndicator.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
+            selectionIndicator.widthAnchor.constraint(equalToConstant: Metrics.selectionWidth),
+            selectionIndicator.heightAnchor.constraint(equalTo: selectionIndicator.widthAnchor),
+            avatarView.leadingAnchor.constraint(equalTo: selectionIndicator.trailingAnchor, constant: Metrics.selectionToAvatarSpacing),
+            avatarView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            avatarView.widthAnchor.constraint(equalToConstant: Metrics.avatarSide),
+            avatarView.heightAnchor.constraint(equalTo: avatarView.widthAnchor),
+            avatarLabel.leadingAnchor.constraint(equalTo: avatarView.leadingAnchor),
+            avatarLabel.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor),
+            avatarLabel.topAnchor.constraint(equalTo: avatarView.topAnchor),
+            avatarLabel.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: Metrics.avatarToTextSpacing),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: premiumLabel.leadingAnchor, constant: -8),
+            titleLabel.topAnchor.constraint(equalTo: avatarView.topAnchor, constant: 2),
+            subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: premiumLabel.leadingAnchor, constant: -8),
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
+            subtitleLabel.bottomAnchor.constraint(lessThanOrEqualTo: avatarView.bottomAnchor, constant: -2),
+            premiumLabel.trailingAnchor.constraint(equalTo: lockView.leadingAnchor, constant: -4),
+            premiumLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            lockView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            lockView.centerYAnchor.constraint(equalTo: premiumLabel.centerYAnchor),
+            lockView.widthAnchor.constraint(equalToConstant: 14),
+            lockView.heightAnchor.constraint(equalTo: lockView.widthAnchor),
+            separator.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
+            separator.bottomAnchor.constraint(equalTo: bottomAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale)
+        ])
+        addAction(UIAction { [weak self] _ in
+            guard let self, let mask = self.selectedMask else { return }
+            self.onSelect?(mask)
+        }, for: .touchUpInside)
         isAccessibilityElement = true
     }
 
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        maskImageView.frame = avatarView.bounds
+    }
+
+    func configure(
+        mask: AppearanceAvatarMask,
+        title: String,
+        subtitle: String,
+        accent: UIColor,
+        selected: Bool,
+        locked: Bool,
+        avatarColor: UIColor,
+        showsSeparator: Bool
+    ) {
+        selectedMask = mask
+        titleLabel.text = title
+        subtitleLabel.text = subtitle
+        avatarLabel.text = String(title.prefix(1))
+        avatarLabel.textAlignment = .center
+        avatarView.backgroundColor = avatarColor
+        avatarView.mask = nil
+        maskImageView.image = UIImage(named: mask.rawValue + "_32pt")
+        if mask != .square, maskImageView.image != nil {
+            avatarView.mask = maskImageView
+        }
+        selectionIndicator.configure(selected: selected, accent: accent)
+        selectionIndicator.accessibilityIdentifier = "interface.avatar.\(mask.rawValue).selection"
+        avatarView.accessibilityIdentifier = "interface.avatar.\(mask.rawValue).preview"
+        premiumLabel.isHidden = !locked
+        lockView.isHidden = !locked
+        accessibilityIdentifier = "interface.avatar.\(mask.rawValue)"
+        accessibilityLabel = "\(mask.displayName) avatar shape"
+        accessibilityValue = locked ? "Premium" : (selected ? "Selected" : "Not selected")
+        accessibilityTraits = selected ? [.button, .selected] : .button
+        separator.isHidden = !showsSeparator
+    }
 }
 
 final class AppearanceThemesViewController: BaseViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
