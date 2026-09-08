@@ -665,11 +665,6 @@ final class AppearancePreviewView: UIView {
     private var chatMessageHosts: [AppearanceChatMessagePreviewHostView] = []
 
     var showsChatList = false
-    /// Application Color remains independent from a chat theme. Its editor uses
-    /// the outgoing sample as a direct, live accent sample without changing the
-    /// runtime theme palette.
-    var appliesAccentToOutgoingMessage = false
-
     override init(frame: CGRect) {
         super.init(frame: frame)
         layer.cornerRadius = 22
@@ -732,35 +727,21 @@ final class AppearancePreviewView: UIView {
     }
 
     private func configureContent(snapshot: ResolvedAppearanceSnapshot) {
-        let previewSnapshot = snapshotForContent(snapshot)
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         chatMessageHosts.removeAll(keepingCapacity: true)
         if showsChatList {
             for index in 0..<4 {
-                contentStack.addArrangedSubview(makeChatRow(index: index, snapshot: previewSnapshot))
+                contentStack.addArrangedSubview(makeChatRow(index: index, snapshot: snapshot))
             }
         } else {
             let incoming = AppearanceChatMessagePreviewHostView()
-            incoming.configure(text: "Good morning! 👋", outgoing: false, snapshot: previewSnapshot)
+            incoming.configure(text: "Good morning! 👋", outgoing: false, snapshot: snapshot)
             let outgoing = AppearanceChatMessagePreviewHostView()
-            outgoing.configure(text: "It’s morning in Tokyo 😎", outgoing: true, snapshot: previewSnapshot)
+            outgoing.configure(text: "It’s morning in Tokyo 😎", outgoing: true, snapshot: snapshot)
             contentStack.addArrangedSubview(incoming)
             contentStack.addArrangedSubview(outgoing)
             chatMessageHosts = [incoming, outgoing]
         }
-    }
-
-    private func snapshotForContent(_ snapshot: ResolvedAppearanceSnapshot) -> ResolvedAppearanceSnapshot {
-        guard appliesAccentToOutgoingMessage else { return snapshot }
-        var palette = snapshot.palette
-        palette.outgoingBubble = snapshot.accent
-        palette.replyAccent = snapshot.accent
-        return ResolvedAppearanceSnapshot(
-            profile: snapshot.profile,
-            theme: snapshot.theme,
-            palette: palette,
-            accent: snapshot.accent
-        )
     }
 
     private func makeChatRow(index: Int, snapshot: ResolvedAppearanceSnapshot) -> UIView {
@@ -811,6 +792,121 @@ final class AppearancePreviewView: UIView {
             subtitle.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor, constant: -5)
         ])
         return row
+    }
+}
+
+/// A compact, UIKit-native sample of the surfaces driven by the global
+/// application tint. Chat bubble colors belong to the selected chat theme and
+/// intentionally are not represented here.
+final class AppearanceTintColorPreviewView: UIView {
+    private let backButton = UIButton(type: .system)
+    private let actionButton = UIButton(type: .system)
+    private let modeControl = UISegmentedControl(items: ["Chats", "Contacts"])
+    private let notificationSwitch = UISwitch()
+    private let progress = UIProgressView(progressViewStyle: .default)
+    private let slider = UISlider()
+    private let pageControl = UIPageControl()
+    private let activityIndicator = UIActivityIndicatorView(style: .medium)
+    private let composeButton = UIButton(type: .system)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .secondarySystemGroupedBackground
+        layer.cornerRadius = 22
+        layer.cornerCurve = .continuous
+        clipsToBounds = true
+        accessibilityIdentifier = "interface.tint.preview"
+        accessibilityLabel = "Application color preview"
+
+        backButton.setImage(UIImage(systemName: "chevron.backward"), for: .normal)
+        backButton.accessibilityIdentifier = "interface.tint.preview.back"
+        actionButton.setTitle("Edit", for: .normal)
+        actionButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        actionButton.accessibilityIdentifier = "interface.tint.preview.navigationAction"
+        let title = UILabel()
+        title.text = "Chats"
+        title.font = .preferredFont(forTextStyle: .headline)
+        title.textAlignment = .center
+        let navigationRow = UIStackView(arrangedSubviews: [backButton, title, actionButton])
+        navigationRow.axis = .horizontal
+        navigationRow.alignment = .center
+        navigationRow.distribution = .equalCentering
+
+        modeControl.selectedSegmentIndex = 0
+        modeControl.accessibilityIdentifier = "interface.tint.preview.mode"
+
+        let notificationTitle = UILabel()
+        notificationTitle.text = "Notifications"
+        notificationTitle.font = .preferredFont(forTextStyle: .body)
+        notificationSwitch.isOn = true
+        notificationSwitch.isUserInteractionEnabled = false
+        notificationSwitch.accessibilityIdentifier = "interface.tint.preview.switch"
+        let notificationRow = UIStackView(arrangedSubviews: [notificationTitle, notificationSwitch])
+        notificationRow.axis = .horizontal
+        notificationRow.alignment = .center
+        notificationRow.distribution = .equalSpacing
+
+        composeButton.setImage(UIImage(systemName: "plus.circle.fill"), for: .normal)
+        composeButton.accessibilityIdentifier = "interface.tint.preview.compose"
+        let status = UILabel()
+        status.text = "New message"
+        status.font = .preferredFont(forTextStyle: .subheadline)
+        status.textColor = .secondaryLabel
+        activityIndicator.startAnimating()
+        let statusRow = UIStackView(arrangedSubviews: [composeButton, status, activityIndicator])
+        statusRow.axis = .horizontal
+        statusRow.alignment = .center
+        statusRow.spacing = 8
+
+        progress.progress = 0.66
+        progress.accessibilityIdentifier = "interface.tint.preview.progress"
+        slider.value = 0.62
+        slider.isUserInteractionEnabled = false
+        slider.accessibilityIdentifier = "interface.tint.preview.slider"
+        pageControl.numberOfPages = 3
+        pageControl.currentPage = 1
+        pageControl.isUserInteractionEnabled = false
+        pageControl.accessibilityIdentifier = "interface.tint.preview.pages"
+
+        let stack = UIStackView(arrangedSubviews: [
+            navigationRow,
+            modeControl,
+            notificationRow,
+            statusRow,
+            progress,
+            slider,
+            pageControl
+        ])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.spacing = 12
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
+            backButton.widthAnchor.constraint(equalToConstant: 30),
+            actionButton.widthAnchor.constraint(equalToConstant: 44),
+            composeButton.widthAnchor.constraint(equalToConstant: 24)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(snapshot: ResolvedAppearanceSnapshot) {
+        let accent = snapshot.accent.uiColor
+        tintColor = accent
+        backButton.tintColor = accent
+        actionButton.tintColor = accent
+        modeControl.tintColor = accent
+        modeControl.selectedSegmentTintColor = accent
+        notificationSwitch.onTintColor = accent
+        composeButton.tintColor = accent
+        activityIndicator.color = accent
+        progress.progressTintColor = accent
+        slider.minimumTrackTintColor = accent
+        pageControl.currentPageIndicatorTintColor = accent
     }
 }
 
@@ -1221,6 +1317,7 @@ class AppearanceDraftViewController: BaseViewController {
 final class AppearanceAccentViewController: AppearanceDraftViewController {
     private let stack = UIStackView()
     private let swatches = UIStackView()
+    private let tintPreview = AppearanceTintColorPreviewView()
     private var swatchButtons: [AppearanceAccentSwatchButton] = []
 
     init(document: AppearanceSettingsDocument) {
@@ -1237,16 +1334,15 @@ final class AppearanceAccentViewController: AppearanceDraftViewController {
         swatches.axis = .vertical
         swatches.distribution = .fillEqually
         swatches.spacing = 10
-        preview.translatesAutoresizingMaskIntoConstraints = false
-        preview.appliesAccentToOutgoingMessage = true
-        stack.addArrangedSubview(preview)
+        tintPreview.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(tintPreview)
         stack.addArrangedSubview(swatches)
         let resolvedAccent = draft.profile.accentOverride
             ?? AppearanceResolver.resolve(
                 document: document,
                 traitStyle: traitCollection.userInterfaceStyle
             ).accent
-        let palette = ["#BBDEFB", "#C8E6C9", "#FFE0B2", "#FFCDD2", "#E1BEE7", "#B2EBF2", "#F8BBD0"]
+        let palette = ["#1687F8", "#35B85A", "#F28A18", "#D94B54", "#9656DD", "#19A7A0", "#D04D91"]
             .compactMap(AppearanceColor.init(hex:))
         let colors = [resolvedAccent] + palette.filter { $0 != resolvedAccent }
         for rowStart in stride(from: 0, to: colors.count, by: 4) {
@@ -1285,13 +1381,20 @@ final class AppearanceAccentViewController: AppearanceDraftViewController {
             stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
             stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
             stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
-            preview.heightAnchor.constraint(equalToConstant: 290)
+            tintPreview.heightAnchor.constraint(equalToConstant: 276)
         ])
         updatePreview()
     }
 
     override func updatePreview() {
-        super.updatePreview()
+        var updated = document
+        updated.profile = draft.profile
+        let snapshot = AppearanceResolver.resolve(
+            document: updated,
+            traitStyle: traitCollection.userInterfaceStyle
+        )
+        tintPreview.configure(snapshot: snapshot)
+        refreshSetButton()
         updateSwatchSelection()
     }
 
@@ -1537,12 +1640,16 @@ final class AppearanceCustomAccentColorViewController: UIViewController, UIColle
 
     private func configureQuickColors() {
         quickColorsStack.axis = .vertical
+        quickColorsStack.alignment = .leading
         quickColorsStack.spacing = 12
         for rowStart in stride(from: 0, to: Self.quickColors.count, by: 5) {
             let row = UIStackView()
             row.axis = .horizontal
+            row.alignment = .center
+            row.distribution = .fill
             row.spacing = 18
-            for index in rowStart..<min(rowStart + 5, Self.quickColors.count) {
+            let rowEnd = min(rowStart + 5, Self.quickColors.count)
+            for index in rowStart..<rowEnd {
                 let color = Self.quickColors[index]
                 let button = AppearanceCustomAccentQuickColorButton(color: color)
                 button.widthAnchor.constraint(equalToConstant: 30).isActive = true
@@ -1553,6 +1660,9 @@ final class AppearanceCustomAccentColorViewController: UIViewController, UIColle
                 }, for: .touchUpInside)
                 row.addArrangedSubview(button)
             }
+            let count = rowEnd - rowStart
+            let rowWidth = CGFloat(count * 30 + max(count - 1, 0) * 18)
+            row.widthAnchor.constraint(equalToConstant: rowWidth).isActive = true
             quickColorsStack.addArrangedSubview(row)
         }
     }

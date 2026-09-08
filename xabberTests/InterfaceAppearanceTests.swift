@@ -586,7 +586,7 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testApplicationColorSwatchShowsSelectedStateAndUpdatesOutgoingMessagePreview() throws {
+    func testApplicationColorSwatchShowsSelectedStateAndUpdatesTintPreview() throws {
         let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         let controller = AppearanceAccentViewController(document: document)
         controller.loadViewIfNeeded()
@@ -616,21 +616,70 @@ final class InterfaceAppearanceTests: XCTestCase {
         let preview = try XCTUnwrap(
             descendant(
                 in: controller.view,
-                accessibilityIdentifier: "interface.preview"
-            ) as? AppearancePreviewView
+                accessibilityIdentifier: "interface.tint.preview"
+            )
         )
-        let outgoing = try XCTUnwrap(
+        let navigationAction = try XCTUnwrap(
             descendant(
                 in: preview,
-                accessibilityIdentifier: "interface.preview.message.outgoing"
-            ) as? TextMessageCell
+                accessibilityIdentifier: "interface.tint.preview.navigationAction"
+            ) as? UIButton
         )
-        let selectedColor = try XCTUnwrap(AppearanceColor(hex: "#FFCDD2"))
+        let modeControl = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.tint.preview.mode"
+            ) as? UISegmentedControl
+        )
+        let tintSwitch = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.tint.preview.switch"
+            ) as? UISwitch
+        )
+        let slider = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.tint.preview.slider"
+            ) as? UISlider
+        )
+        let progress = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.tint.preview.progress"
+            ) as? UIProgressView
+        )
+        let selectedColor = try XCTUnwrap(AppearanceColor(hex: "#D94B54"))
 
         XCTAssertEqual(swatch.accessibilityValue, "Selected")
         XCTAssertTrue(swatch.accessibilityTraits.contains(.selected))
-        XCTAssertEqual(outgoing.messageContainerView.bubble.backgroundColor, selectedColor.uiColor)
+        XCTAssertEqual(navigationAction.tintColor, selectedColor.uiColor)
+        XCTAssertEqual(modeControl.tintColor, selectedColor.uiColor)
+        XCTAssertEqual(tintSwitch.onTintColor, selectedColor.uiColor)
+        XCTAssertEqual(slider.minimumTrackTintColor, selectedColor.uiColor)
+        XCTAssertEqual(progress.progressTintColor, selectedColor.uiColor)
+        XCTAssertNil(descendant(in: controller.view, accessibilityIdentifier: "interface.preview.message.outgoing"))
         XCTAssertNotNil(descendant(in: controller.view, accessibilityIdentifier: "interface.accent.custom"))
+    }
+
+    @MainActor
+    func testCustomApplicationColorQuickColorsStayCircular() throws {
+        let controller = AppearanceCustomAccentColorViewController(initialColor: UIColor.systemBlue)
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        let quickColor = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.accent.custom.quickColor.6"
+            ) as? UIControl
+        )
+
+        XCTAssertEqual(quickColor.bounds.width, 30, accuracy: 0.01)
+        XCTAssertEqual(quickColor.bounds.height, 30, accuracy: 0.01)
+        XCTAssertEqual(quickColor.layer.cornerRadius, 15, accuracy: 0.01)
     }
 
     @MainActor
