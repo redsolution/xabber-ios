@@ -1499,6 +1499,10 @@ private final class AppearanceBubbleViewController: AppearanceDraftViewControlle
 /// It uses the same message host as the rest of Interface Appearance, while
 /// keeping the selection control adjacent to the message it changes.
 final class AppearanceBubbleStyleGalleryView: UIView {
+    private enum Metrics {
+        static let interMessageSpacing: CGFloat = 10
+    }
+
     var onStyleSelected: ((AppearanceBubbleStyle) -> Void)?
 
     private let backgroundView = ChatBackgroundBackdropView()
@@ -1520,7 +1524,8 @@ final class AppearanceBubbleStyleGalleryView: UIView {
         backgroundView.accessibilityIdentifier = "interface.bubbles.background"
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
         rowsStack.axis = .vertical
-        rowsStack.spacing = 6
+        rowsStack.distribution = .equalSpacing
+        rowsStack.spacing = Metrics.interMessageSpacing
         addSubview(backgroundView)
         addSubview(rowsStack)
         NSLayoutConstraint.activate([
@@ -1601,7 +1606,7 @@ final class AppearanceBubbleStyleGalleryView: UIView {
             rowsStack.addArrangedSubview(row)
         }
         minimumHeight = CGFloat(styles.count) * 64
-            + CGFloat(max(styles.count - 1, 0)) * rowsStack.spacing
+            + CGFloat(max(styles.count - 1, 0)) * Metrics.interMessageSpacing
             + 24
         invalidateIntrinsicContentSize()
     }

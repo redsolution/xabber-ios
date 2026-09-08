@@ -781,6 +781,24 @@ final class InterfaceAppearanceTests: XCTestCase {
             )
         }
 
+        let rowFrames = try AppearanceBubbleStyle.allCases.map { style -> CGRect in
+            let row = try XCTUnwrap(
+                descendant(
+                    in: gallery,
+                    accessibilityIdentifier: "interface.bubble.\(style.rawValue)"
+                )
+            )
+            return row.convert(row.bounds, to: gallery)
+        }
+        let messageGaps = zip(rowFrames, rowFrames.dropFirst()).map { previous, next in
+            next.minY - previous.maxY
+        }
+        let expectedMessageGap = try XCTUnwrap(messageGaps.first)
+        XCTAssertGreaterThanOrEqual(expectedMessageGap, 10)
+        for gap in messageGaps {
+            XCTAssertEqual(gap, expectedMessageGap, accuracy: 0.5)
+        }
+
         let selectedIndicator = try XCTUnwrap(
             descendant(
                 in: gallery,
