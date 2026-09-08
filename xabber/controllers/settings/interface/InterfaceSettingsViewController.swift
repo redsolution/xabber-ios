@@ -1885,11 +1885,11 @@ final class AppearanceAvatarViewController: AppearanceDraftViewController {
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-            gallery.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
-            gallery.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
+            gallery.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            gallery.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
             gallery.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 12),
             gallery.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -12),
-            gallery.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32)
+            gallery.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor)
         ])
         updateGallery()
         NotificationCenter.default.addObserver(
@@ -1937,12 +1937,11 @@ final class AppearanceAvatarMaskGalleryView: UIView {
     private enum Metrics {
         static let rowHeight: CGFloat = 84
         static let verticalInset: CGFloat = 10
-        static let horizontalInset: CGFloat = 10
+        static let horizontalInset: CGFloat = 0
     }
 
     /// This intentionally mirrors the fixture data used by the Chat Themes
     /// Chats-page preview.  The avatar chooser then has the same visual
-    /// hierarchy as the mobile chat list while changing only the mask.
     fileprivate struct Fixture {
         let name: String
         let message: String
@@ -2076,7 +2075,9 @@ private final class AppearanceAvatarMaskRow: UIControl {
     private enum Metrics {
         static let selectionLeading: CGFloat = 8
         static let selectionWidth: CGFloat = 26
-        static let selectionToChatSpacing: CGFloat = 8
+        static let selectionToAvatarSpacing: CGFloat = 8
+        static let chatCellAvatarLeadingInset: CGFloat = 16
+        static let selectionToChatSpacing = selectionToAvatarSpacing - chatCellAvatarLeadingInset
         static let separatorLeadingInset: CGFloat = 96
     }
 
@@ -2108,6 +2109,9 @@ private final class AppearanceAvatarMaskRow: UIControl {
             selectionIndicator.centerYAnchor.constraint(equalTo: chatCell.avatarView.centerYAnchor),
             selectionIndicator.widthAnchor.constraint(equalToConstant: Metrics.selectionWidth),
             selectionIndicator.heightAnchor.constraint(equalTo: selectionIndicator.widthAnchor),
+            // The production cell reserves 16 pt before its avatar. Offset its
+            // host so the visible photo, not its empty cell margin, is 8 pt
+            // from the selection indicator.
             chatCell.leadingAnchor.constraint(equalTo: selectionIndicator.trailingAnchor, constant: Metrics.selectionToChatSpacing),
             chatCell.trailingAnchor.constraint(equalTo: trailingAnchor),
             chatCell.topAnchor.constraint(equalTo: topAnchor),

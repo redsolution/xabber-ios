@@ -964,11 +964,15 @@ final class InterfaceAppearanceTests: XCTestCase {
         let indicatorFrame = indicator.convert(indicator.bounds, to: row)
         let avatarFrame = avatar.convert(avatar.bounds, to: row)
         XCTAssertEqual(indicatorFrame.minX, 8, accuracy: 0.5)
+        XCTAssertEqual(
+            indicator.convert(indicator.bounds, to: controller.view).minX,
+            8,
+            accuracy: 0.5
+        )
+        XCTAssertEqual(avatarFrame.minX - indicatorFrame.maxX, 8, accuracy: 0.5)
         XCTAssertEqual(indicatorFrame.midY, avatarFrame.midY, accuracy: 0.5)
         XCTAssertEqual(indicator.accessibilityValue, "Selected")
         let chatCell = try XCTUnwrap(firstSubview(of: ChatListTableViewCell.self, in: row))
-        let chatCellFrame = chatCell.convert(chatCell.bounds, to: row)
-        XCTAssertEqual(chatCellFrame.minX - indicatorFrame.maxX, 8, accuracy: 0.5)
         XCTAssertEqual(chatCell.bounds.height, 84, accuracy: 0.5)
         XCTAssertEqual(chatCell.usernameLabel.text, "Alicia Torreaux")
         XCTAssertTrue(chatCell.accountIndicator.isHidden)
