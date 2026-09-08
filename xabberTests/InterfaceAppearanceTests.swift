@@ -781,22 +781,24 @@ final class InterfaceAppearanceTests: XCTestCase {
             )
         }
 
-        let rowFrames = try AppearanceBubbleStyle.allCases.map { style -> CGRect in
-            let row = try XCTUnwrap(
+        let messageFrames = try AppearanceBubbleStyle.allCases.map { style -> CGRect in
+            let messageHost = try XCTUnwrap(
                 descendant(
                     in: gallery,
-                    accessibilityIdentifier: "interface.bubble.\(style.rawValue)"
+                    accessibilityIdentifier: "interface.bubble.message.\(style.rawValue)"
                 )
             )
-            return row.convert(row.bounds, to: gallery)
+            let cell = try XCTUnwrap(firstSubview(of: TextMessageCell.self, in: messageHost))
+            return cell.messageContainerView.convert(
+                cell.messageContainerView.bounds,
+                to: gallery
+            )
         }
-        let messageGaps = zip(rowFrames, rowFrames.dropFirst()).map { previous, next in
+        let messageGaps = zip(messageFrames, messageFrames.dropFirst()).map { previous, next in
             next.minY - previous.maxY
         }
-        let expectedMessageGap = try XCTUnwrap(messageGaps.first)
-        XCTAssertGreaterThanOrEqual(expectedMessageGap, 10)
         for gap in messageGaps {
-            XCTAssertEqual(gap, expectedMessageGap, accuracy: 0.5)
+            XCTAssertEqual(gap, 16, accuracy: 0.5)
         }
 
         let selectedIndicator = try XCTUnwrap(

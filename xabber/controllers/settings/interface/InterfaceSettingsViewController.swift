@@ -1016,6 +1016,17 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         return frame.isEmpty ? bounds.midY : frame.midY
     }
 
+    var messageContainerFrame: CGRect {
+        messageCell.messageContainerView.convert(
+            messageCell.messageContainerView.bounds,
+            to: self
+        )
+    }
+
+    func fittingHeight(for width: CGFloat) -> CGFloat {
+        measuredLayout(for: width)?.cellSize.height ?? 1
+    }
+
     private func applyConfiguration(snapshot: ResolvedAppearanceSnapshot) {
         guard let configuration else { return }
         let message = AppearancePreviewMessage(
@@ -1500,16 +1511,19 @@ private final class AppearanceBubbleViewController: AppearanceDraftViewControlle
 /// keeping the selection control adjacent to the message it changes.
 final class AppearanceBubbleStyleGalleryView: UIView {
     private enum Metrics {
-        static let interMessageSpacing: CGFloat = 10
+        static let messageSpacing: CGFloat = 16
+        static let verticalInset: CGFloat = 12
+        static let horizontalInset: CGFloat = 10
     }
 
     var onStyleSelected: ((AppearanceBubbleStyle) -> Void)?
 
     private let backgroundView = ChatBackgroundBackdropView()
-    private let rowsStack = UIStackView()
+    private let rowsContainer = UIView()
     private var rows: [AppearanceBubbleStyle: AppearanceBubbleStyleRow] = [:]
     private var orderedStyles: [AppearanceBubbleStyle] = []
     private var minimumHeight: CGFloat = 0
+    private var rowsContainerHeightConstraint: NSLayoutConstraint!
 
     override var intrinsicContentSize: CGSize {
         CGSize(width: UIView.noIntrinsicMetric, height: minimumHeight)
@@ -1522,21 +1536,20 @@ final class AppearanceBubbleStyleGalleryView: UIView {
         clipsToBounds = true
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
         backgroundView.accessibilityIdentifier = "interface.bubbles.background"
-        rowsStack.translatesAutoresizingMaskIntoConstraints = false
-        rowsStack.axis = .vertical
-        rowsStack.distribution = .equalSpacing
-        rowsStack.spacing = Metrics.interMessageSpacing
+        rowsContainer.translatesAutoresizingMaskIntoConstraints = false
         addSubview(backgroundView)
-        addSubview(rowsStack)
+        addSubview(rowsContainer)
+        rowsContainerHeightConstraint = rowsContainer.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
             backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
             backgroundView.topAnchor.constraint(equalTo: topAnchor),
             backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            rowsStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            rowsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            rowsStack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            rowsStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12)
+            rowsContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.horizontalInset),
+            rowsContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.horizontalInset),
+            rowsContainer.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.verticalInset),
+            rowsContainer.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -Metrics.verticalInset),
+            rowsContainerHeightConstraint
         ])
         accessibilityIdentifier = "interface.bubbles.gallery"
         accessibilityLabel = "Message bubble styles"
@@ -1568,6 +1581,7 @@ final class AppearanceBubbleStyleGalleryView: UIView {
                 accent: snapshot.accent.uiColor
             )
         }
+        setNeedsLayout()
     }
 
     func updateRadius(
@@ -1594,7 +1608,7 @@ final class AppearanceBubbleStyleGalleryView: UIView {
 
     private func rebuildRowsIfNeeded(for styles: [AppearanceBubbleStyle]) {
         guard orderedStyles != styles else { return }
-        rowsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        rowsContainer.subviews.forEach { $0.removeFromSuperview() }
         rows.removeAll(keepingCapacity: true)
         orderedStyles = styles
         for style in styles {
@@ -1602,13 +1616,58 @@ final class AppearanceBubbleStyleGalleryView: UIView {
             row.onSelect = { [weak self] style in
                 self?.onStyleSelected?(style)
             }
+            row.translatesAutoresizingMaskIntoConstraints = true
             rows[style] = row
-            rowsStack.addArrangedSubview(row)
+            rowsContainer.addSubview(row)
         }
         minimumHeight = CGFloat(styles.count) * 64
-            + CGFloat(max(styles.count - 1, 0)) * Metrics.interMessageSpacing
-            + 24
+            + CGFloat(max(styles.count - 1, 0)) * Metrics.messageSpacing
+            + Metrics.verticalInset * 2
+        rowsContainerHeightConstraint.constant = max(0, minimumHeight - Metrics.verticalInset * 2)
         invalidateIntrinsicContentSize()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layoutRows()
+    }
+
+    private func layoutRows() {
+        let rowWidth = rowsContainer.bounds.width
+        guard rowWidth > 0 else { return }
+
+        var nextRowOriginY: CGFloat = 0
+        var previousMessageBottom: CGFloat?
+        for style in orderedStyles {
+            guard let row = rows[style] else { continue }
+            let rowHeight = row.fittingHeight(for: rowWidth)
+            row.frame = CGRect(x: 0, y: nextRowOriginY, width: rowWidth, height: rowHeight)
+            row.setNeedsLayout()
+            row.layoutIfNeeded()
+
+            let messageFrame = row.messageContainerFrame
+            if let previousMessageBottom {
+                row.frame.origin.y = previousMessageBottom
+                    + Metrics.messageSpacing
+                    - messageFrame.minY
+                row.setNeedsLayout()
+                row.layoutIfNeeded()
+            }
+
+            let positionedMessageFrame = row.messageContainerFrame
+            previousMessageBottom = row.frame.minY + positionedMessageFrame.maxY
+            nextRowOriginY = row.frame.maxY
+        }
+
+        let contentHeight = max(nextRowOriginY, 1)
+        let updatedMinimumHeight = ceil(contentHeight + Metrics.verticalInset * 2)
+        if abs(rowsContainerHeightConstraint.constant - contentHeight) > 0.5 {
+            rowsContainerHeightConstraint.constant = contentHeight
+        }
+        if abs(minimumHeight - updatedMinimumHeight) > 0.5 {
+            minimumHeight = updatedMinimumHeight
+            invalidateIntrinsicContentSize()
+        }
     }
 
     private static func sampleText(for style: AppearanceBubbleStyle) -> String {
@@ -1626,6 +1685,14 @@ final class AppearanceBubbleStyleGalleryView: UIView {
 }
 
 private final class AppearanceBubbleStyleRow: UIControl {
+    private enum Metrics {
+        static let selectionLeading: CGFloat = 4
+        static let selectionWidth: CGFloat = 26
+        static let selectionToMessageSpacing: CGFloat = 8
+        static let messageTrailing: CGFloat = 4
+        static let verticalInset: CGFloat = 5
+    }
+
     var onSelect: ((AppearanceBubbleStyle) -> Void)?
 
     private let selectionIndicator = AppearanceBubbleSelectionIndicatorView()
@@ -1647,14 +1714,14 @@ private final class AppearanceBubbleStyleRow: UIControl {
         )
         NSLayoutConstraint.activate([
             heightAnchor.constraint(greaterThanOrEqualToConstant: 64),
-            selectionIndicator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            selectionIndicator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.selectionLeading),
             selectionCenterYConstraint,
-            selectionIndicator.widthAnchor.constraint(equalToConstant: 26),
+            selectionIndicator.widthAnchor.constraint(equalToConstant: Metrics.selectionWidth),
             selectionIndicator.heightAnchor.constraint(equalTo: selectionIndicator.widthAnchor),
-            messageHost.leadingAnchor.constraint(equalTo: selectionIndicator.trailingAnchor, constant: 8),
-            messageHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            messageHost.topAnchor.constraint(equalTo: topAnchor, constant: 5),
-            messageHost.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5)
+            messageHost.leadingAnchor.constraint(equalTo: selectionIndicator.trailingAnchor, constant: Metrics.selectionToMessageSpacing),
+            messageHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.messageTrailing),
+            messageHost.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.verticalInset),
+            messageHost.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.verticalInset)
         ])
         addAction(UIAction { [weak self] _ in
             guard let self, let style = self.style else { return }
@@ -1673,6 +1740,25 @@ private final class AppearanceBubbleStyleRow: UIControl {
         if abs(selectionCenterYConstraint.constant - centerY) > 0.5 {
             selectionCenterYConstraint.constant = centerY
         }
+    }
+
+    func fittingHeight(for width: CGFloat) -> CGFloat {
+        let messageWidth = max(
+            1,
+            width
+                - Metrics.selectionLeading
+                - Metrics.selectionWidth
+                - Metrics.selectionToMessageSpacing
+                - Metrics.messageTrailing
+        )
+        return max(
+            64,
+            messageHost.fittingHeight(for: messageWidth) + Metrics.verticalInset * 2
+        )
+    }
+
+    var messageContainerFrame: CGRect {
+        messageHost.convert(messageHost.messageContainerFrame, to: self)
     }
 
     func configure(
