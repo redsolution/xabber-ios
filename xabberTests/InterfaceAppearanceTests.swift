@@ -721,11 +721,11 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testBubbleGalleryRendersEveryStyleOverSelectedWallpaperWithRoundSelectionIndicator() throws {
+    func testBubbleGalleryKeepsIncomingSamplesSelectedGeometryAndPremiumStatusLockStableAcrossRadiusChanges() throws {
         var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         document.profile.wallpaper = .builtIn(name: "Honeycomb")
         document.profile.bubbleStyle = .smooth
-        let gallery = AppearanceBubbleStyleGalleryView(frame: CGRect(x: 0, y: 0, width: 360, height: 560))
+        let gallery = AppearanceBubbleStyleGalleryView(frame: CGRect(x: 0, y: 0, width: 360, height: 680))
         gallery.configure(
             document: document,
             traits: .init(userInterfaceStyle: .light),
@@ -757,6 +757,18 @@ final class InterfaceAppearanceTests: XCTestCase {
                     accessibilityIdentifier: "interface.bubble.message.\(style.rawValue)"
                 )
             )
+            let host = try XCTUnwrap(
+                descendant(
+                    in: gallery,
+                    accessibilityIdentifier: "interface.bubble.message.\(style.rawValue)"
+                )
+            )
+            let cell = try XCTUnwrap(firstSubview(of: TextMessageCell.self, in: host))
+            XCTAssertLessThan(
+                cell.messageContainerView.frame.midX,
+                cell.bounds.midX,
+                "\(style.displayName) must remain an incoming, left-aligned sample"
+            )
         }
 
         let selectedIndicator = try XCTUnwrap(
@@ -767,6 +779,25 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         XCTAssertEqual(selectedIndicator.accessibilityValue, "Selected")
         XCTAssertEqual(selectedIndicator.layer.cornerRadius, selectedIndicator.bounds.width / 2, accuracy: 0.5)
+        let selectedCellHost = try XCTUnwrap(
+            descendant(
+                in: gallery,
+                accessibilityIdentifier: "interface.bubble.message.smooth"
+            )
+        )
+        let selectedCell = try XCTUnwrap(firstSubview(of: TextMessageCell.self, in: selectedCellHost))
+        XCTAssertFalse(selectedCell.timeMarker.indicatorView.isHidden)
+        let selectedIndicatorFrame = selectedIndicator.convert(selectedIndicator.bounds, to: gallery)
+        let selectedContainerFrame = selectedCell.messageContainerView.convert(
+            selectedCell.messageContainerView.bounds,
+            to: gallery
+        )
+        XCTAssertEqual(
+            selectedIndicatorFrame.midY,
+            selectedContainerFrame.midY,
+            accuracy: 0.5,
+            "The left selection control must align to this message container, not the entire row"
+        )
         XCTAssertEqual(
             descendant(
                 in: gallery,
@@ -774,6 +805,30 @@ final class InterfaceAppearanceTests: XCTestCase {
             )?.accessibilityValue,
             "Premium"
         )
+        let premiumHost = try XCTUnwrap(
+            descendant(
+                in: gallery,
+                accessibilityIdentifier: "interface.bubble.message.curvy"
+            )
+        )
+        let premiumCell = try XCTUnwrap(firstSubview(of: TextMessageCell.self, in: premiumHost))
+        let premiumLock = try XCTUnwrap(
+            descendant(
+                in: gallery,
+                accessibilityIdentifier: "interface.bubble.lock.curvy"
+            )
+        )
+        XCTAssertTrue(premiumCell.timeMarker.indicatorView.isHidden)
+        let premiumLockFrame = premiumLock.convert(premiumLock.bounds, to: premiumCell.timeMarker)
+        XCTAssertEqual(premiumLockFrame, premiumCell.timeMarker.indicatorView.frame)
+
+        let cellBeforeRadiusChange = selectedCell
+        document.profile.bubbleRadius = 16
+        gallery.updateRadius(document: document, traits: .init(userInterfaceStyle: .light))
+        gallery.setNeedsLayout()
+        gallery.layoutIfNeeded()
+        let cellAfterRadiusChange = try XCTUnwrap(firstSubview(of: TextMessageCell.self, in: selectedCellHost))
+        XCTAssertTrue(cellBeforeRadiusChange === cellAfterRadiusChange)
     }
 
     func testChangeSetSeparatesPaintLayoutAndInterfaceStyle() {
@@ -1050,5 +1105,17 @@ final class InterfaceAppearanceTests: XCTestCase {
             result.append(contentsOf: labels(in: subview))
         }
         return result
+    }
+
+    private func firstSubview<T: UIView>(of type: T.Type, in root: UIView) -> T? {
+        if let root = root as? T {
+            return root
+        }
+        for subview in root.subviews {
+            if let match = firstSubview(of: type, in: subview) {
+                return match
+            }
+        }
+        return nil
     }
 }

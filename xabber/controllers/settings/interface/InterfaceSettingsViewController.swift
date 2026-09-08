@@ -837,6 +837,19 @@ private func appearanceMessageRadius(
     }
 }
 
+private enum AppearancePreviewStatus {
+    case none
+    case delivery
+    case premiumLock
+
+    var indicator: IndicatorType {
+        switch self {
+        case .none: return .none
+        case .delivery, .premiumLock: return .read
+        }
+    }
+}
+
 private struct AppearancePreviewMessage: MessageType {
     let primary: String
     let jid = "preview@example.invalid"
@@ -880,7 +893,8 @@ private struct AppearancePreviewMessage: MessageType {
         snapshot: ResolvedAppearanceSnapshot,
         identifier: String? = nil,
         forwards: [MessageAttachment] = [],
-        audios: [AudioAttachment] = []
+        audios: [AudioAttachment] = [],
+        status: AppearancePreviewStatus? = nil
     ) {
         primary = "appearance-preview-\(identifier ?? (outgoing ? "outgoing" : "incoming"))"
         sender = Sender(id: outgoing ? "me" : "contact", displayName: outgoing ? "Me" : "Contact")
@@ -889,7 +903,7 @@ private struct AppearancePreviewMessage: MessageType {
         self.forwards = forwards
         self.audios = audios
         isHasAttachedMessages = forwards.isNotEmpty || audios.isNotEmpty
-        indicator = outgoing ? .read : .none
+        indicator = (status ?? (outgoing ? .delivery : .none)).indicator
         let textColor = outgoing
             ? snapshot.palette.outgoingText.uiColor
             : snapshot.palette.incomingText.uiColor
@@ -924,9 +938,12 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         let identifier: String?
         let forwards: [MessageAttachment]
         let audios: [AudioAttachment]
+        let status: AppearancePreviewStatus
+        let premiumLockAccessibilityIdentifier: String?
     }
 
     private let messageCell = TextMessageCell(frame: .zero)
+    private let premiumLockView = UIImageView(image: UIImage(systemName: "lock.fill"))
     private var message: AppearancePreviewMessage?
     private var snapshot: ResolvedAppearanceSnapshot?
     private var measuredHeightConstraint: NSLayoutConstraint!
@@ -936,7 +953,13 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         super.init(frame: frame)
         clipsToBounds = false
         isUserInteractionEnabled = false
+        premiumLockView.tintColor = .secondaryLabel
+        premiumLockView.contentMode = .scaleAspectFit
+        premiumLockView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        premiumLockView.isHidden = true
+        premiumLockView.isAccessibilityElement = true
         addSubview(messageCell)
+        messageCell.timeMarker.addSubview(premiumLockView)
         measuredHeightConstraint = heightAnchor.constraint(equalToConstant: 1)
         measuredHeightConstraint.isActive = true
     }
@@ -949,23 +972,47 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         snapshot: ResolvedAppearanceSnapshot,
         identifier: String? = nil,
         forwards: [MessageAttachment] = [],
-        audios: [AudioAttachment] = []
+        audios: [AudioAttachment] = [],
+        status: AppearancePreviewStatus? = nil,
+        premiumLockAccessibilityIdentifier: String? = nil
     ) {
         configuration = Configuration(
             text: text,
             outgoing: outgoing,
             identifier: identifier,
             forwards: forwards,
-            audios: audios
+            audios: audios,
+            status: status ?? (outgoing ? .delivery : .none),
+            premiumLockAccessibilityIdentifier: premiumLockAccessibilityIdentifier
         )
         applyConfiguration(snapshot: snapshot)
     }
 
     func updateTypography(snapshot: ResolvedAppearanceSnapshot) {
+        updateAppearance(snapshot: snapshot)
+    }
+
+    func updateAppearance(snapshot: ResolvedAppearanceSnapshot) {
         guard configuration != nil else { return }
-        applyConfiguration(snapshot: snapshot)
+        UIView.performWithoutAnimation {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            applyConfiguration(snapshot: snapshot)
+            if bounds.width > 0 {
+                updateLayoutWidth(bounds.width)
+            }
+            CATransaction.commit()
+        }
         setNeedsLayout()
         superview?.setNeedsLayout()
+    }
+
+    var messageContainerCenterY: CGFloat {
+        let frame = messageCell.messageContainerView.convert(
+            messageCell.messageContainerView.bounds,
+            to: self
+        )
+        return frame.isEmpty ? bounds.midY : frame.midY
     }
 
     private func applyConfiguration(snapshot: ResolvedAppearanceSnapshot) {
@@ -976,7 +1023,8 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
             snapshot: snapshot,
             identifier: configuration.identifier,
             forwards: configuration.forwards,
-            audios: configuration.audios
+            audios: configuration.audios,
+            status: configuration.status
         )
         self.message = message
         self.snapshot = snapshot
@@ -989,6 +1037,13 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         }
         messageCell.messageContainerView.appearancePaletteOverride = snapshot.palette
         messageCell.configureForAppearancePreview(with: message)
+        let showsPremiumLock = configuration.status == .premiumLock
+        messageCell.timeMarker.indicatorView.isHidden = showsPremiumLock
+        premiumLockView.isHidden = !showsPremiumLock
+        premiumLockView.accessibilityIdentifier = showsPremiumLock
+            ? configuration.premiumLockAccessibilityIdentifier
+            : nil
+        premiumLockView.accessibilityLabel = showsPremiumLock ? "Premium" : nil
         if bounds.width > 0 {
             updateLayoutWidth(bounds.width)
         }
@@ -1018,6 +1073,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         messageCell.apply(attributes)
         messageCell.setNeedsLayout()
         messageCell.layoutIfNeeded()
+        premiumLockView.frame = messageCell.timeMarker.indicatorView.frame
     }
 
     private func measuredLayout(for width: CGFloat) -> ChatMessageLayout? {
@@ -1301,7 +1357,10 @@ private final class AppearanceBubbleViewController: AppearanceDraftViewControlle
     private let contentStack = UIStackView()
     private let gallery = AppearanceBubbleStyleGalleryView()
     private let radiusSlider = UISlider()
-    private let radiusLabel = UILabel()
+    private let radiusSection = UIView()
+    private let radiusTitleLabel = UILabel()
+    private let radiusCard = UIView()
+    private var galleryConfigured = false
     private var policy: AppearancePremiumPolicy {
         let provider = LiveAppearanceEntitlementProvider()
         return AppearancePremiumPolicy(
@@ -1332,15 +1391,37 @@ private final class AppearanceBubbleViewController: AppearanceDraftViewControlle
         radiusSlider.value = Float(draft.profile.bubbleRadius)
         radiusSlider.addTarget(self, action: #selector(radiusChanged), for: .valueChanged)
         radiusSlider.accessibilityIdentifier = "interface.bubbles.radius"
-        radiusLabel.font = .preferredFont(forTextStyle: .body)
-        radiusLabel.adjustsFontForContentSizeCategory = true
-        let radiusRow = UIStackView(arrangedSubviews: [radiusLabel, radiusSlider])
-        radiusRow.axis = .horizontal
-        radiusRow.spacing = 12
-        radiusRow.alignment = .center
-        radiusLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 90).isActive = true
+        radiusSlider.accessibilityLabel = "Radius"
+        radiusSection.translatesAutoresizingMaskIntoConstraints = false
+        radiusSection.accessibilityIdentifier = "interface.bubbles.radiusSection"
+        radiusTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        radiusTitleLabel.text = "Radius"
+        radiusTitleLabel.font = .preferredFont(forTextStyle: .footnote)
+        radiusTitleLabel.adjustsFontForContentSizeCategory = true
+        radiusTitleLabel.textColor = .secondaryLabel
+        radiusCard.translatesAutoresizingMaskIntoConstraints = false
+        radiusCard.backgroundColor = .secondarySystemGroupedBackground
+        radiusCard.layer.cornerRadius = 14
+        radiusCard.layer.cornerCurve = .continuous
+        radiusSlider.translatesAutoresizingMaskIntoConstraints = false
+        radiusSection.addSubview(radiusTitleLabel)
+        radiusSection.addSubview(radiusCard)
+        radiusCard.addSubview(radiusSlider)
+        NSLayoutConstraint.activate([
+            radiusTitleLabel.leadingAnchor.constraint(equalTo: radiusSection.leadingAnchor),
+            radiusTitleLabel.trailingAnchor.constraint(equalTo: radiusSection.trailingAnchor),
+            radiusTitleLabel.topAnchor.constraint(equalTo: radiusSection.topAnchor),
+            radiusCard.leadingAnchor.constraint(equalTo: radiusSection.leadingAnchor),
+            radiusCard.trailingAnchor.constraint(equalTo: radiusSection.trailingAnchor),
+            radiusCard.topAnchor.constraint(equalTo: radiusTitleLabel.bottomAnchor, constant: 6),
+            radiusCard.bottomAnchor.constraint(equalTo: radiusSection.bottomAnchor),
+            radiusCard.heightAnchor.constraint(equalToConstant: 52),
+            radiusSlider.leadingAnchor.constraint(equalTo: radiusCard.leadingAnchor, constant: 16),
+            radiusSlider.trailingAnchor.constraint(equalTo: radiusCard.trailingAnchor, constant: -16),
+            radiusSlider.centerYAnchor.constraint(equalTo: radiusCard.centerYAnchor)
+        ])
         contentStack.addArrangedSubview(gallery)
-        contentStack.addArrangedSubview(radiusRow)
+        contentStack.addArrangedSubview(radiusSection)
         view.addSubview(scrollView)
         scrollView.addSubview(contentStack)
         NSLayoutConstraint.activate([
@@ -1376,9 +1457,13 @@ private final class AppearanceBubbleViewController: AppearanceDraftViewControlle
     @objc private func radiusChanged() {
         let value = min(max(Int(radiusSlider.value.rounded()), 0), 16)
         radiusSlider.setValue(Float(value), animated: false)
-        radiusLabel.text = "Radius \(value)"
+        radiusSlider.accessibilityValue = "\(value)"
         draft.profile.bubbleRadius = value
-        updateGallery()
+        if galleryConfigured {
+            updateGalleryRadius()
+        } else {
+            updateGallery()
+        }
         refreshSetButton()
     }
 
@@ -1399,6 +1484,13 @@ private final class AppearanceBubbleViewController: AppearanceDraftViewControlle
             selectedStyle: draft.profile.bubbleStyle,
             lockedStyles: lockedStyles
         )
+        galleryConfigured = true
+    }
+
+    private func updateGalleryRadius() {
+        var updated = document
+        updated.profile = draft.profile
+        gallery.updateRadius(document: updated, traits: traitCollection)
     }
 }
 
@@ -1455,7 +1547,7 @@ final class AppearanceBubbleStyleGalleryView: UIView {
     ) {
         backgroundView.configure(document: document)
         rebuildRowsIfNeeded(for: styles)
-        for (index, style) in styles.enumerated() {
+        for style in styles {
             guard let row = rows[style] else { continue }
             var styleDocument = document
             styleDocument.profile.bubbleStyle = style
@@ -1463,12 +1555,34 @@ final class AppearanceBubbleStyleGalleryView: UIView {
             row.configure(
                 style: style,
                 text: Self.sampleText(for: style),
-                outgoing: index.isMultiple(of: 2),
+                outgoing: false,
                 snapshot: snapshot,
                 selected: style == selectedStyle,
                 locked: lockedStyles.contains(style),
                 accent: snapshot.accent.uiColor
             )
+        }
+    }
+
+    func updateRadius(
+        document: AppearanceSettingsDocument,
+        traits: UITraitCollection
+    ) {
+        guard orderedStyles.isNotEmpty else { return }
+        UIView.performWithoutAnimation {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            for style in orderedStyles {
+                guard let row = rows[style] else { continue }
+                var styleDocument = document
+                styleDocument.profile.bubbleStyle = style
+                let snapshot = AppearanceResolver.resolve(
+                    document: styleDocument,
+                    traitStyle: traits.userInterfaceStyle
+                )
+                row.updateRadius(snapshot: snapshot)
+            }
+            CATransaction.commit()
         }
     }
 
@@ -1510,8 +1624,8 @@ private final class AppearanceBubbleStyleRow: UIControl {
 
     private let selectionIndicator = AppearanceBubbleSelectionIndicatorView()
     private let messageHost = AppearanceChatMessagePreviewHostView()
-    private let lockView = UIImageView(image: UIImage(systemName: "lock.fill"))
     private var style: AppearanceBubbleStyle?
+    private var selectionCenterYConstraint: NSLayoutConstraint!
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1519,26 +1633,22 @@ private final class AppearanceBubbleStyleRow: UIControl {
         selectionIndicator.translatesAutoresizingMaskIntoConstraints = false
         messageHost.translatesAutoresizingMaskIntoConstraints = false
         messageHost.isUserInteractionEnabled = false
-        lockView.translatesAutoresizingMaskIntoConstraints = false
-        lockView.tintColor = .systemYellow
-        lockView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
         addSubview(selectionIndicator)
         addSubview(messageHost)
-        addSubview(lockView)
+        selectionCenterYConstraint = selectionIndicator.centerYAnchor.constraint(
+            equalTo: messageHost.topAnchor,
+            constant: 32
+        )
         NSLayoutConstraint.activate([
             heightAnchor.constraint(greaterThanOrEqualToConstant: 64),
             selectionIndicator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            selectionIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
+            selectionCenterYConstraint,
             selectionIndicator.widthAnchor.constraint(equalToConstant: 26),
             selectionIndicator.heightAnchor.constraint(equalTo: selectionIndicator.widthAnchor),
             messageHost.leadingAnchor.constraint(equalTo: selectionIndicator.trailingAnchor, constant: 8),
             messageHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             messageHost.topAnchor.constraint(equalTo: topAnchor, constant: 5),
-            messageHost.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
-            lockView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            lockView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            lockView.widthAnchor.constraint(equalToConstant: 16),
-            lockView.heightAnchor.constraint(equalToConstant: 16)
+            messageHost.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5)
         ])
         addAction(UIAction { [weak self] _ in
             guard let self, let style = self.style else { return }
@@ -1552,6 +1662,11 @@ private final class AppearanceBubbleStyleRow: UIControl {
     override func layoutSubviews() {
         super.layoutSubviews()
         messageHost.updateLayoutWidth(messageHost.bounds.width)
+        messageHost.layoutIfNeeded()
+        let centerY = messageHost.messageContainerCenterY
+        if abs(selectionCenterYConstraint.constant - centerY) > 0.5 {
+            selectionCenterYConstraint.constant = centerY
+        }
     }
 
     func configure(
@@ -1564,15 +1679,26 @@ private final class AppearanceBubbleStyleRow: UIControl {
         accent: UIColor
     ) {
         self.style = style
-        messageHost.configure(text: text, outgoing: outgoing, snapshot: snapshot)
+        messageHost.configure(
+            text: text,
+            outgoing: outgoing,
+            snapshot: snapshot,
+            status: locked ? .premiumLock : .delivery,
+            premiumLockAccessibilityIdentifier: locked
+                ? "interface.bubble.lock.\(style.rawValue)"
+                : nil
+        )
         messageHost.accessibilityIdentifier = "interface.bubble.message.\(style.rawValue)"
         selectionIndicator.configure(selected: selected, accent: accent)
         selectionIndicator.accessibilityIdentifier = "interface.bubble.\(style.rawValue).selection"
-        lockView.isHidden = !locked
         accessibilityIdentifier = "interface.bubble.\(style.rawValue)"
         accessibilityLabel = style.displayName
         accessibilityValue = locked ? "Premium" : (selected ? "Selected" : nil)
         accessibilityTraits = selected ? [.button, .selected] : .button
+    }
+
+    func updateRadius(snapshot: ResolvedAppearanceSnapshot) {
+        messageHost.updateAppearance(snapshot: snapshot)
     }
 }
 
