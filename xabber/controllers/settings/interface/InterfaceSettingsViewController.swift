@@ -903,7 +903,8 @@ private struct AppearancePreviewMessage: MessageType {
         self.forwards = forwards
         self.audios = audios
         isHasAttachedMessages = forwards.isNotEmpty || audios.isNotEmpty
-        indicator = (status ?? (outgoing ? .delivery : .none)).indicator
+        let resolvedStatus = status ?? (outgoing ? .delivery : .none)
+        indicator = resolvedStatus.indicator
         let textColor = outgoing
             ? snapshot.palette.outgoingText.uiColor
             : snapshot.palette.incomingText.uiColor
@@ -920,7 +921,7 @@ private struct AppearancePreviewMessage: MessageType {
             )
         )
         timeMarkerText = NSAttributedString(
-            string: "23:20",
+            string: resolvedStatus == .premiumLock ? "Premium" : "23:20",
             attributes: [
                 .font: UIFont.systemFont(ofSize: 10, weight: .regular),
                 .foregroundColor: UIColor.secondaryLabel

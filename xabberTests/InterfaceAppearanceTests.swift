@@ -829,6 +829,23 @@ final class InterfaceAppearanceTests: XCTestCase {
             ) as? UIImageView
         )
         XCTAssertTrue(premiumCell.timeMarker.indicatorView.isHidden)
+        XCTAssertEqual(premiumCell.timeMarker.textLabel.attributedText?.string, "Premium")
+        let regularTimeFont = try XCTUnwrap(
+            selectedCell.timeMarker.textLabel.attributedText?.attribute(
+                .font,
+                at: 0,
+                effectiveRange: nil
+            ) as? UIFont
+        )
+        let premiumTimeFont = try XCTUnwrap(
+            premiumCell.timeMarker.textLabel.attributedText?.attribute(
+                .font,
+                at: 0,
+                effectiveRange: nil
+            ) as? UIFont
+        )
+        XCTAssertEqual(premiumTimeFont.fontName, regularTimeFont.fontName)
+        XCTAssertEqual(premiumTimeFont.pointSize, regularTimeFont.pointSize)
         let premiumLockFrame = premiumLock.convert(premiumLock.bounds, to: premiumCell.timeMarker)
         XCTAssertEqual(premiumLockFrame, premiumCell.timeMarker.indicatorView.frame)
         XCTAssertEqual(premiumLock.tintColor, .systemPurple)
