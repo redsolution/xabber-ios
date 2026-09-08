@@ -625,7 +625,7 @@ final class InterfaceAppearanceTests: XCTestCase {
                 accessibilityIdentifier: "interface.preview.message.outgoing"
             ) as? TextMessageCell
         )
-        let selectedColor = try XCTUnwrap(AppearanceColor(hex: "#D94B54"))
+        let selectedColor = try XCTUnwrap(AppearanceColor(hex: "#FFCDD2"))
 
         XCTAssertEqual(swatch.accessibilityValue, "Selected")
         XCTAssertTrue(swatch.accessibilityTraits.contains(.selected))
@@ -651,6 +651,12 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         var savedColor: AppearanceColor?
         controller.onSave = { savedColor = $0 }
+        let preview = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.accent.custom.preview"
+            )
+        )
         let selected = try XCTUnwrap(AppearanceColor(hex: "#D94B54"))
         controller.select(color: selected)
         controller.saveSelectedColor()
@@ -663,7 +669,11 @@ final class InterfaceAppearanceTests: XCTestCase {
             navigationController.topViewController?.navigationItem.rightBarButtonItem?.accessibilityIdentifier,
             "interface.accent.custom.save"
         )
-        XCTAssertGreaterThan(grid.numberOfItems(inSection: 0), 12)
+        XCTAssertEqual(grid.numberOfItems(inSection: 0), 120)
+        XCTAssertEqual(preview.backgroundColor, selected.uiColor)
+        let layout = try XCTUnwrap(grid.collectionViewLayout as? UICollectionViewFlowLayout)
+        XCTAssertEqual(layout.minimumInteritemSpacing, 0)
+        XCTAssertEqual(layout.minimumLineSpacing, 0)
         XCTAssertNil(descendant(in: controller.view, accessibilityIdentifier: "interface.accent.custom.hue"))
         XCTAssertNil(descendant(in: controller.view, accessibilityIdentifier: "interface.accent.custom.eyedropper"))
         XCTAssertEqual(savedColor, selected)

@@ -1246,7 +1246,7 @@ final class AppearanceAccentViewController: AppearanceDraftViewController {
                 document: document,
                 traitStyle: traitCollection.userInterfaceStyle
             ).accent
-        let palette = ["#1687F8", "#35B85A", "#F28A18", "#D94B54", "#9656DD", "#19A7A0", "#D04D91"]
+        let palette = ["#BBDEFB", "#C8E6C9", "#FFE0B2", "#FFCDD2", "#E1BEE7", "#B2EBF2", "#F8BBD0"]
             .compactMap(AppearanceColor.init(hex:))
         let colors = [resolvedAccent] + palette.filter { $0 != resolvedAccent }
         for rowStart in stride(from: 0, to: colors.count, by: 4) {
@@ -1384,24 +1384,25 @@ private final class AppearanceAccentSwatchButton: UIControl {
 final class AppearanceCustomAccentColorViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
     var onSave: ((AppearanceColor) -> Void)?
 
-    private static let palette = [
-        "#FF3B30", "#FF453A", "#FF9500", "#FF9F0A", "#FFCC00", "#FFD60A",
-        "#34C759", "#30D158", "#00C7BE", "#64D2FF", "#0A84FF", "#007AFF",
-        "#5E5CE6", "#BF5AF2", "#AF52DE", "#FF2D55", "#FF375F", "#AC8E68",
-        "#8E8E93", "#636366", "#48484A", "#3A3A3C", "#1C1C1E", "#FFFFFF"
+    private static let columnCount = 12
+    private static let rowCount = 10
+    private static let gridColors = makeGridColors()
+    private static let quickColors = [
+        "#000000", "#0A84FF", "#30D158", "#FFCC00", "#FF453A", "#A3A500", "#BF5AF2"
     ].compactMap(AppearanceColor.init(hex:))
 
     private let collectionView: UICollectionView
-    private var colors: [AppearanceColor]
+    private let selectedColorPreview = UIView()
+    private let quickColorsStack = UIStackView()
     private var selectedColor: AppearanceColor
 
     init(initialColor: UIColor) {
         let initial = AppearanceColor(uiColor: initialColor)
         selectedColor = initial
-        colors = [initial] + Self.palette.filter { $0 != initial }
         let layout = UICollectionViewFlowLayout()
-        layout.minimumInteritemSpacing = 10
-        layout.minimumLineSpacing = 14
+        layout.minimumInteritemSpacing = 0
+        layout.minimumLineSpacing = 0
+        layout.sectionInset = .zero
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         super.init(nibName: nil, bundle: nil)
     }
@@ -1410,8 +1411,8 @@ final class AppearanceCustomAccentColorViewController: UIViewController, UIColle
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Custom Color"
-        view.backgroundColor = .systemGroupedBackground
+        title = "Colors"
+        view.backgroundColor = .systemBackground
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             image: UIImage(systemName: "xmark"),
             style: .plain,
@@ -1427,9 +1428,14 @@ final class AppearanceCustomAccentColorViewController: UIViewController, UIColle
         )
         navigationItem.rightBarButtonItem?.accessibilityIdentifier = "interface.accent.custom.save"
 
+        let gridContainer = UIView()
+        gridContainer.translatesAutoresizingMaskIntoConstraints = false
+        gridContainer.layer.cornerRadius = 16
+        gridContainer.layer.cornerCurve = .continuous
+        gridContainer.clipsToBounds = true
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = .clear
-        collectionView.alwaysBounceVertical = true
+        collectionView.isScrollEnabled = false
         collectionView.accessibilityIdentifier = "interface.accent.custom.grid"
         collectionView.accessibilityLabel = "Color grid"
         collectionView.dataSource = self
@@ -1438,18 +1444,59 @@ final class AppearanceCustomAccentColorViewController: UIViewController, UIColle
             AppearanceCustomAccentColorCell.self,
             forCellWithReuseIdentifier: AppearanceCustomAccentColorCell.reuseIdentifier
         )
-        view.addSubview(collectionView)
+        gridContainer.addSubview(collectionView)
+
+        let separator = UIView()
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.backgroundColor = .separator
+
+        selectedColorPreview.translatesAutoresizingMaskIntoConstraints = false
+        selectedColorPreview.layer.cornerRadius = 16
+        selectedColorPreview.layer.cornerCurve = .continuous
+        selectedColorPreview.layer.borderWidth = 1
+        selectedColorPreview.layer.borderColor = UIColor.label.withAlphaComponent(0.1).cgColor
+        selectedColorPreview.accessibilityIdentifier = "interface.accent.custom.preview"
+        selectedColorPreview.accessibilityLabel = "Selected custom color"
+
+        configureQuickColors()
+        let colorSummary = UIStackView(arrangedSubviews: [selectedColorPreview, quickColorsStack])
+        colorSummary.axis = .horizontal
+        colorSummary.alignment = .top
+        colorSummary.spacing = 36
+        colorSummary.translatesAutoresizingMaskIntoConstraints = false
+
+        view.addSubview(gridContainer)
+        view.addSubview(separator)
+        view.addSubview(colorSummary)
         NSLayoutConstraint.activate([
-            collectionView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
-            collectionView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
-            collectionView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
-            collectionView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20)
+            gridContainer.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
+            gridContainer.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
+            gridContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            gridContainer.heightAnchor.constraint(
+                equalTo: gridContainer.widthAnchor,
+                multiplier: CGFloat(Self.rowCount) / CGFloat(Self.columnCount)
+            ),
+            collectionView.leadingAnchor.constraint(equalTo: gridContainer.leadingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: gridContainer.trailingAnchor),
+            collectionView.topAnchor.constraint(equalTo: gridContainer.topAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: gridContainer.bottomAnchor),
+            separator.leadingAnchor.constraint(equalTo: gridContainer.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: gridContainer.trailingAnchor),
+            separator.topAnchor.constraint(equalTo: gridContainer.bottomAnchor, constant: 24),
+            separator.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
+            colorSummary.leadingAnchor.constraint(equalTo: gridContainer.leadingAnchor),
+            colorSummary.trailingAnchor.constraint(lessThanOrEqualTo: gridContainer.trailingAnchor),
+            colorSummary.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 24),
+            selectedColorPreview.widthAnchor.constraint(equalToConstant: 78),
+            selectedColorPreview.heightAnchor.constraint(equalTo: selectedColorPreview.widthAnchor)
         ])
+        updateSelectionPreview()
     }
 
     func select(color: AppearanceColor) {
         selectedColor = color
         collectionView.reloadData()
+        updateSelectionPreview()
     }
 
     @objc func saveSelectedColor() {
@@ -1461,7 +1508,7 @@ final class AppearanceCustomAccentColorViewController: UIViewController, UIColle
     }
 
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        colors.count
+        Self.gridColors.count
     }
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
@@ -1469,14 +1516,14 @@ final class AppearanceCustomAccentColorViewController: UIViewController, UIColle
             withReuseIdentifier: AppearanceCustomAccentColorCell.reuseIdentifier,
             for: indexPath
         ) as! AppearanceCustomAccentColorCell
-        let color = colors[indexPath.item]
+        let color = Self.gridColors[indexPath.item]
         cell.configure(color: color, selected: color == selectedColor)
         cell.accessibilityIdentifier = "interface.accent.custom.color.\(indexPath.item)"
         return cell
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        select(color: colors[indexPath.item])
+        select(color: Self.gridColors[indexPath.item])
     }
 
     func collectionView(
@@ -1484,55 +1531,100 @@ final class AppearanceCustomAccentColorViewController: UIViewController, UIColle
         layout collectionViewLayout: UICollectionViewLayout,
         sizeForItemAt indexPath: IndexPath
     ) -> CGSize {
-        let width = floor((collectionView.bounds.width - 5 * 10) / 6)
-        return CGSize(width: max(width, 44), height: max(width, 44))
+        let width = collectionView.bounds.width / CGFloat(Self.columnCount)
+        return CGSize(width: width, height: width)
+    }
+
+    private func configureQuickColors() {
+        quickColorsStack.axis = .vertical
+        quickColorsStack.spacing = 12
+        for rowStart in stride(from: 0, to: Self.quickColors.count, by: 5) {
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.spacing = 18
+            for index in rowStart..<min(rowStart + 5, Self.quickColors.count) {
+                let color = Self.quickColors[index]
+                let button = AppearanceCustomAccentQuickColorButton(color: color)
+                button.widthAnchor.constraint(equalToConstant: 30).isActive = true
+                button.heightAnchor.constraint(equalTo: button.widthAnchor).isActive = true
+                button.accessibilityIdentifier = "interface.accent.custom.quickColor.\(index)"
+                button.addAction(UIAction { [weak self] _ in
+                    self?.select(color: color)
+                }, for: .touchUpInside)
+                row.addArrangedSubview(button)
+            }
+            quickColorsStack.addArrangedSubview(row)
+        }
+    }
+
+    private func updateSelectionPreview() {
+        guard isViewLoaded else { return }
+        selectedColorPreview.backgroundColor = selectedColor.uiColor
+        selectedColorPreview.accessibilityValue = selectedColor.hexString
+    }
+
+    private static func makeGridColors() -> [AppearanceColor] {
+        let grayscale: [CGFloat] = [1, 0.93, 0.84, 0.74, 0.63, 0.52, 0.42, 0.32, 0.23, 0.14, 0.07, 0]
+        let hueColumns: [CGFloat] = [
+            192, 219, 251, 280, 335, 5, 21, 37, 47, 61, 77, 100
+        ].map { $0 / 360 }
+        let variants: [(saturation: CGFloat, brightness: CGFloat)] = [
+            (0.95, 0.25), (0.95, 0.38), (0.94, 0.52), (0.92, 0.68),
+            (0.86, 0.84), (0.70, 0.98), (0.52, 0.99), (0.33, 1), (0.15, 1)
+        ]
+        let neutral = grayscale.map { AppearanceColor(uiColor: UIColor(white: $0, alpha: 1)) }
+        let colorRows = variants.flatMap { variant in
+            hueColumns.map { hue in
+                AppearanceColor(
+                    uiColor: UIColor(
+                        hue: hue,
+                        saturation: variant.saturation,
+                        brightness: variant.brightness,
+                        alpha: 1
+                    )
+                )
+            }
+        }
+        return neutral + colorRows
     }
 }
 
 private final class AppearanceCustomAccentColorCell: UICollectionViewCell {
     static let reuseIdentifier = "AppearanceCustomAccentColorCell"
 
-    private let colorView = UIView()
-    private let checkmarkView = UIImageView(image: UIImage(systemName: "checkmark"))
-
     override init(frame: CGRect) {
         super.init(frame: frame)
-        colorView.translatesAutoresizingMaskIntoConstraints = false
-        colorView.layer.cornerCurve = .continuous
-        checkmarkView.translatesAutoresizingMaskIntoConstraints = false
-        checkmarkView.tintColor = .white
-        checkmarkView.contentMode = .scaleAspectFit
-        contentView.addSubview(colorView)
-        contentView.addSubview(checkmarkView)
-        NSLayoutConstraint.activate([
-            colorView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
-            colorView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
-            colorView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-            colorView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
-            checkmarkView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            checkmarkView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            checkmarkView.widthAnchor.constraint(equalToConstant: 18),
-            checkmarkView.heightAnchor.constraint(equalToConstant: 18)
-        ])
+        isAccessibilityElement = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(color: AppearanceColor, selected: Bool) {
+        contentView.backgroundColor = color.uiColor
+        contentView.layer.borderWidth = selected ? 2 : 0
+        contentView.layer.borderColor = selected ? UIColor.label.withAlphaComponent(0.8).cgColor : nil
+        accessibilityLabel = "Application color"
+        accessibilityValue = selected ? "Selected" : nil
+        accessibilityTraits = selected ? [.button, .selected] : .button
+    }
+}
+
+private final class AppearanceCustomAccentQuickColorButton: UIControl {
+    private let color: AppearanceColor
+
+    init(color: AppearanceColor) {
+        self.color = color
+        super.init(frame: .zero)
+        backgroundColor = color.uiColor
+        layer.cornerCurve = .continuous
+        accessibilityLabel = "Quick application color"
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        contentView.layer.cornerRadius = contentView.bounds.height / 2
-        colorView.layer.cornerRadius = colorView.bounds.height / 2
-    }
-
-    func configure(color: AppearanceColor, selected: Bool) {
-        colorView.backgroundColor = color.uiColor
-        contentView.layer.borderWidth = selected ? 2 : 0
-        contentView.layer.borderColor = selected ? UIColor.label.withAlphaComponent(0.65).cgColor : nil
-        checkmarkView.tintColor = color.uiColor.isLightAppearanceColor ? .black : .white
-        checkmarkView.isHidden = !selected
-        accessibilityLabel = "Application color"
-        accessibilityValue = selected ? "Selected" : nil
-        accessibilityTraits = selected ? [.button, .selected] : .button
+        layer.cornerRadius = bounds.height / 2
     }
 }
 
@@ -3733,6 +3825,15 @@ private extension UIColor {
 }
 
 private extension AppearanceColor {
+    var hexString: String {
+        String(
+            format: "#%02X%02X%02X",
+            Int((red * 255).rounded()),
+            Int((green * 255).rounded()),
+            Int((blue * 255).rounded())
+        )
+    }
+
     init(uiColor: UIColor) {
         var red: CGFloat = 0
         var green: CGFloat = 0
