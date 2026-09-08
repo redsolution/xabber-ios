@@ -119,8 +119,8 @@ enum AppearanceBubbleStyle: String, Codable, CaseIterable {
     case transparent
     case wedge
 
-    static let freeCases: [AppearanceBubbleStyle] = [.noTail, .smooth, .bubble]
-    static let premiumCases: [AppearanceBubbleStyle] = [.bubbles, .curvy, .stripes, .transparent, .wedge]
+    static let freeCases: [AppearanceBubbleStyle] = [.noTail, .smooth, .bubble, .bubbles, .curvy]
+    static let premiumCases: [AppearanceBubbleStyle] = [.stripes, .transparent, .wedge]
 
     var displayName: String {
         switch self {

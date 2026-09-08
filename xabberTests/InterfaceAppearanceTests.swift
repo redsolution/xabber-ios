@@ -705,7 +705,17 @@ final class InterfaceAppearanceTests: XCTestCase {
         let paid = AppearancePremiumPolicy(isEntitled: true, subscriptionsEnabled: true)
 
         XCTAssertEqual(Set(free.visibleBubbleStyles), Set(AppearanceBubbleStyle.allCases))
+        XCTAssertEqual(
+            AppearanceBubbleStyle.freeCases,
+            [.noTail, .smooth, .bubble, .bubbles, .curvy]
+        )
+        XCTAssertEqual(
+            AppearanceBubbleStyle.premiumCases,
+            [.stripes, .transparent, .wedge]
+        )
         XCTAssertTrue(free.canSelect(.noTail, currentlyApplied: .wedge))
+        XCTAssertTrue(free.canSelect(.curvy, currentlyApplied: .noTail))
+        XCTAssertFalse(free.canSelect(.stripes, currentlyApplied: .noTail))
         XCTAssertFalse(free.canSelect(.wedge, currentlyApplied: .noTail))
         XCTAssertTrue(free.canSelect(.wedge, currentlyApplied: .wedge))
         XCTAssertFalse(free.canSelect(.star, currentlyApplied: .circle))
@@ -731,7 +741,7 @@ final class InterfaceAppearanceTests: XCTestCase {
             traits: .init(userInterfaceStyle: .light),
             styles: AppearanceBubbleStyle.allCases,
             selectedStyle: .smooth,
-            lockedStyles: [.curvy]
+            lockedStyles: [.stripes]
         )
         gallery.setNeedsLayout()
         gallery.layoutIfNeeded()
@@ -800,27 +810,28 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         XCTAssertEqual(
             descendant(
-                in: gallery,
-                accessibilityIdentifier: "interface.bubble.curvy"
-            )?.accessibilityValue,
+                    in: gallery,
+                    accessibilityIdentifier: "interface.bubble.stripes"
+                )?.accessibilityValue,
             "Premium"
         )
         let premiumHost = try XCTUnwrap(
             descendant(
                 in: gallery,
-                accessibilityIdentifier: "interface.bubble.message.curvy"
+                accessibilityIdentifier: "interface.bubble.message.stripes"
             )
         )
         let premiumCell = try XCTUnwrap(firstSubview(of: TextMessageCell.self, in: premiumHost))
         let premiumLock = try XCTUnwrap(
             descendant(
                 in: gallery,
-                accessibilityIdentifier: "interface.bubble.lock.curvy"
-            )
+                accessibilityIdentifier: "interface.bubble.lock.stripes"
+            ) as? UIImageView
         )
         XCTAssertTrue(premiumCell.timeMarker.indicatorView.isHidden)
         let premiumLockFrame = premiumLock.convert(premiumLock.bounds, to: premiumCell.timeMarker)
         XCTAssertEqual(premiumLockFrame, premiumCell.timeMarker.indicatorView.frame)
+        XCTAssertEqual(premiumLock.tintColor, .systemPurple)
 
         let cellBeforeRadiusChange = selectedCell
         document.profile.bubbleRadius = 16

@@ -953,7 +953,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         super.init(frame: frame)
         clipsToBounds = false
         isUserInteractionEnabled = false
-        premiumLockView.tintColor = .secondaryLabel
+        premiumLockView.tintColor = .systemPurple
         premiumLockView.contentMode = .scaleAspectFit
         premiumLockView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
         premiumLockView.isHidden = true
