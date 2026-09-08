@@ -1364,7 +1364,8 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
     }
 }
 
-private final class AppearanceBubbleViewController: AppearanceDraftViewController {
+final class AppearanceBubbleViewController: AppearanceDraftViewController {
+    private let pageBackgroundView = ChatBackgroundBackdropView()
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
     private let gallery = AppearanceBubbleStyleGalleryView()
@@ -1389,12 +1390,18 @@ private final class AppearanceBubbleViewController: AppearanceDraftViewControlle
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.backgroundColor = .clear
+        pageBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        pageBackgroundView.accessibilityIdentifier = "interface.bubbles.pageBackground"
+        view.addSubview(pageBackgroundView)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.backgroundColor = .clear
         scrollView.alwaysBounceVertical = true
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.axis = .vertical
         contentStack.spacing = 18
         gallery.translatesAutoresizingMaskIntoConstraints = false
+        gallery.showsBackground = false
         gallery.onStyleSelected = { [weak self] style in
             self?.select(style)
         }
@@ -1437,6 +1444,10 @@ private final class AppearanceBubbleViewController: AppearanceDraftViewControlle
         view.addSubview(scrollView)
         scrollView.addSubview(contentStack)
         NSLayoutConstraint.activate([
+            pageBackgroundView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            pageBackgroundView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            pageBackgroundView.topAnchor.constraint(equalTo: view.topAnchor),
+            pageBackgroundView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -1486,6 +1497,7 @@ private final class AppearanceBubbleViewController: AppearanceDraftViewControlle
     private func updateGallery() {
         var updated = document
         updated.profile = draft.profile
+        pageBackgroundView.configure(document: updated)
         let lockedStyles = Set(policy.visibleBubbleStyles.filter {
             !policy.canSelect($0, currentlyApplied: document.profile.bubbleStyle)
         })
@@ -1517,6 +1529,11 @@ final class AppearanceBubbleStyleGalleryView: UIView {
     }
 
     var onStyleSelected: ((AppearanceBubbleStyle) -> Void)?
+    var showsBackground = true {
+        didSet {
+            backgroundView.isHidden = !showsBackground
+        }
+    }
 
     private let backgroundView = ChatBackgroundBackdropView()
     private let rowsContainer = UIView()

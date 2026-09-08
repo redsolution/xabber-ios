@@ -879,6 +879,37 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertTrue(cellBeforeRadiusChange === cellAfterRadiusChange)
     }
 
+    @MainActor
+    func testBubbleEditorRendersWallpaperAcrossThePageAndLeavesGalleryTransparent() throws {
+        var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        document.profile.wallpaper = .builtIn(name: "Honeycomb")
+        let controller = AppearanceBubbleViewController(document: document)
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        let pageBackdrop = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.bubbles.pageBackground"
+            ) as? ChatBackgroundBackdropView
+        )
+        let galleryBackdrop = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.bubbles.background"
+            ) as? ChatBackgroundBackdropView
+        )
+
+        XCTAssertTrue(pageBackdrop.hasVisibleWallpaperImage)
+        XCTAssertTrue(galleryBackdrop.isHidden)
+        XCTAssertEqual(
+            pageBackdrop.convert(pageBackdrop.bounds, to: controller.view),
+            controller.view.bounds
+        )
+    }
+
     func testChangeSetSeparatesPaintLayoutAndInterfaceStyle() {
         let old = AppearanceProfile.default(accent: .systemBlue)
         var paint = old
