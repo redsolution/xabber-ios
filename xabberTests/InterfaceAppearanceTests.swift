@@ -720,6 +720,62 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertEqual(Set(policy.visibleAvatarMasks), Set(AppearanceAvatarMask.freeCases))
     }
 
+    @MainActor
+    func testBubbleGalleryRendersEveryStyleOverSelectedWallpaperWithRoundSelectionIndicator() throws {
+        var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        document.profile.wallpaper = .builtIn(name: "Honeycomb")
+        document.profile.bubbleStyle = .smooth
+        let gallery = AppearanceBubbleStyleGalleryView(frame: CGRect(x: 0, y: 0, width: 360, height: 560))
+        gallery.configure(
+            document: document,
+            traits: .init(userInterfaceStyle: .light),
+            styles: AppearanceBubbleStyle.allCases,
+            selectedStyle: .smooth,
+            lockedStyles: [.curvy]
+        )
+        gallery.setNeedsLayout()
+        gallery.layoutIfNeeded()
+
+        let backdrop = try XCTUnwrap(
+            descendant(
+                in: gallery,
+                accessibilityIdentifier: "interface.bubbles.background"
+            ) as? ChatBackgroundBackdropView
+        )
+        XCTAssertTrue(backdrop.hasVisibleWallpaperImage)
+
+        for style in AppearanceBubbleStyle.allCases {
+            XCTAssertNotNil(
+                descendant(
+                    in: gallery,
+                    accessibilityIdentifier: "interface.bubble.\(style.rawValue)"
+                )
+            )
+            XCTAssertNotNil(
+                descendant(
+                    in: gallery,
+                    accessibilityIdentifier: "interface.bubble.message.\(style.rawValue)"
+                )
+            )
+        }
+
+        let selectedIndicator = try XCTUnwrap(
+            descendant(
+                in: gallery,
+                accessibilityIdentifier: "interface.bubble.smooth.selection"
+            )
+        )
+        XCTAssertEqual(selectedIndicator.accessibilityValue, "Selected")
+        XCTAssertEqual(selectedIndicator.layer.cornerRadius, selectedIndicator.bounds.width / 2, accuracy: 0.5)
+        XCTAssertEqual(
+            descendant(
+                in: gallery,
+                accessibilityIdentifier: "interface.bubble.curvy"
+            )?.accessibilityValue,
+            "Premium"
+        )
+    }
+
     func testChangeSetSeparatesPaintLayoutAndInterfaceStyle() {
         let old = AppearanceProfile.default(accent: .systemBlue)
         var paint = old

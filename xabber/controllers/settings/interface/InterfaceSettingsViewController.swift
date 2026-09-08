@@ -1296,8 +1296,10 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
     }
 }
 
-private final class AppearanceBubbleViewController: AppearanceDraftViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
-    private let collectionView: UICollectionView
+private final class AppearanceBubbleViewController: AppearanceDraftViewController {
+    private let scrollView = UIScrollView()
+    private let contentStack = UIStackView()
+    private let gallery = AppearanceBubbleStyleGalleryView()
     private let radiusSlider = UISlider()
     private let radiusLabel = UILabel()
     private var policy: AppearancePremiumPolicy {
@@ -1309,10 +1311,6 @@ private final class AppearanceBubbleViewController: AppearanceDraftViewControlle
     }
 
     init(document: AppearanceSettingsDocument) {
-        let layout = UICollectionViewFlowLayout()
-        layout.minimumInteritemSpacing = 12
-        layout.minimumLineSpacing = 12
-        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         super.init(document: document, title: "Message Bubbles")
     }
 
@@ -1320,12 +1318,15 @@ private final class AppearanceBubbleViewController: AppearanceDraftViewControlle
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        preview.translatesAutoresizingMaskIntoConstraints = false
-        collectionView.translatesAutoresizingMaskIntoConstraints = false
-        collectionView.backgroundColor = .clear
-        collectionView.dataSource = self
-        collectionView.delegate = self
-        collectionView.register(AppearanceOptionCell.self, forCellWithReuseIdentifier: AppearanceOptionCell.reuseIdentifier)
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.alwaysBounceVertical = true
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.axis = .vertical
+        contentStack.spacing = 18
+        gallery.translatesAutoresizingMaskIntoConstraints = false
+        gallery.onStyleSelected = { [weak self] style in
+            self?.select(style)
+        }
         radiusSlider.minimumValue = 0
         radiusSlider.maximumValue = 16
         radiusSlider.value = Float(draft.profile.bubbleRadius)
@@ -1338,21 +1339,22 @@ private final class AppearanceBubbleViewController: AppearanceDraftViewControlle
         radiusRow.spacing = 12
         radiusRow.alignment = .center
         radiusLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 90).isActive = true
-        let stack = UIStackView(arrangedSubviews: [preview, collectionView, radiusRow])
-        stack.axis = .vertical
-        stack.spacing = 16
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(stack)
+        contentStack.addArrangedSubview(gallery)
+        contentStack.addArrangedSubview(radiusRow)
+        view.addSubview(scrollView)
+        scrollView.addSubview(contentStack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-            stack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
-            preview.heightAnchor.constraint(equalToConstant: 250),
-            collectionView.heightAnchor.constraint(greaterThanOrEqualToConstant: 240)
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            contentStack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
+            contentStack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
+            contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 12),
+            contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -12),
+            contentStack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32)
         ])
         radiusChanged()
-        updatePreview()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(entitlementChanged),
@@ -1361,38 +1363,14 @@ private final class AppearanceBubbleViewController: AppearanceDraftViewControlle
         )
     }
 
-    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        policy.visibleBubbleStyles.count
-    }
-
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let value = policy.visibleBubbleStyles[indexPath.item]
-        let locked = !policy.canSelect(value, currentlyApplied: document.profile.bubbleStyle)
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: AppearanceOptionCell.reuseIdentifier, for: indexPath) as! AppearanceOptionCell
-        cell.configureBubble(
-            title: value.displayName,
-            style: value,
-            selected: value == draft.profile.bubbleStyle,
-            locked: locked,
-            accent: AppearanceResolver.resolve(document: document, traitStyle: traitCollection.userInterfaceStyle).accent.uiColor
-        )
-        cell.accessibilityIdentifier = "interface.bubble.\(value.rawValue)"
-        return cell
-    }
-
-    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        let value = policy.visibleBubbleStyles[indexPath.item]
+    private func select(_ value: AppearanceBubbleStyle) {
         guard policy.canSelect(value, currentlyApplied: document.profile.bubbleStyle) else {
             SubscribtionsPresenter().present(animated: true, parent: self)
             return
         }
         draft.profile.bubbleStyle = value
-        collectionView.reloadData()
-        updatePreview()
-    }
-
-    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        CGSize(width: floor((collectionView.bounds.width - 12) / 2), height: 72)
+        updateGallery()
+        refreshSetButton()
     }
 
     @objc private func radiusChanged() {
@@ -1400,11 +1378,235 @@ private final class AppearanceBubbleViewController: AppearanceDraftViewControlle
         radiusSlider.setValue(Float(value), animated: false)
         radiusLabel.text = "Radius \(value)"
         draft.profile.bubbleRadius = value
-        updatePreview()
+        updateGallery()
+        refreshSetButton()
     }
 
     @objc private func entitlementChanged() {
-        collectionView.reloadData()
+        updateGallery()
+    }
+
+    private func updateGallery() {
+        var updated = document
+        updated.profile = draft.profile
+        let lockedStyles = Set(policy.visibleBubbleStyles.filter {
+            !policy.canSelect($0, currentlyApplied: document.profile.bubbleStyle)
+        })
+        gallery.configure(
+            document: updated,
+            traits: traitCollection,
+            styles: policy.visibleBubbleStyles,
+            selectedStyle: draft.profile.bubbleStyle,
+            lockedStyles: lockedStyles
+        )
+    }
+}
+
+/// A single, wallpaper-backed choice surface for every message bubble shape.
+/// It uses the same message host as the rest of Interface Appearance, while
+/// keeping the selection control adjacent to the message it changes.
+final class AppearanceBubbleStyleGalleryView: UIView {
+    var onStyleSelected: ((AppearanceBubbleStyle) -> Void)?
+
+    private let backgroundView = ChatBackgroundBackdropView()
+    private let rowsStack = UIStackView()
+    private var rows: [AppearanceBubbleStyle: AppearanceBubbleStyleRow] = [:]
+    private var orderedStyles: [AppearanceBubbleStyle] = []
+    private var minimumHeight: CGFloat = 0
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: minimumHeight)
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        layer.cornerRadius = 22
+        layer.cornerCurve = .continuous
+        clipsToBounds = true
+        backgroundView.translatesAutoresizingMaskIntoConstraints = false
+        backgroundView.accessibilityIdentifier = "interface.bubbles.background"
+        rowsStack.translatesAutoresizingMaskIntoConstraints = false
+        rowsStack.axis = .vertical
+        rowsStack.spacing = 6
+        addSubview(backgroundView)
+        addSubview(rowsStack)
+        NSLayoutConstraint.activate([
+            backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            backgroundView.topAnchor.constraint(equalTo: topAnchor),
+            backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            rowsStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            rowsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            rowsStack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            rowsStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12)
+        ])
+        accessibilityIdentifier = "interface.bubbles.gallery"
+        accessibilityLabel = "Message bubble styles"
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(
+        document: AppearanceSettingsDocument,
+        traits: UITraitCollection,
+        styles: [AppearanceBubbleStyle],
+        selectedStyle: AppearanceBubbleStyle,
+        lockedStyles: Set<AppearanceBubbleStyle>
+    ) {
+        backgroundView.configure(document: document)
+        rebuildRowsIfNeeded(for: styles)
+        for (index, style) in styles.enumerated() {
+            guard let row = rows[style] else { continue }
+            var styleDocument = document
+            styleDocument.profile.bubbleStyle = style
+            let snapshot = AppearanceResolver.resolve(document: styleDocument, traitStyle: traits.userInterfaceStyle)
+            row.configure(
+                style: style,
+                text: Self.sampleText(for: style),
+                outgoing: index.isMultiple(of: 2),
+                snapshot: snapshot,
+                selected: style == selectedStyle,
+                locked: lockedStyles.contains(style),
+                accent: snapshot.accent.uiColor
+            )
+        }
+    }
+
+    private func rebuildRowsIfNeeded(for styles: [AppearanceBubbleStyle]) {
+        guard orderedStyles != styles else { return }
+        rowsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        rows.removeAll(keepingCapacity: true)
+        orderedStyles = styles
+        for style in styles {
+            let row = AppearanceBubbleStyleRow()
+            row.onSelect = { [weak self] style in
+                self?.onStyleSelected?(style)
+            }
+            rows[style] = row
+            rowsStack.addArrangedSubview(row)
+        }
+        minimumHeight = CGFloat(styles.count) * 64
+            + CGFloat(max(styles.count - 1, 0)) * rowsStack.spacing
+            + 24
+        invalidateIntrinsicContentSize()
+    }
+
+    private static func sampleText(for style: AppearanceBubbleStyle) -> String {
+        switch style {
+        case .noTail: return "No tail, just a message"
+        case .smooth: return "A smooth reply"
+        case .bubble: return "A friendly bubble"
+        case .bubbles: return "Small bubbles follow"
+        case .curvy: return "A gently curving hello"
+        case .stripes: return "A message with stripes"
+        case .transparent: return "See through this one"
+        case .wedge: return "A sharper reply"
+        }
+    }
+}
+
+private final class AppearanceBubbleStyleRow: UIControl {
+    var onSelect: ((AppearanceBubbleStyle) -> Void)?
+
+    private let selectionIndicator = AppearanceBubbleSelectionIndicatorView()
+    private let messageHost = AppearanceChatMessagePreviewHostView()
+    private let lockView = UIImageView(image: UIImage(systemName: "lock.fill"))
+    private var style: AppearanceBubbleStyle?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        translatesAutoresizingMaskIntoConstraints = false
+        selectionIndicator.translatesAutoresizingMaskIntoConstraints = false
+        messageHost.translatesAutoresizingMaskIntoConstraints = false
+        messageHost.isUserInteractionEnabled = false
+        lockView.translatesAutoresizingMaskIntoConstraints = false
+        lockView.tintColor = .systemYellow
+        lockView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        addSubview(selectionIndicator)
+        addSubview(messageHost)
+        addSubview(lockView)
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 64),
+            selectionIndicator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            selectionIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
+            selectionIndicator.widthAnchor.constraint(equalToConstant: 26),
+            selectionIndicator.heightAnchor.constraint(equalTo: selectionIndicator.widthAnchor),
+            messageHost.leadingAnchor.constraint(equalTo: selectionIndicator.trailingAnchor, constant: 8),
+            messageHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            messageHost.topAnchor.constraint(equalTo: topAnchor, constant: 5),
+            messageHost.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
+            lockView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            lockView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            lockView.widthAnchor.constraint(equalToConstant: 16),
+            lockView.heightAnchor.constraint(equalToConstant: 16)
+        ])
+        addAction(UIAction { [weak self] _ in
+            guard let self, let style = self.style else { return }
+            self.onSelect?(style)
+        }, for: .touchUpInside)
+        isAccessibilityElement = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        messageHost.updateLayoutWidth(messageHost.bounds.width)
+    }
+
+    func configure(
+        style: AppearanceBubbleStyle,
+        text: String,
+        outgoing: Bool,
+        snapshot: ResolvedAppearanceSnapshot,
+        selected: Bool,
+        locked: Bool,
+        accent: UIColor
+    ) {
+        self.style = style
+        messageHost.configure(text: text, outgoing: outgoing, snapshot: snapshot)
+        messageHost.accessibilityIdentifier = "interface.bubble.message.\(style.rawValue)"
+        selectionIndicator.configure(selected: selected, accent: accent)
+        selectionIndicator.accessibilityIdentifier = "interface.bubble.\(style.rawValue).selection"
+        lockView.isHidden = !locked
+        accessibilityIdentifier = "interface.bubble.\(style.rawValue)"
+        accessibilityLabel = style.displayName
+        accessibilityValue = locked ? "Premium" : (selected ? "Selected" : nil)
+        accessibilityTraits = selected ? [.button, .selected] : .button
+    }
+}
+
+private final class AppearanceBubbleSelectionIndicatorView: UIView {
+    private let checkmarkView = UIImageView(image: UIImage(systemName: "checkmark"))
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        checkmarkView.translatesAutoresizingMaskIntoConstraints = false
+        checkmarkView.tintColor = .white
+        checkmarkView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
+        addSubview(checkmarkView)
+        NSLayoutConstraint.activate([
+            checkmarkView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            checkmarkView.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+        isAccessibilityElement = true
+        accessibilityLabel = "Bubble style selection"
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.cornerRadius = bounds.width / 2
+        layer.cornerCurve = .continuous
+    }
+
+    func configure(selected: Bool, accent: UIColor) {
+        backgroundColor = selected ? accent : UIColor.systemBackground.withAlphaComponent(0.86)
+        layer.borderWidth = selected ? 0 : 2
+        layer.borderColor = selected ? nil : UIColor.tertiaryLabel.cgColor
+        checkmarkView.isHidden = !selected
+        accessibilityValue = selected ? "Selected" : "Not selected"
     }
 }
 
@@ -1563,86 +1765,6 @@ private final class AppearanceOptionCell: UICollectionViewCell {
         isAccessibilityElement = true
     }
 
-    func configureBubble(
-        title: String,
-        style: AppearanceBubbleStyle,
-        selected: Bool,
-        locked: Bool,
-        accent: UIColor
-    ) {
-        configure(
-            title: title,
-            symbol: "message.fill",
-            selected: selected,
-            locked: locked,
-            accent: accent
-        )
-        symbolView.image = AppearanceBubbleGlyph.image(for: style)
-    }
-}
-
-private enum AppearanceBubbleGlyph {
-    static func image(for style: AppearanceBubbleStyle) -> UIImage {
-        let size = CGSize(width: 34, height: 28)
-        let renderer = UIGraphicsImageRenderer(size: size)
-        return renderer.image { context in
-            let cg = context.cgContext
-            cg.setFillColor(UIColor.black.cgColor)
-            cg.setStrokeColor(UIColor.black.cgColor)
-            cg.setLineWidth(2)
-            let body = UIBezierPath(
-                roundedRect: CGRect(x: 2, y: 2, width: 27, height: 21),
-                cornerRadius: style == .wedge ? 3 : 8
-            )
-            if style == .transparent {
-                body.stroke()
-            } else {
-                body.fill()
-            }
-            switch style {
-            case .noTail:
-                break
-            case .smooth, .bubble, .wedge:
-                let tail = UIBezierPath()
-                tail.move(to: CGPoint(x: 23, y: 20))
-                tail.addLine(to: CGPoint(x: 33, y: 26))
-                tail.addLine(to: CGPoint(x: 28, y: style == .wedge ? 12 : 21))
-                tail.close()
-                style == .transparent ? tail.stroke() : tail.fill()
-            case .bubbles:
-                UIBezierPath(ovalIn: CGRect(x: 27, y: 20, width: 6, height: 6)).fill()
-                UIBezierPath(ovalIn: CGRect(x: 24, y: 17, width: 4, height: 4)).fill()
-            case .curvy:
-                let tail = UIBezierPath()
-                tail.move(to: CGPoint(x: 24, y: 18))
-                tail.addCurve(
-                    to: CGPoint(x: 33, y: 25),
-                    controlPoint1: CGPoint(x: 26, y: 24),
-                    controlPoint2: CGPoint(x: 29, y: 25)
-                )
-                tail.addCurve(
-                    to: CGPoint(x: 28, y: 15),
-                    controlPoint1: CGPoint(x: 29, y: 22),
-                    controlPoint2: CGPoint(x: 28, y: 18)
-                )
-                tail.close()
-                tail.fill()
-            case .stripes:
-                for offset in stride(from: 0, through: 8, by: 4) {
-                    let stripe = UIBezierPath(
-                        roundedRect: CGRect(x: 25 + CGFloat(offset), y: 17 + CGFloat(offset) * 0.7, width: 2, height: 8),
-                        cornerRadius: 1
-                    )
-                    stripe.fill()
-                }
-            case .transparent:
-                let tail = UIBezierPath()
-                tail.move(to: CGPoint(x: 25, y: 20))
-                tail.addLine(to: CGPoint(x: 32, y: 25))
-                tail.stroke()
-            }
-        }.withRenderingMode(.alwaysTemplate)
-    }
 }
 
 final class AppearanceThemesViewController: BaseViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
