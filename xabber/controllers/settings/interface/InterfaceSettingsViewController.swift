@@ -662,6 +662,7 @@ final class AppearancePreviewView: UIView {
     private let backgroundView = ChatBackgroundBackdropView()
     private let contentStack = UIStackView()
     private var currentDocument: AppearanceSettingsDocument?
+    private var chatMessageHosts: [AppearanceChatMessagePreviewHostView] = []
 
     var showsChatList = false
 
@@ -695,11 +696,20 @@ final class AppearancePreviewView: UIView {
     func configure(
         document: AppearanceSettingsDocument,
         traits: UITraitCollection,
-        animated: Bool = true
+        animated: Bool = true,
+        updatingTypographyInPlace: Bool = false
     ) {
         currentDocument = document
+        let snapshot = AppearanceResolver.resolve(document: document, traitStyle: traits.userInterfaceStyle)
+        if updatingTypographyInPlace,
+           !showsChatList,
+           chatMessageHosts.isNotEmpty {
+            chatMessageHosts.forEach { $0.updateTypography(snapshot: snapshot) }
+            setNeedsLayout()
+            layoutIfNeeded()
+            return
+        }
         let changes = {
-            let snapshot = AppearanceResolver.resolve(document: document, traitStyle: traits.userInterfaceStyle)
             self.backgroundView.configure(document: document)
             self.configureContent(snapshot: snapshot)
         }
@@ -719,6 +729,7 @@ final class AppearancePreviewView: UIView {
 
     private func configureContent(snapshot: ResolvedAppearanceSnapshot) {
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        chatMessageHosts.removeAll(keepingCapacity: true)
         if showsChatList {
             for index in 0..<4 {
                 contentStack.addArrangedSubview(makeChatRow(index: index, snapshot: snapshot))
@@ -730,6 +741,7 @@ final class AppearancePreviewView: UIView {
             outgoing.configure(text: "It’s morning in Tokyo 😎", outgoing: true, snapshot: snapshot)
             contentStack.addArrangedSubview(incoming)
             contentStack.addArrangedSubview(outgoing)
+            chatMessageHosts = [incoming, outgoing]
         }
     }
 
@@ -906,10 +918,19 @@ private struct AppearancePreviewMessage: MessageType {
 /// Hosts the production text-message cell and production layout calculator,
 /// so the settings preview cannot drift from real chat bubble geometry.
 private final class AppearanceChatMessagePreviewHostView: UIView {
+    private struct Configuration {
+        let text: String
+        let outgoing: Bool
+        let identifier: String?
+        let forwards: [MessageAttachment]
+        let audios: [AudioAttachment]
+    }
+
     private let messageCell = TextMessageCell(frame: .zero)
     private var message: AppearancePreviewMessage?
     private var snapshot: ResolvedAppearanceSnapshot?
     private var measuredHeightConstraint: NSLayoutConstraint!
+    private var configuration: Configuration?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -930,26 +951,47 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         forwards: [MessageAttachment] = [],
         audios: [AudioAttachment] = []
     ) {
-        let message = AppearancePreviewMessage(
+        configuration = Configuration(
             text: text,
             outgoing: outgoing,
-            snapshot: snapshot,
             identifier: identifier,
             forwards: forwards,
             audios: audios
         )
+        applyConfiguration(snapshot: snapshot)
+    }
+
+    func updateTypography(snapshot: ResolvedAppearanceSnapshot) {
+        guard configuration != nil else { return }
+        applyConfiguration(snapshot: snapshot)
+        setNeedsLayout()
+        superview?.setNeedsLayout()
+    }
+
+    private func applyConfiguration(snapshot: ResolvedAppearanceSnapshot) {
+        guard let configuration else { return }
+        let message = AppearancePreviewMessage(
+            text: configuration.text,
+            outgoing: configuration.outgoing,
+            snapshot: snapshot,
+            identifier: configuration.identifier,
+            forwards: configuration.forwards,
+            audios: configuration.audios
+        )
         self.message = message
         self.snapshot = snapshot
-        if let identifier {
+        if let identifier = configuration.identifier {
             messageCell.accessibilityIdentifier = "interface.themePreview.chat.message.\(identifier)"
         } else {
-            messageCell.accessibilityIdentifier = outgoing
+            messageCell.accessibilityIdentifier = configuration.outgoing
                 ? "interface.preview.message.outgoing"
                 : "interface.preview.message.incoming"
         }
         messageCell.messageContainerView.appearancePaletteOverride = snapshot.palette
         messageCell.configureForAppearancePreview(with: message)
-        setNeedsLayout()
+        if bounds.width > 0 {
+            updateLayoutWidth(bounds.width)
+        }
     }
 
     func updateLayoutWidth(_ width: CGFloat) {
@@ -1222,17 +1264,30 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
     @objc private func systemChanged() {
         draft.profile.textSize = systemSwitch.isOn ? .system : AppearanceTextSize.fixedCases[Int(slider.value.rounded())]
         refreshControls()
-        updatePreview()
+        updateTypographyPreview()
     }
 
     @objc private func sliderChanged() {
         let index = min(max(Int(slider.value.rounded()), 0), AppearanceTextSize.fixedCases.count - 1)
         slider.setValue(Float(index), animated: false)
-        if !systemSwitch.isOn {
-            draft.profile.textSize = AppearanceTextSize.fixedCases[index]
-            updatePreview()
+        let selectedSize = AppearanceTextSize.fixedCases[index]
+        if !systemSwitch.isOn, draft.profile.textSize != selectedSize {
+            draft.profile.textSize = selectedSize
+            updateTypographyPreview()
         }
         refreshControls()
+    }
+
+    private func updateTypographyPreview() {
+        var updated = document
+        updated.profile = draft.profile
+        preview.configure(
+            document: updated,
+            traits: traitCollection,
+            animated: false,
+            updatingTypographyInPlace: true
+        )
+        refreshSetButton()
     }
 
     private func refreshControls() {

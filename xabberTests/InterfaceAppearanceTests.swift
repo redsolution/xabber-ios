@@ -881,6 +881,54 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertNil(AppearanceTextSize.system.points)
     }
 
+    @MainActor
+    func testTextSizePreviewKeepsMessageCellsWhileTypographyChanges() throws {
+        var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        document.profile.textSize = .points14
+        let preview = AppearancePreviewView(frame: CGRect(x: 0, y: 0, width: 360, height: 330))
+        preview.configure(document: document, traits: .init(userInterfaceStyle: .light), animated: false)
+        preview.setNeedsLayout()
+        preview.layoutIfNeeded()
+
+        let incomingBefore = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.preview.message.incoming"
+            )
+        )
+        let outgoingBefore = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.preview.message.outgoing"
+            )
+        )
+
+        document.profile.textSize = .points22
+        preview.configure(
+            document: document,
+            traits: .init(userInterfaceStyle: .light),
+            animated: false,
+            updatingTypographyInPlace: true
+        )
+        preview.setNeedsLayout()
+        preview.layoutIfNeeded()
+
+        let incomingAfter = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.preview.message.incoming"
+            )
+        )
+        let outgoingAfter = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.preview.message.outgoing"
+            )
+        )
+        XCTAssertTrue(incomingBefore === incomingAfter)
+        XCTAssertTrue(outgoingBefore === outgoingAfter)
+    }
+
     func testWallpaperPhotoProcessorConstrainsLongEdgeAndProducesJPEG() throws {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 4200, height: 2100))
         let source = renderer.image { context in
