@@ -963,12 +963,16 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         let indicatorFrame = indicator.convert(indicator.bounds, to: row)
         let avatarFrame = avatar.convert(avatar.bounds, to: row)
+        XCTAssertEqual(indicatorFrame.minX, 8, accuracy: 0.5)
         XCTAssertEqual(indicatorFrame.midY, avatarFrame.midY, accuracy: 0.5)
         XCTAssertEqual(indicator.accessibilityValue, "Selected")
         let chatCell = try XCTUnwrap(firstSubview(of: ChatListTableViewCell.self, in: row))
+        let chatCellFrame = chatCell.convert(chatCell.bounds, to: row)
+        XCTAssertEqual(chatCellFrame.minX - indicatorFrame.maxX, 8, accuracy: 0.5)
         XCTAssertEqual(chatCell.bounds.height, 84, accuracy: 0.5)
         XCTAssertEqual(chatCell.usernameLabel.text, "Alicia Torreaux")
         XCTAssertTrue(chatCell.accountIndicator.isHidden)
+        XCTAssertNotNil(chatCell.avatarView.image)
     }
 
     @MainActor
@@ -1018,6 +1022,20 @@ final class InterfaceAppearanceTests: XCTestCase {
             descendant(in: gallery, accessibilityIdentifier: "interface.avatar.star")?.accessibilityValue,
             "Premium"
         )
+    }
+
+    func testAvatarPickerPhotoAssetsAreAvailable() {
+        [
+            "interface_avatar_alicia",
+            "interface_avatar_roberto",
+            "interface_avatar_campus",
+            "interface_avatar_veronica",
+            "interface_avatar_animal_videos",
+            "interface_avatar_little_sister",
+            "interface_avatar_jennie"
+        ].forEach { assetName in
+            XCTAssertNotNil(UIImage(named: assetName), "Missing avatar asset: \(assetName)")
+        }
     }
 
     func testChangeSetSeparatesPaintLayoutAndInterfaceStyle() {

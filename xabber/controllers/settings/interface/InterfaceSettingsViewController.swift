@@ -1947,6 +1947,7 @@ final class AppearanceAvatarMaskGalleryView: UIView {
         let name: String
         let message: String
         let time: String
+        let avatarAssetName: String
         let status: ResourceStatus
         let entity: RosterItemEntity
         let conversationType: ClientSynchronizationManager.ConversationType
@@ -2061,19 +2062,19 @@ final class AppearanceAvatarMaskGalleryView: UIView {
     }
 
     private static let fixtures: [Fixture] = [
-        Fixture(name: "Alicia Torreaux", message: "Bob says hi. 😊 ❤️ 😱", time: "13:02", status: .offline, entity: .contact, conversationType: .regular, delivery: .read, unread: 0, isPinned: true, author: nil),
-        Fixture(name: "Roberto", message: "••• typing", time: "14:01", status: .online, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil),
-        Fixture(name: "Campus Public Chat", message: "We just reached 2,500 members! WOO!", time: "13:53", status: .online, entity: .groupchat, conversationType: .group, delivery: nil, unread: 0, isPinned: false, author: "Jennie Alpha"),
-        Fixture(name: "Veronica", message: "Table for four, 2PM. Be there.", time: "13:50", status: .offline, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil),
-        Fixture(name: "Animal Videos", message: "Vote now! Moar cat videos in this channel?", time: "13:16", status: .offline, entity: .groupchat, conversationType: .channel, delivery: nil, unread: 0, isPinned: false, author: nil),
-        Fixture(name: "Little Sister", message: "Don’t tell mom yet, but I got the job! I’m going to ROME!", time: "12:54", status: .offline, entity: .incognitoChat, conversationType: .omemo, delivery: nil, unread: 1, isPinned: false, author: nil),
-        Fixture(name: "Jennie Alpha", message: "🖼️ Check these out", time: "12:53", status: .offline, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil)
+        Fixture(name: "Alicia Torreaux", message: "Bob says hi. 😊 ❤️ 😱", time: "13:02", avatarAssetName: "interface_avatar_alicia", status: .offline, entity: .contact, conversationType: .regular, delivery: .read, unread: 0, isPinned: true, author: nil),
+        Fixture(name: "Roberto", message: "••• typing", time: "14:01", avatarAssetName: "interface_avatar_roberto", status: .online, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil),
+        Fixture(name: "Campus Public Chat", message: "We just reached 2,500 members! WOO!", time: "13:53", avatarAssetName: "interface_avatar_campus", status: .online, entity: .groupchat, conversationType: .group, delivery: nil, unread: 0, isPinned: false, author: "Jennie Alpha"),
+        Fixture(name: "Veronica", message: "Table for four, 2PM. Be there.", time: "13:50", avatarAssetName: "interface_avatar_veronica", status: .offline, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil),
+        Fixture(name: "Animal Videos", message: "Vote now! Moar cat videos in this channel?", time: "13:16", avatarAssetName: "interface_avatar_animal_videos", status: .offline, entity: .groupchat, conversationType: .channel, delivery: nil, unread: 0, isPinned: false, author: nil),
+        Fixture(name: "Little Sister", message: "Don’t tell mom yet, but I got the job! I’m going to ROME!", time: "12:54", avatarAssetName: "interface_avatar_little_sister", status: .offline, entity: .incognitoChat, conversationType: .omemo, delivery: nil, unread: 1, isPinned: false, author: nil),
+        Fixture(name: "Jennie Alpha", message: "🖼️ Check these out", time: "12:53", avatarAssetName: "interface_avatar_jennie", status: .offline, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil)
     ]
 }
 
 private final class AppearanceAvatarMaskRow: UIControl {
     private enum Metrics {
-        static let selectionLeading: CGFloat = 10
+        static let selectionLeading: CGFloat = 8
         static let selectionWidth: CGFloat = 26
         static let selectionToChatSpacing: CGFloat = 8
         static let separatorLeadingInset: CGFloat = 96
@@ -2172,6 +2173,9 @@ private final class AppearanceAvatarMaskRow: UIControl {
         )
         chatCell.dateLabel.text = locked ? "Premium" : fixture.time
         chatCell.accountIndicator.isHidden = true
+        // These photos are local preview fixtures. Runtime chat rows keep using
+        // their own avatar request/cache pipeline.
+        chatCell.avatarView.image = UIImage(named: fixture.avatarAssetName)
         chatCell.avatarView.mask = nil
         if mask != .square,
            let image = UIImage(named: mask.rawValue + "_56pt")?.upscale(dimension: 64) {
