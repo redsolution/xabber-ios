@@ -305,6 +305,31 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
+    func testInterfaceAvatarRowShowsOnlySelectedMaskWithoutLegacyGroupPosition() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        var document = coordinator.document
+        document.profile.avatarMask = .roundedSquare
+        document.profile.avatarPosition = .top
+        _ = try coordinator.commit(document)
+
+        let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+
+        let cell = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 2, section: 3)
+        )
+        let configuration = try XCTUnwrap(cell.contentConfiguration as? UIListContentConfiguration)
+
+        XCTAssertEqual(configuration.secondaryText, AppearanceAvatarMask.roundedSquare.displayName)
+        XCTAssertNotEqual(configuration.secondaryText, "Rounded square, Top")
+    }
+
+    @MainActor
     func testAppearanceModePreviewShowsOnlyRoundedMessagePictograms() throws {
         let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
         let coordinator = AppearanceCoordinator(store: store)

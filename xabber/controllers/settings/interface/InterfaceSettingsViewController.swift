@@ -119,7 +119,7 @@ final class InterfaceSettingsViewController: BaseViewController {
         case .accent: return nil
         case .textSize: return profile.textSize.displayName
         case .bubbles: return profile.bubbleStyle.displayName
-        case .avatars: return "\(profile.avatarMask.displayName), \(profile.avatarPosition.displayName)"
+        case .avatars: return profile.avatarMask.displayName
         }
     }
 
