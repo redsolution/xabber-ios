@@ -433,7 +433,6 @@ private final class AppearanceModeOptionControl: UIControl {
 
 private final class AppearanceModePreviewCard: UIView {
     private let gradientLayer = CAGradientLayer()
-    private let timeLabel = UILabel()
     private let notificationsStack = UIStackView()
     private let firstNotification = UIView()
     private let secondNotification = UIView()
@@ -447,12 +446,6 @@ private final class AppearanceModePreviewCard: UIView {
         gradientLayer.endPoint = CGPoint(x: 1, y: 1)
         layer.insertSublayer(gradientLayer, at: 0)
 
-        timeLabel.translatesAutoresizingMaskIntoConstraints = false
-        timeLabel.text = "09:41"
-        timeLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
-        timeLabel.textAlignment = .center
-        timeLabel.isAccessibilityElement = false
-
         notificationsStack.translatesAutoresizingMaskIntoConstraints = false
         notificationsStack.axis = .vertical
         notificationsStack.spacing = 6
@@ -465,14 +458,11 @@ private final class AppearanceModePreviewCard: UIView {
             notification.heightAnchor.constraint(equalToConstant: 20).isActive = true
             notificationsStack.addArrangedSubview(notification)
         }
-        addSubview(timeLabel)
         addSubview(notificationsStack)
         NSLayoutConstraint.activate([
-            timeLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            timeLabel.topAnchor.constraint(equalTo: topAnchor, constant: 14),
             notificationsStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             notificationsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            notificationsStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12)
+            notificationsStack.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
     }
 
@@ -509,11 +499,12 @@ private final class AppearanceModePreviewCard: UIView {
             ]
         }
         gradientLayer.colors = palette.map { $0.cgColor }
-        timeLabel.textColor = .white
         let notificationColor = UIColor.white.withAlphaComponent(effectiveStyle == .dark ? 0.18 : 0.52)
         firstNotification.backgroundColor = notificationColor
         secondNotification.backgroundColor = notificationColor
         accessibilityIdentifier = "interface.mode.preview.\(style.rawValue)"
+        firstNotification.accessibilityIdentifier = "interface.mode.preview.\(style.rawValue).message.0"
+        secondNotification.accessibilityIdentifier = "interface.mode.preview.\(style.rawValue).message.1"
     }
 }
 

@@ -305,6 +305,36 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
+    func testAppearanceModePreviewShowsOnlyRoundedMessagePictograms() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+        let cell = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 0, section: 2)
+        )
+        let preview = try XCTUnwrap(
+            descendant(in: cell, accessibilityIdentifier: "interface.mode.preview.system")
+        )
+        let messagePictograms = try (0..<2).map { index in
+            try XCTUnwrap(
+                descendant(
+                    in: preview,
+                    accessibilityIdentifier: "interface.mode.preview.system.message.\(index)"
+                )
+            )
+        }
+
+        XCTAssertFalse(labels(in: preview).contains { $0.text == "09:41" })
+        XCTAssertTrue(messagePictograms.allSatisfy { !($0 is UILabel) })
+        XCTAssertTrue(messagePictograms.allSatisfy { $0.layer.cornerRadius == 8 })
+    }
+
+    @MainActor
     func testInlineAppearanceChoiceCommitsTappedModeWithoutNavigation() throws {
         let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
         let coordinator = AppearanceCoordinator(store: store)
@@ -905,5 +935,16 @@ final class InterfaceAppearanceTests: XCTestCase {
             }
         }
         return nil
+    }
+
+    private func labels(in root: UIView) -> [UILabel] {
+        var result: [UILabel] = []
+        if let label = root as? UILabel {
+            result.append(label)
+        }
+        for subview in root.subviews {
+            result.append(contentsOf: labels(in: subview))
+        }
+        return result
     }
 }
