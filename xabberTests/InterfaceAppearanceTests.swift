@@ -586,6 +586,90 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
+    func testApplicationColorSwatchShowsSelectedStateAndUpdatesOutgoingMessagePreview() throws {
+        let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        let controller = AppearanceAccentViewController(document: document)
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        let initiallySelectedSwatch = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.accent.swatch.0"
+            ) as? UIControl
+        )
+        let swatch = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.accent.swatch.4"
+            ) as? UIControl
+        )
+
+        XCTAssertEqual(initiallySelectedSwatch.accessibilityValue, "Selected")
+        XCTAssertTrue(initiallySelectedSwatch.accessibilityTraits.contains(.selected))
+        swatch.sendActions(for: .touchUpInside)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        let preview = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.preview"
+            ) as? AppearancePreviewView
+        )
+        let outgoing = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.preview.message.outgoing"
+            ) as? TextMessageCell
+        )
+        let selectedColor = try XCTUnwrap(AppearanceColor(hex: "#D94B54"))
+
+        XCTAssertEqual(swatch.accessibilityValue, "Selected")
+        XCTAssertTrue(swatch.accessibilityTraits.contains(.selected))
+        XCTAssertEqual(outgoing.messageContainerView.bubble.backgroundColor, selectedColor.uiColor)
+        XCTAssertNotNil(descendant(in: controller.view, accessibilityIdentifier: "interface.accent.custom"))
+    }
+
+    @MainActor
+    func testCustomApplicationColorUsesColorGridWithLeftDismissAndRightSave() throws {
+        let initial = AppearanceColor.systemBlue
+        let controller = AppearanceCustomAccentColorViewController(initialColor: initial.uiColor)
+        let navigationController = UINavigationController(rootViewController: controller)
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        let grid = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.accent.custom.grid"
+            ) as? UICollectionView
+        )
+        var savedColor: AppearanceColor?
+        controller.onSave = { savedColor = $0 }
+        let selected = try XCTUnwrap(AppearanceColor(hex: "#D94B54"))
+        controller.select(color: selected)
+        controller.saveSelectedColor()
+
+        XCTAssertEqual(
+            navigationController.topViewController?.navigationItem.leftBarButtonItem?.accessibilityIdentifier,
+            "interface.accent.custom.cancel"
+        )
+        XCTAssertEqual(
+            navigationController.topViewController?.navigationItem.rightBarButtonItem?.accessibilityIdentifier,
+            "interface.accent.custom.save"
+        )
+        XCTAssertGreaterThan(grid.numberOfItems(inSection: 0), 12)
+        XCTAssertNil(descendant(in: controller.view, accessibilityIdentifier: "interface.accent.custom.hue"))
+        XCTAssertNil(descendant(in: controller.view, accessibilityIdentifier: "interface.accent.custom.eyedropper"))
+        XCTAssertEqual(savedColor, selected)
+    }
+
+    @MainActor
     func testThemePreviewProvidesFullConversationAndProductionChatListPages() throws {
         let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         let theme = try XCTUnwrap(AppearanceThemeCatalog.builtInThemes.first)

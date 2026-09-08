@@ -665,6 +665,10 @@ final class AppearancePreviewView: UIView {
     private var chatMessageHosts: [AppearanceChatMessagePreviewHostView] = []
 
     var showsChatList = false
+    /// Application Color remains independent from a chat theme. Its editor uses
+    /// the outgoing sample as a direct, live accent sample without changing the
+    /// runtime theme palette.
+    var appliesAccentToOutgoingMessage = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -728,21 +732,35 @@ final class AppearancePreviewView: UIView {
     }
 
     private func configureContent(snapshot: ResolvedAppearanceSnapshot) {
+        let previewSnapshot = snapshotForContent(snapshot)
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         chatMessageHosts.removeAll(keepingCapacity: true)
         if showsChatList {
             for index in 0..<4 {
-                contentStack.addArrangedSubview(makeChatRow(index: index, snapshot: snapshot))
+                contentStack.addArrangedSubview(makeChatRow(index: index, snapshot: previewSnapshot))
             }
         } else {
             let incoming = AppearanceChatMessagePreviewHostView()
-            incoming.configure(text: "Good morning! 👋", outgoing: false, snapshot: snapshot)
+            incoming.configure(text: "Good morning! 👋", outgoing: false, snapshot: previewSnapshot)
             let outgoing = AppearanceChatMessagePreviewHostView()
-            outgoing.configure(text: "It’s morning in Tokyo 😎", outgoing: true, snapshot: snapshot)
+            outgoing.configure(text: "It’s morning in Tokyo 😎", outgoing: true, snapshot: previewSnapshot)
             contentStack.addArrangedSubview(incoming)
             contentStack.addArrangedSubview(outgoing)
             chatMessageHosts = [incoming, outgoing]
         }
+    }
+
+    private func snapshotForContent(_ snapshot: ResolvedAppearanceSnapshot) -> ResolvedAppearanceSnapshot {
+        guard appliesAccentToOutgoingMessage else { return snapshot }
+        var palette = snapshot.palette
+        palette.outgoingBubble = snapshot.accent
+        palette.replyAccent = snapshot.accent
+        return ResolvedAppearanceSnapshot(
+            profile: snapshot.profile,
+            theme: snapshot.theme,
+            palette: palette,
+            accent: snapshot.accent
+        )
     }
 
     private func makeChatRow(index: Int, snapshot: ResolvedAppearanceSnapshot) -> UIView {
@@ -1200,9 +1218,10 @@ class AppearanceDraftViewController: BaseViewController {
     }
 }
 
-private final class AppearanceAccentViewController: AppearanceDraftViewController, UIColorPickerViewControllerDelegate {
+final class AppearanceAccentViewController: AppearanceDraftViewController {
     private let stack = UIStackView()
     private let swatches = UIStackView()
+    private var swatchButtons: [AppearanceAccentSwatchButton] = []
 
     init(document: AppearanceSettingsDocument) {
         super.init(document: document, title: "Application Color")
@@ -1215,32 +1234,50 @@ private final class AppearanceAccentViewController: AppearanceDraftViewControlle
         stack.axis = .vertical
         stack.spacing = 20
         stack.translatesAutoresizingMaskIntoConstraints = false
-        swatches.axis = .horizontal
+        swatches.axis = .vertical
         swatches.distribution = .fillEqually
         swatches.spacing = 10
         preview.translatesAutoresizingMaskIntoConstraints = false
+        preview.appliesAccentToOutgoingMessage = true
         stack.addArrangedSubview(preview)
         stack.addArrangedSubview(swatches)
-        let colors = ["#1687F8", "#35B85A", "#F28A18", "#D94B54", "#9656DD", "#19A7A0", "#D04D91"]
-        for value in colors {
-            guard let color = AppearanceColor(hex: value) else { continue }
-            let button = UIButton(type: .system)
-            button.backgroundColor = color.uiColor
-            button.layer.cornerRadius = 22
-            button.heightAnchor.constraint(equalToConstant: 44).isActive = true
-            button.accessibilityLabel = "Accent color"
-            button.addAction(UIAction { [weak self] _ in
-                self?.draft.profile.accentOverride = color
-                self?.updatePreview()
-            }, for: .touchUpInside)
-            swatches.addArrangedSubview(button)
+        let resolvedAccent = draft.profile.accentOverride
+            ?? AppearanceResolver.resolve(
+                document: document,
+                traitStyle: traitCollection.userInterfaceStyle
+            ).accent
+        let palette = ["#1687F8", "#35B85A", "#F28A18", "#D94B54", "#9656DD", "#19A7A0", "#D04D91"]
+            .compactMap(AppearanceColor.init(hex:))
+        let colors = [resolvedAccent] + palette.filter { $0 != resolvedAccent }
+        for rowStart in stride(from: 0, to: colors.count, by: 4) {
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.distribution = .fillEqually
+            row.spacing = 10
+            for index in rowStart..<min(rowStart + 4, colors.count) {
+                let color = colors[index]
+                let button = AppearanceAccentSwatchButton(color: color)
+                button.heightAnchor.constraint(equalToConstant: 44).isActive = true
+                button.accessibilityIdentifier = "interface.accent.swatch.\(index)"
+                button.addAction(UIAction { [weak self] _ in
+                    self?.selectAccent(color)
+                }, for: .touchUpInside)
+                row.addArrangedSubview(button)
+                swatchButtons.append(button)
+            }
+            while row.arrangedSubviews.count < 4 {
+                let spacer = UIView()
+                spacer.isUserInteractionEnabled = false
+                row.addArrangedSubview(spacer)
+            }
+            swatches.addArrangedSubview(row)
         }
         let custom = UIButton(type: .system)
         custom.configuration = .filled()
         custom.configuration?.title = "Choose Custom Color"
-        custom.configuration?.image = UIImage(systemName: "paintpalette.fill")
+        custom.configuration?.image = UIImage(systemName: "circle.grid.3x3.fill")
         custom.configuration?.imagePadding = 8
-        custom.addTarget(self, action: #selector(showColorPicker), for: .touchUpInside)
+        custom.addTarget(self, action: #selector(showCustomColorGrid), for: .touchUpInside)
         custom.accessibilityIdentifier = "interface.accent.custom"
         stack.addArrangedSubview(custom)
         view.addSubview(stack)
@@ -1253,18 +1290,249 @@ private final class AppearanceAccentViewController: AppearanceDraftViewControlle
         updatePreview()
     }
 
-    @objc private func showColorPicker() {
-        let picker = UIColorPickerViewController()
-        picker.delegate = self
-        picker.supportsAlpha = false
-        picker.selectedColor = draft.profile.accentOverride?.uiColor
-            ?? AppearanceResolver.resolve(document: document, traitStyle: traitCollection.userInterfaceStyle).accent.uiColor
-        present(picker, animated: true)
+    override func updatePreview() {
+        super.updatePreview()
+        updateSwatchSelection()
     }
 
-    func colorPickerViewControllerDidSelectColor(_ viewController: UIColorPickerViewController) {
-        draft.profile.accentOverride = AppearanceColor(uiColor: viewController.selectedColor)
+    private func selectAccent(_ color: AppearanceColor) {
+        draft.profile.accentOverride = color
         updatePreview()
+    }
+
+    private func updateSwatchSelection() {
+        guard isViewLoaded else { return }
+        let selected = draft.profile.accentOverride
+            ?? AppearanceResolver.resolve(
+                document: document,
+                traitStyle: traitCollection.userInterfaceStyle
+            ).accent
+        swatchButtons.forEach { button in
+            button.setSelected(button.color == selected)
+        }
+    }
+
+    @objc private func showCustomColorGrid() {
+        let initialColor = draft.profile.accentOverride?.uiColor
+            ?? AppearanceResolver.resolve(document: document, traitStyle: traitCollection.userInterfaceStyle).accent.uiColor
+        let picker = AppearanceCustomAccentColorViewController(initialColor: initialColor)
+        picker.onSave = { [weak self] color in
+            guard let self else { return }
+            self.selectAccent(color)
+            self.dismiss(animated: true) { [weak self] in
+                self?.commitAndPop()
+            }
+        }
+        let navigationController = UINavigationController(rootViewController: picker)
+        navigationController.modalPresentationStyle = .pageSheet
+        present(navigationController, animated: true)
+    }
+}
+
+private final class AppearanceAccentSwatchButton: UIControl {
+    let color: AppearanceColor
+
+    private let colorView = UIView()
+    private let checkmarkView = UIImageView(image: UIImage(systemName: "checkmark"))
+
+    init(color: AppearanceColor) {
+        self.color = color
+        super.init(frame: .zero)
+        accessibilityLabel = "Application color"
+        colorView.isUserInteractionEnabled = false
+        colorView.backgroundColor = color.uiColor
+        colorView.layer.cornerCurve = .continuous
+        colorView.translatesAutoresizingMaskIntoConstraints = false
+        checkmarkView.tintColor = .white
+        checkmarkView.contentMode = .scaleAspectFit
+        checkmarkView.isUserInteractionEnabled = false
+        checkmarkView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(colorView)
+        addSubview(checkmarkView)
+        NSLayoutConstraint.activate([
+            colorView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            colorView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            colorView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            colorView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            checkmarkView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            checkmarkView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            checkmarkView.widthAnchor.constraint(equalToConstant: 18),
+            checkmarkView.heightAnchor.constraint(equalToConstant: 18)
+        ])
+        setSelected(false)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.cornerRadius = bounds.height / 2
+        colorView.layer.cornerRadius = colorView.bounds.height / 2
+    }
+
+    func setSelected(_ selected: Bool) {
+        isSelected = selected
+        layer.borderWidth = selected ? 2 : 0
+        layer.borderColor = selected ? UIColor.label.withAlphaComponent(0.65).cgColor : nil
+        checkmarkView.tintColor = color.uiColor.isLightAppearanceColor ? .black : .white
+        checkmarkView.isHidden = !selected
+        accessibilityValue = selected ? "Selected" : nil
+        accessibilityTraits = selected ? [.button, .selected] : .button
+    }
+}
+
+final class AppearanceCustomAccentColorViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
+    var onSave: ((AppearanceColor) -> Void)?
+
+    private static let palette = [
+        "#FF3B30", "#FF453A", "#FF9500", "#FF9F0A", "#FFCC00", "#FFD60A",
+        "#34C759", "#30D158", "#00C7BE", "#64D2FF", "#0A84FF", "#007AFF",
+        "#5E5CE6", "#BF5AF2", "#AF52DE", "#FF2D55", "#FF375F", "#AC8E68",
+        "#8E8E93", "#636366", "#48484A", "#3A3A3C", "#1C1C1E", "#FFFFFF"
+    ].compactMap(AppearanceColor.init(hex:))
+
+    private let collectionView: UICollectionView
+    private var colors: [AppearanceColor]
+    private var selectedColor: AppearanceColor
+
+    init(initialColor: UIColor) {
+        let initial = AppearanceColor(uiColor: initialColor)
+        selectedColor = initial
+        colors = [initial] + Self.palette.filter { $0 != initial }
+        let layout = UICollectionViewFlowLayout()
+        layout.minimumInteritemSpacing = 10
+        layout.minimumLineSpacing = 14
+        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "Custom Color"
+        view.backgroundColor = .systemGroupedBackground
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            image: UIImage(systemName: "xmark"),
+            style: .plain,
+            target: self,
+            action: #selector(cancel)
+        )
+        navigationItem.leftBarButtonItem?.accessibilityIdentifier = "interface.accent.custom.cancel"
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            image: UIImage(systemName: "checkmark"),
+            style: .done,
+            target: self,
+            action: #selector(saveSelectedColor)
+        )
+        navigationItem.rightBarButtonItem?.accessibilityIdentifier = "interface.accent.custom.save"
+
+        collectionView.translatesAutoresizingMaskIntoConstraints = false
+        collectionView.backgroundColor = .clear
+        collectionView.alwaysBounceVertical = true
+        collectionView.accessibilityIdentifier = "interface.accent.custom.grid"
+        collectionView.accessibilityLabel = "Color grid"
+        collectionView.dataSource = self
+        collectionView.delegate = self
+        collectionView.register(
+            AppearanceCustomAccentColorCell.self,
+            forCellWithReuseIdentifier: AppearanceCustomAccentColorCell.reuseIdentifier
+        )
+        view.addSubview(collectionView)
+        NSLayoutConstraint.activate([
+            collectionView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
+            collectionView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
+            collectionView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            collectionView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20)
+        ])
+    }
+
+    func select(color: AppearanceColor) {
+        selectedColor = color
+        collectionView.reloadData()
+    }
+
+    @objc func saveSelectedColor() {
+        onSave?(selectedColor)
+    }
+
+    @objc private func cancel() {
+        dismiss(animated: true)
+    }
+
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        colors.count
+    }
+
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        let cell = collectionView.dequeueReusableCell(
+            withReuseIdentifier: AppearanceCustomAccentColorCell.reuseIdentifier,
+            for: indexPath
+        ) as! AppearanceCustomAccentColorCell
+        let color = colors[indexPath.item]
+        cell.configure(color: color, selected: color == selectedColor)
+        cell.accessibilityIdentifier = "interface.accent.custom.color.\(indexPath.item)"
+        return cell
+    }
+
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        select(color: colors[indexPath.item])
+    }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        layout collectionViewLayout: UICollectionViewLayout,
+        sizeForItemAt indexPath: IndexPath
+    ) -> CGSize {
+        let width = floor((collectionView.bounds.width - 5 * 10) / 6)
+        return CGSize(width: max(width, 44), height: max(width, 44))
+    }
+}
+
+private final class AppearanceCustomAccentColorCell: UICollectionViewCell {
+    static let reuseIdentifier = "AppearanceCustomAccentColorCell"
+
+    private let colorView = UIView()
+    private let checkmarkView = UIImageView(image: UIImage(systemName: "checkmark"))
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        colorView.translatesAutoresizingMaskIntoConstraints = false
+        colorView.layer.cornerCurve = .continuous
+        checkmarkView.translatesAutoresizingMaskIntoConstraints = false
+        checkmarkView.tintColor = .white
+        checkmarkView.contentMode = .scaleAspectFit
+        contentView.addSubview(colorView)
+        contentView.addSubview(checkmarkView)
+        NSLayoutConstraint.activate([
+            colorView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
+            colorView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
+            colorView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            colorView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+            checkmarkView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            checkmarkView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            checkmarkView.widthAnchor.constraint(equalToConstant: 18),
+            checkmarkView.heightAnchor.constraint(equalToConstant: 18)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        contentView.layer.cornerRadius = contentView.bounds.height / 2
+        colorView.layer.cornerRadius = colorView.bounds.height / 2
+    }
+
+    func configure(color: AppearanceColor, selected: Bool) {
+        colorView.backgroundColor = color.uiColor
+        contentView.layer.borderWidth = selected ? 2 : 0
+        contentView.layer.borderColor = selected ? UIColor.label.withAlphaComponent(0.65).cgColor : nil
+        checkmarkView.tintColor = color.uiColor.isLightAppearanceColor ? .black : .white
+        checkmarkView.isHidden = !selected
+        accessibilityLabel = "Application color"
+        accessibilityValue = selected ? "Selected" : nil
+        accessibilityTraits = selected ? [.button, .selected] : .button
     }
 }
 
@@ -3450,6 +3718,17 @@ final class AppearanceWallpaperCell: UICollectionViewCell {
         accessibilityValue = selected ? "Selected" : nil
         accessibilityTraits = selected ? [.button, .selected] : .button
         accessibilityIdentifier = "interface.wallpaper.\(name)"
+    }
+}
+
+private extension UIColor {
+    var isLightAppearanceColor: Bool {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return false }
+        return (red * 0.299) + (green * 0.587) + (blue * 0.114) > 0.65
     }
 }
 
