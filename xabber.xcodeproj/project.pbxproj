@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A6D200023D05000000ABC001 /* NotificationsSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D200013D05000000ABC001 /* NotificationsSettingsViewController.swift */; };
+		A6D200043D05000000ABC001 /* NotificationsSettingsViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D200033D05000000ABC001 /* NotificationsSettingsViewControllerTests.swift */; };
 		DAA100083D04000000ABC001 /* InterfaceSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAA100073D04000000ABC001 /* InterfaceSettingsViewController.swift */; };
 		DAA100063D04000000ABC001 /* AppearanceWallpaperSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAA100053D04000000ABC001 /* AppearanceWallpaperSupport.swift */; };
 		DAA100043D04000000ABC001 /* AppearanceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAA100033D04000000ABC001 /* AppearanceSettings.swift */; };
@@ -1074,6 +1076,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A6D200013D05000000ABC001 /* NotificationsSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsSettingsViewController.swift; sourceTree = "<group>"; };
+		A6D200033D05000000ABC001 /* NotificationsSettingsViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsSettingsViewControllerTests.swift; sourceTree = "<group>"; };
 		DAA100073D04000000ABC001 /* InterfaceSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterfaceSettingsViewController.swift; sourceTree = "<group>"; };
 		DAA100053D04000000ABC001 /* AppearanceWallpaperSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceWallpaperSupport.swift; sourceTree = "<group>"; };
 		DAA100033D04000000ABC001 /* AppearanceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppearanceSettings.swift; sourceTree = "<group>"; };
@@ -4088,6 +4092,7 @@
 		669F726E209C223600E757DB /* settings */ = {
 			isa = PBXGroup;
 			children = (
+				A6D200013D05000000ABC001 /* NotificationsSettingsViewController.swift */,
 				6664E0AC2F5B015700FBA1FC /* premium */,
 				661441182F596BAA00D2D9A7 /* xabber_account */,
 				84FF7F5F2C77144100C9D3E8 /* interface */,
@@ -4279,6 +4284,7 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				A6D200033D05000000ABC001 /* NotificationsSettingsViewControllerTests.swift */,
 				DAA100013D04000000ABC001 /* InterfaceAppearanceTests.swift */,
 				C1C100013D03000000ABC001 /* RosterCircleManagementTests.swift */,
 				B8A300013C22000000ABC001 /* AccountBlockListPresentationTests.swift */,
@@ -6143,6 +6149,7 @@
 				66BC5C7D25CD23AA00CEC418 /* NewCallSearchViewController+UITableViewDelegate.swift in Sources */,
 				66B5E7D0204E66E300D80AA2 /* RosterUtils.swift in Sources */,
 				4DC337EB285062E300D300B9 /* SimpleTableViewController.swift in Sources */,
+				A6D200023D05000000ABC001 /* NotificationsSettingsViewController.swift in Sources */,
 				DAA100083D04000000ABC001 /* InterfaceSettingsViewController.swift in Sources */,
 				B8A100043C20000000ABC001 /* AccountCirclesViewController.swift in Sources */,
 				C1C100043D03000000ABC001 /* RosterCircleManagement.swift in Sources */,
@@ -6536,6 +6543,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6D200043D05000000ABC001 /* NotificationsSettingsViewControllerTests.swift in Sources */,
 				DAA100023D04000000ABC001 /* InterfaceAppearanceTests.swift in Sources */,
 				C1C100023D03000000ABC001 /* RosterCircleManagementTests.swift in Sources */,
 				B8A200023C21000000ABC001 /* AccountEditProfileTests.swift in Sources */,

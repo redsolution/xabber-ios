@@ -1074,30 +1074,13 @@ class SettingsViewController: BaseViewController {
                 childs: []
               ),
             Datasource(section: .interface, title: "Interface", icon: "custom.paintpalette.square.fill", color: UIColor.systemGreen, viewController: InterfaceSettingsViewController.self),
-            Datasource(section: .settings, title: "Notifications", icon: "custom.bell.square.fill", color: UIColor.systemGreen, viewController: SimpleTableViewController.self, childs: [
-                        Datasource(section: .chat, title: "Notifications Sound", childs: [
-                            Datasource(section: .chat, title: "Incoming massages", itemType: .selector,
-                                                           values: MusicBox.shared.fileURLs.lazy.compactMap({$0.absoluteString}).sorted(),
-                                                           current: (dict[Datasource.Keys.chatChooseMessageSound.rawValue] as? String) ?? "None",
-                                                           key: .chatChooseMessageSound),
-                            Datasource(section: .chat, title: "Subscription requests", itemType: .selector,
-                                                           values: MusicBox.shared.fileURLs.lazy.compactMap({$0.absoluteString}).sorted(),
-                                                           current: (dict[Datasource.Keys.chatChooseSubscriptionSound.rawValue] as? String) ?? "None",
-                                                           key: .chatChooseSubscriptionSound)
-                        ]),
-                        Datasource(section: .inAppNotifications, title: Datasource.Section.inAppNotifications.description(), childs: [
-                            Datasource(section: .inAppNotifications,
-                                       title: "In-app sounds",
-                                       itemType: .toggle,
-                                       toggle: dict[Datasource.Keys.notificationInAppSound.rawValue] as? Bool ?? true,
-                                       key: .notificationInAppSound),
-                            Datasource(section: .inAppNotifications,
-                                       title: "On chats screen message preview",
-                                       itemType: .toggle,
-                                       toggle: dict[Datasource.Keys.notificationInAppAlertLastChats.rawValue] as? Bool ?? false,
-                                       key: .notificationInAppAlertLastChats)
-                    ])
-                ]),
+            Datasource(
+                section: .settings,
+                title: "Notifications",
+                icon: "custom.bell.square.fill",
+                color: UIColor.systemGreen,
+                viewController: NotificationsSettingsViewController.self
+            ),
             Datasource(section: .settings, title: "Debug", icon:"custom.ant.square.fill", color: UIColor.systemGreen, key: .developer),
             
             Datasource(section: .settings, title: "Language", icon:"xabber.translate.square.fill", color: UIColor.systemPurple, key: .languages)
