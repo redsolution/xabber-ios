@@ -1935,9 +1935,25 @@ final class AppearanceAvatarViewController: AppearanceDraftViewController {
 /// in context instead of asking the user to infer it from a symbol grid.
 final class AppearanceAvatarMaskGalleryView: UIView {
     private enum Metrics {
-        static let rowHeight: CGFloat = 72
+        static let rowHeight: CGFloat = 84
         static let verticalInset: CGFloat = 10
         static let horizontalInset: CGFloat = 10
+    }
+
+    /// This intentionally mirrors the fixture data used by the Chat Themes
+    /// Chats-page preview.  The avatar chooser then has the same visual
+    /// hierarchy as the mobile chat list while changing only the mask.
+    fileprivate struct Fixture {
+        let name: String
+        let message: String
+        let time: String
+        let status: ResourceStatus
+        let entity: RosterItemEntity
+        let conversationType: ClientSynchronizationManager.ConversationType
+        let delivery: MessageStorageItem.MessageSendingState?
+        let unread: Int
+        let isPinned: Bool
+        let author: String?
     }
 
     var onMaskSelected: ((AppearanceAvatarMask) -> Void)?
@@ -2003,12 +2019,10 @@ final class AppearanceAvatarMaskGalleryView: UIView {
         for (index, mask) in masks.enumerated() {
             rows[mask]?.configure(
                 mask: mask,
-                title: Self.samples[index % Self.samples.count].title,
-                subtitle: Self.samples[index % Self.samples.count].subtitle,
+                fixture: Self.fixtures[index % Self.fixtures.count],
                 accent: snapshot.accent.uiColor,
                 selected: mask == selectedMask,
                 locked: lockedMasks.contains(mask),
-                avatarColor: Self.avatarColors[index % Self.avatarColors.count],
                 showsSeparator: index < masks.count - 1
             )
         }
@@ -2046,19 +2060,14 @@ final class AppearanceAvatarMaskGalleryView: UIView {
         }
     }
 
-    private static let samples: [(title: String, subtitle: String)] = [
-        ("Alicia Torreaux", "Bob says hi. 😊 ❤️ 😱"),
-        ("Roberto", "••• typing"),
-        ("Campus Public Chat", "Jennie Alpha · We just reached 2,500 members!"),
-        ("Veronica", "Table for four, 2PM. Be there."),
-        ("Animal Videos", "Vote now! Moar cat videos in this channel?"),
-        ("Little Sister", "Don't tell mom yet, but I got the job!"),
-        ("Jennie Alpha", "🖼️ Check these out")
-    ]
-
-    private static let avatarColors: [UIColor] = [
-        .systemOrange, .systemIndigo, .systemGreen, .systemTeal,
-        .systemBlue, .systemPink, .systemPurple
+    private static let fixtures: [Fixture] = [
+        Fixture(name: "Alicia Torreaux", message: "Bob says hi. 😊 ❤️ 😱", time: "13:02", status: .offline, entity: .contact, conversationType: .regular, delivery: .read, unread: 0, isPinned: true, author: nil),
+        Fixture(name: "Roberto", message: "••• typing", time: "14:01", status: .online, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil),
+        Fixture(name: "Campus Public Chat", message: "We just reached 2,500 members! WOO!", time: "13:53", status: .online, entity: .groupchat, conversationType: .group, delivery: nil, unread: 0, isPinned: false, author: "Jennie Alpha"),
+        Fixture(name: "Veronica", message: "Table for four, 2PM. Be there.", time: "13:50", status: .offline, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil),
+        Fixture(name: "Animal Videos", message: "Vote now! Moar cat videos in this channel?", time: "13:16", status: .offline, entity: .groupchat, conversationType: .channel, delivery: nil, unread: 0, isPinned: false, author: nil),
+        Fixture(name: "Little Sister", message: "Don’t tell mom yet, but I got the job! I’m going to ROME!", time: "12:54", status: .offline, entity: .incognitoChat, conversationType: .omemo, delivery: nil, unread: 1, isPinned: false, author: nil),
+        Fixture(name: "Jennie Alpha", message: "🖼️ Check these out", time: "12:53", status: .offline, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil)
     ]
 }
 
@@ -2066,9 +2075,8 @@ private final class AppearanceAvatarMaskRow: UIControl {
     private enum Metrics {
         static let selectionLeading: CGFloat = 10
         static let selectionWidth: CGFloat = 26
-        static let selectionToAvatarSpacing: CGFloat = 10
-        static let avatarSide: CGFloat = 46
-        static let avatarToTextSpacing: CGFloat = 12
+        static let selectionToChatSpacing: CGFloat = 8
+        static let separatorLeadingInset: CGFloat = 96
     }
 
     var onSelect: ((AppearanceAvatarMask) -> Void)?
@@ -2076,80 +2084,34 @@ private final class AppearanceAvatarMaskRow: UIControl {
     private let selectionIndicator = AppearanceBubbleSelectionIndicatorView(
         accessibilityLabel: "Avatar shape selection"
     )
-    private let avatarView = UIView()
-    private let avatarLabel = UILabel()
-    private let maskImageView = UIImageView()
-    private let titleLabel = UILabel()
-    private let subtitleLabel = UILabel()
-    private let premiumLabel = UILabel()
-    private let lockView = UIImageView(image: UIImage(systemName: "lock.fill"))
+    private let chatCell = ChatListTableViewCell(style: .default, reuseIdentifier: nil)
     private let separator = UIView()
     private var selectedMask: AppearanceAvatarMask?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         selectionIndicator.translatesAutoresizingMaskIntoConstraints = false
-        avatarView.translatesAutoresizingMaskIntoConstraints = false
-        avatarView.clipsToBounds = true
-        avatarLabel.translatesAutoresizingMaskIntoConstraints = false
-        avatarLabel.font = .systemFont(ofSize: 22, weight: .medium)
-        avatarLabel.textColor = .white
-        avatarLabel.adjustsFontForContentSizeCategory = true
-        maskImageView.contentMode = .scaleToFill
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .preferredFont(forTextStyle: .body)
-        titleLabel.adjustsFontForContentSizeCategory = true
-        titleLabel.numberOfLines = 1
-        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        subtitleLabel.font = .preferredFont(forTextStyle: .caption1)
-        subtitleLabel.adjustsFontForContentSizeCategory = true
-        subtitleLabel.textColor = .secondaryLabel
-        subtitleLabel.numberOfLines = 1
-        premiumLabel.translatesAutoresizingMaskIntoConstraints = false
-        premiumLabel.font = .preferredFont(forTextStyle: .caption1)
-        premiumLabel.adjustsFontForContentSizeCategory = true
-        premiumLabel.textColor = .systemPurple
-        premiumLabel.text = "Premium"
-        lockView.translatesAutoresizingMaskIntoConstraints = false
-        lockView.tintColor = .systemPurple
-        lockView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+        chatCell.translatesAutoresizingMaskIntoConstraints = false
+        chatCell.selectionStyle = .none
+        chatCell.isUserInteractionEnabled = false
+        chatCell.isAccessibilityElement = false
+        chatCell.backgroundColor = .clear
+        chatCell.contentView.backgroundColor = .clear
         separator.translatesAutoresizingMaskIntoConstraints = false
         separator.backgroundColor = .separator
         addSubview(selectionIndicator)
-        addSubview(avatarView)
-        avatarView.addSubview(avatarLabel)
-        addSubview(titleLabel)
-        addSubview(subtitleLabel)
-        addSubview(premiumLabel)
-        addSubview(lockView)
+        addSubview(chatCell)
         addSubview(separator)
         NSLayoutConstraint.activate([
             selectionIndicator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.selectionLeading),
-            selectionIndicator.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
+            selectionIndicator.centerYAnchor.constraint(equalTo: chatCell.avatarView.centerYAnchor),
             selectionIndicator.widthAnchor.constraint(equalToConstant: Metrics.selectionWidth),
             selectionIndicator.heightAnchor.constraint(equalTo: selectionIndicator.widthAnchor),
-            avatarView.leadingAnchor.constraint(equalTo: selectionIndicator.trailingAnchor, constant: Metrics.selectionToAvatarSpacing),
-            avatarView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            avatarView.widthAnchor.constraint(equalToConstant: Metrics.avatarSide),
-            avatarView.heightAnchor.constraint(equalTo: avatarView.widthAnchor),
-            avatarLabel.leadingAnchor.constraint(equalTo: avatarView.leadingAnchor),
-            avatarLabel.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor),
-            avatarLabel.topAnchor.constraint(equalTo: avatarView.topAnchor),
-            avatarLabel.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor),
-            titleLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: Metrics.avatarToTextSpacing),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: premiumLabel.leadingAnchor, constant: -8),
-            titleLabel.topAnchor.constraint(equalTo: avatarView.topAnchor, constant: 2),
-            subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: premiumLabel.leadingAnchor, constant: -8),
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            subtitleLabel.bottomAnchor.constraint(lessThanOrEqualTo: avatarView.bottomAnchor, constant: -2),
-            premiumLabel.trailingAnchor.constraint(equalTo: lockView.leadingAnchor, constant: -4),
-            premiumLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            lockView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            lockView.centerYAnchor.constraint(equalTo: premiumLabel.centerYAnchor),
-            lockView.widthAnchor.constraint(equalToConstant: 14),
-            lockView.heightAnchor.constraint(equalTo: lockView.widthAnchor),
-            separator.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            chatCell.leadingAnchor.constraint(equalTo: selectionIndicator.trailingAnchor, constant: Metrics.selectionToChatSpacing),
+            chatCell.trailingAnchor.constraint(equalTo: trailingAnchor),
+            chatCell.topAnchor.constraint(equalTo: topAnchor),
+            chatCell.bottomAnchor.constraint(equalTo: bottomAnchor),
+            separator.leadingAnchor.constraint(equalTo: chatCell.leadingAnchor, constant: Metrics.separatorLeadingInset),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
             separator.bottomAnchor.constraint(equalTo: bottomAnchor),
             separator.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale)
@@ -2165,35 +2127,65 @@ private final class AppearanceAvatarMaskRow: UIControl {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        maskImageView.frame = avatarView.bounds
+        // ChatListTableViewCell normally receives this from UITableView. The
+        // picker hosts it directly so it needs the same content-view layout.
+        chatCell.contentView.frame = chatCell.bounds
+        chatCell.setNeedsLayout()
+        chatCell.layoutIfNeeded()
     }
 
     func configure(
         mask: AppearanceAvatarMask,
-        title: String,
-        subtitle: String,
+        fixture: AppearanceAvatarMaskGalleryView.Fixture,
         accent: UIColor,
         selected: Bool,
         locked: Bool,
-        avatarColor: UIColor,
         showsSeparator: Bool
     ) {
         selectedMask = mask
-        titleLabel.text = title
-        subtitleLabel.text = subtitle
-        avatarLabel.text = String(title.prefix(1))
-        avatarLabel.textAlignment = .center
-        avatarView.backgroundColor = avatarColor
-        avatarView.mask = nil
-        maskImageView.image = UIImage(named: mask.rawValue + "_32pt")
-        if mask != .square, maskImageView.image != nil {
-            avatarView.mask = maskImageView
+        chatCell.configure(
+            "avatar-mask-preview-\(mask.rawValue)@example.invalid",
+            owner: "avatar-mask-preview@example.invalid",
+            username: fixture.name,
+            attributedUsername: nil,
+            message: fixture.message,
+            date: Date(),
+            deliveryState: fixture.delivery,
+            isMute: false,
+            isSynced: true,
+            isGroupchat: fixture.entity == .groupchat,
+            status: fixture.status,
+            entity: fixture.entity,
+            conversationType: fixture.conversationType,
+            unread: fixture.unread,
+            unreadString: fixture.unread > 0 ? String(fixture.unread) : nil,
+            indicator: .clear,
+            isDraft: false,
+            isAttachment: false,
+            groupchatNickname: fixture.author,
+            isSystem: false,
+            isPinned: fixture.isPinned,
+            subRequest: false,
+            avatarUrl: nil,
+            hasErrorInChat: false,
+            verAction: false
+        )
+        chatCell.dateLabel.text = locked ? "Premium" : fixture.time
+        chatCell.accountIndicator.isHidden = true
+        chatCell.avatarView.mask = nil
+        if mask != .square,
+           let image = UIImage(named: mask.rawValue + "_56pt")?.upscale(dimension: 64) {
+            chatCell.avatarView.mask = UIImageView(image: image)
+        }
+        if locked {
+            chatCell.deliveryIndicator.image = UIImage(systemName: "lock.fill")
+            chatCell.deliveryIndicator.tintColor = .systemPurple
+            chatCell.deliveryIndicator.isHidden = false
         }
         selectionIndicator.configure(selected: selected, accent: accent)
         selectionIndicator.accessibilityIdentifier = "interface.avatar.\(mask.rawValue).selection"
-        avatarView.accessibilityIdentifier = "interface.avatar.\(mask.rawValue).preview"
-        premiumLabel.isHidden = !locked
-        lockView.isHidden = !locked
+        chatCell.avatarView.accessibilityIdentifier = "interface.avatar.\(mask.rawValue).preview"
+        chatCell.accessibilityIdentifier = "interface.avatar.\(mask.rawValue).chat"
         accessibilityIdentifier = "interface.avatar.\(mask.rawValue)"
         accessibilityLabel = "\(mask.displayName) avatar shape"
         accessibilityValue = locked ? "Premium" : (selected ? "Selected" : "Not selected")

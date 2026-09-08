@@ -965,6 +965,10 @@ final class InterfaceAppearanceTests: XCTestCase {
         let avatarFrame = avatar.convert(avatar.bounds, to: row)
         XCTAssertEqual(indicatorFrame.midY, avatarFrame.midY, accuracy: 0.5)
         XCTAssertEqual(indicator.accessibilityValue, "Selected")
+        let chatCell = try XCTUnwrap(firstSubview(of: ChatListTableViewCell.self, in: row))
+        XCTAssertEqual(chatCell.bounds.height, 84, accuracy: 0.5)
+        XCTAssertEqual(chatCell.usernameLabel.text, "Alicia Torreaux")
+        XCTAssertTrue(chatCell.accountIndicator.isHidden)
     }
 
     @MainActor
@@ -988,6 +992,13 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         octagonRow.sendActions(for: .touchUpInside)
         XCTAssertEqual(selectedMask, .octagon)
+
+        for mask in AppearanceAvatarMask.allCases {
+            let row = try XCTUnwrap(
+                descendant(in: gallery, accessibilityIdentifier: "interface.avatar.\(mask.rawValue)")
+            )
+            XCTAssertNotNil(firstSubview(of: ChatListTableViewCell.self, in: row))
+        }
 
         let squarePreview = try XCTUnwrap(
             descendant(
