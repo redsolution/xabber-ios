@@ -138,6 +138,22 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertTrue(store.load().customThemes.isEmpty)
     }
 
+    @MainActor
+    func testCoordinatorCreatesCustomThemeInItsConfiguredStore() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        let source = AppearanceThemeCatalog.theme(
+            id: coordinator.document.profile.themeID,
+            customThemes: coordinator.document.customThemes
+        )
+
+        let created = try coordinator.createCustomTheme(named: "My Theme", basedOn: source)
+
+        XCTAssertEqual(created.name, "My Theme")
+        XCTAssertEqual(coordinator.document.customThemes, [created])
+        XCTAssertEqual(store.load().customThemes, [created])
+    }
+
     func testEditingActiveCustomThemeIsReportedAsPaintChange() throws {
         let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
         let custom = try store.createCustomTheme(
@@ -275,6 +291,54 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertEqual(navigationController.viewControllers.count, 2)
         XCTAssertTrue(navigationController.topViewController is AppearanceDraftViewController)
         XCTAssertNil(navigationController.topViewController?.navigationItem.leftBarButtonItem)
+    }
+
+    @MainActor
+    func testInterfaceSettingsRemovesChatThemesRow() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+
+        XCTAssertEqual(controller.tableView(tableView, numberOfRowsInSection: 1), 2)
+        let firstColorThemeRow = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 0, section: 1)
+        )
+        let firstConfiguration = try XCTUnwrap(firstColorThemeRow.contentConfiguration as? UIListContentConfiguration)
+
+        XCTAssertEqual(firstConfiguration.text, "Chat Wallpaper")
+        XCTAssertNil(descendant(in: controller.view, accessibilityIdentifier: "interface.settings.chatThemes"))
+    }
+
+    @MainActor
+    func testOverviewThemeRailEndsWithCreateThemeControl() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+        let overviewCell = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        )
+        let createControl = try XCTUnwrap(
+            descendant(in: overviewCell, accessibilityIdentifier: "interface.theme.create") as? UIControl
+        )
+        let themeRail = try XCTUnwrap(
+            descendant(in: overviewCell, accessibilityIdentifier: "interface.theme.rail") as? UIStackView
+        )
+
+        createControl.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(createControl.accessibilityLabel, "Create New Theme")
+        XCTAssertTrue(themeRail.arrangedSubviews.last === createControl)
+        XCTAssertTrue(controller.presentedViewController is UIAlertController)
     }
 
     @MainActor

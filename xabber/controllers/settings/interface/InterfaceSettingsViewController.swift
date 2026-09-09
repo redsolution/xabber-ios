@@ -17,7 +17,6 @@ final class InterfaceSettingsViewController: BaseViewController {
     }
 
     private enum Row: Hashable {
-        case themes
         case wallpaper
         case accent
         case textSize
@@ -86,7 +85,7 @@ final class InterfaceSettingsViewController: BaseViewController {
     }
 
     private var themeRows: [Row] {
-        var rows: [Row] = [.themes]
+        var rows: [Row] = []
         if CommonConfigManager.shared.config.locked_background.isEmpty {
             rows.append(.wallpaper)
         }
@@ -107,8 +106,6 @@ final class InterfaceSettingsViewController: BaseViewController {
     private func value(for row: Row) -> String? {
         let profile = document.profile
         switch row {
-        case .themes:
-            return AppearanceThemeCatalog.theme(id: profile.themeID, customThemes: document.customThemes).name
         case .wallpaper:
             switch profile.wallpaper {
             case .none: return "None"
@@ -125,7 +122,6 @@ final class InterfaceSettingsViewController: BaseViewController {
 
     private func title(for row: Row) -> String {
         switch row {
-        case .themes: return "Chat Themes"
         case .wallpaper: return "Chat Wallpaper"
         case .accent: return "Application Color"
         case .textSize: return "Text Size"
@@ -136,7 +132,6 @@ final class InterfaceSettingsViewController: BaseViewController {
 
     private func accessibilityID(for row: Row) -> String {
         switch row {
-        case .themes: return "interface.settings.chatThemes"
         case .wallpaper: return "interface.settings.wallpaper"
         case .accent: return "interface.settings.applicationColor"
         case .textSize: return "interface.settings.textSize"
@@ -173,6 +168,43 @@ final class InterfaceSettingsViewController: BaseViewController {
             alert.addAction(UIAlertAction(title: "OK", style: .default))
             present(alert, animated: true)
         }
+    }
+
+    private func createTheme() {
+        let alert = UIAlertController(
+            title: "New Theme",
+            message: "Choose a unique name.",
+            preferredStyle: .alert
+        )
+        alert.addTextField { field in
+            field.placeholder = "Theme name"
+            field.autocapitalizationType = .words
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Create", style: .default) { [weak self, weak alert] _ in
+            guard let self, let name = alert?.textFields?.first?.text else { return }
+            do {
+                let activeTheme = AppearanceThemeCatalog.theme(
+                    id: self.document.profile.themeID,
+                    customThemes: self.document.customThemes
+                )
+                let theme = try self.appearanceCoordinator.createCustomTheme(
+                    named: name,
+                    basedOn: activeTheme
+                )
+                self.document = self.appearanceCoordinator.document
+                self.pushEditor(AppearanceThemeEditorViewController(document: self.document, theme: theme))
+            } catch {
+                let errorAlert = UIAlertController(
+                    title: "Couldn’t save theme",
+                    message: error.localizedDescription,
+                    preferredStyle: .alert
+                )
+                errorAlert.addAction(UIAlertAction(title: "OK", style: .default))
+                self.present(errorAlert, animated: true)
+            }
+        })
+        present(alert, animated: true)
     }
 
     private func applyInterfaceStyle(_ style: AppearanceInterfaceStyle) {
@@ -230,6 +262,9 @@ extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDel
             cell.onThemeTap = { [weak self] theme in
                 self?.applyOverviewTheme(theme)
             }
+            cell.onCreateTheme = { [weak self] in
+                self?.createTheme()
+            }
             return cell
         }
         if Section(rawValue: indexPath.section) == .mode {
@@ -272,11 +307,6 @@ extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDel
         tableView.deselectRow(at: indexPath, animated: true)
         guard let row = row(at: indexPath) else { return }
         switch row {
-        case .themes:
-            navigationController?.pushViewController(
-                AppearanceThemesViewController(document: document),
-                animated: true
-            )
         case .wallpaper:
             pushEditor(AppearanceWallpaperViewController(document: document))
         case .accent:
@@ -512,6 +542,7 @@ private final class AppearanceOverviewCell: UITableViewCell {
     static let reuseIdentifier = "AppearanceOverviewCell"
 
     var onThemeTap: ((AppearanceTheme) -> Void)?
+    var onCreateTheme: (() -> Void)?
     private let preview = AppearancePreviewView()
     private let scrollView = UIScrollView()
     private let themesStack = UIStackView()
@@ -524,6 +555,7 @@ private final class AppearanceOverviewCell: UITableViewCell {
         themesStack.translatesAutoresizingMaskIntoConstraints = false
         themesStack.axis = .horizontal
         themesStack.spacing = 12
+        themesStack.accessibilityIdentifier = "interface.theme.rail"
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.addSubview(themesStack)
         contentView.addSubview(preview)
@@ -566,6 +598,56 @@ private final class AppearanceOverviewCell: UITableViewCell {
             control.addAction(UIAction { [weak self] _ in self?.onThemeTap?(theme) }, for: .touchUpInside)
             themesStack.addArrangedSubview(control)
         }
+        let createControl = AppearanceCreateThemeControl()
+        createControl.addAction(UIAction { [weak self] _ in self?.onCreateTheme?() }, for: .touchUpInside)
+        themesStack.addArrangedSubview(createControl)
+    }
+}
+
+private final class AppearanceCreateThemeControl: UIControl {
+    private let iconView = UIImageView(image: UIImage(systemName: "plus"))
+    private let titleLabel = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        translatesAutoresizingMaskIntoConstraints = false
+        layer.cornerRadius = 14
+        layer.cornerCurve = .continuous
+        layer.borderWidth = 1
+        layer.borderColor = UIColor.separator.cgColor
+        backgroundColor = .secondarySystemGroupedBackground
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.tintColor = tintColor
+        iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 24, weight: .semibold)
+        iconView.contentMode = .scaleAspectFit
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .preferredFont(forTextStyle: .caption2)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textAlignment = .center
+        titleLabel.text = "New Theme"
+        titleLabel.numberOfLines = 2
+        addSubview(iconView)
+        addSubview(titleLabel)
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: 86),
+            iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -12),
+            iconView.widthAnchor.constraint(equalToConstant: 28),
+            iconView.heightAnchor.constraint(equalTo: iconView.widthAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            titleLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
+        ])
+        accessibilityIdentifier = "interface.theme.create"
+        accessibilityLabel = "Create New Theme"
+        accessibilityTraits = .button
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func tintColorDidChange() {
+        super.tintColorDidChange()
+        iconView.tintColor = tintColor
     }
 }
 

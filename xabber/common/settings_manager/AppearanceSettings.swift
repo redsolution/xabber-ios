@@ -451,6 +451,7 @@ enum AppearanceStoreError: Error, Equatable {
 protocol AppearanceSettingsStoring: AnyObject {
     func load() -> AppearanceSettingsDocument
     @discardableResult func commit(_ document: AppearanceSettingsDocument) throws -> AppearanceChangeSet
+    @discardableResult func createCustomTheme(named: String, basedOn theme: AppearanceTheme) throws -> AppearanceTheme
 }
 
 final class AppearanceSettingsStore: AppearanceSettingsStoring {
@@ -779,6 +780,13 @@ final class AppearanceCoordinator {
         document = store.load()
         applyToAllWindows()
         publish(.between(previousDocument, document), previousProfile: previousDocument.profile)
+    }
+
+    @discardableResult
+    func createCustomTheme(named: String, basedOn theme: AppearanceTheme) throws -> AppearanceTheme {
+        let created = try store.createCustomTheme(named: named, basedOn: theme)
+        reloadAndApply()
+        return created
     }
 
     func apply(to window: UIWindow) {
