@@ -837,7 +837,7 @@ final class AppearancePreviewView: UIView {
             text: "How’s your morning going?",
             outgoing: false,
             avatarName: "interface_avatar_alicia",
-            avatarIdentifier: "alicia",
+            avatarIdentifier: "overview.0",
             identifier: "overview.0",
             snapshot: snapshot
         )
@@ -852,8 +852,8 @@ final class AppearancePreviewView: UIView {
         let third = makeInterfaceMessageRow(
             text: "Let’s meet for lunch at two. ☕",
             outgoing: false,
-            avatarName: "interface_avatar_roberto",
-            avatarIdentifier: "roberto",
+            avatarName: "interface_avatar_alicia",
+            avatarIdentifier: "overview.2",
             identifier: "overview.2",
             snapshot: snapshot
         )

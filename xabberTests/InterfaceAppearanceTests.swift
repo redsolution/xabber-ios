@@ -718,17 +718,22 @@ final class InterfaceAppearanceTests: XCTestCase {
         let navigationAvatar = try XCTUnwrap(
             descendant(in: navigation, accessibilityIdentifier: "interface.preview.navigation.avatar") as? UIImageView
         )
-        let aliciaAvatar = try XCTUnwrap(
-            descendant(in: preview, accessibilityIdentifier: "interface.preview.messageAvatar.alicia") as? UIImageView
+        let firstIncomingAvatar = try XCTUnwrap(
+            descendant(in: preview, accessibilityIdentifier: "interface.preview.messageAvatar.overview.0") as? UIImageView
         )
-        let robertoAvatar = try XCTUnwrap(
-            descendant(in: preview, accessibilityIdentifier: "interface.preview.messageAvatar.roberto") as? UIImageView
+        let secondIncomingAvatar = try XCTUnwrap(
+            descendant(in: preview, accessibilityIdentifier: "interface.preview.messageAvatar.overview.2") as? UIImageView
         )
 
         XCTAssertEqual(title.text, "Alicia Torreaux")
         XCTAssertNotNil(navigationAvatar.image)
-        XCTAssertNotNil(aliciaAvatar.image)
-        XCTAssertNotNil(robertoAvatar.image)
+        let firstIncomingAvatarData = try XCTUnwrap(firstIncomingAvatar.image?.pngData())
+        let secondIncomingAvatarData = try XCTUnwrap(secondIncomingAvatar.image?.pngData())
+        XCTAssertEqual(
+            firstIncomingAvatarData,
+            secondIncomingAvatarData,
+            "Incoming root-preview messages must use one contact avatar"
+        )
         for index in 0..<3 {
             XCTAssertNotNil(
                 descendant(
@@ -755,8 +760,8 @@ final class InterfaceAppearanceTests: XCTestCase {
         overview.layoutIfNeeded()
 
         for identifier in [
-            "interface.preview.messageAvatar.alicia",
-            "interface.preview.messageAvatar.roberto"
+            "interface.preview.messageAvatar.overview.0",
+            "interface.preview.messageAvatar.overview.2"
         ] {
             let avatar = try XCTUnwrap(
                 descendant(in: overview, accessibilityIdentifier: identifier) as? UIImageView
