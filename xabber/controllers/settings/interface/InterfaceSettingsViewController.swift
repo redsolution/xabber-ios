@@ -2141,16 +2141,25 @@ final class AppearanceBubbleViewController: AppearanceDraftViewController {
     private let radiusSection = UIView()
     private let radiusTitleLabel = UILabel()
     private let radiusCard = UIView()
+    private let entitlementProvider: AppearanceEntitlementProviding
+    private let paywallPresenter: (UIViewController) -> Bool
     private var galleryConfigured = false
     private var policy: AppearancePremiumPolicy {
-        let provider = LiveAppearanceEntitlementProvider()
         return AppearancePremiumPolicy(
-            isEntitled: provider.hasActiveAppearanceEntitlement,
-            subscriptionsEnabled: provider.areSubscriptionsEnabled
+            isEntitled: entitlementProvider.hasActiveAppearanceEntitlement,
+            subscriptionsEnabled: entitlementProvider.areSubscriptionsEnabled
         )
     }
 
-    init(document: AppearanceSettingsDocument) {
+    init(
+        document: AppearanceSettingsDocument,
+        entitlementProvider: AppearanceEntitlementProviding = LiveAppearanceEntitlementProvider(),
+        paywallPresenter: @escaping (UIViewController) -> Bool = { parent in
+            SubscribtionsPresenter().present(animated: true, parent: parent)
+        }
+    ) {
+        self.entitlementProvider = entitlementProvider
+        self.paywallPresenter = paywallPresenter
         super.init(document: document, title: "Message Bubbles")
     }
 
@@ -2236,13 +2245,20 @@ final class AppearanceBubbleViewController: AppearanceDraftViewController {
     }
 
     private func select(_ value: AppearanceBubbleStyle) {
-        guard policy.canSelect(value, currentlyApplied: document.profile.bubbleStyle) else {
-            SubscribtionsPresenter().present(animated: true, parent: self)
-            return
-        }
         draft.profile.bubbleStyle = value
         updateGallery()
         refreshSetButton()
+    }
+
+    override func setTapped() {
+        guard !policy.requiresPurchaseToCommit(
+            draft.profile.bubbleStyle,
+            currentlyApplied: document.profile.bubbleStyle
+        ) else {
+            _ = paywallPresenter(self)
+            return
+        }
+        super.setTapped()
     }
 
     @objc private func radiusChanged() {
@@ -2267,7 +2283,10 @@ final class AppearanceBubbleViewController: AppearanceDraftViewController {
         updated.profile = draft.profile
         pageBackgroundView.configure(document: updated)
         let lockedStyles = Set(policy.visibleBubbleStyles.filter {
-            !policy.canSelect($0, currentlyApplied: document.profile.bubbleStyle)
+            policy.requiresPurchaseToCommit(
+                $0,
+                currentlyApplied: document.profile.bubbleStyle
+            )
         })
         gallery.configure(
             document: updated,
@@ -2359,7 +2378,8 @@ final class AppearanceBubbleStyleGalleryView: UIView {
             row.configure(
                 style: style,
                 text: Self.sampleText(for: style),
-                outgoing: false,
+                outgoing: true,
+                avatarAssetName: Self.avatarAssetName(for: style),
                 snapshot: snapshot,
                 selected: style == selectedStyle,
                 locked: lockedStyles.contains(style),
@@ -2467,6 +2487,19 @@ final class AppearanceBubbleStyleGalleryView: UIView {
         case .wedge: return "A sharper reply"
         }
     }
+
+    private static func avatarAssetName(for style: AppearanceBubbleStyle) -> String {
+        switch style {
+        case .noTail: return "interface_avatar_alicia"
+        case .smooth: return "interface_avatar_roberto"
+        case .bubble: return "interface_avatar_campus"
+        case .bubbles: return "interface_avatar_veronica"
+        case .curvy: return "interface_avatar_animal_videos"
+        case .stripes: return "interface_avatar_little_sister"
+        case .transparent: return "interface_avatar_jennie"
+        case .wedge: return "interface_avatar_alicia"
+        }
+    }
 }
 
 private final class AppearanceBubbleStyleRow: UIControl {
@@ -2474,7 +2507,9 @@ private final class AppearanceBubbleStyleRow: UIControl {
         static let selectionLeading: CGFloat = 4
         static let selectionWidth: CGFloat = 26
         static let selectionToMessageSpacing: CGFloat = 8
-        static let messageTrailing: CGFloat = 4
+        static let messageToAvatarSpacing: CGFloat = 8
+        static let avatarSize: CGFloat = 34
+        static let avatarTrailing: CGFloat = 4
         static let verticalInset: CGFloat = 5
     }
 
@@ -2482,8 +2517,10 @@ private final class AppearanceBubbleStyleRow: UIControl {
 
     private let selectionIndicator = AppearanceBubbleSelectionIndicatorView()
     private let messageHost = AppearanceChatMessagePreviewHostView()
+    private let avatarView = UIImageView()
     private var style: AppearanceBubbleStyle?
     private var selectionCenterYConstraint: NSLayoutConstraint!
+    private var avatarCenterYConstraint: NSLayoutConstraint!
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -2491,9 +2528,20 @@ private final class AppearanceBubbleStyleRow: UIControl {
         selectionIndicator.translatesAutoresizingMaskIntoConstraints = false
         messageHost.translatesAutoresizingMaskIntoConstraints = false
         messageHost.isUserInteractionEnabled = false
+        avatarView.translatesAutoresizingMaskIntoConstraints = false
+        avatarView.contentMode = .scaleAspectFill
+        avatarView.clipsToBounds = true
+        avatarView.isUserInteractionEnabled = false
+        avatarView.layer.cornerRadius = Metrics.avatarSize / 2
+        avatarView.layer.cornerCurve = .continuous
         addSubview(selectionIndicator)
         addSubview(messageHost)
+        addSubview(avatarView)
         selectionCenterYConstraint = selectionIndicator.centerYAnchor.constraint(
+            equalTo: messageHost.topAnchor,
+            constant: 32
+        )
+        avatarCenterYConstraint = avatarView.centerYAnchor.constraint(
             equalTo: messageHost.topAnchor,
             constant: 32
         )
@@ -2504,10 +2552,15 @@ private final class AppearanceBubbleStyleRow: UIControl {
             selectionIndicator.widthAnchor.constraint(equalToConstant: Metrics.selectionWidth),
             selectionIndicator.heightAnchor.constraint(equalTo: selectionIndicator.widthAnchor),
             messageHost.leadingAnchor.constraint(equalTo: selectionIndicator.trailingAnchor, constant: Metrics.selectionToMessageSpacing),
-            messageHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.messageTrailing),
+            messageHost.trailingAnchor.constraint(equalTo: avatarView.leadingAnchor, constant: -Metrics.messageToAvatarSpacing),
             messageHost.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.verticalInset),
-            messageHost.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.verticalInset)
+            messageHost.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.verticalInset),
+            avatarCenterYConstraint,
+            avatarView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.avatarTrailing),
+            avatarView.widthAnchor.constraint(equalToConstant: Metrics.avatarSize),
+            avatarView.heightAnchor.constraint(equalTo: avatarView.widthAnchor)
         ])
+        selectionIndicator.isUserInteractionEnabled = false
         addAction(UIAction { [weak self] _ in
             guard let self, let style = self.style else { return }
             self.onSelect?(style)
@@ -2525,6 +2578,9 @@ private final class AppearanceBubbleStyleRow: UIControl {
         if abs(selectionCenterYConstraint.constant - centerY) > 0.5 {
             selectionCenterYConstraint.constant = centerY
         }
+        if abs(avatarCenterYConstraint.constant - centerY) > 0.5 {
+            avatarCenterYConstraint.constant = centerY
+        }
     }
 
     func fittingHeight(for width: CGFloat) -> CGFloat {
@@ -2534,7 +2590,9 @@ private final class AppearanceBubbleStyleRow: UIControl {
                 - Metrics.selectionLeading
                 - Metrics.selectionWidth
                 - Metrics.selectionToMessageSpacing
-                - Metrics.messageTrailing
+                - Metrics.messageToAvatarSpacing
+                - Metrics.avatarSize
+                - Metrics.avatarTrailing
         )
         return max(
             64,
@@ -2550,6 +2608,7 @@ private final class AppearanceBubbleStyleRow: UIControl {
         style: AppearanceBubbleStyle,
         text: String,
         outgoing: Bool,
+        avatarAssetName: String,
         snapshot: ResolvedAppearanceSnapshot,
         selected: Bool,
         locked: Bool,
@@ -2566,6 +2625,9 @@ private final class AppearanceBubbleStyleRow: UIControl {
                 : nil
         )
         messageHost.accessibilityIdentifier = "interface.bubble.message.\(style.rawValue)"
+        avatarView.image = UIImage(named: avatarAssetName)
+        avatarView.accessibilityIdentifier = "interface.bubble.avatar.\(style.rawValue)"
+        avatarView.accessibilityLabel = "\(style.displayName) avatar"
         selectionIndicator.configure(selected: selected, accent: accent)
         selectionIndicator.accessibilityIdentifier = "interface.bubble.\(style.rawValue).selection"
         accessibilityIdentifier = "interface.bubble.\(style.rawValue)"

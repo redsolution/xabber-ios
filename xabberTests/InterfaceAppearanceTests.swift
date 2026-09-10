@@ -10,6 +10,11 @@ import UIKit
 @testable import xabber
 
 final class InterfaceAppearanceTests: XCTestCase {
+    private struct AppearanceEntitlementStub: AppearanceEntitlementProviding {
+        let hasActiveAppearanceEntitlement: Bool
+        let areSubscriptionsEnabled: Bool
+    }
+
     private var suiteName: String!
     private var defaults: UserDefaults!
 
@@ -1036,6 +1041,9 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertFalse(free.canSelect(.star, currentlyApplied: .circle))
         XCTAssertTrue(paid.canSelect(.star, currentlyApplied: .circle))
         XCTAssertTrue(paid.canSelect(.transparent, currentlyApplied: .noTail))
+        XCTAssertTrue(free.requiresPurchaseToCommit(.stripes, currentlyApplied: .noTail))
+        XCTAssertFalse(free.requiresPurchaseToCommit(.wedge, currentlyApplied: .wedge))
+        XCTAssertFalse(paid.requiresPurchaseToCommit(.transparent, currentlyApplied: .noTail))
     }
 
     func testDisabledSubscriptionsHidePremiumOptions() {
@@ -1046,7 +1054,7 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testBubbleGalleryKeepsIncomingSamplesSelectedGeometryAndPremiumStatusLockStableAcrossRadiusChanges() throws {
+    func testBubbleGalleryUsesOutgoingPhotoSamplesAndKeepsPremiumStatusLockStableAcrossRadiusChanges() throws {
         var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         document.profile.wallpaper = .builtIn(name: "Honeycomb")
         document.profile.bubbleStyle = .smooth
@@ -1089,11 +1097,18 @@ final class InterfaceAppearanceTests: XCTestCase {
                 )
             )
             let cell = try XCTUnwrap(firstSubview(of: TextMessageCell.self, in: host))
-            XCTAssertLessThan(
+            XCTAssertGreaterThan(
                 cell.messageContainerView.frame.midX,
                 cell.bounds.midX,
-                "\(style.displayName) must remain an incoming, left-aligned sample"
+                "\(style.displayName) must remain an outgoing, right-aligned sample"
             )
+            let avatar = try XCTUnwrap(
+                descendant(
+                    in: gallery,
+                    accessibilityIdentifier: "interface.bubble.avatar.\(style.rawValue)"
+                ) as? UIImageView
+            )
+            XCTAssertNotNil(avatar.image, "\(style.displayName) needs its generated photo avatar")
         }
 
         let messageFrames = try AppearanceBubbleStyle.allCases.map { style -> CGRect in
@@ -1124,6 +1139,16 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         XCTAssertEqual(selectedIndicator.accessibilityValue, "Selected")
         XCTAssertEqual(selectedIndicator.layer.cornerRadius, selectedIndicator.bounds.width / 2, accuracy: 0.5)
+        var selectedStyleFromWholeRow: AppearanceBubbleStyle?
+        gallery.onStyleSelected = { selectedStyleFromWholeRow = $0 }
+        let smoothRow = try XCTUnwrap(
+            descendant(
+                in: gallery,
+                accessibilityIdentifier: "interface.bubble.smooth"
+            ) as? UIControl
+        )
+        smoothRow.sendActions(for: .touchUpInside)
+        XCTAssertEqual(selectedStyleFromWholeRow, .smooth)
         let selectedCellHost = try XCTUnwrap(
             descendant(
                 in: gallery,
@@ -1192,6 +1217,44 @@ final class InterfaceAppearanceTests: XCTestCase {
         gallery.layoutIfNeeded()
         let cellAfterRadiusChange = try XCTUnwrap(firstSubview(of: TextMessageCell.self, in: selectedCellHost))
         XCTAssertTrue(cellBeforeRadiusChange === cellAfterRadiusChange)
+    }
+
+    @MainActor
+    func testBubbleEditorDefersPremiumPaywallUntilSave() throws {
+        let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        var paywallPresentationCount = 0
+        let controller = AppearanceBubbleViewController(
+            document: document,
+            entitlementProvider: AppearanceEntitlementStub(
+                hasActiveAppearanceEntitlement: false,
+                areSubscriptionsEnabled: true
+            ),
+            paywallPresenter: { _ in
+                paywallPresentationCount += 1
+                return true
+            }
+        )
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        let premiumRow = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.bubble.stripes"
+            ) as? UIControl
+        )
+        premiumRow.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(controller.draft.profile.bubbleStyle, .stripes)
+        XCTAssertEqual(paywallPresentationCount, 0)
+
+        controller.setTapped()
+
+        XCTAssertEqual(paywallPresentationCount, 1)
+        XCTAssertEqual(controller.document.profile.bubbleStyle, document.profile.bubbleStyle)
+        XCTAssertTrue(controller.draft.isDirty)
     }
 
     @MainActor

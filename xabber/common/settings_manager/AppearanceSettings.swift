@@ -655,6 +655,16 @@ struct AppearancePremiumPolicy {
         AppearanceBubbleStyle.freeCases.contains(candidate) || isEntitled || candidate == currentlyApplied
     }
 
+    func requiresPurchaseToCommit(
+        _ candidate: AppearanceBubbleStyle,
+        currentlyApplied: AppearanceBubbleStyle
+    ) -> Bool {
+        subscriptionsEnabled
+            && !isEntitled
+            && AppearanceBubbleStyle.premiumCases.contains(candidate)
+            && candidate != currentlyApplied
+    }
+
     func canSelect(_ candidate: AppearanceAvatarMask, currentlyApplied: AppearanceAvatarMask) -> Bool {
         AppearanceAvatarMask.freeCases.contains(candidate) || isEntitled || candidate == currentlyApplied
     }
