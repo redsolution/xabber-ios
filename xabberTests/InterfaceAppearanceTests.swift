@@ -703,6 +703,99 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
+    func testInterfacePreviewAvatarPhotosFollowTheSelectedMaskAcrossChatAndListSurfaces() throws {
+        var octagonDocument = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        octagonDocument.profile.avatarMask = .octagon
+
+        let overview = AppearancePreviewView(frame: CGRect(x: 0, y: 0, width: 360, height: 300))
+        overview.presentation = .interfaceOverview
+        overview.configure(
+            document: octagonDocument,
+            traits: .init(userInterfaceStyle: .light),
+            animated: false
+        )
+        overview.setNeedsLayout()
+        overview.layoutIfNeeded()
+
+        for identifier in [
+            "interface.preview.navigation.avatar",
+            "interface.preview.messageAvatar.alicia",
+            "interface.preview.messageAvatar.roberto"
+        ] {
+            let avatar = try XCTUnwrap(
+                descendant(in: overview, accessibilityIdentifier: identifier) as? UIImageView
+            )
+            XCTAssertEqual(
+                avatar.mask?.accessibilityIdentifier,
+                "interface.preview.avatarMask.octagon",
+                "\(identifier) must use the selected avatar mask"
+            )
+        }
+        let navigationRing = try XCTUnwrap(
+            descendant(
+                in: overview,
+                accessibilityIdentifier: "interface.preview.navigation.avatarRing"
+            )
+        )
+        XCTAssertEqual(navigationRing.mask?.accessibilityIdentifier, "interface.preview.avatarMask.octagon")
+
+        let chatList = AppearancePreviewView(frame: CGRect(x: 0, y: 0, width: 360, height: 300))
+        chatList.showsChatList = true
+        chatList.configure(
+            document: octagonDocument,
+            traits: .init(userInterfaceStyle: .light),
+            animated: false
+        )
+        chatList.setNeedsLayout()
+        chatList.layoutIfNeeded()
+        for index in 0..<4 {
+            let avatar = try XCTUnwrap(
+                descendant(
+                    in: chatList,
+                    accessibilityIdentifier: "interface.preview.chatListAvatar.\(index)"
+                ) as? UIImageView
+            )
+            XCTAssertEqual(avatar.mask?.accessibilityIdentifier, "interface.preview.avatarMask.octagon")
+        }
+
+        var squareDocument = octagonDocument
+        squareDocument.profile.avatarMask = .square
+        overview.configure(
+            document: squareDocument,
+            traits: .init(userInterfaceStyle: .light),
+            animated: false
+        )
+        chatList.configure(
+            document: squareDocument,
+            traits: .init(userInterfaceStyle: .light),
+            animated: false
+        )
+        overview.setNeedsLayout()
+        overview.layoutIfNeeded()
+        chatList.setNeedsLayout()
+        chatList.layoutIfNeeded()
+
+        let squareNavigationAvatar = try XCTUnwrap(
+            descendant(
+                in: overview,
+                accessibilityIdentifier: "interface.preview.navigation.avatar"
+            ) as? UIImageView
+        )
+        let squareChatListAvatar = try XCTUnwrap(
+            descendant(
+                in: chatList,
+                accessibilityIdentifier: "interface.preview.chatListAvatar.0"
+            ) as? UIImageView
+        )
+        XCTAssertNil(squareNavigationAvatar.mask)
+        XCTAssertNil(squareChatListAvatar.mask)
+        XCTAssertNil(navigationRing.mask)
+        XCTAssertEqual(squareNavigationAvatar.layer.cornerRadius, 0, accuracy: 0.5)
+        XCTAssertEqual(squareChatListAvatar.layer.cornerRadius, 0, accuracy: 0.5)
+        XCTAssertEqual(navigationRing.layer.cornerRadius, 0, accuracy: 0.5)
+    }
+
+    @MainActor
     func testRootInterfacePreviewNavigationUsesTransparentGlassChatChrome() throws {
         let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
         let coordinator = AppearanceCoordinator(store: store)
@@ -1058,6 +1151,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         document.profile.wallpaper = .builtIn(name: "Honeycomb")
         document.profile.bubbleStyle = .smooth
+        document.profile.avatarMask = .octagon
         let gallery = AppearanceBubbleStyleGalleryView(frame: CGRect(x: 0, y: 0, width: 360, height: 680))
         gallery.configure(
             document: document,
@@ -1109,6 +1203,11 @@ final class InterfaceAppearanceTests: XCTestCase {
                 ) as? UIImageView
             )
             XCTAssertNotNil(avatar.image, "\(style.displayName) needs its generated photo avatar")
+            XCTAssertEqual(
+                avatar.mask?.accessibilityIdentifier,
+                "interface.preview.avatarMask.octagon",
+                "\(style.displayName) must use the selected avatar mask"
+            )
         }
 
         let messageFrames = try AppearanceBubbleStyle.allCases.map { style -> CGRect in

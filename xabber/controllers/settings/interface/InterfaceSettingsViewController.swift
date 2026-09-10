@@ -923,7 +923,6 @@ final class AppearancePreviewView: UIView {
         let avatarRing = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
         avatarRing.translatesAutoresizingMaskIntoConstraints = false
         avatarRing.clipsToBounds = true
-        avatarRing.layer.cornerRadius = 23
         avatarRing.layer.cornerCurve = .continuous
         avatarRing.layer.borderWidth = 2
         avatarRing.layer.borderColor = UIColor.white.withAlphaComponent(0.88).cgColor
@@ -934,9 +933,18 @@ final class AppearancePreviewView: UIView {
         avatar.translatesAutoresizingMaskIntoConstraints = false
         avatar.contentMode = .scaleAspectFill
         avatar.clipsToBounds = true
-        avatar.layer.cornerRadius = 17
         avatar.accessibilityIdentifier = "interface.preview.navigation.avatar"
         avatar.accessibilityLabel = "Alicia Torreaux avatar"
+        AppearancePreviewAvatarMaskRenderer.apply(
+            snapshot.profile.avatarMask,
+            to: avatarRing,
+            size: 46
+        )
+        AppearancePreviewAvatarMaskRenderer.apply(
+            snapshot.profile.avatarMask,
+            to: avatar,
+            size: 34
+        )
 
         backGlass.contentView.addSubview(back)
         avatarRing.contentView.addSubview(avatar)
@@ -1025,15 +1033,13 @@ final class AppearancePreviewView: UIView {
         avatar.translatesAutoresizingMaskIntoConstraints = false
         avatar.contentMode = .scaleAspectFill
         avatar.clipsToBounds = true
-        avatar.layer.cornerRadius = snapshot.profile.avatarMask == .square ? 0 : 15
         avatar.accessibilityIdentifier = identifier
         avatar.accessibilityLabel = "User avatar"
-        if snapshot.profile.avatarMask != .square,
-           let maskImage = UIImage(named: snapshot.profile.avatarMask.rawValue + "_32pt") {
-            let maskView = UIImageView(image: maskImage)
-            maskView.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
-            avatar.mask = maskView
-        }
+        AppearancePreviewAvatarMaskRenderer.apply(
+            snapshot.profile.avatarMask,
+            to: avatar,
+            size: 30
+        )
         return avatar
     }
 
@@ -1041,18 +1047,23 @@ final class AppearancePreviewView: UIView {
         let row = UIView()
         row.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.86)
         row.layer.cornerRadius = 14
-        let avatar = UIView()
+        let avatar = UIImageView()
         avatar.translatesAutoresizingMaskIntoConstraints = false
-        avatar.backgroundColor = snapshot.accent.uiColor.withAlphaComponent(0.8)
-        avatar.layer.cornerRadius = 18
-        if snapshot.profile.avatarMask != .square,
-           let maskImage = UIImage(named: snapshot.profile.avatarMask.rawValue + "_32pt") {
-            let maskView = UIImageView(image: maskImage)
-            maskView.frame = CGRect(origin: .zero, size: CGSize(width: 36, height: 36))
-            avatar.mask = maskView
-        } else {
-            avatar.mask = nil
-        }
+        avatar.image = UIImage(named: [
+            "interface_avatar_alicia",
+            "interface_avatar_roberto",
+            "interface_avatar_campus",
+            "interface_avatar_veronica"
+        ][index])
+        avatar.contentMode = .scaleAspectFill
+        avatar.clipsToBounds = true
+        avatar.accessibilityIdentifier = "interface.preview.chatListAvatar.\(index)"
+        avatar.accessibilityLabel = "Chat avatar"
+        AppearancePreviewAvatarMaskRenderer.apply(
+            snapshot.profile.avatarMask,
+            to: avatar,
+            size: 36
+        )
         let title = UILabel()
         title.translatesAutoresizingMaskIntoConstraints = false
         title.font = AppearanceTypography.font(
@@ -1085,6 +1096,29 @@ final class AppearancePreviewView: UIView {
             subtitle.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor, constant: -5)
         ])
         return row
+    }
+}
+
+/// A fixed-size preview avatar renderer. Interface Appearance previews use
+/// local photo fixtures, so their shape needs to come from the profile being
+/// previewed rather than from the global runtime mask manager.
+private enum AppearancePreviewAvatarMaskRenderer {
+    static func apply(
+        _ avatarMask: AppearanceAvatarMask,
+        to view: UIView,
+        size: CGFloat
+    ) {
+        view.mask = nil
+        view.layer.cornerRadius = 0
+        guard avatarMask != .square else { return }
+        let assetSize = size > 32 ? 56 : 32
+        guard let maskImage = UIImage(named: "\(avatarMask.rawValue)_\(assetSize)pt") else { return }
+
+        let maskView = UIImageView(image: maskImage)
+        maskView.frame = CGRect(origin: .zero, size: CGSize(width: size, height: size))
+        maskView.contentMode = .scaleToFill
+        maskView.accessibilityIdentifier = "interface.preview.avatarMask.\(avatarMask.rawValue)"
+        view.mask = maskView
     }
 }
 
@@ -2532,8 +2566,6 @@ private final class AppearanceBubbleStyleRow: UIControl {
         avatarView.contentMode = .scaleAspectFill
         avatarView.clipsToBounds = true
         avatarView.isUserInteractionEnabled = false
-        avatarView.layer.cornerRadius = Metrics.avatarSize / 2
-        avatarView.layer.cornerCurve = .continuous
         addSubview(selectionIndicator)
         addSubview(messageHost)
         addSubview(avatarView)
@@ -2626,6 +2658,11 @@ private final class AppearanceBubbleStyleRow: UIControl {
         )
         messageHost.accessibilityIdentifier = "interface.bubble.message.\(style.rawValue)"
         avatarView.image = UIImage(named: avatarAssetName)
+        AppearancePreviewAvatarMaskRenderer.apply(
+            snapshot.profile.avatarMask,
+            to: avatarView,
+            size: Metrics.avatarSize
+        )
         avatarView.accessibilityIdentifier = "interface.bubble.avatar.\(style.rawValue)"
         avatarView.accessibilityLabel = "\(style.displayName) avatar"
         selectionIndicator.configure(selected: selected, accent: accent)
