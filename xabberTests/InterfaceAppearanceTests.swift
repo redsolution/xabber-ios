@@ -286,7 +286,7 @@ final class InterfaceAppearanceTests: XCTestCase {
             controller.view.subviews.compactMap { $0 as? UITableView }.first
         )
 
-        controller.tableView(tableView, didSelectRowAt: IndexPath(row: 0, section: 3))
+        controller.tableView(tableView, didSelectRowAt: IndexPath(row: 2, section: 1))
 
         XCTAssertEqual(navigationController.viewControllers.count, 2)
         XCTAssertTrue(navigationController.topViewController is AppearanceDraftViewController)
@@ -294,7 +294,7 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testInterfaceSettingsRemovesChatThemesRow() throws {
+    func testInterfaceSettingsCombinesColorThemeAndChatAppearanceRows() throws {
         let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
         let coordinator = AppearanceCoordinator(store: store)
         let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
@@ -303,14 +303,16 @@ final class InterfaceAppearanceTests: XCTestCase {
             controller.view.subviews.compactMap { $0 as? UITableView }.first
         )
 
-        XCTAssertEqual(controller.tableView(tableView, numberOfRowsInSection: 1), 2)
-        let firstColorThemeRow = controller.tableView(
-            tableView,
-            cellForRowAt: IndexPath(row: 0, section: 1)
-        )
-        let firstConfiguration = try XCTUnwrap(firstColorThemeRow.contentConfiguration as? UIListContentConfiguration)
+        XCTAssertEqual(controller.numberOfSections(in: tableView), 3)
+        XCTAssertEqual(controller.tableView(tableView, titleForHeaderInSection: 1), "Chat Appearance")
+        XCTAssertEqual(controller.tableView(tableView, numberOfRowsInSection: 1), 5)
+        let titles = try (0..<5).map { row in
+            let cell = controller.tableView(tableView, cellForRowAt: IndexPath(row: row, section: 1))
+            let configuration = try XCTUnwrap(cell.contentConfiguration as? UIListContentConfiguration)
+            return try XCTUnwrap(configuration.text)
+        }
 
-        XCTAssertEqual(firstConfiguration.text, "Chat Wallpaper")
+        XCTAssertEqual(titles, ["Chat Wallpaper", "Application Color", "Text Size", "Message Bubbles", "Avatars"])
         XCTAssertNil(descendant(in: controller.view, accessibilityIdentifier: "interface.settings.chatThemes"))
     }
 
@@ -385,7 +387,7 @@ final class InterfaceAppearanceTests: XCTestCase {
 
         let cell = controller.tableView(
             tableView,
-            cellForRowAt: IndexPath(row: 2, section: 3)
+            cellForRowAt: IndexPath(row: 4, section: 1)
         )
         let configuration = try XCTUnwrap(cell.contentConfiguration as? UIListContentConfiguration)
 

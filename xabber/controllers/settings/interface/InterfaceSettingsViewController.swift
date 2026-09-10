@@ -11,9 +11,8 @@ import UIKit
 final class InterfaceSettingsViewController: BaseViewController {
     private enum Section: Int, CaseIterable {
         case preview
-        case theme
+        case chatAppearance
         case mode
-        case layout
     }
 
     private enum Row: Hashable {
@@ -84,12 +83,13 @@ final class InterfaceSettingsViewController: BaseViewController {
         tableView.reloadData()
     }
 
-    private var themeRows: [Row] {
+    private var chatAppearanceRows: [Row] {
         var rows: [Row] = []
         if CommonConfigManager.shared.config.locked_background.isEmpty {
             rows.append(.wallpaper)
         }
         rows.append(.accent)
+        rows.append(contentsOf: [.textSize, .bubbles, .avatars])
         return rows
     }
 
@@ -97,9 +97,8 @@ final class InterfaceSettingsViewController: BaseViewController {
         guard let section = Section(rawValue: indexPath.section) else { return nil }
         switch section {
         case .preview: return nil
-        case .theme: return themeRows[indexPath.row]
+        case .chatAppearance: return chatAppearanceRows[indexPath.row]
         case .mode: return nil
-        case .layout: return [.textSize, .bubbles, .avatars][indexPath.row]
         }
     }
 
@@ -236,18 +235,16 @@ extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDel
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch Section(rawValue: section) {
         case .preview: return 1
-        case .theme: return themeRows.count
+        case .chatAppearance: return chatAppearanceRows.count
         case .mode: return 1
-        case .layout: return 3
         case .none: return 0
         }
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch Section(rawValue: section) {
-        case .theme: return "Color Theme"
+        case .chatAppearance: return "Chat Appearance"
         case .mode: return "Appearance"
-        case .layout: return "Chat Appearance"
         default: return nil
         }
     }
