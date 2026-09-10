@@ -550,6 +550,7 @@ private final class AppearanceOverviewCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         selectionStyle = .none
+        preview.presentation = .interfaceOverview
         preview.translatesAutoresizingMaskIntoConstraints = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         themesStack.translatesAutoresizingMaskIntoConstraints = false
@@ -564,7 +565,7 @@ private final class AppearanceOverviewCell: UITableViewCell {
             preview.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
             preview.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
             preview.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-            preview.heightAnchor.constraint(equalToConstant: 210),
+            preview.heightAnchor.constraint(equalToConstant: 300),
             scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: preview.bottomAnchor, constant: 12),
@@ -741,11 +742,17 @@ private final class AppearanceThemeMiniControl: UIControl {
 }
 
 final class AppearancePreviewView: UIView {
+    enum Presentation {
+        case standard
+        case interfaceOverview
+    }
+
     private let backgroundView = ChatBackgroundBackdropView()
     private let contentStack = UIStackView()
     private var currentDocument: AppearanceSettingsDocument?
     private var chatMessageHosts: [AppearanceChatMessagePreviewHostView] = []
 
+    var presentation: Presentation = .standard
     var showsChatList = false
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -815,6 +822,8 @@ final class AppearancePreviewView: UIView {
             for index in 0..<4 {
                 contentStack.addArrangedSubview(makeChatRow(index: index, snapshot: snapshot))
             }
+        } else if presentation == .interfaceOverview {
+            configureInterfaceOverview(snapshot: snapshot)
         } else {
             let incoming = AppearanceChatMessagePreviewHostView()
             incoming.configure(text: "Good morning! 👋", outgoing: false, snapshot: snapshot)
@@ -824,6 +833,161 @@ final class AppearancePreviewView: UIView {
             contentStack.addArrangedSubview(outgoing)
             chatMessageHosts = [incoming, outgoing]
         }
+    }
+
+    private func configureInterfaceOverview(snapshot: ResolvedAppearanceSnapshot) {
+        contentStack.addArrangedSubview(makeInterfaceNavigation(snapshot: snapshot))
+        let first = makeInterfaceMessageRow(
+            text: "How’s your morning going?",
+            outgoing: false,
+            avatarName: "interface_avatar_alicia",
+            avatarIdentifier: "alicia",
+            identifier: "overview.0",
+            snapshot: snapshot
+        )
+        let second = makeInterfaceMessageRow(
+            text: "Really good — Tokyo is beautiful. 😎",
+            outgoing: true,
+            avatarName: nil,
+            avatarIdentifier: nil,
+            identifier: "overview.1",
+            snapshot: snapshot
+        )
+        let third = makeInterfaceMessageRow(
+            text: "Let’s meet for lunch at two. ☕",
+            outgoing: false,
+            avatarName: "interface_avatar_roberto",
+            avatarIdentifier: "roberto",
+            identifier: "overview.2",
+            snapshot: snapshot
+        )
+        contentStack.addArrangedSubview(first.row)
+        contentStack.addArrangedSubview(second.row)
+        contentStack.addArrangedSubview(third.row)
+        chatMessageHosts = [first.host, second.host, third.host]
+        accessibilityLabel = "Alicia Torreaux chat preview with three messages"
+    }
+
+    private func makeInterfaceNavigation(snapshot: ResolvedAppearanceSnapshot) -> UIView {
+        let navigation = UIView()
+        navigation.translatesAutoresizingMaskIntoConstraints = false
+        navigation.backgroundColor = snapshot.palette.incomingBubble.uiColor.withAlphaComponent(0.92)
+        navigation.layer.cornerRadius = 16
+        navigation.layer.cornerCurve = .continuous
+        navigation.accessibilityIdentifier = "interface.preview.navigation"
+
+        let back = UIImageView(image: UIImage(systemName: "chevron.backward"))
+        back.translatesAutoresizingMaskIntoConstraints = false
+        back.tintColor = snapshot.accent.uiColor
+        back.contentMode = .scaleAspectFit
+        back.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+        back.accessibilityIdentifier = "interface.preview.navigation.back"
+
+        let title = UILabel()
+        title.translatesAutoresizingMaskIntoConstraints = false
+        title.text = "Alicia Torreaux"
+        title.font = AppearanceTypography.font(
+            textStyle: .subheadline,
+            appearanceSize: snapshot.profile.textSize,
+            weight: .semibold
+        )
+        title.adjustsFontForContentSizeCategory = true
+        title.textAlignment = .center
+        title.textColor = snapshot.palette.incomingText.uiColor
+        title.accessibilityIdentifier = "interface.preview.navigation.title"
+
+        let avatar = makePreviewAvatar(
+            named: "interface_avatar_alicia",
+            snapshot: snapshot,
+            identifier: "interface.preview.navigation.avatar"
+        )
+        navigation.addSubview(back)
+        navigation.addSubview(title)
+        navigation.addSubview(avatar)
+        NSLayoutConstraint.activate([
+            navigation.heightAnchor.constraint(equalToConstant: 40),
+            back.leadingAnchor.constraint(equalTo: navigation.leadingAnchor, constant: 12),
+            back.centerYAnchor.constraint(equalTo: navigation.centerYAnchor),
+            back.widthAnchor.constraint(equalToConstant: 18),
+            back.heightAnchor.constraint(equalTo: back.widthAnchor),
+            avatar.trailingAnchor.constraint(equalTo: navigation.trailingAnchor, constant: -8),
+            avatar.centerYAnchor.constraint(equalTo: navigation.centerYAnchor),
+            avatar.widthAnchor.constraint(equalToConstant: 30),
+            avatar.heightAnchor.constraint(equalTo: avatar.widthAnchor),
+            title.leadingAnchor.constraint(equalTo: back.trailingAnchor, constant: 8),
+            title.trailingAnchor.constraint(equalTo: avatar.leadingAnchor, constant: -8),
+            title.centerYAnchor.constraint(equalTo: navigation.centerYAnchor)
+        ])
+        return navigation
+    }
+
+    private func makeInterfaceMessageRow(
+        text: String,
+        outgoing: Bool,
+        avatarName: String?,
+        avatarIdentifier: String?,
+        identifier: String,
+        snapshot: ResolvedAppearanceSnapshot
+    ) -> (row: UIView, host: AppearanceChatMessagePreviewHostView) {
+        let row = UIView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        let host = AppearanceChatMessagePreviewHostView()
+        host.translatesAutoresizingMaskIntoConstraints = false
+        host.configure(
+            text: text,
+            outgoing: outgoing,
+            snapshot: snapshot,
+            identifier: identifier,
+            fontTextStyle: .title3
+        )
+        row.addSubview(host)
+        if let avatarName, let avatarIdentifier {
+            let avatar = makePreviewAvatar(
+                named: avatarName,
+                snapshot: snapshot,
+                identifier: "interface.preview.messageAvatar.\(avatarIdentifier)"
+            )
+            row.addSubview(avatar)
+            NSLayoutConstraint.activate([
+                avatar.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+                avatar.centerYAnchor.constraint(equalTo: host.centerYAnchor),
+                avatar.widthAnchor.constraint(equalToConstant: 30),
+                avatar.heightAnchor.constraint(equalTo: avatar.widthAnchor),
+                host.leadingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: 8),
+                host.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+                host.topAnchor.constraint(equalTo: row.topAnchor),
+                host.bottomAnchor.constraint(equalTo: row.bottomAnchor)
+            ])
+        } else {
+            NSLayoutConstraint.activate([
+                host.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+                host.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+                host.topAnchor.constraint(equalTo: row.topAnchor),
+                host.bottomAnchor.constraint(equalTo: row.bottomAnchor)
+            ])
+        }
+        return (row, host)
+    }
+
+    private func makePreviewAvatar(
+        named imageName: String,
+        snapshot: ResolvedAppearanceSnapshot,
+        identifier: String
+    ) -> UIImageView {
+        let avatar = UIImageView(image: UIImage(named: imageName))
+        avatar.translatesAutoresizingMaskIntoConstraints = false
+        avatar.contentMode = .scaleAspectFill
+        avatar.clipsToBounds = true
+        avatar.layer.cornerRadius = snapshot.profile.avatarMask == .square ? 0 : 15
+        avatar.accessibilityIdentifier = identifier
+        avatar.accessibilityLabel = "User avatar"
+        if snapshot.profile.avatarMask != .square,
+           let maskImage = UIImage(named: snapshot.profile.avatarMask.rawValue + "_32pt") {
+            let maskView = UIImageView(image: maskImage)
+            maskView.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
+            avatar.mask = maskView
+        }
+        return avatar
     }
 
     private func makeChatRow(index: Int, snapshot: ResolvedAppearanceSnapshot) -> UIView {
@@ -1088,6 +1252,7 @@ private struct AppearancePreviewMessage: MessageType {
         outgoing: Bool,
         snapshot: ResolvedAppearanceSnapshot,
         identifier: String? = nil,
+        fontTextStyle: UIFont.TextStyle = .body,
         forwards: [MessageAttachment] = [],
         audios: [AudioAttachment] = [],
         status: AppearancePreviewStatus? = nil
@@ -1109,7 +1274,7 @@ private struct AppearancePreviewMessage: MessageType {
                 string: text,
                 attributes: [
                     .font: AppearanceTypography.font(
-                        textStyle: .body,
+                        textStyle: fontTextStyle,
                         appearanceSize: snapshot.profile.textSize
                     ),
                     .foregroundColor: textColor
@@ -1133,6 +1298,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         let text: String
         let outgoing: Bool
         let identifier: String?
+        let fontTextStyle: UIFont.TextStyle
         let forwards: [MessageAttachment]
         let audios: [AudioAttachment]
         let status: AppearancePreviewStatus
@@ -1168,6 +1334,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         outgoing: Bool,
         snapshot: ResolvedAppearanceSnapshot,
         identifier: String? = nil,
+        fontTextStyle: UIFont.TextStyle = .body,
         forwards: [MessageAttachment] = [],
         audios: [AudioAttachment] = [],
         status: AppearancePreviewStatus? = nil,
@@ -1177,6 +1344,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
             text: text,
             outgoing: outgoing,
             identifier: identifier,
+            fontTextStyle: fontTextStyle,
             forwards: forwards,
             audios: audios,
             status: status ?? (outgoing ? .delivery : .none),
@@ -1230,6 +1398,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
             outgoing: configuration.outgoing,
             snapshot: snapshot,
             identifier: configuration.identifier,
+            fontTextStyle: configuration.fontTextStyle,
             forwards: configuration.forwards,
             audios: configuration.audios,
             status: configuration.status

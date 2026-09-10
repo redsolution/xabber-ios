@@ -650,6 +650,52 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
+    func testRootInterfacePreviewShowsChatChromePhotoAvatarsAndThreeMessages() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+        let overviewCell = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        )
+        let preview = try XCTUnwrap(
+            descendant(in: overviewCell, accessibilityIdentifier: "interface.preview") as? AppearancePreviewView
+        )
+        let navigation = try XCTUnwrap(
+            descendant(in: preview, accessibilityIdentifier: "interface.preview.navigation")
+        )
+        let title = try XCTUnwrap(
+            descendant(in: navigation, accessibilityIdentifier: "interface.preview.navigation.title") as? UILabel
+        )
+        let navigationAvatar = try XCTUnwrap(
+            descendant(in: navigation, accessibilityIdentifier: "interface.preview.navigation.avatar") as? UIImageView
+        )
+        let aliciaAvatar = try XCTUnwrap(
+            descendant(in: preview, accessibilityIdentifier: "interface.preview.messageAvatar.alicia") as? UIImageView
+        )
+        let robertoAvatar = try XCTUnwrap(
+            descendant(in: preview, accessibilityIdentifier: "interface.preview.messageAvatar.roberto") as? UIImageView
+        )
+
+        XCTAssertEqual(title.text, "Alicia Torreaux")
+        XCTAssertNotNil(navigationAvatar.image)
+        XCTAssertNotNil(aliciaAvatar.image)
+        XCTAssertNotNil(robertoAvatar.image)
+        for index in 0..<3 {
+            XCTAssertNotNil(
+                descendant(
+                    in: preview,
+                    accessibilityIdentifier: "interface.themePreview.chat.message.overview.\(index)"
+                ) as? TextMessageCell
+            )
+        }
+    }
+
+    @MainActor
     func testApplicationColorSwatchShowsSelectedStateAndUpdatesTintPreview() throws {
         let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         let controller = AppearanceAccentViewController(document: document)
