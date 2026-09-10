@@ -936,12 +936,12 @@ final class AppearancePreviewView: UIView {
         avatar.accessibilityIdentifier = "interface.preview.navigation.avatar"
         avatar.accessibilityLabel = "Alicia Torreaux avatar"
         AppearancePreviewAvatarMaskRenderer.apply(
-            snapshot.profile.avatarMask,
+            .circle,
             to: avatarRing,
             size: 46
         )
         AppearancePreviewAvatarMaskRenderer.apply(
-            snapshot.profile.avatarMask,
+            .circle,
             to: avatar,
             size: 34
         )

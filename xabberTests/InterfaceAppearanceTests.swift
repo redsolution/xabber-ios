@@ -703,7 +703,7 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testInterfacePreviewAvatarPhotosFollowTheSelectedMaskAcrossChatAndListSurfaces() throws {
+    func testInterfacePreviewContentPhotosFollowSelectedMaskWhileNavigationAvatarRemainsCircular() throws {
         var octagonDocument = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         octagonDocument.profile.avatarMask = .octagon
 
@@ -718,7 +718,6 @@ final class InterfaceAppearanceTests: XCTestCase {
         overview.layoutIfNeeded()
 
         for identifier in [
-            "interface.preview.navigation.avatar",
             "interface.preview.messageAvatar.alicia",
             "interface.preview.messageAvatar.roberto"
         ] {
@@ -737,7 +736,14 @@ final class InterfaceAppearanceTests: XCTestCase {
                 accessibilityIdentifier: "interface.preview.navigation.avatarRing"
             )
         )
-        XCTAssertEqual(navigationRing.mask?.accessibilityIdentifier, "interface.preview.avatarMask.octagon")
+        let navigationAvatar = try XCTUnwrap(
+            descendant(
+                in: overview,
+                accessibilityIdentifier: "interface.preview.navigation.avatar"
+            ) as? UIImageView
+        )
+        XCTAssertEqual(navigationAvatar.mask?.accessibilityIdentifier, "interface.preview.avatarMask.circle")
+        XCTAssertEqual(navigationRing.mask?.accessibilityIdentifier, "interface.preview.avatarMask.circle")
 
         let chatList = AppearancePreviewView(frame: CGRect(x: 0, y: 0, width: 360, height: 300))
         chatList.showsChatList = true
@@ -787,10 +793,9 @@ final class InterfaceAppearanceTests: XCTestCase {
                 accessibilityIdentifier: "interface.preview.chatListAvatar.0"
             ) as? UIImageView
         )
-        XCTAssertNil(squareNavigationAvatar.mask)
         XCTAssertNil(squareChatListAvatar.mask)
-        XCTAssertNil(navigationRing.mask)
-        XCTAssertEqual(squareNavigationAvatar.layer.cornerRadius, 0, accuracy: 0.5)
+        XCTAssertEqual(squareNavigationAvatar.mask?.accessibilityIdentifier, "interface.preview.avatarMask.circle")
+        XCTAssertEqual(navigationRing.mask?.accessibilityIdentifier, "interface.preview.avatarMask.circle")
         XCTAssertEqual(squareChatListAvatar.layer.cornerRadius, 0, accuracy: 0.5)
         XCTAssertEqual(navigationRing.layer.cornerRadius, 0, accuracy: 0.5)
     }
