@@ -309,7 +309,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
 
         XCTAssertEqual(controller.numberOfSections(in: tableView), 3)
-        XCTAssertEqual(controller.tableView(tableView, titleForHeaderInSection: 1), "Chat Appearance")
+        XCTAssertEqual(controller.tableView(tableView, titleForHeaderInSection: 1), "Customisation")
         XCTAssertEqual(controller.tableView(tableView, numberOfRowsInSection: 1), 5)
         let titles = try (0..<5).map { row in
             let cell = controller.tableView(tableView, cellForRowAt: IndexPath(row: row, section: 1))
@@ -317,7 +317,7 @@ final class InterfaceAppearanceTests: XCTestCase {
             return try XCTUnwrap(configuration.text)
         }
 
-        XCTAssertEqual(titles, ["Chat Wallpaper", "Application Color", "Text Size", "Message Bubbles", "Avatars"])
+        XCTAssertEqual(titles, ["Chat Wallpaper", "Message Bubbles", "Text Size", "Application Color", "Avatars"])
         XCTAssertNil(descendant(in: controller.view, accessibilityIdentifier: "interface.settings.chatThemes"))
     }
 
@@ -657,6 +657,43 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
+    func testOverviewPreviewMessageTypographyMatchesSelectedTextSize() throws {
+        var profile = AppearanceProfile.default(accent: .systemBlue)
+        profile.textSize = .points22
+        let document = AppearanceSettingsDocument(profile: profile)
+        let preview = AppearancePreviewView(frame: CGRect(x: 0, y: 0, width: 360, height: 300))
+        preview.presentation = .interfaceOverview
+        preview.configure(
+            document: document,
+            traits: .init(userInterfaceStyle: .light),
+            animated: false
+        )
+        preview.setNeedsLayout()
+        preview.layoutIfNeeded()
+
+        let message = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.themePreview.chat.message.overview.0"
+            ) as? TextMessageCell
+        )
+        let renderedFont = try XCTUnwrap(
+            message.messageLabel.attributedText?.attribute(
+                .font,
+                at: 0,
+                effectiveRange: nil
+            ) as? UIFont
+        )
+        let expectedFont = AppearanceTypography.font(
+            textStyle: .body,
+            appearanceSize: .points22
+        )
+
+        XCTAssertEqual(renderedFont.fontName, expectedFont.fontName)
+        XCTAssertEqual(renderedFont.pointSize, expectedFont.pointSize, accuracy: 0.01)
+    }
+
+    @MainActor
     func testRootInterfacePreviewShowsChatChromePhotoAvatarsAndThreeMessages() throws {
         let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
         let coordinator = AppearanceCoordinator(store: store)
@@ -730,12 +767,6 @@ final class InterfaceAppearanceTests: XCTestCase {
                 "\(identifier) must use the selected avatar mask"
             )
         }
-        let navigationRing = try XCTUnwrap(
-            descendant(
-                in: overview,
-                accessibilityIdentifier: "interface.preview.navigation.avatarRing"
-            )
-        )
         let navigationAvatar = try XCTUnwrap(
             descendant(
                 in: overview,
@@ -743,7 +774,18 @@ final class InterfaceAppearanceTests: XCTestCase {
             ) as? UIImageView
         )
         XCTAssertEqual(navigationAvatar.mask?.accessibilityIdentifier, "interface.preview.avatarMask.circle")
-        XCTAssertEqual(navigationRing.mask?.accessibilityIdentifier, "interface.preview.avatarMask.circle")
+        XCTAssertNotNil(
+            descendant(
+                in: overview,
+                accessibilityIdentifier: "interface.preview.navigation.avatarSlot"
+            )
+        )
+        XCTAssertNil(
+            descendant(
+                in: overview,
+                accessibilityIdentifier: "interface.preview.navigation.avatarRing"
+            )
+        )
 
         let chatList = AppearancePreviewView(frame: CGRect(x: 0, y: 0, width: 360, height: 300))
         chatList.showsChatList = true
@@ -795,13 +837,11 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         XCTAssertNil(squareChatListAvatar.mask)
         XCTAssertEqual(squareNavigationAvatar.mask?.accessibilityIdentifier, "interface.preview.avatarMask.circle")
-        XCTAssertEqual(navigationRing.mask?.accessibilityIdentifier, "interface.preview.avatarMask.circle")
         XCTAssertEqual(squareChatListAvatar.layer.cornerRadius, 0, accuracy: 0.5)
-        XCTAssertEqual(navigationRing.layer.cornerRadius, 0, accuracy: 0.5)
     }
 
     @MainActor
-    func testRootInterfacePreviewNavigationUsesTransparentGlassChatChrome() throws {
+    func testRootInterfacePreviewNavigationUsesGlassBackAndPlainChatAvatar() throws {
         let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
         let coordinator = AppearanceCoordinator(store: store)
         let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
@@ -825,14 +865,17 @@ final class InterfaceAppearanceTests: XCTestCase {
         let online = try XCTUnwrap(
             descendant(in: navigation, accessibilityIdentifier: "interface.preview.navigation.online") as? UILabel
         )
-        let avatarRing = try XCTUnwrap(
-            descendant(in: navigation, accessibilityIdentifier: "interface.preview.navigation.avatarRing")
+        let avatarSlot = try XCTUnwrap(
+            descendant(in: navigation, accessibilityIdentifier: "interface.preview.navigation.avatarSlot")
         )
 
         XCTAssertEqual(navigation.backgroundColor, .clear)
         XCTAssertNotNil(backGlass.effect)
         XCTAssertEqual(online.text, "Online")
-        XCTAssertGreaterThan(avatarRing.layer.borderWidth, 0)
+        XCTAssertFalse(avatarSlot is UIVisualEffectView)
+        XCTAssertNil(
+            descendant(in: navigation, accessibilityIdentifier: "interface.preview.navigation.avatarRing")
+        )
     }
 
     @MainActor

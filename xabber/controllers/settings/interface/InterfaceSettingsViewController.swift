@@ -88,8 +88,7 @@ final class InterfaceSettingsViewController: BaseViewController {
         if CommonConfigManager.shared.config.locked_background.isEmpty {
             rows.append(.wallpaper)
         }
-        rows.append(.accent)
-        rows.append(contentsOf: [.textSize, .bubbles, .avatars])
+        rows.append(contentsOf: [.bubbles, .textSize, .accent, .avatars])
         return rows
     }
 
@@ -243,7 +242,7 @@ extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDel
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch Section(rawValue: section) {
-        case .chatAppearance: return "Chat Appearance"
+        case .chatAppearance: return "Customisation"
         case .mode: return "Appearance"
         default: return nil
         }
@@ -920,14 +919,10 @@ final class AppearancePreviewView: UIView {
         titleStack.alignment = .fill
         titleStack.spacing = 0
 
-        let avatarRing = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
-        avatarRing.translatesAutoresizingMaskIntoConstraints = false
-        avatarRing.clipsToBounds = true
-        avatarRing.layer.cornerCurve = .continuous
-        avatarRing.layer.borderWidth = 2
-        avatarRing.layer.borderColor = UIColor.white.withAlphaComponent(0.88).cgColor
-        avatarRing.isUserInteractionEnabled = false
-        avatarRing.accessibilityIdentifier = "interface.preview.navigation.avatarRing"
+        let avatarSlot = UIView()
+        avatarSlot.translatesAutoresizingMaskIntoConstraints = false
+        avatarSlot.isUserInteractionEnabled = false
+        avatarSlot.accessibilityIdentifier = "interface.preview.navigation.avatarSlot"
 
         let avatar = UIImageView(image: UIImage(named: "interface_avatar_alicia"))
         avatar.translatesAutoresizingMaskIntoConstraints = false
@@ -937,20 +932,15 @@ final class AppearancePreviewView: UIView {
         avatar.accessibilityLabel = "Alicia Torreaux avatar"
         AppearancePreviewAvatarMaskRenderer.apply(
             .circle,
-            to: avatarRing,
-            size: 46
-        )
-        AppearancePreviewAvatarMaskRenderer.apply(
-            .circle,
             to: avatar,
-            size: 34
+            size: ChatNavigationAvatarItemFactory.imageSize
         )
 
         backGlass.contentView.addSubview(back)
-        avatarRing.contentView.addSubview(avatar)
+        avatarSlot.addSubview(avatar)
         navigation.addSubview(backGlass)
         navigation.addSubview(titleStack)
-        navigation.addSubview(avatarRing)
+        navigation.addSubview(avatarSlot)
         NSLayoutConstraint.activate([
             navigation.heightAnchor.constraint(equalToConstant: 52),
             backGlass.leadingAnchor.constraint(equalTo: navigation.leadingAnchor),
@@ -961,16 +951,16 @@ final class AppearancePreviewView: UIView {
             back.centerYAnchor.constraint(equalTo: backGlass.contentView.centerYAnchor),
             back.widthAnchor.constraint(equalToConstant: 22),
             back.heightAnchor.constraint(equalTo: back.widthAnchor),
-            avatarRing.trailingAnchor.constraint(equalTo: navigation.trailingAnchor),
-            avatarRing.centerYAnchor.constraint(equalTo: navigation.centerYAnchor),
-            avatarRing.widthAnchor.constraint(equalToConstant: 46),
-            avatarRing.heightAnchor.constraint(equalTo: avatarRing.widthAnchor),
-            avatar.centerXAnchor.constraint(equalTo: avatarRing.contentView.centerXAnchor),
-            avatar.centerYAnchor.constraint(equalTo: avatarRing.contentView.centerYAnchor),
-            avatar.widthAnchor.constraint(equalToConstant: 34),
+            avatarSlot.trailingAnchor.constraint(equalTo: navigation.trailingAnchor),
+            avatarSlot.centerYAnchor.constraint(equalTo: navigation.centerYAnchor),
+            avatarSlot.widthAnchor.constraint(equalToConstant: ChatNavigationAvatarItemFactory.controlSize),
+            avatarSlot.heightAnchor.constraint(equalTo: avatarSlot.widthAnchor),
+            avatar.centerXAnchor.constraint(equalTo: avatarSlot.centerXAnchor),
+            avatar.centerYAnchor.constraint(equalTo: avatarSlot.centerYAnchor),
+            avatar.widthAnchor.constraint(equalToConstant: ChatNavigationAvatarItemFactory.imageSize),
             avatar.heightAnchor.constraint(equalTo: avatar.widthAnchor),
             titleStack.leadingAnchor.constraint(equalTo: backGlass.trailingAnchor, constant: 8),
-            titleStack.trailingAnchor.constraint(equalTo: avatarRing.leadingAnchor, constant: -8),
+            titleStack.trailingAnchor.constraint(equalTo: avatarSlot.leadingAnchor, constant: -8),
             titleStack.centerYAnchor.constraint(equalTo: navigation.centerYAnchor)
         ])
         return navigation
@@ -993,7 +983,7 @@ final class AppearancePreviewView: UIView {
             outgoing: outgoing,
             snapshot: snapshot,
             identifier: identifier,
-            fontTextStyle: .title3
+            fontTextStyle: .body
         )
         row.addSubview(host)
         if let avatarName, let avatarIdentifier {
