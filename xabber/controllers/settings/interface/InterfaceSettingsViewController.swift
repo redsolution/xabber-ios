@@ -871,23 +871,31 @@ final class AppearancePreviewView: UIView {
     private func makeInterfaceNavigation(snapshot: ResolvedAppearanceSnapshot) -> UIView {
         let navigation = UIView()
         navigation.translatesAutoresizingMaskIntoConstraints = false
-        navigation.backgroundColor = snapshot.palette.incomingBubble.uiColor.withAlphaComponent(0.92)
-        navigation.layer.cornerRadius = 16
-        navigation.layer.cornerCurve = .continuous
+        navigation.backgroundColor = .clear
         navigation.accessibilityIdentifier = "interface.preview.navigation"
+
+        let backGlass = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+        backGlass.translatesAutoresizingMaskIntoConstraints = false
+        backGlass.clipsToBounds = true
+        backGlass.layer.cornerRadius = 22
+        backGlass.layer.cornerCurve = .continuous
+        backGlass.layer.borderWidth = 1
+        backGlass.layer.borderColor = UIColor.white.withAlphaComponent(0.75).cgColor
+        backGlass.isUserInteractionEnabled = false
+        backGlass.accessibilityIdentifier = "interface.preview.navigation.backGlass"
 
         let back = UIImageView(image: UIImage(systemName: "chevron.backward"))
         back.translatesAutoresizingMaskIntoConstraints = false
-        back.tintColor = snapshot.accent.uiColor
+        back.tintColor = snapshot.palette.incomingText.uiColor
         back.contentMode = .scaleAspectFit
-        back.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+        back.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
         back.accessibilityIdentifier = "interface.preview.navigation.back"
 
         let title = UILabel()
         title.translatesAutoresizingMaskIntoConstraints = false
         title.text = "Alicia Torreaux"
         title.font = AppearanceTypography.font(
-            textStyle: .subheadline,
+            textStyle: .headline,
             appearanceSize: snapshot.profile.textSize,
             weight: .semibold
         )
@@ -896,27 +904,69 @@ final class AppearancePreviewView: UIView {
         title.textColor = snapshot.palette.incomingText.uiColor
         title.accessibilityIdentifier = "interface.preview.navigation.title"
 
-        let avatar = makePreviewAvatar(
-            named: "interface_avatar_alicia",
-            snapshot: snapshot,
-            identifier: "interface.preview.navigation.avatar"
+        let online = UILabel()
+        online.translatesAutoresizingMaskIntoConstraints = false
+        online.text = "Online"
+        online.font = AppearanceTypography.font(
+            textStyle: .caption1,
+            appearanceSize: snapshot.profile.textSize,
+            weight: .medium
         )
-        navigation.addSubview(back)
-        navigation.addSubview(title)
-        navigation.addSubview(avatar)
+        online.adjustsFontForContentSizeCategory = true
+        online.textAlignment = .center
+        online.textColor = snapshot.accent.uiColor
+        online.accessibilityIdentifier = "interface.preview.navigation.online"
+
+        let titleStack = UIStackView(arrangedSubviews: [title, online])
+        titleStack.translatesAutoresizingMaskIntoConstraints = false
+        titleStack.axis = .vertical
+        titleStack.alignment = .fill
+        titleStack.spacing = 0
+
+        let avatarRing = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+        avatarRing.translatesAutoresizingMaskIntoConstraints = false
+        avatarRing.clipsToBounds = true
+        avatarRing.layer.cornerRadius = 23
+        avatarRing.layer.cornerCurve = .continuous
+        avatarRing.layer.borderWidth = 2
+        avatarRing.layer.borderColor = UIColor.white.withAlphaComponent(0.88).cgColor
+        avatarRing.isUserInteractionEnabled = false
+        avatarRing.accessibilityIdentifier = "interface.preview.navigation.avatarRing"
+
+        let avatar = UIImageView(image: UIImage(named: "interface_avatar_alicia"))
+        avatar.translatesAutoresizingMaskIntoConstraints = false
+        avatar.contentMode = .scaleAspectFill
+        avatar.clipsToBounds = true
+        avatar.layer.cornerRadius = 17
+        avatar.accessibilityIdentifier = "interface.preview.navigation.avatar"
+        avatar.accessibilityLabel = "Alicia Torreaux avatar"
+
+        backGlass.contentView.addSubview(back)
+        avatarRing.contentView.addSubview(avatar)
+        navigation.addSubview(backGlass)
+        navigation.addSubview(titleStack)
+        navigation.addSubview(avatarRing)
         NSLayoutConstraint.activate([
-            navigation.heightAnchor.constraint(equalToConstant: 40),
-            back.leadingAnchor.constraint(equalTo: navigation.leadingAnchor, constant: 12),
-            back.centerYAnchor.constraint(equalTo: navigation.centerYAnchor),
-            back.widthAnchor.constraint(equalToConstant: 18),
+            navigation.heightAnchor.constraint(equalToConstant: 52),
+            backGlass.leadingAnchor.constraint(equalTo: navigation.leadingAnchor),
+            backGlass.centerYAnchor.constraint(equalTo: navigation.centerYAnchor),
+            backGlass.widthAnchor.constraint(equalToConstant: 44),
+            backGlass.heightAnchor.constraint(equalTo: backGlass.widthAnchor),
+            back.centerXAnchor.constraint(equalTo: backGlass.contentView.centerXAnchor),
+            back.centerYAnchor.constraint(equalTo: backGlass.contentView.centerYAnchor),
+            back.widthAnchor.constraint(equalToConstant: 22),
             back.heightAnchor.constraint(equalTo: back.widthAnchor),
-            avatar.trailingAnchor.constraint(equalTo: navigation.trailingAnchor, constant: -8),
-            avatar.centerYAnchor.constraint(equalTo: navigation.centerYAnchor),
-            avatar.widthAnchor.constraint(equalToConstant: 30),
+            avatarRing.trailingAnchor.constraint(equalTo: navigation.trailingAnchor),
+            avatarRing.centerYAnchor.constraint(equalTo: navigation.centerYAnchor),
+            avatarRing.widthAnchor.constraint(equalToConstant: 46),
+            avatarRing.heightAnchor.constraint(equalTo: avatarRing.widthAnchor),
+            avatar.centerXAnchor.constraint(equalTo: avatarRing.contentView.centerXAnchor),
+            avatar.centerYAnchor.constraint(equalTo: avatarRing.contentView.centerYAnchor),
+            avatar.widthAnchor.constraint(equalToConstant: 34),
             avatar.heightAnchor.constraint(equalTo: avatar.widthAnchor),
-            title.leadingAnchor.constraint(equalTo: back.trailingAnchor, constant: 8),
-            title.trailingAnchor.constraint(equalTo: avatar.leadingAnchor, constant: -8),
-            title.centerYAnchor.constraint(equalTo: navigation.centerYAnchor)
+            titleStack.leadingAnchor.constraint(equalTo: backGlass.trailingAnchor, constant: 8),
+            titleStack.trailingAnchor.constraint(equalTo: avatarRing.leadingAnchor, constant: -8),
+            titleStack.centerYAnchor.constraint(equalTo: navigation.centerYAnchor)
         ])
         return navigation
     }
