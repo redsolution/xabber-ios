@@ -870,7 +870,7 @@ final class AppearancePreviewView: UIView {
         let messagesStack = UIStackView(arrangedSubviews: [first.row, second.row, third.row])
         messagesStack.translatesAutoresizingMaskIntoConstraints = false
         messagesStack.axis = .vertical
-        messagesStack.spacing = MessagesCollectionViewFlowLayout().minimumLineSpacing
+        messagesStack.spacing = 0
         contentStack.addArrangedSubview(messagesStack)
         chatMessageHosts = [first.host, second.host, third.host]
         accessibilityLabel = "Alicia Torreaux chat preview with three messages"
