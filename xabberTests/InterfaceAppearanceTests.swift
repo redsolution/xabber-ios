@@ -211,7 +211,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertNil(profile.accentOverride)
     }
 
-    func testResolverUsesExplicitLightAndDarkPalettes() {
+    func testResolverUsesWhiteOutgoingMessagesAndThemeColorForIncomingMessages() {
         let theme = AppearanceThemeCatalog.builtInThemes[0]
         var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         document.profile.themeID = theme.id
@@ -220,8 +220,14 @@ final class InterfaceAppearanceTests: XCTestCase {
         let light = AppearanceResolver.resolve(document: document, traitStyle: .light)
         let dark = AppearanceResolver.resolve(document: document, traitStyle: .dark)
 
-        XCTAssertEqual(light.palette, theme.lightPalette)
-        XCTAssertEqual(dark.palette, theme.darkPalette)
+        XCTAssertEqual(light.palette.incomingBubble, theme.lightPalette.outgoingBubble)
+        XCTAssertEqual(light.palette.incomingText, theme.lightPalette.outgoingText)
+        XCTAssertEqual(light.palette.outgoingBubble, .white)
+        XCTAssertEqual(light.palette.outgoingText, .black)
+        XCTAssertEqual(dark.palette.incomingBubble, theme.darkPalette.outgoingBubble)
+        XCTAssertEqual(dark.palette.incomingText, theme.darkPalette.outgoingText)
+        XCTAssertEqual(dark.palette.outgoingBubble, .white)
+        XCTAssertEqual(dark.palette.outgoingText, .black)
         XCTAssertEqual(light.accent, theme.lightPalette.accent)
         XCTAssertEqual(dark.accent, theme.darkPalette.accent)
     }
@@ -619,7 +625,14 @@ final class InterfaceAppearanceTests: XCTestCase {
                 accessibilityIdentifier: "interface.theme.bubble.outgoing.\(rose.id)"
             )
         )
-        let palette = rose.palette(for: .light)
+        var roseDocument = AppearanceSettingsDocument(
+            profile: .default(accent: .systemBlue)
+        )
+        roseDocument.profile.apply(theme: rose)
+        let palette = AppearanceResolver.resolve(
+            document: roseDocument,
+            traitStyle: .light
+        ).palette
 
         XCTAssertFalse(incoming is ModernMessageContainerView)
         XCTAssertFalse(outgoing is ModernMessageContainerView)
@@ -1488,7 +1501,7 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testBubbleGalleryUsesOutgoingPhotoSamplesAndKeepsPremiumStatusLockStableAcrossRadiusChanges() throws {
+    func testBubbleGalleryUsesChatMessageInsetsWithoutAvatarsAndKeepsPremiumStatusLockStableAcrossRadiusChanges() throws {
         var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         document.profile.wallpaper = .builtIn(name: "Honeycomb")
         document.profile.bubbleStyle = .smooth
@@ -1537,18 +1550,14 @@ final class InterfaceAppearanceTests: XCTestCase {
                 cell.bounds.midX,
                 "\(style.displayName) must remain an outgoing, right-aligned sample"
             )
-            let avatar = try XCTUnwrap(
+            XCTAssertNil(
                 descendant(
                     in: gallery,
                     accessibilityIdentifier: "interface.bubble.avatar.\(style.rawValue)"
-                ) as? UIImageView
+                ),
+                "\(style.displayName) must not add an avatar that ChatViewController does not show"
             )
-            XCTAssertNotNil(avatar.image, "\(style.displayName) needs its generated photo avatar")
-            XCTAssertEqual(
-                avatar.mask?.accessibilityIdentifier,
-                "interface.preview.avatarMask.octagon",
-                "\(style.displayName) must use the selected avatar mask"
-            )
+            XCTAssertGreaterThan(cell.messageLabel.attributedText?.string.count ?? 0, 30)
         }
 
         let messageFrames = try AppearanceBubbleStyle.allCases.map { style -> CGRect in
@@ -1568,7 +1577,15 @@ final class InterfaceAppearanceTests: XCTestCase {
             next.minY - previous.maxY
         }
         for gap in messageGaps {
-            XCTAssertEqual(gap, 16, accuracy: 0.5)
+            XCTAssertEqual(gap, 8, accuracy: 0.5)
+        }
+        for frame in messageFrames {
+            XCTAssertEqual(
+                frame.maxX,
+                gallery.bounds.maxX - 4,
+                accuracy: 0.5,
+                "Outgoing gallery messages must use ChatViewController's 4 pt trailing inset"
+            )
         }
 
         let selectedIndicator = try XCTUnwrap(

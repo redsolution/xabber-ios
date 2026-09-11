@@ -751,13 +751,25 @@ enum AppearanceResolver {
         case .dark:
             style = .dark
         }
-        let palette = theme.palette(for: style)
+        let palette = messageSemanticPalette(theme.palette(for: style))
         return ResolvedAppearanceSnapshot(
             profile: document.profile,
             theme: theme,
             palette: palette,
             accent: document.profile.accentOverride ?? palette.accent
         )
+    }
+
+    /// Legacy palettes describe the coloured bubble as outgoing.  Appearance
+    /// now presents that theme colour for the other participant and keeps the
+    /// user's messages consistently white, including old custom palettes.
+    private static func messageSemanticPalette(_ palette: AppearancePalette) -> AppearancePalette {
+        var resolved = palette
+        resolved.incomingBubble = palette.outgoingBubble
+        resolved.incomingText = palette.outgoingText
+        resolved.outgoingBubble = .white
+        resolved.outgoingText = .black
+        return resolved
     }
 }
 
