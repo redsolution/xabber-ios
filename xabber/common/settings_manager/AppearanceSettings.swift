@@ -652,7 +652,7 @@ struct AppearancePremiumPolicy {
     }
 
     func canSelect(_ candidate: AppearanceBubbleStyle, currentlyApplied: AppearanceBubbleStyle) -> Bool {
-        AppearanceBubbleStyle.freeCases.contains(candidate) || isEntitled || candidate == currentlyApplied
+        visibleBubbleStyles.contains(candidate)
     }
 
     func requiresPurchaseToCommit(
@@ -666,7 +666,17 @@ struct AppearancePremiumPolicy {
     }
 
     func canSelect(_ candidate: AppearanceAvatarMask, currentlyApplied: AppearanceAvatarMask) -> Bool {
-        AppearanceAvatarMask.freeCases.contains(candidate) || isEntitled || candidate == currentlyApplied
+        visibleAvatarMasks.contains(candidate)
+    }
+
+    func requiresPurchaseToCommit(
+        _ candidate: AppearanceAvatarMask,
+        currentlyApplied: AppearanceAvatarMask
+    ) -> Bool {
+        subscriptionsEnabled
+            && !isEntitled
+            && AppearanceAvatarMask.premiumCases.contains(candidate)
+            && candidate != currentlyApplied
     }
 }
 

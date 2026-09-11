@@ -431,7 +431,7 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testInlineAppearanceChoiceCommitsTappedModeWithoutNavigation() throws {
+    func testInlineAppearanceChoiceStaysInRootDraftUntilCheckmark() throws {
         let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
         let coordinator = AppearanceCoordinator(store: store)
         let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
@@ -452,6 +452,12 @@ final class InterfaceAppearanceTests: XCTestCase {
 
         XCTAssertEqual(navigationController.viewControllers.count, 1)
         XCTAssertTrue(navigationController.topViewController === controller)
+        XCTAssertEqual(coordinator.document.profile.interfaceStyle, .system)
+        XCTAssertEqual(store.load().profile.interfaceStyle, .system)
+        XCTAssertTrue(controller.navigationItem.rightBarButtonItem?.isEnabled == true)
+
+        controller.saveTapped()
+
         XCTAssertEqual(coordinator.document.profile.interfaceStyle, .dark)
         XCTAssertEqual(store.load().profile.interfaceStyle, .dark)
 
@@ -467,7 +473,7 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testOverviewThemeTapCommitsImmediatelyWithoutNavigation() throws {
+    func testOverviewThemeTapStaysInRootDraftUntilCheckmark() throws {
         let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
         let coordinator = AppearanceCoordinator(store: store)
         let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
@@ -508,9 +514,8 @@ final class InterfaceAppearanceTests: XCTestCase {
 
         XCTAssertEqual(navigationController.viewControllers.count, 1)
         XCTAssertTrue(navigationController.topViewController === controller)
-        XCTAssertEqual(coordinator.document.profile.themeID, theme.id)
-        XCTAssertNil(coordinator.document.profile.accentOverride)
-        XCTAssertEqual(store.load().profile.themeID, theme.id)
+        XCTAssertEqual(coordinator.document.profile, original)
+        XCTAssertEqual(store.load().profile, original)
 
         let refreshedCell = controller.tableView(
             tableView,
@@ -524,6 +529,12 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         XCTAssertEqual(selectedControl.accessibilityValue, "Selected")
         XCTAssertTrue(selectedControl.accessibilityTraits.contains(.selected))
+
+        controller.saveTapped()
+
+        XCTAssertEqual(coordinator.document.profile.themeID, theme.id)
+        XCTAssertNil(coordinator.document.profile.accentOverride)
+        XCTAssertEqual(store.load().profile.themeID, theme.id)
     }
 
     @MainActor
@@ -1300,14 +1311,16 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         XCTAssertTrue(free.canSelect(.noTail, currentlyApplied: .wedge))
         XCTAssertTrue(free.canSelect(.curvy, currentlyApplied: .noTail))
-        XCTAssertFalse(free.canSelect(.stripes, currentlyApplied: .noTail))
-        XCTAssertFalse(free.canSelect(.wedge, currentlyApplied: .noTail))
+        XCTAssertTrue(free.canSelect(.stripes, currentlyApplied: .noTail))
+        XCTAssertTrue(free.canSelect(.wedge, currentlyApplied: .noTail))
         XCTAssertTrue(free.canSelect(.wedge, currentlyApplied: .wedge))
-        XCTAssertFalse(free.canSelect(.star, currentlyApplied: .circle))
+        XCTAssertTrue(free.canSelect(.star, currentlyApplied: .circle))
         XCTAssertTrue(paid.canSelect(.star, currentlyApplied: .circle))
         XCTAssertTrue(paid.canSelect(.transparent, currentlyApplied: .noTail))
         XCTAssertTrue(free.requiresPurchaseToCommit(.stripes, currentlyApplied: .noTail))
+        XCTAssertTrue(free.requiresPurchaseToCommit(.star, currentlyApplied: .circle))
         XCTAssertFalse(free.requiresPurchaseToCommit(.wedge, currentlyApplied: .wedge))
+        XCTAssertFalse(free.requiresPurchaseToCommit(.octagon, currentlyApplied: .octagon))
         XCTAssertFalse(paid.requiresPurchaseToCommit(.transparent, currentlyApplied: .noTail))
     }
 
@@ -1316,6 +1329,150 @@ final class InterfaceAppearanceTests: XCTestCase {
 
         XCTAssertEqual(Set(policy.visibleBubbleStyles), Set(AppearanceBubbleStyle.freeCases))
         XCTAssertEqual(Set(policy.visibleAvatarMasks), Set(AppearanceAvatarMask.freeCases))
+    }
+
+    @MainActor
+    func testRootInterfaceDraftDefersPremiumChoicesUntilPurchaseAndCanBeCancelled() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        let originalProfile = coordinator.document.profile
+        var paywallPresentationCount = 0
+        let controller = InterfaceSettingsViewController(
+            appearanceCoordinator: coordinator,
+            entitlementProvider: AppearanceEntitlementStub(
+                hasActiveAppearanceEntitlement: false,
+                areSubscriptionsEnabled: true
+            ),
+            paywallPresenter: { _ in
+                paywallPresentationCount += 1
+                return true
+            }
+        )
+        let navigationController = UINavigationController(rootViewController: UIViewController())
+        navigationController.pushViewController(controller, animated: false)
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+
+        controller.tableView(tableView, didSelectRowAt: IndexPath(row: 1, section: 1))
+        let bubbleEditor = try XCTUnwrap(
+            navigationController.topViewController as? AppearanceBubbleViewController
+        )
+        bubbleEditor.loadViewIfNeeded()
+        bubbleEditor.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        bubbleEditor.view.setNeedsLayout()
+        bubbleEditor.view.layoutIfNeeded()
+        let premiumBubble = try XCTUnwrap(
+            descendant(
+                in: bubbleEditor.view,
+                accessibilityIdentifier: "interface.bubble.stripes"
+            ) as? UIControl
+        )
+        XCTAssertEqual(premiumBubble.accessibilityValue, "Premium")
+        premiumBubble.sendActions(for: .touchUpInside)
+        bubbleEditor.setTapped()
+
+        XCTAssertTrue(navigationController.topViewController === controller)
+        XCTAssertEqual(coordinator.document.profile, originalProfile)
+
+        controller.tableView(tableView, didSelectRowAt: IndexPath(row: 4, section: 1))
+        let avatarEditor = try XCTUnwrap(
+            navigationController.topViewController as? AppearanceAvatarViewController
+        )
+        avatarEditor.loadViewIfNeeded()
+        avatarEditor.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        avatarEditor.view.setNeedsLayout()
+        avatarEditor.view.layoutIfNeeded()
+        let premiumAvatar = try XCTUnwrap(
+            descendant(
+                in: avatarEditor.view,
+                accessibilityIdentifier: "interface.avatar.star"
+            ) as? UIControl
+        )
+        XCTAssertEqual(premiumAvatar.accessibilityValue, "Premium")
+        premiumAvatar.sendActions(for: .touchUpInside)
+        avatarEditor.setTapped()
+
+        XCTAssertEqual(controller.numberOfSections(in: tableView), 4)
+        XCTAssertEqual(controller.tableView(tableView, titleForHeaderInSection: 2), "Premium")
+        let premiumCell = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 0, section: 2)
+        )
+        let premiumMessage = try XCTUnwrap(
+            descendant(
+                in: premiumCell,
+                accessibilityIdentifier: "interface.settings.premiumUpsell.message"
+            ) as? UILabel
+        ).text
+        XCTAssertEqual(
+            premiumMessage,
+            "Selected Premium message bubble style and avatar shape are shown in this preview only. Buy Premium to apply them throughout Xabber."
+        )
+        let buyPremium = try XCTUnwrap(
+            descendant(
+                in: premiumCell,
+                accessibilityIdentifier: "interface.settings.buyPremium"
+            ) as? UIButton
+        )
+        XCTAssertEqual(buyPremium.configuration?.title, "Buy Premium")
+        buyPremium.sendActions(for: .touchUpInside)
+        XCTAssertEqual(paywallPresentationCount, 1)
+
+        controller.saveTapped()
+
+        XCTAssertEqual(paywallPresentationCount, 2)
+        XCTAssertEqual(coordinator.document.profile, originalProfile)
+
+        controller.cancelTapped()
+
+        XCTAssertTrue(navigationController.topViewController === navigationController.viewControllers.first)
+        XCTAssertEqual(coordinator.document.profile, originalProfile)
+    }
+
+    @MainActor
+    func testRootInterfaceCheckmarkCommitsFreeDraft() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        let controller = InterfaceSettingsViewController(
+            appearanceCoordinator: coordinator,
+            entitlementProvider: AppearanceEntitlementStub(
+                hasActiveAppearanceEntitlement: false,
+                areSubscriptionsEnabled: true
+            )
+        )
+        let navigationController = UINavigationController(rootViewController: UIViewController())
+        navigationController.pushViewController(controller, animated: false)
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+
+        controller.tableView(tableView, didSelectRowAt: IndexPath(row: 1, section: 1))
+        let bubbleEditor = try XCTUnwrap(
+            navigationController.topViewController as? AppearanceBubbleViewController
+        )
+        bubbleEditor.loadViewIfNeeded()
+        let targetBubble: AppearanceBubbleStyle = coordinator.document.profile.bubbleStyle == .smooth
+            ? .curvy
+            : .smooth
+        let freeBubble = try XCTUnwrap(
+            descendant(
+                in: bubbleEditor.view,
+                accessibilityIdentifier: "interface.bubble.\(targetBubble.rawValue)"
+            ) as? UIControl
+        )
+        freeBubble.sendActions(for: .touchUpInside)
+        bubbleEditor.setTapped()
+
+        controller.saveTapped()
+
+        XCTAssertEqual(coordinator.document.profile.bubbleStyle, targetBubble)
+        XCTAssertTrue(navigationController.topViewController === navigationController.viewControllers.first)
     }
 
     @MainActor
@@ -1525,6 +1682,45 @@ final class InterfaceAppearanceTests: XCTestCase {
 
         XCTAssertEqual(paywallPresentationCount, 1)
         XCTAssertEqual(controller.document.profile.bubbleStyle, document.profile.bubbleStyle)
+        XCTAssertTrue(controller.draft.isDirty)
+    }
+
+    @MainActor
+    func testAvatarEditorDefersPremiumPaywallUntilSave() throws {
+        let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        var paywallPresentationCount = 0
+        let controller = AppearanceAvatarViewController(
+            document: document,
+            entitlementProvider: AppearanceEntitlementStub(
+                hasActiveAppearanceEntitlement: false,
+                areSubscriptionsEnabled: true
+            ),
+            paywallPresenter: { _ in
+                paywallPresentationCount += 1
+                return true
+            }
+        )
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        let premiumRow = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.avatar.star"
+            ) as? UIControl
+        )
+        XCTAssertEqual(premiumRow.accessibilityValue, "Premium")
+        premiumRow.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(controller.draft.profile.avatarMask, .star)
+        XCTAssertEqual(paywallPresentationCount, 0)
+
+        controller.setTapped()
+
+        XCTAssertEqual(paywallPresentationCount, 1)
+        XCTAssertEqual(controller.document.profile.avatarMask, document.profile.avatarMask)
         XCTAssertTrue(controller.draft.isDirty)
     }
 

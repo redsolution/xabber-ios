@@ -12,6 +12,7 @@ final class InterfaceSettingsViewController: BaseViewController {
     private enum Section: Int, CaseIterable {
         case preview
         case chatAppearance
+        case premium
         case mode
     }
 
@@ -24,25 +25,57 @@ final class InterfaceSettingsViewController: BaseViewController {
     }
 
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
-    private var appearanceCoordinator = AppearanceCoordinator.shared
-    private var document = AppearanceCoordinator.shared.document
+    private let appearanceCoordinator: AppearanceCoordinator
+    private let entitlementProvider: AppearanceEntitlementProviding
+    private let paywallPresenter: (UIViewController) -> Bool
+    private var originalDocument: AppearanceSettingsDocument
+    private var document: AppearanceSettingsDocument
 
-    convenience init(appearanceCoordinator: AppearanceCoordinator) {
-        self.init()
+    init(
+        appearanceCoordinator: AppearanceCoordinator = .shared,
+        entitlementProvider: AppearanceEntitlementProviding = LiveAppearanceEntitlementProvider(),
+        paywallPresenter: @escaping (UIViewController) -> Bool = { parent in
+            SubscribtionsPresenter().present(animated: true, parent: parent)
+        }
+    ) {
+        let initialDocument = appearanceCoordinator.document
         self.appearanceCoordinator = appearanceCoordinator
-        document = appearanceCoordinator.document
+        self.entitlementProvider = entitlementProvider
+        self.paywallPresenter = paywallPresenter
+        originalDocument = initialDocument
+        document = initialDocument
+        super.init(nibName: nil, bundle: nil)
     }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Interface"
         view.backgroundColor = .systemGroupedBackground
-        navigationItem.backButtonDisplayMode = .minimal
+        navigationItem.hidesBackButton = true
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            image: UIImage(systemName: "xmark"),
+            style: .plain,
+            target: self,
+            action: #selector(cancelTapped)
+        )
+        navigationItem.leftBarButtonItem?.accessibilityIdentifier = "interface.settings.cancel"
+        navigationItem.leftBarButtonItem?.accessibilityLabel = "Cancel Interface changes"
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            image: UIImage(systemName: "checkmark"),
+            style: .done,
+            target: self,
+            action: #selector(saveTapped)
+        )
+        navigationItem.rightBarButtonItem?.accessibilityIdentifier = "interface.settings.save"
+        navigationItem.rightBarButtonItem?.accessibilityLabel = "Save Interface changes"
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.dataSource = self
         tableView.delegate = self
         tableView.register(AppearanceOverviewCell.self, forCellReuseIdentifier: AppearanceOverviewCell.reuseIdentifier)
         tableView.register(AppearanceModeSelectionCell.self, forCellReuseIdentifier: AppearanceModeSelectionCell.reuseIdentifier)
+        tableView.register(AppearancePremiumUpsellCell.self, forCellReuseIdentifier: AppearancePremiumUpsellCell.reuseIdentifier)
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "AppearanceValueCell")
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 56
@@ -66,21 +99,123 @@ final class InterfaceSettingsViewController: BaseViewController {
             name: .premiumEntitlementDidChange,
             object: nil
         )
+        refreshNavigationActions()
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        document = appearanceCoordinator.document
+        if document == originalDocument {
+            originalDocument = appearanceCoordinator.document
+            document = originalDocument
+        }
+        refreshNavigationActions()
         tableView.reloadData()
     }
 
     @objc private func appearanceChanged() {
-        document = appearanceCoordinator.document
+        guard document == originalDocument else { return }
+        originalDocument = appearanceCoordinator.document
+        document = originalDocument
+        refreshNavigationActions()
         tableView.reloadData()
     }
 
     @objc private func entitlementChanged() {
+        refreshNavigationActions()
         tableView.reloadData()
+    }
+
+    private var premiumPolicy: AppearancePremiumPolicy {
+        AppearancePremiumPolicy(
+            isEntitled: entitlementProvider.hasActiveAppearanceEntitlement,
+            subscriptionsEnabled: entitlementProvider.areSubscriptionsEnabled
+        )
+    }
+
+    private var selectedPremiumFeatureNames: [String] {
+        var names: [String] = []
+        if premiumPolicy.requiresPurchaseToCommit(
+            document.profile.bubbleStyle,
+            currentlyApplied: originalDocument.profile.bubbleStyle
+        ) {
+            names.append("message bubble style")
+        }
+        if premiumPolicy.requiresPurchaseToCommit(
+            document.profile.avatarMask,
+            currentlyApplied: originalDocument.profile.avatarMask
+        ) {
+            names.append("avatar shape")
+        }
+        return names
+    }
+
+    private var needsPremiumPurchase: Bool { selectedPremiumFeatureNames.isNotEmpty }
+
+    private var visibleSections: [Section] {
+        var sections: [Section] = [.preview, .chatAppearance]
+        if needsPremiumPurchase {
+            sections.append(.premium)
+        }
+        sections.append(.mode)
+        return sections
+    }
+
+    private func section(at index: Int) -> Section? {
+        guard visibleSections.indices.contains(index) else { return nil }
+        return visibleSections[index]
+    }
+
+    private func refreshNavigationActions() {
+        navigationItem.rightBarButtonItem?.isEnabled = document != originalDocument
+    }
+
+    private func acceptEditorDocument(_ updatedDocument: AppearanceSettingsDocument) {
+        document = updatedDocument
+        refreshNavigationActions()
+        tableView.reloadData()
+    }
+
+    @objc func cancelTapped() {
+        document = originalDocument
+        if let navigationController,
+           navigationController.topViewController === self,
+           navigationController.viewControllers.count > 1 {
+            navigationController.popViewController(animated: true)
+        } else {
+            dismiss(animated: true)
+        }
+    }
+
+    @objc func saveTapped() {
+        guard document != originalDocument else { return }
+        guard !needsPremiumPurchase else {
+            _ = paywallPresenter(self)
+            return
+        }
+        do {
+            _ = try appearanceCoordinator.commit(document)
+            originalDocument = appearanceCoordinator.document
+            document = originalDocument
+            if let navigationController,
+               navigationController.topViewController === self,
+               navigationController.viewControllers.count > 1 {
+                navigationController.popViewController(animated: true)
+            } else {
+                dismiss(animated: true)
+            }
+        } catch {
+            let alert = UIAlertController(
+                title: "Couldn’t apply Interface settings",
+                message: error.localizedDescription,
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
+        }
+    }
+
+    @objc private func buyPremiumTapped() {
+        _ = paywallPresenter(self)
     }
 
     private var chatAppearanceRows: [Row] {
@@ -93,10 +228,11 @@ final class InterfaceSettingsViewController: BaseViewController {
     }
 
     private func row(at indexPath: IndexPath) -> Row? {
-        guard let section = Section(rawValue: indexPath.section) else { return nil }
+        guard let section = section(at: indexPath.section) else { return nil }
         switch section {
         case .preview: return nil
         case .chatAppearance: return chatAppearanceRows[indexPath.row]
+        case .premium: return nil
         case .mode: return nil
         }
     }
@@ -143,9 +279,10 @@ final class InterfaceSettingsViewController: BaseViewController {
     }
 
     private func applyOverviewTheme(_ theme: AppearanceTheme) {
-        var updated = appearanceCoordinator.document
+        var updated = document
         guard updated.profile.themeID != theme.id else {
             document = updated
+            refreshNavigationActions()
             tableView.reloadData()
             return
         }
@@ -153,19 +290,9 @@ final class InterfaceSettingsViewController: BaseViewController {
             theme: theme,
             preserveWallpaper: CommonConfigManager.shared.config.locked_background.isNotEmpty
         )
-        do {
-            _ = try appearanceCoordinator.commit(updated)
-            document = appearanceCoordinator.document
-            tableView.reloadData()
-        } catch {
-            let alert = UIAlertController(
-                title: "Couldn’t apply theme",
-                message: error.localizedDescription,
-                preferredStyle: .alert
-            )
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
-            present(alert, animated: true)
-        }
+        document = updated
+        refreshNavigationActions()
+        tableView.reloadData()
     }
 
     private func createTheme() {
@@ -186,12 +313,14 @@ final class InterfaceSettingsViewController: BaseViewController {
                     id: self.document.profile.themeID,
                     customThemes: self.document.customThemes
                 )
-                let theme = try self.appearanceCoordinator.createCustomTheme(
-                    named: name,
-                    basedOn: activeTheme
+                let theme = try self.makeDraftCustomTheme(named: name, basedOn: activeTheme)
+                self.pushEditor(
+                    AppearanceThemeEditorViewController(
+                        document: self.document,
+                        theme: theme,
+                        onDraftCommitted: { [weak self] in self?.acceptEditorDocument($0) }
+                    )
                 )
-                self.document = self.appearanceCoordinator.document
-                self.pushEditor(AppearanceThemeEditorViewController(document: self.document, theme: theme))
             } catch {
                 let errorAlert = UIAlertController(
                     title: "Couldn’t save theme",
@@ -205,51 +334,71 @@ final class InterfaceSettingsViewController: BaseViewController {
         present(alert, animated: true)
     }
 
+    private func makeDraftCustomTheme(named name: String, basedOn source: AppearanceTheme) throws -> AppearanceTheme {
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty else { throw AppearanceStoreError.emptyThemeName }
+        let normalizedName = cleanName.folding(
+            options: [.caseInsensitive, .diacriticInsensitive],
+            locale: .current
+        )
+        let existingThemes = AppearanceThemeCatalog.builtInThemes + document.customThemes
+        guard !existingThemes.contains(where: {
+            $0.name.folding(
+                options: [.caseInsensitive, .diacriticInsensitive],
+                locale: .current
+            ).trimmingCharacters(in: .whitespacesAndNewlines) == normalizedName
+        }) else {
+            throw AppearanceStoreError.duplicateThemeName
+        }
+
+        var theme = source
+        theme.id = "custom.\(UUID().uuidString.lowercased())"
+        theme.name = cleanName
+        theme.isBuiltIn = false
+        document.customThemes.append(theme)
+        refreshNavigationActions()
+        tableView.reloadData()
+        return theme
+    }
+
     private func applyInterfaceStyle(_ style: AppearanceInterfaceStyle) {
-        var updated = appearanceCoordinator.document
+        var updated = document
         guard updated.profile.interfaceStyle != style else {
             document = updated
-            tableView.reloadSections(IndexSet(integer: Section.mode.rawValue), with: .none)
+            tableView.reloadData()
             return
         }
         updated.profile.interfaceStyle = style
-        do {
-            _ = try appearanceCoordinator.commit(updated)
-            document = appearanceCoordinator.document
-        } catch {
-            let alert = UIAlertController(
-                title: "Couldn’t apply appearance",
-                message: error.localizedDescription,
-                preferredStyle: .alert
-            )
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
-            present(alert, animated: true)
-        }
+        document = updated
+        refreshNavigationActions()
+        tableView.reloadData()
     }
 }
 
 extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDelegate {
-    func numberOfSections(in tableView: UITableView) -> Int { Section.allCases.count }
+    func numberOfSections(in tableView: UITableView) -> Int { visibleSections.count }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        switch Section(rawValue: section) {
+        switch self.section(at: section) {
         case .preview: return 1
         case .chatAppearance: return chatAppearanceRows.count
+        case .premium: return 1
         case .mode: return 1
         case .none: return 0
         }
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        switch Section(rawValue: section) {
+        switch self.section(at: section) {
         case .chatAppearance: return "Customisation"
+        case .premium: return "Premium"
         case .mode: return "Appearance"
         default: return nil
         }
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        if Section(rawValue: indexPath.section) == .preview {
+        if section(at: indexPath.section) == .preview {
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: AppearanceOverviewCell.reuseIdentifier,
                 for: indexPath
@@ -263,7 +412,25 @@ extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDel
             }
             return cell
         }
-        if Section(rawValue: indexPath.section) == .mode {
+        if section(at: indexPath.section) == .premium {
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: AppearancePremiumUpsellCell.reuseIdentifier,
+                for: indexPath
+            ) as? AppearancePremiumUpsellCell else { return UITableViewCell() }
+            let snapshot = AppearanceResolver.resolve(
+                document: document,
+                traitStyle: traitCollection.userInterfaceStyle
+            )
+            cell.configure(
+                featureNames: selectedPremiumFeatureNames,
+                accent: snapshot.accent.uiColor
+            )
+            cell.onBuyPremium = { [weak self] in
+                self?.buyPremiumTapped()
+            }
+            return cell
+        }
+        if section(at: indexPath.section) == .mode {
             guard let cell = tableView.dequeueReusableCell(
                 withIdentifier: AppearanceModeSelectionCell.reuseIdentifier,
                 for: indexPath
@@ -304,15 +471,42 @@ extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDel
         guard let row = row(at: indexPath) else { return }
         switch row {
         case .wallpaper:
-            pushEditor(AppearanceWallpaperViewController(document: document))
+            pushEditor(
+                AppearanceWallpaperViewController(
+                    document: document,
+                    onDraftCommitted: { [weak self] in self?.acceptEditorDocument($0) }
+                )
+            )
         case .accent:
-            pushEditor(AppearanceAccentViewController(document: document))
+            pushEditor(
+                AppearanceAccentViewController(
+                    document: document,
+                    onDraftCommitted: { [weak self] in self?.acceptEditorDocument($0) }
+                )
+            )
         case .textSize:
-            pushEditor(AppearanceTextSizeViewController(document: document))
+            pushEditor(
+                AppearanceTextSizeViewController(
+                    document: document,
+                    onDraftCommitted: { [weak self] in self?.acceptEditorDocument($0) }
+                )
+            )
         case .bubbles:
-            pushEditor(AppearanceBubbleViewController(document: document))
+            pushEditor(
+                AppearanceBubbleViewController(
+                    document: document,
+                    entitlementProvider: entitlementProvider,
+                    onDraftCommitted: { [weak self] in self?.acceptEditorDocument($0) }
+                )
+            )
         case .avatars:
-            pushEditor(AppearanceAvatarViewController(document: document))
+            pushEditor(
+                AppearanceAvatarViewController(
+                    document: document,
+                    entitlementProvider: entitlementProvider,
+                    onDraftCommitted: { [weak self] in self?.acceptEditorDocument($0) }
+                )
+            )
         }
     }
 }
@@ -328,6 +522,73 @@ private final class AppearanceColorIndicator: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
+private final class AppearancePremiumUpsellCell: UITableViewCell {
+    static let reuseIdentifier = "AppearancePremiumUpsellCell"
+
+    var onBuyPremium: (() -> Void)?
+
+    private let titleLabel = UILabel()
+    private let messageLabel = UILabel()
+    private let buyButton = UIButton(type: .system)
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        accessibilityIdentifier = "interface.settings.premiumUpsell"
+        contentView.directionalLayoutMargins = NSDirectionalEdgeInsets(
+            top: 14,
+            leading: 16,
+            bottom: 14,
+            trailing: 16
+        )
+        titleLabel.font = .preferredFont(forTextStyle: .headline)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.text = "Premium options selected"
+        titleLabel.accessibilityIdentifier = "interface.settings.premiumUpsell.title"
+        messageLabel.font = .preferredFont(forTextStyle: .footnote)
+        messageLabel.adjustsFontForContentSizeCategory = true
+        messageLabel.textColor = .secondaryLabel
+        messageLabel.numberOfLines = 0
+        messageLabel.accessibilityIdentifier = "interface.settings.premiumUpsell.message"
+        buyButton.configuration = .tinted()
+        buyButton.configuration?.title = "Buy Premium"
+        buyButton.configuration?.image = UIImage(systemName: "sparkles")
+        buyButton.configuration?.imagePadding = 6
+        buyButton.configuration?.cornerStyle = .medium
+        buyButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        buyButton.contentHorizontalAlignment = .leading
+        buyButton.accessibilityIdentifier = "interface.settings.buyPremium"
+        buyButton.addTarget(self, action: #selector(buyPremiumTapped), for: .touchUpInside)
+        let stack = UIStackView(arrangedSubviews: [titleLabel, messageLabel, buyButton])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        contentView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(featureNames: [String], accent: UIColor) {
+        let selectedFeatures = featureNames.joined(separator: " and ")
+        let verb = featureNames.count == 1 ? "is" : "are"
+        let pronoun = featureNames.count == 1 ? "it" : "them"
+        messageLabel.text = "Selected Premium \(selectedFeatures) \(verb) shown in this preview only. Buy Premium to apply \(pronoun) throughout Xabber."
+        buyButton.configuration?.baseForegroundColor = accent
+        buyButton.configuration?.baseBackgroundColor = accent
+    }
+
+    @objc private func buyPremiumTapped() {
+        onBuyPremium?()
+    }
 }
 
 private final class AppearanceModeSelectionCell: UITableViewCell {
@@ -1611,10 +1872,18 @@ class AppearanceDraftViewController: BaseViewController {
     var document: AppearanceSettingsDocument
     var draft: AppearanceDraft
     let preview = AppearancePreviewView()
+    private let onDraftCommitted: ((AppearanceSettingsDocument) -> Void)?
 
-    init(document: AppearanceSettingsDocument, title: String) {
+    var usesExternalDraftCommit: Bool { onDraftCommitted != nil }
+
+    init(
+        document: AppearanceSettingsDocument,
+        title: String,
+        onDraftCommitted: ((AppearanceSettingsDocument) -> Void)? = nil
+    ) {
         self.document = document
         draft = AppearanceDraft(profile: document.profile)
+        self.onDraftCommitted = onDraftCommitted
         super.init(nibName: nil, bundle: nil)
         self.title = title
     }
@@ -1657,7 +1926,15 @@ class AppearanceDraftViewController: BaseViewController {
     }
 
     func commitAndPop() {
-        document.profile = draft.profile
+        var updated = document
+        updated.profile = draft.profile
+        if let onDraftCommitted {
+            onDraftCommitted(updated)
+            draft.accept()
+            navigationController?.popViewController(animated: true)
+            return
+        }
+        document = updated
         do {
             _ = try AppearanceCoordinator.shared.commit(document)
             draft.accept()
@@ -1680,8 +1957,15 @@ final class AppearanceAccentViewController: AppearanceDraftViewController {
     private let tintPreview = AppearanceTintColorPreviewView()
     private var swatchButtons: [AppearanceAccentSwatchButton] = []
 
-    init(document: AppearanceSettingsDocument) {
-        super.init(document: document, title: "Application Color")
+    init(
+        document: AppearanceSettingsDocument,
+        onDraftCommitted: ((AppearanceSettingsDocument) -> Void)? = nil
+    ) {
+        super.init(
+            document: document,
+            title: "Application Color",
+            onDraftCommitted: onDraftCommitted
+        )
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -2103,8 +2387,15 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
     private let slider = UISlider()
     private let sizeLabel = UILabel()
 
-    init(document: AppearanceSettingsDocument) {
-        super.init(document: document, title: "Text Size")
+    init(
+        document: AppearanceSettingsDocument,
+        onDraftCommitted: ((AppearanceSettingsDocument) -> Void)? = nil
+    ) {
+        super.init(
+            document: document,
+            title: "Text Size",
+            onDraftCommitted: onDraftCommitted
+        )
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -2218,11 +2509,16 @@ final class AppearanceBubbleViewController: AppearanceDraftViewController {
         entitlementProvider: AppearanceEntitlementProviding = LiveAppearanceEntitlementProvider(),
         paywallPresenter: @escaping (UIViewController) -> Bool = { parent in
             SubscribtionsPresenter().present(animated: true, parent: parent)
-        }
+        },
+        onDraftCommitted: ((AppearanceSettingsDocument) -> Void)? = nil
     ) {
         self.entitlementProvider = entitlementProvider
         self.paywallPresenter = paywallPresenter
-        super.init(document: document, title: "Message Bubbles")
+        super.init(
+            document: document,
+            title: "Message Bubbles",
+            onDraftCommitted: onDraftCommitted
+        )
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -2313,6 +2609,10 @@ final class AppearanceBubbleViewController: AppearanceDraftViewController {
     }
 
     override func setTapped() {
+        guard !usesExternalDraftCommit else {
+            super.setTapped()
+            return
+        }
         guard !policy.requiresPurchaseToCommit(
             draft.profile.bubbleStyle,
             currentlyApplied: document.profile.bubbleStyle
@@ -2344,12 +2644,9 @@ final class AppearanceBubbleViewController: AppearanceDraftViewController {
         var updated = document
         updated.profile = draft.profile
         pageBackgroundView.configure(document: updated)
-        let lockedStyles = Set(policy.visibleBubbleStyles.filter {
-            policy.requiresPurchaseToCommit(
-                $0,
-                currentlyApplied: document.profile.bubbleStyle
-            )
-        })
+        let lockedStyles: Set<AppearanceBubbleStyle> = policy.isEntitled
+            ? []
+            : Set(AppearanceBubbleStyle.premiumCases)
         gallery.configure(
             document: updated,
             traits: traitCollection,
@@ -2748,19 +3045,48 @@ private final class AppearanceBubbleSelectionIndicatorView: UIView {
 final class AppearanceAvatarViewController: AppearanceDraftViewController {
     private let scrollView = UIScrollView()
     private let gallery = AppearanceAvatarMaskGalleryView()
+    private let entitlementProvider: AppearanceEntitlementProviding
+    private let paywallPresenter: (UIViewController) -> Bool
     private var policy: AppearancePremiumPolicy {
-        let provider = LiveAppearanceEntitlementProvider()
         return AppearancePremiumPolicy(
-            isEntitled: provider.hasActiveAppearanceEntitlement,
-            subscriptionsEnabled: provider.areSubscriptionsEnabled
+            isEntitled: entitlementProvider.hasActiveAppearanceEntitlement,
+            subscriptionsEnabled: entitlementProvider.areSubscriptionsEnabled
         )
     }
 
-    init(document: AppearanceSettingsDocument) {
-        super.init(document: document, title: "Avatars")
+    init(
+        document: AppearanceSettingsDocument,
+        entitlementProvider: AppearanceEntitlementProviding = LiveAppearanceEntitlementProvider(),
+        paywallPresenter: @escaping (UIViewController) -> Bool = { parent in
+            SubscribtionsPresenter().present(animated: true, parent: parent)
+        },
+        onDraftCommitted: ((AppearanceSettingsDocument) -> Void)? = nil
+    ) {
+        self.entitlementProvider = entitlementProvider
+        self.paywallPresenter = paywallPresenter
+        super.init(
+            document: document,
+            title: "Avatars",
+            onDraftCommitted: onDraftCommitted
+        )
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func setTapped() {
+        guard !usesExternalDraftCommit else {
+            super.setTapped()
+            return
+        }
+        guard !policy.requiresPurchaseToCommit(
+            draft.profile.avatarMask,
+            currentlyApplied: document.profile.avatarMask
+        ) else {
+            _ = paywallPresenter(self)
+            return
+        }
+        super.setTapped()
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -2796,10 +3122,6 @@ final class AppearanceAvatarViewController: AppearanceDraftViewController {
     }
 
     private func select(_ value: AppearanceAvatarMask) {
-        guard policy.canSelect(value, currentlyApplied: document.profile.avatarMask) else {
-            SubscribtionsPresenter().present(animated: true, parent: self)
-            return
-        }
         draft.profile.avatarMask = value
         updateGallery()
         refreshSetButton()
@@ -2812,9 +3134,9 @@ final class AppearanceAvatarViewController: AppearanceDraftViewController {
     private func updateGallery() {
         var updated = document
         updated.profile = draft.profile
-        let lockedMasks = Set(policy.visibleAvatarMasks.filter {
-            !policy.canSelect($0, currentlyApplied: document.profile.avatarMask)
-        })
+        let lockedMasks: Set<AppearanceAvatarMask> = policy.isEntitled
+            ? []
+            : Set(AppearanceAvatarMask.premiumCases)
         gallery.configure(
             document: updated,
             traits: traitCollection,
@@ -3888,14 +4210,20 @@ final class AppearanceThemeEditorViewController: BaseViewController, UIColorPick
     private var document: AppearanceSettingsDocument
     private var theme: AppearanceTheme
     private let original: AppearanceTheme
+    private let onDraftCommitted: ((AppearanceSettingsDocument) -> Void)?
     private let preview = AppearancePreviewView()
     private let tabKinds: [EditorTab]
     private let tabs: UISegmentedControl
 
-    init(document: AppearanceSettingsDocument, theme: AppearanceTheme) {
+    init(
+        document: AppearanceSettingsDocument,
+        theme: AppearanceTheme,
+        onDraftCommitted: ((AppearanceSettingsDocument) -> Void)? = nil
+    ) {
         self.document = document
         self.theme = theme
         original = theme
+        self.onDraftCommitted = onDraftCommitted
         tabKinds = CommonConfigManager.shared.config.locked_background.isEmpty
             ? [.background, .accent, .messages]
             : [.accent, .messages]
@@ -4006,6 +4334,17 @@ final class AppearanceThemeEditorViewController: BaseViewController, UIColorPick
     @objc private func save() { persist(theme) }
 
     private func persist(_ value: AppearanceTheme) {
+        if let onDraftCommitted {
+            var updated = document
+            if let index = updated.customThemes.firstIndex(where: { $0.id == value.id }) {
+                updated.customThemes[index] = value
+            } else {
+                updated.customThemes.append(value)
+            }
+            onDraftCommitted(updated)
+            navigationController?.popViewController(animated: true)
+            return
+        }
         do {
             let store = AppearanceSettingsStore() ?? AppearanceSettingsStore(defaults: .standard, defaultAccentHex: "#007AFF")
             _ = try store.updateCustomTheme(value)
@@ -4028,13 +4367,21 @@ final class AppearanceWallpaperViewController: AppearanceDraftViewController, UI
     private var builtInGridHeightConstraint: NSLayoutConstraint?
     private let builtIns = ["None", "Honeycomb", "Aliens", "Summer", "Cats", "Flowers", "Flowers-daisy", "Hearts"]
 
-    init(document: AppearanceSettingsDocument, uploader: AppearanceCloudWallpaperClient = XabberAppearanceCloudWallpaperClient()) {
+    init(
+        document: AppearanceSettingsDocument,
+        uploader: AppearanceCloudWallpaperClient = XabberAppearanceCloudWallpaperClient(),
+        onDraftCommitted: ((AppearanceSettingsDocument) -> Void)? = nil
+    ) {
         let layout = UICollectionViewFlowLayout()
         layout.minimumInteritemSpacing = 10
         layout.minimumLineSpacing = 10
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         self.uploader = uploader
-        super.init(document: document, title: "Chat Wallpaper")
+        super.init(
+            document: document,
+            title: "Chat Wallpaper",
+            onDraftCommitted: onDraftCommitted
+        )
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
