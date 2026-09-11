@@ -776,8 +776,8 @@ final class AppearancePreviewView: UIView {
             backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
             backgroundView.topAnchor.constraint(equalTo: topAnchor),
             backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            contentStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            contentStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            contentStack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentStack.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentStack.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
         isAccessibilityElement = true
@@ -842,9 +842,9 @@ final class AppearancePreviewView: UIView {
     }
 
     private func configureInterfaceOverview(snapshot: ResolvedAppearanceSnapshot) {
-        contentStack.addArrangedSubview(makeInterfaceNavigation(snapshot: snapshot))
+        contentStack.addArrangedSubview(makeInterfaceNavigationRow(snapshot: snapshot))
         let first = makeInterfaceMessageRow(
-            text: "How’s your morning going?",
+            text: "How’s your morning going? I hope the weather is good today.",
             outgoing: false,
             avatarName: "interface_avatar_alicia",
             avatarIdentifier: "overview.0",
@@ -852,7 +852,7 @@ final class AppearancePreviewView: UIView {
             snapshot: snapshot
         )
         let second = makeInterfaceMessageRow(
-            text: "Really good — Tokyo is beautiful. 😎",
+            text: "Really good — Tokyo is beautiful. I found a quiet café near the park. 😎",
             outgoing: true,
             avatarName: nil,
             avatarIdentifier: nil,
@@ -860,7 +860,7 @@ final class AppearancePreviewView: UIView {
             snapshot: snapshot
         )
         let third = makeInterfaceMessageRow(
-            text: "Let’s meet for lunch at two. ☕",
+            text: "Let’s meet for lunch at two. I know a place you’ll love. ☕",
             outgoing: false,
             avatarName: "interface_avatar_alicia",
             avatarIdentifier: "overview.2",
@@ -872,6 +872,20 @@ final class AppearancePreviewView: UIView {
         contentStack.addArrangedSubview(third.row)
         chatMessageHosts = [first.host, second.host, third.host]
         accessibilityLabel = "Alicia Torreaux chat preview with three messages"
+    }
+
+    private func makeInterfaceNavigationRow(snapshot: ResolvedAppearanceSnapshot) -> UIView {
+        let row = UIView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        let navigation = makeInterfaceNavigation(snapshot: snapshot)
+        row.addSubview(navigation)
+        NSLayoutConstraint.activate([
+            navigation.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 14),
+            navigation.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -14),
+            navigation.topAnchor.constraint(equalTo: row.topAnchor),
+            navigation.bottomAnchor.constraint(equalTo: row.bottomAnchor)
+        ])
+        return row
     }
 
     private func makeInterfaceNavigation(snapshot: ResolvedAppearanceSnapshot) -> UIView {
@@ -993,7 +1007,8 @@ final class AppearancePreviewView: UIView {
             outgoing: outgoing,
             snapshot: snapshot,
             identifier: identifier,
-            fontTextStyle: .body
+            fontTextStyle: .body,
+            reservesAvatarSpace: avatarName != nil
         )
         row.addSubview(host)
         if let avatarName, let avatarIdentifier {
@@ -1003,16 +1018,21 @@ final class AppearancePreviewView: UIView {
                 identifier: "interface.preview.messageAvatar.\(avatarIdentifier)"
             )
             row.addSubview(avatar)
-            NSLayoutConstraint.activate([
-                avatar.leadingAnchor.constraint(equalTo: row.leadingAnchor),
-                avatar.centerYAnchor.constraint(equalTo: host.centerYAnchor),
-                avatar.widthAnchor.constraint(equalToConstant: 30),
+            var constraints = [
+                avatar.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 4),
+                avatar.widthAnchor.constraint(equalToConstant: 32),
                 avatar.heightAnchor.constraint(equalTo: avatar.widthAnchor),
-                host.leadingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: 8),
+                host.leadingAnchor.constraint(equalTo: row.leadingAnchor),
                 host.trailingAnchor.constraint(equalTo: row.trailingAnchor),
                 host.topAnchor.constraint(equalTo: row.topAnchor),
                 host.bottomAnchor.constraint(equalTo: row.bottomAnchor)
-            ])
+            ]
+            if snapshot.profile.avatarPosition == .top {
+                constraints.append(avatar.topAnchor.constraint(equalTo: row.topAnchor, constant: 2))
+            } else {
+                constraints.append(avatar.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -2))
+            }
+            NSLayoutConstraint.activate(constraints)
         } else {
             NSLayoutConstraint.activate([
                 host.leadingAnchor.constraint(equalTo: row.leadingAnchor),
@@ -1038,7 +1058,7 @@ final class AppearancePreviewView: UIView {
         AppearancePreviewAvatarMaskRenderer.apply(
             snapshot.profile.avatarMask,
             to: avatar,
-            size: 30
+            size: 32
         )
         return avatar
     }
@@ -1301,7 +1321,7 @@ private struct AppearancePreviewMessage: MessageType {
     let editDate: Date? = nil
     let kind: MessageKind
     let withAuthor = false
-    let withAvatar = false
+    let withAvatar: Bool
     let error = false
     let errorType = ""
     let canPinMessage = false
@@ -1334,6 +1354,7 @@ private struct AppearancePreviewMessage: MessageType {
         snapshot: ResolvedAppearanceSnapshot,
         identifier: String? = nil,
         fontTextStyle: UIFont.TextStyle = .body,
+        reservesAvatarSpace: Bool = false,
         forwards: [MessageAttachment] = [],
         audios: [AudioAttachment] = [],
         status: AppearancePreviewStatus? = nil
@@ -1342,6 +1363,7 @@ private struct AppearancePreviewMessage: MessageType {
         sender = Sender(id: outgoing ? "me" : "contact", displayName: outgoing ? "Me" : "Contact")
         messageId = primary
         isOutgoing = outgoing
+        withAvatar = reservesAvatarSpace
         self.forwards = forwards
         self.audios = audios
         isHasAttachedMessages = forwards.isNotEmpty || audios.isNotEmpty
@@ -1380,6 +1402,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         let outgoing: Bool
         let identifier: String?
         let fontTextStyle: UIFont.TextStyle
+        let reservesAvatarSpace: Bool
         let forwards: [MessageAttachment]
         let audios: [AudioAttachment]
         let status: AppearancePreviewStatus
@@ -1416,6 +1439,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         snapshot: ResolvedAppearanceSnapshot,
         identifier: String? = nil,
         fontTextStyle: UIFont.TextStyle = .body,
+        reservesAvatarSpace: Bool = false,
         forwards: [MessageAttachment] = [],
         audios: [AudioAttachment] = [],
         status: AppearancePreviewStatus? = nil,
@@ -1426,6 +1450,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
             outgoing: outgoing,
             identifier: identifier,
             fontTextStyle: fontTextStyle,
+            reservesAvatarSpace: reservesAvatarSpace,
             forwards: forwards,
             audios: audios,
             status: status ?? (outgoing ? .delivery : .none),
@@ -1480,6 +1505,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
             snapshot: snapshot,
             identifier: configuration.identifier,
             fontTextStyle: configuration.fontTextStyle,
+            reservesAvatarSpace: configuration.reservesAvatarSpace,
             forwards: configuration.forwards,
             audios: configuration.audios,
             status: configuration.status

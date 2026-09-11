@@ -734,6 +734,75 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
+    func testRootInterfacePreviewUsesChatViewMessageInsets() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let controller = InterfaceSettingsViewController(
+            appearanceCoordinator: AppearanceCoordinator(store: store)
+        )
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+        let overviewCell = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        )
+        overviewCell.frame = CGRect(x: 0, y: 0, width: 390, height: 429)
+        overviewCell.setNeedsLayout()
+        overviewCell.layoutIfNeeded()
+
+        let preview = try XCTUnwrap(
+            descendant(in: overviewCell, accessibilityIdentifier: "interface.preview") as? AppearancePreviewView
+        )
+        let incomingAvatar = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.preview.messageAvatar.overview.0"
+            ) as? UIImageView
+        )
+        let incoming = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.themePreview.chat.message.overview.0"
+            ) as? TextMessageCell
+        )
+        let outgoing = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.themePreview.chat.message.overview.1"
+            ) as? TextMessageCell
+        )
+        let thirdIncoming = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.themePreview.chat.message.overview.2"
+            ) as? TextMessageCell
+        )
+
+        let incomingContainerFrame = incoming.messageContainerView.convert(
+            incoming.messageContainerView.bounds,
+            to: preview
+        )
+        let outgoingContainerFrame = outgoing.messageContainerView.convert(
+            outgoing.messageContainerView.bounds,
+            to: preview
+        )
+        let thirdIncomingContainerFrame = thirdIncoming.messageContainerView.convert(
+            thirdIncoming.messageContainerView.bounds,
+            to: preview
+        )
+        let incomingAvatarFrame = incomingAvatar.convert(incomingAvatar.bounds, to: preview)
+
+        XCTAssertEqual(incoming.messageLabel.text, "How’s your morning going? I hope the weather is good today.")
+        XCTAssertEqual(outgoing.messageLabel.text, "Really good — Tokyo is beautiful. I found a quiet café near the park. 😎")
+        XCTAssertEqual(incomingAvatarFrame.minX, preview.bounds.minX + 4, accuracy: 0.01)
+        XCTAssertEqual(incomingAvatarFrame.width, 32, accuracy: 0.01)
+        XCTAssertEqual(incomingContainerFrame.minX, incomingAvatarFrame.maxX, accuracy: 0.01)
+        XCTAssertEqual(outgoingContainerFrame.maxX, preview.bounds.maxX - 4, accuracy: 0.01)
+        XCTAssertLessThanOrEqual(thirdIncomingContainerFrame.maxY, preview.bounds.maxY - 4)
+    }
+
+    @MainActor
     func testRootInterfacePreviewShowsChatChromePhotoAvatarsAndThreeMessages() throws {
         let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
         let coordinator = AppearanceCoordinator(store: store)
