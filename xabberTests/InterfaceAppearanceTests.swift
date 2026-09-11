@@ -694,6 +694,37 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
+    func testRootInterfacePreviewFillsCellWithoutOwnCornerRounding() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let controller = InterfaceSettingsViewController(
+            appearanceCoordinator: AppearanceCoordinator(store: store)
+        )
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+        let overviewCell = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        )
+        overviewCell.frame = CGRect(x: 0, y: 0, width: 390, height: 429)
+        overviewCell.setNeedsLayout()
+        overviewCell.layoutIfNeeded()
+        let preview = try XCTUnwrap(
+            descendant(in: overviewCell, accessibilityIdentifier: "interface.preview") as? AppearancePreviewView
+        )
+
+        XCTAssertEqual(overviewCell.backgroundColor, .clear)
+        XCTAssertEqual(overviewCell.contentView.backgroundColor, .clear)
+        XCTAssertEqual(preview.frame.minX, overviewCell.contentView.bounds.minX, accuracy: 0.01)
+        XCTAssertEqual(preview.frame.maxX, overviewCell.contentView.bounds.maxX, accuracy: 0.01)
+        XCTAssertEqual(preview.frame.minY, overviewCell.contentView.bounds.minY, accuracy: 0.01)
+        XCTAssertEqual(preview.frame.maxY, overviewCell.contentView.bounds.maxY, accuracy: 0.01)
+        XCTAssertEqual(preview.layer.cornerRadius, 0, accuracy: 0.01)
+        XCTAssertEqual(preview.layer.maskedCorners, [])
+    }
+
+    @MainActor
     func testRootInterfacePreviewShowsChatChromePhotoAvatarsAndThreeMessages() throws {
         let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
         let coordinator = AppearanceCoordinator(store: store)

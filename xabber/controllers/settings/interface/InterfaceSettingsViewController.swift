@@ -537,6 +537,14 @@ private final class AppearanceModePreviewCard: UIView {
 private final class AppearanceOverviewCell: UITableViewCell {
     static let reuseIdentifier = "AppearanceOverviewCell"
 
+    private enum Layout {
+        static let previewContentHeight: CGFloat = 300
+        static let themeRailSpacing: CGFloat = 12
+        static let themeRailHeight: CGFloat = 105
+        static let themeRailBottomInset: CGFloat = 12
+        static let previewContentBottomInset = themeRailSpacing + themeRailHeight + themeRailBottomInset
+    }
+
     var onThemeTap: ((AppearanceTheme) -> Void)?
     var onCreateTheme: (() -> Void)?
     private let preview = AppearancePreviewView()
@@ -546,9 +554,15 @@ private final class AppearanceOverviewCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         selectionStyle = .none
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
         preview.presentation = .interfaceOverview
+        preview.contentBottomReservedHeight = Layout.previewContentBottomInset
+        preview.layer.cornerRadius = 0
+        preview.layer.maskedCorners = []
         preview.translatesAutoresizingMaskIntoConstraints = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.backgroundColor = .clear
         themesStack.translatesAutoresizingMaskIntoConstraints = false
         themesStack.axis = .horizontal
         themesStack.spacing = 12
@@ -558,15 +572,18 @@ private final class AppearanceOverviewCell: UITableViewCell {
         contentView.addSubview(preview)
         contentView.addSubview(scrollView)
         NSLayoutConstraint.activate([
-            preview.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            preview.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-            preview.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-            preview.heightAnchor.constraint(equalToConstant: 300),
+            preview.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            preview.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            preview.topAnchor.constraint(equalTo: contentView.topAnchor),
+            preview.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: preview.bottomAnchor, constant: 12),
-            scrollView.heightAnchor.constraint(equalToConstant: 105),
-            scrollView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+            scrollView.topAnchor.constraint(
+                equalTo: contentView.topAnchor,
+                constant: Layout.previewContentHeight + Layout.themeRailSpacing
+            ),
+            scrollView.heightAnchor.constraint(equalToConstant: Layout.themeRailHeight),
+            scrollView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Layout.themeRailBottomInset),
             themesStack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 12),
             themesStack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -12),
             themesStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
@@ -745,11 +762,18 @@ final class AppearancePreviewView: UIView {
 
     private let backgroundView = ChatBackgroundBackdropView()
     private let contentStack = UIStackView()
+    private var contentStackCenterYConstraint: NSLayoutConstraint!
     private var currentDocument: AppearanceSettingsDocument?
     private var chatMessageHosts: [AppearanceChatMessagePreviewHostView] = []
 
     var presentation: Presentation = .standard
     var showsChatList = false
+    var contentBottomReservedHeight: CGFloat = 0 {
+        didSet {
+            contentStackCenterYConstraint?.constant = -contentBottomReservedHeight / 2
+        }
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         layer.cornerRadius = 22
@@ -761,6 +785,7 @@ final class AppearancePreviewView: UIView {
         contentStack.spacing = 8
         addSubview(backgroundView)
         addSubview(contentStack)
+        contentStackCenterYConstraint = contentStack.centerYAnchor.constraint(equalTo: centerYAnchor)
         NSLayoutConstraint.activate([
             backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
             backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -768,7 +793,7 @@ final class AppearancePreviewView: UIView {
             backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
             contentStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             contentStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            contentStack.centerYAnchor.constraint(equalTo: centerYAnchor)
+            contentStackCenterYConstraint
         ])
         isAccessibilityElement = true
         accessibilityIdentifier = "interface.preview"
