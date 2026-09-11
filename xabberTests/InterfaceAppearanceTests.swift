@@ -694,7 +694,7 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testRootInterfacePreviewFillsCellWithoutOwnCornerRounding() throws {
+    func testRootInterfacePreviewTouchesCellEdgesAndLeavesThemeRailOnGroupedBackground() throws {
         let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
         let controller = InterfaceSettingsViewController(
             appearanceCoordinator: AppearanceCoordinator(store: store)
@@ -718,13 +718,17 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         let themeRailContainer = try XCTUnwrap(themeRail.superview as? UIScrollView)
 
-        XCTAssertEqual(overviewCell.backgroundColor, .clear)
-        XCTAssertEqual(overviewCell.contentView.backgroundColor, .clear)
-        XCTAssertEqual(themeRailContainer.backgroundColor, .systemBackground)
+        XCTAssertNil(themeRailContainer.backgroundColor)
         XCTAssertEqual(preview.frame.minX, overviewCell.contentView.bounds.minX, accuracy: 0.01)
         XCTAssertEqual(preview.frame.maxX, overviewCell.contentView.bounds.maxX, accuracy: 0.01)
         XCTAssertEqual(preview.frame.minY, overviewCell.contentView.bounds.minY, accuracy: 0.01)
-        XCTAssertEqual(preview.frame.maxY, overviewCell.contentView.bounds.maxY, accuracy: 0.01)
+        XCTAssertEqual(preview.frame.height, 300, accuracy: 0.01)
+        XCTAssertEqual(themeRailContainer.frame.minY, preview.frame.maxY + 12, accuracy: 0.01)
+        XCTAssertEqual(
+            themeRailContainer.frame.maxY,
+            overviewCell.contentView.bounds.maxY - 12,
+            accuracy: 0.01
+        )
         XCTAssertEqual(preview.layer.cornerRadius, 0, accuracy: 0.01)
         XCTAssertEqual(preview.layer.maskedCorners, [])
     }
