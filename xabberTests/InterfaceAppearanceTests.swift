@@ -787,6 +787,9 @@ final class InterfaceAppearanceTests: XCTestCase {
             outgoing.messageContainerView.bounds,
             to: preview
         )
+        let incomingCellFrame = incoming.convert(incoming.bounds, to: preview)
+        let outgoingCellFrame = outgoing.convert(outgoing.bounds, to: preview)
+        let thirdIncomingCellFrame = thirdIncoming.convert(thirdIncoming.bounds, to: preview)
         let thirdIncomingContainerFrame = thirdIncoming.messageContainerView.convert(
             thirdIncoming.messageContainerView.bounds,
             to: preview
@@ -799,6 +802,16 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertEqual(incomingAvatarFrame.width, 32, accuracy: 0.01)
         XCTAssertEqual(incomingContainerFrame.minX, incomingAvatarFrame.maxX, accuracy: 0.01)
         XCTAssertEqual(outgoingContainerFrame.maxX, preview.bounds.maxX - 4, accuracy: 0.01)
+        XCTAssertEqual(
+            outgoingCellFrame.minY - incomingCellFrame.maxY,
+            MessagesCollectionViewFlowLayout().minimumLineSpacing,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(
+            thirdIncomingCellFrame.minY - outgoingCellFrame.maxY,
+            MessagesCollectionViewFlowLayout().minimumLineSpacing,
+            accuracy: 0.01
+        )
         XCTAssertLessThanOrEqual(thirdIncomingContainerFrame.maxY, preview.bounds.maxY - 4)
     }
 
