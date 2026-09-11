@@ -299,6 +299,18 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
+    func testInterfaceSettingsSupportsNibInitializerForLegacyRoutes() throws {
+        let controller = InterfaceSettingsViewController(nibName: nil, bundle: nil)
+
+        controller.loadViewIfNeeded()
+
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+        XCTAssertEqual(tableView.accessibilityIdentifier, "interface.settings.table")
+    }
+
+    @MainActor
     func testInterfaceSettingsCombinesColorThemeAndChatAppearanceRows() throws {
         let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
         let coordinator = AppearanceCoordinator(store: store)

@@ -31,12 +31,14 @@ final class InterfaceSettingsViewController: BaseViewController {
     private var originalDocument: AppearanceSettingsDocument
     private var document: AppearanceSettingsDocument
 
+    private static let defaultPaywallPresenter: (UIViewController) -> Bool = { parent in
+        SubscribtionsPresenter().present(animated: true, parent: parent)
+    }
+
     init(
         appearanceCoordinator: AppearanceCoordinator = .shared,
         entitlementProvider: AppearanceEntitlementProviding = LiveAppearanceEntitlementProvider(),
-        paywallPresenter: @escaping (UIViewController) -> Bool = { parent in
-            SubscribtionsPresenter().present(animated: true, parent: parent)
-        }
+        paywallPresenter: @escaping (UIViewController) -> Bool = InterfaceSettingsViewController.defaultPaywallPresenter
     ) {
         let initialDocument = appearanceCoordinator.document
         self.appearanceCoordinator = appearanceCoordinator
@@ -45,6 +47,17 @@ final class InterfaceSettingsViewController: BaseViewController {
         originalDocument = initialDocument
         document = initialDocument
         super.init(nibName: nil, bundle: nil)
+    }
+
+    override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
+        let coordinator = AppearanceCoordinator.shared
+        appearanceCoordinator = coordinator
+        entitlementProvider = LiveAppearanceEntitlementProvider()
+        paywallPresenter = Self.defaultPaywallPresenter
+        let initialDocument = coordinator.document
+        originalDocument = initialDocument
+        document = initialDocument
+        super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
