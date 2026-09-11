@@ -562,7 +562,7 @@ private final class AppearanceOverviewCell: UITableViewCell {
         preview.layer.maskedCorners = []
         preview.translatesAutoresizingMaskIntoConstraints = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.backgroundColor = .clear
+        scrollView.backgroundColor = .systemBackground
         themesStack.translatesAutoresizingMaskIntoConstraints = false
         themesStack.axis = .horizontal
         themesStack.spacing = 12

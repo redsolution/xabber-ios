@@ -713,9 +713,14 @@ final class InterfaceAppearanceTests: XCTestCase {
         let preview = try XCTUnwrap(
             descendant(in: overviewCell, accessibilityIdentifier: "interface.preview") as? AppearancePreviewView
         )
+        let themeRail = try XCTUnwrap(
+            descendant(in: overviewCell, accessibilityIdentifier: "interface.theme.rail") as? UIStackView
+        )
+        let themeRailContainer = try XCTUnwrap(themeRail.superview as? UIScrollView)
 
         XCTAssertEqual(overviewCell.backgroundColor, .clear)
         XCTAssertEqual(overviewCell.contentView.backgroundColor, .clear)
+        XCTAssertEqual(themeRailContainer.backgroundColor, .systemBackground)
         XCTAssertEqual(preview.frame.minX, overviewCell.contentView.bounds.minX, accuracy: 0.01)
         XCTAssertEqual(preview.frame.maxX, overviewCell.contentView.bounds.maxX, accuracy: 0.01)
         XCTAssertEqual(preview.frame.minY, overviewCell.contentView.bounds.minY, accuracy: 0.01)
