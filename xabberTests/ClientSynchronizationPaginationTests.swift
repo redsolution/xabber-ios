@@ -575,7 +575,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         )
     }
 
-    func testFreshSnapshotUsesTwentyThenContinuationUsesSixtyAndTrackedMaximumForFinality() throws {
+    func testFreshSnapshotUsesFifteenItemPagesAndTrackedMaximumForFinality() throws {
         prepareManagedAccount()
         let requests = ClientSyncRequestRecorder()
         let manager = makeManager(recording: requests)
@@ -585,9 +585,9 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         )
         XCTAssertNil(firstRequest.stamp)
         XCTAssertNil(firstRequest.after)
-        XCTAssertEqual(firstRequest.max, 20)
+        XCTAssertEqual(firstRequest.max, 15)
 
-        let firstPage = (0..<20).map { index in
+        let firstPage = (0..<15).map { index in
             conversationXML(
                 jid: "viewport-\(index)@example.com",
                 messageId: "viewport-message-\(index)",
@@ -599,15 +599,15 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
             conversations: firstPage,
             rsmFirst: "viewport-cursor-0",
             rsmFirstIndex: 0,
-            rsmLast: "viewport-cursor-19"
+            rsmLast: "viewport-cursor-14"
         )))
 
         try waitUntil("viewport page applied") {
-            try self.lastChatCount() == 20
+            try self.lastChatCount() == 15
         }
         let continuation = try waitForRequest(at: 1, in: requests)
-        XCTAssertEqual(continuation.after, "viewport-cursor-19")
-        XCTAssertEqual(continuation.max, 60)
+        XCTAssertEqual(continuation.after, "viewport-cursor-14")
+        XCTAssertEqual(continuation.max, 15)
 
         XCTAssertTrue(manager.read(withIQ: try snapshotIQ(
             id: continuation.id,
@@ -618,19 +618,19 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
                     archiveId: "viewport-tail-archive"
                 )
             ],
-            rsmFirst: "viewport-cursor-20",
-            rsmFirstIndex: 20,
-            rsmLast: "viewport-cursor-20"
+            rsmFirst: "viewport-cursor-15",
+            rsmFirstIndex: 15,
+            rsmLast: "viewport-cursor-15"
         )))
 
         try waitUntil("short continuation completes snapshot") {
-            try self.lastChatCount() == 21 &&
+            try self.lastChatCount() == 16 &&
                 self.storedClientSyncValue("last_completed_snapshot_stamp") == "1776840442469439"
         }
         XCTAssertEqual(requests.count, 2)
     }
 
-    func testIncrementalSyncKeepsSixtyItemPageSize() throws {
+    func testIncrementalSyncUsesFifteenItemPageSize() throws {
         let completedStamp = "1784280770721454"
         SettingManager.shared.saveItem(
             for: owner,
@@ -651,10 +651,10 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         let request = try XCTUnwrap(requests.last)
         XCTAssertEqual(request.stamp, completedStamp)
         XCTAssertNil(request.after)
-        XCTAssertEqual(request.max, 60)
+        XCTAssertEqual(request.max, 15)
     }
 
-    func testColdRelaunchRecoversMissingListPreviewWithFreshTwentyItemPage() throws {
+    func testColdRelaunchRecoversMissingListPreviewWithFreshFifteenItemPage() throws {
         let completedStamp = "1784280770721454"
         SettingManager.shared.saveItem(
             for: owner,
@@ -689,7 +689,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         let request = try XCTUnwrap(requests.last)
         XCTAssertNil(request.stamp)
         XCTAssertNil(request.after)
-        XCTAssertEqual(request.max, 20)
+        XCTAssertEqual(request.max, 15)
     }
 
     func testColdRelaunchRecoveryChecksEveryRowWhenOneProjectionAlreadyExists() throws {
@@ -750,7 +750,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         let request = try XCTUnwrap(requests.last)
         XCTAssertNil(request.stamp)
         XCTAssertNil(request.after)
-        XCTAssertEqual(request.max, 20)
+        XCTAssertEqual(request.max, 15)
     }
 
     func testInterruptedFreshPreviewRecoveryDoesNotResumeFromOldCompletedStamp() throws {
@@ -819,7 +819,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         let relaunchedRequest = try XCTUnwrap(relaunchedRequests.last)
         XCTAssertNil(relaunchedRequest.stamp)
         XCTAssertNil(relaunchedRequest.after)
-        XCTAssertEqual(relaunchedRequest.max, 20)
+        XCTAssertEqual(relaunchedRequest.max, 15)
     }
 
     func testListOnlyPushPreservesMaterializedLinkWithMatchingArchiveIdentity() throws {

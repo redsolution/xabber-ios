@@ -181,8 +181,7 @@ struct ClientSyncPageParser {
             // Some servers omit RSM count while still returning the last
             // cursor on the terminal page. In that shape only a short page
             // proves exhaustion, and it must be compared with the maximum of
-            // the matching request (the first viewport page is intentionally
-            // smaller than its continuations).
+            // the matching request.
             isFinalPage = conversations.count < max(pageSize, 1)
         }
         return SnapshotPage(
@@ -393,8 +392,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
     }
     
-    internal static let initialViewportPageSize: Int = 20
-    public let pageSize: Int = 60
+    public let pageSize: Int = 15
     
     open var isAvailable: Bool = false
     open var version: String = ""
@@ -1313,9 +1311,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         if let requestedStamp {
             query.addAttribute(withName: "stamp", stringValue: requestedStamp)
         }
-        let requestedPageSize = after == nil && requestedStamp == nil
-            ? Self.initialViewportPageSize
-            : pageSize
+        let requestedPageSize = pageSize
         let set = DDXMLElement(name: "set", xmlns: "http://jabber.org/protocol/rsm")
         set.addChild(DDXMLElement(name: "max", stringValue: "\(requestedPageSize)"))
         if let after = after {
