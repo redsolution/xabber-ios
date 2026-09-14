@@ -2947,14 +2947,14 @@ final class AppearanceBubbleStyleGalleryView: UIView {
 
     private static func sampleText(for style: AppearanceBubbleStyle) -> String {
         switch style {
-        case .noTail: return "No tail keeps a longer message clear and easy to read."
-        case .smooth: return "This smooth shape has enough text to show the real chat layout."
-        case .bubble: return "A friendly bubble can hold a complete reply and its timestamp."
-        case .bubbles: return "Small bubbles still keep the message readable across two lines."
-        case .curvy: return "A gently curving reply looks just like it does in the conversation."
-        case .stripes: return "This premium style keeps the same real-message spacing and text."
-        case .transparent: return "The transparent option lets the wallpaper stay visible behind text."
-        case .wedge: return "A sharper wedge still follows the same chat message measurements."
+        case .noTail: return "No tail"
+        case .smooth: return "Smooth shape"
+        case .bubble: return "Friendly bubble"
+        case .bubbles: return "Small bubbles"
+        case .curvy: return "Curvy reply"
+        case .stripes: return "Premium stripes"
+        case .transparent: return "Clear wallpaper"
+        case .wedge: return "Sharp wedge"
         }
     }
 }

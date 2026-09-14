@@ -1506,6 +1506,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         document.profile.wallpaper = .builtIn(name: "Honeycomb")
         document.profile.bubbleStyle = .smooth
         document.profile.avatarMask = .octagon
+        document.profile.textSize = .points22
         let gallery = AppearanceBubbleStyleGalleryView(frame: CGRect(x: 0, y: 0, width: 360, height: 680))
         gallery.configure(
             document: document,
@@ -1557,7 +1558,15 @@ final class InterfaceAppearanceTests: XCTestCase {
                 ),
                 "\(style.displayName) must not add an avatar that ChatViewController does not show"
             )
-            XCTAssertGreaterThan(cell.messageLabel.attributedText?.string.count ?? 0, 30)
+            let messageText = try XCTUnwrap(cell.messageLabel.attributedText)
+            let messageFont = try XCTUnwrap(
+                messageText.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
+            )
+            XCTAssertLessThanOrEqual(
+                cell.messageLabel.bounds.height,
+                ceil(messageFont.lineHeight) + 1,
+                "\(style.displayName) sample must stay on one visual line at 22 pt"
+            )
         }
 
         let messageFrames = try AppearanceBubbleStyle.allCases.map { style -> CGRect in
