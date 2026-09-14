@@ -1754,7 +1754,7 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testBubbleEditorRendersWallpaperInsideAnEdgeToEdgeGalleryPreviewSection() throws {
+    func testBubbleEditorUsesInsetGroupedTableWithGalleryAndRadiusSections() throws {
         var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         document.profile.wallpaper = .builtIn(name: "Honeycomb")
         let controller = AppearanceBubbleViewController(document: document)
@@ -1763,6 +1763,12 @@ final class InterfaceAppearanceTests: XCTestCase {
         controller.view.setNeedsLayout()
         controller.view.layoutIfNeeded()
 
+        let tableView = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.bubbles.table"
+            ) as? UITableView
+        )
         let galleryBackdrop = try XCTUnwrap(
             descendant(
                 in: controller.view,
@@ -1782,22 +1788,21 @@ final class InterfaceAppearanceTests: XCTestCase {
             )
         )
 
-        XCTAssertNil(
-            descendant(
-                in: controller.view,
-                accessibilityIdentifier: "interface.bubbles.pageBackground"
-            )
-        )
+        XCTAssertEqual(tableView.style, .insetGrouped)
         XCTAssertTrue(galleryBackdrop.hasVisibleWallpaperImage)
         XCTAssertFalse(galleryBackdrop.isHidden)
         XCTAssertEqual(
             galleryBackdrop.convert(galleryBackdrop.bounds, to: controller.view),
             gallery.convert(gallery.bounds, to: controller.view)
         )
-        XCTAssertEqual(gallery.frame.minX, controller.view.bounds.minX, accuracy: 0.5)
-        XCTAssertEqual(gallery.frame.maxX, controller.view.bounds.maxX, accuracy: 0.5)
+        let galleryFrame = gallery.convert(gallery.bounds, to: controller.view)
+        let radiusSectionFrame = radiusSection.convert(radiusSection.bounds, to: controller.view)
+        XCTAssertGreaterThan(galleryFrame.minX, controller.view.bounds.minX)
+        XCTAssertLessThan(galleryFrame.maxX, controller.view.bounds.maxX)
         XCTAssertEqual(gallery.layer.cornerRadius, 0, accuracy: 0.01)
-        XCTAssertEqual(radiusSection.frame.minY, gallery.frame.maxY + 18, accuracy: 0.5)
+        XCTAssertGreaterThan(radiusSectionFrame.minX, controller.view.bounds.minX)
+        XCTAssertLessThan(radiusSectionFrame.maxX, controller.view.bounds.maxX)
+        XCTAssertGreaterThan(radiusSectionFrame.minY, galleryFrame.maxY)
         XCTAssertEqual(
             controller.view.backgroundColor?.resolvedColor(with: .init(userInterfaceStyle: .light)),
             .systemGroupedBackground.resolvedColor(with: .init(userInterfaceStyle: .light))

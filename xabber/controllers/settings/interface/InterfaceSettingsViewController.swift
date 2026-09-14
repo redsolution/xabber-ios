@@ -2499,16 +2499,15 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
 }
 
 final class AppearanceBubbleViewController: AppearanceDraftViewController {
-    private let scrollView = UIScrollView()
-    private let contentStack = UIStackView()
-    private let gallery = AppearanceBubbleStyleGalleryView()
-    private let radiusSlider = UISlider()
-    private let radiusSection = UIView()
-    private let radiusTitleLabel = UILabel()
-    private let radiusCard = UIView()
+    private enum Section: Int, CaseIterable {
+        case preview
+        case radius
+    }
+
+    private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private let entitlementProvider: AppearanceEntitlementProviding
     private let paywallPresenter: (UIViewController) -> Bool
-    private var galleryConfigured = false
+    private weak var galleryCell: AppearanceBubbleGalleryCell?
     private var policy: AppearancePremiumPolicy {
         return AppearancePremiumPolicy(
             isEntitled: entitlementProvider.hasActiveAppearanceEntitlement,
@@ -2538,83 +2537,40 @@ final class AppearanceBubbleViewController: AppearanceDraftViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemGroupedBackground
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.backgroundColor = .clear
-        scrollView.alwaysBounceVertical = true
-        contentStack.translatesAutoresizingMaskIntoConstraints = false
-        contentStack.axis = .vertical
-        contentStack.spacing = 18
-        gallery.translatesAutoresizingMaskIntoConstraints = false
-        gallery.onStyleSelected = { [weak self] style in
-            self?.select(style)
-        }
-        radiusSlider.minimumValue = 0
-        radiusSlider.maximumValue = 16
-        radiusSlider.value = Float(draft.profile.bubbleRadius)
-        radiusSlider.addTarget(self, action: #selector(radiusChanged), for: .valueChanged)
-        radiusSlider.accessibilityIdentifier = "interface.bubbles.radius"
-        radiusSlider.accessibilityLabel = "Radius"
-        radiusSection.translatesAutoresizingMaskIntoConstraints = false
-        radiusSection.directionalLayoutMargins = NSDirectionalEdgeInsets(
-            top: 0,
-            leading: 16,
-            bottom: 0,
-            trailing: 16
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.backgroundColor = .clear
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.register(
+            AppearanceBubbleGalleryCell.self,
+            forCellReuseIdentifier: AppearanceBubbleGalleryCell.reuseIdentifier
         )
-        radiusSection.accessibilityIdentifier = "interface.bubbles.radiusSection"
-        radiusTitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        radiusTitleLabel.text = "Radius"
-        radiusTitleLabel.font = .preferredFont(forTextStyle: .footnote)
-        radiusTitleLabel.adjustsFontForContentSizeCategory = true
-        radiusTitleLabel.textColor = .secondaryLabel
-        radiusCard.translatesAutoresizingMaskIntoConstraints = false
-        radiusCard.backgroundColor = .secondarySystemGroupedBackground
-        radiusCard.layer.cornerRadius = 14
-        radiusCard.layer.cornerCurve = .continuous
-        radiusSlider.translatesAutoresizingMaskIntoConstraints = false
-        radiusSection.addSubview(radiusTitleLabel)
-        radiusSection.addSubview(radiusCard)
-        radiusCard.addSubview(radiusSlider)
+        tableView.register(
+            AppearanceBubbleRadiusCell.self,
+            forCellReuseIdentifier: AppearanceBubbleRadiusCell.reuseIdentifier
+        )
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 560
+        tableView.accessibilityIdentifier = "interface.bubbles.table"
+        view.addSubview(tableView)
         NSLayoutConstraint.activate([
-            radiusTitleLabel.leadingAnchor.constraint(equalTo: radiusSection.layoutMarginsGuide.leadingAnchor),
-            radiusTitleLabel.trailingAnchor.constraint(equalTo: radiusSection.layoutMarginsGuide.trailingAnchor),
-            radiusTitleLabel.topAnchor.constraint(equalTo: radiusSection.topAnchor),
-            radiusCard.leadingAnchor.constraint(equalTo: radiusSection.layoutMarginsGuide.leadingAnchor),
-            radiusCard.trailingAnchor.constraint(equalTo: radiusSection.layoutMarginsGuide.trailingAnchor),
-            radiusCard.topAnchor.constraint(equalTo: radiusTitleLabel.bottomAnchor, constant: 6),
-            radiusCard.bottomAnchor.constraint(equalTo: radiusSection.bottomAnchor),
-            radiusCard.heightAnchor.constraint(equalToConstant: 52),
-            radiusSlider.leadingAnchor.constraint(equalTo: radiusCard.leadingAnchor, constant: 16),
-            radiusSlider.trailingAnchor.constraint(equalTo: radiusCard.trailingAnchor, constant: -16),
-            radiusSlider.centerYAnchor.constraint(equalTo: radiusCard.centerYAnchor)
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
-        contentStack.addArrangedSubview(gallery)
-        contentStack.addArrangedSubview(radiusSection)
-        view.addSubview(scrollView)
-        scrollView.addSubview(contentStack)
-        NSLayoutConstraint.activate([
-            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-            contentStack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-            contentStack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
-            contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 12),
-            contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -12),
-            contentStack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor)
-        ])
-        radiusChanged()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(entitlementChanged),
             name: .premiumEntitlementDidChange,
             object: nil
         )
+        tableView.reloadData()
     }
 
     private func select(_ value: AppearanceBubbleStyle) {
         draft.profile.bubbleStyle = value
-        updateGallery()
+        tableView.reloadData()
         refreshSetButton()
     }
 
@@ -2633,43 +2589,167 @@ final class AppearanceBubbleViewController: AppearanceDraftViewController {
         super.setTapped()
     }
 
-    @objc private func radiusChanged() {
-        let value = min(max(Int(radiusSlider.value.rounded()), 0), 16)
-        radiusSlider.setValue(Float(value), animated: false)
-        radiusSlider.accessibilityValue = "\(value)"
+    private func radiusChanged(to rawValue: Int) {
+        let value = min(max(rawValue, 0), 16)
         draft.profile.bubbleRadius = value
-        if galleryConfigured {
-            updateGalleryRadius()
-        } else {
-            updateGallery()
-        }
+        galleryCell?.updateRadius(document: galleryDocument, traits: traitCollection)
+        tableView.beginUpdates()
+        tableView.endUpdates()
         refreshSetButton()
     }
 
     @objc private func entitlementChanged() {
-        updateGallery()
+        tableView.reloadData()
     }
 
-    private func updateGallery() {
+    private var galleryDocument: AppearanceSettingsDocument {
         var updated = document
         updated.profile = draft.profile
-        let lockedStyles: Set<AppearanceBubbleStyle> = policy.isEntitled
-            ? []
-            : Set(AppearanceBubbleStyle.premiumCases)
+        return updated
+    }
+}
+
+extension AppearanceBubbleViewController: UITableViewDataSource, UITableViewDelegate {
+    func numberOfSections(in tableView: UITableView) -> Int {
+        Section.allCases.count
+    }
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        1
+    }
+
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        Section(rawValue: section) == .radius ? "Radius" : nil
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        guard let section = Section(rawValue: indexPath.section) else {
+            return UITableViewCell()
+        }
+
+        switch section {
+        case .preview:
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: AppearanceBubbleGalleryCell.reuseIdentifier,
+                for: indexPath
+            ) as? AppearanceBubbleGalleryCell else {
+                return UITableViewCell()
+            }
+            let lockedStyles: Set<AppearanceBubbleStyle> = policy.isEntitled
+                ? []
+                : Set(AppearanceBubbleStyle.premiumCases)
+            cell.configure(
+                document: galleryDocument,
+                traits: traitCollection,
+                styles: policy.visibleBubbleStyles,
+                selectedStyle: draft.profile.bubbleStyle,
+                lockedStyles: lockedStyles,
+                onStyleSelected: { [weak self] style in
+                    self?.select(style)
+                }
+            )
+            galleryCell = cell
+            return cell
+        case .radius:
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: AppearanceBubbleRadiusCell.reuseIdentifier,
+                for: indexPath
+            ) as? AppearanceBubbleRadiusCell else {
+                return UITableViewCell()
+            }
+            cell.configure(radius: draft.profile.bubbleRadius) { [weak self] value in
+                self?.radiusChanged(to: value)
+            }
+            return cell
+        }
+    }
+}
+
+private final class AppearanceBubbleGalleryCell: UITableViewCell {
+    static let reuseIdentifier = "AppearanceBubbleGalleryCell"
+
+    private let gallery = AppearanceBubbleStyleGalleryView()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        gallery.translatesAutoresizingMaskIntoConstraints = false
+        gallery.layer.cornerRadius = 0
+        gallery.layer.maskedCorners = []
+        contentView.addSubview(gallery)
+        NSLayoutConstraint.activate([
+            gallery.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            gallery.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            gallery.topAnchor.constraint(equalTo: contentView.topAnchor),
+            gallery.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
+        accessibilityIdentifier = "interface.bubbles.previewSection"
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(
+        document: AppearanceSettingsDocument,
+        traits: UITraitCollection,
+        styles: [AppearanceBubbleStyle],
+        selectedStyle: AppearanceBubbleStyle,
+        lockedStyles: Set<AppearanceBubbleStyle>,
+        onStyleSelected: @escaping (AppearanceBubbleStyle) -> Void
+    ) {
+        gallery.onStyleSelected = onStyleSelected
         gallery.configure(
-            document: updated,
-            traits: traitCollection,
-            styles: policy.visibleBubbleStyles,
-            selectedStyle: draft.profile.bubbleStyle,
+            document: document,
+            traits: traits,
+            styles: styles,
+            selectedStyle: selectedStyle,
             lockedStyles: lockedStyles
         )
-        galleryConfigured = true
     }
 
-    private func updateGalleryRadius() {
-        var updated = document
-        updated.profile = draft.profile
-        gallery.updateRadius(document: updated, traits: traitCollection)
+    func updateRadius(document: AppearanceSettingsDocument, traits: UITraitCollection) {
+        gallery.updateRadius(document: document, traits: traits)
+    }
+}
+
+private final class AppearanceBubbleRadiusCell: UITableViewCell {
+    static let reuseIdentifier = "AppearanceBubbleRadiusCell"
+
+    private let slider = UISlider()
+    private var onRadiusChanged: ((Int) -> Void)?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        slider.translatesAutoresizingMaskIntoConstraints = false
+        slider.minimumValue = 0
+        slider.maximumValue = 16
+        slider.accessibilityIdentifier = "interface.bubbles.radius"
+        slider.accessibilityLabel = "Radius"
+        slider.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
+        contentView.addSubview(slider)
+        NSLayoutConstraint.activate([
+            slider.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            slider.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            slider.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
+            slider.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10)
+        ])
+        accessibilityIdentifier = "interface.bubbles.radiusSection"
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(radius: Int, onRadiusChanged: @escaping (Int) -> Void) {
+        let value = min(max(radius, 0), 16)
+        slider.setValue(Float(value), animated: false)
+        slider.accessibilityValue = "\(value)"
+        self.onRadiusChanged = onRadiusChanged
+    }
+
+    @objc private func sliderChanged() {
+        let value = min(max(Int(slider.value.rounded()), 0), 16)
+        slider.setValue(Float(value), animated: false)
+        slider.accessibilityValue = "\(value)"
+        onRadiusChanged?(value)
     }
 }
 
