@@ -237,7 +237,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         let base = AppearanceResolver.resolve(document: document, traitStyle: .light).layoutSignature
 
         let mutations: [(inout AppearanceProfile) -> Void] = [
-            { $0.textSize = .points22 },
+            { $0.textSize = .points21 },
             { $0.bubbleStyle = .curvy },
             { $0.bubbleRadius = 0 },
             { $0.avatarMask = .star },
@@ -302,6 +302,54 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertEqual(navigationController.viewControllers.count, 2)
         XCTAssertTrue(navigationController.topViewController is AppearanceDraftViewController)
         XCTAssertNil(navigationController.topViewController?.navigationItem.leftBarButtonItem)
+    }
+
+    @MainActor
+    func testTextSizeSliderUsesSystemAtCentreWithoutSeparateSwitch() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
+        let navigationController = UINavigationController(rootViewController: controller)
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+
+        controller.tableView(tableView, didSelectRowAt: IndexPath(row: 2, section: 1))
+
+        let editor = try XCTUnwrap(navigationController.topViewController as? AppearanceDraftViewController)
+        editor.loadViewIfNeeded()
+        editor.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        editor.view.setNeedsLayout()
+        editor.view.layoutIfNeeded()
+        let slider = try XCTUnwrap(
+            descendant(in: editor.view, accessibilityIdentifier: "interface.textSize.slider") as? UISlider
+        )
+
+        XCTAssertNil(descendant(in: editor.view, accessibilityIdentifier: "interface.textSize.system"))
+        XCTAssertEqual(slider.minimumValue, 0)
+        XCTAssertEqual(slider.maximumValue, 8)
+        XCTAssertEqual(slider.value, 4)
+
+        slider.setValue(0, animated: false)
+        slider.sendActions(for: .valueChanged)
+        XCTAssertEqual(editor.draft.profile.textSize, .points14)
+
+        slider.setValue(3, animated: false)
+        slider.sendActions(for: .valueChanged)
+        XCTAssertEqual(editor.draft.profile.textSize, .points17)
+
+        slider.setValue(4, animated: false)
+        slider.sendActions(for: .valueChanged)
+        XCTAssertEqual(editor.draft.profile.textSize, .system)
+
+        slider.setValue(6, animated: false)
+        slider.sendActions(for: .valueChanged)
+        XCTAssertEqual(editor.draft.profile.textSize, .points19)
+
+        slider.setValue(8, animated: false)
+        slider.sendActions(for: .valueChanged)
+        XCTAssertEqual(editor.draft.profile.textSize, .points21)
     }
 
     @MainActor
@@ -748,7 +796,7 @@ final class InterfaceAppearanceTests: XCTestCase {
     @MainActor
     func testOverviewPreviewMessageTypographyMatchesSelectedTextSize() throws {
         var profile = AppearanceProfile.default(accent: .systemBlue)
-        profile.textSize = .points22
+        profile.textSize = .points21
         let document = AppearanceSettingsDocument(profile: profile)
         let preview = AppearancePreviewView(frame: CGRect(x: 0, y: 0, width: 360, height: 300))
         preview.presentation = .interfaceOverview
@@ -775,7 +823,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         let expectedFont = AppearanceTypography.font(
             textStyle: .body,
-            appearanceSize: .points22
+            appearanceSize: .points21
         )
 
         XCTAssertEqual(renderedFont.fontName, expectedFont.fontName)
@@ -1559,7 +1607,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         document.profile.wallpaper = .builtIn(name: "Honeycomb")
         document.profile.bubbleStyle = .smooth
         document.profile.avatarMask = .octagon
-        document.profile.textSize = .points22
+        document.profile.textSize = .points21
         let gallery = AppearanceBubbleStyleGalleryView(frame: CGRect(x: 0, y: 0, width: 360, height: 680))
         gallery.configure(
             document: document,
@@ -1639,12 +1687,12 @@ final class InterfaceAppearanceTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(
                 cell.messageLabel.bounds.height,
                 ceil(messageFont.lineHeight * 2) - 1,
-                "\(style.displayName) sample must naturally occupy two visual lines at 22 pt"
+                "\(style.displayName) sample must naturally occupy two visual lines at 21 pt"
             )
             XCTAssertLessThanOrEqual(
                 cell.messageLabel.bounds.height,
                 ceil(messageFont.lineHeight * 2) + 1,
-                "\(style.displayName) sample must not wrap beyond two visual lines at 22 pt"
+                "\(style.displayName) sample must not wrap beyond two visual lines at 21 pt"
             )
         }
 
@@ -1881,7 +1929,7 @@ final class InterfaceAppearanceTests: XCTestCase {
     func testBubbleEditorUsesInsetGroupedTableWithPaddedGalleryAndRadiusSections() throws {
         var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         document.profile.wallpaper = .builtIn(name: "Honeycomb")
-        document.profile.textSize = .points22
+        document.profile.textSize = .points21
         let controller = AppearanceBubbleViewController(document: document)
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -2104,7 +2152,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         var paint = old
         paint.accentOverride = AppearanceColor(hex: "#FF5500")
         var layout = old
-        layout.textSize = .points22
+        layout.textSize = .points21
         var style = old
         style.interfaceStyle = .dark
 
@@ -2255,8 +2303,13 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertTrue(tileBackdrop.hasVisibleWallpaperImage)
     }
 
-    func testTypographyExposesSevenFixedStepsAndSystem() {
-        XCTAssertEqual(AppearanceTextSize.fixedCases.map(\.points), [14, 15, 16, 17, 18, 20, 22])
+    func testTypographyExposesEightFixedSliderStepsAndSystem() {
+        XCTAssertEqual(AppearanceTextSize.fixedCases.map(\.points), [14, 15, 16, 17, 18, 19, 20, 21])
+        XCTAssertEqual(
+            AppearanceTextSize.sliderCases.map(\.points),
+            [14, 15, 16, 17, nil, 18, 19, 20, 21] as [Int?]
+        )
+        XCTAssertEqual(Set(AppearanceTextSize.sliderCases), Set(AppearanceTextSize.allCases))
         XCTAssertNil(AppearanceTextSize.system.points)
     }
 
@@ -2282,7 +2335,7 @@ final class InterfaceAppearanceTests: XCTestCase {
             )
         )
 
-        document.profile.textSize = .points22
+        document.profile.textSize = .points21
         preview.configure(
             document: document,
             traits: .init(userInterfaceStyle: .light),

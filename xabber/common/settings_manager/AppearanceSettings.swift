@@ -84,11 +84,16 @@ enum AppearanceTextSize: String, Codable, CaseIterable {
     case points16
     case points17
     case points18
+    case points19
     case points20
-    case points22
+    case points21
 
     static let fixedCases: [AppearanceTextSize] = [
-        .points14, .points15, .points16, .points17, .points18, .points20, .points22
+        .points14, .points15, .points16, .points17, .points18, .points19, .points20, .points21
+    ]
+
+    static let sliderCases: [AppearanceTextSize] = [
+        .points14, .points15, .points16, .points17, .system, .points18, .points19, .points20, .points21
     ]
 
     var points: Int? {
@@ -99,8 +104,9 @@ enum AppearanceTextSize: String, Codable, CaseIterable {
         case .points16: return 16
         case .points17: return 17
         case .points18: return 18
+        case .points19: return 19
         case .points20: return 20
-        case .points22: return 22
+        case .points21: return 21
         }
     }
 

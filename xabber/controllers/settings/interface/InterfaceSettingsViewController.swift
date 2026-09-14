@@ -2419,7 +2419,6 @@ private final class AppearanceCustomAccentQuickColorButton: UIControl {
 }
 
 private final class AppearanceTextSizeViewController: AppearanceDraftViewController {
-    private let systemSwitch = UISwitch()
     private let slider = UISlider()
     private let sizeLabel = UILabel()
 
@@ -2439,26 +2438,12 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
     override func viewDidLoad() {
         super.viewDidLoad()
         preview.translatesAutoresizingMaskIntoConstraints = false
-        let switchLabel = UILabel()
-        switchLabel.text = "Use System Text Size"
-        switchLabel.font = .preferredFont(forTextStyle: .body)
-        switchLabel.adjustsFontForContentSizeCategory = true
-        systemSwitch.isOn = draft.profile.textSize == .system
-        systemSwitch.addTarget(self, action: #selector(systemChanged), for: .valueChanged)
-        systemSwitch.accessibilityIdentifier = "interface.textSize.system"
-        let switchRow = UIStackView(arrangedSubviews: [switchLabel, systemSwitch])
-        switchRow.axis = .horizontal
-        switchRow.alignment = .center
         sizeLabel.textAlignment = .center
         sizeLabel.textColor = .secondaryLabel
         slider.minimumValue = 0
-        slider.maximumValue = Float(AppearanceTextSize.fixedCases.count - 1)
+        slider.maximumValue = Float(AppearanceTextSize.sliderCases.count - 1)
         slider.isContinuous = true
-        if let index = AppearanceTextSize.fixedCases.firstIndex(of: draft.profile.textSize) {
-            slider.value = Float(index)
-        } else {
-            slider.value = 3
-        }
+        slider.value = Float(sliderIndex(for: draft.profile.textSize))
         slider.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
         slider.accessibilityIdentifier = "interface.textSize.slider"
         let small = UILabel()
@@ -2471,7 +2456,7 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
         sliderRow.axis = .horizontal
         sliderRow.spacing = 12
         sliderRow.alignment = .center
-        let stack = UIStackView(arrangedSubviews: [preview, switchRow, sizeLabel, sliderRow])
+        let stack = UIStackView(arrangedSubviews: [preview, sizeLabel, sliderRow])
         stack.axis = .vertical
         stack.spacing = 18
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -2486,21 +2471,22 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
         updatePreview()
     }
 
-    @objc private func systemChanged() {
-        draft.profile.textSize = systemSwitch.isOn ? .system : AppearanceTextSize.fixedCases[Int(slider.value.rounded())]
-        refreshControls()
-        updateTypographyPreview()
-    }
-
     @objc private func sliderChanged() {
-        let index = min(max(Int(slider.value.rounded()), 0), AppearanceTextSize.fixedCases.count - 1)
+        let index = min(max(Int(slider.value.rounded()), 0), AppearanceTextSize.sliderCases.count - 1)
         slider.setValue(Float(index), animated: false)
-        let selectedSize = AppearanceTextSize.fixedCases[index]
-        if !systemSwitch.isOn, draft.profile.textSize != selectedSize {
+        let selectedSize = AppearanceTextSize.sliderCases[index]
+        if draft.profile.textSize != selectedSize {
             draft.profile.textSize = selectedSize
             updateTypographyPreview()
         }
         refreshControls()
+    }
+
+    private func sliderIndex(for textSize: AppearanceTextSize) -> Int {
+        guard let index = AppearanceTextSize.sliderCases.firstIndex(of: textSize) else {
+            preconditionFailure("Every text size must have a slider position")
+        }
+        return index
     }
 
     private func updateTypographyPreview() {
@@ -2516,8 +2502,8 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
     }
 
     private func refreshControls() {
-        slider.isEnabled = !systemSwitch.isOn
-        sizeLabel.text = systemSwitch.isOn ? "System" : AppearanceTextSize.fixedCases[Int(slider.value.rounded())].displayName
+        let index = min(max(Int(slider.value.rounded()), 0), AppearanceTextSize.sliderCases.count - 1)
+        sizeLabel.text = AppearanceTextSize.sliderCases[index].displayName
     }
 }
 
