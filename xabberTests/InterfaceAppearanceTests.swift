@@ -1754,7 +1754,7 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testBubbleEditorUsesInsetGroupedTableWithGalleryAndRadiusSections() throws {
+    func testBubbleEditorUsesInsetGroupedTableWithPaddedGalleryAndRadiusSections() throws {
         var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         document.profile.wallpaper = .builtIn(name: "Honeycomb")
         let controller = AppearanceBubbleViewController(document: document)
@@ -1787,6 +1787,18 @@ final class InterfaceAppearanceTests: XCTestCase {
                 accessibilityIdentifier: "interface.bubbles.radiusSection"
             )
         )
+        let firstBubble = try XCTUnwrap(
+            descendant(
+                in: gallery,
+                accessibilityIdentifier: "interface.bubble.noTail"
+            ) as? UIControl
+        )
+        let lastBubble = try XCTUnwrap(
+            descendant(
+                in: gallery,
+                accessibilityIdentifier: "interface.bubble.wedge"
+            ) as? UIControl
+        )
 
         XCTAssertEqual(tableView.style, .insetGrouped)
         XCTAssertTrue(galleryBackdrop.hasVisibleWallpaperImage)
@@ -1800,6 +1812,10 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertGreaterThan(galleryFrame.minX, controller.view.bounds.minX)
         XCTAssertLessThan(galleryFrame.maxX, controller.view.bounds.maxX)
         XCTAssertEqual(gallery.layer.cornerRadius, 0, accuracy: 0.01)
+        let firstBubbleFrame = firstBubble.convert(firstBubble.bounds, to: gallery)
+        let lastBubbleFrame = lastBubble.convert(lastBubble.bounds, to: gallery)
+        XCTAssertGreaterThanOrEqual(firstBubbleFrame.minY, 16)
+        XCTAssertLessThanOrEqual(lastBubbleFrame.maxY, gallery.bounds.maxY - 16)
         XCTAssertGreaterThan(radiusSectionFrame.minX, controller.view.bounds.minX)
         XCTAssertLessThan(radiusSectionFrame.maxX, controller.view.bounds.maxX)
         XCTAssertGreaterThan(radiusSectionFrame.minY, galleryFrame.maxY)

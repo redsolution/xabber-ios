@@ -2759,7 +2759,8 @@ private final class AppearanceBubbleRadiusCell: UITableViewCell {
 final class AppearanceBubbleStyleGalleryView: UIView {
     private enum Metrics {
         static let messageSpacing: CGFloat = 8
-        static let verticalInset: CGFloat = 0
+        static let verticalInset: CGFloat = 16
+        static let provisionalHeightAllowance: CGFloat = 16
         static let horizontalInset: CGFloat = 0
     }
 
@@ -2873,6 +2874,7 @@ final class AppearanceBubbleStyleGalleryView: UIView {
         minimumHeight = CGFloat(styles.count) * 64
             + CGFloat(max(styles.count - 1, 0)) * Metrics.messageSpacing
             + Metrics.verticalInset * 2
+            + Metrics.provisionalHeightAllowance
         rowsContainerHeightConstraint.constant = max(0, minimumHeight - Metrics.verticalInset * 2)
         invalidateIntrinsicContentSize()
     }
