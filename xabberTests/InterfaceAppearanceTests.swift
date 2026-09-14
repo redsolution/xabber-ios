@@ -1532,6 +1532,12 @@ final class InterfaceAppearanceTests: XCTestCase {
                 accessibilityIdentifier: "interface.themeEditor.preview.background"
             ) as? ChatBackgroundBackdropView
         )
+        let date = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.themeEditor.preview.date"
+            ) as? UILabel
+        )
         let textCells = try (0..<3).map { index in
             try XCTUnwrap(
                 descendant(
@@ -1546,12 +1552,6 @@ final class InterfaceAppearanceTests: XCTestCase {
                 accessibilityIdentifier: "interface.themePreview.chat.message.editor.voice"
             ) as? TextMessageCell
         )
-        let image = try XCTUnwrap(
-            descendant(
-                in: preview,
-                accessibilityIdentifier: "interface.themePreview.chat.message.editor.image"
-            ) as? TextMessageCell
-        )
         let wallpaperButton = try XCTUnwrap(
             descendant(
                 in: controller.view,
@@ -1562,6 +1562,9 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertEqual(online.textColor, theme.lightPalette.accent.uiColor)
         XCTAssertTrue(wallpaper.hasVisibleWallpaperImage)
         XCTAssertEqual(wallpaper.representedWallpaper, theme.wallpaper)
+        XCTAssertEqual(date.backgroundColor, UIColor.black.withAlphaComponent(0.2))
+        XCTAssertNotEqual(date.backgroundColor, theme.lightPalette.accent.uiColor)
+        XCTAssertNil(firstSubview(of: UIScrollView.self, in: preview))
         XCTAssertEqual(textCells.count, 3)
         XCTAssertEqual(
             textCells[0].messageContainerView.bubble.backgroundColor,
@@ -1578,8 +1581,24 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertEqual(ownBlue, 1, accuracy: 0.001)
         XCTAssertEqual(ownAlpha, 1, accuracy: 0.001)
         XCTAssertEqual(voice.audiosView.views.count, 1)
-        XCTAssertEqual(image.imagesView.views.count, 1)
-        XCTAssertEqual(image.imagesView.views.first?.thumbnailPresentationState, .ready)
+        let voiceView = try XCTUnwrap(voice.audiosView.views.first)
+        XCTAssertEqual(voiceView.iconButton.backgroundColor, theme.lightPalette.accent.uiColor)
+        XCTAssertEqual(voiceView.waveform.gradientStartColor, theme.lightPalette.accent.uiColor)
+        XCTAssertEqual(voiceView.waveform.gradientEndColor, theme.lightPalette.accent.uiColor)
+        XCTAssertEqual(
+            voiceView.waveform.barBackgroundFillColor,
+            theme.lightPalette.accent.uiColor.withAlphaComponent(0.24)
+        )
+        XCTAssertEqual(
+            voiceView.durationLabel.textColor,
+            theme.lightPalette.accent.uiColor.withAlphaComponent(0.86)
+        )
+        XCTAssertNil(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.themePreview.chat.message.editor.image"
+            )
+        )
         XCTAssertEqual(wallpaperButton.configuration?.title, "Choose Wallpaper")
 
         let firstTextContainer = textCells[0].messageContainerView.convert(
@@ -1597,6 +1616,8 @@ final class InterfaceAppearanceTests: XCTestCase {
             8,
             accuracy: 0.5
         )
+        let voiceFrame = voice.convert(voice.bounds, to: preview)
+        XCTAssertLessThanOrEqual(voiceFrame.maxY, preview.bounds.maxY - 8 + 0.5)
 
         var selectedWallpaper: AppearanceWallpaper?
         let wallpaperPicker = AppearanceThemeWallpaperPickerViewController(

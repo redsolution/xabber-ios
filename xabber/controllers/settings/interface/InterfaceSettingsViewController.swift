@@ -1635,7 +1635,7 @@ private struct AppearancePreviewMessage: MessageType {
     let isHasAttachedMessages: Bool
     let afterburnInterval: Double = 0
     let tailed = true
-    let images: [ImageAttachment]
+    let images: [ImageAttachment] = []
     let videos: [VideoAttachment] = []
     let locations: [LocationAttachment] = []
     let contacts: [ContactAttachment] = []
@@ -1656,7 +1656,6 @@ private struct AppearancePreviewMessage: MessageType {
         reservesAvatarSpace: Bool = false,
         forwards: [MessageAttachment] = [],
         audios: [AudioAttachment] = [],
-        images: [ImageAttachment] = [],
         status: AppearancePreviewStatus? = nil
     ) {
         primary = "appearance-preview-\(identifier ?? (outgoing ? "outgoing" : "incoming"))"
@@ -1666,8 +1665,7 @@ private struct AppearancePreviewMessage: MessageType {
         withAvatar = reservesAvatarSpace
         self.forwards = forwards
         self.audios = audios
-        self.images = images
-        isHasAttachedMessages = forwards.isNotEmpty || audios.isNotEmpty || images.isNotEmpty
+        isHasAttachedMessages = forwards.isNotEmpty || audios.isNotEmpty
         let resolvedStatus = status ?? (outgoing ? .delivery : .none)
         indicator = resolvedStatus.indicator
         let textColor = outgoing
@@ -1695,86 +1693,6 @@ private struct AppearancePreviewMessage: MessageType {
     }
 }
 
-/// A deterministic local thumbnail source keeps the editor's photo fixture
-/// independent from the network/media cache while using the production inline
-/// image view and its normal layout path.
-private final class AppearancePreviewThumbnailSubscription: ChatThumbnailSubscription {
-    func cancel() {}
-}
-
-private final class AppearancePreviewThumbnailPipeline: ChatThumbnailServing {
-    static let shared = AppearancePreviewThumbnailPipeline()
-
-    private let previewImage: UIImage = {
-        let size = CGSize(width: 720, height: 520)
-        return UIGraphicsImageRenderer(size: size).image { rendererContext in
-            let context = rendererContext.cgContext
-            let background = CGGradient(
-                colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                colors: [
-                    UIColor(red: 0.18, green: 0.49, blue: 0.67, alpha: 1).cgColor,
-                    UIColor(red: 0.77, green: 0.91, blue: 0.84, alpha: 1).cgColor
-                ] as CFArray,
-                locations: [0, 1]
-            )!
-            context.drawLinearGradient(
-                background,
-                start: CGPoint(x: 0, y: 0),
-                end: CGPoint(x: size.width, y: size.height),
-                options: []
-            )
-
-            UIColor.white.withAlphaComponent(0.86).setFill()
-            UIBezierPath(
-                ovalIn: CGRect(x: 468, y: 62, width: 116, height: 116)
-            ).fill()
-
-            UIColor(red: 0.12, green: 0.33, blue: 0.35, alpha: 0.78).setFill()
-            let horizon = UIBezierPath()
-            horizon.move(to: CGPoint(x: 0, y: 324))
-            horizon.addCurve(
-                to: CGPoint(x: size.width, y: 280),
-                controlPoint1: CGPoint(x: 190, y: 250),
-                controlPoint2: CGPoint(x: 498, y: 370)
-            )
-            horizon.addLine(to: CGPoint(x: size.width, y: size.height))
-            horizon.addLine(to: CGPoint(x: 0, y: size.height))
-            horizon.close()
-            horizon.fill()
-
-            UIColor.white.withAlphaComponent(0.72).setStroke()
-            let path = UIBezierPath()
-            path.lineWidth = 8
-            path.lineCapStyle = .round
-            path.move(to: CGPoint(x: 90, y: 388))
-            path.addCurve(
-                to: CGPoint(x: 560, y: 332),
-                controlPoint1: CGPoint(x: 220, y: 298),
-                controlPoint2: CGPoint(x: 420, y: 454)
-            )
-            path.stroke()
-        }
-    }()
-
-    @discardableResult
-    func acquire(
-        _ request: ChatThumbnailRequest,
-        consumer: ChatThumbnailConsumer,
-        completion: ((Result<ChatThumbnailDelivery, ChatThumbnailPipelineError>) -> Void)?
-    ) -> ChatThumbnailSubscription {
-        completion?(
-            .success(
-                ChatThumbnailDelivery(
-                    image: previewImage,
-                    pixelSize: request.pixelSize,
-                    source: .loader
-                )
-            )
-        )
-        return AppearancePreviewThumbnailSubscription()
-    }
-}
-
 /// Hosts the production text-message cell and production layout calculator,
 /// so the settings preview cannot drift from real chat bubble geometry.
 private final class AppearanceChatMessagePreviewHostView: UIView {
@@ -1786,7 +1704,6 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         let reservesAvatarSpace: Bool
         let forwards: [MessageAttachment]
         let audios: [AudioAttachment]
-        let images: [ImageAttachment]
         let status: AppearancePreviewStatus
         let premiumLockAccessibilityIdentifier: String?
     }
@@ -1807,7 +1724,6 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         premiumLockView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
         premiumLockView.isHidden = true
         premiumLockView.isAccessibilityElement = true
-        messageCell.imagesView.thumbnailPipeline = AppearancePreviewThumbnailPipeline.shared
         addSubview(messageCell)
         messageCell.timeMarker.addSubview(premiumLockView)
         measuredHeightConstraint = heightAnchor.constraint(equalToConstant: 1)
@@ -1825,7 +1741,6 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         reservesAvatarSpace: Bool = false,
         forwards: [MessageAttachment] = [],
         audios: [AudioAttachment] = [],
-        images: [ImageAttachment] = [],
         status: AppearancePreviewStatus? = nil,
         premiumLockAccessibilityIdentifier: String? = nil
     ) {
@@ -1837,7 +1752,6 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
             reservesAvatarSpace: reservesAvatarSpace,
             forwards: forwards,
             audios: audios,
-            images: images,
             status: status ?? (outgoing ? .delivery : .none),
             premiumLockAccessibilityIdentifier: premiumLockAccessibilityIdentifier
         )
@@ -1893,7 +1807,6 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
             reservesAvatarSpace: configuration.reservesAvatarSpace,
             forwards: configuration.forwards,
             audios: configuration.audios,
-            images: configuration.images,
             status: configuration.status
         )
         self.message = message
@@ -1911,6 +1824,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         }
         messageCell.messageContainerView.appearancePaletteOverride = snapshot.palette
         messageCell.configureForAppearancePreview(with: message)
+        applyAccentToAudioPreview(snapshot.accent.uiColor)
         let showsPremiumLock = configuration.status == .premiumLock
         messageCell.timeMarker.indicatorView.isHidden = showsPremiumLock
         premiumLockView.isHidden = !showsPremiumLock
@@ -1920,6 +1834,18 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         premiumLockView.accessibilityLabel = showsPremiumLock ? "Premium" : nil
         if bounds.width > 0 {
             updateLayoutWidth(bounds.width)
+        }
+    }
+
+    /// Inline audio normally inherits its account palette. Appearance previews
+    /// have no account context, so use the edited theme Accent explicitly.
+    private func applyAccentToAudioPreview(_ accent: UIColor) {
+        messageCell.audiosView.views.forEach { audioView in
+            audioView.iconButton.backgroundColor = accent
+            audioView.waveform.gradientStartColor = accent
+            audioView.waveform.gradientEndColor = accent
+            audioView.waveform.barBackgroundFillColor = accent.withAlphaComponent(0.24)
+            audioView.durationLabel.textColor = accent.withAlphaComponent(0.86)
         }
     }
 
@@ -3933,52 +3859,70 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
         isEditorPreview = editorPreview
         super.init(frame: .zero)
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.showsVerticalScrollIndicator = false
-        scrollView.alwaysBounceVertical = true
-        scrollView.contentInsetAdjustmentBehavior = .never
-        scrollView.contentInset = editorPreview
-            ? .zero
-            : UIEdgeInsets(top: baseTopContentInset, left: 0, bottom: 112, right: 0)
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.axis = .vertical
         contentStack.spacing = 0
         addSubview(backgroundView)
-        addSubview(scrollView)
-        scrollView.addSubview(contentStack)
         if editorPreview {
+            addSubview(contentStack)
             addSubview(navigationPreview)
             layer.cornerRadius = 22
             layer.cornerCurve = .continuous
             clipsToBounds = true
             accessibilityIdentifier = "interface.themeEditor.preview"
             backgroundView.accessibilityIdentifier = "interface.themeEditor.preview.background"
+        } else {
+            scrollView.translatesAutoresizingMaskIntoConstraints = false
+            scrollView.showsVerticalScrollIndicator = false
+            scrollView.alwaysBounceVertical = true
+            scrollView.contentInsetAdjustmentBehavior = .never
+            scrollView.contentInset = UIEdgeInsets(
+                top: baseTopContentInset,
+                left: 0,
+                bottom: 112,
+                right: 0
+            )
+            addSubview(scrollView)
+            scrollView.addSubview(contentStack)
         }
 
-        let horizontalInset: CGFloat = editorPreview ? 0 : 8
         var constraints = [
             backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
             backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
             backgroundView.topAnchor.constraint(equalTo: topAnchor),
-            backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            contentStack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: horizontalInset),
-            contentStack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -horizontalInset),
-            contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
-            contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-            contentStack.widthAnchor.constraint(
-                equalTo: scrollView.frameLayoutGuide.widthAnchor,
-                constant: -2 * horizontalInset
-            )
+            backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ]
         if editorPreview {
             constraints += [
                 navigationPreview.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
                 navigationPreview.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-                navigationPreview.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 8)
+                navigationPreview.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 8),
+                contentStack.leadingAnchor.constraint(equalTo: leadingAnchor),
+                contentStack.trailingAnchor.constraint(equalTo: trailingAnchor),
+                contentStack.topAnchor.constraint(equalTo: navigationPreview.bottomAnchor, constant: 8),
+                contentStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8)
+            ]
+        } else {
+            let horizontalInset: CGFloat = 8
+            constraints += [
+                scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                scrollView.topAnchor.constraint(equalTo: topAnchor),
+                scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+                contentStack.leadingAnchor.constraint(
+                    equalTo: scrollView.contentLayoutGuide.leadingAnchor,
+                    constant: horizontalInset
+                ),
+                contentStack.trailingAnchor.constraint(
+                    equalTo: scrollView.contentLayoutGuide.trailingAnchor,
+                    constant: -horizontalInset
+                ),
+                contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+                contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+                contentStack.widthAnchor.constraint(
+                    equalTo: scrollView.frameLayoutGuide.widthAnchor,
+                    constant: -2 * horizontalInset
+                )
             ]
         }
         NSLayoutConstraint.activate(constraints)
@@ -3989,19 +3933,7 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if isEditorPreview {
-            let navigationVisualHeight = safeAreaInsets.top + 60
-            let insets = ChatFloatingHeaderLayoutPolicy.collectionInsets(
-                composerHeight: 0,
-                navigationVisualHeight: navigationVisualHeight,
-                floatingBubblesHeight: 0
-            )
-            if abs(scrollView.contentInset.top - insets.top) > 0.5 ||
-                abs(scrollView.contentInset.bottom - insets.bottom) > 0.5 {
-                scrollView.contentInset = insets
-                scrollView.verticalScrollIndicatorInsets = insets
-            }
-        } else {
+        if !isEditorPreview {
             let topInset = safeAreaInsets.top + baseTopContentInset
             if abs(scrollView.contentInset.top - topInset) > 0.5 {
                 scrollView.contentInset.top = topInset
@@ -4068,19 +4000,6 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
             outgoing: true,
             snapshot: snapshot,
             audios: [voice]
-        )
-
-        let photo = ImageAttachment(
-            primary: "appearance-preview-editor-photo",
-            url: URL(string: "appearance-preview://theme-editor-photo"),
-            size: CGSize(width: 720, height: 520)
-        )
-        addMessage(
-            id: "editor.image",
-            text: "",
-            outgoing: false,
-            snapshot: snapshot,
-            images: [photo]
         )
     }
 
@@ -4172,8 +4091,7 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
         outgoing: Bool,
         snapshot: ResolvedAppearanceSnapshot,
         forwards: [MessageAttachment] = [],
-        audios: [AudioAttachment] = [],
-        images: [ImageAttachment] = []
+        audios: [AudioAttachment] = []
     ) {
         let host = AppearanceChatMessagePreviewHostView()
         host.configure(
@@ -4182,8 +4100,7 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
             snapshot: snapshot,
             identifier: id,
             forwards: forwards,
-            audios: audios,
-            images: images
+            audios: audios
         )
         messageHosts.append(host)
         contentStack.addArrangedSubview(host)
@@ -4204,7 +4121,7 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
             appearanceSize: snapshot.profile.textSize,
             weight: .semibold
         )
-        label.backgroundColor = snapshot.accent.uiColor.withAlphaComponent(0.78)
+        label.backgroundColor = UIColor.black.withAlphaComponent(0.2)
         label.layer.cornerRadius = 14
         label.layer.cornerCurve = .continuous
         label.clipsToBounds = true
