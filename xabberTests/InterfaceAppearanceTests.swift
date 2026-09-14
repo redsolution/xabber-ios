@@ -1754,7 +1754,7 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testBubbleEditorRendersWallpaperAcrossThePageAndLeavesGalleryTransparent() throws {
+    func testBubbleEditorRendersWallpaperInsideAnEdgeToEdgeGalleryPreviewSection() throws {
         var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         document.profile.wallpaper = .builtIn(name: "Honeycomb")
         let controller = AppearanceBubbleViewController(document: document)
@@ -1763,24 +1763,44 @@ final class InterfaceAppearanceTests: XCTestCase {
         controller.view.setNeedsLayout()
         controller.view.layoutIfNeeded()
 
-        let pageBackdrop = try XCTUnwrap(
-            descendant(
-                in: controller.view,
-                accessibilityIdentifier: "interface.bubbles.pageBackground"
-            ) as? ChatBackgroundBackdropView
-        )
         let galleryBackdrop = try XCTUnwrap(
             descendant(
                 in: controller.view,
                 accessibilityIdentifier: "interface.bubbles.background"
             ) as? ChatBackgroundBackdropView
         )
+        let gallery = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.bubbles.gallery"
+            ) as? AppearanceBubbleStyleGalleryView
+        )
+        let radiusSection = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.bubbles.radiusSection"
+            )
+        )
 
-        XCTAssertTrue(pageBackdrop.hasVisibleWallpaperImage)
-        XCTAssertTrue(galleryBackdrop.isHidden)
+        XCTAssertNil(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.bubbles.pageBackground"
+            )
+        )
+        XCTAssertTrue(galleryBackdrop.hasVisibleWallpaperImage)
+        XCTAssertFalse(galleryBackdrop.isHidden)
         XCTAssertEqual(
-            pageBackdrop.convert(pageBackdrop.bounds, to: controller.view),
-            controller.view.bounds
+            galleryBackdrop.convert(galleryBackdrop.bounds, to: controller.view),
+            gallery.convert(gallery.bounds, to: controller.view)
+        )
+        XCTAssertEqual(gallery.frame.minX, controller.view.bounds.minX, accuracy: 0.5)
+        XCTAssertEqual(gallery.frame.maxX, controller.view.bounds.maxX, accuracy: 0.5)
+        XCTAssertEqual(gallery.layer.cornerRadius, 0, accuracy: 0.01)
+        XCTAssertEqual(radiusSection.frame.minY, gallery.frame.maxY + 18, accuracy: 0.5)
+        XCTAssertEqual(
+            controller.view.backgroundColor?.resolvedColor(with: .init(userInterfaceStyle: .light)),
+            .systemGroupedBackground.resolvedColor(with: .init(userInterfaceStyle: .light))
         )
     }
 
