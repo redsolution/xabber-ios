@@ -1554,7 +1554,7 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testBubbleGalleryUsesChatMessageInsetsWithoutAvatarsAndKeepsPremiumStatusLockStableAcrossRadiusChanges() throws {
+    func testBubbleGalleryUsesFullChatMessageLayoutCanvasWithoutAvatarsAndKeepsPremiumStatusLockStableAcrossRadiusChanges() throws {
         var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         document.profile.wallpaper = .builtIn(name: "Honeycomb")
         document.profile.bubbleStyle = .smooth
@@ -1579,14 +1579,14 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         XCTAssertTrue(backdrop.hasVisibleWallpaperImage)
         let expectedSampleTexts: [AppearanceBubbleStyle: String] = [
-            .noTail: "Can we meet after\nlunch today?",
-            .smooth: "The train leaves in\ntwenty minutes.",
-            .bubble: "I'll send the photo\nwhen I get home.",
-            .bubbles: "The coffee place\nopens at eight.",
-            .curvy: "We can talk again\ntomorrow morning.",
-            .stripes: "I saved the address\nin the notes.",
-            .transparent: "Let me know when\nyou arrive.",
-            .wedge: "That works for me,\nthanks."
+            .noTail: "Can we meet after lunch today?",
+            .smooth: "The train leaves in twenty minutes.",
+            .bubble: "I'll send the photo when I get home.",
+            .bubbles: "The coffee place opens at eight.",
+            .curvy: "We can talk again tomorrow morning.",
+            .stripes: "I saved the address in the notes.",
+            .transparent: "Let me know when you arrive home.",
+            .wedge: "That works for me, thanks for checking."
         ]
 
         for style in AppearanceBubbleStyle.allCases {
@@ -1626,11 +1626,20 @@ final class InterfaceAppearanceTests: XCTestCase {
                 messageText.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
             )
             XCTAssertEqual(messageText.string, try XCTUnwrap(expectedSampleTexts[style]))
-            XCTAssertEqual(messageText.string.components(separatedBy: "\n").count, 2)
+            XCTAssertFalse(
+                messageText.string.contains("\n"),
+                "\(style.displayName) must naturally wrap rather than forcing a line break"
+            )
+            XCTAssertEqual(
+                cell.bounds.width,
+                gallery.bounds.width,
+                accuracy: 0.5,
+                "\(style.displayName) must be measured on the full ChatViewController-width canvas"
+            )
             XCTAssertGreaterThanOrEqual(
                 cell.messageLabel.bounds.height,
                 ceil(messageFont.lineHeight * 2) - 1,
-                "\(style.displayName) sample must occupy two visual lines at 22 pt"
+                "\(style.displayName) sample must naturally occupy two visual lines at 22 pt"
             )
             XCTAssertLessThanOrEqual(
                 cell.messageLabel.bounds.height,
@@ -1753,6 +1762,42 @@ final class InterfaceAppearanceTests: XCTestCase {
         gallery.layoutIfNeeded()
         let cellAfterRadiusChange = try XCTUnwrap(firstSubview(of: TextMessageCell.self, in: selectedCellHost))
         XCTAssertTrue(cellBeforeRadiusChange === cellAfterRadiusChange)
+    }
+
+    @MainActor
+    func testBubbleGalleryDoesNotAddAFixedRowHeightToTheProductionMessageLayout() throws {
+        var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        document.profile.textSize = .points14
+        let gallery = AppearanceBubbleStyleGalleryView(frame: CGRect(x: 0, y: 0, width: 360, height: 680))
+        gallery.configure(
+            document: document,
+            traits: .init(userInterfaceStyle: .light),
+            styles: AppearanceBubbleStyle.allCases,
+            selectedStyle: .smooth,
+            lockedStyles: []
+        )
+        gallery.setNeedsLayout()
+        gallery.layoutIfNeeded()
+
+        let host = try XCTUnwrap(
+            descendant(
+                in: gallery,
+                accessibilityIdentifier: "interface.bubble.message.\(AppearanceBubbleStyle.noTail.rawValue)"
+            )
+        )
+        let cell = try XCTUnwrap(firstSubview(of: TextMessageCell.self, in: host))
+
+        XCTAssertLessThan(
+            cell.bounds.height,
+            64,
+            "The compact production message establishes the regression fixture"
+        )
+        XCTAssertEqual(
+            host.bounds.height,
+            cell.bounds.height,
+            accuracy: 0.5,
+            "The gallery host must use the production cell's measured height without a fixed row minimum"
+        )
     }
 
     @MainActor

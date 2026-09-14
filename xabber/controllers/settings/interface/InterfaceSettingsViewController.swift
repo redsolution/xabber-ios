@@ -2970,14 +2970,14 @@ final class AppearanceBubbleStyleGalleryView: UIView {
 
     private static func sampleText(for style: AppearanceBubbleStyle) -> String {
         switch style {
-        case .noTail: return "Can we meet after\nlunch today?"
-        case .smooth: return "The train leaves in\ntwenty minutes."
-        case .bubble: return "I'll send the photo\nwhen I get home."
-        case .bubbles: return "The coffee place\nopens at eight."
-        case .curvy: return "We can talk again\ntomorrow morning."
-        case .stripes: return "I saved the address\nin the notes."
-        case .transparent: return "Let me know when\nyou arrive."
-        case .wedge: return "That works for me,\nthanks."
+        case .noTail: return "Can we meet after lunch today?"
+        case .smooth: return "The train leaves in twenty minutes."
+        case .bubble: return "I'll send the photo when I get home."
+        case .bubbles: return "The coffee place opens at eight."
+        case .curvy: return "We can talk again tomorrow morning."
+        case .stripes: return "I saved the address in the notes."
+        case .transparent: return "Let me know when you arrive home."
+        case .wedge: return "That works for me, thanks for checking."
         }
     }
 }
@@ -2986,7 +2986,6 @@ private final class AppearanceBubbleStyleRow: UIControl {
     private enum Metrics {
         static let selectionLeading: CGFloat = 4
         static let selectionWidth: CGFloat = 26
-        static let selectionToMessageSpacing: CGFloat = 8
         static let verticalInset: CGFloat = 0
     }
 
@@ -3003,19 +3002,18 @@ private final class AppearanceBubbleStyleRow: UIControl {
         selectionIndicator.translatesAutoresizingMaskIntoConstraints = false
         messageHost.translatesAutoresizingMaskIntoConstraints = false
         messageHost.isUserInteractionEnabled = false
-        addSubview(selectionIndicator)
         addSubview(messageHost)
+        addSubview(selectionIndicator)
         selectionCenterYConstraint = selectionIndicator.centerYAnchor.constraint(
             equalTo: messageHost.topAnchor,
             constant: 32
         )
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 64),
             selectionIndicator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.selectionLeading),
             selectionCenterYConstraint,
             selectionIndicator.widthAnchor.constraint(equalToConstant: Metrics.selectionWidth),
             selectionIndicator.heightAnchor.constraint(equalTo: selectionIndicator.widthAnchor),
-            messageHost.leadingAnchor.constraint(equalTo: selectionIndicator.trailingAnchor, constant: Metrics.selectionToMessageSpacing),
+            messageHost.leadingAnchor.constraint(equalTo: leadingAnchor),
             messageHost.trailingAnchor.constraint(equalTo: trailingAnchor),
             messageHost.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.verticalInset),
             messageHost.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Metrics.verticalInset)
@@ -3041,17 +3039,7 @@ private final class AppearanceBubbleStyleRow: UIControl {
     }
 
     func fittingHeight(for width: CGFloat) -> CGFloat {
-        let messageWidth = max(
-            1,
-            width
-                - Metrics.selectionLeading
-                - Metrics.selectionWidth
-                - Metrics.selectionToMessageSpacing
-        )
-        return max(
-            64,
-            messageHost.fittingHeight(for: messageWidth) + Metrics.verticalInset * 2
-        )
+        messageHost.fittingHeight(for: max(1, width)) + Metrics.verticalInset * 2
     }
 
     var messageContainerFrame: CGRect {
