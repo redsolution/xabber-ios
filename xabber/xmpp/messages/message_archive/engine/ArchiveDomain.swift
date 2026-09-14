@@ -173,6 +173,27 @@ struct ArchiveIntentDescriptor: Hashable, Codable, Sendable {
     let contextAfter: Int
 }
 
+/// Allocates archive connection generations from one process-wide namespace.
+/// A randomized high process seed prevents the former account-local sequence
+/// (`session:1`, `session:2`, ...) from being replayed after reconstruction and
+/// makes a cross-launch collision negligibly likely. The locked counter also
+/// prevents reuse between Account instances in the same process.
+enum ArchiveConnectionGenerationAllocator {
+    private static let lock = NSLock()
+    private static let minimumGeneration = UInt64(1) << 32
+    private static var nextGeneration = UInt64.random(
+        in: minimumGeneration...(UInt64.max >> 1)
+    )
+
+    static func take() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        let generation = nextGeneration
+        nextGeneration += 1
+        return generation
+    }
+}
+
 enum ArchiveFreshnessToken: Hashable, Codable, Sendable {
     case sessionMAM(connectionGeneration: UInt64, queryID: String)
 
@@ -182,8 +203,9 @@ enum ArchiveFreshnessToken: Hashable, Codable, Sendable {
             // Query identity remains part of the token so stale terminal
             // receipts can be rejected, while coverage from multiple pages
             // in one authenticated session can still merge. The generation
-            // changes on every reconnect, so this proof is never reusable by
-            // a later session.
+            // is allocated process-wide and changes on every reconnect. Its
+            // randomized high launch seed makes reuse across processes
+            // negligibly likely and cannot reproduce the legacy `session:1`.
             return "session:\(generation)"
         }
     }

@@ -722,6 +722,132 @@ final class ArchiveCoverageRepositoryTests: XCTestCase {
         XCTAssertNil(snapshot)
     }
 
+    func testLatestAdmissionRejectsStaleLiveEdgeWhenNewerDurableMAMRowExists() async throws {
+        try persistMessage(primary: "p10", archivedID: "10")
+        try persistMessage(primary: "p20", archivedID: "20")
+        let repository = makeRepository()
+        let request = makeRequest(queryID: "q-live-edge-before-detach")
+        let freshnessToken = ArchiveFreshnessToken.sessionMAM(
+            connectionGeneration: request.connectionGeneration,
+            queryID: request.queryID
+        )
+        _ = try await repository.commit(
+            validatedPage(request: request, primaryIDs: ["p20", "p10"]),
+            request: request,
+            freshnessToken: freshnessToken
+        )
+
+        // Models a MAM-backed row persisted while no chat presentation is
+        // attached, so the previously proven live edge was not extended.
+        try persistMessage(primary: "p30", archivedID: "30")
+
+        let admission = try await repository.verifiedAdmission(
+            for: ArchiveWindowIntent(
+                conversation: conversation,
+                locator: .latest,
+                contextBefore: 80,
+                contextAfter: 0,
+                priority: .visibleIntegrity
+            ),
+            freshnessToken: freshnessToken
+        )
+
+        XCTAssertNil(
+            admission,
+            "A newer durable MAM cursor must force a fresh latest request"
+        )
+    }
+
+    func testLegacySessionOneCoverageCannotAdmitRandomizedProcessGeneration() async throws {
+        try persistMessage(primary: "p10", archivedID: "10")
+        try persistMessage(primary: "p20", archivedID: "20")
+        let repository = makeRepository()
+        let legacyRequest = makeRequest(
+            queryID: "q-prior-process",
+            connectionGeneration: 1
+        )
+        _ = try await repository.commit(
+            validatedPage(request: legacyRequest, primaryIDs: ["p20", "p10"]),
+            request: legacyRequest,
+            freshnessToken: .sessionMAM(
+                connectionGeneration: 1,
+                queryID: legacyRequest.queryID
+            )
+        )
+
+        let currentGeneration = ArchiveConnectionGenerationAllocator.take()
+        let admission = try await repository.verifiedAdmission(
+            for: ArchiveWindowIntent(
+                conversation: conversation,
+                locator: .latest,
+                contextBefore: 80,
+                contextAfter: 0,
+                priority: .visibleIntegrity
+            ),
+            freshnessToken: .sessionMAM(
+                connectionGeneration: currentGeneration,
+                queryID: "q-current-process"
+            )
+        )
+
+        XCTAssertGreaterThanOrEqual(currentGeneration, UInt64(1) << 32)
+        XCTAssertNil(
+            admission,
+            "A new process namespace must reject persisted session:1 coverage"
+        )
+    }
+
+    func testLatestAdmissionIgnoresNewerMAMRowsOutsideVisibleConversationScope() async throws {
+        try persistMessage(primary: "p10", archivedID: "10")
+        try persistMessage(primary: "p20", archivedID: "20")
+        let repository = makeRepository()
+        let request = makeRequest(queryID: "q-live-edge-scoped")
+        let freshnessToken = ArchiveFreshnessToken.sessionMAM(
+            connectionGeneration: request.connectionGeneration,
+            queryID: request.queryID
+        )
+        _ = try await repository.commit(
+            validatedPage(request: request, primaryIDs: ["p20", "p10"]),
+            request: request,
+            freshnessToken: freshnessToken
+        )
+
+        try persistMessage(primary: "other-conversation", archivedID: "30")
+        try persistMessage(primary: "hidden", archivedID: "40")
+        try persistMessage(primary: "deleted", archivedID: "50")
+        let realm = try await Realm(configuration: configuration)
+        try realm.write {
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: "other-conversation"
+            )?.opponent = "mercutio@example.org"
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: "hidden"
+            )?.isLocallyHiddenByReport = true
+            realm.object(
+                ofType: MessageStorageItem.self,
+                forPrimaryKey: "deleted"
+            )?.isDeleted = true
+        }
+
+        let admission = try await repository.verifiedAdmission(
+            for: ArchiveWindowIntent(
+                conversation: conversation,
+                locator: .latest,
+                contextBefore: 80,
+                contextAfter: 0,
+                priority: .visibleIntegrity
+            ),
+            freshnessToken: freshnessToken
+        )
+
+        guard case .verified(let snapshot) = admission else {
+            return XCTFail("Out-of-scope rows must not invalidate a current live edge")
+        }
+        XCTAssertEqual(snapshot.messagePrimaryIDs, ["p10", "p20"])
+    }
+
     func testAuthoritativeEmptyIsDurableForMatchingFingerprintOnly() async throws {
         let repository = makeRepository()
         let request = makeRequest(queryID: "q-empty", connectionGeneration: 20)

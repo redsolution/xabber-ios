@@ -62,10 +62,24 @@ final class RealmArchiveCoverageRepository:
             ) else {
                 return nil
             }
+            let durableMessages = Self.messageIdentities(
+                realm: realm,
+                conversation: intent.conversation
+            )
+            switch intent.locator {
+            case .latest, .firstUnread(.none):
+                if let newestDurableCursor = durableMessages.last?.cursor,
+                   newestDurableCursor > segment.newest {
+                    return nil
+                }
+            default:
+                break
+            }
             let primaryIDs = Self.messagePrimaryIDs(
                 for: intent,
                 segment: segment,
-                realm: realm
+                realm: realm,
+                preloadedIdentities: durableMessages
             )
             guard primaryIDs.isNotEmpty else {
                 return nil
@@ -881,9 +895,13 @@ final class RealmArchiveCoverageRepository:
     private static func messagePrimaryIDs(
         for intent: ArchiveWindowIntent,
         segment: ArchiveCoverageSegment,
-        realm: Realm
+        realm: Realm,
+        preloadedIdentities: [MessageIdentity]? = nil
     ) -> [String] {
-        let all = messageIdentities(realm: realm, conversation: intent.conversation)
+        let all = (preloadedIdentities ?? messageIdentities(
+            realm: realm,
+            conversation: intent.conversation
+        ))
             .filter { $0.cursor >= segment.oldest && $0.cursor <= segment.newest }
         guard all.isNotEmpty else { return [] }
         switch intent.locator {

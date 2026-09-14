@@ -916,7 +916,11 @@ actor AccountArchiveEngine {
             generation: connection.generation
         ) {
             let queryID = "archive.engine.\(UUID().uuidString)"
-            let proofFingerprint = "session:\(connection.generation)"
+            let freshnessToken = ArchiveFreshnessToken.sessionMAM(
+                connectionGeneration: connection.generation,
+                queryID: queryID
+            )
+            let proofFingerprint = freshnessToken.fingerprint
             let requestIntent: ArchiveWindowIntent
             if let consumedOnlyContinuationBoundary {
                 requestIntent = ArchiveWindowIntent(
@@ -948,10 +952,6 @@ actor AccountArchiveEngine {
                 queryID: queryID,
                 generation: connection.generation,
                 proofFingerprint: proofFingerprint
-            )
-            let freshnessToken = ArchiveFreshnessToken.sessionMAM(
-                connectionGeneration: connection.generation,
-                queryID: queryID
             )
             do {
                 let receipt = try await transport.request(

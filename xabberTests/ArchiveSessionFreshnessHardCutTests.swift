@@ -47,6 +47,45 @@ final class ArchiveSessionFreshnessHardCutTests: XCTestCase {
         XCTAssertEqual(firstPage.fingerprint, "session:41")
     }
 
+    func testAccountUsesRandomizedProcessWideConnectionGenerationNamespace() throws {
+        let accountSource = try read("xabber/models/account/Account.swift")
+        let domainSource = try read(
+            "xabber/xmpp/messages/message_archive/engine/ArchiveDomain.swift"
+        )
+
+        XCTAssertTrue(
+            accountSource.contains("ArchiveConnectionGenerationAllocator.take()"),
+            "Each ready connection must receive a process-wide generation instead of reusing session:1"
+        )
+        XCTAssertFalse(
+            accountSource.contains("archiveEngineConnectionGeneration: UInt64 = 0"),
+            "A reconstructed Account must not restart the persisted freshness namespace at zero"
+        )
+        XCTAssertTrue(domainSource.contains("UInt64.random("))
+        XCTAssertTrue(domainSource.contains("UInt64(1) << 32"))
+    }
+
+    func testConnectionGenerationAllocatorCreatesDistinctSessionFingerprints() {
+        let firstGeneration = ArchiveConnectionGenerationAllocator.take()
+        let reconstructedGeneration = ArchiveConnectionGenerationAllocator.take()
+
+        XCTAssertNotEqual(firstGeneration, 0)
+        XCTAssertNotEqual(reconstructedGeneration, 0)
+        XCTAssertGreaterThanOrEqual(firstGeneration, UInt64(1) << 32)
+        XCTAssertGreaterThanOrEqual(reconstructedGeneration, UInt64(1) << 32)
+        XCTAssertNotEqual(firstGeneration, reconstructedGeneration)
+        XCTAssertNotEqual(
+            ArchiveFreshnessToken.sessionMAM(
+                connectionGeneration: firstGeneration,
+                queryID: "first-account"
+            ).fingerprint,
+            ArchiveFreshnessToken.sessionMAM(
+                connectionGeneration: reconstructedGeneration,
+                queryID: "reconstructed-account"
+            ).fingerprint
+        )
+    }
+
     func testSchemaNineteenMigrationCompatibilityFieldsRemainDurableOnly() throws {
         let storageSource = try read(
             "xabber/xmpp/messages/message_archive/engine/ArchiveCoverageStorage.swift"

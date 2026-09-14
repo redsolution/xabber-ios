@@ -3398,7 +3398,6 @@ final class Account: NSObject {
         admissionProvider: canonicalGroupOpenAdmissionCoordinator
     )
     private let archiveEngineConnectionLock = NSLock()
-    private var archiveEngineConnectionGeneration: UInt64 = 0
     // Readiness callbacks are synchronous, but their bridge Tasks are not
     // ordered. Capture source order while the same lock owns readiness state.
     private var archiveEngineConnectionTransitionSequence: UInt64 = 0
@@ -3605,9 +3604,8 @@ final class Account: NSObject {
                 return
             }
             isArchiveEngineConnectionReady = true
-            archiveEngineConnectionGeneration &+= 1
             archiveEngineConnectionTransitionSequence &+= 1
-            let generation = archiveEngineConnectionGeneration
+            let generation = ArchiveConnectionGenerationAllocator.take()
             let transitionSequence = archiveEngineConnectionTransitionSequence
             archiveEngineConnectionLock.unlock()
             Task { [archiveEngine] in
