@@ -1635,7 +1635,7 @@ private struct AppearancePreviewMessage: MessageType {
     let isHasAttachedMessages: Bool
     let afterburnInterval: Double = 0
     let tailed = true
-    let images: [ImageAttachment] = []
+    let images: [ImageAttachment]
     let videos: [VideoAttachment] = []
     let locations: [LocationAttachment] = []
     let contacts: [ContactAttachment] = []
@@ -1656,6 +1656,7 @@ private struct AppearancePreviewMessage: MessageType {
         reservesAvatarSpace: Bool = false,
         forwards: [MessageAttachment] = [],
         audios: [AudioAttachment] = [],
+        images: [ImageAttachment] = [],
         status: AppearancePreviewStatus? = nil
     ) {
         primary = "appearance-preview-\(identifier ?? (outgoing ? "outgoing" : "incoming"))"
@@ -1665,7 +1666,8 @@ private struct AppearancePreviewMessage: MessageType {
         withAvatar = reservesAvatarSpace
         self.forwards = forwards
         self.audios = audios
-        isHasAttachedMessages = forwards.isNotEmpty || audios.isNotEmpty
+        self.images = images
+        isHasAttachedMessages = forwards.isNotEmpty || audios.isNotEmpty || images.isNotEmpty
         let resolvedStatus = status ?? (outgoing ? .delivery : .none)
         indicator = resolvedStatus.indicator
         let textColor = outgoing
@@ -1693,6 +1695,86 @@ private struct AppearancePreviewMessage: MessageType {
     }
 }
 
+/// A deterministic local thumbnail source keeps the editor's photo fixture
+/// independent from the network/media cache while using the production inline
+/// image view and its normal layout path.
+private final class AppearancePreviewThumbnailSubscription: ChatThumbnailSubscription {
+    func cancel() {}
+}
+
+private final class AppearancePreviewThumbnailPipeline: ChatThumbnailServing {
+    static let shared = AppearancePreviewThumbnailPipeline()
+
+    private let previewImage: UIImage = {
+        let size = CGSize(width: 720, height: 520)
+        return UIGraphicsImageRenderer(size: size).image { rendererContext in
+            let context = rendererContext.cgContext
+            let background = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: [
+                    UIColor(red: 0.18, green: 0.49, blue: 0.67, alpha: 1).cgColor,
+                    UIColor(red: 0.77, green: 0.91, blue: 0.84, alpha: 1).cgColor
+                ] as CFArray,
+                locations: [0, 1]
+            )!
+            context.drawLinearGradient(
+                background,
+                start: CGPoint(x: 0, y: 0),
+                end: CGPoint(x: size.width, y: size.height),
+                options: []
+            )
+
+            UIColor.white.withAlphaComponent(0.86).setFill()
+            UIBezierPath(
+                ovalIn: CGRect(x: 468, y: 62, width: 116, height: 116)
+            ).fill()
+
+            UIColor(red: 0.12, green: 0.33, blue: 0.35, alpha: 0.78).setFill()
+            let horizon = UIBezierPath()
+            horizon.move(to: CGPoint(x: 0, y: 324))
+            horizon.addCurve(
+                to: CGPoint(x: size.width, y: 280),
+                controlPoint1: CGPoint(x: 190, y: 250),
+                controlPoint2: CGPoint(x: 498, y: 370)
+            )
+            horizon.addLine(to: CGPoint(x: size.width, y: size.height))
+            horizon.addLine(to: CGPoint(x: 0, y: size.height))
+            horizon.close()
+            horizon.fill()
+
+            UIColor.white.withAlphaComponent(0.72).setStroke()
+            let path = UIBezierPath()
+            path.lineWidth = 8
+            path.lineCapStyle = .round
+            path.move(to: CGPoint(x: 90, y: 388))
+            path.addCurve(
+                to: CGPoint(x: 560, y: 332),
+                controlPoint1: CGPoint(x: 220, y: 298),
+                controlPoint2: CGPoint(x: 420, y: 454)
+            )
+            path.stroke()
+        }
+    }()
+
+    @discardableResult
+    func acquire(
+        _ request: ChatThumbnailRequest,
+        consumer: ChatThumbnailConsumer,
+        completion: ((Result<ChatThumbnailDelivery, ChatThumbnailPipelineError>) -> Void)?
+    ) -> ChatThumbnailSubscription {
+        completion?(
+            .success(
+                ChatThumbnailDelivery(
+                    image: previewImage,
+                    pixelSize: request.pixelSize,
+                    source: .loader
+                )
+            )
+        )
+        return AppearancePreviewThumbnailSubscription()
+    }
+}
+
 /// Hosts the production text-message cell and production layout calculator,
 /// so the settings preview cannot drift from real chat bubble geometry.
 private final class AppearanceChatMessagePreviewHostView: UIView {
@@ -1704,6 +1786,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         let reservesAvatarSpace: Bool
         let forwards: [MessageAttachment]
         let audios: [AudioAttachment]
+        let images: [ImageAttachment]
         let status: AppearancePreviewStatus
         let premiumLockAccessibilityIdentifier: String?
     }
@@ -1724,6 +1807,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         premiumLockView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
         premiumLockView.isHidden = true
         premiumLockView.isAccessibilityElement = true
+        messageCell.imagesView.thumbnailPipeline = AppearancePreviewThumbnailPipeline.shared
         addSubview(messageCell)
         messageCell.timeMarker.addSubview(premiumLockView)
         measuredHeightConstraint = heightAnchor.constraint(equalToConstant: 1)
@@ -1741,6 +1825,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         reservesAvatarSpace: Bool = false,
         forwards: [MessageAttachment] = [],
         audios: [AudioAttachment] = [],
+        images: [ImageAttachment] = [],
         status: AppearancePreviewStatus? = nil,
         premiumLockAccessibilityIdentifier: String? = nil
     ) {
@@ -1752,6 +1837,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
             reservesAvatarSpace: reservesAvatarSpace,
             forwards: forwards,
             audios: audios,
+            images: images,
             status: status ?? (outgoing ? .delivery : .none),
             premiumLockAccessibilityIdentifier: premiumLockAccessibilityIdentifier
         )
@@ -1807,16 +1893,21 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
             reservesAvatarSpace: configuration.reservesAvatarSpace,
             forwards: configuration.forwards,
             audios: configuration.audios,
+            images: configuration.images,
             status: configuration.status
         )
         self.message = message
         self.snapshot = snapshot
         if let identifier = configuration.identifier {
             messageCell.accessibilityIdentifier = "interface.themePreview.chat.message.\(identifier)"
+            messageCell.imagesView.accessibilityIdentifier = "interface.themePreview.chat.message.\(identifier).images"
+            messageCell.audiosView.accessibilityIdentifier = "interface.themePreview.chat.message.\(identifier).audios"
         } else {
             messageCell.accessibilityIdentifier = configuration.outgoing
                 ? "interface.preview.message.outgoing"
                 : "interface.preview.message.incoming"
+            messageCell.imagesView.accessibilityIdentifier = nil
+            messageCell.audiosView.accessibilityIdentifier = nil
         }
         messageCell.messageContainerView.appearancePaletteOverride = snapshot.palette
         messageCell.configureForAppearancePreview(with: message)
@@ -3740,28 +3831,132 @@ private final class AppearanceThemeCell: UICollectionViewCell {
     }
 }
 
+private final class AppearanceThemeEditorNavigationPreview: UIView {
+    private let backGlass = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+    private let backImage = UIImageView(image: UIImage(systemName: "chevron.backward"))
+    private let titleLabel = UILabel()
+    private let presenceLabel = UILabel()
+    private let avatar = UIImageView(image: UIImage(named: "interface_avatar_alicia"))
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        translatesAutoresizingMaskIntoConstraints = false
+        isUserInteractionEnabled = false
+        accessibilityIdentifier = "interface.themeEditor.preview.navigation"
+
+        backGlass.translatesAutoresizingMaskIntoConstraints = false
+        backGlass.clipsToBounds = true
+        backGlass.layer.cornerRadius = 22
+        backGlass.layer.cornerCurve = .continuous
+        backGlass.layer.borderWidth = 1
+        backGlass.layer.borderColor = UIColor.white.withAlphaComponent(0.75).cgColor
+        backImage.translatesAutoresizingMaskIntoConstraints = false
+        backImage.contentMode = .scaleAspectFit
+        backImage.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+        backImage.accessibilityIdentifier = "interface.themeEditor.preview.navigation.back"
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = "Alicia Torreaux"
+        titleLabel.textAlignment = .center
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.accessibilityIdentifier = "interface.themeEditor.preview.navigation.title"
+        presenceLabel.translatesAutoresizingMaskIntoConstraints = false
+        presenceLabel.text = "Online"
+        presenceLabel.textAlignment = .center
+        presenceLabel.adjustsFontForContentSizeCategory = true
+        presenceLabel.accessibilityIdentifier = "interface.themeEditor.preview.navigation.online"
+        avatar.translatesAutoresizingMaskIntoConstraints = false
+        avatar.contentMode = .scaleAspectFill
+        avatar.clipsToBounds = true
+        avatar.layer.cornerRadius = ChatNavigationAvatarItemFactory.imageSize / 2
+        avatar.accessibilityIdentifier = "interface.themeEditor.preview.navigation.avatar"
+
+        let labels = UIStackView(arrangedSubviews: [titleLabel, presenceLabel])
+        labels.translatesAutoresizingMaskIntoConstraints = false
+        labels.axis = .vertical
+        labels.spacing = 0
+        labels.alignment = .fill
+
+        backGlass.contentView.addSubview(backImage)
+        addSubview(backGlass)
+        addSubview(labels)
+        addSubview(avatar)
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: 52),
+            backGlass.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backGlass.centerYAnchor.constraint(equalTo: centerYAnchor),
+            backGlass.widthAnchor.constraint(equalToConstant: ChatNavigationAvatarItemFactory.controlSize),
+            backGlass.heightAnchor.constraint(equalTo: backGlass.widthAnchor),
+            backImage.centerXAnchor.constraint(equalTo: backGlass.contentView.centerXAnchor),
+            backImage.centerYAnchor.constraint(equalTo: backGlass.contentView.centerYAnchor),
+            backImage.widthAnchor.constraint(equalToConstant: 22),
+            backImage.heightAnchor.constraint(equalTo: backImage.widthAnchor),
+            avatar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            avatar.centerYAnchor.constraint(equalTo: centerYAnchor),
+            avatar.widthAnchor.constraint(equalToConstant: ChatNavigationAvatarItemFactory.imageSize),
+            avatar.heightAnchor.constraint(equalTo: avatar.widthAnchor),
+            labels.leadingAnchor.constraint(equalTo: backGlass.trailingAnchor, constant: 8),
+            labels.trailingAnchor.constraint(equalTo: avatar.leadingAnchor, constant: -8),
+            labels.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(snapshot: ResolvedAppearanceSnapshot) {
+        let appearanceSize = snapshot.profile.textSize
+        titleLabel.font = AppearanceTypography.font(
+            textStyle: .headline,
+            appearanceSize: appearanceSize,
+            weight: .semibold
+        )
+        presenceLabel.font = AppearanceTypography.font(
+            textStyle: .caption1,
+            appearanceSize: appearanceSize,
+            weight: .medium
+        )
+        titleLabel.textColor = snapshot.palette.incomingText.uiColor
+        presenceLabel.textColor = snapshot.accent.uiColor
+        backImage.tintColor = snapshot.accent.uiColor
+    }
+}
+
 private final class AppearanceThemeConversationPreviewPage: UIView {
+    private let isEditorPreview: Bool
     private let baseTopContentInset: CGFloat = 12
     private let backgroundView = ChatBackgroundBackdropView()
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
+    private let navigationPreview = AppearanceThemeEditorNavigationPreview()
     private var messageHosts: [AppearanceChatMessagePreviewHostView] = []
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+    init(editorPreview: Bool = false) {
+        isEditorPreview = editorPreview
+        super.init(frame: .zero)
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceVertical = true
         scrollView.contentInsetAdjustmentBehavior = .never
-        scrollView.contentInset = UIEdgeInsets(top: baseTopContentInset, left: 0, bottom: 112, right: 0)
+        scrollView.contentInset = editorPreview
+            ? .zero
+            : UIEdgeInsets(top: baseTopContentInset, left: 0, bottom: 112, right: 0)
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.axis = .vertical
         contentStack.spacing = 0
         addSubview(backgroundView)
         addSubview(scrollView)
         scrollView.addSubview(contentStack)
-        NSLayoutConstraint.activate([
+        if editorPreview {
+            addSubview(navigationPreview)
+            layer.cornerRadius = 22
+            layer.cornerCurve = .continuous
+            clipsToBounds = true
+            accessibilityIdentifier = "interface.themeEditor.preview"
+            backgroundView.accessibilityIdentifier = "interface.themeEditor.preview.background"
+        }
+
+        let horizontalInset: CGFloat = editorPreview ? 0 : 8
+        var constraints = [
             backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
             backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
             backgroundView.topAnchor.constraint(equalTo: topAnchor),
@@ -3770,12 +3965,23 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            contentStack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 8),
-            contentStack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -8),
+            contentStack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: horizontalInset),
+            contentStack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -horizontalInset),
             contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
             contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-            contentStack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -16)
-        ])
+            contentStack.widthAnchor.constraint(
+                equalTo: scrollView.frameLayoutGuide.widthAnchor,
+                constant: -2 * horizontalInset
+            )
+        ]
+        if editorPreview {
+            constraints += [
+                navigationPreview.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+                navigationPreview.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+                navigationPreview.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 8)
+            ]
+        }
+        NSLayoutConstraint.activate(constraints)
         accessibilityLabel = "Chat preview"
     }
 
@@ -3783,21 +3989,102 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let topInset = safeAreaInsets.top + baseTopContentInset
-        if abs(scrollView.contentInset.top - topInset) > 0.5 {
-            scrollView.contentInset.top = topInset
-            scrollView.verticalScrollIndicatorInsets.top = topInset
+        if isEditorPreview {
+            let navigationVisualHeight = safeAreaInsets.top + 60
+            let insets = ChatFloatingHeaderLayoutPolicy.collectionInsets(
+                composerHeight: 0,
+                navigationVisualHeight: navigationVisualHeight,
+                floatingBubblesHeight: 0
+            )
+            if abs(scrollView.contentInset.top - insets.top) > 0.5 ||
+                abs(scrollView.contentInset.bottom - insets.bottom) > 0.5 {
+                scrollView.contentInset = insets
+                scrollView.verticalScrollIndicatorInsets = insets
+            }
+        } else {
+            let topInset = safeAreaInsets.top + baseTopContentInset
+            if abs(scrollView.contentInset.top - topInset) > 0.5 {
+                scrollView.contentInset.top = topInset
+                scrollView.verticalScrollIndicatorInsets.top = topInset
+            }
         }
-        let messageWidth = max(1, bounds.width - 16)
+        let horizontalInset: CGFloat = isEditorPreview ? 0 : 8
+        let messageWidth = max(1, bounds.width - 2 * horizontalInset)
         messageHosts.forEach { $0.updateLayoutWidth(messageWidth) }
     }
 
     func configure(document: AppearanceSettingsDocument, snapshot: ResolvedAppearanceSnapshot) {
         backgroundView.configure(document: document)
+        if isEditorPreview {
+            navigationPreview.configure(snapshot: snapshot)
+        }
         contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         messageHosts.removeAll(keepingCapacity: true)
         contentStack.addArrangedSubview(makeDateMarker(snapshot: snapshot))
+        if isEditorPreview {
+            configureEditorConversation(snapshot: snapshot)
+        } else {
+            configureThemeBrowserConversation(snapshot: snapshot)
+        }
+    }
 
+    private func configureEditorConversation(snapshot: ResolvedAppearanceSnapshot) {
+        addMessage(
+            id: "editor.text.0",
+            text: "I found a quiet coffee bar by the river.",
+            outgoing: false,
+            snapshot: snapshot
+        )
+        addMessage(
+            id: "editor.text.1",
+            text: "Perfect, I’ll meet you there after work.",
+            outgoing: true,
+            snapshot: snapshot
+        )
+        addMessage(
+            id: "editor.text.2",
+            text: "Great, I’ll save a table by the window.",
+            outgoing: false,
+            snapshot: snapshot
+        )
+
+        let waveform: [Float] = [
+            0.20, 0.55, 0.35, 0.78, 0.45, 0.85, 0.32, 0.62,
+            0.90, 0.48, 0.72, 0.30, 0.82, 0.58, 0.95, 0.40,
+            0.66, 0.28, 0.76, 0.52, 0.88, 0.36, 0.70, 0.44
+        ]
+        let voice = AudioAttachment(
+            primary: "appearance-preview-editor-voice",
+            url: nil,
+            size: 42_000,
+            name: "Voice message.m4a",
+            duration: 23,
+            downloaded: true,
+            pcm: waveform
+        )
+        addMessage(
+            id: "editor.voice",
+            text: "",
+            outgoing: true,
+            snapshot: snapshot,
+            audios: [voice]
+        )
+
+        let photo = ImageAttachment(
+            primary: "appearance-preview-editor-photo",
+            url: URL(string: "appearance-preview://theme-editor-photo"),
+            size: CGSize(width: 720, height: 520)
+        )
+        addMessage(
+            id: "editor.image",
+            text: "",
+            outgoing: false,
+            snapshot: snapshot,
+            images: [photo]
+        )
+    }
+
+    private func configureThemeBrowserConversation(snapshot: ResolvedAppearanceSnapshot) {
         addMessage(
             id: "opening",
             text: "For relaxing times, make it Suntory time. 😎",
@@ -3885,7 +4172,8 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
         outgoing: Bool,
         snapshot: ResolvedAppearanceSnapshot,
         forwards: [MessageAttachment] = [],
-        audios: [AudioAttachment] = []
+        audios: [AudioAttachment] = [],
+        images: [ImageAttachment] = []
     ) {
         let host = AppearanceChatMessagePreviewHostView()
         host.configure(
@@ -3894,12 +4182,14 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
             snapshot: snapshot,
             identifier: id,
             forwards: forwards,
-            audios: audios
+            audios: audios,
+            images: images
         )
         messageHosts.append(host)
         contentStack.addArrangedSubview(host)
-        if bounds.width > 16 {
-            host.updateLayoutWidth(bounds.width - 16)
+        let horizontalInset: CGFloat = isEditorPreview ? 0 : 8
+        if bounds.width > 2 * horizontalInset {
+            host.updateLayoutWidth(bounds.width - 2 * horizontalInset)
         }
     }
 
@@ -3919,7 +4209,9 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
         label.layer.cornerCurve = .continuous
         label.clipsToBounds = true
         label.textAlignment = .center
-        label.accessibilityIdentifier = "interface.themePreview.chat.date"
+        label.accessibilityIdentifier = isEditorPreview
+            ? "interface.themeEditor.preview.date"
+            : "interface.themePreview.chat.date"
         container.addSubview(label)
         NSLayoutConstraint.activate([
             container.heightAnchor.constraint(equalToConstant: 38),
@@ -4293,9 +4585,11 @@ final class AppearanceThemeEditorViewController: BaseViewController {
     private var theme: AppearanceTheme
     private let original: AppearanceTheme
     private let onDraftCommitted: ((AppearanceSettingsDocument) -> Void)?
-    private let preview = AppearancePreviewView()
+    private let preview = AppearanceThemeConversationPreviewPage(editorPreview: true)
     private let tabKinds: [EditorTab]
     private let tabs: UISegmentedControl
+    private let changeButton = UIButton(type: .system)
+    private let wallpaperButton = UIButton(type: .system)
 
     init(
         document: AppearanceSettingsDocument,
@@ -4335,12 +4629,19 @@ final class AppearanceThemeEditorViewController: BaseViewController {
         tabs.selectedSegmentIndex = 0
         tabs.addTarget(self, action: #selector(tabChanged), for: .valueChanged)
         preview.translatesAutoresizingMaskIntoConstraints = false
-        let changeButton = UIButton(type: .system)
         changeButton.configuration = .filled()
         changeButton.addTarget(self, action: #selector(changeCurrentValue), for: .touchUpInside)
         changeButton.accessibilityIdentifier = "interface.themeEditor.change"
-        changeButton.tag = 100
-        let stack = UIStackView(arrangedSubviews: [tabs, preview, changeButton])
+        wallpaperButton.configuration = .bordered()
+        wallpaperButton.configuration?.title = "Choose Wallpaper"
+        wallpaperButton.configuration?.image = UIImage(systemName: "photo.on.rectangle")
+        wallpaperButton.configuration?.imagePadding = 6
+        wallpaperButton.addTarget(self, action: #selector(chooseWallpaper), for: .touchUpInside)
+        wallpaperButton.accessibilityIdentifier = "interface.themeEditor.wallpaper"
+        let controls = UIStackView(arrangedSubviews: [changeButton, wallpaperButton])
+        controls.axis = .vertical
+        controls.spacing = 12
+        let stack = UIStackView(arrangedSubviews: [tabs, preview, controls])
         stack.axis = .vertical
         stack.spacing = 20
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -4351,23 +4652,37 @@ final class AppearanceThemeEditorViewController: BaseViewController {
             stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
             preview.heightAnchor.constraint(equalToConstant: 390)
         ])
-        updateButtonTitle()
+        updateControls()
         refreshPreview()
     }
 
-    @objc private func tabChanged() { updateButtonTitle() }
+    @objc private func tabChanged() { updateControls() }
 
-    private func updateButtonTitle() {
-        guard let button = view.viewWithTag(100) as? UIButton else { return }
+    private func updateControls() {
         switch tabKinds[tabs.selectedSegmentIndex] {
-        case .background: button.configuration?.title = "Choose Gradient"
-        case .accent: button.configuration?.title = "Choose Accent"
-        case .messages: button.configuration?.title = "Choose Message Colors"
+        case .background:
+            changeButton.configuration?.title = "Choose Gradient"
+            wallpaperButton.isHidden = false
+        case .accent:
+            changeButton.configuration?.title = "Choose Accent"
+            wallpaperButton.isHidden = true
+        case .messages:
+            changeButton.configuration?.title = "Choose Message Colors"
+            wallpaperButton.isHidden = true
         }
     }
 
     @objc private func changeCurrentValue() {
-        let palette = theme.palette(for: traitCollection.userInterfaceStyle)
+        let style: UIUserInterfaceStyle
+        switch document.profile.interfaceStyle {
+        case .system:
+            style = traitCollection.userInterfaceStyle
+        case .light:
+            style = .light
+        case .dark:
+            style = .dark
+        }
+        let palette = theme.palette(for: style)
         let tab = tabKinds[tabs.selectedSegmentIndex]
         let initialColor: UIColor
         switch tab {
@@ -4386,12 +4701,33 @@ final class AppearanceThemeEditorViewController: BaseViewController {
         present(navigationController, animated: true)
     }
 
+    @objc private func chooseWallpaper() {
+        guard tabKinds[tabs.selectedSegmentIndex] == .background else { return }
+        let picker = AppearanceThemeWallpaperPickerViewController(
+            document: document,
+            theme: theme
+        ) { [weak self] wallpaper in
+            guard let self else { return }
+            self.theme.wallpaper = wallpaper
+            self.refreshPreview()
+        }
+        let navigationController = UINavigationController(rootViewController: picker)
+        navigationController.modalPresentationStyle = .pageSheet
+        present(navigationController, animated: true)
+    }
+
     private func apply(_ color: AppearanceColor, to tab: EditorTab) {
         switch tab {
         case .background:
             theme.lightPalette.backgroundStops = [color, theme.lightPalette.backgroundStops.last ?? color]
             theme.darkPalette.backgroundStops = [color.darken(0.58), color.darken(0.32)]
-            theme.wallpaper = .gradient(stops: theme.lightPalette.backgroundStops, pattern: nil, intensity: 100)
+            if case .gradient(_, let pattern, let intensity) = theme.wallpaper {
+                theme.wallpaper = .gradient(
+                    stops: theme.lightPalette.backgroundStops,
+                    pattern: pattern,
+                    intensity: intensity
+                )
+            }
         case .accent:
             theme.lightPalette.accent = color
             theme.darkPalette.accent = color
@@ -4414,8 +4750,16 @@ final class AppearanceThemeEditorViewController: BaseViewController {
         updated.profile = profile
         if let index = updated.customThemes.firstIndex(where: { $0.id == theme.id }) {
             updated.customThemes[index] = theme
+        } else {
+            updated.customThemes.append(theme)
         }
-        preview.configure(document: updated, traits: traitCollection)
+        preview.configure(
+            document: updated,
+            snapshot: AppearanceResolver.resolve(
+                document: updated,
+                traitStyle: traitCollection.userInterfaceStyle
+            )
+        )
         navigationItem.rightBarButtonItem?.isEnabled = theme != original
     }
 
@@ -4443,6 +4787,115 @@ final class AppearanceThemeEditorViewController: BaseViewController {
             alert.addAction(UIAlertAction(title: "OK", style: .default))
             present(alert, animated: true)
         }
+    }
+}
+
+final class AppearanceThemeWallpaperPickerViewController: BaseViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
+    private let names = ["None", "Honeycomb", "Aliens", "Summer", "Cats", "Flowers", "Flowers-daisy", "Hearts"]
+    private let document: AppearanceSettingsDocument
+    private let theme: AppearanceTheme
+    private let onSelection: (AppearanceWallpaper) -> Void
+    private let collectionView: UICollectionView
+
+    init(
+        document: AppearanceSettingsDocument,
+        theme: AppearanceTheme,
+        onSelection: @escaping (AppearanceWallpaper) -> Void
+    ) {
+        let layout = UICollectionViewFlowLayout()
+        layout.minimumInteritemSpacing = 10
+        layout.minimumLineSpacing = 10
+        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        self.document = document
+        self.theme = theme
+        self.onSelection = onSelection
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "Wallpaper"
+        view.backgroundColor = .systemGroupedBackground
+        collectionView.translatesAutoresizingMaskIntoConstraints = false
+        collectionView.backgroundColor = .clear
+        collectionView.dataSource = self
+        collectionView.delegate = self
+        collectionView.accessibilityIdentifier = "interface.themeEditor.wallpaperPicker.grid"
+        collectionView.register(
+            AppearanceWallpaperCell.self,
+            forCellWithReuseIdentifier: AppearanceWallpaperCell.reuseIdentifier
+        )
+        view.addSubview(collectionView)
+        NSLayoutConstraint.activate([
+            collectionView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            collectionView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            collectionView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            collectionView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16)
+        ])
+    }
+
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        names.count
+    }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        cellForItemAt indexPath: IndexPath
+    ) -> UICollectionViewCell {
+        let name = names[indexPath.item]
+        let cell = collectionView.dequeueReusableCell(
+            withReuseIdentifier: AppearanceWallpaperCell.reuseIdentifier,
+            for: indexPath
+        ) as! AppearanceWallpaperCell
+        cell.configure(
+            name: name,
+            selected: isSelected(name: name),
+            accent: theme.palette(for: traitCollection.userInterfaceStyle).accent.uiColor,
+            document: previewDocument(for: name)
+        )
+        return cell
+    }
+
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        let name = names[indexPath.item]
+        onSelection(name == "None" ? .none : .builtIn(name: name))
+        dismiss(animated: true)
+    }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        layout collectionViewLayout: UICollectionViewLayout,
+        sizeForItemAt indexPath: IndexPath
+    ) -> CGSize {
+        let width = floor(max(0, collectionView.bounds.width - 20) / 3)
+        return CGSize(width: width, height: width * 1.25)
+    }
+
+    private func isSelected(name: String) -> Bool {
+        switch theme.wallpaper {
+        case .none:
+            return name == "None"
+        case .builtIn(let current):
+            return current == name
+        case .gradient, .cloud:
+            return false
+        }
+    }
+
+    private func previewDocument(for name: String) -> AppearanceSettingsDocument {
+        var previewDocument = document
+        if let index = previewDocument.customThemes.firstIndex(where: { $0.id == theme.id }) {
+            previewDocument.customThemes[index] = theme
+        } else {
+            previewDocument.customThemes.append(theme)
+        }
+        var profile = previewDocument.profile
+        profile.apply(theme: theme)
+        profile.wallpaper = name == "None" ? .none : .builtIn(name: name)
+        previewDocument.profile = profile
+        return previewDocument
     }
 }
 

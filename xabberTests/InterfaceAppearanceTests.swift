@@ -1425,6 +1425,9 @@ final class InterfaceAppearanceTests: XCTestCase {
     @MainActor
     func testThemeEditorUsesApplicationColorGridForEveryAvailableColorStep() throws {
         let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        var theme = AppearanceThemeCatalog.builtInThemes[0]
+        let messageColor = try XCTUnwrap(AppearanceColor(hex: "#56A8D7"))
+        theme.lightPalette.outgoingBubble = messageColor
         let animationsWereEnabled = UIView.areAnimationsEnabled
         UIView.setAnimationsEnabled(false)
         defer { UIView.setAnimationsEnabled(animationsWereEnabled) }
@@ -1432,7 +1435,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         for tabIndex in 0..<3 {
             let controller = AppearanceThemeEditorViewController(
                 document: document,
-                theme: AppearanceThemeCatalog.builtInThemes[0]
+                theme: theme
             )
             let navigationController = UINavigationController(rootViewController: UIViewController())
             let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
@@ -1470,8 +1473,149 @@ final class InterfaceAppearanceTests: XCTestCase {
                 "Theme-editor step \(tabIndex) must use the Application Color controller."
             )
             XCTAssertFalse(controller.presentedViewController is UIColorPickerViewController)
+            if tabIndex == 2 {
+                let selectedColorPreview = try XCTUnwrap(
+                    descendant(
+                        in: pickerNavigationController.topViewController!.view,
+                        accessibilityIdentifier: "interface.accent.custom.preview"
+                    ) as? UIView
+                )
+                XCTAssertEqual(selectedColorPreview.backgroundColor, messageColor.uiColor)
+            }
             controller.dismiss(animated: false)
         }
+    }
+
+    @MainActor
+    func testThemeEditorPreviewShowsAllEditableChatSurfacesAndWallpaperChoices() throws {
+        var theme = AppearanceThemeCatalog.builtInThemes[0]
+        theme.id = "custom.theme-editor-preview"
+        theme.name = "Preview"
+        theme.isBuiltIn = false
+        theme.lightPalette.accent = try XCTUnwrap(AppearanceColor(hex: "#D94B54"))
+        theme.lightPalette.replyAccent = theme.lightPalette.accent
+        let counterpartyBubble = try XCTUnwrap(AppearanceColor(hex: "#6AB89D"))
+        theme.lightPalette.outgoingBubble = counterpartyBubble
+        var document = AppearanceSettingsDocument(
+            profile: .default(accent: .systemBlue),
+            customThemes: [theme]
+        )
+        document.profile.apply(theme: theme)
+
+        let controller = AppearanceThemeEditorViewController(document: document, theme: theme)
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        let preview = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.themeEditor.preview"
+            )
+        )
+        let navigation = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.themeEditor.preview.navigation"
+            )
+        )
+        let online = try XCTUnwrap(
+            descendant(
+                in: navigation,
+                accessibilityIdentifier: "interface.themeEditor.preview.navigation.online"
+            ) as? UILabel
+        )
+        let wallpaper = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.themeEditor.preview.background"
+            ) as? ChatBackgroundBackdropView
+        )
+        let textCells = try (0..<3).map { index in
+            try XCTUnwrap(
+                descendant(
+                    in: preview,
+                    accessibilityIdentifier: "interface.themePreview.chat.message.editor.text.\(index)"
+                ) as? TextMessageCell
+            )
+        }
+        let voice = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.themePreview.chat.message.editor.voice"
+            ) as? TextMessageCell
+        )
+        let image = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.themePreview.chat.message.editor.image"
+            ) as? TextMessageCell
+        )
+        let wallpaperButton = try XCTUnwrap(
+            descendant(
+                in: controller.view,
+                accessibilityIdentifier: "interface.themeEditor.wallpaper"
+            ) as? UIButton
+        )
+
+        XCTAssertEqual(online.textColor, theme.lightPalette.accent.uiColor)
+        XCTAssertTrue(wallpaper.hasVisibleWallpaperImage)
+        XCTAssertEqual(wallpaper.representedWallpaper, theme.wallpaper)
+        XCTAssertEqual(textCells.count, 3)
+        XCTAssertEqual(
+            textCells[0].messageContainerView.bubble.backgroundColor,
+            counterpartyBubble.uiColor
+        )
+        let ownBubble = try XCTUnwrap(textCells[1].messageContainerView.bubble.backgroundColor)
+        var ownRed: CGFloat = 0
+        var ownGreen: CGFloat = 0
+        var ownBlue: CGFloat = 0
+        var ownAlpha: CGFloat = 0
+        XCTAssertTrue(ownBubble.getRed(&ownRed, green: &ownGreen, blue: &ownBlue, alpha: &ownAlpha))
+        XCTAssertEqual(ownRed, 1, accuracy: 0.001)
+        XCTAssertEqual(ownGreen, 1, accuracy: 0.001)
+        XCTAssertEqual(ownBlue, 1, accuracy: 0.001)
+        XCTAssertEqual(ownAlpha, 1, accuracy: 0.001)
+        XCTAssertEqual(voice.audiosView.views.count, 1)
+        XCTAssertEqual(image.imagesView.views.count, 1)
+        XCTAssertEqual(image.imagesView.views.first?.thumbnailPresentationState, .ready)
+        XCTAssertEqual(wallpaperButton.configuration?.title, "Choose Wallpaper")
+
+        let firstTextContainer = textCells[0].messageContainerView.convert(
+            textCells[0].messageContainerView.bounds,
+            to: preview
+        )
+        let secondTextContainer = textCells[1].messageContainerView.convert(
+            textCells[1].messageContainerView.bounds,
+            to: preview
+        )
+        XCTAssertEqual(firstTextContainer.minX, preview.bounds.minX + 4, accuracy: 0.5)
+        XCTAssertEqual(secondTextContainer.maxX, preview.bounds.maxX - 4, accuracy: 0.5)
+        XCTAssertEqual(
+            secondTextContainer.minY - firstTextContainer.maxY,
+            8,
+            accuracy: 0.5
+        )
+
+        var selectedWallpaper: AppearanceWallpaper?
+        let wallpaperPicker = AppearanceThemeWallpaperPickerViewController(
+            document: document,
+            theme: theme
+        ) { selectedWallpaper = $0 }
+        wallpaperPicker.loadViewIfNeeded()
+        wallpaperPicker.view.frame = controller.view.bounds
+        wallpaperPicker.view.setNeedsLayout()
+        wallpaperPicker.view.layoutIfNeeded()
+        let grid = try XCTUnwrap(
+            descendant(
+                in: wallpaperPicker.view,
+                accessibilityIdentifier: "interface.themeEditor.wallpaperPicker.grid"
+            ) as? UICollectionView
+        )
+        XCTAssertEqual(grid.numberOfItems(inSection: 0), 8)
+        wallpaperPicker.collectionView(grid, didSelectItemAt: IndexPath(item: 1, section: 0))
+        XCTAssertEqual(selectedWallpaper, .builtIn(name: "Honeycomb"))
     }
 
     func testPremiumPolicyMatchesExactFreeMatrix() {
