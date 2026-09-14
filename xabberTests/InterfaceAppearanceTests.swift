@@ -1422,6 +1422,58 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertNil(controller.navigationItem.leftBarButtonItem)
     }
 
+    @MainActor
+    func testThemeEditorUsesApplicationColorGridForEveryAvailableColorStep() throws {
+        let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
+        let animationsWereEnabled = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+        defer { UIView.setAnimationsEnabled(animationsWereEnabled) }
+
+        for tabIndex in 0..<3 {
+            let controller = AppearanceThemeEditorViewController(
+                document: document,
+                theme: AppearanceThemeCatalog.builtInThemes[0]
+            )
+            let navigationController = UINavigationController(rootViewController: UIViewController())
+            let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+            window.rootViewController = navigationController
+            navigationController.loadViewIfNeeded()
+            navigationController.view.frame = window.bounds
+            window.makeKeyAndVisible()
+            window.layoutIfNeeded()
+            defer {
+                window.isHidden = true
+                window.rootViewController = nil
+            }
+
+            navigationController.pushViewController(controller, animated: false)
+            controller.loadViewIfNeeded()
+            window.layoutIfNeeded()
+            controller.view.layoutIfNeeded()
+            XCTAssertNotNil(controller.view.window)
+            let tabs = try XCTUnwrap(firstSubview(of: UISegmentedControl.self, in: controller.view))
+            let changeButton = try XCTUnwrap(
+                descendant(in: controller.view, accessibilityIdentifier: "interface.themeEditor.change") as? UIButton
+            )
+
+            guard tabIndex < tabs.numberOfSegments else { continue }
+            tabs.selectedSegmentIndex = tabIndex
+            tabs.sendActions(for: .valueChanged)
+            changeButton.sendActions(for: .touchUpInside)
+
+            let pickerNavigationController = try XCTUnwrap(
+                controller.presentedViewController as? UINavigationController,
+                "Theme-editor step \(tabIndex) must open the shared colour-picker sheet."
+            )
+            XCTAssertTrue(
+                pickerNavigationController.topViewController is AppearanceCustomAccentColorViewController,
+                "Theme-editor step \(tabIndex) must use the Application Color controller."
+            )
+            XCTAssertFalse(controller.presentedViewController is UIColorPickerViewController)
+            controller.dismiss(animated: false)
+        }
+    }
+
     func testPremiumPolicyMatchesExactFreeMatrix() {
         let free = AppearancePremiumPolicy(isEntitled: false, subscriptionsEnabled: true)
         let paid = AppearancePremiumPolicy(isEntitled: true, subscriptionsEnabled: true)

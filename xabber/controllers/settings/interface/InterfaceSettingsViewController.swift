@@ -4282,7 +4282,7 @@ final class AppearanceThemePreviewViewController: BaseViewController {
     }
 }
 
-final class AppearanceThemeEditorViewController: BaseViewController, UIColorPickerViewControllerDelegate {
+final class AppearanceThemeEditorViewController: BaseViewController {
     private enum EditorTab: String {
         case background = "Background"
         case accent = "Accent"
@@ -4367,21 +4367,27 @@ final class AppearanceThemeEditorViewController: BaseViewController, UIColorPick
     }
 
     @objc private func changeCurrentValue() {
-        let picker = UIColorPickerViewController()
-        picker.delegate = self
-        picker.supportsAlpha = false
         let palette = theme.palette(for: traitCollection.userInterfaceStyle)
-        switch tabKinds[tabs.selectedSegmentIndex] {
-        case .background: picker.selectedColor = palette.backgroundStops.first?.uiColor ?? .systemBackground
-        case .accent: picker.selectedColor = palette.accent.uiColor
-        case .messages: picker.selectedColor = palette.outgoingBubble.uiColor
+        let tab = tabKinds[tabs.selectedSegmentIndex]
+        let initialColor: UIColor
+        switch tab {
+        case .background: initialColor = palette.backgroundStops.first?.uiColor ?? .systemBackground
+        case .accent: initialColor = palette.accent.uiColor
+        case .messages: initialColor = palette.outgoingBubble.uiColor
         }
-        present(picker, animated: true)
+        let picker = AppearanceCustomAccentColorViewController(initialColor: initialColor)
+        picker.onSave = { [weak self] color in
+            guard let self else { return }
+            self.apply(color, to: tab)
+            self.dismiss(animated: true)
+        }
+        let navigationController = UINavigationController(rootViewController: picker)
+        navigationController.modalPresentationStyle = .pageSheet
+        present(navigationController, animated: true)
     }
 
-    func colorPickerViewControllerDidSelectColor(_ viewController: UIColorPickerViewController) {
-        let color = AppearanceColor(uiColor: viewController.selectedColor)
-        switch tabKinds[tabs.selectedSegmentIndex] {
+    private func apply(_ color: AppearanceColor, to tab: EditorTab) {
+        switch tab {
         case .background:
             theme.lightPalette.backgroundStops = [color, theme.lightPalette.backgroundStops.last ?? color]
             theme.darkPalette.backgroundStops = [color.darken(0.58), color.darken(0.32)]
