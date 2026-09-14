@@ -1757,9 +1757,19 @@ final class InterfaceAppearanceTests: XCTestCase {
     func testBubbleEditorUsesInsetGroupedTableWithPaddedGalleryAndRadiusSections() throws {
         var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         document.profile.wallpaper = .builtIn(name: "Honeycomb")
+        document.profile.textSize = .points22
         let controller = AppearanceBubbleViewController(document: document)
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        let settleLayout = expectation(description: "bubble gallery self-sizing settles")
+        DispatchQueue.main.async {
+            DispatchQueue.main.async {
+                settleLayout.fulfill()
+            }
+        }
+        wait(for: [settleLayout], timeout: 1)
         controller.view.setNeedsLayout()
         controller.view.layoutIfNeeded()
 
@@ -1812,10 +1822,18 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertGreaterThan(galleryFrame.minX, controller.view.bounds.minX)
         XCTAssertLessThan(galleryFrame.maxX, controller.view.bounds.maxX)
         XCTAssertEqual(gallery.layer.cornerRadius, 0, accuracy: 0.01)
-        let firstBubbleFrame = firstBubble.convert(firstBubble.bounds, to: gallery)
-        let lastBubbleFrame = lastBubble.convert(lastBubble.bounds, to: gallery)
-        XCTAssertGreaterThanOrEqual(firstBubbleFrame.minY, 16)
-        XCTAssertLessThanOrEqual(lastBubbleFrame.maxY, gallery.bounds.maxY - 16)
+        let firstMessageCell = try XCTUnwrap(firstSubview(of: TextMessageCell.self, in: firstBubble))
+        let lastMessageCell = try XCTUnwrap(firstSubview(of: TextMessageCell.self, in: lastBubble))
+        let firstMessageContainerFrame = firstMessageCell.messageContainerView.convert(
+            firstMessageCell.messageContainerView.bounds,
+            to: gallery
+        )
+        let lastMessageContainerFrame = lastMessageCell.messageContainerView.convert(
+            lastMessageCell.messageContainerView.bounds,
+            to: gallery
+        )
+        XCTAssertGreaterThanOrEqual(firstMessageContainerFrame.minY, 16)
+        XCTAssertLessThanOrEqual(lastMessageContainerFrame.maxY, gallery.bounds.maxY - 16)
         XCTAssertGreaterThan(radiusSectionFrame.minX, controller.view.bounds.minX)
         XCTAssertLessThan(radiusSectionFrame.maxX, controller.view.bounds.maxX)
         XCTAssertGreaterThan(radiusSectionFrame.minY, galleryFrame.maxY)

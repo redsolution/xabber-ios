@@ -2508,6 +2508,7 @@ final class AppearanceBubbleViewController: AppearanceDraftViewController {
     private let entitlementProvider: AppearanceEntitlementProviding
     private let paywallPresenter: (UIViewController) -> Bool
     private weak var galleryCell: AppearanceBubbleGalleryCell?
+    private var hasPendingGalleryHeightUpdate = false
     private var policy: AppearancePremiumPolicy {
         return AppearancePremiumPolicy(
             isEntitled: entitlementProvider.hasActiveAppearanceEntitlement,
@@ -2598,6 +2599,19 @@ final class AppearanceBubbleViewController: AppearanceDraftViewController {
         refreshSetButton()
     }
 
+    private func scheduleGalleryHeightUpdate() {
+        guard !hasPendingGalleryHeightUpdate else { return }
+        hasPendingGalleryHeightUpdate = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            hasPendingGalleryHeightUpdate = false
+            UIView.performWithoutAnimation {
+                self.tableView.beginUpdates()
+                self.tableView.endUpdates()
+            }
+        }
+    }
+
     @objc private func entitlementChanged() {
         tableView.reloadData()
     }
@@ -2646,6 +2660,9 @@ extension AppearanceBubbleViewController: UITableViewDataSource, UITableViewDele
                 lockedStyles: lockedStyles,
                 onStyleSelected: { [weak self] style in
                     self?.select(style)
+                },
+                onPreferredHeightChanged: { [weak self] in
+                    self?.scheduleGalleryHeightUpdate()
                 }
             )
             galleryCell = cell
@@ -2669,6 +2686,7 @@ private final class AppearanceBubbleGalleryCell: UITableViewCell {
     static let reuseIdentifier = "AppearanceBubbleGalleryCell"
 
     private let gallery = AppearanceBubbleStyleGalleryView()
+    private var onPreferredHeightChanged: (() -> Void)?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -2676,6 +2694,9 @@ private final class AppearanceBubbleGalleryCell: UITableViewCell {
         gallery.translatesAutoresizingMaskIntoConstraints = false
         gallery.layer.cornerRadius = 0
         gallery.layer.maskedCorners = []
+        gallery.onPreferredHeightChanged = { [weak self] in
+            self?.onPreferredHeightChanged?()
+        }
         contentView.addSubview(gallery)
         NSLayoutConstraint.activate([
             gallery.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -2694,8 +2715,10 @@ private final class AppearanceBubbleGalleryCell: UITableViewCell {
         styles: [AppearanceBubbleStyle],
         selectedStyle: AppearanceBubbleStyle,
         lockedStyles: Set<AppearanceBubbleStyle>,
-        onStyleSelected: @escaping (AppearanceBubbleStyle) -> Void
+        onStyleSelected: @escaping (AppearanceBubbleStyle) -> Void,
+        onPreferredHeightChanged: @escaping () -> Void
     ) {
+        self.onPreferredHeightChanged = onPreferredHeightChanged
         gallery.onStyleSelected = onStyleSelected
         gallery.configure(
             document: document,
@@ -2760,11 +2783,11 @@ final class AppearanceBubbleStyleGalleryView: UIView {
     private enum Metrics {
         static let messageSpacing: CGFloat = 8
         static let verticalInset: CGFloat = 16
-        static let provisionalHeightAllowance: CGFloat = 16
         static let horizontalInset: CGFloat = 0
     }
 
     var onStyleSelected: ((AppearanceBubbleStyle) -> Void)?
+    var onPreferredHeightChanged: (() -> Void)?
     var showsBackground = true {
         didSet {
             backgroundView.isHidden = !showsBackground
@@ -2874,7 +2897,6 @@ final class AppearanceBubbleStyleGalleryView: UIView {
         minimumHeight = CGFloat(styles.count) * 64
             + CGFloat(max(styles.count - 1, 0)) * Metrics.messageSpacing
             + Metrics.verticalInset * 2
-            + Metrics.provisionalHeightAllowance
         rowsContainerHeightConstraint.constant = max(0, minimumHeight - Metrics.verticalInset * 2)
         invalidateIntrinsicContentSize()
     }
@@ -2911,7 +2933,7 @@ final class AppearanceBubbleStyleGalleryView: UIView {
             nextRowOriginY = row.frame.maxY
         }
 
-        let contentHeight = max(nextRowOriginY, 1)
+        let contentHeight = max(nextRowOriginY, previousMessageBottom ?? 0, 1)
         let updatedMinimumHeight = ceil(contentHeight + Metrics.verticalInset * 2)
         if abs(rowsContainerHeightConstraint.constant - contentHeight) > 0.5 {
             rowsContainerHeightConstraint.constant = contentHeight
@@ -2919,6 +2941,7 @@ final class AppearanceBubbleStyleGalleryView: UIView {
         if abs(minimumHeight - updatedMinimumHeight) > 0.5 {
             minimumHeight = updatedMinimumHeight
             invalidateIntrinsicContentSize()
+            onPreferredHeightChanged?()
         }
     }
 
