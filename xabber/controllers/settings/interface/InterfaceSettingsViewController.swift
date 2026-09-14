@@ -2970,14 +2970,14 @@ final class AppearanceBubbleStyleGalleryView: UIView {
 
     private static func sampleText(for style: AppearanceBubbleStyle) -> String {
         switch style {
-        case .noTail: return "No tail"
-        case .smooth: return "Smooth shape"
-        case .bubble: return "Friendly bubble"
-        case .bubbles: return "Small bubbles"
-        case .curvy: return "Curvy reply"
-        case .stripes: return "Premium stripes"
-        case .transparent: return "Clear wallpaper"
-        case .wedge: return "Sharp wedge"
+        case .noTail: return "Can we meet after\nlunch today?"
+        case .smooth: return "The train leaves in\ntwenty minutes."
+        case .bubble: return "I'll send the photo\nwhen I get home."
+        case .bubbles: return "The coffee place\nopens at eight."
+        case .curvy: return "We can talk again\ntomorrow morning."
+        case .stripes: return "I saved the address\nin the notes."
+        case .transparent: return "Let me know when\nyou arrive."
+        case .wedge: return "That works for me,\nthanks."
         }
     }
 }

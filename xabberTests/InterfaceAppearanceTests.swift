@@ -1578,6 +1578,16 @@ final class InterfaceAppearanceTests: XCTestCase {
             ) as? ChatBackgroundBackdropView
         )
         XCTAssertTrue(backdrop.hasVisibleWallpaperImage)
+        let expectedSampleTexts: [AppearanceBubbleStyle: String] = [
+            .noTail: "Can we meet after\nlunch today?",
+            .smooth: "The train leaves in\ntwenty minutes.",
+            .bubble: "I'll send the photo\nwhen I get home.",
+            .bubbles: "The coffee place\nopens at eight.",
+            .curvy: "We can talk again\ntomorrow morning.",
+            .stripes: "I saved the address\nin the notes.",
+            .transparent: "Let me know when\nyou arrive.",
+            .wedge: "That works for me,\nthanks."
+        ]
 
         for style in AppearanceBubbleStyle.allCases {
             XCTAssertNotNil(
@@ -1615,10 +1625,17 @@ final class InterfaceAppearanceTests: XCTestCase {
             let messageFont = try XCTUnwrap(
                 messageText.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
             )
+            XCTAssertEqual(messageText.string, try XCTUnwrap(expectedSampleTexts[style]))
+            XCTAssertEqual(messageText.string.components(separatedBy: "\n").count, 2)
+            XCTAssertGreaterThanOrEqual(
+                cell.messageLabel.bounds.height,
+                ceil(messageFont.lineHeight * 2) - 1,
+                "\(style.displayName) sample must occupy two visual lines at 22 pt"
+            )
             XCTAssertLessThanOrEqual(
                 cell.messageLabel.bounds.height,
-                ceil(messageFont.lineHeight) + 1,
-                "\(style.displayName) sample must stay on one visual line at 22 pt"
+                ceil(messageFont.lineHeight * 2) + 1,
+                "\(style.displayName) sample must not wrap beyond two visual lines at 22 pt"
             )
         }
 
