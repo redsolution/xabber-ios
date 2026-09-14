@@ -449,15 +449,57 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testInlineAppearanceChoiceStaysInRootDraftUntilCheckmark() throws {
+    func testInlineAppearanceChoiceCommitsAndAppliesImmediately() throws {
         let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
         let coordinator = AppearanceCoordinator(store: store)
+        let scene = try requireHostedForegroundWindowScene()
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let previousWindowAppearances = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .map { ($0, $0.overrideUserInterfaceStyle, $0.tintColor) }
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
         let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
-        let navigationController = UINavigationController(rootViewController: controller)
+        let host = UIViewController()
+        let navigationController = NonAnimatingNavigationController(rootViewController: host)
+        navigationController.pushViewController(controller, animated: false)
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousWindowAppearances.forEach { window, style, tintColor in
+                window.overrideUserInterfaceStyle = style
+                window.tintColor = tintColor
+            }
+            previousKeyWindow?.makeKey()
+        }
         controller.loadViewIfNeeded()
         let tableView = try XCTUnwrap(
             controller.view.subviews.compactMap { $0 as? UITableView }.first
         )
+        let originalProfile = coordinator.document.profile
+        let theme = try XCTUnwrap(
+            AppearanceThemeCatalog.builtInThemes.first(
+                where: { $0.id != originalProfile.themeID }
+            )
+        )
+        let overviewCell = controller.tableView(
+            tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        )
+        let themeControl = try XCTUnwrap(
+            descendant(
+                in: overviewCell,
+                accessibilityIdentifier: "interface.theme.mini.\(theme.id)"
+            ) as? UIControl
+        )
+        themeControl.sendActions(for: .touchUpInside)
+
+        XCTAssertEqual(coordinator.document.profile, originalProfile)
+        XCTAssertTrue(controller.navigationItem.rightBarButtonItem?.isEnabled ?? false)
+
         let cell = controller.tableView(
             tableView,
             cellForRowAt: IndexPath(row: 0, section: 2)
@@ -466,18 +508,19 @@ final class InterfaceAppearanceTests: XCTestCase {
             descendant(in: cell, accessibilityIdentifier: "interface.mode.dark") as? UIControl
         )
 
+        let animationsWereEnabled = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+        defer { UIView.setAnimationsEnabled(animationsWereEnabled) }
         dark.sendActions(for: .touchUpInside)
 
-        XCTAssertEqual(navigationController.viewControllers.count, 1)
+        XCTAssertEqual(navigationController.viewControllers.count, 2)
         XCTAssertTrue(navigationController.topViewController === controller)
-        XCTAssertEqual(coordinator.document.profile.interfaceStyle, .system)
-        XCTAssertEqual(store.load().profile.interfaceStyle, .system)
-        XCTAssertTrue(controller.navigationItem.rightBarButtonItem?.isEnabled == true)
-
-        controller.saveTapped()
-
         XCTAssertEqual(coordinator.document.profile.interfaceStyle, .dark)
         XCTAssertEqual(store.load().profile.interfaceStyle, .dark)
+        XCTAssertEqual(coordinator.document.profile.themeID, originalProfile.themeID)
+        XCTAssertEqual(store.load().profile.themeID, originalProfile.themeID)
+        XCTAssertEqual(window.overrideUserInterfaceStyle, .dark)
+        XCTAssertTrue(controller.navigationItem.rightBarButtonItem?.isEnabled ?? false)
 
         let refreshedCell = controller.tableView(
             tableView,
@@ -488,6 +531,16 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         XCTAssertEqual(selectedDark.accessibilityValue, "Selected")
         XCTAssertTrue(selectedDark.accessibilityTraits.contains(.selected))
+
+        controller.cancelTapped()
+
+        XCTAssertEqual(navigationController.viewControllers.count, 1)
+        XCTAssertTrue(navigationController.topViewController === host)
+        XCTAssertEqual(coordinator.document.profile.interfaceStyle, .dark)
+        XCTAssertEqual(store.load().profile.interfaceStyle, .dark)
+        XCTAssertEqual(coordinator.document.profile.themeID, originalProfile.themeID)
+        XCTAssertEqual(store.load().profile.themeID, originalProfile.themeID)
+        XCTAssertEqual(window.overrideUserInterfaceStyle, .dark)
     }
 
     @MainActor
@@ -2270,5 +2323,12 @@ final class InterfaceAppearanceTests: XCTestCase {
             }
         }
         return nil
+    }
+}
+
+@MainActor
+private final class NonAnimatingNavigationController: UINavigationController {
+    override func popViewController(animated: Bool) -> UIViewController? {
+        super.popViewController(animated: false)
     }
 }

@@ -30,6 +30,7 @@ final class InterfaceSettingsViewController: BaseViewController {
     private let paywallPresenter: (UIViewController) -> Bool
     private var originalDocument: AppearanceSettingsDocument
     private var document: AppearanceSettingsDocument
+    private var isApplyingInterfaceStyleImmediately = false
 
     private static let defaultPaywallPresenter: (UIViewController) -> Bool = { parent in
         SubscribtionsPresenter().present(animated: true, parent: parent)
@@ -126,6 +127,7 @@ final class InterfaceSettingsViewController: BaseViewController {
     }
 
     @objc private func appearanceChanged() {
+        guard !isApplyingInterfaceStyleImmediately else { return }
         guard document == originalDocument else { return }
         originalDocument = appearanceCoordinator.document
         document = originalDocument
@@ -375,16 +377,37 @@ final class InterfaceSettingsViewController: BaseViewController {
     }
 
     private func applyInterfaceStyle(_ style: AppearanceInterfaceStyle) {
-        var updated = document
-        guard updated.profile.interfaceStyle != style else {
-            document = updated
+        let pendingDocument = document
+        let appliedDocument = appearanceCoordinator.document
+        guard appliedDocument.profile.interfaceStyle != style else {
+            originalDocument = appliedDocument
+            document = pendingDocument
+            document.profile.interfaceStyle = appliedDocument.profile.interfaceStyle
+            refreshNavigationActions()
             tableView.reloadData()
             return
         }
-        updated.profile.interfaceStyle = style
-        document = updated
-        refreshNavigationActions()
-        tableView.reloadData()
+
+        var styleOnlyDocument = appliedDocument
+        styleOnlyDocument.profile.interfaceStyle = style
+        do {
+            isApplyingInterfaceStyleImmediately = true
+            defer { isApplyingInterfaceStyleImmediately = false }
+            _ = try appearanceCoordinator.commit(styleOnlyDocument)
+            originalDocument = appearanceCoordinator.document
+            document = pendingDocument
+            document.profile.interfaceStyle = originalDocument.profile.interfaceStyle
+            refreshNavigationActions()
+            tableView.reloadData()
+        } catch {
+            let alert = UIAlertController(
+                title: "Couldn’t apply Appearance",
+                message: error.localizedDescription,
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
+        }
     }
 }
 
