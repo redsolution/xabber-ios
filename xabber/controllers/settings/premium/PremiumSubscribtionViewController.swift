@@ -1830,6 +1830,7 @@ private class PremiumGradientView: UIView {
 
 final class PremiumGradientButton: UIButton {
     private let gradientLayer = CAGradientLayer()
+    private var hasFloatingShadow = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1855,9 +1856,27 @@ final class PremiumGradientButton: UIButton {
         titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
     }
 
+    func enableFloatingShadow() {
+        hasFloatingShadow = true
+        clipsToBounds = false
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.12
+        layer.shadowRadius = 8
+        layer.shadowOffset = CGSize(width: 0, height: 3)
+        gradientLayer.cornerRadius = layer.cornerRadius
+        gradientLayer.masksToBounds = true
+        setNeedsLayout()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         gradientLayer.frame = bounds
+        if hasFloatingShadow {
+            layer.shadowPath = UIBezierPath(
+                roundedRect: bounds,
+                cornerRadius: layer.cornerRadius
+            ).cgPath
+        }
     }
 
     override var isHighlighted: Bool {

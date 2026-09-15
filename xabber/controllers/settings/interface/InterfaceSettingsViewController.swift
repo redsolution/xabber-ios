@@ -106,6 +106,7 @@ final class InterfaceSettingsViewController: BaseViewController {
         subscribePremiumButton.accessibilityIdentifier = "interface.settings.subscribePremium"
         subscribePremiumButton.accessibilityLabel = "Unlock premium style"
         subscribePremiumButton.addTarget(self, action: #selector(buyPremiumTapped), for: .touchUpInside)
+        subscribePremiumButton.enableFloatingShadow()
         view.addSubview(subscribePremiumButton)
 
         subscribePremiumButton.translatesAutoresizingMaskIntoConstraints = false
