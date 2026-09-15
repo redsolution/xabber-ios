@@ -363,8 +363,9 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         let systemFontCell = try XCTUnwrap(textSizeTable.cellForRow(at: IndexPath(row: 1, section: 0)))
         XCTAssertEqual(systemFontCell.accessibilityIdentifier, "interface.textSize.useSystem")
-        XCTAssertEqual(systemFontCell.textLabel?.text, "Use system font size")
+        XCTAssertEqual(systemFontCell.textLabel?.text, "Set System font size")
         XCTAssertEqual(systemFontCell.accessoryType, .none)
+        XCTAssertEqual(try XCTUnwrap(slider.tintColor).cgColor.alpha, 1, accuracy: 0.01)
         XCTAssertEqual(try XCTUnwrap(incomingMessage.messageLabel.text).split(separator: " ").count, 9)
         XCTAssertEqual(try XCTUnwrap(outgoingMessage.messageLabel.text).split(separator: " ").count, 9)
         let previewHeightAt17 = preview.bounds.height
@@ -381,6 +382,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         editor.view.layoutIfNeeded()
         XCTAssertEqual(editor.draft.profile.textSize, .system)
         XCTAssertEqual(slider.value, 3)
+        XCTAssertEqual(try XCTUnwrap(slider.tintColor).cgColor.alpha, 0.5, accuracy: 0.01)
         XCTAssertEqual(coordinator.document.profile.textSize, .points17)
         XCTAssertEqual(
             textSizeTable.dataSource?.tableView?(textSizeTable, titleForHeaderInSection: 0),
@@ -389,7 +391,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         let selectedSystemFontCell = try XCTUnwrap(
             textSizeTable.cellForRow(at: IndexPath(row: 1, section: 0))
         )
-        XCTAssertEqual(selectedSystemFontCell.textLabel?.text, "Use system font size")
+        XCTAssertEqual(selectedSystemFontCell.textLabel?.text, "Set System font size")
         XCTAssertEqual(selectedSystemFontCell.accessoryType, .none)
         XCTAssertEqual(
             controller.navigationItem.leftBarButtonItem?.accessibilityIdentifier,
@@ -406,6 +408,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         editor.view.setNeedsLayout()
         editor.view.layoutIfNeeded()
         XCTAssertEqual(editor.draft.profile.textSize, .points20)
+        XCTAssertEqual(try XCTUnwrap(slider.tintColor).cgColor.alpha, 1, accuracy: 0.01)
         XCTAssertEqual(coordinator.document.profile.textSize, .points17)
         XCTAssertEqual(
             textSizeTable.dataSource?.tableView?(textSizeTable, titleForHeaderInSection: 0),

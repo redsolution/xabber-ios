@@ -2520,6 +2520,7 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
         updateTypographyPreview()
         refreshSectionHeader()
         refreshSystemFontCell()
+        refreshSliderTint(animated: true)
     }
 
     private func selectSystemFont() {
@@ -2528,6 +2529,7 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
         updateTypographyPreview()
         refreshSectionHeader()
         refreshSystemFontCell()
+        refreshSliderTint(animated: true)
     }
 
     private func updateTypographyPreview() {
@@ -2602,13 +2604,25 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
         configureSystemFontCell(cell)
     }
 
+    private func refreshSliderTint(animated: Bool) {
+        guard let cell = tableView.cellForRow(at: IndexPath(row: Row.manualSize.rawValue, section: 0))
+            as? AppearanceTextSizeSliderCell else {
+            return
+        }
+        cell.setSystemFontSelected(
+            draft.profile.textSize == .system,
+            tintColor: view.tintColor,
+            animated: animated
+        )
+    }
+
     private func configureSystemFontCell(_ cell: UITableViewCell) {
-        cell.textLabel?.text = "Use system font size"
+        cell.textLabel?.text = "Set System font size"
         cell.textLabel?.textColor = view.tintColor
         cell.tintColor = view.tintColor
         cell.accessoryType = .none
         cell.accessibilityIdentifier = "interface.textSize.useSystem"
-        cell.accessibilityLabel = "Use system font size"
+        cell.accessibilityLabel = "Set System font size"
         cell.accessibilityValue = draft.profile.textSize == .system ? "Selected" : nil
         cell.accessibilityTraits = draft.profile.textSize == .system ? [.button, .selected] : .button
     }
@@ -2634,7 +2648,12 @@ extension AppearanceTextSizeViewController: UITableViewDataSource, UITableViewDe
                 withIdentifier: AppearanceTextSizeSliderCell.reuseIdentifier,
                 for: indexPath
             ) as! AppearanceTextSizeSliderCell
-            cell.configure(value: Float(manualSliderIndex), maximumValue: Float(AppearanceTextSize.fixedCases.count - 1))
+            cell.configure(
+                value: Float(manualSliderIndex),
+                maximumValue: Float(AppearanceTextSize.fixedCases.count - 1),
+                systemFontSelected: draft.profile.textSize == .system,
+                tintColor: view.tintColor
+            )
             cell.onValueChanged = { [weak self] value in
                 self?.selectManualSize(at: Int(value.rounded()))
             }
@@ -2658,6 +2677,8 @@ extension AppearanceTextSizeViewController: UITableViewDataSource, UITableViewDe
 
 private final class AppearanceTextSizeSliderCell: UITableViewCell {
     static let reuseIdentifier = "AppearanceTextSizeSliderCell"
+    private static let systemFontTintAlpha: CGFloat = 0.5
+    private static let tintAnimationDuration: TimeInterval = 0.2
 
     let slider = UISlider()
     var onValueChanged: ((Float) -> Void)?
@@ -2691,10 +2712,36 @@ private final class AppearanceTextSizeSliderCell: UITableViewCell {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func configure(value: Float, maximumValue: Float) {
+    func configure(
+        value: Float,
+        maximumValue: Float,
+        systemFontSelected: Bool,
+        tintColor: UIColor
+    ) {
         slider.minimumValue = 0
         slider.maximumValue = maximumValue
         slider.setValue(value, animated: false)
+        setSystemFontSelected(systemFontSelected, tintColor: tintColor, animated: false)
+    }
+
+    func setSystemFontSelected(_ systemFontSelected: Bool, tintColor: UIColor, animated: Bool) {
+        let alpha = systemFontSelected ? Self.systemFontTintAlpha : 1
+        let resolvedTintColor = tintColor.withAlphaComponent(alpha)
+        let changes = {
+            self.slider.tintColor = resolvedTintColor
+            self.slider.minimumTrackTintColor = resolvedTintColor
+            self.slider.thumbTintColor = resolvedTintColor
+        }
+        guard animated, !UIAccessibility.isReduceMotionEnabled else {
+            changes()
+            return
+        }
+        UIView.transition(
+            with: slider,
+            duration: Self.tintAnimationDuration,
+            options: [.transitionCrossDissolve, .beginFromCurrentState, .allowUserInteraction, .allowAnimatedContent],
+            animations: changes
+        )
     }
 
     @objc private func sliderChanged() {
