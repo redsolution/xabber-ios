@@ -102,9 +102,9 @@ final class InterfaceSettingsViewController: BaseViewController {
         tableView.accessibilityIdentifier = "interface.settings.table"
         view.addSubview(tableView)
 
-        subscribePremiumButton.setTitle("Subscribe to premium", for: .normal)
+        subscribePremiumButton.setTitle("Unlock premium style", for: .normal)
         subscribePremiumButton.accessibilityIdentifier = "interface.settings.subscribePremium"
-        subscribePremiumButton.accessibilityLabel = "Subscribe to premium"
+        subscribePremiumButton.accessibilityLabel = "Unlock premium style"
         subscribePremiumButton.addTarget(self, action: #selector(buyPremiumTapped), for: .touchUpInside)
         view.addSubview(subscribePremiumButton)
 

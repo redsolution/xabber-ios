@@ -1822,7 +1822,7 @@ final class InterfaceAppearanceTests: XCTestCase {
                 accessibilityIdentifier: "interface.settings.subscribePremium"
             ) as? UIButton
         )
-        XCTAssertEqual(subscribePremium.title(for: .normal), "Subscribe to premium")
+        XCTAssertEqual(subscribePremium.title(for: .normal), "Unlock premium style")
         XCTAssertEqual(subscribePremium.bounds.height, 50, accuracy: 0.01)
         XCTAssertEqual(subscribePremium.layer.cornerRadius, 25, accuracy: 0.01)
         XCTAssertTrue(subscribePremium.layer.sublayers?.contains(where: { $0 is CAGradientLayer }) ?? false)
