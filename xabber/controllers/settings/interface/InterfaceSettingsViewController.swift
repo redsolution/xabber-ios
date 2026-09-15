@@ -1071,13 +1071,30 @@ final class AppearancePreviewView: UIView {
             configureInterfaceOverview(snapshot: snapshot)
         } else {
             let incoming = AppearanceChatMessagePreviewHostView()
-            incoming.configure(text: "Good morning! 👋", outgoing: false, snapshot: snapshot)
+            incoming.configure(
+                text: "I found a quiet coffee shop near the park.",
+                outgoing: false,
+                snapshot: snapshot
+            )
             let outgoing = AppearanceChatMessagePreviewHostView()
-            outgoing.configure(text: "It’s morning in Tokyo 😎", outgoing: true, snapshot: snapshot)
+            outgoing.configure(
+                text: "That sounds perfect, I will meet you there soon.",
+                outgoing: true,
+                snapshot: snapshot
+            )
             contentStack.addArrangedSubview(incoming)
             contentStack.addArrangedSubview(outgoing)
             chatMessageHosts = [incoming, outgoing]
         }
+    }
+
+    func contentFittingHeight(for width: CGFloat, verticalInset: CGFloat = 16) -> CGFloat {
+        guard width > 0, chatMessageHosts.isNotEmpty else { return 1 }
+        let messageHeight = chatMessageHosts.reduce(CGFloat.zero) { result, host in
+            result + host.fittingHeight(for: width)
+        }
+        let spacing = contentStack.spacing * CGFloat(max(chatMessageHosts.count - 1, 0))
+        return ceil(messageHeight + spacing + verticalInset * 2)
     }
 
     private func configureInterfaceOverview(snapshot: ResolvedAppearanceSnapshot) {
@@ -2410,13 +2427,21 @@ private final class AppearanceCustomAccentQuickColorButton: UIControl {
 }
 
 private final class AppearanceTextSizeViewController: AppearanceDraftViewController {
-    private let slider = UISlider()
-    private let sizeLabel = UILabel()
+    private enum Row: Int, CaseIterable {
+        case manualSize
+        case systemFont
+    }
+
+    private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+    private let previewHeader = UIView()
+    private var manualSliderIndex: Int
 
     init(
         document: AppearanceSettingsDocument,
         onDraftCommitted: ((AppearanceSettingsDocument) -> Void)? = nil
     ) {
+        manualSliderIndex = AppearanceTextSize.fixedCases.firstIndex(of: document.profile.textSize)
+            ?? AppearanceTextSize.fixedCases.firstIndex(of: .points17)!
         super.init(
             document: document,
             title: "Text Size",
@@ -2428,56 +2453,60 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        preview.translatesAutoresizingMaskIntoConstraints = false
-        sizeLabel.textAlignment = .center
-        sizeLabel.textColor = .secondaryLabel
-        slider.minimumValue = 0
-        slider.maximumValue = Float(AppearanceTextSize.sliderCases.count - 1)
-        slider.isContinuous = true
-        slider.value = Float(sliderIndex(for: draft.profile.textSize))
-        slider.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
-        slider.accessibilityIdentifier = "interface.textSize.slider"
-        let small = UILabel()
-        small.text = "A"
-        small.font = .systemFont(ofSize: 14)
-        let large = UILabel()
-        large.text = "A"
-        large.font = .systemFont(ofSize: 28)
-        let sliderRow = UIStackView(arrangedSubviews: [small, slider, large])
-        sliderRow.axis = .horizontal
-        sliderRow.spacing = 12
-        sliderRow.alignment = .center
-        let stack = UIStackView(arrangedSubviews: [preview, sizeLabel, sliderRow])
-        stack.axis = .vertical
-        stack.spacing = 18
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(stack)
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 60
+        tableView.accessibilityIdentifier = "interface.textSize.table"
+        tableView.register(
+            AppearanceTextSizeSliderCell.self,
+            forCellReuseIdentifier: AppearanceTextSizeSliderCell.reuseIdentifier
+        )
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "AppearanceTextSizeSystemFontCell")
+        tableView.tableHeaderView = previewHeader
+        view.addSubview(tableView)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
-            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            preview.heightAnchor.constraint(equalToConstant: 330)
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
         refreshControls()
         updatePreview()
     }
 
-    @objc private func sliderChanged() {
-        let index = min(max(Int(slider.value.rounded()), 0), AppearanceTextSize.sliderCases.count - 1)
-        slider.setValue(Float(index), animated: false)
-        let selectedSize = AppearanceTextSize.sliderCases[index]
-        if draft.profile.textSize != selectedSize {
-            draft.profile.textSize = selectedSize
-            updateTypographyPreview()
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updatePreviewHeaderLayout()
+    }
+
+    override func updatePreview() {
+        let updated = documentWithDraftProfile
+        preview.configure(document: updated, traits: traitCollection, animated: false)
+        updatePreviewHeaderLayout()
+        publishDraftChangesIfNeeded()
+        refreshSetButton()
+    }
+
+    private func selectManualSize(at index: Int) {
+        let clampedIndex = min(max(index, 0), AppearanceTextSize.fixedCases.count - 1)
+        manualSliderIndex = clampedIndex
+        let selectedSize = AppearanceTextSize.fixedCases[clampedIndex]
+        guard draft.profile.textSize != selectedSize else {
+            refreshControls()
+            return
         }
+        draft.profile.textSize = selectedSize
+        updateTypographyPreview()
         refreshControls()
     }
 
-    private func sliderIndex(for textSize: AppearanceTextSize) -> Int {
-        guard let index = AppearanceTextSize.sliderCases.firstIndex(of: textSize) else {
-            preconditionFailure("Every text size must have a slider position")
-        }
-        return index
+    private func selectSystemFont() {
+        guard draft.profile.textSize != .system else { return }
+        draft.profile.textSize = .system
+        updateTypographyPreview()
+        refreshControls()
     }
 
     private func updateTypographyPreview() {
@@ -2488,13 +2517,143 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
             animated: false,
             updatingTypographyInPlace: true
         )
+        updatePreviewHeaderLayout()
         publishDraftChangesIfNeeded()
         refreshSetButton()
     }
 
+    private func updatePreviewHeaderLayout() {
+        let headerWidth = tableView.bounds.width
+        guard headerWidth > 0 else { return }
+        let horizontalInset: CGFloat = 20
+        let verticalInset: CGFloat = 16
+        let previewWidth = max(headerWidth - horizontalInset * 2, 1)
+        let previewHeight = preview.contentFittingHeight(for: previewWidth)
+        let headerHeight = previewHeight + verticalInset * 2
+        let newHeaderSize = CGSize(width: headerWidth, height: headerHeight)
+        guard previewHeader.frame.size != newHeaderSize else {
+            preview.frame = CGRect(
+                x: horizontalInset,
+                y: verticalInset,
+                width: previewWidth,
+                height: previewHeight
+            )
+            return
+        }
+        previewHeader.frame = CGRect(origin: .zero, size: newHeaderSize)
+        preview.frame = CGRect(
+            x: horizontalInset,
+            y: verticalInset,
+            width: previewWidth,
+            height: previewHeight
+        )
+        previewHeader.addSubview(preview)
+        tableView.tableHeaderView = previewHeader
+        preview.setNeedsLayout()
+        preview.layoutIfNeeded()
+    }
+
     private func refreshControls() {
-        let index = min(max(Int(slider.value.rounded()), 0), AppearanceTextSize.sliderCases.count - 1)
-        sizeLabel.text = AppearanceTextSize.sliderCases[index].displayName
+        guard isViewLoaded else { return }
+        tableView.reloadData()
+    }
+}
+
+extension AppearanceTextSizeViewController: UITableViewDataSource, UITableViewDelegate {
+    func numberOfSections(in tableView: UITableView) -> Int { 1 }
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        Row.allCases.count
+    }
+
+    func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        guard section == 0 else { return nil }
+        if draft.profile.textSize == .system {
+            return "Text size system"
+        }
+        return "Text size \(draft.profile.textSize.points ?? 17)"
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        guard let row = Row(rawValue: indexPath.row) else { return UITableViewCell() }
+        switch row {
+        case .manualSize:
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: AppearanceTextSizeSliderCell.reuseIdentifier,
+                for: indexPath
+            ) as! AppearanceTextSizeSliderCell
+            cell.configure(value: Float(manualSliderIndex), maximumValue: Float(AppearanceTextSize.fixedCases.count - 1))
+            cell.onValueChanged = { [weak self] value in
+                self?.selectManualSize(at: Int(value.rounded()))
+            }
+            return cell
+        case .systemFont:
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: "AppearanceTextSizeSystemFontCell",
+                for: indexPath
+            )
+            cell.textLabel?.text = "Use system font"
+            cell.textLabel?.textColor = view.tintColor
+            cell.tintColor = view.tintColor
+            cell.accessoryType = draft.profile.textSize == .system ? .checkmark : .none
+            cell.accessibilityIdentifier = "interface.textSize.useSystem"
+            cell.accessibilityLabel = "Use system font"
+            cell.accessibilityValue = draft.profile.textSize == .system ? "Selected" : nil
+            cell.accessibilityTraits = draft.profile.textSize == .system ? [.button, .selected] : .button
+            return cell
+        }
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        guard Row(rawValue: indexPath.row) == .systemFont else { return }
+        tableView.deselectRow(at: indexPath, animated: true)
+        selectSystemFont()
+    }
+}
+
+private final class AppearanceTextSizeSliderCell: UITableViewCell {
+    static let reuseIdentifier = "AppearanceTextSizeSliderCell"
+
+    let slider = UISlider()
+    var onValueChanged: ((Float) -> Void)?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        slider.isContinuous = true
+        slider.accessibilityIdentifier = "interface.textSize.slider"
+        slider.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
+
+        let small = UILabel()
+        small.text = "A"
+        small.font = .systemFont(ofSize: 14)
+        let large = UILabel()
+        large.text = "A"
+        large.font = .systemFont(ofSize: 28)
+        let stack = UIStackView(arrangedSubviews: [small, slider, large])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = 12
+        contentView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(value: Float, maximumValue: Float) {
+        slider.minimumValue = 0
+        slider.maximumValue = maximumValue
+        slider.setValue(value, animated: false)
+    }
+
+    @objc private func sliderChanged() {
+        onValueChanged?(slider.value)
     }
 }
 

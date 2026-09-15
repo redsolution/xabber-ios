@@ -305,9 +305,12 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
-    func testTextSizeSliderUsesSystemAtCentreWithoutSeparateSwitch() throws {
+    func testTextSizeUsesManualSliderAndSystemCellWithoutCommittingRootDraft() throws {
         let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
         let coordinator = AppearanceCoordinator(store: store)
+        var appliedDocument = coordinator.document
+        appliedDocument.profile.textSize = .points17
+        try coordinator.commit(appliedDocument)
         let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
         let navigationController = UINavigationController(rootViewController: controller)
         controller.loadViewIfNeeded()
@@ -328,18 +331,53 @@ final class InterfaceAppearanceTests: XCTestCase {
         let slider = try XCTUnwrap(
             descendant(in: editor.view, accessibilityIdentifier: "interface.textSize.slider") as? UISlider
         )
+        let textSizeTable = try XCTUnwrap(
+            descendant(in: editor.view, accessibilityIdentifier: "interface.textSize.table") as? UITableView
+        )
+        let preview = try XCTUnwrap(
+            descendant(in: editor.view, accessibilityIdentifier: "interface.preview") as? AppearancePreviewView
+        )
+        let incomingMessage = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.preview.message.incoming"
+            ) as? TextMessageCell
+        )
+        let outgoingMessage = try XCTUnwrap(
+            descendant(
+                in: preview,
+                accessibilityIdentifier: "interface.preview.message.outgoing"
+            ) as? TextMessageCell
+        )
 
         XCTAssertNil(editor.navigationItem.leftBarButtonItem)
         XCTAssertNil(editor.navigationItem.rightBarButtonItem)
-        XCTAssertNil(descendant(in: editor.view, accessibilityIdentifier: "interface.textSize.system"))
         XCTAssertEqual(slider.minimumValue, 0)
-        XCTAssertEqual(slider.maximumValue, 8)
-        XCTAssertEqual(slider.value, 4)
+        XCTAssertEqual(slider.maximumValue, 7)
+        XCTAssertEqual(slider.value, 3)
+        XCTAssertEqual(textSizeTable.numberOfSections, 1)
+        XCTAssertEqual(textSizeTable.numberOfRows(inSection: 0), 2)
+        XCTAssertEqual(
+            textSizeTable.dataSource?.tableView?(textSizeTable, titleForHeaderInSection: 0),
+            "Text size 17"
+        )
+        let systemFontCell = try XCTUnwrap(textSizeTable.cellForRow(at: IndexPath(row: 1, section: 0)))
+        XCTAssertEqual(systemFontCell.accessibilityIdentifier, "interface.textSize.useSystem")
+        XCTAssertEqual(systemFontCell.textLabel?.text, "Use system font")
+        XCTAssertEqual(try XCTUnwrap(incomingMessage.messageLabel.text).split(separator: " ").count, 9)
+        XCTAssertEqual(try XCTUnwrap(outgoingMessage.messageLabel.text).split(separator: " ").count, 9)
+        let previewHeightAt17 = preview.bounds.height
 
-        slider.setValue(0, animated: false)
-        slider.sendActions(for: .valueChanged)
-        XCTAssertEqual(editor.draft.profile.textSize, .points14)
-        XCTAssertEqual(coordinator.document.profile.textSize, .system)
+        textSizeTable.delegate?.tableView?(textSizeTable, didSelectRowAt: IndexPath(row: 1, section: 0))
+        editor.view.setNeedsLayout()
+        editor.view.layoutIfNeeded()
+        XCTAssertEqual(editor.draft.profile.textSize, .system)
+        XCTAssertEqual(slider.value, 3)
+        XCTAssertEqual(coordinator.document.profile.textSize, .points17)
+        XCTAssertEqual(
+            textSizeTable.dataSource?.tableView?(textSizeTable, titleForHeaderInSection: 0),
+            "Text size system"
+        )
         XCTAssertEqual(
             controller.navigationItem.leftBarButtonItem?.accessibilityIdentifier,
             "interface.settings.cancel"
@@ -350,24 +388,19 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         XCTAssertTrue(controller.navigationItem.hidesBackButton)
 
-        slider.setValue(3, animated: false)
-        slider.sendActions(for: .valueChanged)
-        XCTAssertEqual(editor.draft.profile.textSize, .points17)
-
-        slider.setValue(4, animated: false)
-        slider.sendActions(for: .valueChanged)
-        XCTAssertEqual(editor.draft.profile.textSize, .system)
-        XCTAssertNil(controller.navigationItem.leftBarButtonItem)
-        XCTAssertNil(controller.navigationItem.rightBarButtonItem)
-        XCTAssertFalse(controller.navigationItem.hidesBackButton)
-
         slider.setValue(6, animated: false)
         slider.sendActions(for: .valueChanged)
-        XCTAssertEqual(editor.draft.profile.textSize, .points19)
-
-        slider.setValue(8, animated: false)
-        slider.sendActions(for: .valueChanged)
-        XCTAssertEqual(editor.draft.profile.textSize, .points21)
+        editor.view.setNeedsLayout()
+        editor.view.layoutIfNeeded()
+        XCTAssertEqual(editor.draft.profile.textSize, .points20)
+        XCTAssertEqual(coordinator.document.profile.textSize, .points17)
+        XCTAssertEqual(
+            textSizeTable.dataSource?.tableView?(textSizeTable, titleForHeaderInSection: 0),
+            "Text size 20"
+        )
+        XCTAssertGreaterThan(preview.bounds.height, previewHeightAt17)
+        let outgoingFrame = outgoingMessage.convert(outgoingMessage.bounds, to: preview)
+        XCTAssertLessThanOrEqual(outgoingFrame.maxY, preview.bounds.maxY - 16 + 0.5)
     }
 
     @MainActor
@@ -2599,13 +2632,9 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertTrue(tileBackdrop.hasVisibleWallpaperImage)
     }
 
-    func testTypographyExposesEightFixedSliderStepsAndSystem() {
+    func testTypographyExposesEightManualSliderStepsAndSystemChoice() {
         XCTAssertEqual(AppearanceTextSize.fixedCases.map(\.points), [14, 15, 16, 17, 18, 19, 20, 21])
-        XCTAssertEqual(
-            AppearanceTextSize.sliderCases.map(\.points),
-            [14, 15, 16, 17, nil, 18, 19, 20, 21] as [Int?]
-        )
-        XCTAssertEqual(Set(AppearanceTextSize.sliderCases), Set(AppearanceTextSize.allCases))
+        XCTAssertEqual(Set(AppearanceTextSize.fixedCases).union([.system]), Set(AppearanceTextSize.allCases))
         XCTAssertNil(AppearanceTextSize.system.points)
     }
 
