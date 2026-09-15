@@ -2588,9 +2588,9 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
 
     private var sectionTitle: String {
         if draft.profile.textSize == .system {
-            return "Text size system"
+            return "Text size: system"
         }
-        return "Text size \(draft.profile.textSize.points ?? 17)"
+        return "Text size: \(draft.profile.textSize.points ?? 17)"
     }
 
     private func refreshSectionHeader() {
@@ -2849,6 +2849,7 @@ final class AppearanceBubbleViewController: AppearanceDraftViewController {
         galleryCell?.updateRadius(document: galleryDocument, traits: traitCollection)
         tableView.beginUpdates()
         tableView.endUpdates()
+        refreshRadiusSectionHeader()
         refreshSetButton()
     }
 
@@ -2874,6 +2875,14 @@ final class AppearanceBubbleViewController: AppearanceDraftViewController {
         updated.profile = draft.profile
         return updated
     }
+
+    private var radiusSectionTitle: String {
+        "Radius: \(draft.profile.bubbleRadius)"
+    }
+
+    private func refreshRadiusSectionHeader() {
+        tableView.headerView(forSection: Section.radius.rawValue)?.textLabel?.text = radiusSectionTitle
+    }
 }
 
 extension AppearanceBubbleViewController: UITableViewDataSource, UITableViewDelegate {
@@ -2886,7 +2895,7 @@ extension AppearanceBubbleViewController: UITableViewDataSource, UITableViewDele
     }
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        Section(rawValue: section) == .radius ? "Radius" : nil
+        Section(rawValue: section) == .radius ? radiusSectionTitle : nil
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {

@@ -359,7 +359,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertEqual(textSizeTable.numberOfRows(inSection: 0), 2)
         XCTAssertEqual(
             textSizeTable.dataSource?.tableView?(textSizeTable, titleForHeaderInSection: 0),
-            "Text size 17"
+            "Text size: 17"
         )
         let systemFontCell = try XCTUnwrap(textSizeTable.cellForRow(at: IndexPath(row: 1, section: 0)))
         XCTAssertEqual(systemFontCell.accessibilityIdentifier, "interface.textSize.useSystem")
@@ -386,7 +386,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertEqual(coordinator.document.profile.textSize, .points17)
         XCTAssertEqual(
             textSizeTable.dataSource?.tableView?(textSizeTable, titleForHeaderInSection: 0),
-            "Text size system"
+            "Text size: system"
         )
         let selectedSystemFontCell = try XCTUnwrap(
             textSizeTable.cellForRow(at: IndexPath(row: 1, section: 0))
@@ -412,7 +412,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertEqual(coordinator.document.profile.textSize, .points17)
         XCTAssertEqual(
             textSizeTable.dataSource?.tableView?(textSizeTable, titleForHeaderInSection: 0),
-            "Text size 20"
+            "Text size: 20"
         )
         let sliderAfterManualChange = try XCTUnwrap(
             descendant(in: editor.view, accessibilityIdentifier: "interface.textSize.slider") as? UISlider
@@ -2288,6 +2288,7 @@ final class InterfaceAppearanceTests: XCTestCase {
         var document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         document.profile.wallpaper = .builtIn(name: "Honeycomb")
         document.profile.textSize = .points21
+        document.profile.bubbleRadius = 8
         let controller = AppearanceBubbleViewController(document: document)
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -2341,6 +2342,10 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
 
         XCTAssertEqual(tableView.style, .insetGrouped)
+        XCTAssertEqual(
+            tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: 1),
+            "Radius: 8"
+        )
         XCTAssertTrue(galleryBackdrop.hasVisibleWallpaperImage)
         XCTAssertFalse(galleryBackdrop.isHidden)
         XCTAssertEqual(
@@ -2367,6 +2372,20 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertGreaterThan(radiusSectionFrame.minX, controller.view.bounds.minX)
         XCTAssertLessThan(radiusSectionFrame.maxX, controller.view.bounds.maxX)
         XCTAssertGreaterThan(radiusSectionFrame.minY, galleryFrame.maxY)
+
+        let radiusSlider = try XCTUnwrap(
+            descendant(
+                in: radiusSection,
+                accessibilityIdentifier: "interface.bubbles.radius"
+            ) as? UISlider
+        )
+        radiusSlider.setValue(12, animated: false)
+        radiusSlider.sendActions(for: .valueChanged)
+        XCTAssertEqual(controller.draft.profile.bubbleRadius, 12)
+        XCTAssertEqual(
+            tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: 1),
+            "Radius: 12"
+        )
         XCTAssertEqual(
             controller.view.backgroundColor?.resolvedColor(with: .init(userInterfaceStyle: .light)),
             .systemGroupedBackground.resolvedColor(with: .init(userInterfaceStyle: .light))
