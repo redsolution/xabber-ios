@@ -1828,7 +1828,7 @@ private class PremiumGradientView: UIView {
     }
 }
 
-private class PremiumGradientButton: UIButton {
+final class PremiumGradientButton: UIButton {
     private let gradientLayer = CAGradientLayer()
 
     override init(frame: CGRect) {

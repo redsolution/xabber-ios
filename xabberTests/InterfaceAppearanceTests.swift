@@ -1811,30 +1811,22 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertNil(avatarEditor.navigationItem.rightBarButtonItem)
         navigationController.popViewController(animated: false)
 
-        XCTAssertEqual(controller.numberOfSections(in: tableView), 4)
-        XCTAssertEqual(controller.tableView(tableView, titleForHeaderInSection: 2), "Premium")
-        let premiumCell = controller.tableView(
-            tableView,
-            cellForRowAt: IndexPath(row: 0, section: 2)
-        )
-        let premiumMessage = try XCTUnwrap(
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        XCTAssertEqual(controller.numberOfSections(in: tableView), 3)
+        XCTAssertEqual(controller.tableView(tableView, titleForHeaderInSection: 2), "Appearance")
+        XCTAssertNil(descendant(in: controller.view, accessibilityIdentifier: "interface.settings.premiumUpsell"))
+        let subscribePremium = try XCTUnwrap(
             descendant(
-                in: premiumCell,
-                accessibilityIdentifier: "interface.settings.premiumUpsell.message"
-            ) as? UILabel
-        ).text
-        XCTAssertEqual(
-            premiumMessage,
-            "Selected Premium message bubble style and avatar shape are shown in this preview only. Buy Premium to apply them throughout Xabber."
-        )
-        let buyPremium = try XCTUnwrap(
-            descendant(
-                in: premiumCell,
-                accessibilityIdentifier: "interface.settings.buyPremium"
+                in: controller.view,
+                accessibilityIdentifier: "interface.settings.subscribePremium"
             ) as? UIButton
         )
-        XCTAssertEqual(buyPremium.configuration?.title, "Buy Premium")
-        buyPremium.sendActions(for: .touchUpInside)
+        XCTAssertEqual(subscribePremium.title(for: .normal), "Subscribe to premium")
+        XCTAssertEqual(subscribePremium.bounds.height, 50, accuracy: 0.01)
+        XCTAssertEqual(subscribePremium.layer.cornerRadius, 25, accuracy: 0.01)
+        XCTAssertTrue(subscribePremium.layer.sublayers?.contains(where: { $0 is CAGradientLayer }) ?? false)
+        subscribePremium.sendActions(for: .touchUpInside)
         XCTAssertEqual(paywallPresentationCount, 1)
 
         controller.saveTapped()

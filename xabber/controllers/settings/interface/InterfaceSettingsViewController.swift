@@ -12,7 +12,6 @@ final class InterfaceSettingsViewController: BaseViewController {
     private enum Section: Int, CaseIterable {
         case preview
         case chatAppearance
-        case premium
         case mode
     }
 
@@ -25,6 +24,9 @@ final class InterfaceSettingsViewController: BaseViewController {
     }
 
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+    private let premiumBottomBar = UIView()
+    private let premiumBottomBarTopSeparator = UIView()
+    private let subscribePremiumButton = PremiumGradientButton()
     private let appearanceCoordinator: AppearanceCoordinator
     private let entitlementProvider: AppearanceEntitlementProviding
     private let paywallPresenter: (UIViewController) -> Bool
@@ -33,6 +35,8 @@ final class InterfaceSettingsViewController: BaseViewController {
     private var isApplyingInterfaceStyleImmediately = false
     private var cancelButton: UIBarButtonItem?
     private var saveButton: UIBarButtonItem?
+    private var tableViewBottomToViewConstraint: NSLayoutConstraint?
+    private var tableViewBottomToPremiumBarConstraint: NSLayoutConstraint?
 
     private static let defaultPaywallPresenter: (UIViewController) -> Bool = { parent in
         SubscribtionsPresenter().present(animated: true, parent: parent)
@@ -92,17 +96,48 @@ final class InterfaceSettingsViewController: BaseViewController {
         tableView.delegate = self
         tableView.register(AppearanceOverviewCell.self, forCellReuseIdentifier: AppearanceOverviewCell.reuseIdentifier)
         tableView.register(AppearanceModeSelectionCell.self, forCellReuseIdentifier: AppearanceModeSelectionCell.reuseIdentifier)
-        tableView.register(AppearancePremiumUpsellCell.self, forCellReuseIdentifier: AppearancePremiumUpsellCell.reuseIdentifier)
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "AppearanceValueCell")
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 56
         tableView.accessibilityIdentifier = "interface.settings.table"
         view.addSubview(tableView)
+
+        premiumBottomBar.backgroundColor = .systemGroupedBackground
+        premiumBottomBar.accessibilityIdentifier = "interface.settings.premiumBottomBar"
+        premiumBottomBarTopSeparator.backgroundColor = .separator
+        premiumBottomBar.addSubview(premiumBottomBarTopSeparator)
+        subscribePremiumButton.setTitle("Subscribe to premium", for: .normal)
+        subscribePremiumButton.accessibilityIdentifier = "interface.settings.subscribePremium"
+        subscribePremiumButton.accessibilityLabel = "Subscribe to premium"
+        subscribePremiumButton.addTarget(self, action: #selector(buyPremiumTapped), for: .touchUpInside)
+        premiumBottomBar.addSubview(subscribePremiumButton)
+        view.addSubview(premiumBottomBar)
+
+        [premiumBottomBar, premiumBottomBarTopSeparator, subscribePremiumButton].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+        }
+        let tableViewBottomToViewConstraint = tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        let tableViewBottomToPremiumBarConstraint = tableView.bottomAnchor.constraint(equalTo: premiumBottomBar.topAnchor)
+        self.tableViewBottomToViewConstraint = tableViewBottomToViewConstraint
+        self.tableViewBottomToPremiumBarConstraint = tableViewBottomToPremiumBarConstraint
         NSLayoutConstraint.activate([
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.topAnchor.constraint(equalTo: view.topAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            tableViewBottomToViewConstraint,
+
+            premiumBottomBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            premiumBottomBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            premiumBottomBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            subscribePremiumButton.topAnchor.constraint(equalTo: premiumBottomBar.topAnchor, constant: 12),
+            subscribePremiumButton.leadingAnchor.constraint(equalTo: premiumBottomBar.leadingAnchor, constant: 16),
+            subscribePremiumButton.trailingAnchor.constraint(equalTo: premiumBottomBar.trailingAnchor, constant: -16),
+            subscribePremiumButton.bottomAnchor.constraint(equalTo: premiumBottomBar.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            subscribePremiumButton.heightAnchor.constraint(equalToConstant: 50),
+            premiumBottomBarTopSeparator.topAnchor.constraint(equalTo: premiumBottomBar.topAnchor),
+            premiumBottomBarTopSeparator.leadingAnchor.constraint(equalTo: premiumBottomBar.leadingAnchor),
+            premiumBottomBarTopSeparator.trailingAnchor.constraint(equalTo: premiumBottomBar.trailingAnchor),
+            premiumBottomBarTopSeparator.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale)
         ])
         NotificationCenter.default.addObserver(
             self,
@@ -150,32 +185,18 @@ final class InterfaceSettingsViewController: BaseViewController {
         )
     }
 
-    private var selectedPremiumFeatureNames: [String] {
-        var names: [String] = []
-        if premiumPolicy.requiresPurchaseToCommit(
+    private var needsPremiumPurchase: Bool {
+        premiumPolicy.requiresPurchaseToCommit(
             document.profile.bubbleStyle,
             currentlyApplied: originalDocument.profile.bubbleStyle
-        ) {
-            names.append("message bubble style")
-        }
-        if premiumPolicy.requiresPurchaseToCommit(
+        ) || premiumPolicy.requiresPurchaseToCommit(
             document.profile.avatarMask,
             currentlyApplied: originalDocument.profile.avatarMask
-        ) {
-            names.append("avatar shape")
-        }
-        return names
+        )
     }
 
-    private var needsPremiumPurchase: Bool { selectedPremiumFeatureNames.isNotEmpty }
-
     private var visibleSections: [Section] {
-        var sections: [Section] = [.preview, .chatAppearance]
-        if needsPremiumPurchase {
-            sections.append(.premium)
-        }
-        sections.append(.mode)
-        return sections
+        [.preview, .chatAppearance, .mode]
     }
 
     private func section(at index: Int) -> Section? {
@@ -188,6 +209,17 @@ final class InterfaceSettingsViewController: BaseViewController {
         navigationItem.hidesBackButton = hasResettableDraft
         navigationItem.leftBarButtonItem = hasResettableDraft ? cancelButton : nil
         navigationItem.rightBarButtonItem = hasResettableDraft ? saveButton : nil
+        refreshPremiumSubscribeAction()
+    }
+
+    private func refreshPremiumSubscribeAction() {
+        guard isViewLoaded,
+              let tableViewBottomToViewConstraint,
+              let tableViewBottomToPremiumBarConstraint else { return }
+        let shouldShowPremiumSubscribeAction = needsPremiumPurchase
+        premiumBottomBar.isHidden = !shouldShowPremiumSubscribeAction
+        tableViewBottomToViewConstraint.isActive = !shouldShowPremiumSubscribeAction
+        tableViewBottomToPremiumBarConstraint.isActive = shouldShowPremiumSubscribeAction
     }
 
     private func acceptEditorDocument(_ updatedDocument: AppearanceSettingsDocument) {
@@ -253,7 +285,6 @@ final class InterfaceSettingsViewController: BaseViewController {
         switch section {
         case .preview: return nil
         case .chatAppearance: return chatAppearanceRows[indexPath.row]
-        case .premium: return nil
         case .mode: return nil
         }
     }
@@ -424,7 +455,6 @@ extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDel
         switch self.section(at: section) {
         case .preview: return 1
         case .chatAppearance: return chatAppearanceRows.count
-        case .premium: return 1
         case .mode: return 1
         case .none: return 0
         }
@@ -433,7 +463,6 @@ extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDel
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch self.section(at: section) {
         case .chatAppearance: return "Customisation"
-        case .premium: return "Premium"
         case .mode: return "Appearance"
         default: return nil
         }
@@ -451,24 +480,6 @@ extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDel
             }
             cell.onCreateTheme = { [weak self] in
                 self?.createTheme()
-            }
-            return cell
-        }
-        if section(at: indexPath.section) == .premium {
-            guard let cell = tableView.dequeueReusableCell(
-                withIdentifier: AppearancePremiumUpsellCell.reuseIdentifier,
-                for: indexPath
-            ) as? AppearancePremiumUpsellCell else { return UITableViewCell() }
-            let snapshot = AppearanceResolver.resolve(
-                document: document,
-                traitStyle: traitCollection.userInterfaceStyle
-            )
-            cell.configure(
-                featureNames: selectedPremiumFeatureNames,
-                accent: snapshot.accent.uiColor
-            )
-            cell.onBuyPremium = { [weak self] in
-                self?.buyPremiumTapped()
             }
             return cell
         }
@@ -564,73 +575,6 @@ private final class AppearanceColorIndicator: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-}
-
-private final class AppearancePremiumUpsellCell: UITableViewCell {
-    static let reuseIdentifier = "AppearancePremiumUpsellCell"
-
-    var onBuyPremium: (() -> Void)?
-
-    private let titleLabel = UILabel()
-    private let messageLabel = UILabel()
-    private let buyButton = UIButton(type: .system)
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        selectionStyle = .none
-        accessibilityIdentifier = "interface.settings.premiumUpsell"
-        contentView.directionalLayoutMargins = NSDirectionalEdgeInsets(
-            top: 14,
-            leading: 16,
-            bottom: 14,
-            trailing: 16
-        )
-        titleLabel.font = .preferredFont(forTextStyle: .headline)
-        titleLabel.adjustsFontForContentSizeCategory = true
-        titleLabel.text = "Premium options selected"
-        titleLabel.accessibilityIdentifier = "interface.settings.premiumUpsell.title"
-        messageLabel.font = .preferredFont(forTextStyle: .footnote)
-        messageLabel.adjustsFontForContentSizeCategory = true
-        messageLabel.textColor = .secondaryLabel
-        messageLabel.numberOfLines = 0
-        messageLabel.accessibilityIdentifier = "interface.settings.premiumUpsell.message"
-        buyButton.configuration = .tinted()
-        buyButton.configuration?.title = "Buy Premium"
-        buyButton.configuration?.image = UIImage(systemName: "sparkles")
-        buyButton.configuration?.imagePadding = 6
-        buyButton.configuration?.cornerStyle = .medium
-        buyButton.titleLabel?.adjustsFontForContentSizeCategory = true
-        buyButton.contentHorizontalAlignment = .leading
-        buyButton.accessibilityIdentifier = "interface.settings.buyPremium"
-        buyButton.addTarget(self, action: #selector(buyPremiumTapped), for: .touchUpInside)
-        let stack = UIStackView(arrangedSubviews: [titleLabel, messageLabel, buyButton])
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.axis = .vertical
-        stack.alignment = .leading
-        stack.spacing = 8
-        contentView.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor)
-        ])
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    func configure(featureNames: [String], accent: UIColor) {
-        let selectedFeatures = featureNames.joined(separator: " and ")
-        let verb = featureNames.count == 1 ? "is" : "are"
-        let pronoun = featureNames.count == 1 ? "it" : "them"
-        messageLabel.text = "Selected Premium \(selectedFeatures) \(verb) shown in this preview only. Buy Premium to apply \(pronoun) throughout Xabber."
-        buyButton.configuration?.baseForegroundColor = accent
-        buyButton.configuration?.baseBackgroundColor = accent
-    }
-
-    @objc private func buyPremiumTapped() {
-        onBuyPremium?()
-    }
 }
 
 private final class AppearanceModeSelectionCell: UITableViewCell {
