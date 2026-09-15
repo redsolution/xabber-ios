@@ -24,8 +24,6 @@ final class InterfaceSettingsViewController: BaseViewController {
     }
 
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
-    private let premiumBottomBar = UIView()
-    private let premiumBottomBarTopSeparator = UIView()
     private let subscribePremiumButton = PremiumGradientButton()
     private let appearanceCoordinator: AppearanceCoordinator
     private let entitlementProvider: AppearanceEntitlementProviding
@@ -35,8 +33,10 @@ final class InterfaceSettingsViewController: BaseViewController {
     private var isApplyingInterfaceStyleImmediately = false
     private var cancelButton: UIBarButtonItem?
     private var saveButton: UIBarButtonItem?
-    private var tableViewBottomToViewConstraint: NSLayoutConstraint?
-    private var tableViewBottomToPremiumBarConstraint: NSLayoutConstraint?
+    private var tableViewBaseContentInset: UIEdgeInsets?
+    private var tableViewBaseScrollIndicatorInsets: UIEdgeInsets?
+
+    private static let premiumSubscribeOverlayClearance: CGFloat = 74
 
     private static let defaultPaywallPresenter: (UIViewController) -> Bool = { parent in
         SubscribtionsPresenter().present(animated: true, parent: parent)
@@ -102,43 +102,26 @@ final class InterfaceSettingsViewController: BaseViewController {
         tableView.accessibilityIdentifier = "interface.settings.table"
         view.addSubview(tableView)
 
-        premiumBottomBar.backgroundColor = .systemGroupedBackground
-        premiumBottomBar.accessibilityIdentifier = "interface.settings.premiumBottomBar"
-        premiumBottomBarTopSeparator.backgroundColor = .separator
-        premiumBottomBar.addSubview(premiumBottomBarTopSeparator)
         subscribePremiumButton.setTitle("Subscribe to premium", for: .normal)
         subscribePremiumButton.accessibilityIdentifier = "interface.settings.subscribePremium"
         subscribePremiumButton.accessibilityLabel = "Subscribe to premium"
         subscribePremiumButton.addTarget(self, action: #selector(buyPremiumTapped), for: .touchUpInside)
-        premiumBottomBar.addSubview(subscribePremiumButton)
-        view.addSubview(premiumBottomBar)
+        view.addSubview(subscribePremiumButton)
 
-        [premiumBottomBar, premiumBottomBarTopSeparator, subscribePremiumButton].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-        }
-        let tableViewBottomToViewConstraint = tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        let tableViewBottomToPremiumBarConstraint = tableView.bottomAnchor.constraint(equalTo: premiumBottomBar.topAnchor)
-        self.tableViewBottomToViewConstraint = tableViewBottomToViewConstraint
-        self.tableViewBottomToPremiumBarConstraint = tableViewBottomToPremiumBarConstraint
+        subscribePremiumButton.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.topAnchor.constraint(equalTo: view.topAnchor),
-            tableViewBottomToViewConstraint,
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            premiumBottomBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            premiumBottomBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            premiumBottomBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            subscribePremiumButton.topAnchor.constraint(equalTo: premiumBottomBar.topAnchor, constant: 12),
-            subscribePremiumButton.leadingAnchor.constraint(equalTo: premiumBottomBar.leadingAnchor, constant: 16),
-            subscribePremiumButton.trailingAnchor.constraint(equalTo: premiumBottomBar.trailingAnchor, constant: -16),
-            subscribePremiumButton.bottomAnchor.constraint(equalTo: premiumBottomBar.safeAreaLayoutGuide.bottomAnchor, constant: -12),
-            subscribePremiumButton.heightAnchor.constraint(equalToConstant: 50),
-            premiumBottomBarTopSeparator.topAnchor.constraint(equalTo: premiumBottomBar.topAnchor),
-            premiumBottomBarTopSeparator.leadingAnchor.constraint(equalTo: premiumBottomBar.leadingAnchor),
-            premiumBottomBarTopSeparator.trailingAnchor.constraint(equalTo: premiumBottomBar.trailingAnchor),
-            premiumBottomBarTopSeparator.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale)
+            subscribePremiumButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            subscribePremiumButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            subscribePremiumButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            subscribePremiumButton.heightAnchor.constraint(equalToConstant: 50)
         ])
+        tableViewBaseContentInset = tableView.contentInset
+        tableViewBaseScrollIndicatorInsets = tableView.verticalScrollIndicatorInsets
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(appearanceChanged),
@@ -214,12 +197,20 @@ final class InterfaceSettingsViewController: BaseViewController {
 
     private func refreshPremiumSubscribeAction() {
         guard isViewLoaded,
-              let tableViewBottomToViewConstraint,
-              let tableViewBottomToPremiumBarConstraint else { return }
+              let tableViewBaseContentInset,
+              let tableViewBaseScrollIndicatorInsets else { return }
         let shouldShowPremiumSubscribeAction = needsPremiumPurchase
-        premiumBottomBar.isHidden = !shouldShowPremiumSubscribeAction
-        tableViewBottomToViewConstraint.isActive = !shouldShowPremiumSubscribeAction
-        tableViewBottomToPremiumBarConstraint.isActive = shouldShowPremiumSubscribeAction
+        subscribePremiumButton.isHidden = !shouldShowPremiumSubscribeAction
+
+        var contentInset = tableViewBaseContentInset
+        var scrollIndicatorInsets = tableViewBaseScrollIndicatorInsets
+        if shouldShowPremiumSubscribeAction {
+            contentInset.bottom += Self.premiumSubscribeOverlayClearance
+            scrollIndicatorInsets.bottom += Self.premiumSubscribeOverlayClearance
+            view.bringSubviewToFront(subscribePremiumButton)
+        }
+        tableView.contentInset = contentInset
+        tableView.verticalScrollIndicatorInsets = scrollIndicatorInsets
     }
 
     private func acceptEditorDocument(_ updatedDocument: AppearanceSettingsDocument) {

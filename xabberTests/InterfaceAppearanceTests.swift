@@ -1826,6 +1826,12 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertEqual(subscribePremium.bounds.height, 50, accuracy: 0.01)
         XCTAssertEqual(subscribePremium.layer.cornerRadius, 25, accuracy: 0.01)
         XCTAssertTrue(subscribePremium.layer.sublayers?.contains(where: { $0 is CAGradientLayer }) ?? false)
+        XCTAssertTrue(subscribePremium.superview === controller.view)
+        XCTAssertNil(descendant(in: controller.view, accessibilityIdentifier: "interface.settings.premiumBottomBar"))
+        XCTAssertEqual(tableView.frame.maxY, controller.view.bounds.maxY, accuracy: 0.01)
+        XCTAssertLessThan(subscribePremium.frame.minY, tableView.frame.maxY)
+        XCTAssertGreaterThan(tableView.contentInset.bottom, 0)
+        XCTAssertGreaterThan(tableView.verticalScrollIndicatorInsets.bottom, 0)
         subscribePremium.sendActions(for: .touchUpInside)
         XCTAssertEqual(paywallPresentationCount, 1)
 
