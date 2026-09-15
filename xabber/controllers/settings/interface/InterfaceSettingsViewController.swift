@@ -1007,7 +1007,10 @@ final class AppearancePreviewView: UIView {
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.axis = .vertical
-        contentStack.spacing = 8
+        // Use the same inter-item gap as ChatViewController's message flow
+        // layout. Individual bubble margins remain owned by the production
+        // ChatMessageLayoutCalculator below.
+        contentStack.spacing = MessagesCollectionViewFlowLayout().minimumLineSpacing
         addSubview(backgroundView)
         addSubview(contentStack)
         NSLayoutConstraint.activate([
@@ -1088,10 +1091,17 @@ final class AppearancePreviewView: UIView {
         }
     }
 
-    func contentFittingHeight(for width: CGFloat, verticalInset: CGFloat = 16) -> CGFloat {
+    func contentFittingHeight(
+        for width: CGFloat,
+        verticalInset: CGFloat = 16,
+        measuring document: AppearanceSettingsDocument? = nil
+    ) -> CGFloat {
         guard width > 0, chatMessageHosts.isNotEmpty else { return 1 }
+        let measurementSnapshot = document.map {
+            AppearanceResolver.resolve(document: $0, traitStyle: traitCollection.userInterfaceStyle)
+        }
         let messageHeight = chatMessageHosts.reduce(CGFloat.zero) { result, host in
-            result + host.fittingHeight(for: width)
+            result + host.fittingHeight(for: width, snapshot: measurementSnapshot)
         }
         let spacing = contentStack.spacing * CGFloat(max(chatMessageHosts.count - 1, 0))
         return ceil(messageHeight + spacing + verticalInset * 2)
@@ -1751,23 +1761,15 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         )
     }
 
-    func fittingHeight(for width: CGFloat) -> CGFloat {
-        measuredLayout(for: width)?.cellSize.height ?? 1
+    func fittingHeight(
+        for width: CGFloat,
+        snapshot: ResolvedAppearanceSnapshot? = nil
+    ) -> CGFloat {
+        measuredLayout(for: width, snapshot: snapshot)?.cellSize.height ?? 1
     }
 
     private func applyConfiguration(snapshot: ResolvedAppearanceSnapshot) {
-        guard let configuration else { return }
-        let message = AppearancePreviewMessage(
-            text: configuration.text,
-            outgoing: configuration.outgoing,
-            snapshot: snapshot,
-            identifier: configuration.identifier,
-            fontTextStyle: configuration.fontTextStyle,
-            reservesAvatarSpace: configuration.reservesAvatarSpace,
-            forwards: configuration.forwards,
-            audios: configuration.audios,
-            status: configuration.status
-        )
+        guard let message = makeMessage(snapshot: snapshot), let configuration else { return }
         self.message = message
         self.snapshot = snapshot
         if let identifier = configuration.identifier {
@@ -1794,6 +1796,21 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         if bounds.width > 0 {
             updateLayoutWidth(bounds.width)
         }
+    }
+
+    private func makeMessage(snapshot: ResolvedAppearanceSnapshot) -> AppearancePreviewMessage? {
+        guard let configuration else { return nil }
+        return AppearancePreviewMessage(
+            text: configuration.text,
+            outgoing: configuration.outgoing,
+            snapshot: snapshot,
+            identifier: configuration.identifier,
+            fontTextStyle: configuration.fontTextStyle,
+            reservesAvatarSpace: configuration.reservesAvatarSpace,
+            forwards: configuration.forwards,
+            audios: configuration.audios,
+            status: configuration.status
+        )
     }
 
     /// Inline audio normally inherits its account palette. Appearance previews
@@ -1835,10 +1852,15 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         premiumLockView.frame = messageCell.timeMarker.indicatorView.frame
     }
 
-    private func measuredLayout(for width: CGFloat) -> ChatMessageLayout? {
-        guard let message, let snapshot else { return nil }
+    private func measuredLayout(
+        for width: CGFloat,
+        snapshot measurementSnapshot: ResolvedAppearanceSnapshot? = nil
+    ) -> ChatMessageLayout? {
+        let resolvedSnapshot = measurementSnapshot ?? snapshot
+        let layoutMessage = measurementSnapshot.flatMap { makeMessage(snapshot: $0) } ?? message
+        guard let layoutMessage, let resolvedSnapshot else { return nil }
         let interfaceStyle: UIUserInterfaceStyle
-        switch snapshot.profile.interfaceStyle {
+        switch resolvedSnapshot.profile.interfaceStyle {
         case .system: interfaceStyle = traitCollection.userInterfaceStyle
         case .light: interfaceStyle = .light
         case .dark: interfaceStyle = .dark
@@ -1848,12 +1870,12 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
             contentSizeCategory: traitCollection.preferredContentSizeCategory.rawValue,
             localeIdentifier: Locale.current.identifier,
             interfaceStyleRawValue: interfaceStyle.rawValue,
-            messageStyle: snapshot.profile.bubbleStyle.messageTailIdentifier,
-            cornerRadius: String(snapshot.profile.bubbleRadius),
-            avatarMode: snapshot.profile.avatarPosition.rawValue,
-            appearanceSignature: snapshot.layoutSignature
+            messageStyle: resolvedSnapshot.profile.bubbleStyle.messageTailIdentifier,
+            cornerRadius: String(resolvedSnapshot.profile.bubbleRadius),
+            avatarMode: resolvedSnapshot.profile.avatarPosition.rawValue,
+            appearanceSignature: resolvedSnapshot.layoutSignature
         )
-        return ChatMessageLayoutCalculator.measure(message, context: context)
+        return ChatMessageLayoutCalculator.measure(layoutMessage, context: context)
     }
 }
 
@@ -2493,20 +2515,19 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
         let clampedIndex = min(max(index, 0), AppearanceTextSize.fixedCases.count - 1)
         manualSliderIndex = clampedIndex
         let selectedSize = AppearanceTextSize.fixedCases[clampedIndex]
-        guard draft.profile.textSize != selectedSize else {
-            refreshControls()
-            return
-        }
+        guard draft.profile.textSize != selectedSize else { return }
         draft.profile.textSize = selectedSize
         updateTypographyPreview()
-        refreshControls()
+        refreshSectionHeader()
+        refreshSystemFontCell()
     }
 
     private func selectSystemFont() {
         guard draft.profile.textSize != .system else { return }
         draft.profile.textSize = .system
         updateTypographyPreview()
-        refreshControls()
+        refreshSectionHeader()
+        refreshSystemFontCell()
     }
 
     private func updateTypographyPreview() {
@@ -2528,7 +2549,12 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
         let horizontalInset: CGFloat = 20
         let verticalInset: CGFloat = 16
         let previewWidth = max(headerWidth - horizontalInset * 2, 1)
-        let previewHeight = preview.contentFittingHeight(for: previewWidth)
+        var maximumTextSizeDocument = documentWithDraftProfile
+        maximumTextSizeDocument.profile.textSize = .points21
+        let previewHeight = preview.contentFittingHeight(
+            for: previewWidth,
+            measuring: maximumTextSizeDocument
+        )
         let headerHeight = previewHeight + verticalInset * 2
         let newHeaderSize = CGSize(width: headerWidth, height: headerHeight)
         guard previewHeader.frame.size != newHeaderSize else {
@@ -2557,6 +2583,35 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
         guard isViewLoaded else { return }
         tableView.reloadData()
     }
+
+    private var sectionTitle: String {
+        if draft.profile.textSize == .system {
+            return "Text size system"
+        }
+        return "Text size \(draft.profile.textSize.points ?? 17)"
+    }
+
+    private func refreshSectionHeader() {
+        tableView.headerView(forSection: 0)?.textLabel?.text = sectionTitle
+    }
+
+    private func refreshSystemFontCell() {
+        guard let cell = tableView.cellForRow(at: IndexPath(row: Row.systemFont.rawValue, section: 0)) else {
+            return
+        }
+        configureSystemFontCell(cell)
+    }
+
+    private func configureSystemFontCell(_ cell: UITableViewCell) {
+        cell.textLabel?.text = "Use system font size"
+        cell.textLabel?.textColor = view.tintColor
+        cell.tintColor = view.tintColor
+        cell.accessoryType = .none
+        cell.accessibilityIdentifier = "interface.textSize.useSystem"
+        cell.accessibilityLabel = "Use system font size"
+        cell.accessibilityValue = draft.profile.textSize == .system ? "Selected" : nil
+        cell.accessibilityTraits = draft.profile.textSize == .system ? [.button, .selected] : .button
+    }
 }
 
 extension AppearanceTextSizeViewController: UITableViewDataSource, UITableViewDelegate {
@@ -2568,10 +2623,7 @@ extension AppearanceTextSizeViewController: UITableViewDataSource, UITableViewDe
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         guard section == 0 else { return nil }
-        if draft.profile.textSize == .system {
-            return "Text size system"
-        }
-        return "Text size \(draft.profile.textSize.points ?? 17)"
+        return sectionTitle
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -2592,14 +2644,7 @@ extension AppearanceTextSizeViewController: UITableViewDataSource, UITableViewDe
                 withIdentifier: "AppearanceTextSizeSystemFontCell",
                 for: indexPath
             )
-            cell.textLabel?.text = "Use system font"
-            cell.textLabel?.textColor = view.tintColor
-            cell.tintColor = view.tintColor
-            cell.accessoryType = draft.profile.textSize == .system ? .checkmark : .none
-            cell.accessibilityIdentifier = "interface.textSize.useSystem"
-            cell.accessibilityLabel = "Use system font"
-            cell.accessibilityValue = draft.profile.textSize == .system ? "Selected" : nil
-            cell.accessibilityTraits = draft.profile.textSize == .system ? [.button, .selected] : .button
+            configureSystemFontCell(cell)
             return cell
         }
     }

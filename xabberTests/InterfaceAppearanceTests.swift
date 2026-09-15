@@ -363,10 +363,18 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         let systemFontCell = try XCTUnwrap(textSizeTable.cellForRow(at: IndexPath(row: 1, section: 0)))
         XCTAssertEqual(systemFontCell.accessibilityIdentifier, "interface.textSize.useSystem")
-        XCTAssertEqual(systemFontCell.textLabel?.text, "Use system font")
+        XCTAssertEqual(systemFontCell.textLabel?.text, "Use system font size")
+        XCTAssertEqual(systemFontCell.accessoryType, .none)
         XCTAssertEqual(try XCTUnwrap(incomingMessage.messageLabel.text).split(separator: " ").count, 9)
         XCTAssertEqual(try XCTUnwrap(outgoingMessage.messageLabel.text).split(separator: " ").count, 9)
         let previewHeightAt17 = preview.bounds.height
+        let incomingFrame = incomingMessage.convert(incomingMessage.bounds, to: preview)
+        let outgoingFrameAt17 = outgoingMessage.convert(outgoingMessage.bounds, to: preview)
+        XCTAssertEqual(
+            outgoingFrameAt17.minY - incomingFrame.maxY,
+            UICollectionViewFlowLayout().minimumLineSpacing,
+            accuracy: 0.5
+        )
 
         textSizeTable.delegate?.tableView?(textSizeTable, didSelectRowAt: IndexPath(row: 1, section: 0))
         editor.view.setNeedsLayout()
@@ -378,6 +386,11 @@ final class InterfaceAppearanceTests: XCTestCase {
             textSizeTable.dataSource?.tableView?(textSizeTable, titleForHeaderInSection: 0),
             "Text size system"
         )
+        let selectedSystemFontCell = try XCTUnwrap(
+            textSizeTable.cellForRow(at: IndexPath(row: 1, section: 0))
+        )
+        XCTAssertEqual(selectedSystemFontCell.textLabel?.text, "Use system font size")
+        XCTAssertEqual(selectedSystemFontCell.accessoryType, .none)
         XCTAssertEqual(
             controller.navigationItem.leftBarButtonItem?.accessibilityIdentifier,
             "interface.settings.cancel"
@@ -398,8 +411,21 @@ final class InterfaceAppearanceTests: XCTestCase {
             textSizeTable.dataSource?.tableView?(textSizeTable, titleForHeaderInSection: 0),
             "Text size 20"
         )
-        XCTAssertGreaterThan(preview.bounds.height, previewHeightAt17)
+        let sliderAfterManualChange = try XCTUnwrap(
+            descendant(in: editor.view, accessibilityIdentifier: "interface.textSize.slider") as? UISlider
+        )
+        XCTAssertTrue(slider === sliderAfterManualChange)
+        XCTAssertEqual(preview.bounds.height, previewHeightAt17, accuracy: 0.5)
+
+        slider.setValue(7, animated: false)
+        slider.sendActions(for: .valueChanged)
+        editor.view.setNeedsLayout()
+        editor.view.layoutIfNeeded()
+        XCTAssertEqual(editor.draft.profile.textSize, .points21)
+        XCTAssertEqual(preview.bounds.height, previewHeightAt17, accuracy: 0.5)
+        let incomingFrameAt21 = incomingMessage.convert(incomingMessage.bounds, to: preview)
         let outgoingFrame = outgoingMessage.convert(outgoingMessage.bounds, to: preview)
+        XCTAssertGreaterThanOrEqual(incomingFrameAt21.minY, 16 - 0.5)
         XCTAssertLessThanOrEqual(outgoingFrame.maxY, preview.bounds.maxY - 16 + 0.5)
     }
 
