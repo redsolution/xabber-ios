@@ -31,6 +31,8 @@ final class InterfaceSettingsViewController: BaseViewController {
     private var originalDocument: AppearanceSettingsDocument
     private var document: AppearanceSettingsDocument
     private var isApplyingInterfaceStyleImmediately = false
+    private var cancelButton: UIBarButtonItem?
+    private var saveButton: UIBarButtonItem?
 
     private static let defaultPaywallPresenter: (UIViewController) -> Bool = { parent in
         SubscribtionsPresenter().present(animated: true, parent: parent)
@@ -67,23 +69,24 @@ final class InterfaceSettingsViewController: BaseViewController {
         super.viewDidLoad()
         title = "Interface"
         view.backgroundColor = .systemGroupedBackground
-        navigationItem.hidesBackButton = true
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
+        let cancelButton = UIBarButtonItem(
             image: UIImage(systemName: "xmark"),
             style: .plain,
             target: self,
             action: #selector(cancelTapped)
         )
-        navigationItem.leftBarButtonItem?.accessibilityIdentifier = "interface.settings.cancel"
-        navigationItem.leftBarButtonItem?.accessibilityLabel = "Cancel Interface changes"
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
+        cancelButton.accessibilityIdentifier = "interface.settings.cancel"
+        cancelButton.accessibilityLabel = "Cancel Interface changes"
+        self.cancelButton = cancelButton
+        let saveButton = UIBarButtonItem(
             image: UIImage(systemName: "checkmark"),
             style: .done,
             target: self,
             action: #selector(saveTapped)
         )
-        navigationItem.rightBarButtonItem?.accessibilityIdentifier = "interface.settings.save"
-        navigationItem.rightBarButtonItem?.accessibilityLabel = "Save Interface changes"
+        saveButton.accessibilityIdentifier = "interface.settings.save"
+        saveButton.accessibilityLabel = "Save Interface changes"
+        self.saveButton = saveButton
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.dataSource = self
         tableView.delegate = self
@@ -181,7 +184,10 @@ final class InterfaceSettingsViewController: BaseViewController {
     }
 
     private func refreshNavigationActions() {
-        navigationItem.rightBarButtonItem?.isEnabled = document != originalDocument
+        let hasResettableDraft = document != originalDocument
+        navigationItem.hidesBackButton = hasResettableDraft
+        navigationItem.leftBarButtonItem = hasResettableDraft ? cancelButton : nil
+        navigationItem.rightBarButtonItem = hasResettableDraft ? saveButton : nil
     }
 
     private func acceptEditorDocument(_ updatedDocument: AppearanceSettingsDocument) {
@@ -1946,13 +1952,15 @@ class AppearanceDraftViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemGroupedBackground
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "checkmark"),
-            style: .done,
-            target: self,
-            action: #selector(setTapped)
-        )
-        navigationItem.rightBarButtonItem?.accessibilityIdentifier = "interface.editor.set"
+        if !usesExternalDraftCommit {
+            navigationItem.rightBarButtonItem = UIBarButtonItem(
+                image: UIImage(systemName: "checkmark"),
+                style: .done,
+                target: self,
+                action: #selector(setTapped)
+            )
+            navigationItem.rightBarButtonItem?.accessibilityIdentifier = "interface.editor.set"
+        }
         refreshSetButton()
     }
 
@@ -1964,14 +1972,32 @@ class AppearanceDraftViewController: BaseViewController {
     }
 
     func updatePreview() {
-        var updated = document
-        updated.profile = draft.profile
+        let updated = documentWithDraftProfile
         preview.configure(document: updated, traits: traitCollection)
+        publishDraftChangesIfNeeded()
         refreshSetButton()
     }
 
     func refreshSetButton() {
+        guard !usesExternalDraftCommit else {
+            navigationItem.rightBarButtonItem = nil
+            return
+        }
         navigationItem.rightBarButtonItem?.isEnabled = draft.isDirty
+    }
+
+    var documentWithDraftProfile: AppearanceSettingsDocument {
+        var updated = document
+        updated.profile = draft.profile
+        return updated
+    }
+
+    func publishDraftChangesIfNeeded() {
+        guard let onDraftCommitted else { return }
+        let updated = documentWithDraftProfile
+        guard updated != document else { return }
+        document = updated
+        onDraftCommitted(updated)
     }
 
     @objc func setTapped() {
@@ -1979,8 +2005,7 @@ class AppearanceDraftViewController: BaseViewController {
     }
 
     func commitAndPop() {
-        var updated = document
-        updated.profile = draft.profile
+        let updated = documentWithDraftProfile
         if let onDraftCommitted {
             onDraftCommitted(updated)
             draft.accept()
@@ -2084,13 +2109,13 @@ final class AppearanceAccentViewController: AppearanceDraftViewController {
     }
 
     override func updatePreview() {
-        var updated = document
-        updated.profile = draft.profile
+        let updated = documentWithDraftProfile
         let snapshot = AppearanceResolver.resolve(
             document: updated,
             traitStyle: traitCollection.userInterfaceStyle
         )
         tintPreview.configure(snapshot: snapshot)
+        publishDraftChangesIfNeeded()
         refreshSetButton()
         updateSwatchSelection()
     }
@@ -2115,17 +2140,14 @@ final class AppearanceAccentViewController: AppearanceDraftViewController {
     @objc private func showCustomColorGrid() {
         let initialColor = draft.profile.accentOverride?.uiColor
             ?? AppearanceResolver.resolve(document: document, traitStyle: traitCollection.userInterfaceStyle).accent.uiColor
-        let picker = AppearanceCustomAccentColorViewController(initialColor: initialColor)
-        picker.onSave = { [weak self] color in
-            guard let self else { return }
-            self.selectAccent(color)
-            self.dismiss(animated: true) { [weak self] in
-                self?.commitAndPop()
-            }
+        let picker = AppearanceCustomAccentColorViewController(
+            initialColor: initialColor,
+            selectionMode: .immediate
+        )
+        picker.onColorSelected = { [weak self] color in
+            self?.selectAccent(color)
         }
-        let navigationController = UINavigationController(rootViewController: picker)
-        navigationController.modalPresentationStyle = .pageSheet
-        present(navigationController, animated: true)
+        navigationController?.pushViewController(picker, animated: true)
     }
 }
 
@@ -2181,8 +2203,14 @@ private final class AppearanceAccentSwatchButton: UIControl {
     }
 }
 
+enum AppearanceCustomAccentColorSelectionMode: Equatable {
+    case confirmation
+    case immediate
+}
+
 final class AppearanceCustomAccentColorViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
     var onSave: ((AppearanceColor) -> Void)?
+    var onColorSelected: ((AppearanceColor) -> Void)?
 
     private static let columnCount = 12
     private static let rowCount = 10
@@ -2195,10 +2223,15 @@ final class AppearanceCustomAccentColorViewController: UIViewController, UIColle
     private let selectedColorPreview = UIView()
     private let quickColorsStack = UIStackView()
     private var selectedColor: AppearanceColor
+    private let selectionMode: AppearanceCustomAccentColorSelectionMode
 
-    init(initialColor: UIColor) {
+    init(
+        initialColor: UIColor,
+        selectionMode: AppearanceCustomAccentColorSelectionMode = .confirmation
+    ) {
         let initial = AppearanceColor(uiColor: initialColor)
         selectedColor = initial
+        self.selectionMode = selectionMode
         let layout = UICollectionViewFlowLayout()
         layout.minimumInteritemSpacing = 0
         layout.minimumLineSpacing = 0
@@ -2213,20 +2246,22 @@ final class AppearanceCustomAccentColorViewController: UIViewController, UIColle
         super.viewDidLoad()
         title = "Colors"
         view.backgroundColor = .systemBackground
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "xmark"),
-            style: .plain,
-            target: self,
-            action: #selector(cancel)
-        )
-        navigationItem.leftBarButtonItem?.accessibilityIdentifier = "interface.accent.custom.cancel"
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "checkmark"),
-            style: .done,
-            target: self,
-            action: #selector(saveSelectedColor)
-        )
-        navigationItem.rightBarButtonItem?.accessibilityIdentifier = "interface.accent.custom.save"
+        if selectionMode == .confirmation {
+            navigationItem.leftBarButtonItem = UIBarButtonItem(
+                image: UIImage(systemName: "xmark"),
+                style: .plain,
+                target: self,
+                action: #selector(cancel)
+            )
+            navigationItem.leftBarButtonItem?.accessibilityIdentifier = "interface.accent.custom.cancel"
+            navigationItem.rightBarButtonItem = UIBarButtonItem(
+                image: UIImage(systemName: "checkmark"),
+                style: .done,
+                target: self,
+                action: #selector(saveSelectedColor)
+            )
+            navigationItem.rightBarButtonItem?.accessibilityIdentifier = "interface.accent.custom.save"
+        }
 
         let gridContainer = UIView()
         gridContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -2297,6 +2332,9 @@ final class AppearanceCustomAccentColorViewController: UIViewController, UIColle
         selectedColor = color
         collectionView.reloadData()
         updateSelectionPreview()
+        if selectionMode == .immediate {
+            onColorSelected?(color)
+        }
     }
 
     @objc func saveSelectedColor() {
@@ -2507,14 +2545,14 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
     }
 
     private func updateTypographyPreview() {
-        var updated = document
-        updated.profile = draft.profile
+        let updated = documentWithDraftProfile
         preview.configure(
             document: updated,
             traits: traitCollection,
             animated: false,
             updatingTypographyInPlace: true
         )
+        publishDraftChangesIfNeeded()
         refreshSetButton()
     }
 
@@ -2597,6 +2635,7 @@ final class AppearanceBubbleViewController: AppearanceDraftViewController {
 
     private func select(_ value: AppearanceBubbleStyle) {
         draft.profile.bubbleStyle = value
+        publishDraftChangesIfNeeded()
         tableView.reloadData()
         refreshSetButton()
     }
@@ -2619,6 +2658,7 @@ final class AppearanceBubbleViewController: AppearanceDraftViewController {
     private func radiusChanged(to rawValue: Int) {
         let value = min(max(rawValue, 0), 16)
         draft.profile.bubbleRadius = value
+        publishDraftChangesIfNeeded()
         galleryCell?.updateRadius(document: galleryDocument, traits: traitCollection)
         tableView.beginUpdates()
         tableView.endUpdates()
@@ -3202,6 +3242,7 @@ final class AppearanceAvatarViewController: AppearanceDraftViewController {
 
     private func select(_ value: AppearanceAvatarMask) {
         draft.profile.avatarMask = value
+        publishDraftChangesIfNeeded()
         updateGallery()
         refreshSetButton()
     }

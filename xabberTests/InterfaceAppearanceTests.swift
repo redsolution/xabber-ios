@@ -311,6 +311,9 @@ final class InterfaceAppearanceTests: XCTestCase {
         let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
         let navigationController = UINavigationController(rootViewController: controller)
         controller.loadViewIfNeeded()
+        XCTAssertNil(controller.navigationItem.leftBarButtonItem)
+        XCTAssertNil(controller.navigationItem.rightBarButtonItem)
+        XCTAssertFalse(controller.navigationItem.hidesBackButton)
         let tableView = try XCTUnwrap(
             controller.view.subviews.compactMap { $0 as? UITableView }.first
         )
@@ -326,6 +329,8 @@ final class InterfaceAppearanceTests: XCTestCase {
             descendant(in: editor.view, accessibilityIdentifier: "interface.textSize.slider") as? UISlider
         )
 
+        XCTAssertNil(editor.navigationItem.leftBarButtonItem)
+        XCTAssertNil(editor.navigationItem.rightBarButtonItem)
         XCTAssertNil(descendant(in: editor.view, accessibilityIdentifier: "interface.textSize.system"))
         XCTAssertEqual(slider.minimumValue, 0)
         XCTAssertEqual(slider.maximumValue, 8)
@@ -334,6 +339,16 @@ final class InterfaceAppearanceTests: XCTestCase {
         slider.setValue(0, animated: false)
         slider.sendActions(for: .valueChanged)
         XCTAssertEqual(editor.draft.profile.textSize, .points14)
+        XCTAssertEqual(coordinator.document.profile.textSize, .system)
+        XCTAssertEqual(
+            controller.navigationItem.leftBarButtonItem?.accessibilityIdentifier,
+            "interface.settings.cancel"
+        )
+        XCTAssertEqual(
+            controller.navigationItem.rightBarButtonItem?.accessibilityIdentifier,
+            "interface.settings.save"
+        )
+        XCTAssertTrue(controller.navigationItem.hidesBackButton)
 
         slider.setValue(3, animated: false)
         slider.sendActions(for: .valueChanged)
@@ -342,6 +357,9 @@ final class InterfaceAppearanceTests: XCTestCase {
         slider.setValue(4, animated: false)
         slider.sendActions(for: .valueChanged)
         XCTAssertEqual(editor.draft.profile.textSize, .system)
+        XCTAssertNil(controller.navigationItem.leftBarButtonItem)
+        XCTAssertNil(controller.navigationItem.rightBarButtonItem)
+        XCTAssertFalse(controller.navigationItem.hidesBackButton)
 
         slider.setValue(6, animated: false)
         slider.sendActions(for: .valueChanged)
@@ -1283,6 +1301,47 @@ final class InterfaceAppearanceTests: XCTestCase {
     }
 
     @MainActor
+    func testApplicationColorCustomSelectionPublishesToRootDraftWithStandardBack() throws {
+        let store = AppearanceSettingsStore(defaults: defaults, defaultAccentHex: "#0099FF")
+        let coordinator = AppearanceCoordinator(store: store)
+        let originalAccent = coordinator.document.profile.accentOverride
+        let controller = InterfaceSettingsViewController(appearanceCoordinator: coordinator)
+        let navigationController = UINavigationController(rootViewController: controller)
+        controller.loadViewIfNeeded()
+        let tableView = try XCTUnwrap(
+            controller.view.subviews.compactMap { $0 as? UITableView }.first
+        )
+
+        controller.tableView(tableView, didSelectRowAt: IndexPath(row: 3, section: 1))
+        let accentEditor = try XCTUnwrap(
+            navigationController.topViewController as? AppearanceAccentViewController
+        )
+        accentEditor.loadViewIfNeeded()
+        let customButton = try XCTUnwrap(
+            descendant(in: accentEditor.view, accessibilityIdentifier: "interface.accent.custom") as? UIButton
+        )
+
+        customButton.sendActions(for: .touchUpInside)
+
+        let picker = try XCTUnwrap(
+            navigationController.topViewController as? AppearanceCustomAccentColorViewController
+        )
+        picker.loadViewIfNeeded()
+        XCTAssertNil(picker.navigationItem.leftBarButtonItem)
+        XCTAssertNil(picker.navigationItem.rightBarButtonItem)
+
+        let selected = try XCTUnwrap(AppearanceColor(hex: "#D94B54"))
+        picker.select(color: selected)
+
+        XCTAssertEqual(coordinator.document.profile.accentOverride, originalAccent)
+        XCTAssertEqual(
+            controller.navigationItem.rightBarButtonItem?.accessibilityIdentifier,
+            "interface.settings.save"
+        )
+        XCTAssertEqual(navigationController.viewControllers.count, 3)
+    }
+
+    @MainActor
     func testThemePreviewProvidesFullConversationAndProductionChatListPages() throws {
         let document = AppearanceSettingsDocument(profile: .default(accent: .systemBlue))
         let theme = try XCTUnwrap(AppearanceThemeCatalog.builtInThemes.first)
@@ -1717,7 +1776,17 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         XCTAssertEqual(premiumBubble.accessibilityValue, "Premium")
         premiumBubble.sendActions(for: .touchUpInside)
-        bubbleEditor.setTapped()
+        XCTAssertNil(bubbleEditor.navigationItem.leftBarButtonItem)
+        XCTAssertNil(bubbleEditor.navigationItem.rightBarButtonItem)
+        XCTAssertEqual(
+            controller.navigationItem.leftBarButtonItem?.accessibilityIdentifier,
+            "interface.settings.cancel"
+        )
+        XCTAssertEqual(
+            controller.navigationItem.rightBarButtonItem?.accessibilityIdentifier,
+            "interface.settings.save"
+        )
+        navigationController.popViewController(animated: false)
 
         XCTAssertTrue(navigationController.topViewController === controller)
         XCTAssertEqual(coordinator.document.profile, originalProfile)
@@ -1738,7 +1807,9 @@ final class InterfaceAppearanceTests: XCTestCase {
         )
         XCTAssertEqual(premiumAvatar.accessibilityValue, "Premium")
         premiumAvatar.sendActions(for: .touchUpInside)
-        avatarEditor.setTapped()
+        XCTAssertNil(avatarEditor.navigationItem.leftBarButtonItem)
+        XCTAssertNil(avatarEditor.navigationItem.rightBarButtonItem)
+        navigationController.popViewController(animated: false)
 
         XCTAssertEqual(controller.numberOfSections(in: tableView), 4)
         XCTAssertEqual(controller.tableView(tableView, titleForHeaderInSection: 2), "Premium")
@@ -1810,7 +1881,12 @@ final class InterfaceAppearanceTests: XCTestCase {
             ) as? UIControl
         )
         freeBubble.sendActions(for: .touchUpInside)
-        bubbleEditor.setTapped()
+        XCTAssertNil(bubbleEditor.navigationItem.rightBarButtonItem)
+        XCTAssertEqual(
+            controller.navigationItem.rightBarButtonItem?.accessibilityIdentifier,
+            "interface.settings.save"
+        )
+        navigationController.popViewController(animated: false)
 
         controller.saveTapped()
 
