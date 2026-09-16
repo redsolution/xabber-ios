@@ -22,18 +22,13 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
 
     private final class Store: NotificationsSettingsStoring {
         var boolValues: [String: Bool]
-        var stringValues: [String: String]
         private(set) var boolWrites: [(key: String, value: Bool)] = []
 
-        init(
-            boolValues: [String: Bool] = [
-                "notification_in_app_sound": true,
-                "notification_in_app_alert_last_chats": false
-            ],
-            stringValues: [String: String] = [:]
-        ) {
+        init(boolValues: [String: Bool] = [
+            "notification_in_app_sound": true,
+            "notification_in_app_alert_last_chats": false
+        ]) {
             self.boolValues = boolValues
-            self.stringValues = stringValues
         }
 
         func bool(for key: String, default defaultValue: Bool) -> Bool {
@@ -44,34 +39,27 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
             boolValues[key] = value
             boolWrites.append((key: key, value: value))
         }
-
-        func string(for key: String) -> String? {
-            stringValues[key]
-        }
     }
 
     @MainActor
-    func testNotificationsSettingsShowsTypeSoundInAppAndSystemSections() throws {
+    func testNotificationsSettingsShowsTypeInAppAndSystemActionSections() throws {
         let controller = NotificationsSettingsViewController(store: Store())
         controller.loadViewIfNeeded()
 
-        XCTAssertEqual(controller.tableView.numberOfSections, 4)
+        XCTAssertEqual(controller.tableView.numberOfSections, 3)
         XCTAssertEqual(controller.tableView.numberOfRows(inSection: 0), 3)
         XCTAssertEqual(controller.tableView.numberOfRows(inSection: 1), 2)
-        XCTAssertEqual(controller.tableView.numberOfRows(inSection: 2), 2)
-        XCTAssertEqual(controller.tableView.numberOfRows(inSection: 3), 1)
+        XCTAssertEqual(controller.tableView.numberOfRows(inSection: 2), 1)
 
         let messagesCell = cell(from: controller, row: 0, section: 0)
         let invitesCell = cell(from: controller, row: 1, section: 0)
         let subscriptionRequestsCell = cell(from: controller, row: 2, section: 0)
-        let messageSoundCell = cell(from: controller, row: 0, section: 1)
-        let inAppSoundCell = cell(from: controller, row: 0, section: 2)
-        let systemSettingsCell = cell(from: controller, row: 0, section: 3)
+        let inAppSoundCell = cell(from: controller, row: 0, section: 1)
+        let systemSettingsCell = cell(from: controller, row: 0, section: 2)
 
         XCTAssertEqual(messagesCell.accessibilityIdentifier, "notifications.messages")
         XCTAssertEqual(invitesCell.accessibilityIdentifier, "notifications.invites")
         XCTAssertEqual(subscriptionRequestsCell.accessibilityIdentifier, "notifications.subscriptionRequests")
-        XCTAssertEqual(messageSoundCell.accessibilityIdentifier, "notifications.messageSound")
         XCTAssertEqual(inAppSoundCell.accessibilityIdentifier, "notifications.inAppSounds")
         XCTAssertEqual(systemSettingsCell.accessibilityIdentifier, "notifications.systemSettings")
     }
@@ -157,34 +145,26 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
     }
 
     @MainActor
-    func testSystemSettingsUsesSettingsSizedRoundedSquareGearIcon() throws {
+    func testSystemSettingsIsPlainButtonRowWithoutIconOrDisclosureIndicator() throws {
         let controller = NotificationsSettingsViewController(store: Store())
         controller.loadViewIfNeeded()
-        let systemCell = cell(from: controller, row: 0, section: 3)
+        let systemCell = cell(from: controller, row: 0, section: 2)
         systemCell.bounds = CGRect(x: 0, y: 0, width: 390, height: 60)
         systemCell.setNeedsLayout()
         systemCell.layoutIfNeeded()
 
-        let iconTile = try XCTUnwrap(
+        XCTAssertEqual(systemCell.textLabel?.text, "Open iOS Notification Settings")
+        XCTAssertEqual(systemCell.textLabel?.textAlignment, .center)
+        XCTAssertEqual(systemCell.accessoryType, .none)
+        XCTAssertNil(systemCell.accessoryView)
+        XCTAssertNil(systemCell.imageView?.image)
+        XCTAssertNil(
             descendant(
                 in: systemCell,
                 accessibilityIdentifier: "notifications.systemSettings.icon"
             )
         )
-        let gearView = try XCTUnwrap(
-            descendant(
-                in: iconTile,
-                accessibilityIdentifier: "notifications.systemSettings.icon.glyph"
-            ) as? UIImageView
-        )
-
-        XCTAssertEqual(iconTile.bounds.width, SettingsMenuIconMetrics.dimension, accuracy: 0.01)
-        XCTAssertEqual(iconTile.bounds.height, SettingsMenuIconMetrics.dimension, accuracy: 0.01)
-        XCTAssertEqual(iconTile.backgroundColor, UIColor.systemGray)
-        XCTAssertEqual(iconTile.layer.cornerRadius, 5, accuracy: 0.01)
-        XCTAssertTrue(iconTile.clipsToBounds)
-        XCTAssertEqual(gearView.tintColor, UIColor.white)
-        XCTAssertNotNil(gearView.image)
+        XCTAssertTrue(systemCell.accessibilityTraits.contains(.button))
     }
 
     @MainActor
@@ -293,7 +273,7 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
         let store = Store()
         let controller = NotificationsSettingsViewController(store: store)
         controller.loadViewIfNeeded()
-        let cell = cell(from: controller, row: 0, section: 2)
+        let cell = cell(from: controller, row: 0, section: 1)
         let soundSwitch = try XCTUnwrap(
             descendant(in: cell, accessibilityIdentifier: "notifications.inAppSounds.switch") as? UISwitch
         )

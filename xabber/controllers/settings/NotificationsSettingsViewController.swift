@@ -3,7 +3,6 @@ import UIKit
 protocol NotificationsSettingsStoring: AnyObject {
     func bool(for key: String, default defaultValue: Bool) -> Bool
     func setBool(_ value: Bool, for key: String)
-    func string(for key: String) -> String?
 }
 
 private final class SettingManagerNotificationsSettingsStore: NotificationsSettingsStoring {
@@ -18,23 +17,17 @@ private final class SettingManagerNotificationsSettingsStore: NotificationsSetti
     func setBool(_ value: Bool, for key: String) {
         SettingManager.shared.saveItem(key: key, bool: value)
     }
-
-    func string(for key: String) -> String? {
-        SettingManager.shared.getString(for: key)
-    }
 }
 
 final class NotificationsSettingsViewController: BaseViewController {
     private enum Section: Int, CaseIterable {
         case types
-        case sounds
         case inApp
         case system
 
         var title: String? {
             switch self {
             case .types: return "Notification Types"
-            case .sounds: return "Sounds"
             case .inApp: return "In-App Notifications"
             case .system: return "System Notifications"
             }
@@ -44,8 +37,6 @@ final class NotificationsSettingsViewController: BaseViewController {
             switch self {
             case .types:
                 return "Turn alerts on or off independently for each notification type."
-            case .sounds:
-                return "Choose a sound for incoming messages and subscription requests."
             case .inApp:
                 return "Show banners and play sounds while Xabber is open."
             case .system:
@@ -58,8 +49,6 @@ final class NotificationsSettingsViewController: BaseViewController {
         case messages
         case invites
         case subscriptionRequests
-        case messageSound
-        case subscriptionRequestSound
         case inAppSounds
         case bannersOnChats
         case systemSettings
@@ -99,8 +88,8 @@ final class NotificationsSettingsViewController: BaseViewController {
             forCellReuseIdentifier: NotificationsSettingsIconToggleCell.reuseIdentifier
         )
         tableView.register(
-            NotificationsSettingsDisclosureCell.self,
-            forCellReuseIdentifier: NotificationsSettingsDisclosureCell.reuseIdentifier
+            NotificationsSettingsActionCell.self,
+            forCellReuseIdentifier: NotificationsSettingsActionCell.reuseIdentifier
         )
         tableView.register(
             NotificationsSettingsToggleCell.self,
@@ -127,43 +116,11 @@ final class NotificationsSettingsViewController: BaseViewController {
         switch section {
         case .types:
             return [.messages, .invites, .subscriptionRequests]
-        case .sounds:
-            return [.messageSound, .subscriptionRequestSound]
         case .inApp:
             return [.inAppSounds, .bannersOnChats]
         case .system:
             return [.systemSettings]
         }
-    }
-
-    private func soundTitle(for key: SettingsViewController.Datasource.Keys) -> String {
-        guard let filename = store.string(for: key.rawValue), filename.isNotEmpty else {
-            return "Default"
-        }
-        return filename
-            .split(separator: ".")
-            .dropLast()
-            .joined(separator: ".")
-            .replacingOccurrences(of: "_", with: " ")
-            .capitalized
-    }
-
-    private func showSoundSelector(
-        title: String,
-        key: SettingsViewController.Datasource.Keys
-    ) {
-        let datasource = SettingsViewController.Datasource(
-            section: .chat,
-            title: title,
-            itemType: .selector,
-            values: MusicBox.shared.fileURLs.lazy.map(\.absoluteString).sorted(),
-            current: store.string(for: key.rawValue) ?? "",
-            key: key
-        )
-        let controller = SelectorViewController()
-        controller.configure(for: datasource)
-        controller.title = title
-        navigationController?.pushViewController(controller, animated: true)
     }
 
     private func openSystemNotificationSettings() {
@@ -224,32 +181,6 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
                 preference: .subscriptionRequests,
                 accessibilityIdentifier: "notifications.subscriptionRequests"
             )
-        case .messageSound:
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: NotificationsSettingsDisclosureCell.reuseIdentifier,
-                for: indexPath
-            ) as! NotificationsSettingsDisclosureCell
-            cell.configure(
-                title: "Message Sound",
-                subtitle: soundTitle(for: .chatChooseMessageSound),
-                icon: nil,
-                iconColor: .systemBlue,
-                accessibilityIdentifier: "notifications.messageSound"
-            )
-            return cell
-        case .subscriptionRequestSound:
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: NotificationsSettingsDisclosureCell.reuseIdentifier,
-                for: indexPath
-            ) as! NotificationsSettingsDisclosureCell
-            cell.configure(
-                title: "Subscription Request Sound",
-                subtitle: soundTitle(for: .chatChooseSubscriptionSound),
-                icon: nil,
-                iconColor: .systemGreen,
-                accessibilityIdentifier: "notifications.subscriptionRequestSound"
-            )
-            return cell
         case .inAppSounds:
             return makeToggleCell(
                 tableView: tableView,
@@ -270,14 +201,11 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
             )
         case .systemSettings:
             let cell = tableView.dequeueReusableCell(
-                withIdentifier: NotificationsSettingsDisclosureCell.reuseIdentifier,
+                withIdentifier: NotificationsSettingsActionCell.reuseIdentifier,
                 for: indexPath
-            ) as! NotificationsSettingsDisclosureCell
+            ) as! NotificationsSettingsActionCell
             cell.configure(
                 title: "Open iOS Notification Settings",
-                subtitle: nil,
-                icon: "gearshape.fill",
-                iconColor: .systemGray,
                 accessibilityIdentifier: "notifications.systemSettings"
             )
             return cell
@@ -348,10 +276,6 @@ extension NotificationsSettingsViewController: UITableViewDelegate {
         guard sectionRows.indices.contains(indexPath.row) else { return }
         let row = sectionRows[indexPath.row]
         switch row {
-        case .messageSound:
-            showSoundSelector(title: "Messages", key: .chatChooseMessageSound)
-        case .subscriptionRequestSound:
-            showSoundSelector(title: "Subscription Requests", key: .chatChooseSubscriptionSound)
         case .systemSettings:
             openSystemNotificationSettings()
         case .messages, .invites, .subscriptionRequests, .inAppSounds, .bannersOnChats:
@@ -360,101 +284,31 @@ extension NotificationsSettingsViewController: UITableViewDelegate {
     }
 }
 
-private final class NotificationsSettingsDisclosureCell: UITableViewCell {
-    static let reuseIdentifier = "NotificationsSettingsDisclosureCell"
-
-    private let iconTile = UIView()
-    private let iconView = UIImageView()
-    private let titleLabel = UILabel()
-    private let subtitleLabel = UILabel()
-    private let chevron = UIImageView(image: UIImage(systemName: "chevron.right"))
-    private let labelsStack = UIStackView()
-    private let contentStack = UIStackView()
+private final class NotificationsSettingsActionCell: UITableViewCell {
+    static let reuseIdentifier = "NotificationsSettingsActionCell"
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        super.init(style: .default, reuseIdentifier: reuseIdentifier)
         selectionStyle = .default
-        iconTile.translatesAutoresizingMaskIntoConstraints = false
-        iconTile.layer.cornerRadius = 5
-        iconTile.layer.cornerCurve = .continuous
-        iconTile.clipsToBounds = true
-        iconTile.isAccessibilityElement = false
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.contentMode = .scaleAspectFit
-        iconView.tintColor = .white
-        iconView.isAccessibilityElement = false
-        iconTile.addSubview(iconView)
-        titleLabel.font = .preferredFont(forTextStyle: .body)
-        titleLabel.adjustsFontForContentSizeCategory = true
-        subtitleLabel.font = .preferredFont(forTextStyle: .subheadline)
-        subtitleLabel.adjustsFontForContentSizeCategory = true
-        subtitleLabel.textColor = .secondaryLabel
-        chevron.tintColor = .tertiaryLabel
-        chevron.contentMode = .scaleAspectFit
-
-        labelsStack.axis = .vertical
-        labelsStack.alignment = .fill
-        labelsStack.spacing = 2
-        labelsStack.addArrangedSubview(titleLabel)
-        labelsStack.addArrangedSubview(subtitleLabel)
-
-        contentStack.translatesAutoresizingMaskIntoConstraints = false
-        contentStack.axis = .horizontal
-        contentStack.alignment = .center
-        contentStack.spacing = 14
-        contentStack.addArrangedSubview(iconTile)
-        contentStack.addArrangedSubview(labelsStack)
-        contentStack.addArrangedSubview(chevron)
-        contentView.addSubview(contentStack)
-
-        let minimumHeight: CGFloat
-        if #available(iOS 26.0, *) {
-            minimumHeight = 52
-        } else {
-            minimumHeight = 44
-        }
-        NSLayoutConstraint.activate([
-            contentStack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
-            contentStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            contentStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 9),
-            contentStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -9),
-            contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: minimumHeight),
-            iconTile.widthAnchor.constraint(equalToConstant: SettingsMenuIconMetrics.dimension),
-            iconTile.heightAnchor.constraint(equalTo: iconTile.widthAnchor),
-            iconView.centerXAnchor.constraint(equalTo: iconTile.centerXAnchor),
-            iconView.centerYAnchor.constraint(equalTo: iconTile.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 14),
-            iconView.heightAnchor.constraint(equalTo: iconView.widthAnchor),
-            chevron.widthAnchor.constraint(equalToConstant: 10),
-            chevron.heightAnchor.constraint(equalToConstant: 16)
-        ])
+        textLabel?.font = .preferredFont(forTextStyle: .body)
+        textLabel?.adjustsFontForContentSizeCategory = true
+        textLabel?.textAlignment = .center
+        accessoryType = .none
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func configure(
         title: String,
-        subtitle: String?,
-        icon: String?,
-        iconColor: UIColor,
         accessibilityIdentifier: String
     ) {
-        titleLabel.text = title
-        subtitleLabel.text = subtitle
-        subtitleLabel.isHidden = subtitle == nil
-        iconView.image = icon.flatMap {
-            imageLiteral($0, dimension: 14, forceStrong: true)
-        }
-        iconTile.backgroundColor = iconColor
-        iconTile.isHidden = icon == nil
-        iconTile.accessibilityIdentifier = icon.map { _ in
-            accessibilityIdentifier + ".icon"
-        }
-        iconView.accessibilityIdentifier = icon.map { _ in
-            accessibilityIdentifier + ".icon.glyph"
-        }
+        textLabel?.text = title
+        textLabel?.textColor = tintColor
+        imageView?.image = nil
+        accessoryType = .none
+        accessoryView = nil
         self.accessibilityIdentifier = accessibilityIdentifier
-        accessibilityLabel = [title, subtitle].compactMap { $0 }.joined(separator: ", ")
+        accessibilityLabel = title
         accessibilityTraits = .button
     }
 }
