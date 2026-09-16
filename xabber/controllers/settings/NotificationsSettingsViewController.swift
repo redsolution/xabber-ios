@@ -29,7 +29,7 @@ final class NotificationsSettingsViewController: BaseViewController {
             switch self {
             case .types: return "Notification Types"
             case .inApp: return "In-App Notifications"
-            case .system: return "System Notifications"
+            case .system: return nil
             }
         }
 
@@ -292,7 +292,7 @@ private final class NotificationsSettingsActionCell: UITableViewCell {
         selectionStyle = .default
         textLabel?.font = .preferredFont(forTextStyle: .body)
         textLabel?.adjustsFontForContentSizeCategory = true
-        textLabel?.textAlignment = .center
+        textLabel?.textAlignment = .left
         accessoryType = .none
     }
 

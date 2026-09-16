@@ -145,7 +145,7 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
     }
 
     @MainActor
-    func testSystemSettingsIsPlainButtonRowWithoutIconOrDisclosureIndicator() throws {
+    func testSystemSettingsIsLeftAlignedButtonSectionWithoutHeaderIconOrDisclosureIndicator() throws {
         let controller = NotificationsSettingsViewController(store: Store())
         controller.loadViewIfNeeded()
         let systemCell = cell(from: controller, row: 0, section: 2)
@@ -153,8 +153,11 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
         systemCell.setNeedsLayout()
         systemCell.layoutIfNeeded()
 
+        XCTAssertNil(
+            controller.tableView(controller.tableView, titleForHeaderInSection: 2)
+        )
         XCTAssertEqual(systemCell.textLabel?.text, "Open iOS Notification Settings")
-        XCTAssertEqual(systemCell.textLabel?.textAlignment, .center)
+        XCTAssertEqual(systemCell.textLabel?.textAlignment, .left)
         XCTAssertEqual(systemCell.accessoryType, .none)
         XCTAssertNil(systemCell.accessoryView)
         XCTAssertNil(systemCell.imageView?.image)
