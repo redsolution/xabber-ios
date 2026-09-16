@@ -2,6 +2,24 @@ import XCTest
 @testable import xabber
 
 final class NotificationsSettingsViewControllerTests: XCTestCase {
+    @MainActor
+    private final class RootSettingsIconDataSource: NSObject, UITableViewDataSource {
+        func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+            1
+        }
+
+        func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+            let cell = tableView.dequeueReusableCell(withIdentifier: "RootSettingsIcon", for: indexPath)
+            cell.imageView?.image = imageLiteral(
+                "custom.bell.square.fill",
+                dimension: SettingsMenuIconMetrics.dimension
+            )
+            cell.tintColor = .systemGreen
+            cell.accessoryType = .disclosureIndicator
+            return cell
+        }
+    }
+
     private final class Store: NotificationsSettingsStoring {
         var boolValues: [String: Bool]
         var stringValues: [String: String]
@@ -62,13 +80,25 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
     func testNotificationTypeSwitchesDefaultOnAndUseSettingsSizedIcons() throws {
         let controller = NotificationsSettingsViewController(store: Store())
         controller.loadViewIfNeeded()
-        let rootSettingsCell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        rootSettingsCell.imageView?.image = imageLiteral(
-            "custom.bell.square.fill",
-            dimension: SettingsMenuIconMetrics.dimension
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.tableView.reloadData()
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        let rootSettingsDataSource = RootSettingsIconDataSource()
+        let rootSettingsTable = UITableView(
+            frame: CGRect(x: 0, y: 0, width: 390, height: 200),
+            style: .insetGrouped
+        )
+        rootSettingsTable.register(UITableViewCell.self, forCellReuseIdentifier: "RootSettingsIcon")
+        rootSettingsTable.dataSource = rootSettingsDataSource
+        rootSettingsTable.reloadData()
+        rootSettingsTable.layoutIfNeeded()
+        let rootSettingsCell = try XCTUnwrap(
+            rootSettingsTable.cellForRow(at: IndexPath(row: 0, section: 0))
         )
         let rootSettingsIconView = try XCTUnwrap(rootSettingsCell.imageView)
-        let rootSettingsIcon = try XCTUnwrap(rootSettingsIconView.image)
+        XCTAssertNotNil(rootSettingsIconView.image)
 
         let expectations: [(row: Int, identifier: String, icon: String)] = [
             (0, "notifications.messages", "custom.bubble.square.fill"),
@@ -78,7 +108,11 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
 
         XCTAssertEqual(SettingsMenuIconMetrics.dimension, 24)
         for expectation in expectations {
-            let cell = cell(from: controller, row: expectation.row, section: 0)
+            let cell = try XCTUnwrap(
+                controller.tableView.cellForRow(
+                    at: IndexPath(row: expectation.row, section: 0)
+                )
+            )
             let typeSwitch = try XCTUnwrap(cell.accessoryView as? UISwitch)
             let iconView = try XCTUnwrap(cell.imageView)
 
@@ -96,16 +130,28 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
             XCTAssertTrue(typeSwitch.isAccessibilityElement)
             XCTAssertEqual(typeSwitch.accessibilityLabel, cell.textLabel?.text)
             XCTAssertFalse(iconView.isAccessibilityElement)
-            let renderedImage = try XCTUnwrap(iconView.image)
-            XCTAssertEqual(
-                renderedImage.size,
-                rootSettingsIcon.size,
-                "Every notification icon must occupy the same image bounds as a root Settings icon"
-            )
+            XCTAssertNotNil(iconView.image)
             XCTAssertEqual(
                 iconView.contentMode,
                 rootSettingsIconView.contentMode,
                 "Notification rows must preserve the root Settings image-view rendering mode"
+            )
+            XCTAssertEqual(
+                iconView.bounds.width,
+                rootSettingsIconView.bounds.width,
+                accuracy: 1 / UIScreen.main.scale,
+                "Notification rows must lay out the icon at the same size as root Settings"
+            )
+            let renderedImage = try XCTUnwrap(
+                iconView.image,
+                "The notification icon must render visible pixels"
+            )
+            XCTAssertGreaterThan(renderedImage.size.width, SettingsMenuIconMetrics.dimension)
+            XCTAssertEqual(
+                iconView.bounds.height,
+                rootSettingsIconView.bounds.height,
+                accuracy: 1 / UIScreen.main.scale,
+                "Notification icons must have the same visible coloured-square footprint as root Settings"
             )
         }
     }

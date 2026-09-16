@@ -461,6 +461,10 @@ private final class NotificationsSettingsDisclosureCell: UITableViewCell {
 
 private final class NotificationsSettingsIconToggleCell: UITableViewCell {
     static let reuseIdentifier = "NotificationsSettingsIconToggleCell"
+    // A custom switch accessory skips the standard disclosure cell's icon
+    // expansion. Apply the same effective scale so the visible tile matches
+    // SettingsViewController instead of falling back to its intrinsic bounds.
+    private static let accessorySymbolScale: CGFloat = 1.275
 
     private let toggle = UISwitch()
     private var onValueChanged: ((Bool) -> Void)?
@@ -500,7 +504,7 @@ private final class NotificationsSettingsIconToggleCell: UITableViewCell {
         textLabel?.text = title
         imageView?.image = imageLiteral(
             icon,
-            dimension: SettingsMenuIconMetrics.dimension
+            dimension: SettingsMenuIconMetrics.dimension * Self.accessorySymbolScale
         )
         tintColor = iconColor
         imageView?.accessibilityIdentifier = accessibilityIdentifier + ".icon"
