@@ -32,6 +32,108 @@ enum PushNotificationCategory {
     static let verification = "com.xabber.ios.verification"
 }
 
+enum NotificationAlertPreference: String, CaseIterable {
+    case messages = "notification_message_enabled"
+    case invites = "notification_invite_enabled"
+    case subscriptionRequests = "notification_subscription_request_enabled"
+
+    static func preference(
+        for routeKind: PushNotificationRoutePayload.Kind
+    ) -> NotificationAlertPreference? {
+        switch routeKind {
+        case .message:
+            return .messages
+        case .groupInvite:
+            return .invites
+        case .subscriptionRequest:
+            return .subscriptionRequests
+        case .verificationRequest:
+            return nil
+        }
+    }
+
+    static func preference(
+        forCategoryIdentifier categoryIdentifier: String
+    ) -> NotificationAlertPreference? {
+        switch categoryIdentifier {
+        case PushNotificationCategory.message, PushNotificationCategory.pushMessage:
+            return .messages
+        case PushNotificationCategory.invite:
+            return .invites
+        case PushNotificationCategory.subscription:
+            return .subscriptionRequests
+        default:
+            return nil
+        }
+    }
+}
+
+struct NotificationAlertPreferences {
+    private let valueForKey: (String) -> Bool?
+
+    init(valueForKey: @escaping (String) -> Bool?) {
+        self.valueForKey = valueForKey
+    }
+
+    init(defaults: UserDefaults?) {
+        valueForKey = { key in
+            guard let defaults,
+                  defaults.object(forKey: key) != nil else {
+                return nil
+            }
+            return defaults.bool(forKey: key)
+        }
+    }
+
+    static var current: NotificationAlertPreferences {
+        NotificationAlertPreferences(
+            defaults: UserDefaults(
+                suiteName: CredentialsManager.uniqueAccessGroup()
+            )
+        )
+    }
+
+    func isEnabled(for routeKind: PushNotificationRoutePayload.Kind) -> Bool {
+        guard let preference = NotificationAlertPreference.preference(
+            for: routeKind
+        ) else {
+            return true
+        }
+        return isEnabled(preference)
+    }
+
+    func isEnabled(forCategoryIdentifier categoryIdentifier: String) -> Bool {
+        guard let preference = NotificationAlertPreference.preference(
+            forCategoryIdentifier: categoryIdentifier
+        ) else {
+            return true
+        }
+        return isEnabled(preference)
+    }
+
+    func isEnabled(
+        routeKind: PushNotificationRoutePayload.Kind?,
+        categoryIdentifier: String
+    ) -> Bool {
+        if let preference = NotificationAlertPreference.preference(
+            forCategoryIdentifier: categoryIdentifier
+        ) {
+            return isEnabled(preference)
+        }
+        if categoryIdentifier == PushNotificationCategory.verification {
+            return true
+        }
+        guard let routeKind else {
+            return true
+        }
+        return isEnabled(for: routeKind)
+    }
+
+    private func isEnabled(_ preference: NotificationAlertPreference) -> Bool {
+        valueForKey(preference.rawValue) ?? true
+    }
+}
+
 struct PushNotificationRoutePayload: Equatable {
     enum Kind: String {
         case message

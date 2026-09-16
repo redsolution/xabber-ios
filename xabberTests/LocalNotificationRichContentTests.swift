@@ -240,6 +240,48 @@ final class LocalNotificationRichContentTests: XCTestCase {
         XCTAssertEqual(invite.categoryIdentifier, PushNotificationCategory.invite)
     }
 
+    func testDisabledMessagePreferenceStopsLocalNotificationScheduling() async {
+        let added = expectation(description: "disabled notification added")
+        added.isInverted = true
+        let center = LocalNotificationCenterSpy {
+            added.fulfill()
+        }
+        let preferences = NotificationAlertPreferences { key in
+            key == NotificationAlertPreference.messages.rawValue ? false : nil
+        }
+        let scheduler = LocalRichNotificationScheduler(
+            center: center,
+            renderer: LocalRichNotificationContentRenderer(
+                avatarData: { _ in nil },
+                donateInteractions: false
+            ),
+            isAlertEnabled: { preferences.isEnabled(for: $0) }
+        )
+        let route = PushNotificationRoutePayload.message(
+            owner: owner,
+            routeJid: "juliet@example.com",
+            conversationType: "regular",
+            stanzaId: "disabled-message-archive",
+            messageId: "disabled-message",
+            stanza: nil,
+            senderJid: "juliet@example.com",
+            senderNickname: "Juliet",
+            groupchat: nil
+        )
+
+        scheduler.schedule(
+            LocalRichNotificationRequest(
+                identifier: "disabled-message",
+                preview: preview(route: route, body: "Muted by type preference"),
+                categoryIdentifier: PushNotificationCategory.message,
+                sound: nil
+            )
+        )
+
+        await fulfillment(of: [added], timeout: 0.25)
+        XCTAssertTrue(center.addedRequests.isEmpty)
+    }
+
     func testAttachmentPolicySupportsImagesStickersPlayableVideoAndVoice() {
         let items: [PushNotificationMediaItem] = [
             media(.image, name: "photo.jpg", type: "image/jpeg", url: "https://cdn.example.com/photo.jpg"),
@@ -648,6 +690,35 @@ final class LocalNotificationRichContentTests: XCTestCase {
             url: url,
             thumbnailURL: thumbnail
         )
+    }
+}
+
+private final class LocalNotificationCenterSpy: LocalNotificationCenterScheduling {
+    private let lock = NSLock()
+    private let onAdd: () -> Void
+    private var requests: [UNNotificationRequest] = []
+
+    init(onAdd: @escaping () -> Void) {
+        self.onAdd = onAdd
+    }
+
+    var addedRequests: [UNNotificationRequest] {
+        lock.withLock { requests }
+    }
+
+    func deliveredNotifications() async -> [UNNotification] {
+        []
+    }
+
+    func pendingNotificationRequests() async -> [UNNotificationRequest] {
+        []
+    }
+
+    func add(_ request: UNNotificationRequest) async throws {
+        lock.withLock {
+            requests.append(request)
+        }
+        onAdd()
     }
 }
 

@@ -39,6 +39,19 @@ extension AppDelegate : UNUserNotificationCenterDelegate {
         let subscriptionCategory = NotifyManager.notificationSubscribtionCategory
         let inviteCategory = NotifyManager.notificationInviteCategory
         let verificationCategory = NotifyManager.notificationVerificationCategory
+
+        let alertPreferences = NotificationAlertPreferences.current
+        let routeKind = PushNotificationRoutePayload(
+            userInfo: notification.request.content.userInfo
+        )?.kind
+        let alertIsEnabled = alertPreferences.isEnabled(
+            routeKind: routeKind,
+            categoryIdentifier: category
+        )
+        guard alertIsEnabled else {
+            completionHandler([])
+            return
+        }
         
         switch category {
         case messageCategory, pushMessageCategory, subscriptionCategory, inviteCategory:

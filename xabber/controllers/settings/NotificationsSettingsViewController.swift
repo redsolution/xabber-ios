@@ -26,13 +26,15 @@ private final class SettingManagerNotificationsSettingsStore: NotificationsSetti
 
 final class NotificationsSettingsViewController: BaseViewController {
     private enum Section: Int, CaseIterable {
-        case messages
+        case types
+        case sounds
         case inApp
         case system
 
         var title: String? {
             switch self {
-            case .messages: return "Message Notifications"
+            case .types: return "Notification Types"
+            case .sounds: return "Sounds"
             case .inApp: return "In-App Notifications"
             case .system: return "System Notifications"
             }
@@ -40,7 +42,9 @@ final class NotificationsSettingsViewController: BaseViewController {
 
         var footer: String? {
             switch self {
-            case .messages:
+            case .types:
+                return "Turn alerts on or off independently for each notification type."
+            case .sounds:
                 return "Choose a sound for incoming messages and subscription requests."
             case .inApp:
                 return "Show banners and play sounds while Xabber is open."
@@ -52,7 +56,10 @@ final class NotificationsSettingsViewController: BaseViewController {
 
     private enum Row {
         case messages
+        case invites
         case subscriptionRequests
+        case messageSound
+        case subscriptionRequestSound
         case inAppSounds
         case bannersOnChats
         case systemSettings
@@ -88,6 +95,10 @@ final class NotificationsSettingsViewController: BaseViewController {
         tableView.estimatedRowHeight = 64
         tableView.accessibilityIdentifier = "notifications.settings.table"
         tableView.register(
+            NotificationsSettingsIconToggleCell.self,
+            forCellReuseIdentifier: NotificationsSettingsIconToggleCell.reuseIdentifier
+        )
+        tableView.register(
             NotificationsSettingsDisclosureCell.self,
             forCellReuseIdentifier: NotificationsSettingsDisclosureCell.reuseIdentifier
         )
@@ -114,8 +125,10 @@ final class NotificationsSettingsViewController: BaseViewController {
 
     private func rows(for section: Section) -> [Row] {
         switch section {
-        case .messages:
-            return [.messages, .subscriptionRequests]
+        case .types:
+            return [.messages, .invites, .subscriptionRequests]
+        case .sounds:
+            return [.messageSound, .subscriptionRequestSound]
         case .inApp:
             return [.inAppSounds, .bannersOnChats]
         case .system:
@@ -182,29 +195,59 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
         let row = sectionRows[indexPath.row]
         switch row {
         case .messages:
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: NotificationsSettingsDisclosureCell.reuseIdentifier,
-                for: indexPath
-            ) as! NotificationsSettingsDisclosureCell
-            cell.configure(
+            return makeNotificationTypeCell(
+                tableView: tableView,
+                indexPath: indexPath,
                 title: "Messages",
-                subtitle: "Sound: \(soundTitle(for: .chatChooseMessageSound))",
-                icon: "bubble.left.and.bubble.right.fill",
+                icon: "custom.bubble.square.fill",
                 iconColor: .systemBlue,
+                preference: .messages,
                 accessibilityIdentifier: "notifications.messages"
             )
-            return cell
+        case .invites:
+            return makeNotificationTypeCell(
+                tableView: tableView,
+                indexPath: indexPath,
+                title: "Invites",
+                icon: "xabber.invite.square.fill",
+                iconColor: .systemOrange,
+                preference: .invites,
+                accessibilityIdentifier: "notifications.invites"
+            )
         case .subscriptionRequests:
+            return makeNotificationTypeCell(
+                tableView: tableView,
+                indexPath: indexPath,
+                title: "Subscription Requests",
+                icon: "xabber.person.plus.square.fill",
+                iconColor: .systemGreen,
+                preference: .subscriptionRequests,
+                accessibilityIdentifier: "notifications.subscriptionRequests"
+            )
+        case .messageSound:
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: NotificationsSettingsDisclosureCell.reuseIdentifier,
                 for: indexPath
             ) as! NotificationsSettingsDisclosureCell
             cell.configure(
-                title: "Subscription Requests",
-                subtitle: "Sound: \(soundTitle(for: .chatChooseSubscriptionSound))",
-                icon: "person.badge.plus.fill",
+                title: "Message Sound",
+                subtitle: soundTitle(for: .chatChooseMessageSound),
+                icon: nil,
+                iconColor: .systemBlue,
+                accessibilityIdentifier: "notifications.messageSound"
+            )
+            return cell
+        case .subscriptionRequestSound:
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: NotificationsSettingsDisclosureCell.reuseIdentifier,
+                for: indexPath
+            ) as! NotificationsSettingsDisclosureCell
+            cell.configure(
+                title: "Subscription Request Sound",
+                subtitle: soundTitle(for: .chatChooseSubscriptionSound),
+                icon: nil,
                 iconColor: .systemGreen,
-                accessibilityIdentifier: "notifications.subscriptionRequests"
+                accessibilityIdentifier: "notifications.subscriptionRequestSound"
             )
             return cell
         case .inAppSounds:
@@ -212,7 +255,7 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
                 tableView: tableView,
                 indexPath: indexPath,
                 title: "In-App Sounds",
-                key: .notificationInAppSound,
+                key: SettingsViewController.Datasource.Keys.notificationInAppSound.rawValue,
                 defaultValue: true,
                 accessibilityIdentifier: "notifications.inAppSounds"
             )
@@ -221,7 +264,7 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
                 tableView: tableView,
                 indexPath: indexPath,
                 title: "Show Banners in Chats",
-                key: .notificationInAppAlertLastChats,
+                key: SettingsViewController.Datasource.Keys.notificationInAppAlertLastChats.rawValue,
                 defaultValue: false,
                 accessibilityIdentifier: "notifications.bannersOnChats"
             )
@@ -253,7 +296,7 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
         tableView: UITableView,
         indexPath: IndexPath,
         title: String,
-        key: SettingsViewController.Datasource.Keys,
+        key: String,
         defaultValue: Bool,
         accessibilityIdentifier: String
     ) -> UITableViewCell {
@@ -263,10 +306,35 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
         ) as! NotificationsSettingsToggleCell
         cell.configure(
             title: title,
-            isOn: store.bool(for: key.rawValue, default: defaultValue),
+            isOn: store.bool(for: key, default: defaultValue),
             accessibilityIdentifier: accessibilityIdentifier
         ) { [weak self] value in
-            self?.store.setBool(value, for: key.rawValue)
+            self?.store.setBool(value, for: key)
+        }
+        return cell
+    }
+
+    private func makeNotificationTypeCell(
+        tableView: UITableView,
+        indexPath: IndexPath,
+        title: String,
+        icon: String,
+        iconColor: UIColor,
+        preference: NotificationAlertPreference,
+        accessibilityIdentifier: String
+    ) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(
+            withIdentifier: NotificationsSettingsIconToggleCell.reuseIdentifier,
+            for: indexPath
+        ) as! NotificationsSettingsIconToggleCell
+        cell.configure(
+            title: title,
+            icon: icon,
+            iconColor: iconColor,
+            isOn: store.bool(for: preference.rawValue, default: true),
+            accessibilityIdentifier: accessibilityIdentifier
+        ) { [weak self] value in
+            self?.store.setBool(value, for: preference.rawValue)
         }
         return cell
     }
@@ -280,13 +348,13 @@ extension NotificationsSettingsViewController: UITableViewDelegate {
         guard sectionRows.indices.contains(indexPath.row) else { return }
         let row = sectionRows[indexPath.row]
         switch row {
-        case .messages:
+        case .messageSound:
             showSoundSelector(title: "Messages", key: .chatChooseMessageSound)
-        case .subscriptionRequests:
+        case .subscriptionRequestSound:
             showSoundSelector(title: "Subscription Requests", key: .chatChooseSubscriptionSound)
         case .systemSettings:
             openSystemNotificationSettings()
-        case .inAppSounds, .bannersOnChats:
+        case .messages, .invites, .subscriptionRequests, .inAppSounds, .bannersOnChats:
             break
         }
     }
@@ -295,54 +363,55 @@ extension NotificationsSettingsViewController: UITableViewDelegate {
 private final class NotificationsSettingsDisclosureCell: UITableViewCell {
     static let reuseIdentifier = "NotificationsSettingsDisclosureCell"
 
-    private let iconBackground = UIView()
     private let iconView = UIImageView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let chevron = UIImageView(image: UIImage(systemName: "chevron.right"))
+    private let labelsStack = UIStackView()
+    private let contentStack = UIStackView()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         selectionStyle = .default
-        iconBackground.translatesAutoresizingMaskIntoConstraints = false
-        iconBackground.layer.cornerRadius = 11
-        iconBackground.layer.cornerCurve = .continuous
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.tintColor = .white
         iconView.contentMode = .scaleAspectFit
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .preferredFont(forTextStyle: .body)
         titleLabel.adjustsFontForContentSizeCategory = true
-        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         subtitleLabel.font = .preferredFont(forTextStyle: .subheadline)
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.textColor = .secondaryLabel
-        chevron.translatesAutoresizingMaskIntoConstraints = false
         chevron.tintColor = .tertiaryLabel
         chevron.contentMode = .scaleAspectFit
-        contentView.addSubview(iconBackground)
-        iconBackground.addSubview(iconView)
-        contentView.addSubview(titleLabel)
-        contentView.addSubview(subtitleLabel)
-        contentView.addSubview(chevron)
+
+        labelsStack.axis = .vertical
+        labelsStack.alignment = .fill
+        labelsStack.spacing = 2
+        labelsStack.addArrangedSubview(titleLabel)
+        labelsStack.addArrangedSubview(subtitleLabel)
+
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.axis = .horizontal
+        contentStack.alignment = .center
+        contentStack.spacing = 14
+        contentStack.addArrangedSubview(iconView)
+        contentStack.addArrangedSubview(labelsStack)
+        contentStack.addArrangedSubview(chevron)
+        contentView.addSubview(contentStack)
+
+        let minimumHeight: CGFloat
+        if #available(iOS 26.0, *) {
+            minimumHeight = 52
+        } else {
+            minimumHeight = 44
+        }
         NSLayoutConstraint.activate([
-            iconBackground.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
-            iconBackground.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            iconBackground.widthAnchor.constraint(equalToConstant: 42),
-            iconBackground.heightAnchor.constraint(equalTo: iconBackground.widthAnchor),
-            iconView.centerXAnchor.constraint(equalTo: iconBackground.centerXAnchor),
-            iconView.centerYAnchor.constraint(equalTo: iconBackground.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 23),
+            contentStack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            contentStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            contentStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 9),
+            contentStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -9),
+            contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: minimumHeight),
+            iconView.widthAnchor.constraint(equalToConstant: SettingsMenuIconMetrics.dimension),
             iconView.heightAnchor.constraint(equalTo: iconView.widthAnchor),
-            titleLabel.leadingAnchor.constraint(equalTo: iconBackground.trailingAnchor, constant: 14),
-            titleLabel.trailingAnchor.constraint(equalTo: chevron.leadingAnchor, constant: -10),
-            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 13),
-            subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            subtitleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -13),
-            chevron.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            chevron.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             chevron.widthAnchor.constraint(equalToConstant: 10),
             chevron.heightAnchor.constraint(equalToConstant: 16)
         ])
@@ -353,18 +422,82 @@ private final class NotificationsSettingsDisclosureCell: UITableViewCell {
     func configure(
         title: String,
         subtitle: String?,
-        icon: String,
+        icon: String?,
         iconColor: UIColor,
         accessibilityIdentifier: String
     ) {
         titleLabel.text = title
         subtitleLabel.text = subtitle
         subtitleLabel.isHidden = subtitle == nil
-        iconBackground.backgroundColor = iconColor
-        iconView.image = UIImage(systemName: icon)
+        iconView.image = icon.flatMap {
+            imageLiteral($0, dimension: SettingsMenuIconMetrics.dimension)
+        }
+        iconView.tintColor = iconColor
+        iconView.isHidden = icon == nil
+        iconView.accessibilityIdentifier = icon.map { _ in
+            accessibilityIdentifier + ".icon"
+        }
         self.accessibilityIdentifier = accessibilityIdentifier
         accessibilityLabel = [title, subtitle].compactMap { $0 }.joined(separator: ", ")
         accessibilityTraits = .button
+    }
+}
+
+private final class NotificationsSettingsIconToggleCell: UITableViewCell {
+    static let reuseIdentifier = "NotificationsSettingsIconToggleCell"
+
+    private let toggle = UISwitch()
+    private var onValueChanged: ((Bool) -> Void)?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: .default, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        textLabel?.font = .preferredFont(forTextStyle: .body)
+        textLabel?.adjustsFontForContentSizeCategory = true
+        imageView?.contentMode = .scaleAspectFit
+        imageView?.isAccessibilityElement = false
+        textLabel?.isAccessibilityElement = false
+        isAccessibilityElement = false
+        toggle.isAccessibilityElement = true
+        toggle.addTarget(self, action: #selector(valueChanged), for: .valueChanged)
+        accessoryView = toggle
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        imageView?.image = nil
+        textLabel?.text = nil
+        toggle.isOn = true
+        onValueChanged = nil
+        accessibilityIdentifier = nil
+    }
+
+    func configure(
+        title: String,
+        icon: String,
+        iconColor: UIColor,
+        isOn: Bool,
+        accessibilityIdentifier: String,
+        onValueChanged: @escaping (Bool) -> Void
+    ) {
+        textLabel?.text = title
+        imageView?.image = imageLiteral(
+            icon,
+            dimension: SettingsMenuIconMetrics.dimension
+        )
+        imageView?.tintColor = iconColor
+        imageView?.accessibilityIdentifier = accessibilityIdentifier + ".icon"
+        toggle.isOn = isOn
+        toggle.accessibilityLabel = title
+        toggle.accessibilityIdentifier = accessibilityIdentifier + ".switch"
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.onValueChanged = onValueChanged
+    }
+
+    @objc private func valueChanged() {
+        onValueChanged?(toggle.isOn)
     }
 }
 

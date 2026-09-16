@@ -189,22 +189,29 @@ final class LocalRichNotificationScheduler {
     private let center: LocalNotificationCenterScheduling
     private let attachmentLoader: RichNotificationAttachmentLoader
     private let renderer: LocalRichNotificationContentRenderer
+    private let isAlertEnabled: (PushNotificationRoutePayload.Kind) -> Bool
     private let lock = NSLock()
     private var inFlightIdentifiers: Set<String> = []
 
     init(
         center: LocalNotificationCenterScheduling = SystemLocalNotificationCenter(),
         attachmentLoader: RichNotificationAttachmentLoader = RichNotificationAttachmentLoader(),
-        renderer: LocalRichNotificationContentRenderer = LocalRichNotificationContentRenderer()
+        renderer: LocalRichNotificationContentRenderer = LocalRichNotificationContentRenderer(),
+        isAlertEnabled: @escaping (PushNotificationRoutePayload.Kind) -> Bool = {
+            NotificationAlertPreferences.current.isEnabled(for: $0)
+        }
     ) {
         self.center = center
         self.attachmentLoader = attachmentLoader
         self.renderer = renderer
+        self.isAlertEnabled = isAlertEnabled
     }
 
     func schedule(_ request: LocalRichNotificationRequest) {
         let identifier = request.identifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !identifier.isEmpty, reserve(identifier) else {
+        guard isAlertEnabled(request.preview.route.kind),
+              !identifier.isEmpty,
+              reserve(identifier) else {
             return
         }
         Task(priority: .utility) { [weak self] in
@@ -234,8 +241,14 @@ final class LocalRichNotificationScheduler {
             sound: request.sound,
             attachments: attachments
         )
+        guard !Task.isCancelled else { return }
+        let isAlreadyScheduled = await isAlreadyScheduled(
+            identifier: identifier,
+            route: plan.route
+        )
         guard !Task.isCancelled,
-              !(await isAlreadyScheduled(identifier: identifier, route: plan.route)) else {
+              !isAlreadyScheduled,
+              isAlertEnabled(plan.route.kind) else {
             return
         }
 
