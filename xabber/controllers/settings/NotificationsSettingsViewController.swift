@@ -363,6 +363,7 @@ extension NotificationsSettingsViewController: UITableViewDelegate {
 private final class NotificationsSettingsDisclosureCell: UITableViewCell {
     static let reuseIdentifier = "NotificationsSettingsDisclosureCell"
 
+    private let iconTile = UIView()
     private let iconView = UIImageView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
@@ -373,8 +374,16 @@ private final class NotificationsSettingsDisclosureCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         selectionStyle = .default
+        iconTile.translatesAutoresizingMaskIntoConstraints = false
+        iconTile.layer.cornerRadius = 5
+        iconTile.layer.cornerCurve = .continuous
+        iconTile.clipsToBounds = true
+        iconTile.isAccessibilityElement = false
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.contentMode = .scaleAspectFit
+        iconView.tintColor = .white
+        iconView.isAccessibilityElement = false
+        iconTile.addSubview(iconView)
         titleLabel.font = .preferredFont(forTextStyle: .body)
         titleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.font = .preferredFont(forTextStyle: .subheadline)
@@ -393,7 +402,7 @@ private final class NotificationsSettingsDisclosureCell: UITableViewCell {
         contentStack.axis = .horizontal
         contentStack.alignment = .center
         contentStack.spacing = 14
-        contentStack.addArrangedSubview(iconView)
+        contentStack.addArrangedSubview(iconTile)
         contentStack.addArrangedSubview(labelsStack)
         contentStack.addArrangedSubview(chevron)
         contentView.addSubview(contentStack)
@@ -410,7 +419,11 @@ private final class NotificationsSettingsDisclosureCell: UITableViewCell {
             contentStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 9),
             contentStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -9),
             contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: minimumHeight),
-            iconView.widthAnchor.constraint(equalToConstant: SettingsMenuIconMetrics.dimension),
+            iconTile.widthAnchor.constraint(equalToConstant: SettingsMenuIconMetrics.dimension),
+            iconTile.heightAnchor.constraint(equalTo: iconTile.widthAnchor),
+            iconView.centerXAnchor.constraint(equalTo: iconTile.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: iconTile.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 14),
             iconView.heightAnchor.constraint(equalTo: iconView.widthAnchor),
             chevron.widthAnchor.constraint(equalToConstant: 10),
             chevron.heightAnchor.constraint(equalToConstant: 16)
@@ -430,12 +443,15 @@ private final class NotificationsSettingsDisclosureCell: UITableViewCell {
         subtitleLabel.text = subtitle
         subtitleLabel.isHidden = subtitle == nil
         iconView.image = icon.flatMap {
-            imageLiteral($0, dimension: SettingsMenuIconMetrics.dimension)
+            imageLiteral($0, dimension: 14, forceStrong: true)
         }
-        iconView.tintColor = iconColor
-        iconView.isHidden = icon == nil
-        iconView.accessibilityIdentifier = icon.map { _ in
+        iconTile.backgroundColor = iconColor
+        iconTile.isHidden = icon == nil
+        iconTile.accessibilityIdentifier = icon.map { _ in
             accessibilityIdentifier + ".icon"
+        }
+        iconView.accessibilityIdentifier = icon.map { _ in
+            accessibilityIdentifier + ".icon.glyph"
         }
         self.accessibilityIdentifier = accessibilityIdentifier
         accessibilityLabel = [title, subtitle].compactMap { $0 }.joined(separator: ", ")
@@ -454,7 +470,6 @@ private final class NotificationsSettingsIconToggleCell: UITableViewCell {
         selectionStyle = .none
         textLabel?.font = .preferredFont(forTextStyle: .body)
         textLabel?.adjustsFontForContentSizeCategory = true
-        imageView?.contentMode = .scaleAspectFit
         imageView?.isAccessibilityElement = false
         textLabel?.isAccessibilityElement = false
         isAccessibilityElement = false
@@ -487,7 +502,7 @@ private final class NotificationsSettingsIconToggleCell: UITableViewCell {
             icon,
             dimension: SettingsMenuIconMetrics.dimension
         )
-        imageView?.tintColor = iconColor
+        tintColor = iconColor
         imageView?.accessibilityIdentifier = accessibilityIdentifier + ".icon"
         toggle.isOn = isOn
         toggle.accessibilityLabel = title

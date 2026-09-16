@@ -62,6 +62,13 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
     func testNotificationTypeSwitchesDefaultOnAndUseSettingsSizedIcons() throws {
         let controller = NotificationsSettingsViewController(store: Store())
         controller.loadViewIfNeeded()
+        let rootSettingsCell = UITableViewCell(style: .default, reuseIdentifier: nil)
+        rootSettingsCell.imageView?.image = imageLiteral(
+            "custom.bell.square.fill",
+            dimension: SettingsMenuIconMetrics.dimension
+        )
+        let rootSettingsIconView = try XCTUnwrap(rootSettingsCell.imageView)
+        let rootSettingsIcon = try XCTUnwrap(rootSettingsIconView.image)
 
         let expectations: [(row: Int, identifier: String, icon: String)] = [
             (0, "notifications.messages", "custom.bubble.square.fill"),
@@ -90,17 +97,48 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
             XCTAssertEqual(typeSwitch.accessibilityLabel, cell.textLabel?.text)
             XCTAssertFalse(iconView.isAccessibilityElement)
             let renderedImage = try XCTUnwrap(iconView.image)
-            let settingsImage = try XCTUnwrap(
-                imageLiteral(
-                    expectation.icon,
-                    dimension: SettingsMenuIconMetrics.dimension
-                )
-            )
             XCTAssertEqual(
                 renderedImage.size,
-                settingsImage.size
+                rootSettingsIcon.size,
+                "Every notification icon must occupy the same image bounds as a root Settings icon"
+            )
+            XCTAssertEqual(
+                iconView.contentMode,
+                rootSettingsIconView.contentMode,
+                "Notification rows must preserve the root Settings image-view rendering mode"
             )
         }
+    }
+
+    @MainActor
+    func testSystemSettingsUsesSettingsSizedRoundedSquareGearIcon() throws {
+        let controller = NotificationsSettingsViewController(store: Store())
+        controller.loadViewIfNeeded()
+        let systemCell = cell(from: controller, row: 0, section: 3)
+        systemCell.bounds = CGRect(x: 0, y: 0, width: 390, height: 60)
+        systemCell.setNeedsLayout()
+        systemCell.layoutIfNeeded()
+
+        let iconTile = try XCTUnwrap(
+            descendant(
+                in: systemCell,
+                accessibilityIdentifier: "notifications.systemSettings.icon"
+            )
+        )
+        let gearView = try XCTUnwrap(
+            descendant(
+                in: iconTile,
+                accessibilityIdentifier: "notifications.systemSettings.icon.glyph"
+            ) as? UIImageView
+        )
+
+        XCTAssertEqual(iconTile.bounds.width, SettingsMenuIconMetrics.dimension, accuracy: 0.01)
+        XCTAssertEqual(iconTile.bounds.height, SettingsMenuIconMetrics.dimension, accuracy: 0.01)
+        XCTAssertEqual(iconTile.backgroundColor, UIColor.systemGray)
+        XCTAssertEqual(iconTile.layer.cornerRadius, 5, accuracy: 0.01)
+        XCTAssertTrue(iconTile.clipsToBounds)
+        XCTAssertEqual(gearView.tintColor, UIColor.white)
+        XCTAssertNotNil(gearView.image)
     }
 
     @MainActor
