@@ -933,7 +933,9 @@ class NotifyManager {
             content.title = self.subscription.displayName
             //content.subtitle = "📱"
             content.body = "Contact \(self.subscription.to) wants to add you to contact list".localizeString(id: "desktop_notifications_add_you_to_contact", arguments: ["\(self.subscription.to)"])
-            content.sound = MusicBox.shared.getNotificationSound(for: .subscription)
+            content.sound = NotificationSoundPreferences.current.isEnabled(
+                for: .subscriptionRequest
+            ) ? MusicBox.shared.getNotificationSound(for: .subscription) : nil
             notificationRequest = [subscription.to, subscription.from, NotifyManager.notificationMessageCategory].prp()
             //self.subscription.showed = true
             break

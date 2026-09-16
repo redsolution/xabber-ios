@@ -189,7 +189,7 @@ final class LocalRichNotificationScheduler {
     private let center: LocalNotificationCenterScheduling
     private let attachmentLoader: RichNotificationAttachmentLoader
     private let renderer: LocalRichNotificationContentRenderer
-    private let isAlertEnabled: (PushNotificationRoutePayload.Kind) -> Bool
+    private let isSoundEnabled: (PushNotificationRoutePayload.Kind) -> Bool
     private let lock = NSLock()
     private var inFlightIdentifiers: Set<String> = []
 
@@ -197,20 +197,19 @@ final class LocalRichNotificationScheduler {
         center: LocalNotificationCenterScheduling = SystemLocalNotificationCenter(),
         attachmentLoader: RichNotificationAttachmentLoader = RichNotificationAttachmentLoader(),
         renderer: LocalRichNotificationContentRenderer = LocalRichNotificationContentRenderer(),
-        isAlertEnabled: @escaping (PushNotificationRoutePayload.Kind) -> Bool = {
-            NotificationAlertPreferences.current.isEnabled(for: $0)
+        isSoundEnabled: @escaping (PushNotificationRoutePayload.Kind) -> Bool = {
+            NotificationSoundPreferences.current.isEnabled(for: $0)
         }
     ) {
         self.center = center
         self.attachmentLoader = attachmentLoader
         self.renderer = renderer
-        self.isAlertEnabled = isAlertEnabled
+        self.isSoundEnabled = isSoundEnabled
     }
 
     func schedule(_ request: LocalRichNotificationRequest) {
         let identifier = request.identifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isAlertEnabled(request.preview.route.kind),
-              !identifier.isEmpty,
+        guard !identifier.isEmpty,
               reserve(identifier) else {
             return
         }
@@ -238,7 +237,7 @@ final class LocalRichNotificationScheduler {
         let content = await renderer.render(
             plan: plan,
             categoryIdentifier: request.categoryIdentifier,
-            sound: request.sound,
+            sound: nil,
             attachments: attachments
         )
         guard !Task.isCancelled else { return }
@@ -247,10 +246,10 @@ final class LocalRichNotificationScheduler {
             route: plan.route
         )
         guard !Task.isCancelled,
-              !isAlreadyScheduled,
-              isAlertEnabled(plan.route.kind) else {
+              !isAlreadyScheduled else {
             return
         }
+        content.sound = isSoundEnabled(plan.route.kind) ? request.sound : nil
 
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
         let notificationRequest = UNNotificationRequest(

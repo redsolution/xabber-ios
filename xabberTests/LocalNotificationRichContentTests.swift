@@ -240,46 +240,76 @@ final class LocalNotificationRichContentTests: XCTestCase {
         XCTAssertEqual(invite.categoryIdentifier, PushNotificationCategory.invite)
     }
 
-    func testDisabledMessagePreferenceStopsLocalNotificationScheduling() async {
-        let added = expectation(description: "disabled notification added")
-        added.isInverted = true
+    func testDisabledTypePreferencesKeepLocalNotificationsButRemoveSound() async throws {
+        let added = expectation(description: "muted notifications added")
+        added.expectedFulfillmentCount = 3
         let center = LocalNotificationCenterSpy {
             added.fulfill()
         }
-        let preferences = NotificationAlertPreferences { key in
-            key == NotificationAlertPreference.messages.rawValue ? false : nil
-        }
+        let preferences = NotificationSoundPreferences { _ in false }
         let scheduler = LocalRichNotificationScheduler(
             center: center,
             renderer: LocalRichNotificationContentRenderer(
                 avatarData: { _ in nil },
                 donateInteractions: false
             ),
-            isAlertEnabled: { preferences.isEnabled(for: $0) }
+            isSoundEnabled: { preferences.isEnabled(for: $0) }
         )
-        let route = PushNotificationRoutePayload.message(
-            owner: owner,
-            routeJid: "juliet@example.com",
-            conversationType: "regular",
-            stanzaId: "disabled-message-archive",
-            messageId: "disabled-message",
-            stanza: nil,
-            senderJid: "juliet@example.com",
-            senderNickname: "Juliet",
-            groupchat: nil
-        )
-
-        scheduler.schedule(
-            LocalRichNotificationRequest(
-                identifier: "disabled-message",
-                preview: preview(route: route, body: "Muted by type preference"),
-                categoryIdentifier: PushNotificationCategory.message,
-                sound: nil
+        let cases: [(identifier: String, route: PushNotificationRoutePayload, category: String)] = [
+            (
+                "muted-message",
+                .message(
+                    owner: owner,
+                    routeJid: "juliet@example.com",
+                    conversationType: "regular",
+                    stanzaId: "muted-message-archive",
+                    messageId: "muted-message",
+                    stanza: nil,
+                    senderJid: "juliet@example.com",
+                    senderNickname: "Juliet",
+                    groupchat: nil
+                ),
+                PushNotificationCategory.message
+            ),
+            (
+                "muted-invite",
+                .groupInvite(
+                    owner: owner,
+                    groupchat: "garden@conference.example.com",
+                    inviteKind: "group",
+                    inviterJid: "juliet@example.com",
+                    inviterNickname: "Juliet"
+                ),
+                PushNotificationCategory.invite
+            ),
+            (
+                "muted-subscription",
+                .subscriptionRequest(
+                    owner: owner,
+                    contactJid: "mercutio@example.com",
+                    nickname: "Mercutio"
+                ),
+                PushNotificationCategory.subscription
             )
-        )
+        ]
 
-        await fulfillment(of: [added], timeout: 0.25)
-        XCTAssertTrue(center.addedRequests.isEmpty)
+        for testCase in cases {
+            scheduler.schedule(
+                LocalRichNotificationRequest(
+                    identifier: testCase.identifier,
+                    preview: preview(
+                        route: testCase.route,
+                        body: "Visible without sound"
+                    ),
+                    categoryIdentifier: testCase.category,
+                    sound: .default
+                )
+            )
+        }
+
+        await fulfillment(of: [added], timeout: 1)
+        XCTAssertEqual(center.addedRequests.count, 3)
+        XCTAssertTrue(center.addedRequests.allSatisfy { $0.content.sound == nil })
     }
 
     func testAttachmentPolicySupportsImagesStickersPlayableVideoAndVoice() {

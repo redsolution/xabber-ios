@@ -27,7 +27,7 @@ final class NotificationsSettingsViewController: BaseViewController {
 
         var title: String? {
             switch self {
-            case .types: return "Notification Types"
+            case .types: return "Notification Sounds"
             case .inApp: return "In-App Notifications"
             case .system: return nil
             }
@@ -36,9 +36,9 @@ final class NotificationsSettingsViewController: BaseViewController {
         var footer: String? {
             switch self {
             case .types:
-                return "Turn alerts on or off independently for each notification type."
+                return "Turn sounds on or off independently for each notification type."
             case .inApp:
-                return "Show banners and play sounds while Xabber is open."
+                return "Show banners and play enabled notification sounds while Xabber is open."
             case .system:
                 return "Lock Screen previews, permissions, badges and notification delivery are controlled in iOS Settings."
             }
@@ -248,7 +248,7 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
         title: String,
         icon: String,
         iconColor: UIColor,
-        preference: NotificationAlertPreference,
+        preference: NotificationSoundPreference,
         accessibilityIdentifier: String
     ) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(
@@ -363,7 +363,7 @@ private final class NotificationsSettingsIconToggleCell: UITableViewCell {
         tintColor = iconColor
         imageView?.accessibilityIdentifier = accessibilityIdentifier + ".icon"
         toggle.isOn = isOn
-        toggle.accessibilityLabel = title
+        toggle.accessibilityLabel = "\(title) Notification Sound"
         toggle.accessibilityIdentifier = accessibilityIdentifier + ".switch"
         self.accessibilityIdentifier = accessibilityIdentifier
         self.onValueChanged = onValueChanged

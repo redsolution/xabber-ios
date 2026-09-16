@@ -62,6 +62,14 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
         XCTAssertEqual(subscriptionRequestsCell.accessibilityIdentifier, "notifications.subscriptionRequests")
         XCTAssertEqual(inAppSoundCell.accessibilityIdentifier, "notifications.inAppSounds")
         XCTAssertEqual(systemSettingsCell.accessibilityIdentifier, "notifications.systemSettings")
+        XCTAssertEqual(
+            controller.tableView(controller.tableView, titleForHeaderInSection: 0),
+            "Notification Sounds"
+        )
+        XCTAssertEqual(
+            controller.tableView(controller.tableView, titleForFooterInSection: 0),
+            "Turn sounds on or off independently for each notification type."
+        )
     }
 
     @MainActor
@@ -116,7 +124,10 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
             XCTAssertTrue(typeSwitch.isOn)
             XCTAssertFalse(cell.isAccessibilityElement)
             XCTAssertTrue(typeSwitch.isAccessibilityElement)
-            XCTAssertEqual(typeSwitch.accessibilityLabel, cell.textLabel?.text)
+            XCTAssertEqual(
+                typeSwitch.accessibilityLabel,
+                "\(cell.textLabel?.text ?? "") Notification Sound"
+            )
             XCTAssertFalse(iconView.isAccessibilityElement)
             XCTAssertNotNil(iconView.image)
             XCTAssertEqual(
@@ -210,13 +221,13 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
         }
     }
 
-    func testNotificationAlertPreferencesMapRoutesAndCategoriesIndependently() {
+    func testNotificationSoundPreferencesMapRoutesAndCategoriesIndependently() {
         let values = [
-            NotificationAlertPreference.messages.rawValue: false,
-            NotificationAlertPreference.invites.rawValue: true,
-            NotificationAlertPreference.subscriptionRequests.rawValue: false
+            NotificationSoundPreference.messages.rawValue: false,
+            NotificationSoundPreference.invites.rawValue: true,
+            NotificationSoundPreference.subscriptionRequests.rawValue: false
         ]
-        let preferences = NotificationAlertPreferences { values[$0] }
+        let preferences = NotificationSoundPreferences { values[$0] }
 
         XCTAssertFalse(preferences.isEnabled(for: .message))
         XCTAssertTrue(preferences.isEnabled(for: .groupInvite))
@@ -263,12 +274,36 @@ final class NotificationsSettingsViewControllerTests: XCTestCase {
         )
     }
 
-    func testMissingNotificationAlertPreferencesDefaultToEnabled() {
-        let preferences = NotificationAlertPreferences { _ in nil }
+    func testMissingNotificationSoundPreferencesDefaultToEnabled() {
+        let preferences = NotificationSoundPreferences { _ in nil }
 
         XCTAssertTrue(preferences.isEnabled(for: .message))
         XCTAssertTrue(preferences.isEnabled(for: .groupInvite))
         XCTAssertTrue(preferences.isEnabled(for: .subscriptionRequest))
+    }
+
+    func testForegroundPresentationKeepsBannerWhenTypeSoundIsDisabled() {
+        XCTAssertEqual(
+            NotificationForegroundPresentationPolicy.options(
+                showsBanner: true,
+                playsSound: false
+            ),
+            [.banner]
+        )
+        XCTAssertEqual(
+            NotificationForegroundPresentationPolicy.options(
+                showsBanner: true,
+                playsSound: true
+            ),
+            [.banner, .sound]
+        )
+        XCTAssertEqual(
+            NotificationForegroundPresentationPolicy.options(
+                showsBanner: false,
+                playsSound: true
+            ),
+            []
+        )
     }
 
     @MainActor

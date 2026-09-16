@@ -549,6 +549,7 @@ class NotificationService: UNNotificationServiceExtension {
             completeBestAttemptContent()
             return
         }
+        applySoundPreference(for: payload_decoded.action)
         
         guard let node = request.content.userInfo["node"] as? String else {
             completeBestAttemptContent()
@@ -578,6 +579,25 @@ class NotificationService: UNNotificationServiceExtension {
         case .invite:       onMessage(payload)
         case .none:         onHide(payload)
         }
+    }
+
+    private func applySoundPreference(for action: Actions) {
+        let routeKind: PushNotificationRoutePayload.Kind?
+        switch action {
+        case .message, .update:
+            routeKind = .message
+        case .invite:
+            routeKind = .groupInvite
+        case .subscribe:
+            routeKind = .subscriptionRequest
+        case .marker, .none:
+            routeKind = nil
+        }
+        guard let routeKind,
+              !NotificationSoundPreferences.current.isEnabled(for: routeKind) else {
+            return
+        }
+        mutateBestAttemptContent { $0.sound = nil }
     }
     
     internal func onHide(_ payload: PayloadData) {
@@ -936,13 +956,14 @@ extension NotificationService: PushPayloadDelegate {
 
     @discardableResult
     private final func apply(plan: RichNotificationPresentationPlan) -> Bool {
-        applyRoute(plan.route) { content in
+        let soundIsEnabled = NotificationSoundPreferences.current.isEnabled(for: plan.route.kind)
+        return applyRoute(plan.route) { content in
             content.title = plan.title
             content.subtitle = plan.subtitle
             content.body = plan.body
             content.categoryIdentifier = plan.categoryIdentifier
             content.threadIdentifier = plan.threadIdentifier
-            content.sound = .default
+            content.sound = soundIsEnabled ? .default : nil
         }
     }
 

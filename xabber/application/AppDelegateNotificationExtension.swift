@@ -23,6 +23,16 @@ import UIKit
 import UserNotifications
 import XMPPFramework
 
+@available(iOS 10, *)
+struct NotificationForegroundPresentationPolicy {
+    static func options(
+        showsBanner: Bool,
+        playsSound: Bool
+    ) -> UNNotificationPresentationOptions {
+        guard showsBanner else { return [] }
+        return playsSound ? [.banner, .sound] : [.banner]
+    }
+}
 
 @available(iOS 10, *)
 extension AppDelegate : UNUserNotificationCenterDelegate {
@@ -40,67 +50,34 @@ extension AppDelegate : UNUserNotificationCenterDelegate {
         let inviteCategory = NotifyManager.notificationInviteCategory
         let verificationCategory = NotifyManager.notificationVerificationCategory
 
-        let alertPreferences = NotificationAlertPreferences.current
+        let soundPreferences = NotificationSoundPreferences.current
         let routeKind = PushNotificationRoutePayload(
             userInfo: notification.request.content.userInfo
         )?.kind
-        let alertIsEnabled = alertPreferences.isEnabled(
+        let typeSoundIsEnabled = soundPreferences.isEnabled(
             routeKind: routeKind,
             categoryIdentifier: category
         )
-        guard alertIsEnabled else {
+        let lastChatsIsDisplayed = NotifyManager.shared.isLastChatsDisplayed()
+        let showsBanner: Bool
+        let soundIsAllowedByContext: Bool
+        switch category {
+        case messageCategory, pushMessageCategory, subscriptionCategory, inviteCategory:
+            showsBanner = notificationInAppAlertLastChats || !lastChatsIsDisplayed
+            soundIsAllowedByContext = showsBanner
+        case verificationCategory:
+            showsBanner = true
+            soundIsAllowedByContext = notificationInAppAlertLastChats || !lastChatsIsDisplayed
+        default:
             completionHandler([])
             return
         }
-        
-        switch category {
-        case messageCategory, pushMessageCategory, subscriptionCategory, inviteCategory:
-            if notificationInAppAlertLastChats {
-                if notificationInAppSound {
-                    completionHandler([.banner, .sound])
-                } else {
-                    completionHandler([.banner])
-                }
-            } else {
-                if NotifyManager.shared.isLastChatsDisplayed() {
-                    if notificationInAppSound {
-                        completionHandler([])
-                    } else {
-                        completionHandler([])
-                    }
-                } else {
-                    if notificationInAppSound {
-                        completionHandler([.banner, .sound])
-                    } else {
-                        completionHandler([.banner])
-                    }
-                }
-            }
-        case verificationCategory:
-            if notificationInAppAlertLastChats {
-                if notificationInAppSound {
-                    completionHandler([.banner, .sound])
-                } else {
-                    completionHandler([.banner])
-                }
-            } else {
-                if NotifyManager.shared.isLastChatsDisplayed() {
-                    if notificationInAppSound {
-                        completionHandler([.banner])
-                    } else {
-                        completionHandler([.banner])
-                    }
-                } else {
-                    if notificationInAppSound {
-                        completionHandler([.banner, .sound])
-                    } else {
-                        completionHandler([.banner])
-                    }
-                }
-            }
-        default:
-            completionHandler([])
-        }
+        completionHandler(NotificationForegroundPresentationPolicy.options(
+            showsBanner: showsBanner,
+            playsSound: notificationInAppSound
+                && typeSoundIsEnabled
+                && soundIsAllowedByContext
+        ))
     }
     
     func userNotificationCenter(_ center: UNUserNotificationCenter,

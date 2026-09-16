@@ -594,6 +594,22 @@ final class PushExtensionRichContentTests: XCTestCase {
         XCTAssertFalse(source.contains("CNSaveRequest"))
     }
 
+    func testNotificationServiceAppliesPerTypeSoundPreferences() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = repositoryRoot
+            .appendingPathComponent("xabber-push-extension/NotificationService.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("applySoundPreference(for: payload_decoded.action)"))
+        XCTAssertTrue(
+            source.contains(
+                "NotificationSoundPreferences.current.isEnabled(for: plan.route.kind)"
+            )
+        )
+    }
+
     private func parse(_ xml: String) throws -> PushNotificationPreview {
         try XCTUnwrap(
             PushNotificationArchiveParser.parseArchivedMessage(

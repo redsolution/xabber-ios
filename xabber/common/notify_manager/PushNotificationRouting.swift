@@ -32,14 +32,14 @@ enum PushNotificationCategory {
     static let verification = "com.xabber.ios.verification"
 }
 
-enum NotificationAlertPreference: String, CaseIterable {
+enum NotificationSoundPreference: String, CaseIterable {
     case messages = "notification_message_enabled"
     case invites = "notification_invite_enabled"
     case subscriptionRequests = "notification_subscription_request_enabled"
 
     static func preference(
         for routeKind: PushNotificationRoutePayload.Kind
-    ) -> NotificationAlertPreference? {
+    ) -> NotificationSoundPreference? {
         switch routeKind {
         case .message:
             return .messages
@@ -54,7 +54,7 @@ enum NotificationAlertPreference: String, CaseIterable {
 
     static func preference(
         forCategoryIdentifier categoryIdentifier: String
-    ) -> NotificationAlertPreference? {
+    ) -> NotificationSoundPreference? {
         switch categoryIdentifier {
         case PushNotificationCategory.message, PushNotificationCategory.pushMessage:
             return .messages
@@ -68,7 +68,7 @@ enum NotificationAlertPreference: String, CaseIterable {
     }
 }
 
-struct NotificationAlertPreferences {
+struct NotificationSoundPreferences {
     private let valueForKey: (String) -> Bool?
 
     init(valueForKey: @escaping (String) -> Bool?) {
@@ -85,8 +85,8 @@ struct NotificationAlertPreferences {
         }
     }
 
-    static var current: NotificationAlertPreferences {
-        NotificationAlertPreferences(
+    static var current: NotificationSoundPreferences {
+        NotificationSoundPreferences(
             defaults: UserDefaults(
                 suiteName: CredentialsManager.uniqueAccessGroup()
             )
@@ -94,7 +94,7 @@ struct NotificationAlertPreferences {
     }
 
     func isEnabled(for routeKind: PushNotificationRoutePayload.Kind) -> Bool {
-        guard let preference = NotificationAlertPreference.preference(
+        guard let preference = NotificationSoundPreference.preference(
             for: routeKind
         ) else {
             return true
@@ -103,7 +103,7 @@ struct NotificationAlertPreferences {
     }
 
     func isEnabled(forCategoryIdentifier categoryIdentifier: String) -> Bool {
-        guard let preference = NotificationAlertPreference.preference(
+        guard let preference = NotificationSoundPreference.preference(
             forCategoryIdentifier: categoryIdentifier
         ) else {
             return true
@@ -115,7 +115,7 @@ struct NotificationAlertPreferences {
         routeKind: PushNotificationRoutePayload.Kind?,
         categoryIdentifier: String
     ) -> Bool {
-        if let preference = NotificationAlertPreference.preference(
+        if let preference = NotificationSoundPreference.preference(
             forCategoryIdentifier: categoryIdentifier
         ) {
             return isEnabled(preference)
@@ -129,7 +129,7 @@ struct NotificationAlertPreferences {
         return isEnabled(for: routeKind)
     }
 
-    private func isEnabled(_ preference: NotificationAlertPreference) -> Bool {
+    private func isEnabled(_ preference: NotificationSoundPreference) -> Bool {
         valueForKey(preference.rawValue) ?? true
     }
 }
