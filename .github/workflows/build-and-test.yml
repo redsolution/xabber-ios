@@ -20,24 +20,115 @@ jobs:
     with:
      xcode-version: 'latest-stable'
 
+  - name: Run localization tooling tests
+    run: |
+     python3 -B -m unittest discover \
+      -s tools/tests \
+      -p 'test_localization_*.py'
+
+  - name: Check localization manifest
+    run: |
+     python3 -B tools/localization_manifest.py check
+
+  - name: Validate localization catalog
+    run: |
+     python3 -B tools/localization_catalog.py \
+      xabber/translations/Localizable.xcstrings \
+      --manifest docs/localization/active-keys.json
+
   - name: Copy local swift-ogg package into workspace
     run: |
      mkdir -p deps/swift-ogg
      cp -r ~/Projects/swift-packages/swift-ogg/* deps/swift-ogg/ || { echo "Copy failed - check path"; exit 1; }
      ls -la deps/swift-ogg # debug: show what was copied
 
-  - name: Build Xabber.app (debug scheme)
+  - name: Test compiled localization catalog
+    env:
+     TEST_RUNNER_XABBER_DISABLE_ACCOUNT_AUTOCONNECT: '1'
+     TEST_RUNNER_XABBER_ISOLATED_STORAGE: '1'
+     XABBER_SCHEME: Debug
     run: |
-     xcodebuild \
-      -scheme debug \
-      -sdk iphonesimulator \
-      -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.0' \
-      clean build
+     set -euo pipefail
+     LOCALIZATION_SIMULATOR_UDID=""
+     LOCALIZATION_RESULT_BUNDLE="$RUNNER_TEMP/xabber-localization-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.xcresult"
+     cleanup_localization_simulator() {
+      if [ -n "$LOCALIZATION_SIMULATOR_UDID" ]; then
+       xcrun simctl shutdown "$LOCALIZATION_SIMULATOR_UDID" >/dev/null 2>&1 || true
+       xcrun simctl delete "$LOCALIZATION_SIMULATOR_UDID" >/dev/null 2>&1 || true
+      fi
+      if [ -d "$LOCALIZATION_RESULT_BUNDLE" ]; then
+       rm -rf "$LOCALIZATION_RESULT_BUNDLE"
+      fi
+     }
+     trap cleanup_localization_simulator EXIT
+     LOCALIZATION_SIMULATOR_SPEC=$(xcrun simctl list --json | python3 -c '
+     import json, re, sys
+     data = json.load(sys.stdin)
+     runtimes = {
+         item["identifier"]: item
+         for item in data.get("runtimes", [])
+         if item.get("isAvailable") and item.get("name", "").startswith("iOS ")
+     }
+     def version(identifier):
+         raw = runtimes[identifier].get("version", "0")
+         return tuple(int(part) for part in re.findall(r"\d+", raw))
+     for runtime in sorted(runtimes, key=version, reverse=True):
+         parts = (version(runtime) + (0, 0, 0))[:3]
+         encoded_version = (parts[0] << 16) | (parts[1] << 8) | parts[2]
+         device_types = [
+             item for item in data.get("devicetypes", [])
+             if item.get("name", "").startswith("iPhone")
+             and item.get("minRuntimeVersion", 0) <= encoded_version
+             and encoded_version <= item.get("maxRuntimeVersion", 0xFFFFFFFF)
+         ]
+         if device_types:
+             device_types.sort(key=lambda item: (-item.get("minRuntimeVersion", 0), " Pro" not in item.get("name", ""), item.get("name", "")))
+             print(device_types[0]["identifier"] + "|" + runtime)
+             break
+     else:
+         raise SystemExit("No available iPhone simulator runtime")
+     ')
+     LOCALIZATION_DEVICE_TYPE=${LOCALIZATION_SIMULATOR_SPEC%%|*}
+     LOCALIZATION_RUNTIME=${LOCALIZATION_SIMULATOR_SPEC#*|}
+     LOCALIZATION_SIMULATOR_UDID=$(xcrun simctl create \
+      "xabber-localization-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+      "$LOCALIZATION_DEVICE_TYPE" \
+      "$LOCALIZATION_RUNTIME")
+     xcrun simctl boot "$LOCALIZATION_SIMULATOR_UDID"
+     xcrun simctl bootstatus "$LOCALIZATION_SIMULATOR_UDID" -b
+     export XABBER_DESTINATION="platform=iOS Simulator,id=$LOCALIZATION_SIMULATOR_UDID"
+     tools/xcodebuild_cached.sh test \
+      -parallel-testing-enabled NO \
+      -resultBundlePath "$LOCALIZATION_RESULT_BUNDLE" \
+      -only-testing:xabberTests/LocalizationCoreTests \
+      -only-testing:xabberTests/LocalizationAdaptersTests \
+      -only-testing:xabberTests/LocalizationCatalogTests \
+      -only-testing:xabberTests/ChatAttachmentAccessibilityLocalizationTests/testRequiredLocalizationKeysExistInEnglishAndRussian \
+      -only-testing:xabberTests/GroupCreationContractTests/testPeerToPeerAndLastOwnerHaveDistinctDeletePresentation \
+      -only-testing:xabberTests/GroupPermissionsUICutoverTests/testPermissionResetLocalizationExistsInEnglishAndRussian \
+      -only-testing:xabberTests/LanguageSettingsViewControllerTests \
+      -only-testing:xabberTests/LocalizationApplicationCoordinatorTests \
+      -only-testing:xabberTests/PushExtensionRichContentTests/testNotificationServiceLoadsSharedLocalizationAtStartOfEveryRequest \
+      -only-testing:xabberTests/GroupOutgoingInvitesUICutoverTests/testInviteSuccessMessageUsesNativePluralLocalizationKey \
+      -only-testing:xabberTests/GroupOutgoingInvitesUICutoverTests/testAmbiguousProductionFallbacksUseDedicatedKeys \
+      -only-testing:xabberTests/GroupOutgoingInvitesUICutoverTests/testTypedFormattingCallsitesPassTheirRequiredArguments \
+      -only-testing:xabberTests/LastChatsViewControllerBehaviorTests/testMaterializedAttachmentPreviewsUseTypedSingularAndPluralLabels \
+      -only-testing:xabberTests/LastChatsViewControllerBehaviorTests/testListOnlySyncAttachmentPreviewsUseTypedSingularAndPluralLabels \
+      -only-testing:xabberTests/LastChatsViewControllerBehaviorTests/testEnglishAttachmentPreviewKeepsSingularContractAndCountsTwentyOne \
+      -only-testing:xabberTests/LastChatsViewControllerBehaviorTests/testRussianAttachmentPreviewIncludesCountForTwentyOneEndingForms \
+      -only-testing:xabberTests/LastChatsViewControllerBehaviorTests/testAttachmentPreviewUsesSingularTextAndNativeCountedPluralKeys
+
+  - name: Build app and push extension
+    env:
+     XABBER_DESTINATION: generic/platform=iOS Simulator
+    run: |
+     XABBER_SCHEME=Debug tools/xcodebuild_cached.sh build
+     XABBER_SCHEME=xabber-push-extension tools/xcodebuild_cached.sh build
 
   - name: Locate built .app
     id: find-app
     run: |
-     APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData \
+     APP_PATH=$(find ~/Library/Caches/XabberCodex/xabber-ios-core/DerivedData \
       -name "xabber.app" -type d \
       | grep -i Debug-iphonesimulator | head -n 1)
      if [ -z "$APP_PATH" ]; then
