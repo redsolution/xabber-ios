@@ -802,10 +802,10 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
             .localizeString(id: "dialog_jingle_message__message_connect", arguments: [])
         setupPlaceholder("john.doe", isPassword: false)
         setupPlaceholder("password".localizeString(id: "dialog_jingle_message__password", arguments: []), isPassword: true)
-        //Subtitle should be HTML to be attributed properly
-        let subtitle = "If you don't have an account yet, press here to sign up for a Clandestino account."
-            .localizeHTML(id: "dialog_jingle_message__message_sign_up", arguments: [])
-//            .localizeString(id: "dialog_jingle_message__message_sign_up", arguments: [])
+        let subtitle = NSAttributedString(string: L10n.text(
+            "dialog_jingle_message__message_sign_up",
+            fallback: "If you don't have an account yet, press here to sign up for a Clandestino account."
+        ))
         
 //        let subtitleData = Data(subtitle.utf8)
 //        if let attributedSubtitle = try? NSAttributedString(data: subtitleData,

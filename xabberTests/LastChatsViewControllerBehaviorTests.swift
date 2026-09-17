@@ -25,14 +25,20 @@ import XMPPFramework
 final class LastChatsViewControllerBehaviorTests: XCTestCase {
     private var previousRealmConfiguration: Realm.Configuration!
     private var previousConnectingAccounts: Set<String>!
-    private var previousLanguage: String?
+    private var previousLocalizationContext: LocalizationContext!
 
     override func setUp() {
         super.setUp()
         previousRealmConfiguration = Realm.Configuration.defaultConfiguration
         previousConnectingAccounts = AccountManager.shared.connectingUsers.value
-        previousLanguage = TranslationsManager.shared.currentLang
-        TranslationsManager.shared.currentLang = "en"
+        previousLocalizationContext = LocalizationRuntime.shared.context
+        LocalizationRuntime.shared.replaceContext(
+            selection: .fixed(.english),
+            preferredLanguages: ["en"],
+            locale: previousLocalizationContext.locale,
+            calendar: previousLocalizationContext.calendar,
+            timeZone: previousLocalizationContext.timeZone
+        )
         Realm.Configuration.defaultConfiguration = Realm.Configuration(
             inMemoryIdentifier: "LastChatsViewControllerBehaviorTests-\(name)-\(UUID().uuidString)"
         )
@@ -43,8 +49,8 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         ChatUIResponsivenessGate.shared.resetForTesting()
         AccountManager.shared.connectingUsers.accept(previousConnectingAccounts)
         previousConnectingAccounts = nil
-        TranslationsManager.shared.currentLang = previousLanguage
-        previousLanguage = nil
+        LocalizationRuntime.shared.replaceContext(previousLocalizationContext)
+        previousLocalizationContext = nil
         Realm.Configuration.defaultConfiguration = previousRealmConfiguration
         previousRealmConfiguration = nil
         super.tearDown()
@@ -1064,8 +1070,13 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
     }
 
     func testRussianAttachmentPreviewIncludesCountForTwentyOneEndingForms() {
-        TranslationsManager.shared.currentLang =
-            TranslationsManager.Languages.ru.rawValue
+        LocalizationRuntime.shared.replaceContext(
+            selection: .fixed(.russian),
+            preferredLanguages: ["ru"],
+            locale: previousLocalizationContext.locale,
+            calendar: previousLocalizationContext.calendar,
+            timeZone: previousLocalizationContext.timeZone
+        )
         let cases: [(LastChatAttachmentPreviewKind, String, String)] = [
             (.photo, "Фото", "фото"),
             (.video, "Видео", "видео"),

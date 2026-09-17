@@ -256,30 +256,22 @@ extension XMPPAccountDeleteManager: XMPPStreamDelegate {
         
         case .error:
             close(sender)
-            if let language = TranslationsManager.shared.currentLang { //выбран язык
-                let code = TranslationsManager.shared.prepareLanCode(language: language)
-                if let errorDescriptions = iq.element(forName: "error")?.elements(forName: "text") { //есть описания ошибок
-                    if let errorLocalDescription = errorDescriptions.first(where: { $0.attributeStringValue(forName: "lang") == code })?.stringValue { //есть описание, соответствующее выбранному языку
-                        delegate?.didReceiveResponse(title: "Error".localizeString(id: "error", arguments: []), description: errorLocalDescription)
-                    } else if let errorEnDescription = errorDescriptions.first(where: { $0.attributeStringValue(forName: "lang") == "en" })?.stringValue { //или хотя бы на английском
-                        delegate?.didReceiveResponse(title: "Error".localizeString(id: "error", arguments: []), description: errorEnDescription)
-                    } else {
-                        let errorOnlyDescription = errorDescriptions.first?.stringValue //или хоть какое есть первое попавшееся
-                        delegate?.didReceiveResponse(title: "Error".localizeString(id: "error", arguments: []), description: errorOnlyDescription ?? "Unknown error")
-                    }
-                } else { //нет никаких описаний
-                    delegate?.didReceiveResponse(title: "Error".localizeString(id: "error", arguments: []), description: "Unknown error")
-                }
-            } else if let errorDescriptions = iq.element(forName: "error")?.elements(forName: "text") { //не выбран язык, есть описания ошибок
-                if let errorEnDescription = errorDescriptions.first(where: { $0.attributeStringValue(forName: "lang") == "en" })?.stringValue { //есть описание на английском
-                    delegate?.didReceiveResponse(title: "Error", description: errorEnDescription)
-                } else {
-                    let errorOnlyDescription = errorDescriptions.first?.stringValue  //или хоть какое есть первое попавшееся
-                    delegate?.didReceiveResponse(title: "Error", description: errorOnlyDescription ?? "Unknown error")
-                }
-            } else { //не выбран язык и нет никаких описаний
-                delegate?.didReceiveResponse(title: "Error", description: "Unknown error")
-            }
+            let context = LocalizationRuntime.shared.context
+            let errorDescriptions = iq.element(forName: "error")?.elements(forName: "text") ?? []
+            let preferredCodes = [
+                context.resolvedLanguage.rawValue,
+                context.locale.languageCode,
+                "en"
+            ].compactMap { $0 }
+            let localizedDescription = preferredCodes.lazy.compactMap { code in
+                errorDescriptions.first {
+                    $0.attributeStringValue(forName: "lang") == code
+                }?.stringValue
+            }.first ?? errorDescriptions.first?.stringValue ?? "Unknown error"
+            delegate?.didReceiveResponse(
+                title: L10n.text("error", fallback: "Error"),
+                description: localizedDescription
+            )
         
         default: return false
         }

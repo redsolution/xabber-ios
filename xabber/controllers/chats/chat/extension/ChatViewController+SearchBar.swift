@@ -4665,10 +4665,11 @@ extension ChatViewController {
         reduceSearchPresentationState(request.event)
         guard searchPresentationState.surfaceMode == .calendar else { return }
 
+        let localizationContext = L10n.context
         let calendarController = ChatSearchCalendarViewController(
             model: ChatSearchCalendarModel(
-                calendar: .autoupdatingCurrent,
-                locale: .autoupdatingCurrent,
+                calendar: localizationContext.calendar,
+                locale: localizationContext.locale,
                 clock: ChatSearchCalendarSystemClock()
             ),
             animationSpec: searchAnimationSpec

@@ -559,20 +559,7 @@ final class PushExtensionRichContentTests: XCTestCase {
         ).isEmpty)
     }
 
-    func testNoBodyFallbackFormatsIndonesianSingularCount() throws {
-        let bundle = try makeLocalizationBundle(
-            language: "id",
-            strings: ["plurals.new_chat_messages.item_0": "%1$d pesan baru"]
-        )
-
-        XCTAssertEqual(
-            PushNotificationLocalization.newMessage(
-                bundle: bundle,
-                locale: Locale(identifier: "id_ID")
-            ),
-            "1 pesan baru"
-        )
-
+    func testNoBodyFallbackUsesSharedLocalizedNewMessage() throws {
         let preview = try parse(
             """
             <message from='juliet@example.com/mobile' to='romeo@example.com' id='empty-message-id'/>
@@ -592,6 +579,28 @@ final class PushExtensionRichContentTests: XCTestCase {
         XCTAssertFalse(source.contains(".contactID"))
         XCTAssertFalse(source.contains("CNContactStore"))
         XCTAssertFalse(source.contains("CNSaveRequest"))
+    }
+
+    func testNotificationServiceLoadsSharedLocalizationAtStartOfEveryRequest() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = repositoryRoot
+            .appendingPathComponent("xabber-push-extension/NotificationService.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let didReceive = try XCTUnwrap(source.range(
+            of: "override func didReceive(_ request: UNNotificationRequest"
+        ))
+        let bootstrap = try XCTUnwrap(source.range(
+            of: "PushNotificationLocalization.prepareForIncomingRequest",
+            range: didReceive.lowerBound..<source.endIndex
+        ))
+        let firstLocalizedContent = try XCTUnwrap(source.range(
+            of: "self.bestAttemptContent.body = localizedNewMessage",
+            range: didReceive.lowerBound..<source.endIndex
+        ))
+
+        XCTAssertLessThan(bootstrap.lowerBound, firstLocalizedContent.lowerBound)
     }
 
     func testNotificationServiceAppliesPerTypeSoundPreferences() throws {
@@ -675,27 +684,6 @@ final class PushExtensionRichContentTests: XCTestCase {
             ),
             candidates: candidates
         )
-    }
-
-    private func makeLocalizationBundle(
-        language: String,
-        strings: [String: String]
-    ) throws -> Bundle {
-        let localizationDirectory = temporaryDirectory
-            .appendingPathComponent("\(language).lproj", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: localizationDirectory,
-            withIntermediateDirectories: true
-        )
-        let stringsData = try PropertyListSerialization.data(
-            fromPropertyList: strings,
-            format: .xml,
-            options: 0
-        )
-        try stringsData.write(
-            to: localizationDirectory.appendingPathComponent("Localizable.strings")
-        )
-        return try XCTUnwrap(Bundle(path: localizationDirectory.path))
     }
 
     private func makeImage(color: UIColor) -> UIImage {

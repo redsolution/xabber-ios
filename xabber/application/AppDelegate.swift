@@ -144,6 +144,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
     
     func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
+        let appGroupSuiteName = CredentialsManager.uniqueAccessGroup()
+        LocalizationRuntime.shared.bootstrap(
+            appGroupSuiteName: appGroupSuiteName.isEmpty ? nil : appGroupSuiteName
+        )
 
         let isolatedStorage = AppLaunchEnvironmentPolicy.isolatedStorageDescriptor()
         realmMigrations(
@@ -232,18 +236,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             self.startUserInfo = userInfo
         }
         
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(languageChanged),
-                                               name: .newLanguageSelected,
-                                               object: nil)
-        
         ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
         return true
-    }
-    
-    @objc
-    func languageChanged() {
-        
     }
     
     func applicationWillResignActive(_ application: UIApplication) {
@@ -314,6 +308,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         guard AppRootCoordinator.active == nil else {
             return
         }
+        if refreshLocalizationContextIfNeeded(), let window {
+            Self.setupRootViewController(
+                instance: self,
+                window: window,
+                userInfo: nil
+            )
+        }
         AccountManager.shared.prepare()
         CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .foreground)
         NotifyManager.shared.setLastChats(displayed: true)
@@ -363,18 +364,26 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
     
     func getNotificationSettings() {
-        
+        registerLocalizedNotificationCategories()
+        UIApplication.shared.registerForRemoteNotifications()
+        UNUserNotificationCenter.current().delegate = self
+    }
+
+    func registerLocalizedNotificationCategories() {
         let textAction = UNTextInputNotificationAction(
             identifier: NotifyManager.notificationMessageActionReply,
-            title: "Reply".localizeString(id: "chat_reply", arguments: []),
+            title: L10n.text("chat_reply", fallback: "Reply"),
             options: [],
-            textInputButtonTitle: "Send".localizeString(id: "chat_send", arguments: []),
-            textInputPlaceholder: "Message text".localizeString(id: "chat_message_text", arguments: [])
+            textInputButtonTitle: L10n.text("chat_send", fallback: "Send"),
+            textInputPlaceholder: L10n.text(
+                "chat_message_text",
+                fallback: "Message text"
+            )
         )
         
         let markAsRead = UNNotificationAction(
             identifier: NotifyManager.notificationMessageActionMarkAsRead,
-            title: "Mark as read".localizeString(id: "action_mark_as_read", arguments: []),
+            title: L10n.text("action_mark_as_read", fallback: "Mark as read"),
             options: []
         )
         
@@ -422,9 +431,25 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 inviteCategory,
                 verificationCategory
             ])
-        
-        UIApplication.shared.registerForRemoteNotifications()
-        UNUserNotificationCenter.current().delegate = self
+    }
+
+    func refreshLocalizationDependentState() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        SettingManager.shared.loadSettings()
+        AccountColorManager.shared.load()
+        registerLocalizedNotificationCategories()
+    }
+
+    @discardableResult
+    func refreshLocalizationContextIfNeeded() -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let previous = LocalizationRuntime.shared.context
+        let current = LocalizationRuntime.shared.refresh()
+        guard !previous.isSemanticallyEquivalent(to: current) else {
+            return false
+        }
+        refreshLocalizationDependentState()
+        return true
     }
     
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {

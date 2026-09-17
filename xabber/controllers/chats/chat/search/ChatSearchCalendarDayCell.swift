@@ -151,11 +151,7 @@ final class ChatSearchCalendarDayCell: UICollectionViewCell {
         accessibilityTraits = [.button]
 
         if let date = slot.date {
-            let formatting = formatting ?? ChatSearchFormatting(
-                locale: localization.locale,
-                calendar: .autoupdatingCurrent,
-                timeZone: .autoupdatingCurrent
-            )
+            let formatting = formatting ?? .production(locale: localization.locale)
             accessibilityLabel = formatting.fullDate(for: date)
         } else {
             accessibilityLabel = String(dayNumber)

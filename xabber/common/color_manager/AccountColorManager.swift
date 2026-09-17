@@ -69,40 +69,42 @@ class AccountColorManager: NSObject {
 
     }
     
-    public static let colors: [ColorItem] = [
-        ColorItem("green", title: "Green".localizeString(id: "account_color_name_green", arguments: []),
-                  color: MDCPalette.green),
-        ColorItem("orange", title: "Orange".localizeString(id: "account_color_name_orange", arguments: []),
-                  color: MDCPalette.orange),
-        ColorItem("red", title: "Red".localizeString(id: "account_color_name_red", arguments: []),
-                  color: MDCPalette.red),
-        ColorItem("blue", title: "Blue".localizeString(id: "account_color_name_blue", arguments: []),
-                  color: MDCPalette.blue),
-        ColorItem("indigo", title: "Indigo".localizeString(id: "account_color_name_indigo", arguments: []),
-                  color: MDCPalette.indigo),
-        ColorItem("greyblue", title: "Greyblue".localizeString(id: "account_color_name_blue_grey", arguments: []),
-                  color: MDCPalette.blueGrey),
-        ColorItem("cyan", title: "Cyan".localizeString(id: "account_color_name_cyan", arguments: []),
-                  color: MDCPalette.cyan),
-        ColorItem("emerald", title: "Emerald".localizeString(id: "account_color_name_emerald", arguments: []),
-                  color: MDCPalette.green),
-        ColorItem("purple", title: "Purple".localizeString(id: "account_color_name_purple", arguments: []),
-                  color: MDCPalette.purple),
-        ColorItem("lime", title: "Lime".localizeString(id: "account_color_name_lime", arguments: []),
-                  color: MDCPalette.lime),
-        ColorItem("pink", title: "Pink".localizeString(id: "account_color_name_pink", arguments: []),
-                  color: MDCPalette.pink),
-        ColorItem("lightblue", title: "Light blue".localizeString(id: "account_color_name_light_blue", arguments: []),
-                  color: MDCPalette.lightBlue),
-        ColorItem("lightgreen", title: "Light green".localizeString(id: "account_color_name_light_green", arguments: []),
-                  color: MDCPalette.lightGreen),
-        ColorItem("darkorange", title: "Dark orange".localizeString(id: "account_color_name_dark_orange", arguments: []),
-                  color: MDCPalette.deepOrange),
-        ColorItem("brown", title: "Brown".localizeString(id: "account_color_name_brown", arguments: []),
-                  color: MDCPalette.brown),
-        ColorItem("amber", title: "Amber".localizeString(id: "account_color_name_amber", arguments: []),
-                  color: MDCPalette.amber)
-    ]
+    public static var colors: [ColorItem] {
+        [
+            ColorItem("green", title: "Green".localizeString(id: "account_color_name_green", arguments: []),
+                      color: MDCPalette.green),
+            ColorItem("orange", title: "Orange".localizeString(id: "account_color_name_orange", arguments: []),
+                      color: MDCPalette.orange),
+            ColorItem("red", title: "Red".localizeString(id: "account_color_name_red", arguments: []),
+                      color: MDCPalette.red),
+            ColorItem("blue", title: "Blue".localizeString(id: "account_color_name_blue", arguments: []),
+                      color: MDCPalette.blue),
+            ColorItem("indigo", title: "Indigo".localizeString(id: "account_color_name_indigo", arguments: []),
+                      color: MDCPalette.indigo),
+            ColorItem("greyblue", title: "Greyblue".localizeString(id: "account_color_name_blue_grey", arguments: []),
+                      color: MDCPalette.blueGrey),
+            ColorItem("cyan", title: "Cyan".localizeString(id: "account_color_name_cyan", arguments: []),
+                      color: MDCPalette.cyan),
+            ColorItem("emerald", title: "Emerald".localizeString(id: "account_color_name_emerald", arguments: []),
+                      color: MDCPalette.green),
+            ColorItem("purple", title: "Purple".localizeString(id: "account_color_name_purple", arguments: []),
+                      color: MDCPalette.purple),
+            ColorItem("lime", title: "Lime".localizeString(id: "account_color_name_lime", arguments: []),
+                      color: MDCPalette.lime),
+            ColorItem("pink", title: "Pink".localizeString(id: "account_color_name_pink", arguments: []),
+                      color: MDCPalette.pink),
+            ColorItem("lightblue", title: "Light blue".localizeString(id: "account_color_name_light_blue", arguments: []),
+                      color: MDCPalette.lightBlue),
+            ColorItem("lightgreen", title: "Light green".localizeString(id: "account_color_name_light_green", arguments: []),
+                      color: MDCPalette.lightGreen),
+            ColorItem("darkorange", title: "Dark orange".localizeString(id: "account_color_name_dark_orange", arguments: []),
+                      color: MDCPalette.deepOrange),
+            ColorItem("brown", title: "Brown".localizeString(id: "account_color_name_brown", arguments: []),
+                      color: MDCPalette.brown),
+            ColorItem("amber", title: "Amber".localizeString(id: "account_color_name_amber", arguments: []),
+                      color: MDCPalette.amber)
+        ]
+    }
     
     open class var shared: AccountColorManager {
         struct AccountColorManagerSingleton {
@@ -123,6 +125,7 @@ class AccountColorManager: NSObject {
     open func load() {
         do {
             bag = DisposeBag()
+            accounts.removeAll()
             let realm = try WRealm.safe()
             let collection = realm.objects(AccountStorageItem.self).sorted(byKeyPath: "order", ascending: true)
             collection.forEach {

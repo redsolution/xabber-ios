@@ -23,56 +23,11 @@ import UIKit
 
 extension String {
 
-    
+    @available(*, deprecated, message: "Use L10n.text, L10n.format, or L10n.plural")
     func localizeString(id: String, arguments: [String]) -> String {
-//        guard let selectedLang = TranslationsManager.shared.currentLang else {
-//            let string = String(format: NSLocalizedString(id, comment: ""), arguments: arguments)
-//            if string == id {
-//                return self
-//            } else {
-//                return string
-//            }
-//        }
-        guard let selectedLang = TranslationsManager.shared.currentLang ?? NSLocale.current.languageCode else {
-            return self
-        }
-        
-        let lanCode = TranslationsManager.shared.prepareLanCode(language: selectedLang)
-        let path = Bundle.main.path(forResource: lanCode, ofType: "lproj")
-        guard let bundle = Bundle(path: path!) else {
-            return self
-        }
-        
-        return String(format: NSLocalizedString(id, tableName: nil, bundle: bundle, value: self, comment: ""),
-                      arguments: arguments)
+        L10n.legacyFormat(id, fallback: self, arguments: arguments)
     }
-    
-    func localizeHTML(id: String, arguments: [String]) -> NSAttributedString {
-        guard let selectedLang = TranslationsManager.shared.currentLang ?? NSLocale.current.languageCode else {
-            return NSAttributedString(string: self)
-        }
-        
-        let lanCode = TranslationsManager.shared.prepareLanCode(language: selectedLang)
-        let path = Bundle.main.path(forResource: lanCode, ofType: "lproj")
-        guard let bundle = Bundle(path: path!) else {
-            return NSAttributedString(string: self)
-        }
-        
-        return NSAttributedString(string: String(format: NSLocalizedString(id, tableName: nil, bundle: bundle, value: self, comment: ""),
-                      arguments: arguments))
-        
-        
-//        if let attributedString = try? NSAttributedString(data: data,
-//                                                          options: [.documentType: NSAttributedString.DocumentType.html],
-//                                                          documentAttributes: nil) {
-//            return attributedString
-//        } else {
-//            return NSAttributedString()
-//        }
-    }
-    
 
-    
     var xmppDate: Date? {
         get {
             var date: Date? = nil

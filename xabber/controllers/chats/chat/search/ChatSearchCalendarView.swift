@@ -301,11 +301,8 @@ final class ChatSearchCalendarView: UIView {
         self.animationSpec = animationSpec
         self.localization = localization
         self.prefersNativeGlass = prefersNativeGlass
-        self.accessibilityFormatting = accessibilityFormatting ?? ChatSearchFormatting(
-            locale: localization.locale,
-            calendar: .autoupdatingCurrent,
-            timeZone: .autoupdatingCurrent
-        )
+        self.accessibilityFormatting = accessibilityFormatting
+            ?? .production(locale: localization.locale)
         surfaceView = UIVisualEffectView(
             effect: NativeGlassBarStyle.makeEffect(
                 role: .sheet,
@@ -325,11 +322,7 @@ final class ChatSearchCalendarView: UIView {
     required init?(coder: NSCoder) {
         let localization = ChatSearchLocalization.production()
         self.localization = localization
-        accessibilityFormatting = ChatSearchFormatting(
-            locale: localization.locale,
-            calendar: .autoupdatingCurrent,
-            timeZone: .autoupdatingCurrent
-        )
+        accessibilityFormatting = .production(locale: localization.locale)
         animationSpec = ChatSearchAnimationSpec.production.resolved(
             for: .init(
                 reduceMotion: UIAccessibility.isReduceMotionEnabled,

@@ -208,15 +208,17 @@ struct ChatSearchResultDateFormatter {
     let timeZone: TimeZone
 
     init(
-        locale: Locale = .autoupdatingCurrent,
-        calendar: Calendar = .autoupdatingCurrent,
-        timeZone: TimeZone = .autoupdatingCurrent
+        locale: Locale? = nil,
+        calendar: Calendar? = nil,
+        timeZone: TimeZone? = nil
     ) {
-        self.locale = locale
-        var calendar = calendar
-        calendar.timeZone = timeZone
-        self.calendar = calendar
-        self.timeZone = timeZone
+        let localizationContext = L10n.context
+        self.locale = locale ?? localizationContext.locale
+        let resolvedTimeZone = timeZone ?? localizationContext.timeZone
+        var resolvedCalendar = calendar ?? localizationContext.calendar
+        resolvedCalendar.timeZone = resolvedTimeZone
+        self.calendar = resolvedCalendar
+        self.timeZone = resolvedTimeZone
     }
 
     func presentation(for date: Date, relativeTo now: Date) -> Presentation {

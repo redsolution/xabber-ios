@@ -174,17 +174,7 @@ enum LastChatAttachmentPreviewFormatter {
     }
 
     private static func currentLanguageCode() -> String {
-        let selectedLanguage = TranslationsManager.shared.currentLang ??
-            Locale.current.languageCode ?? "en"
-        let normalizedSelection = selectedLanguage.lowercased()
-        if normalizedSelection == "ru" ||
-            normalizedSelection.hasPrefix("ru-") ||
-            normalizedSelection.hasPrefix("ru_") {
-            return "ru"
-        }
-        return TranslationsManager.shared
-            .prepareLanCode(language: selectedLanguage)
-            .lowercased()
+        LocalizationRuntime.shared.context.resolvedLanguage.rawValue.lowercased()
     }
 }
 

@@ -728,33 +728,40 @@ class SignInServerFeaturesViewController: UIViewController {
         isPubsubAvailable = features.isEmpty ? false : features.contains("pubsub")
 //        isXabberUploadAvailable = features.isEmpty ? false : features.contains("xabber")
         
-//        let syncText = NSMutableAttributedString(string: "Quick synchronization is not supported. This feature allows robust work on mobile devices and greatly improves user experience. It is not recommended to use Xabber on servers without quick synchronization.").localizeHTML(id: "signin_quick_synchronization_error", arguments: [])
-//
-//        let pushText = NSMutableAttributedString(string: "Push notifications are not supported. Your device won’t be able to receive incoming messages when Xabber is not active. It is not recommended to use Xabber on this server.").localizeHTML(id: "signin_push_notifications_error", arguments: [])
-//
-//        let mamText = NSMutableAttributedString(string: "Message Archive is not supported. Without Message Archive you can’t synchronize chat history between server and connected clients.  Xabber can not be used on servers that do not support message archive.").localizeHTML(id: "signin_message_archive_error", arguments: [])
-//
-//        let rewriteText = NSMutableAttributedString(string: "Message editing is not supported. You will not be able to edit or delete messages from this server’s Message Archive.").localizeHTML(id: "signin_message_editing_error", arguments: [])
-//
-//        let devicesText = NSMutableAttributedString(string: "Xabber tokens are not supported. Without Xabber tokens you can’t revoke access from compromised devices. Account password will be stored locally and can be potentially stolen. ").localizeHTML(id: "signin_tokens_error", arguments: [])
-//
-//        let pubsubText = NSMutableAttributedString(string: "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use Xabber on this server.").localizeHTML(id: "signin_pubsub_error", arguments: [])
-//
-//        let httpText = NSMutableAttributedString(string: "File upload is not supported. Without file upload, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use Xabber on servers without file upload support.").localizeHTML(id: "signin_file_upload_error", arguments: [])
-        
-        let syncText = "Quick synchronization is not supported. This feature allows robust work on mobile devices and greatly improves user experience. It is not recommended to use Xabber on servers without quick synchronization.".localizeHTML(id: "signin_quick_synchronization_error", arguments: [])
-        
-        let pushText = "Push notifications are not supported. Your device won’t be able to receive incoming messages when Xabber is not active. It is not recommended to use Xabber on this server.".localizeHTML(id: "signin_push_notifications_error", arguments: [])
-        
-        let mamText = "Message Archive is not supported. Without Message Archive you can’t synchronize chat history between server and connected clients.  Xabber can not be used on servers that do not support message archive.".localizeHTML(id: "signin_message_archive_error", arguments: [])
-        
-        let rewriteText = "Message editing is not supported. You will not be able to edit or delete messages from this server’s Message Archive.".localizeHTML(id: "signin_message_editing_error", arguments: [])
-        
-        let devicesText = "Xabber devices are not supported. Without Xabber devices you can’t revoke access from compromised devices. Account password will be stored locally and can be potentially stolen. ".localizeHTML(id: "signin_tokens_error", arguments: [])
-        
-        let pubsubText = "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use Xabber on this server.".localizeHTML(id: "signin_pubsub_error", arguments: [])
-        
-        let httpText = "Cloud storage is not supported. Without cloud storage, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use Xabber on servers without cloud storage support.".localizeHTML(id: "signin_file_upload_error", arguments: [])
+        let syncText = NSAttributedString(string: L10n.text(
+            "signin_quick_synchronization_error",
+            fallback: "Quick synchronization is not supported. This feature allows robust work on mobile devices and greatly improves user experience. It is not recommended to use Xabber on servers without quick synchronization."
+        ))
+
+        let pushText = NSAttributedString(string: L10n.text(
+            "signin_push_notifications_error",
+            fallback: "Push notifications are not supported. Your device won’t be able to receive incoming messages when Xabber is not active. It is not recommended to use Xabber on this server."
+        ))
+
+        let mamText = NSAttributedString(string: L10n.text(
+            "signin_message_archive_error",
+            fallback: "Message Archive is not supported. Without Message Archive you can’t synchronize chat history between server and connected clients.  Xabber can not be used on servers that do not support message archive."
+        ))
+
+        let rewriteText = NSAttributedString(string: L10n.text(
+            "signin_message_editing_error",
+            fallback: "Message editing is not supported. You will not be able to edit or delete messages from this server’s Message Archive."
+        ))
+
+        let devicesText = NSAttributedString(string: L10n.text(
+            "signin_tokens_error",
+            fallback: "Xabber devices are not supported. Without Xabber devices you can’t revoke access from compromised devices. Account password will be stored locally and can be potentially stolen. "
+        ))
+
+        let pubsubText = NSAttributedString(string: L10n.text(
+            "signin_pubsub_error",
+            fallback: "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use Xabber on this server."
+        ))
+
+        let httpText = NSAttributedString(string: L10n.text(
+            "signin_file_upload_error",
+            fallback: "Cloud storage is not supported. Without cloud storage, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use Xabber on servers without cloud storage support."
+        ))
         cloudStorageUnsupportedText = httpText
         
 //        [syncText, pushText, mamText, rewriteText, devicesText, pubsubText, httpText].forEach({
@@ -767,10 +774,14 @@ class SignInServerFeaturesViewController: UIViewController {
         guard let host = XMPPJID(string: self.jid)?.domain else { return }
 
         if serverCapabilitiesAreRetryable {
-            let retryableCapabilitiesText = "The server capability check could not be completed. This is temporary and does not mean that the server lacks these features."
-                .localizeHTML(id: "signin_server_capabilities_retryable_failure", arguments: [])
-            let retryableCloudText = "Could not verify Cloud Storage right now. The app will retry automatically."
-                .localizeHTML(id: "signin_cloud_storage_retryable_failure", arguments: [])
+            let retryableCapabilitiesText = NSAttributedString(string: L10n.text(
+                "signin_server_capabilities_retryable_failure",
+                fallback: "The server capability check could not be completed. This is temporary and does not mean that the server lacks these features."
+            ))
+            let retryableCloudText = NSAttributedString(string: L10n.text(
+                "signin_cloud_storage_retryable_failure",
+                fallback: "Could not verify Cloud Storage right now. The app will retry automatically."
+            ))
             datasource = [
                 Datasource(
                     key: "title",
@@ -1037,8 +1048,10 @@ class SignInServerFeaturesViewController: UIViewController {
         var presentationChanged = false
         switch presentation.status {
         case .retryableFailure:
-            let retryableText = "Could not verify Cloud Storage right now. The app will retry automatically."
-                .localizeHTML(id: "signin_cloud_storage_retryable_failure", arguments: [])
+            let retryableText = NSAttributedString(string: L10n.text(
+                "signin_cloud_storage_retryable_failure",
+                fallback: "Could not verify Cloud Storage right now. The app will retry automatically."
+            ))
             presentationChanged = datasource[index].attributedText != retryableText
                 || datasource[index].isDanger
             datasource[index].attributedText = retryableText

@@ -24,7 +24,6 @@ import CryptoSwift
 import Intents
 
 class NotificationService: UNNotificationServiceExtension {
-    static let suitName: String = "group.xabber.ios"
     private static let maxCredentialRetryCount = 5
     private static let credentialRetryDelay: TimeInterval = 0.1
     
@@ -526,6 +525,10 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+        let appGroupSuiteName = CredentialsManager.uniqueAccessGroup()
+        PushNotificationLocalization.prepareForIncomingRequest(
+            appGroupSuiteName: appGroupSuiteName.isEmpty ? nil : appGroupSuiteName
+        )
         let mutableContent = request.content.mutableCopy() as? UNMutableNotificationContent
         cancelOutstandingWork()
         let generation: UInt = completionQueue.sync {
@@ -1056,9 +1059,6 @@ extension NotificationService: PushPayloadDelegate {
     }
 
     private var localizedNewMessage: String {
-        PushNotificationLocalization.string(
-            "plurals.new_chat_messages.item_0",
-            fallback: "New message"
-        )
+        PushNotificationLocalization.newMessage()
     }
 }

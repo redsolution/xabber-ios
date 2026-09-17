@@ -220,19 +220,38 @@ enum ChatSearchPluralResourceForm: Int, CaseIterable {
 
 struct ChatSearchLocalization {
     typealias Lookup = (_ key: String, _ developmentFallback: String) -> String
+    typealias FormatLookup = (
+        _ key: String,
+        _ developmentFallback: String,
+        _ arguments: [CVarArg]
+    ) -> String
+    typealias PluralLookup = (
+        _ key: String,
+        _ count: Int,
+        _ developmentFallback: String
+    ) -> String
 
     let locale: Locale
     private let lookup: Lookup
+    private let formatLookup: FormatLookup?
+    private let pluralLookup: PluralLookup?
     private let formatterCache: ChatSearchFormatterCache
+    private let formatterFactory: LocalizationFormatterFactory?
 
     init(
         locale: Locale,
         lookup: @escaping Lookup,
-        formatterCache: ChatSearchFormatterCache = .shared
+        formatterCache: ChatSearchFormatterCache = .shared,
+        formatLookup: FormatLookup? = nil,
+        pluralLookup: PluralLookup? = nil,
+        formatterFactory: LocalizationFormatterFactory? = nil
     ) {
         self.locale = locale
         self.lookup = lookup
         self.formatterCache = formatterCache
+        self.formatLookup = formatLookup
+        self.pluralLookup = pluralLookup
+        self.formatterFactory = formatterFactory
     }
 
     init(
@@ -240,20 +259,32 @@ struct ChatSearchLocalization {
         bundle: Bundle,
         formatterCache: ChatSearchFormatterCache = .shared
     ) {
-        let localizedBundle = Self.localizedBundle(for: locale, in: bundle)
+        var calendar = Calendar.autoupdatingCurrent
+        calendar.locale = locale
+        let provider = LprojBundleProvider(resourceBundle: bundle)
+        let context = LanguageResolver.makeContext(
+            selection: .system,
+            preferredLanguages: [locale.identifier],
+            baseLocale: locale,
+            calendar: calendar,
+            timeZone: .autoupdatingCurrent,
+            bundleProvider: provider,
+            revision: 0
+        )
+        let service = LocalizationService(context: context)
         self.init(
-            locale: locale,
+            locale: context.locale,
             lookup: { key, fallback in
-                let value = localizedBundle.localizedString(
-                    forKey: key,
-                    value: fallback,
-                    table: nil
-                )
-                return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? fallback
-                    : value
+                service.text(key: key, fallback: fallback)
             },
-            formatterCache: formatterCache
+            formatterCache: formatterCache,
+            formatLookup: { key, fallback, arguments in
+                service.format(key: key, fallback: fallback, arguments: arguments)
+            },
+            pluralLookup: { key, count, fallback in
+                service.plural(key: key, count: count, fallback: fallback)
+            },
+            formatterFactory: service.formatters
         )
     }
 
@@ -262,9 +293,35 @@ struct ChatSearchLocalization {
         bundle: Bundle = .main,
         formatterCache: ChatSearchFormatterCache = .shared
     ) -> Self {
-        let resolvedLocale = locale ?? productionLocale(bundle: bundle)
+        if locale == nil,
+           bundle.bundleURL.standardizedFileURL == Bundle.main.bundleURL.standardizedFileURL {
+            let context = L10n.context
+            // Keep lookup and formatting on one immutable context snapshot.
+            // Reading the process facade again here could cross a concurrent
+            // language change and mix locale-sensitive output.
+            let service = LocalizationService(context: context)
+            return Self(
+                locale: context.locale,
+                lookup: { key, fallback in
+                    service.text(key: key, fallback: fallback)
+                },
+                formatterCache: formatterCache,
+                formatLookup: { key, fallback, arguments in
+                    service.format(
+                        key: key,
+                        fallback: fallback,
+                        arguments: arguments
+                    )
+                },
+                pluralLookup: { key, count, fallback in
+                    service.plural(key: key, count: count, fallback: fallback)
+                },
+                formatterFactory: service.formatters
+            )
+        }
+
         return Self(
-            locale: resolvedLocale,
+            locale: locale ?? .autoupdatingCurrent,
             bundle: bundle,
             formatterCache: formatterCache
         )
@@ -275,6 +332,12 @@ struct ChatSearchLocalization {
         arguments: [CVarArg] = []
     ) -> String {
         let fallback = key.developmentFallback
+        if !arguments.isEmpty, let formatLookup {
+            return nonempty(
+                formatLookup(key.rawValue, fallback, arguments),
+                fallback: fallback
+            )
+        }
         let localized = nonempty(lookup(key.rawValue, fallback), fallback: fallback)
         guard !arguments.isEmpty else {
             return localized
@@ -287,10 +350,18 @@ struct ChatSearchLocalization {
         guard count > 0 else {
             return text(.noMessages)
         }
+        if let pluralLookup {
+            let fallback = count == 1 ? "%lld message" : "%lld messages"
+            return pluralLookup("chat_search_message_count", count, fallback)
+        }
         let form = pluralResourceForm(for: count)
         let fallback = form.fallbackTemplate(locale: locale)
         let template = nonempty(lookup(form.resourceKey, fallback), fallback: fallback)
-        let number = formatterCache.numberString(max(0, count), locale: locale)
+        let number = formatterCache.numberString(
+            max(0, count),
+            locale: locale,
+            formatterFactory: formatterFactory
+        )
         return String(format: template, locale: locale, arguments: [number])
     }
 
@@ -298,8 +369,16 @@ struct ChatSearchLocalization {
         guard total > 0, (0..<total).contains(zeroBasedIndex) else {
             return nil
         }
-        let current = formatterCache.numberString(zeroBasedIndex + 1, locale: locale)
-        let total = formatterCache.numberString(total, locale: locale)
+        let current = formatterCache.numberString(
+            zeroBasedIndex + 1,
+            locale: locale,
+            formatterFactory: formatterFactory
+        )
+        let total = formatterCache.numberString(
+            total,
+            locale: locale,
+            formatterFactory: formatterFactory
+        )
         return text(.currentOfTotal, arguments: [current, total])
     }
 
@@ -348,36 +427,6 @@ struct ChatSearchLocalization {
         value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : value
     }
 
-    private static func productionLocale(bundle: Bundle) -> Locale {
-        if let selected = TranslationsManager.shared.currentLang {
-            let direct = selected.replacingOccurrences(of: "_", with: "-")
-            if bundle.path(forResource: direct, ofType: "lproj") != nil ||
-                bundle.path(forResource: selected, ofType: "lproj") != nil {
-                return Locale(identifier: direct)
-            }
-            return Locale(
-                identifier: TranslationsManager.shared.prepareLanCode(language: selected)
-            )
-        }
-        return .autoupdatingCurrent
-    }
-
-    private static func localizedBundle(for locale: Locale, in bundle: Bundle) -> Bundle {
-        let candidates = [
-            locale.identifier,
-            locale.identifier.replacingOccurrences(of: "_", with: "-"),
-            locale.languageCode,
-            "en"
-        ].compactMap { $0 }
-
-        for candidate in candidates {
-            if let path = bundle.path(forResource: candidate, ofType: "lproj"),
-               let localized = Bundle(path: path) {
-                return localized
-            }
-        }
-        return bundle
-    }
 }
 
 struct ChatSearchFormattingContext: Hashable {
@@ -454,11 +503,17 @@ final class ChatSearchFormatterCache {
     private struct DateKey: Hashable {
         let role: DateRole
         let context: ChatSearchFormattingContext
+        let formatterRevision: UInt64?
+    }
+
+    private struct NumberKey: Hashable {
+        let localeIdentifier: String
+        let formatterRevision: UInt64?
     }
 
     private let lock = NSLock()
     private var dateFormatters: [DateKey: DateFormatter] = [:]
-    private var numberFormatters: [String: NumberFormatter] = [:]
+    private var numberFormatters: [NumberKey: NumberFormatter] = [:]
 
     var cachedFormatterCount: Int {
         lock.lock()
@@ -476,17 +531,29 @@ final class ChatSearchFormatterCache {
     func dateString(
         _ date: Date,
         role: DateRole,
-        context: ChatSearchFormattingContext
+        context: ChatSearchFormattingContext,
+        formatterFactory: LocalizationFormatterFactory? = nil
     ) -> String {
         lock.lock()
         defer { lock.unlock() }
-        return dateFormatter(role: role, context: context).string(from: date)
+        return dateFormatter(
+            role: role,
+            context: context,
+            formatterFactory: formatterFactory
+        ).string(from: date)
     }
 
-    func weekdaySymbols(context: ChatSearchFormattingContext) -> [String] {
+    func weekdaySymbols(
+        context: ChatSearchFormattingContext,
+        formatterFactory: LocalizationFormatterFactory? = nil
+    ) -> [String] {
         lock.lock()
         defer { lock.unlock() }
-        let formatter = dateFormatter(role: .symbols, context: context)
+        let formatter = dateFormatter(
+            role: .symbols,
+            context: context,
+            formatterFactory: formatterFactory
+        )
         let symbols = formatter.shortStandaloneWeekdaySymbols ??
             formatter.shortWeekdaySymbols ??
             []
@@ -495,23 +562,38 @@ final class ChatSearchFormatterCache {
         return Array(symbols[firstIndex...] + symbols[..<firstIndex])
     }
 
-    func pickerMonthSymbols(context: ChatSearchFormattingContext) -> [String] {
+    func pickerMonthSymbols(
+        context: ChatSearchFormattingContext,
+        formatterFactory: LocalizationFormatterFactory? = nil
+    ) -> [String] {
         lock.lock()
         defer { lock.unlock() }
-        let formatter = dateFormatter(role: .symbols, context: context)
+        let formatter = dateFormatter(
+            role: .symbols,
+            context: context,
+            formatterFactory: formatterFactory
+        )
         let symbols = formatter.standaloneMonthSymbols ?? formatter.monthSymbols ?? []
         return symbols.count == 12 ? symbols : (1...12).map(String.init)
     }
 
-    func numberString(_ value: Int, locale: Locale) -> String {
+    func numberString(
+        _ value: Int,
+        locale: Locale,
+        formatterFactory: LocalizationFormatterFactory? = nil
+    ) -> String {
         lock.lock()
         defer { lock.unlock() }
-        let key = locale.identifier
+        let key = NumberKey(
+            localeIdentifier: locale.identifier,
+            formatterRevision: formatterFactory?.revision
+        )
         let formatter: NumberFormatter
         if let cached = numberFormatters[key] {
             formatter = cached
         } else {
-            let created = NumberFormatter()
+            let created = formatterFactory?.numberFormatter(style: .decimal)
+                ?? NumberFormatter()
             created.locale = locale
             created.numberStyle = .decimal
             created.maximumFractionDigits = 0
@@ -527,18 +609,27 @@ final class ChatSearchFormatterCache {
     ) -> ObjectIdentifier {
         lock.lock()
         defer { lock.unlock() }
-        return ObjectIdentifier(dateFormatter(role: role, context: context))
+        return ObjectIdentifier(dateFormatter(
+            role: role,
+            context: context,
+            formatterFactory: nil
+        ))
     }
 
     private func dateFormatter(
         role: DateRole,
-        context: ChatSearchFormattingContext
+        context: ChatSearchFormattingContext,
+        formatterFactory: LocalizationFormatterFactory?
     ) -> DateFormatter {
-        let key = DateKey(role: role, context: context)
+        let key = DateKey(
+            role: role,
+            context: context,
+            formatterRevision: formatterFactory?.revision
+        )
         if let cached = dateFormatters[key] {
             return cached
         }
-        let formatter = DateFormatter()
+        let formatter = formatterFactory?.dateFormatter() ?? DateFormatter()
         formatter.locale = context.locale
         formatter.calendar = context.calendar
         formatter.timeZone = context.timeZone
@@ -553,12 +644,30 @@ final class ChatSearchFormatterCache {
 struct ChatSearchFormatting {
     let context: ChatSearchFormattingContext
     private let cache: ChatSearchFormatterCache
+    private let formatterFactory: LocalizationFormatterFactory?
+
+    static func production(
+        locale: Locale? = nil,
+        cache: ChatSearchFormatterCache = .shared
+    ) -> Self {
+        let localizationContext = L10n.context
+        return Self(
+            locale: locale ?? localizationContext.locale,
+            calendar: localizationContext.calendar,
+            timeZone: localizationContext.timeZone,
+            cache: cache,
+            formatterFactory: LocalizationFormatterFactory(
+                context: localizationContext
+            )
+        )
+    }
 
     init(
         locale: Locale,
         calendar: Calendar,
         timeZone: TimeZone,
-        cache: ChatSearchFormatterCache = .shared
+        cache: ChatSearchFormatterCache = .shared,
+        formatterFactory: LocalizationFormatterFactory? = nil
     ) {
         context = ChatSearchFormattingContext(
             locale: locale,
@@ -566,6 +675,7 @@ struct ChatSearchFormatting {
             timeZone: timeZone
         )
         self.cache = cache
+        self.formatterFactory = formatterFactory
     }
 
     func resultDate(for date: Date, relativeTo now: Date) -> ChatSearchResultDatePresentation {
@@ -584,23 +694,44 @@ struct ChatSearchFormatting {
         }
         return ChatSearchResultDatePresentation(
             kind: kind,
-            text: cache.dateString(date, role: role, context: context)
+            text: cache.dateString(
+                date,
+                role: role,
+                context: context,
+                formatterFactory: formatterFactory
+            )
         )
     }
 
     func monthTitle(for date: Date) -> String {
-        cache.dateString(date, role: .monthTitle, context: context)
+        cache.dateString(
+            date,
+            role: .monthTitle,
+            context: context,
+            formatterFactory: formatterFactory
+        )
     }
 
     func fullDate(for date: Date) -> String {
-        cache.dateString(date, role: .fullDate, context: context)
+        cache.dateString(
+            date,
+            role: .fullDate,
+            context: context,
+            formatterFactory: formatterFactory
+        )
     }
 
     func weekdaySymbols() -> [String] {
-        cache.weekdaySymbols(context: context)
+        cache.weekdaySymbols(
+            context: context,
+            formatterFactory: formatterFactory
+        )
     }
 
     func pickerMonthSymbols() -> [String] {
-        cache.pickerMonthSymbols(context: context)
+        cache.pickerMonthSymbols(
+            context: context,
+            formatterFactory: formatterFactory
+        )
     }
 }

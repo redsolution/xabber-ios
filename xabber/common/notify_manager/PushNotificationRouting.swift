@@ -643,55 +643,53 @@ enum LocalMessageNotificationPreviewFactory {
 }
 
 enum PushNotificationLocalization {
+    @discardableResult
+    static func prepareForIncomingRequest(
+        runtime: LocalizationRuntime = .shared,
+        appGroupSuiteName: String?,
+        resourceBundle: Bundle = .main
+    ) -> LocalizationContext {
+        runtime.bootstrap(
+            appGroupSuiteName: appGroupSuiteName,
+            resourceBundle: resourceBundle
+        )
+    }
+
+    @discardableResult
+    static func prepareForIncomingRequest(
+        runtime: LocalizationRuntime,
+        preferenceStore: LanguagePreferenceStoring?,
+        bundleProvider: LocalizedBundleProviding,
+        preferredLanguages: [String],
+        locale: Locale,
+        calendar: Calendar,
+        timeZone: TimeZone
+    ) -> LocalizationContext {
+        runtime.bootstrap(
+            preferenceStore: preferenceStore,
+            bundleProvider: bundleProvider,
+            preferredLanguages: preferredLanguages,
+            locale: locale,
+            calendar: calendar,
+            timeZone: timeZone
+        )
+    }
+
     static func string(
         _ key: String,
         fallback: String,
         _ arguments: CVarArg...
     ) -> String {
-        string(
-            key,
-            fallback: fallback,
-            bundle: .main,
-            locale: .current,
-            arguments: arguments
-        )
-    }
-
-    static func newMessage(
-        bundle: Bundle = .main,
-        locale: Locale = .current
-    ) -> String {
-        string(
-            "plurals.new_chat_messages.item_0",
-            fallback: "New message",
-            bundle: bundle,
-            locale: locale,
-            arguments: [1]
-        )
-    }
-
-    private static func string(
-        _ key: String,
-        fallback: String,
-        bundle: Bundle,
-        locale: Locale,
-        arguments: [CVarArg]
-    ) -> String {
-        var format = bundle.localizedString(
-            forKey: key,
-            value: fallback,
-            table: nil
-        )
         guard !arguments.isEmpty else {
-            return format
+            return L10n.text(key, fallback: fallback)
         }
-        if arguments.allSatisfy({ $0 is String }) {
-            format = format.replacingOccurrences(of: "%d", with: "%@")
-        }
-        return String(
-            format: format,
-            locale: locale,
-            arguments: arguments
+        return L10n.format(key, fallback: fallback, arguments: arguments)
+    }
+
+    static func newMessage() -> String {
+        L10n.text(
+            "plurals.new_chat_messages.item_0",
+            fallback: "New message"
         )
     }
 }

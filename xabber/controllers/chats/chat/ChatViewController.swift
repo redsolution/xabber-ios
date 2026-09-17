@@ -8101,9 +8101,9 @@ class ChatViewController: MessagesViewController {
     internal let messageLoadingActivityIndicator: UIActivityIndicatorView = {
         let view = UIActivityIndicatorView(style: .medium)
         view.accessibilityIdentifier = "chat.archive.boundary-loading-indicator"
-        view.accessibilityLabel = NSLocalizedString(
-            "Loading earlier messages",
-            comment: "Accessibility label for chat history loading indicator"
+        view.accessibilityLabel = L10n.text(
+            "chat_archive_loading_earlier_messages",
+            fallback: "Loading earlier messages"
         )
         return view
     }()
