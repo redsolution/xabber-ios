@@ -852,12 +852,20 @@ class MessageStorageItem: Object {
         }
     }
 
-    static let reportHiddenMessageText: String = "This message was hidden after your report."
-        .localizeString(id: "report_hidden_message_placeholder", arguments: [])
-    static let reportHiddenMediaText: String = "This media was hidden after your report."
-        .localizeString(id: "report_hidden_media_placeholder", arguments: [])
-    static let omemoUntrustedContactDevicesWarningText: String = "This message was not sent to one or more untrusted devices."
-        .localizeString(id: "chat_omemo_untrusted_contact_devices_warning", arguments: [])
+    static var reportHiddenMessageText: String {
+        "This message was hidden after your report."
+            .localizeString(id: "report_hidden_message_placeholder", arguments: [])
+    }
+
+    static var reportHiddenMediaText: String {
+        "This media was hidden after your report."
+            .localizeString(id: "report_hidden_media_placeholder", arguments: [])
+    }
+
+    static var omemoUntrustedContactDevicesWarningText: String {
+        "This message was not sent to one or more untrusted devices."
+            .localizeString(id: "chat_omemo_untrusted_contact_devices_warning", arguments: [])
+    }
     static let messageWarningMetadataKey: String = "warning"
     static let omemoUntrustedContactDevicesWarningCode: String = "omemo_untrusted_contact_devices"
 

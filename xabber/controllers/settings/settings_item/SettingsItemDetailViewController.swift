@@ -41,10 +41,6 @@ class SettingsItemDetailViewController: BaseViewController {
     }()
     
     internal var isDeveloperScreen: Bool = false
-    internal var isLanguagesScreen: Bool = false
-    
-    internal var subtitleData: [NSDictionary]? = nil
-    
     internal var datasource: SettingManager.Datasource = SettingManager.Datasource()
     
     internal func activateConstraints() {
@@ -74,20 +70,6 @@ class SettingsItemDetailViewController: BaseViewController {
                                                   childs: [tapToSend],
                                                   values: [],
                                                   value: ""))
-        } else if self.datasource.key == SettingManager.KeyScope.languages.rawValue {
-            self.isLanguagesScreen = true
-            if let path = Bundle.main.path(forResource: "proofreading", ofType: "json") {
-                do {
-                    let data = try Data(contentsOf: URL(fileURLWithPath: path), options: .mappedIfSafe)
-                    let jsonResult = try JSONSerialization.jsonObject(with: data, options: .mutableLeaves)
-                    if let result = (jsonResult as? NSArray)?.compactMap({ return $0 as? NSDictionary }) {
-                        self.subtitleData = result
-                    }
-                    
-                } catch {
-                    DDLogDebug("SettingsItemDetailViewController: \(#function). \(error.localizedDescription)")
-                }
-            }
         } else if self.datasource.key == "chat" {
         
         }

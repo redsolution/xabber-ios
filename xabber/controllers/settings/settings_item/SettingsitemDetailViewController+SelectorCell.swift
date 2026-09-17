@@ -26,12 +26,6 @@ extension SettingsItemDetailViewController {
     class SelectorCell: UITableViewCell {
         var key: String = ""
         
-        private var lang: String {
-            get {
-                return TranslationsManager.shared.currentLang ?? "Default"
-            }
-        }
-        
         static let cellName = "SelectorCell"
         
         internal let icon: UIImageView = {
@@ -74,7 +68,7 @@ extension SettingsItemDetailViewController {
             //            stack.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 1).isActive = true
         }
         
-        open func configure(key: String, for title: String, value: String, icon image: String, color: UIColor, isFirstLevelVuew: Bool = false) {
+        open func configure(key: String, for title: String, value: String, icon image: String, color: UIColor) {
             self.key = key
             
             imageView?.image = imageLiteral(image, dimension: 24)
@@ -83,16 +77,8 @@ extension SettingsItemDetailViewController {
             titleLabel.text = "  "
             textLabel?.text = title
             valueLabel.text = value.capitalized
-            if isFirstLevelVuew {
-                if title == lang {
-                    accessoryType = .checkmark
-                } else {
-                    accessoryType = .none
-                }
-            } else {
-                accessoryType = .disclosureIndicator
-                selectionStyle = .none
-            }
+            accessoryType = .disclosureIndicator
+            selectionStyle = .none
         }
         
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {

@@ -40,15 +40,7 @@ class BaseViewController: UIViewController {
     }
     
     public func observer() {
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(languageChanged),
-                                               name: .newLanguageSelected,
-                                               object: nil)
-    }
-    
-    @objc
-    func languageChanged() {
-        print("Notification received")
+        // Hook for subclasses that observe non-localization notifications.
     }
 //        
 //    override func viewWillLayoutSubviews() {
@@ -122,5 +114,4 @@ extension BaseViewController: UIAdaptivePresentationControllerDelegate {
         }
     }
 }
-
 

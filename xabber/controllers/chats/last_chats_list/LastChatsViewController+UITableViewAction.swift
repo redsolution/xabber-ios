@@ -188,17 +188,18 @@ private enum LastChatsSwipeActionAssetCache {
         }
     )
 
-    // Current localization is process-lifetime stable; centralize titles so delegate snapshots do not localize repeatedly.
-    private static let titles: [LastChatsViewController.SwipeActionKind: String] = [
-        .delete: "Delete".localizeString(id: "delete", arguments: []),
-        .archive: "Archive".localizeString(id: "archive_chat", arguments: []),
-        .unarchive: "Unarchive".localizeString(id: "unarchive_chat", arguments: []),
-        .mute: "Mute".localizeString(id: "mute_chat", arguments: []),
-        .unmute: "Unmute".localizeString(id: "unmute_chat", arguments: []),
-        .block: "Block".localizeString(id: "contact_bar_block", arguments: []),
-        .pin: "Pin".localizeString(id: "message_pin", arguments: []),
-        .call: "Call".localizeString(id: "call", arguments: [])
-    ]
+    private static var titles: [LastChatsViewController.SwipeActionKind: String] {
+        [
+            .delete: "Delete".localizeString(id: "delete", arguments: []),
+            .archive: "Archive".localizeString(id: "archive_chat", arguments: []),
+            .unarchive: "Unarchive".localizeString(id: "unarchive_chat", arguments: []),
+            .mute: "Mute".localizeString(id: "mute_chat", arguments: []),
+            .unmute: "Unmute".localizeString(id: "unmute_chat", arguments: []),
+            .block: "Block".localizeString(id: "contact_bar_block", arguments: []),
+            .pin: "Pin".localizeString(id: "message_pin", arguments: []),
+            .call: "Call".localizeString(id: "call", arguments: [])
+        ]
+    }
 
     static func descriptor(
         for kind: LastChatsViewController.SwipeActionKind

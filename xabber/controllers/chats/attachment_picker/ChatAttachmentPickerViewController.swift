@@ -106,7 +106,9 @@ enum ChatAttachmentSheetGlassStyle {
 }
 
 enum ChatAttachmentPickerComposerStyle {
-    static let placeholderText = "Message".localizeString(id: "message", arguments: [])
+    static var placeholderText: String {
+        "Message".localizeString(id: "message", arguments: [])
+    }
     static let textVerticalInset: CGFloat = 4
     static let textHorizontalInset: CGFloat = NativeGlassBarStyle.contentInset
     static let maxTextViewHeight: CGFloat = 130

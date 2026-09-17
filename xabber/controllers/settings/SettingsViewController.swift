@@ -1073,17 +1073,35 @@ class SettingsViewController: BaseViewController {
                 viewController: PrivacySettingsViewController.self,
                 childs: []
               ),
-            Datasource(section: .interface, title: "Interface", icon: "custom.paintpalette.square.fill", color: UIColor.systemGreen, viewController: InterfaceSettingsViewController.self),
+            Datasource(
+                section: .interface,
+                title: L10n.text("category_interface", fallback: "Interface"),
+                icon: "custom.paintpalette.square.fill",
+                color: UIColor.systemGreen,
+                viewController: InterfaceSettingsViewController.self
+            ),
             Datasource(
                 section: .settings,
-                title: "Notifications",
+                title: L10n.text("account_settings_notificaions", fallback: "Notifications"),
                 icon: "custom.bell.square.fill",
                 color: UIColor.systemGreen,
                 viewController: NotificationsSettingsViewController.self
             ),
-            Datasource(section: .settings, title: "Debug", icon:"custom.ant.square.fill", color: UIColor.systemGreen, key: .developer),
+            Datasource(
+                section: .settings,
+                title: L10n.text("account_settings_developer", fallback: "Debug"),
+                icon:"custom.ant.square.fill",
+                color: UIColor.systemGreen,
+                key: .developer
+            ),
             
-            Datasource(section: .settings, title: "Language", icon:"xabber.translate.square.fill", color: UIColor.systemPurple, key: .languages)
+            Datasource(
+                section: .settings,
+                title: L10n.text("settings__menu_item__interface_language", fallback: "Language"),
+                icon:"xabber.translate.square.fill",
+                color: UIColor.systemPurple,
+                key: .languages
+            )
             ]))
 
         var premiumFeatures: [Datasource] = []

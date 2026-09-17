@@ -27,30 +27,6 @@ extension SettingsItemDetailViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        if self.isLanguagesScreen {
-            tableView.deselectRow(at: indexPath, animated: true)
-            
-            tableView.visibleCells.forEach({
-                $0.accessoryType = .none
-            })
-            
-            let cell = tableView.cellForRow(at: indexPath) as? SettingsItemDetailViewController.SelectorCell
-            cell?.accessoryType = .checkmark
-            
-            
-            //TranslationsManager.shared.save(language: cell?.titleLabel.text ?? "Default")
-            TranslationsManager.shared.save(language: cell?.textLabel?.text ?? "Default")
-            
-            NotificationCenter
-                .default
-                .post(
-                    name: .newLanguageSelected,
-                    object: self,
-                    userInfo: [:])
-            
-            return
-        }
-        
         let item = self.datasource.childs[indexPath.section].childs[indexPath.row]
         if item.key == "share_log_files" {
             self.shareLogFiles()

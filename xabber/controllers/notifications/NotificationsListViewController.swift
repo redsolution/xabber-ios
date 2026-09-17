@@ -378,13 +378,16 @@ enum NotificationsMentionOpenRouter {
 }
 
 enum NotificationsSupport {
-    private static let sectionTitleFormatter: DateFormatter = {
-        let formatter = DateFormatter()
+    private static func makeSectionTitleFormatter() -> DateFormatter {
+        let formatter = L10n.formatters.dateFormatter(
+            dateStyle: .medium,
+            timeStyle: .none
+        )
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
         formatter.doesRelativeDateFormatting = true
         return formatter
-    }()
+    }
 
     struct Counters {
         let total: Int
@@ -593,7 +596,7 @@ enum NotificationsSupport {
     }
 
     static func sectionTitle(for date: Date) -> String {
-        sectionTitleFormatter.string(from: date)
+        makeSectionTitleFormatter().string(from: date)
     }
 
 }

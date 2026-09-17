@@ -1036,9 +1036,12 @@
 		4EC003013D1000000ABC0001 /* LocalizationCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EC000053D1000000ABC0001 /* LocalizationCoreTests.swift */; };
 		B7A100023D110000ABC00001 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B7A100013D110000ABC00001 /* Localizable.xcstrings */; };
 		B7A100033D110000ABC00001 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B7A100013D110000ABC00001 /* Localizable.xcstrings */; };
+		B7A100063D110000ABC00001 /* LanguageSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A100053D110000ABC00001 /* LanguageSettingsViewController.swift */; };
+		B7A100083D110000ABC00001 /* LocalizationUIKitDirection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A100073D110000ABC00001 /* LocalizationUIKitDirection.swift */; };
+		B7A1000A3D110000ABC00001 /* LocalizationApplicationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A100093D110000ABC00001 /* LocalizationApplicationCoordinator.swift */; };
+		B7A1000C3D110000ABC00001 /* LanguageSettingsViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A1000B3D110000ABC00001 /* LanguageSettingsViewControllerTests.swift */; };
 		B7A1000E3D110000ABC00001 /* LocalizationAdaptersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A1000D3D110000ABC00001 /* LocalizationAdaptersTests.swift */; };
 		B7A100103D110000ABC00001 /* LocalizationCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A1000F3D110000ABC00001 /* LocalizationCatalogTests.swift */; };
-		1A297FDE28081EF6007129CD /* TranslationsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A297FDD28081EF6007129CD /* TranslationsManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2115,9 +2118,12 @@
 		4EC000043D1000000ABC0001 /* LocalizationRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationRuntime.swift; sourceTree = "<group>"; };
 		4EC000053D1000000ABC0001 /* LocalizationCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationCoreTests.swift; sourceTree = "<group>"; };
 		B7A100013D110000ABC00001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		B7A100053D110000ABC00001 /* LanguageSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageSettingsViewController.swift; sourceTree = "<group>"; };
+		B7A100073D110000ABC00001 /* LocalizationUIKitDirection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationUIKitDirection.swift; sourceTree = "<group>"; };
+		B7A100093D110000ABC00001 /* LocalizationApplicationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationApplicationCoordinator.swift; sourceTree = "<group>"; };
+		B7A1000B3D110000ABC00001 /* LanguageSettingsViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageSettingsViewControllerTests.swift; sourceTree = "<group>"; };
 		B7A1000D3D110000ABC00001 /* LocalizationAdaptersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationAdaptersTests.swift; sourceTree = "<group>"; };
 		B7A1000F3D110000ABC00001 /* LocalizationCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationCatalogTests.swift; sourceTree = "<group>"; };
-		1A297FDD28081EF6007129CD /* TranslationsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationsManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -3681,7 +3687,6 @@
 		6696B6CF2215772700D6D437 /* common */ = {
 			isa = PBXGroup;
 			children = (
-				66E2F4FF2A65654100942F60 /* TranslationManager */,
 				4EC000003D1000000ABC0001 /* localization */,
 				6614411B2F598E7E00D2D9A7 /* xabber_account */,
 				66A9F8542C786D6300F64574 /* contacts */,
@@ -3908,6 +3913,7 @@
 		669F726E209C223600E757DB /* settings */ = {
 			isa = PBXGroup;
 			children = (
+				B7A100043D110000ABC00001 /* language */,
 				A6D200013D05000000ABC001 /* NotificationsSettingsViewController.swift */,
 				6664E0AC2F5B015700FBA1FC /* premium */,
 				661441182F596BAA00D2D9A7 /* xabber_account */,
@@ -4101,6 +4107,7 @@
 			isa = PBXGroup;
 			children = (
 				4EC000053D1000000ABC0001 /* LocalizationCoreTests.swift */,
+				B7A1000B3D110000ABC00001 /* LanguageSettingsViewControllerTests.swift */,
 				B7A1000D3D110000ABC00001 /* LocalizationAdaptersTests.swift */,
 				B7A1000F3D110000ABC00001 /* LocalizationCatalogTests.swift */,
 				A6D200033D05000000ABC001 /* NotificationsSettingsViewControllerTests.swift */,
@@ -5019,6 +5026,8 @@
 			children = (
 				6653DF4F21ABBD2F00DA4352 /* AppDelegate.swift */,
 				4E0000012F60000000ABC001 /* AppRootCoordinator.swift */,
+				B7A100093D110000ABC00001 /* LocalizationApplicationCoordinator.swift */,
+				B7A100073D110000ABC00001 /* LocalizationUIKitDirection.swift */,
 				66FD4F7F2085F50C00557252 /* AppDelegatePushKitExtension.swift */,
 				66FD4F852085F79200557252 /* AppDelegateNotificationExtension.swift */,
 			);
@@ -5146,12 +5155,12 @@
 			path = localization;
 			sourceTree = "<group>";
 		};
-		66E2F4FF2A65654100942F60 /* TranslationManager */ = {
+		B7A100043D110000ABC00001 /* language */ = {
 			isa = PBXGroup;
 			children = (
-				1A297FDD28081EF6007129CD /* TranslationsManager.swift */,
+				B7A100053D110000ABC00001 /* LanguageSettingsViewController.swift */,
 			);
-			path = TranslationManager;
+			path = language;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -5522,11 +5531,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1A297FDE28081EF6007129CD /* TranslationsManager.swift in Sources */,
 				4EC001013D1000000ABC0001 /* LocalizationModels.swift in Sources */,
 				4EC001023D1000000ABC0001 /* LanguagePreferenceStore.swift in Sources */,
 				4EC001033D1000000ABC0001 /* LocalizationService.swift in Sources */,
 				4EC001043D1000000ABC0001 /* LocalizationRuntime.swift in Sources */,
+				B7A100063D110000ABC00001 /* LanguageSettingsViewController.swift in Sources */,
+				B7A100083D110000ABC00001 /* LocalizationUIKitDirection.swift in Sources */,
+				B7A1000A3D110000ABC00001 /* LocalizationApplicationCoordinator.swift in Sources */,
 				6696B4432239068300F646B9 /* UIApplicationExtension+topVC.swift in Sources */,
 				6678F08C268F1D7900A716AA /* QRCodeScannerViewController.swift in Sources */,
 				6646D33223488FA300B64FEB /* ShareDialogController+UITableViewDelegate.swift in Sources */,
@@ -6316,6 +6327,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4EC003013D1000000ABC0001 /* LocalizationCoreTests.swift in Sources */,
+				B7A1000C3D110000ABC00001 /* LanguageSettingsViewControllerTests.swift in Sources */,
 				B7A1000E3D110000ABC00001 /* LocalizationAdaptersTests.swift in Sources */,
 				B7A100103D110000ABC00001 /* LocalizationCatalogTests.swift in Sources */,
 				A6D200043D05000000ABC001 /* NotificationsSettingsViewControllerTests.swift in Sources */,

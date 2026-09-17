@@ -472,6 +472,7 @@ enum AppRoute {
     case notification(PushNotificationRoutePayload)
     case externalURL(URL)
     case userActivity(NSUserActivity)
+    case settingsLanguage
 
     static func notification(userInfo: [AnyHashable: Any]?) -> AppRoute? {
         if let route = PushNotificationRoutePayload(userInfo: userInfo) {
@@ -567,6 +568,22 @@ final class AppRootCoordinator: NSObject {
 
     static func canRoute(hasPresentedModal: Bool) -> Bool {
         !hasPresentedModal
+    }
+
+    static func rebuildAllForLocalizationChange(sourceWindow: UIWindow?) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        var coordinators = UIApplication.shared.connectedScenes.compactMap {
+            ($0.delegate as? SceneDelegate)?.rootCoordinator
+        }
+        if let active, !coordinators.contains(where: { $0 === active }) {
+            coordinators.append(active)
+        }
+
+        for coordinator in coordinators {
+            coordinator.rebuildRootForLocalizationChange(
+                reopenLanguageSettings: coordinator.window === sourceWindow
+            )
+        }
     }
 
     static func makeTopLevelSectionNavigationController(
@@ -678,6 +695,10 @@ final class AppRootCoordinator: NSObject {
     }
 
     func rebuildRoot(userInfo: [AnyHashable: Any]?) {
+        LocalizationUIKitDirection.apply(
+            LocalizationRuntime.shared.context,
+            to: window
+        )
         splitController = nil
         tabController = nil
         NotifyManager.shared.leftMenuDelegate = nil
@@ -702,6 +723,10 @@ final class AppRootCoordinator: NSObject {
         }
 
         applyCompatibilityReferences()
+        LocalizationUIKitDirection.apply(
+            LocalizationRuntime.shared.context,
+            to: window
+        )
         ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
         retryPendingMessageNotificationChatRouteIfPossible()
         retryPendingNotificationRequestListIfPossible()
@@ -761,6 +786,9 @@ final class AppRootCoordinator: NSObject {
         #if DEBUG || CHAT_PERFORMANCE_LAB
         guard !isDebugFixtureActive else { return }
         #endif
+        if appDelegate?.refreshLocalizationContextIfNeeded() == true {
+            Self.rebuildAllForLocalizationChange(sourceWindow: nil)
+        }
         ConnectionDiagnosticsLogger.log(
             event: "scene_lifecycle_will_enter_foreground",
             stream: .primary,
@@ -823,7 +851,48 @@ final class AppRootCoordinator: NSObject {
             return false
         case .userActivity:
             return false
+        case .settingsLanguage:
+            return presentLanguageSettings()
         }
+    }
+
+    private func rebuildRootForLocalizationChange(
+        reopenLanguageSettings: Bool
+    ) {
+        rebuildRoot(userInfo: nil)
+        guard reopenLanguageSettings else { return }
+        DispatchQueue.main.async { [weak self] in
+            _ = self?.route(.settingsLanguage)
+        }
+    }
+
+    @discardableResult
+    private func presentLanguageSettings() -> Bool {
+        guard let presenter = window.rootViewController else { return false }
+
+        let settings = SettingsViewController()
+        let account = AccountManager.shared.users.first?.jid ?? ""
+        settings.jid = account
+        settings.owner = account
+        let language = LanguageSettingsViewController()
+        let navigationController = UINavigationController(
+            rootViewController: settings
+        )
+        navigationController.setViewControllers(
+            [settings, language],
+            animated: false
+        )
+        let currentControllerAccess = ModalPresentationCurrentControllerAccess(
+            get: { [weak self] in self?.currentPresentedVc },
+            set: { [weak self] in self?.currentPresentedVc = $0 }
+        )
+        return presentContainedNavigationModal(
+            navigationController,
+            rootViewController: settings,
+            presentedContentViewController: language,
+            from: presenter,
+            currentControllerAccess: currentControllerAccess
+        )
     }
 
     @discardableResult
@@ -1498,7 +1567,7 @@ enum SceneWindowProvider {
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
-    private var rootCoordinator: AppRootCoordinator?
+    var rootCoordinator: AppRootCoordinator?
 
     func scene(
         _ scene: UIScene,

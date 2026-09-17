@@ -108,9 +108,13 @@ extension SettingsViewController: UITableViewDataSource {
                 switch key {
                 case .languages:
                     let cell = tableView.dequeueReusableCell(withIdentifier: SettingsItemDetailViewController.SelectorCell.cellName, for: indexPath) as! SettingsItemDetailViewController.SelectorCell
+                    let systemTitle = L10n.text("settings_language_system", fallback: "System")
                     cell.configure(key: item.key?.rawValue ?? "",
                                    for: item.title ?? "",
-                                   value: TranslationsManager.shared.currentLang ?? "Default", icon: item.icon ?? "", color: item.color ?? .systemRed)
+                                   value: LanguageSettingsRow.title(
+                                    for: LocalizationRuntime.shared.selection,
+                                    systemTitle: systemTitle
+                                   ), icon: item.icon ?? "", color: item.color ?? .systemRed)
                     return cell
 
                     case .accountSessions:

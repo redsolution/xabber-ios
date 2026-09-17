@@ -153,29 +153,8 @@ class CallsCategoriesViewController: BaseViewController {
         splitViewController?.show(.primary)
     }
 
-    override func observer() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(languageChanged),
-            name: .newLanguageSelected,
-            object: nil
-        )
-    }
-
-    @objc
-    override func languageChanged() {
-        loadDatasource()
-        tableView.reloadData()
-        selectFilter(selectedFilter, animated: false, notify: false)
-    }
-
-    private func removeNotificationObserver() {
-        NotificationCenter.default.removeObserver(self)
-    }
-
     deinit {
         unsubscribe()
-        removeNotificationObserver()
     }
 
     func selectFilter(_ filter: CallsListFilter, animated: Bool, notify: Bool) {

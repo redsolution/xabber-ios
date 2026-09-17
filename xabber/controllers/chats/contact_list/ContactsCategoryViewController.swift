@@ -306,21 +306,10 @@ class ContactsCategoryViewController: BaseViewController {
     override func observer() {
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(languageChanged),
-            name: .newLanguageSelected,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
             selector: #selector(onAppear),
             name: UIApplication.willEnterForegroundNotification,
             object: UIApplication.shared
         )
-    }
-
-    @objc
-    override func languageChanged() {
-//        print("Notification received")
     }
 
     private func removeNotificationObserer() {

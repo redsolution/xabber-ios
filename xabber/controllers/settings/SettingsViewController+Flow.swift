@@ -92,8 +92,18 @@ extension SettingsViewController {
     }
 
     internal func showSettings(by key: String?) {
-        guard let key = key,
-            let datasource = SettingManager.shared.getDatasource(by: key) else {
+        guard let key else {
+            self.view.makeToast("Feature is non implemented")
+            return
+        }
+        if key == SettingsViewController.Datasource.Keys.languages.rawValue {
+            self.hidesBottomBarWhenPushed = false
+            let controller = LanguageSettingsViewController()
+            controller.hidesBottomBarWhenPushed = true
+            navigationController?.pushViewController(controller, animated: true)
+            return
+        }
+        guard let datasource = SettingManager.shared.getDatasource(by: key) else {
             self.view.makeToast("Feature is non implemented")
             return
         }

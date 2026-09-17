@@ -119,7 +119,6 @@ open class SettingManager: NSObject {
 
     open var chatSettings: Datasource = Datasource()
     open var rosterSettings: Datasource = Datasource()
-    open var languageSettings: Datasource = Datasource()
     open var notificationSettings: Datasource = Datasource()
     open var privacySettings: Datasource = Datasource()
     open var developerSettings: Datasource = Datasource()
@@ -302,22 +301,6 @@ open class SettingManager: NSObject {
                                           values: [],
                                           value: false)
 
-        self.languageSettings = Datasource(key: "languages",
-                                           label: "Choose language".localizeString(id: "settings_choose_language", arguments: []),
-                                           kind: .group,
-                                           childs: [Datasource(key: "system_language",
-                                                               label: "Default",
-                                                               kind: .selector,
-                                                               childs: [],
-                                                               values: ["Default"],
-                                                               value: TranslationsManager.shared.currentLang ?? "Default")],
-                                           values: [],
-                                           value: "")
-
-        TranslationsManager.Languages.allCases.forEach({
-            self.languageSettings.childs.first?.values.append($0.rawValue)
-        })
-
         self.developerSettings = Datasource(key: "developer",
                                             label: "Developer".localizeString(id: "account_settings_developer", arguments: []),
                                             kind: .title,
@@ -358,7 +341,6 @@ open class SettingManager: NSObject {
         case updateItem(in: chatSettings): return
         case updateItem(in: rosterSettings): return
         case updateItem(in: notificationSettings): return
-        case updateItem(in: languageSettings): return
         case updateItem(in: privacySettings): return
         case updateItem(in: developerSettings): return
         default: break
@@ -430,7 +412,6 @@ open class SettingManager: NSObject {
         switch key {
         case "chat": return chatSettings
         case "roster": return rosterSettings
-        case "languages": return languageSettings
         case "notification": return notificationSettings
         case "privacy": return privacySettings
         case "developer": return developerSettings

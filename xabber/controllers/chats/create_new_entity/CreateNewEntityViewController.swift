@@ -406,28 +406,7 @@ class CreateNewEntityViewController: UIViewController {
         
     override func viewDidLoad() {
         super.viewDidLoad()
-        observer()
         configure()
-    }
-    
-    private func observer() {
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(languageChanged),
-                                               name: .newLanguageSelected,
-                                               object: nil)
-    }
-
-    @objc
-    func languageChanged() {
-        print("Notification received")
-    }
-
-    private func removeNotificationObserer() {
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    deinit {
-        removeNotificationObserer()
     }
     
     internal var randTitle: String = RandomTitleManager.shared.title()

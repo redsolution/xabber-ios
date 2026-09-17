@@ -167,23 +167,12 @@ class NotificationsCategoriesViewController: BaseViewController {
     }
     
     override func observer() {
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(languageChanged),
-                                               name: .newLanguageSelected,
-                                               object: nil)
         NotificationCenter
             .default
             .addObserver(self,
                          selector: #selector(onAppear),
                          name: UIApplication.willEnterForegroundNotification,
                          object: UIApplication.shared)
-    }
-
-    @objc
-    override func languageChanged() {
-        loadDatasource()
-        tableView.reloadData()
-        selectFilter(selectedFilter, animated: false, notify: false)
     }
 
     private func removeNotificationObserer() {

@@ -35,9 +35,17 @@ class RosterUtils {
         return SharedRosterSingleton.instance
     }
     
-    static let ungroupped: String = "Ungroupped".localizeString(id: "chat_message_ungroupped", arguments: [])
-    static let invitesGroup: String = "Chat invites".localizeString(id: "chat_message_chat_invites", arguments: [])
-    static let subscribersGroup: String = "Subscribers".localizeString(id: "chat_message_subscribers", arguments: [])
+    static var ungroupped: String {
+        "Ungroupped".localizeString(id: "chat_message_ungroupped", arguments: [])
+    }
+
+    static var invitesGroup: String {
+        "Chat invites".localizeString(id: "chat_message_chat_invites", arguments: [])
+    }
+
+    static var subscribersGroup: String {
+        "Subscribers".localizeString(id: "chat_message_subscribers", arguments: [])
+    }
     
     open func convertStatus(_ status: ResourceStatus, customOfflineStatus: String? = nil) -> String {
         switch status {

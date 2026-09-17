@@ -647,7 +647,6 @@ class ApplicationStateManager: NSObject {
         AccountColorManager.shared.load()
         DefaultAvatarManager.shared.preheat()
         MusicBox.shared.prepare()
-        TranslationsManager.shared.prepare()
         NotifyManager.shared.clearAllNotifications()
         if AccountMasksManager.shared.load() == nil {
             if let mask = AccountMasksManager.shared.masksList().first {

@@ -25,30 +25,45 @@ import Kingfisher
 
 class ChatListTableViewCell: UITableViewCell {
     static let cellName = "ChatListTableViewCell"
-    
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter
-    }()
-    
-    private static let weekdayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "E"
-        return formatter
-    }()
-    
-    private static let monthDayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM dd"
-        return formatter
-    }()
-    
-    private static let fullDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d MMM yyyy"
-        return formatter
-    }()
+
+    private struct LocalizedFormatters {
+        let revision: UInt64
+        let time: DateFormatter
+        let weekday: DateFormatter
+        let monthDay: DateFormatter
+        let fullDate: DateFormatter
+    }
+
+    private static let formatterLock = NSLock()
+    private static var cachedLocalizedFormatters: LocalizedFormatters?
+
+    private static var localizedFormatters: LocalizedFormatters {
+        let factory = L10n.formatters
+        formatterLock.lock()
+        defer { formatterLock.unlock() }
+        if let cachedLocalizedFormatters,
+           cachedLocalizedFormatters.revision == factory.revision {
+            return cachedLocalizedFormatters
+        }
+
+        let time = factory.dateFormatter()
+        time.setLocalizedDateFormatFromTemplate("j:mm")
+        let weekday = factory.dateFormatter()
+        weekday.setLocalizedDateFormatFromTemplate("E")
+        let monthDay = factory.dateFormatter()
+        monthDay.setLocalizedDateFormatFromTemplate("MMMdd")
+        let fullDate = factory.dateFormatter()
+        fullDate.setLocalizedDateFormatFromTemplate("dMMMyyyy")
+        let formatters = LocalizedFormatters(
+            revision: factory.revision,
+            time: time,
+            weekday: weekday,
+            monthDay: monthDay,
+            fullDate: fullDate
+        )
+        cachedLocalizedFormatters = formatters
+        return formatters
+    }
     
     public var badgeColor : UIColor = UIColor(red: 0, green: 0.478, blue: 1, alpha: 1.0)
     public var badgeColorHighlighted : UIColor = .darkGray
@@ -354,15 +369,15 @@ class ChatListTableViewCell: UITableViewCell {
     private static func formattedDate(from date: Date) -> String {
         let today = Date()
         if NSCalendar.current.isDateInToday(date) {
-            return Self.timeFormatter.string(from: date)
+            return Self.localizedFormatters.time.string(from: date)
         } else if abs(today.timeIntervalSince(date)) < 12 * 60 * 60 {
-            return Self.timeFormatter.string(from: date)
+            return Self.localizedFormatters.time.string(from: date)
         } else if (NSCalendar.current.dateComponents([.day], from: date, to: today).day ?? 0) <= 7 {
-            return Self.weekdayFormatter.string(from: date)
+            return Self.localizedFormatters.weekday.string(from: date)
         } else if (NSCalendar.current.dateComponents([.year], from: date, to: today).year ?? 0) < 1 {
-            return Self.monthDayFormatter.string(from: date)
+            return Self.localizedFormatters.monthDay.string(from: date)
         } else {
-            return Self.fullDateFormatter.string(from: date)
+            return Self.localizedFormatters.fullDate.string(from: date)
         }
     }
     

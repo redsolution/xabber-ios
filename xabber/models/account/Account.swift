@@ -2036,10 +2036,12 @@ struct AccountQueuedMessageSendRequest {
 
 final class AccountSendCoordinator {
     static let deliveryReceiptTimeoutErrorCode = "delivery-receipt-timeout"
-    static let deliveryReceiptTimeoutErrorMessage = "Request timeout".localizeString(
-        id: "message_manager_errpr_request_timeout",
-        arguments: []
-    )
+    static var deliveryReceiptTimeoutErrorMessage: String {
+        "Request timeout".localizeString(
+            id: "message_manager_errpr_request_timeout",
+            arguments: []
+        )
+    }
 
     struct Environment {
         let owner: String
