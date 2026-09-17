@@ -1,0 +1,417 @@
+{
+  "allowedDirectLookupPaths": [
+    "xabber/common/localization/LocalizationService.swift"
+  ],
+  "allowedLegacyFormatPaths": [
+    "xabber/utils/String/StringExtensions.swift"
+  ],
+  "boundedDynamicDomains": [
+    {
+      "api": "legacy",
+      "keyExpression": "id",
+      "keys": [
+        {
+          "argumentCount": 0,
+          "fallback": "No members",
+          "key": "groupchats_no_members"
+        },
+        {
+          "argumentCount": 0,
+          "fallback": "1 member",
+          "key": "groupchats_one_member"
+        },
+        {
+          "argumentCount": 1,
+          "fallback": "%@ members",
+          "key": "groupchats_some_members"
+        }
+      ],
+      "name": "chatGroupProjectionMembers",
+      "path": "xabber/controllers/chats/chat/rx/ChatGroupProjectionAdapter.swift"
+    },
+    {
+      "api": "legacy",
+      "keyExpression": "id",
+      "keys": [
+        {
+          "argumentCount": 0,
+          "fallback": "Can`t create chat with yourself",
+          "key": "chat_cant_create_direct_yourself"
+        },
+        {
+          "argumentCount": 0,
+          "fallback": "Can`t create chat with yourself",
+          "key": "chat_cant_create_private_yourself"
+        }
+      ],
+      "name": "groupContactSelfChat",
+      "path": "xabber/controllers/chats/info_screens/groupchat_contact_info/GroupchatContactInfoViewController+InfoScreenHeaderButtonDelegate.swift"
+    },
+    {
+      "keys": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Sticker",
+          "key": "chat_message_sticker"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Video",
+          "key": "chat_message_video"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Image",
+          "key": "chat_message_image"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Forwarded message",
+          "key": "chat_message_forwarded_message"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Invitation to incognito group",
+          "key": "chat_message_incognito_invitation"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Invitation to private chat",
+          "key": "chat_message_private_invitation"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Invitation to public group",
+          "key": "chat_message_public_invitation"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Incoming contact request",
+          "key": "action_subscription_received"
+        },
+        {
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "%@ attached images",
+          "key": "chat_message_attached_images"
+        },
+        {
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "%@ attached videos",
+          "key": "chat_messages_attached_videos"
+        },
+        {
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "%@ forwarded messages",
+          "key": "chat_message_some_forwarded_messages"
+        },
+        {
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "%@ attached files",
+          "key": "chat_message_attached_files"
+        },
+        {
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "Voice message, %@",
+          "key": "chat_message_voice_duration"
+        },
+        {
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "Video, %@",
+          "key": "chat_message_video_count"
+        }
+      ],
+      "name": "pushLocalizationFacade",
+      "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
+      "patterns": [
+        {
+          "api": "text",
+          "keyExpression": "key"
+        },
+        {
+          "api": "format",
+          "keyExpression": "key"
+        }
+      ]
+    },
+    {
+      "api": "legacy",
+      "keyExpression": "mode == .record\n                    ? \"chat_composer_record_voice_message_accessibility\"\n                    : \"chat_composer_send_voice_message_accessibility\"",
+      "keys": [
+        {
+          "argumentCount": 0,
+          "fallback": "Record voice message",
+          "key": "chat_composer_record_voice_message_accessibility"
+        },
+        {
+          "argumentCount": 0,
+          "fallback": "Send voice message",
+          "key": "chat_composer_send_voice_message_accessibility"
+        }
+      ],
+      "name": "chatComposerVoiceAction",
+      "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift"
+    },
+    {
+      "keys": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "File",
+          "key": "chat_list__attachment_preview__file"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Photo",
+          "key": "chat_list__attachment_preview__photo"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Video",
+          "key": "chat_list__attachment_preview__video"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Voice message",
+          "key": "chat_list__attachment_preview__voice_message"
+        },
+        {
+          "api": "plural",
+          "argumentCount": 0,
+          "fallback": "%lld Files",
+          "key": "chat_list__attachment_preview__files_count"
+        },
+        {
+          "api": "plural",
+          "argumentCount": 0,
+          "fallback": "%lld Photos",
+          "key": "chat_list__attachment_preview__photos_count"
+        },
+        {
+          "api": "plural",
+          "argumentCount": 0,
+          "fallback": "%lld Videos",
+          "key": "chat_list__attachment_preview__videos_count"
+        },
+        {
+          "api": "plural",
+          "argumentCount": 0,
+          "fallback": "%lld Voice messages",
+          "key": "chat_list__attachment_preview__voice_messages_count"
+        }
+      ],
+      "name": "lastChatAttachmentPreview",
+      "path": "xabber/xmpp/XEP-0CCC/LastChatListSyncPreviewStore.swift",
+      "patterns": [
+        {
+          "api": "text",
+          "keyExpression": "resource.singularKey"
+        },
+        {
+          "api": "plural",
+          "keyExpression": "resource.countedKey"
+        }
+      ]
+    }
+  ],
+  "catalog": "xabber/translations/Localizable.xcstrings",
+  "computedFallbacks": {
+    "circle_mask_name": {
+      "expression": "mask",
+      "reason": "The surrounding switch constrains the runtime mask label to Circle."
+    },
+    "files": {
+      "expression": "Kind.files.rawValue",
+      "reason": "The media filter enum supplies the English development label at runtime."
+    },
+    "groupchat__toast__invitations_sent": {
+      "expression": "invitationCount == 1 ? Invitation sent : Invitations sent",
+      "reason": "The development fallback follows the same singular/plural branch as the native plural resource."
+    },
+    "images": {
+      "expression": "Kind.images.rawValue",
+      "reason": "The media filter enum supplies the English development label at runtime."
+    },
+    "motivating_oneliner": {
+      "expression": "titles.randomElement()",
+      "reason": "The fallback is the runtime-selected English title while catalog English stores the canonical title corpus."
+    },
+    "octagon_mask_name": {
+      "expression": "mask",
+      "reason": "The surrounding switch constrains the runtime mask label to Octagon."
+    },
+    "pentagon_mask_name": {
+      "expression": "mask",
+      "reason": "The surrounding switch constrains the runtime mask label to Pentagon."
+    },
+    "rounded_mask_name": {
+      "expression": "mask",
+      "reason": "The surrounding switch constrains the runtime mask label to Rounded."
+    },
+    "rounded_square_mask_name": {
+      "expression": "mask",
+      "reason": "The surrounding switch constrains the runtime mask label to Rounded square."
+    },
+    "square_mask_name": {
+      "expression": "mask",
+      "reason": "The surrounding switch constrains the runtime mask label to Square."
+    },
+    "star_mask_name": {
+      "expression": "mask",
+      "reason": "The surrounding switch constrains the runtime mask label to Star."
+    },
+    "videos": {
+      "expression": "Kind.videos.rawValue",
+      "reason": "The media filter enum supplies the English development label at runtime."
+    },
+    "voice": {
+      "expression": "Kind.voice.rawValue",
+      "reason": "The media filter enum supplies the English development label at runtime."
+    }
+  },
+  "declaredKeys": [
+    {
+      "api": "plural",
+      "argumentCount": 0,
+      "domain": "chatSearch",
+      "fallback": "%lld messages",
+      "key": "chat_search_message_count",
+      "path": "xabber/controllers/chats/chat/search/ChatSearchFormatting.swift"
+    }
+  ],
+  "englishOverrides": {},
+  "fallbackConflictAllowlist": {
+    "account_camera_permission": "Profile and group-picture flows still share this legacy key; catalog English remains canonical until the callsites are split.",
+    "account_emoji_profile_image_button": "Existing callsites vary capitalization and verb choice; catalog English remains canonical pending copy cleanup.",
+    "account_settings_developer": "Legacy settings surfaces use both Debug and Developer; catalog English remains canonical pending a semantic split.",
+    "account_user_name": "Existing fallbacks differ only by capitalization; catalog English remains canonical.",
+    "action_mark_as_read": "Compact and expanded action labels share this legacy key; catalog English remains canonical pending a split.",
+    "chat_attachment_source_contact": "Singular and plural attachment-source labels share this legacy key; catalog English remains canonical pending plural-aware keys.",
+    "contact_block": "An action title and a confirmation question share this legacy key; catalog English remains canonical pending a split.",
+    "contact_block_and_delete": "Existing fallbacks use different word order; catalog English remains canonical.",
+    "group_chat__pinned_message__tooltip_unpin": "Short and expanded tooltip copies share this key; catalog English remains canonical.",
+    "groupchats_discovered_service_hint": "Discovery contexts currently provide different server wording; catalog English remains canonical pending context-specific keys.",
+    "groupchats_private_membership_hint": "Existing fallbacks differ only by punctuation; catalog English remains canonical.",
+    "ok": "Existing fallbacks differ only by capitalization; catalog English remains canonical.",
+    "pull_down_for_archive": "Existing archive hints differ by a preposition; catalog English remains canonical.",
+    "unexpected_error": "Existing fallbacks differ only by capitalization; catalog English remains canonical.",
+    "vcard_family_name": "Multiple legacy surname terms share this key; catalog English remains canonical pending product copy review.",
+    "vcard_given_name": "First name and Given name share this legacy key; catalog English remains canonical pending product copy review."
+  },
+  "excludedPaths": [
+    "xabber/controllers/ake/AuthenticationCodeInputViewController.swift",
+    "xabber/controllers/alerts/DeleteAccountPresenter.swift",
+    "xabber/controllers/chats/chat/extension/ChatViewController+VerifyPanel.swift",
+    "xabber/controllers/chats/groupchats/join/GroupchatJoinViewController.swift",
+    "xabber/controllers/chats/info_screens/account_info/devices_list/device_edit/DevicesListViewController.swift",
+    "xabber/controllers/chats/info_screens/footerInfoView/CloudDeleteInfoScreenView.swift",
+    "xabber/controllers/onboarding/signup/YubikeySetupViewController.swift",
+    "xabber/xmpp/omemo/OmemoManagerTest.swift"
+  ],
+  "interfaceBuilderCatalogKeys": [],
+  "legacyMarkupKeys": [
+    "about_xabber",
+    "account_secure_description",
+    "block_contact_confirm_short",
+    "block_contact_warning",
+    "chat_add_contact",
+    "delete_chat_confirm"
+  ],
+  "manifest": "docs/localization/active-keys.json",
+  "sourceRoots": [
+    "xabber",
+    "xabber-push-extension"
+  ],
+  "surfaceOverrides": [
+    {
+      "path": "xabber/common/notify_manager/RichNotificationPresentation.swift",
+      "surfaces": [
+        "app",
+        "push"
+      ]
+    },
+    {
+      "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
+      "surfaces": [
+        "app",
+        "push"
+      ]
+    }
+  ],
+  "typedDomains": [
+    {
+      "api": "legacy",
+      "casePolicy": "allCasesRequired",
+      "callsite": {
+        "api": "legacy",
+        "keyExpression": "key.rawValue",
+        "path": "xabber/controllers/chats/attachment_picker/ChatAttachmentSourceBar.swift"
+      },
+      "enum": "ChatAttachmentLocalizationKey",
+      "fallbackProperty": "defaultValue",
+      "facadeCalls": [
+        {
+          "callee": "ChatAttachmentLocalization.string",
+          "paths": [
+            "xabber/controllers/chats/attachment_picker/*.swift"
+          ]
+        }
+      ],
+      "name": "chatAttachment",
+      "source": "xabber/controllers/chats/attachment_picker/ChatAttachmentSourceBar.swift"
+    },
+    {
+      "api": "text",
+      "casePolicy": "conservative",
+      "enum": "ChatSearchLocalizationKey",
+      "fallbackProperty": "developmentFallback",
+      "formatWhenArgumentsPresent": true,
+      "facadeCalls": [
+        {
+          "callee": "ChatSearchLocalization.production().text",
+          "paths": [
+            "xabber/controllers/chats/chat/extension/ChatViewController+SearchBar.swift"
+          ]
+        },
+        {
+          "callee": "localization.text",
+          "dynamicCases": [
+            "deliveryPending",
+            "deliverySent",
+            "deliveryDelivered",
+            "deliveryRead",
+            "deliveryFailed"
+          ],
+          "paths": [
+            "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
+            "xabber/controllers/chats/chat/search/*.swift"
+          ]
+        },
+        {
+          "callee": "text",
+          "paths": [
+            "xabber/controllers/chats/chat/search/ChatSearchFormatting.swift"
+          ]
+        }
+      ],
+      "name": "chatSearch",
+      "source": "xabber/controllers/chats/chat/search/ChatSearchFormatting.swift"
+    }
+  ]
+}

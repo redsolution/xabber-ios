@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import re
 import subprocess
@@ -53,9 +54,25 @@ PLACEHOLDER_CORRECTIONS = {
 }
 ASSIGNMENT_PATTERN = re.compile(r'^\s*"([^"\\]*(?:\\.[^"\\]*)*)"\s*=', re.MULTILINE)
 FORMAT_SPECIFIER_PATTERN = re.compile(
-    r"%(?!%)(?:\d+\$)?[-+ #0']*(?:\d+|\*)?(?:\.(?:\d+|\*))?"
-    r"(?:hh|h|ll|l|q|z|t|j|L)?([@diuoxXfFeEgGaAcCsSp])"
+    r"%(?P<position>[1-9]\d*\$)?(?P<flags>[-+ #0']*)"
+    r"(?:(?P<width>\d+)|(?P<width_star>\*)(?P<width_position>[1-9]\d*\$)?)?"
+    r"(?:\.(?:(?P<precision>\d+)|(?P<precision_star>\*)"
+    r"(?P<precision_position>[1-9]\d*\$)?))?"
+    r"(?P<length>hh|h|ll|l|q|z|t|j|L)?"
+    r"(?P<conversion>[@diuoxXfFeEgGaAcCsSp])"
 )
+SUBSTITUTION_SPECIFIER_PATTERN = re.compile(
+    r"%(?P<position>[1-9]\d*\$)?#@(?P<name>[A-Za-z_][A-Za-z0-9_]*)@"
+)
+
+PLURAL_CATEGORIES = {
+    "en": {"one", "other"},
+    "ru": {"one", "few", "many", "other"},
+    "fr": {"one", "many", "other"},
+    "es": {"one", "many", "other"},
+    "ar": {"zero", "one", "two", "few", "many", "other"},
+    "zh-Hans": {"other"},
+}
 
 
 class CatalogError(RuntimeError):
@@ -194,7 +211,9 @@ def write_catalog(catalog: dict[str, Any], output: Path) -> None:
 
 
 def validate_catalog(
-    catalog: dict[str, Any], resources: dict[str, dict[str, str]] | None = None
+    catalog: dict[str, Any],
+    resources: dict[str, dict[str, str]] | None = None,
+    manifest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if catalog.get("sourceLanguage") != "en":
         raise CatalogError("Catalog sourceLanguage must be en")
@@ -222,13 +241,64 @@ def validate_catalog(
                 raise CatalogError(f"{key!r} has unsupported locale {locale!r}")
             units = []
             if isinstance(localization, dict) and "stringUnit" in localization:
-                units.append(localization["stringUnit"])
+                string_unit = localization["stringUnit"]
+                units.append(string_unit)
+                substitutions = localization.get("substitutions")
+                outer_value = (
+                    string_unit.get("value")
+                    if isinstance(string_unit, dict)
+                    else None
+                )
+                outer_tokens = (
+                    _format_tokens(outer_value)
+                    if isinstance(outer_value, str)
+                    else []
+                )
+                if substitutions is not None:
+                    _, substitutions, _, _ = _validated_substitution_components(
+                        localization
+                    )
+                    for name, substitution in substitutions.items():
+                        try:
+                            format_specifier = substitution["formatSpecifier"]
+                            variations = substitution["variations"]["plural"]
+                        except (KeyError, TypeError) as error:
+                            raise CatalogError(
+                                f"{key!r}/{locale}/{name} has an invalid substitution"
+                            ) from error
+                        if not isinstance(format_specifier, str) or not format_specifier:
+                            raise CatalogError(
+                                f"{key!r}/{locale}/{name} has an invalid format specifier"
+                            )
+                        if not isinstance(variations, dict):
+                            raise CatalogError(
+                                f"{key!r}/{locale}/{name} has invalid plural variations"
+                            )
+                        _validate_plural_categories(key, locale, variations, suffix=name)
+                        try:
+                            units.extend(
+                                variation["stringUnit"]
+                                for variation in variations.values()
+                            )
+                        except (KeyError, TypeError) as error:
+                            raise CatalogError(
+                                f"{key!r}/{locale}/{name} has invalid plural string units"
+                            ) from error
+                elif any(kind == "substitution" for kind, _ in outer_tokens):
+                    raise CatalogError(
+                        f"{key!r}/{locale} has substitution markers without definitions"
+                    )
             elif isinstance(localization, dict) and "variations" in localization:
                 try:
                     variations = localization["variations"]["plural"]
+                    if not isinstance(variations, dict):
+                        raise TypeError
+                    _validate_plural_categories(key, locale, variations)
                     units.extend(
                         variation["stringUnit"] for variation in variations.values()
                     )
+                except CatalogError:
+                    raise
                 except (KeyError, TypeError, AttributeError) as error:
                     raise CatalogError(
                         f"{key!r}/{locale} has invalid plural variations"
@@ -245,14 +315,31 @@ def validate_catalog(
                     raise CatalogError(f"{key!r}/{locale} has an invalid translated value")
             translations_by_locale[locale] += 1
 
-        english_signatures = localization_signatures(localizations.get("en"))
-        if english_signatures is not None:
+        english_signature_map = localization_signature_map(localizations.get("en"))
+        if english_signature_map is not None:
+            english_substitution_arguments = (
+                _substitution_argument_map(localizations["en"])
+                if "substitutions" in localizations["en"]
+                else None
+            )
             for locale, localization in localizations.items():
-                signatures = localization_signatures(localization)
-                if signatures != english_signatures:
+                signature_map = localization_signature_map(localization)
+                substitution_arguments = (
+                    _substitution_argument_map(localization)
+                    if isinstance(localization, dict)
+                    and "substitutions" in localization
+                    else None
+                )
+                if substitution_arguments != english_substitution_arguments:
+                    raise CatalogError(
+                        f"Placeholder substitution argument mapping mismatch for "
+                        f"{key!r}: en={english_substitution_arguments}, "
+                        f"{locale}={substitution_arguments}"
+                    )
+                if not _compatible_signature_maps(english_signature_map, signature_map):
                     raise CatalogError(
                         f"Placeholder signature mismatch for {key!r}: "
-                        f"en={english_signatures}, {locale}={signatures}"
+                        f"en={english_signature_map}, {locale}={signature_map}"
                     )
 
     if catalog_locales != set(LOCALES):
@@ -305,6 +392,9 @@ def validate_catalog(
             - set(resources["en"])
         )
 
+    if manifest is not None:
+        validate_manifest_catalog_parity(strings, manifest)
+
     return {
         "keys": len(strings),
         "locales": list(LOCALES),
@@ -316,30 +406,683 @@ def validate_catalog(
     }
 
 
-def localization_signatures(localization: Any) -> list[list[str]] | None:
+def _format_tokens(
+    value: str,
+) -> list[tuple[str, re.Match[str]]]:
+    tokens: list[tuple[str, re.Match[str]]] = []
+    index = 0
+    while index < len(value):
+        if value[index] != "%":
+            index += 1
+            continue
+        if index + 1 < len(value) and value[index + 1] == "%":
+            index += 2
+            continue
+        substitution = SUBSTITUTION_SPECIFIER_PATTERN.match(value, index)
+        if substitution is not None:
+            tokens.append(("substitution", substitution))
+            index = substitution.end()
+            continue
+        match = FORMAT_SPECIFIER_PATTERN.match(value, index)
+        if match is None:
+            raise CatalogError(
+                f"Unsupported percent sequence at offset {index}: {value!r}"
+            )
+        tokens.append(("format", match))
+        index = match.end()
+    return tokens
+
+
+def _format_match_signature(
+    match: re.Match[str], next_sequential_argument: int
+) -> tuple[list[dict[str, Any]], int]:
+    signature: list[dict[str, Any]] = []
+    width = "*" if match.group("width_star") else match.group("width")
+    precision = "*" if match.group("precision_star") else match.group("precision")
+    for role, star_group, position_group in (
+        ("width", "width_star", "width_position"),
+        ("precision", "precision_star", "precision_position"),
+    ):
+        if not match.group(star_group):
+            continue
+        position = match.group(position_group)
+        argument = (
+            int(position[:-1]) if position is not None else next_sequential_argument
+        )
+        if position is None:
+            next_sequential_argument += 1
+        signature.append(
+            {
+                "argument": argument,
+                "conversion": "d",
+                "flags": "",
+                "precision": None,
+                "role": role,
+                "width": None,
+            }
+        )
+    position = match.group("position")
+    argument = int(position[:-1]) if position is not None else next_sequential_argument
+    if position is None:
+        next_sequential_argument += 1
+    length = match.group("length") or ""
+    signature.append(
+        {
+            "argument": argument,
+            "conversion": f"{length}{match.group('conversion')}",
+            "flags": match.group("flags") or "",
+            "precision": precision,
+            "width": width,
+        }
+    )
+    return signature, next_sequential_argument
+
+
+def _conversion_value_type(conversion: str) -> str:
+    code = conversion[-1:]
+    length = conversion[:-1]
+    if code == "@":
+        return "object"
+    if code in {"d", "i", "u", "o", "x", "X"}:
+        return f"integer:{length or 'default'}"
+    if code in {"c", "C"}:
+        is_wide = code == "C" or length == "l"
+        return "integer:wide-character" if is_wide else "integer:default"
+    if code in {"f", "F", "e", "E", "g", "G", "a", "A"}:
+        return "floating:long-double" if length == "L" else "floating:double"
+    if code in {"s", "S"}:
+        is_wide = code == "S" or length == "l"
+        return "string-pointer:wide" if is_wide else "string-pointer:narrow"
+    if code == "p":
+        return "pointer"
+    return f"unsupported:{conversion}"
+
+
+def _validate_argument_value_types(
+    signature: list[dict[str, Any]], value: str
+) -> None:
+    types_by_argument: dict[int, set[str]] = {}
+    for item in signature:
+        argument = item.get("argument")
+        conversion = item.get("conversion")
+        if type(argument) is not int or not isinstance(conversion, str):
+            raise CatalogError(f"Invalid placeholder signature for {value!r}")
+        types_by_argument.setdefault(argument, set()).add(
+            _conversion_value_type(conversion)
+        )
+    for argument, value_types in sorted(types_by_argument.items()):
+        if len(value_types) > 1:
+            raise CatalogError(
+                f"Format argument {argument} has incompatible value types "
+                f"{sorted(value_types)} in {value!r}"
+            )
+
+
+def _sorted_signature(
+    signature: list[dict[str, Any]], value: str
+) -> list[dict[str, Any]]:
+    _validate_argument_value_types(signature, value)
+    return sorted(
+        signature,
+        key=lambda item: (
+            item["argument"],
+            item["conversion"],
+            item["flags"],
+            item["width"] or "",
+            item["precision"] or "",
+            item.get("role") or "",
+        ),
+    )
+
+
+def parse_format_signature(value: str) -> list[dict[str, Any]]:
+    """Return an exact, argument-indexed printf signature for one string.
+
+    Positional formats are normalized by argument index, so translators may reorder
+    arguments without changing the contract. Flags, width, precision, length and
+    conversion remain part of the signature. Literal ``%%`` does not consume an
+    argument. Mixing positional and sequential arguments is rejected because its
+    behavior is undefined across Foundation formatters.
+    """
+
+    matches = [
+        match for kind, match in _format_tokens(value) if kind == "format"
+    ]
+
+    positional: list[bool] = []
+    for match in matches:
+        if match.group("width_star"):
+            positional.append(match.group("width_position") is not None)
+        if match.group("precision_star"):
+            positional.append(match.group("precision_position") is not None)
+        positional.append(match.group("position") is not None)
+    if any(positional) and not all(positional):
+        raise CatalogError(f"Format string mixes positional and sequential arguments: {value!r}")
+
+    signature: list[dict[str, Any]] = []
+    next_sequential_argument = 1
+    for match in matches:
+        items, next_sequential_argument = _format_match_signature(
+            match, next_sequential_argument
+        )
+        signature.extend(items)
+    return _sorted_signature(signature, value)
+
+
+def format_argument_count(signature: list[dict[str, Any]]) -> int:
+    return max((item["argument"] for item in signature), default=0)
+
+
+def _validate_plural_categories(
+    key: str,
+    locale: str,
+    variations: dict[str, Any],
+    suffix: str | None = None,
+) -> None:
+    label = f"{key!r}/{locale}" + (f"/{suffix}" if suffix else "")
+    categories = set(variations)
+    if "other" not in categories:
+        raise CatalogError(f"{label} is missing plural category 'other'")
+    unsupported = categories - PLURAL_CATEGORIES[locale]
+    if unsupported:
+        raise CatalogError(
+            f"{label} has unsupported plural categories {sorted(unsupported)}"
+        )
+
+
+def _substitution_contract(
+    localization: dict[str, Any]
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    outer, substitutions, tokens, markers = _validated_substitution_components(
+        localization
+    )
+    positional: list[bool] = []
+    for kind, match in tokens:
+        if kind == "substitution":
+            positional.append(match.group("position") is not None)
+            continue
+        if match.group("width_star"):
+            positional.append(match.group("width_position") is not None)
+        if match.group("precision_star"):
+            positional.append(match.group("precision_position") is not None)
+        positional.append(match.group("position") is not None)
+    if any(positional) and not all(positional):
+        raise CatalogError(
+            f"Substitution string mixes positional and sequential arguments: {outer!r}"
+        )
+
+    result: list[dict[str, Any]] = []
+    argument_by_name: dict[str, int] = {}
+    next_sequential_argument = 1
+    for kind, match in tokens:
+        if kind == "format":
+            items, next_sequential_argument = _format_match_signature(
+                match, next_sequential_argument
+            )
+            result.extend(items)
+            continue
+
+        position = match.group("position")
+        argument = (
+            int(position[:-1]) if position is not None else next_sequential_argument
+        )
+        if position is None:
+            next_sequential_argument += 1
+        name = match.group("name")
+        argument_by_name[name] = argument
+        format_specifier = substitutions[name]["formatSpecifier"]
+        parsed = parse_format_signature("%" + format_specifier)
+        if (
+            len(parsed) != 1
+            or parsed[0].get("argument") != 1
+            or parsed[0].get("role") is not None
+        ):
+            raise CatalogError(
+                f"Invalid substitution format specifier {format_specifier!r}"
+            )
+        item = dict(parsed[0])
+        item["argument"] = argument
+        result.append(item)
+    return _sorted_signature(result, outer), argument_by_name
+
+
+def _substitution_signature(
+    localization: dict[str, Any]
+) -> list[dict[str, Any]]:
+    return _substitution_contract(localization)[0]
+
+
+def _substitution_argument_map(localization: dict[str, Any]) -> dict[str, int]:
+    return _substitution_contract(localization)[1]
+
+
+def _validated_substitution_components(
+    localization: dict[str, Any],
+) -> tuple[
+    str,
+    dict[str, Any],
+    list[tuple[str, re.Match[str]]],
+    list[re.Match[str]],
+]:
+    outer = localization.get("stringUnit", {}).get("value")
+    if not isinstance(outer, str):
+        raise CatalogError("Substitution localization has an invalid outer string unit")
+    substitutions = localization.get("substitutions")
+    if not isinstance(substitutions, dict) or not substitutions:
+        raise CatalogError("Substitution localization has no definitions")
+    tokens = _format_tokens(outer)
+    markers = [match for kind, match in tokens if kind == "substitution"]
+    marker_names = [marker.group("name") for marker in markers]
+    if not marker_names:
+        raise CatalogError("Substitution localization has definitions but no markers")
+    duplicate_names = sorted(
+        name for name, count in Counter(marker_names).items() if count > 1
+    )
+    if duplicate_names:
+        raise CatalogError(
+            f"Substitution localization has duplicate markers {duplicate_names}"
+        )
+    if set(marker_names) != set(substitutions):
+        missing = sorted(set(marker_names) - set(substitutions))
+        unused = sorted(set(substitutions) - set(marker_names))
+        raise CatalogError(
+            "Substitution markers and definitions do not match; "
+            f"missing={missing}, unused={unused}"
+        )
+    for name in marker_names:
+        substitution = substitutions[name]
+        if not isinstance(substitution, dict):
+            raise CatalogError(f"Substitution {name!r} is not an object")
+        format_specifier = substitution.get("formatSpecifier")
+        if not isinstance(format_specifier, str) or not format_specifier:
+            raise CatalogError(
+                f"Substitution {name!r} has an invalid format specifier"
+            )
+        parsed_format_specifier = parse_format_signature("%" + format_specifier)
+        if (
+            len(parsed_format_specifier) != 1
+            or parsed_format_specifier[0].get("argument") != 1
+            or parsed_format_specifier[0].get("role") is not None
+        ):
+            raise CatalogError(
+                f"Substitution {name!r} has an invalid format specifier "
+                f"{format_specifier!r}"
+            )
+        try:
+            variations = substitution["variations"]["plural"]
+        except (KeyError, TypeError) as error:
+            raise CatalogError(
+                f"Substitution {name!r} has invalid plural variations"
+            ) from error
+        if not isinstance(variations, dict) or not variations:
+            raise CatalogError(
+                f"Substitution {name!r} has invalid plural variations"
+            )
+        for category, variation in variations.items():
+            if not isinstance(category, str) or not isinstance(variation, dict):
+                raise CatalogError(
+                    f"Substitution {name!r} has an invalid plural variation"
+                )
+            string_unit = variation.get("stringUnit")
+            if not isinstance(string_unit, dict) or not isinstance(
+                string_unit.get("value"), str
+            ):
+                raise CatalogError(
+                    f"Substitution {name!r}/{category} has an invalid string unit"
+                )
+    return outer, substitutions, tokens, markers
+
+
+def _substitution_selector_item(
+    substitution: dict[str, Any], argument: int
+) -> dict[str, Any]:
+    parsed = parse_format_signature("%" + substitution["formatSpecifier"])
+    item = dict(parsed[0])
+    item["argument"] = argument
+    return item
+
+
+def _substitution_variation_signature(
+    name: str,
+    value: str,
+    selector_item: dict[str, Any],
+) -> tuple[list[dict[str, Any]], bool]:
+    signature = parse_format_signature(value)
+    format_matches = [
+        match for kind, match in _format_tokens(value) if kind == "format"
+    ]
+    uses_positional_arguments = any(
+        match.group("position") is not None for match in format_matches
+    )
+    local_selector_argument = (
+        selector_item["argument"] if uses_positional_arguments else 1
+    )
+    selector_indexes = [
+        index
+        for index, item in enumerate(signature)
+        if item.get("argument") == local_selector_argument
+        and item.get("role") is None
+    ]
+    if not selector_indexes:
+        return signature, False
+
+    expected_conversion = selector_item["conversion"]
+    for index in selector_indexes:
+        actual_conversion = signature[index]["conversion"]
+        if actual_conversion != expected_conversion:
+            raise CatalogError(
+                f"Visible selector for substitution {name!r} uses "
+                f"{actual_conversion!r}; expected {expected_conversion!r}"
+            )
+
+    normalized = [dict(item) for item in signature]
+    for index in selector_indexes:
+        normalized[index]["argument"] = selector_item["argument"]
+    return _sorted_signature(normalized, value), True
+
+
+def localization_signature_map(
+    localization: Any,
+) -> dict[str, list[dict[str, Any]]] | None:
     if not isinstance(localization, dict):
         return None
-    values: list[str]
-    if "stringUnit" in localization:
-        values = [localization["stringUnit"].get("value", "")]
-    else:
-        try:
-            values = [
-                variation["stringUnit"].get("value", "")
-                for variation in localization["variations"]["plural"].values()
+    if "substitutions" in localization:
+        base, argument_by_name = _substitution_contract(localization)
+        _, substitutions, _, markers = _validated_substitution_components(localization)
+        maps: dict[str, list[dict[str, Any]]] = {}
+        variation_groups: list[
+            tuple[
+                str,
+                dict[str, Any],
+                list[tuple[str, list[dict[str, Any]], bool]],
             ]
-        except (KeyError, TypeError, AttributeError):
-            return None
-    signatures = {
-        tuple(sorted(FORMAT_SPECIFIER_PATTERN.findall(value)))
-        for value in values
+        ] = []
+        for marker in markers:
+            name = marker.group("name")
+            variations = substitutions[name]["variations"]["plural"]
+            selector_item = _substitution_selector_item(
+                substitutions[name], argument_by_name[name]
+            )
+            category_signatures = []
+            for category, variation in sorted(variations.items()):
+                value = variation["stringUnit"]["value"]
+                signature, displays_selector = _substitution_variation_signature(
+                    name, value, selector_item
+                )
+                category_signatures.append(
+                    (category, signature, displays_selector)
+                )
+            variation_groups.append(
+                (name, selector_item, category_signatures)
+            )
+        combinations = itertools.product(
+            *(categories for _, _, categories in variation_groups)
+        )
+        names = [name for name, _, _ in variation_groups]
+        selector_items = {
+            name: selector_item for name, selector_item, _ in variation_groups
+        }
+        for combination in combinations:
+            key = "substitution:" + "|".join(
+                f"{name}={category}"
+                for name, (category, _, _) in zip(names, combination)
+            )
+            combined = list(base)
+            for name, (_, variation_signature, displays_selector) in zip(
+                names, combination
+            ):
+                if displays_selector:
+                    try:
+                        combined.remove(selector_items[name])
+                    except ValueError as error:
+                        raise CatalogError(
+                            f"Missing selector contract for substitution {name!r}"
+                        ) from error
+                combined.extend(variation_signature)
+            maps[key] = _sorted_signature(combined, key)
+        return maps
+    if "stringUnit" in localization:
+        value = localization["stringUnit"].get("value", "")
+        if any(kind == "substitution" for kind, _ in _format_tokens(value)):
+            raise CatalogError(
+                "Substitution marker has no substitution definitions"
+            )
+        return {
+            "string": parse_format_signature(value)
+        }
+    try:
+        return {
+            category: parse_format_signature(
+                variation["stringUnit"].get("value", "")
+            )
+            for category, variation in localization["variations"]["plural"].items()
+        }
+    except (KeyError, TypeError, AttributeError):
+        return None
+
+
+def _is_count_conversion(conversion: str) -> bool:
+    return conversion[-1:] in {"d", "i", "u"}
+
+
+def _without_plural_count(
+    signature: list[dict[str, Any]],
+) -> list[dict[str, Any]] | None:
+    count_items = [
+        item
+        for item in signature
+        if item.get("argument") == 1
+        and item.get("role") is None
+        and _is_count_conversion(item.get("conversion", ""))
+    ]
+    if len(count_items) != 1:
+        return None
+    count_item = count_items[0]
+    return [item for item in signature if item is not count_item]
+
+
+def _plural_signatures_compatible(
+    expected: list[dict[str, Any]],
+    actual: list[dict[str, Any]],
+) -> bool:
+    if actual == expected:
+        return True
+    expected_without_count = _without_plural_count(expected)
+    if expected_without_count is not None and actual == expected_without_count:
+        return True
+    actual_without_count = _without_plural_count(actual)
+    return actual_without_count is not None and expected == actual_without_count
+
+
+def _compatible_signature_maps(
+    english: dict[str, list[dict[str, Any]]],
+    translated: dict[str, list[dict[str, Any]]] | None,
+) -> bool:
+    if translated is None:
+        return False
+    if "string" in english or "string" in translated:
+        return english == translated
+    english_uses_substitutions = bool(english) and all(
+        key.startswith("substitution:") for key in english
+    )
+    translated_uses_substitutions = bool(translated) and all(
+        key.startswith("substitution:") for key in translated
+    )
+    if english_uses_substitutions or translated_uses_substitutions:
+        if not english_uses_substitutions or not translated_uses_substitutions:
+            return False
+        english_baseline = next(iter(english.values()))
+        return all(
+            _plural_signatures_compatible(english_baseline, signature)
+            for signature in english.values()
+        ) and all(
+            _plural_signatures_compatible(english_baseline, signature)
+            for signature in translated.values()
+        )
+    english_other = english.get("other", [])
+    if not all(
+        _plural_signatures_compatible(english_other, signature)
+        for signature in english.values()
+    ):
+        return False
+    for category, signature in translated.items():
+        expected = english.get(category, english_other)
+        if not _plural_signatures_compatible(expected, signature):
+            return False
+    return True
+
+
+def localization_signatures(localization: Any) -> list[list[dict[str, Any]]] | None:
+    signature_map = localization_signature_map(localization)
+    if signature_map is None:
+        return None
+    signatures_by_json = {
+        json.dumps(signature, ensure_ascii=False, sort_keys=True): signature
+        for signature in signature_map.values()
     }
-    return [list(signature) for signature in sorted(signatures)]
+    return [signatures_by_json[key] for key in sorted(signatures_by_json)]
+
+
+def validate_manifest_catalog_parity(
+    strings: dict[str, Any], manifest: dict[str, Any]
+) -> None:
+    if (
+        type(manifest.get("schemaVersion")) is not int
+        or manifest["schemaVersion"] != 1
+    ):
+        raise CatalogError("Localization manifest schemaVersion must be 1")
+    active_keys = manifest.get("activeKeys")
+    if not isinstance(active_keys, list):
+        raise CatalogError("Localization manifest activeKeys must be an array")
+    domain_reserved_keys = manifest.get("domainReservedKeys", [])
+    if not isinstance(domain_reserved_keys, list):
+        raise CatalogError(
+            "Localization manifest domainReservedKeys must be an array"
+        )
+
+    for reserved in domain_reserved_keys:
+        if not isinstance(reserved, dict) or not isinstance(
+            reserved.get("key"), str
+        ):
+            raise CatalogError(
+                "Localization manifest has an invalid domain-reserved key entry"
+            )
+        key = reserved["key"]
+        english = strings.get(key, {}).get("localizations", {}).get("en")
+        signatures = localization_signatures(english)
+        if not signatures:
+            raise CatalogError(f"Missing reserved English localization for {key!r}")
+
+        expected_signatures = reserved.get("formatSignatures")
+        if (
+            not isinstance(expected_signatures, list)
+            or not expected_signatures
+            or not all(isinstance(signature, list) for signature in expected_signatures)
+        ):
+            raise CatalogError(
+                f"Domain-reserved key {key!r} has invalid format signatures"
+            )
+        incompatible_signatures = [
+            signature
+            for signature in expected_signatures
+            if signature not in signatures
+        ]
+        if incompatible_signatures:
+            raise CatalogError(
+                f"Reserved English/manifest signature mismatch for {key!r}: "
+                f"manifest={expected_signatures}, catalog={signatures}"
+            )
+
+    for active in active_keys:
+        if not isinstance(active, dict) or not isinstance(active.get("key"), str):
+            raise CatalogError("Localization manifest has an invalid active key entry")
+        key = active["key"]
+        english = strings.get(key, {}).get("localizations", {}).get("en")
+        signatures = localization_signatures(english)
+        if not signatures:
+            raise CatalogError(f"Missing active English localization for {key!r}")
+
+        if "plural" in active.get("apis", []):
+            is_native_plural = isinstance(english, dict) and (
+                "variations" in english or "substitutions" in english
+            )
+            if not is_native_plural:
+                raise CatalogError(
+                    f"Active plural key {key!r} must use a native plural structure"
+                )
+
+        expected = active.get("formatSignature", [])
+        if expected not in signatures:
+            raise CatalogError(
+                f"English/manifest signature mismatch for {key!r}: "
+                f"manifest={expected}, catalog={signatures}"
+            )
+        if "plural" in active.get("apis", []):
+            first_argument = [
+                item for item in expected if item.get("argument") == 1
+            ]
+            if (
+                len(first_argument) != 1
+                or first_argument[0].get("role") is not None
+                or not _is_count_conversion(
+                    first_argument[0].get("conversion", "")
+                )
+            ):
+                raise CatalogError(
+                    f"Active plural key {key!r} must use one integer count "
+                    "conversion as argument 1"
+                )
+
+        expected_count = format_argument_count(expected)
+        for callsite in active.get("callsites", []):
+            argument_count = callsite.get("argumentCount")
+            if argument_count is None:
+                raise CatalogError(
+                    f"Callsite has unknown argument count for {key!r} at "
+                    f"{callsite.get('path')}:{callsite.get('line')}"
+                )
+            api = callsite.get("api")
+            provided_count = argument_count + (1 if api == "plural" else 0)
+            if provided_count != expected_count:
+                raise CatalogError(
+                    f"Callsite argument count mismatch for {key!r} at "
+                    f"{callsite.get('path')}:{callsite.get('line')}: "
+                    f"expected {expected_count}, got {provided_count}"
+                )
+            callsite_signature = callsite.get("formatSignature")
+            if (
+                callsite_signature is not None
+                and callsite.get("fallback") is not None
+                and callsite.get("typeSafety") != "typeUnchecked"
+            ):
+                signature_matches = callsite_signature == expected
+                if api == "plural":
+                    signature_matches = _plural_signatures_compatible(
+                        expected, callsite_signature
+                    )
+                if not signature_matches:
+                    raise CatalogError(
+                        f"Typed callsite signature mismatch for {key!r} at "
+                        f"{callsite.get('path')}:{callsite.get('line')}: "
+                        f"catalog={expected}, callsite={callsite_signature}"
+                    )
 
 
 def load_catalog(path: Path) -> dict[str, Any]:
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise CatalogError(f"Duplicate JSON key {key!r} in {path}")
+            result[key] = value
+        return result
+
     try:
-        parsed = json.loads(path.read_text(encoding="utf-8"))
+        parsed = json.loads(
+            path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_keys
+        )
+    except CatalogError:
+        raise
     except (OSError, json.JSONDecodeError) as error:
         raise CatalogError(f"Could not read catalog {path}: {error}") from error
     if not isinstance(parsed, dict):
@@ -354,6 +1097,11 @@ def main() -> int:
         "--legacy-root",
         type=Path,
         help="validate against and optionally migrate the six legacy .lproj directories",
+    )
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        help="validate active-key English and callsite contracts against a schema-v1 manifest",
     )
     parser.add_argument(
         "--migrate",
@@ -372,7 +1120,10 @@ def main() -> int:
             if resources is None:
                 parser.error("--migrate requires --legacy-root")
             write_catalog(make_catalog(resources), arguments.catalog)
-        report = validate_catalog(load_catalog(arguments.catalog), resources)
+        manifest = load_catalog(arguments.manifest) if arguments.manifest else None
+        report = validate_catalog(
+            load_catalog(arguments.catalog), resources, manifest=manifest
+        )
     except CatalogError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
