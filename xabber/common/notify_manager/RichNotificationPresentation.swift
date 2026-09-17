@@ -221,7 +221,7 @@ enum RichNotificationPresentationPolicy {
         )
         let body = invitationBody(kind: route.inviteKind, inviterName: inviterName)
         let senderName = inviterName ?? PushNotificationLocalization.string(
-            "somebody",
+            "push_invitation_sender_unknown",
             fallback: "Someone"
         )
         return RichNotificationPresentationPlan(
@@ -255,7 +255,10 @@ enum RichNotificationPresentationPolicy {
             senderJid.flatMap { metadataName(route.owner, $0) },
             route.senderNickname,
             senderJid,
-            PushNotificationLocalization.string("somebody", fallback: "Somebody")
+            PushNotificationLocalization.string(
+                "push_sender_unknown",
+                fallback: "Somebody"
+            )
         ) ?? "Somebody"
         return RichNotificationPresentationPlan(
             title: PushNotificationLocalization.string(

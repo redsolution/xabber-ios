@@ -115,66 +115,58 @@ enum LastChatAttachmentPreviewFormatter {
         kind: LastChatAttachmentPreviewKind,
         count: Int
     ) -> String {
-        let resource = resourceName(for: kind)
-        let resourceIndex = pluralResourceIndex(count: count)
-        let usesRussianCountedOne = count != 1 &&
-            resourceIndex == 0 &&
-            currentLanguageCode().hasPrefix("ru")
-        let keySuffix = usesRussianCountedOne
-            ? "item_0_counted"
-            : "item_\(resourceIndex)"
-        let key = "plurals.last_chat_attachment_preview__\(resource).\(keySuffix)"
-        let fallback: String
-        switch (kind, count == 1, usesRussianCountedOne) {
-        case (.photo, _, true): fallback = "%@ Photo"
-        case (.video, _, true): fallback = "%@ Video"
-        case (.file, _, true): fallback = "%@ File"
-        case (.voice, _, true): fallback = "%@ Voice message"
-        case (.photo, true, false): fallback = "Photo"
-        case (.photo, false, false): fallback = "%@ Photos"
-        case (.video, true, false): fallback = "Video"
-        case (.video, false, false): fallback = "%@ Videos"
-        case (.file, true, false): fallback = "File"
-        case (.file, false, false): fallback = "%@ Files"
-        case (.voice, true, false): fallback = "Voice message"
-        case (.voice, false, false): fallback = "%@ Voice messages"
+        let resource = localizationResource(for: kind)
+        if count == 1 {
+            return L10n.text(
+                resource.singularKey,
+                fallback: resource.singularFallback
+            )
         }
-        return fallback.localizeString(
-            id: key,
-            arguments: count == 1 ? [] : [String(count)]
+        return L10n.plural(
+            resource.countedKey,
+            count: count,
+            fallback: resource.countedFallback
         )
     }
 
-    private static func resourceName(
+    private static func localizationResource(
         for kind: LastChatAttachmentPreviewKind
-    ) -> String {
+    ) -> (
+        singularKey: String,
+        singularFallback: String,
+        countedKey: String,
+        countedFallback: String
+    ) {
         switch kind {
-        case .photo: return "photos"
-        case .video: return "videos"
-        case .file: return "files"
-        case .voice: return "voice_messages"
+        case .photo:
+            return (
+                "chat_list__attachment_preview__photo",
+                "Photo",
+                "chat_list__attachment_preview__photos_count",
+                "%lld Photos"
+            )
+        case .video:
+            return (
+                "chat_list__attachment_preview__video",
+                "Video",
+                "chat_list__attachment_preview__videos_count",
+                "%lld Videos"
+            )
+        case .file:
+            return (
+                "chat_list__attachment_preview__file",
+                "File",
+                "chat_list__attachment_preview__files_count",
+                "%lld Files"
+            )
+        case .voice:
+            return (
+                "chat_list__attachment_preview__voice_message",
+                "Voice message",
+                "chat_list__attachment_preview__voice_messages_count",
+                "%lld Voice messages"
+            )
         }
-    }
-
-    private static func pluralResourceIndex(count: Int) -> Int {
-        let language = currentLanguageCode()
-        guard language.hasPrefix("ru") else {
-            return count == 1 ? 0 : 1
-        }
-        let absoluteCount = abs(count)
-        let mod100 = absoluteCount % 100
-        if (11...14).contains(mod100) {
-            return 3
-        }
-        switch absoluteCount % 10 {
-        case 1: return 0
-        case 2...4: return 1
-        default: return 2
-        }
-    }
-
-    private static func currentLanguageCode() -> String {
-        LocalizationRuntime.shared.context.resolvedLanguage.rawValue.lowercased()
     }
 }
 

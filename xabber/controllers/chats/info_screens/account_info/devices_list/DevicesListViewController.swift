@@ -311,7 +311,10 @@ class DevicesListViewController: BaseViewController {
         
         if devices.isNotEmpty {
             let activeDevicesSection = Datasource(.token,
-                                                  title: "Active devices".localizeString(id: "settings_account__label_active_sessions", arguments: []),
+                                                  title: L10n.text(
+                                                    "settings_account__label_active_devices",
+                                                    fallback: "Active devices"
+                                                  ),
                                                   value: "You can terminate sessions you don`t need. Official Clandestino clients wipe all user data from the device upon session termination.".localizeString(id: "account_settings_terminate_description", arguments: []),
                                                   editable: false)
             if self.isVerificationRequired && activeVerificationSessionSid == nil {

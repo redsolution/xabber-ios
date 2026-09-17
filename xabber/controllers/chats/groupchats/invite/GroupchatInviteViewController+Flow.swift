@@ -146,21 +146,20 @@ extension GroupchatInviteViewController {
                          animated: true,
                          completion: nil)
         } else {
-            if self.invitedJidsCount > 1 {
-                ErrorMessagePresenter()
-                    .present(in: self,
-                             message: "Invitations sent"
-                                .localizeString(id: "groupchat__toast__invitations_sent[other]", arguments: []),
-                             animated: true,
-                             completion: nil)
-            } else {
-                ErrorMessagePresenter()
-                    .present(in: self,
-                             message: "Invitation sent"
-                                .localizeString(id: "groupchat__toast__invitations_sent[one]", arguments: []),
-                             animated: true,
-                             completion: nil)
-            }
+            let invitationCount = max(1, self.invitedJidsCount)
+            ErrorMessagePresenter()
+                .present(
+                    in: self,
+                    message: L10n.plural(
+                        "groupchat__toast__invitations_sent",
+                        count: invitationCount,
+                        fallback: invitationCount == 1
+                            ? "Invitation sent"
+                            : "Invitations sent"
+                    ),
+                    animated: true,
+                    completion: nil
+                )
             self.invitedJidsCount = 0
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                 self.inSaveMode.accept(false)

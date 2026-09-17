@@ -1274,7 +1274,7 @@ class MessageStorageItem: Object {
                        let title = Self.contactDisplayTitle(for: contacts[0]) {
                         resultBody += title
                     } else if contacts.count > 1 {
-                        resultBody += "Contact".localizeString(id: "chat_message_contact_count", arguments: ["\(contacts.count)"])
+                        resultBody += "Contact".localizeString(id: "chat_message_contact_count", arguments: [])
                     }
                     
                     if inlineForwards.count == 1 {

@@ -5,8 +5,8 @@ import UIKit
 @MainActor
 final class ChatAttachmentAccessibilityLocalizationTests: XCTestCase {
     func testRequiredLocalizationKeysExistInEnglishAndRussian() throws {
-        let english = try localizationKeys(for: "en")
-        let russian = try localizationKeys(for: "ru")
+        let english = try LocalizationCatalogTestFixture.localizedKeys(for: "en")
+        let russian = try LocalizationCatalogTestFixture.localizedKeys(for: "ru")
 
         for key in ChatAttachmentLocalization.requiredKeys {
             XCTAssertTrue(english.contains(key), "Missing English localization for \(key)")
@@ -124,24 +124,6 @@ final class ChatAttachmentAccessibilityLocalizationTests: XCTestCase {
         XCTAssertEqual(editor.cancelButton.accessibilityLabel, ChatAttachmentLocalization.string(.actionCancel))
         XCTAssertEqual(editor.rotateButton.accessibilityLabel, ChatAttachmentLocalization.string(.editorRotateAction))
         XCTAssertEqual(editor.doneButton.accessibilityLabel, ChatAttachmentLocalization.string(.actionDone))
-    }
-
-    private func localizationKeys(for language: String) throws -> Set<String> {
-        let sourceRootURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let url = sourceRootURL
-            .appendingPathComponent("xabber/translations/\(language).lproj/Localizable.strings")
-        let contents = try String(contentsOf: url, encoding: .utf8)
-        let pattern = #"^\s*"([^"]+)"\s*="#
-        let regex = try NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines])
-        let range = NSRange(contents.startIndex..<contents.endIndex, in: contents)
-        return Set(regex.matches(in: contents, options: [], range: range).compactMap { match in
-            guard let keyRange = Range(match.range(at: 1), in: contents) else {
-                return nil
-            }
-            return String(contents[keyRange])
-        })
     }
 
     private func draft(

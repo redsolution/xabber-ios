@@ -310,9 +310,9 @@ final class GroupCreationContractTests: XCTestCase {
         XCTAssertTrue(info.contains("id: \"exit\""))
 
         for locale in ["en", "ru"] {
-            let strings = try source("xabber/translations/\(locale).lproj/Localizable.strings")
-            XCTAssertTrue(strings.contains("\"groupchat_delete_p2p_confirm\""), locale)
-            XCTAssertTrue(strings.contains("\"groupchat_delete_last_owner_confirm\""), locale)
+            let keys = try LocalizationCatalogTestFixture.localizedKeys(for: locale)
+            XCTAssertTrue(keys.contains("groupchat_delete_p2p_confirm"), locale)
+            XCTAssertTrue(keys.contains("groupchat_delete_last_owner_confirm"), locale)
         }
     }
 

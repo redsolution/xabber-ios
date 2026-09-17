@@ -326,7 +326,11 @@ enum ChatAttachmentFileImportFailure: Equatable {
         case .emptyFile, .unableToPrepare:
             return "Selected file could not be prepared. Please choose it again.".localizeString(id: "media_picker_error_prepare_failed", arguments: [])
         case .oversizedFile(let maximumSize):
-            return "File is too large. Maximum size is \(AccountQuotaStorageItem.beautify(size: maximumSize)).".localizeString(id: "media_picker_error_file_too_large", arguments: [])
+            return L10n.format(
+                "media_picker_error_file_too_large",
+                fallback: "File is too large. Maximum size is %@.",
+                arguments: [AccountQuotaStorageItem.beautify(size: maximumSize)]
+            )
         case .maximumSelectionCountReached:
             return "You can select up to 10 items.".localizeString(id: "media_picker_error_max_selection_count", arguments: [])
         }

@@ -1102,6 +1102,36 @@ final class LastChatsViewControllerBehaviorTests: XCTestCase {
         }
     }
 
+    func testAttachmentPreviewUsesSingularTextAndNativeCountedPluralKeys() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent(
+                "xabber/xmpp/XEP-0CCC/LastChatListSyncPreviewStore.swift"
+            ),
+            encoding: .utf8
+        )
+        let expectedKeys = [
+            "chat_list__attachment_preview__photo",
+            "chat_list__attachment_preview__video",
+            "chat_list__attachment_preview__file",
+            "chat_list__attachment_preview__voice_message",
+            "chat_list__attachment_preview__photos_count",
+            "chat_list__attachment_preview__videos_count",
+            "chat_list__attachment_preview__files_count",
+            "chat_list__attachment_preview__voice_messages_count"
+        ]
+
+        for key in expectedKeys {
+            XCTAssertTrue(source.contains("\"\(key)\""), key)
+        }
+        XCTAssertTrue(source.contains("L10n.text("))
+        XCTAssertTrue(source.contains("L10n.plural("))
+        XCTAssertFalse(source.contains("plurals.last_chat_attachment_preview__"))
+        XCTAssertFalse(source.contains("pluralResourceIndex"))
+    }
+
     func testAttachmentCaptionWinsOverTypedLabelAndFallbackURLInBothPreviewPaths() throws {
         let caption = "Trip caption"
         let materialized = LastChatMessagePreviewPolicy.preview(

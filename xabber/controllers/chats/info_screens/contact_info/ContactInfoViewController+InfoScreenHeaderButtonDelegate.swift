@@ -317,7 +317,11 @@ extension ContactInfoViewController: InfoScreenHeaderDelegate {
             ActionSheetPresenter().present(
                 in: self,
                 title: "Delete contact".localizeString(id: "contact_delete_full", arguments: []),
-                message: "Do you really want to delete contact \(displayedName)?".localizeString(id: "contact_delete_confirm_short", arguments: ["\(displayedName)"]),
+                message: L10n.format(
+                    "contact_delete_confirm_short",
+                    fallback: "Do you really want to delete contact %@?",
+                    arguments: [displayedName]
+                ),
                 cancel: "Cancel".localizeString(id: "cancel", arguments: []),
                 values: deleteItems,
                 animated: true

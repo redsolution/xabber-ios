@@ -591,6 +591,18 @@
         }
       }
     },
+    "about_xabber": {
+      "comment": "Product description shown on the About screen. Existing trusted inline markup is retained for compatibility.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clandestino is an <u><b>open</b> <i>source</i></u> XMPP messenger for Android, iOS and Web platforms. It is build around open standards, interoperability, design and great user experience. Versions of Clandestino for every platform are built to provide a continuous chat experience between them.\nYou will find more information on our official website https://xabber.com"
+          }
+        }
+      }
+    },
     "about_xabber.u_0.b_0": {
       "extractionState": "manual",
       "localizations": {
@@ -1285,6 +1297,18 @@
         }
       }
     },
+    "account_already_exists": {
+      "comment": "Error shown during sign-in when the entered account is already configured on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account already exists"
+          }
+        }
+      }
+    },
     "account_auth__error__text_input_username": {
       "extractionState": "manual",
       "localizations": {
@@ -1559,6 +1583,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Change profile picture"
+          }
+        }
+      }
+    },
+    "account_change_profile_picture_hint": {
+      "comment": "VoiceOver hint for opening profile-picture actions on the account edit screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open profile picture options"
           }
         }
       }
@@ -3593,6 +3629,18 @@
         }
       }
     },
+    "account_invalid_qr_message": {
+      "comment": "Error shown when the account QR scanner cannot recognize a valid account code.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid QR code"
+          }
+        }
+      }
+    },
     "account_is_offline": {
       "extractionState": "manual",
       "localizations": {
@@ -4652,6 +4700,30 @@
           "stringUnit": {
             "state": "translated",
             "value": "Value: %@"
+          }
+        }
+      }
+    },
+    "account_quit_cleanup_progress": {
+      "comment": "Visible progress text while local account data is being removed from this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleting account data..."
+          }
+        }
+      }
+    },
+    "account_quit_cleanup_progress_accessibility": {
+      "comment": "VoiceOver progress description while local account data is being removed from this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleting account data from this device"
           }
         }
       }
@@ -6095,6 +6167,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "与 Xabber 帐户同步"
+          }
+        }
+      }
+    },
+    "account_terminate_all_other_sessions": {
+      "comment": "Action title for terminating every other session from account information.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminate all other sessions"
           }
         }
       }
@@ -10200,6 +10284,18 @@
         }
       }
     },
+    "avatars": {
+      "comment": "Cloud Storage category title for avatar files.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avatars"
+          }
+        }
+      }
+    },
     "away": {
       "extractionState": "manual",
       "localizations": {
@@ -10237,6 +10333,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "离开"
+          }
+        }
+      }
+    },
+    "back": {
+      "comment": "Back action title on the QR scanner screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back"
           }
         }
       }
@@ -10446,6 +10554,30 @@
         }
       }
     },
+    "block": {
+      "comment": "Confirmation action title when blocking a contact or group.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block"
+          }
+        }
+      }
+    },
+    "block_contact": {
+      "comment": "Swipe-action title for blocking a contact.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block contact"
+          }
+        }
+      }
+    },
     "block_contact_confirm": {
       "extractionState": "manual",
       "localizations": {
@@ -10517,6 +10649,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Вы не сможете обмениваться сообщениями и информацией о присутствии с <b>%@</b>"
+          }
+        }
+      }
+    },
+    "block_group": {
+      "comment": "Swipe-action title for blocking a group.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block group"
           }
         }
       }
@@ -11666,6 +11810,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "确实要删除聊天记录和其他本地数据吗？\n账户和联系人数据不会受影响，该程序将会关闭。"
+          }
+        }
+      }
+    },
+    "call": {
+      "comment": "Chat-list swipe action that starts a call.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Call"
           }
         }
       }
@@ -13476,6 +13632,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Allow and subscribe back"
+          }
+        }
+      }
+    },
+    "chat_archive_loading_earlier_messages": {
+      "comment": "Progress text shown while older messages are loaded from the chat archive.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading earlier messages"
           }
         }
       }
@@ -15706,6 +15874,18 @@
         }
       }
     },
+    "chat_info": {
+      "comment": "Chat toolbar action that opens conversation information.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat info"
+          }
+        }
+      }
+    },
     "chat_input_hint": {
       "extractionState": "manual",
       "localizations": {
@@ -15743,6 +15923,294 @@
           "stringUnit": {
             "state": "translated",
             "value": "在此输入你的消息"
+          }
+        }
+      }
+    },
+    "chat_list__attachment_preview__file": {
+      "comment": "Singular attachment-type preview shown in the chat list when exactly one attachment is present.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файл"
+          }
+        }
+      }
+    },
+    "chat_list__attachment_preview__files_count": {
+      "comment": "Counted attachment-type preview shown in the chat list. The count is the first signed-integer format argument.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld File"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Files"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld файла"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld файлов"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld файл"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld файлов"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "chat_list__attachment_preview__photo": {
+      "comment": "Singular attachment-type preview shown in the chat list when exactly one attachment is present.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фото"
+          }
+        }
+      }
+    },
+    "chat_list__attachment_preview__photos_count": {
+      "comment": "Counted attachment-type preview shown in the chat list. The count is the first signed-integer format argument.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Photo"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Photos"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld фото"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld фото"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld фото"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld фото"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "chat_list__attachment_preview__video": {
+      "comment": "Singular attachment-type preview shown in the chat list when exactly one attachment is present.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Видео"
+          }
+        }
+      }
+    },
+    "chat_list__attachment_preview__videos_count": {
+      "comment": "Counted attachment-type preview shown in the chat list. The count is the first signed-integer format argument.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Video"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Videos"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld видео"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld видео"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld видео"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld видео"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "chat_list__attachment_preview__voice_message": {
+      "comment": "Singular attachment-type preview shown in the chat list when exactly one attachment is present.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice message"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Голосовое сообщение"
+          }
+        }
+      }
+    },
+    "chat_list__attachment_preview__voice_messages_count": {
+      "comment": "Counted attachment-type preview shown in the chat list. The count is the first signed-integer format argument.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Voice message"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Voice messages"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld голосовых сообщения"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld голосовых сообщений"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld голосовое сообщение"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld голосовых сообщений"
+                }
+              }
+            }
           }
         }
       }
@@ -15879,6 +16347,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Приглашения в чат"
+          }
+        }
+      }
+    },
+    "chat_message_contact_count": {
+      "comment": "Attachment preview used when a message contains multiple shared contacts.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contact"
           }
         }
       }
@@ -16413,6 +16893,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "此聊天的通知"
+          }
+        }
+      }
+    },
+    "chat_omemo_untrusted_contact_devices_warning": {
+      "comment": "Warning shown when an encrypted message was not delivered to untrusted devices.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This message was not sent to one or more untrusted devices."
           }
         }
       }
@@ -21108,18 +21600,19 @@
       }
     },
     "contact_delete_confirm_short": {
+      "comment": "Plain-text confirmation before deleting a contact. Argument 1 is the contact display name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do you really want to delete contact <b>%@</b>?"
+            "value": "Do you really want to delete contact %@?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вы действительно хотите удалить контакт <b>%@</b>?"
+            "value": "Вы действительно хотите удалить контакт %@?"
           }
         }
       }
@@ -22149,6 +22642,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Contact will be added to this account"
+          }
+        }
+      }
+    },
+    "contact_will_be_deleted": {
+      "comment": "Contact editor warning that saving will delete the contact.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contact will be deleted."
           }
         }
       }
@@ -23728,6 +24233,18 @@
         }
       }
     },
+    "decline_invite": {
+      "comment": "Action title for declining a group invitation.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decline"
+          }
+        }
+      }
+    },
     "delete": {
       "extractionState": "manual",
       "localizations": {
@@ -24485,6 +25002,30 @@
         }
       }
     },
+    "device_detail_terminate_session_accessibility_hint": {
+      "comment": "VoiceOver hint for the terminate-session control; activation opens a confirmation.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires confirmation."
+          }
+        }
+      }
+    },
+    "device_detail_terminate_session_message": {
+      "comment": "Confirmation message before terminating the selected device session.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminate the selected device session. Current device remains signed in. Account and server data is not deleted."
+          }
+        }
+      }
+    },
     "device_info_rename_device": {
       "extractionState": "manual",
       "localizations": {
@@ -24558,6 +25099,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "Example %@"
+          }
+        }
+      }
+    },
+    "devices_session_terminate_single_message": {
+      "comment": "Confirmation message before terminating one session from the devices list.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminate the selected device session. Current device remains signed in. Account and server data is not deleted."
+          }
+        }
+      }
+    },
+    "devices_session_terminate_single_title": {
+      "comment": "Confirmation title before terminating one session from the devices list.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminate this session?"
+          }
+        }
+      }
+    },
+    "devices_terminate_all_other_sessions_confirm": {
+      "comment": "Destructive confirmation action for terminating all sessions except the current device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminate other sessions"
+          }
+        }
+      }
+    },
+    "devices_terminate_all_other_sessions_message": {
+      "comment": "Confirmation message for terminating all sessions except the current device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminate all other device sessions. This device remains signed in. Account and server data is not deleted."
+          }
+        }
+      }
+    },
+    "devices_terminate_all_other_sessions_title": {
+      "comment": "Confirmation title for terminating all sessions except the current device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminate other device sessions?"
+          }
+        }
+      }
+    },
+    "devices_terminate_other_sessions_button": {
+      "comment": "Devices-list button that starts termination of every other session.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminate other sessions"
           }
         }
       }
@@ -26037,6 +26650,18 @@
         }
       }
     },
+    "done": {
+      "comment": "Done action title in the account profile editor.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        }
+      }
+    },
     "draft": {
       "extractionState": "manual",
       "localizations": {
@@ -27160,6 +27785,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Contact: %@"
+          }
+        }
+      }
+    },
+    "eula_terms_text": {
+      "comment": "Full End User License Agreement and conduct policy. Argument 1 is the support email address.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End User License Agreement and User Conduct Policy\n\nThis application is an XMPP client that allows users to connect to XMPP messaging services. Some XMPP servers and services may be operated by the application developer. Other XMPP servers may be operated by independent third parties and are outside the developer's ownership, jurisdiction, and direct administrative control.\n\nBy using this application, you agree to the following terms:\n\n1. No tolerance for objectionable content or abusive conduct\n\nYou may not create, send, upload, post, transmit, distribute, or make available any objectionable content or engage in abusive behavior through this application.\n\nObjectionable content and abusive behavior include, but are not limited to:\n- harassment, bullying, stalking, threats, or intimidation;\n- hate speech or content attacking people based on protected characteristics;\n- sexually explicit, pornographic, or exploitative content;\n- content involving child sexual abuse material or exploitation of minors;\n- graphic violence, incitement to violence, or threats of physical harm;\n- illegal content or content that encourages illegal activity;\n- spam, scams, impersonation, phishing, or malicious links;\n- content that infringes intellectual property or privacy rights;\n- any content or behavior that makes the service unsafe for other users.\n\nThe application has no tolerance for objectionable content or abusive users.\n\n2. Third-party XMPP servers\n\nThis application may allow you to connect to third-party XMPP servers that are not operated, moderated, or controlled by the application developer.\n\nWhen connecting to a third-party XMPP server, you are responsible for following that server's own terms, policies, and applicable laws. The developer is not responsible for operating, moderating, or administering third-party XMPP servers.\n\nHowever, your use of third-party XMPP servers through this application must still comply with this User Conduct Policy.\n\n3. Developer-operated services\n\nFor XMPP services, accounts, chat rooms, or servers operated by the developer, violation of these terms may result in removal or hiding of content, suspension or termination of access, ejection from rooms or services, or other measures needed to protect users and comply with applicable law.\n\n4. User responsibility\n\nYou are responsible for the content you send, upload, post, transmit, or otherwise make available through this application.\n\nYou agree not to use this application to engage in abusive, harmful, illegal, deceptive, or unsafe behavior.\n\n5. Safety and moderation limitations\n\nBecause XMPP is a federated protocol and users may connect to third-party servers, the developer may not always have the technical or legal ability to remove content from a remote server, moderate a third-party room, or terminate a third-party account.\n\nThis does not change your obligation to follow this User Conduct Policy when using the application.\n\n6. Termination and restrictions\n\nViolation of these terms may result in restriction or termination of access to developer-operated services, disabling of app features, restriction of access to specific servers through the app, or other measures needed to protect users and comply with applicable law.\n\n7. Contact\n\nUsers can contact the developer to report safety issues, objectionable content, abusive users, legal concerns, or moderation concerns at:\n\n%1$@\n\nBy tapping \"I Agree\", you confirm that you have read and agree to this End User License Agreement and User Conduct Policy."
           }
         }
       }
@@ -29030,6 +29667,18 @@
         }
       }
     },
+    "flashlight": {
+      "comment": "Flashlight toggle title on the QR scanner screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flashlight"
+          }
+        }
+      }
+    },
     "forgot_pass": {
       "extractionState": "manual",
       "localizations": {
@@ -29168,6 +29817,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Gallery"
+          }
+        }
+      }
+    },
+    "go_to_message": {
+      "comment": "Gallery context-menu action that navigates to the source chat message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go to message"
           }
         }
       }
@@ -29375,6 +30036,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "设置分组名称"
+          }
+        }
+      }
+    },
+    "group_member": {
+      "comment": "Push notification subtitle identifying a sender as a group member.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group member"
           }
         }
       }
@@ -30078,6 +30751,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "Бейдж не может содержать больше 32 символов"
+          }
+        }
+      }
+    },
+    "groupchat__toast__invitations_sent": {
+      "comment": "Toast shown after sending group invitations. The plural selector is the number of invited contacts; the number is intentionally not displayed.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@invitations@"
+          },
+          "substitutions": {
+            "invitations": {
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "Invitation sent"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "Invitations sent"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@invitations@"
+          },
+          "substitutions": {
+            "invitations": {
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "few": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "Приглашения отправлены"
+                    }
+                  },
+                  "many": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "Приглашения отправлены"
+                    }
+                  },
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "Приглашение отправлено"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "Приглашения отправлены"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -33429,6 +34174,18 @@
         }
       }
     },
+    "info": {
+      "comment": "Call-history swipe action that opens call information.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Info"
+          }
+        }
+      }
+    },
     "input_widget__button_rename": {
       "extractionState": "manual",
       "localizations": {
@@ -34292,6 +35049,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "隐身"
+          }
+        }
+      }
+    },
+    "jid": {
+      "comment": "Label for an XMPP identifier in contact and group information.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XMPP ID"
           }
         }
       }
@@ -35183,6 +35952,114 @@
           "stringUnit": {
             "state": "translated",
             "value": "Маски"
+          }
+        }
+      }
+    },
+    "media_picker_cloud_storage_connecting": {
+      "comment": "User-facing attachment picker status or error message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Storage is still connecting. Please try again shortly."
+          }
+        }
+      }
+    },
+    "media_picker_error_cloud_files_unavailable": {
+      "comment": "User-facing attachment picker status or error message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud files are unavailable."
+          }
+        }
+      }
+    },
+    "media_picker_error_file_too_large": {
+      "comment": "Attachment picker error for an oversized file. Argument 1 is the formatted maximum file size.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File is too large. Maximum size is %1$@."
+          }
+        }
+      }
+    },
+    "media_picker_error_max_selection_count": {
+      "comment": "User-facing attachment picker status or error message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can select up to 10 items."
+          }
+        }
+      }
+    },
+    "media_picker_error_open_failed": {
+      "comment": "User-facing attachment picker status or error message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to open attachment picker."
+          }
+        }
+      }
+    },
+    "media_picker_error_premium_required": {
+      "comment": "User-facing attachment picker status or error message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium is required to send images."
+          }
+        }
+      }
+    },
+    "media_picker_error_prepare_failed": {
+      "comment": "User-facing attachment picker status or error message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected file could not be prepared. Please choose it again."
+          }
+        }
+      }
+    },
+    "media_picker_error_unavailable": {
+      "comment": "User-facing attachment picker status or error message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected file is unavailable. Please choose it again."
+          }
+        }
+      }
+    },
+    "media_picker_error_upload_unavailable": {
+      "comment": "User-facing attachment picker status or error message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File transfer is unavailable for this account."
           }
         }
       }
@@ -37098,6 +37975,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "新状态"
+          }
+        }
+      }
+    },
+    "new_verification_request": {
+      "comment": "Push notification title for a new identity verification request.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New verification request"
           }
         }
       }
@@ -40340,6 +41229,18 @@
         }
       }
     },
+    "photo_library": {
+      "comment": "Photo Library action title on the QR scanner screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photo Library"
+          }
+        }
+      }
+    },
     "photo_sent_by": {
       "extractionState": "manual",
       "localizations": {
@@ -41871,62 +42772,6 @@
         }
       }
     },
-    "plurals.groupchat__toast__invitations_sent.item_0": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invitation sent"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Приглашение отправлено"
-          }
-        }
-      }
-    },
-    "plurals.groupchat__toast__invitations_sent.item_1": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Invitations sent"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Приглашения отправлены"
-          }
-        }
-      }
-    },
-    "plurals.groupchat__toast__invitations_sent.item_2": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Приглашения отправлены"
-          }
-        }
-      }
-    },
-    "plurals.groupchat__toast__invitations_sent.item_3": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Приглашения отправлены"
-          }
-        }
-      }
-    },
     "plurals.groupchat__toast_failed_to_sent_invitations.item_0": {
       "extractionState": "manual",
       "localizations": {
@@ -42035,274 +42880,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$d участников"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__files.item_0": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "File"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Файл"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__files.item_0_counted": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ файл"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__files.item_1": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ Files"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ файла"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__files.item_2": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ файлов"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__files.item_3": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ файлов"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__photos.item_0": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Photo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Фото"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__photos.item_0_counted": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ фото"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__photos.item_1": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ Photos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ фото"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__photos.item_2": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ фото"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__photos.item_3": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ фото"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__videos.item_0": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Video"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Видео"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__videos.item_0_counted": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ видео"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__videos.item_1": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ Videos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ видео"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__videos.item_2": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ видео"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__videos.item_3": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ видео"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__voice_messages.item_0": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Voice message"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Голосовое сообщение"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__voice_messages.item_0_counted": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ голосовое сообщение"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__voice_messages.item_1": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ Voice messages"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ голосовых сообщения"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__voice_messages.item_2": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ голосовых сообщений"
-          }
-        }
-      }
-    },
-    "plurals.last_chat_attachment_preview__voice_messages.item_3": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ голосовых сообщений"
           }
         }
       }
@@ -43749,6 +44326,18 @@
         }
       }
     },
+    "push_invitation_sender_unknown": {
+      "comment": "Fallback sender name used for an invitation notification when the inviter is unknown.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Someone"
+          }
+        }
+      }
+    },
     "push_log_title": {
       "extractionState": "manual",
       "localizations": {
@@ -43762,6 +44351,30 @@
           "stringUnit": {
             "state": "translated",
             "value": "Журнал push-уведомлений"
+          }
+        }
+      }
+    },
+    "push_sender_unknown": {
+      "comment": "Fallback sender name used for a general notification when the sender is unknown.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Somebody"
+          }
+        }
+      }
+    },
+    "qr_scanner_invalid_gallery_message": {
+      "comment": "Alert message when a selected image contains no valid QR code.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No valid QR code found in the image. Please try again."
           }
         }
       }
@@ -45182,6 +45795,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перешлите сюда для сохранения"
+          }
+        }
+      }
+    },
+    "saved_messages_unavailable_error": {
+      "comment": "Error shown when forwarding to Saved Messages is unavailable.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved Messages are unavailable."
           }
         }
       }
@@ -47516,6 +48141,30 @@
         }
       }
     },
+    "settings_account__label_active_devices": {
+      "comment": "Section title for devices currently connected to the account.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active devices"
+          }
+        }
+      }
+    },
+    "settings_account__label_active_sessions": {
+      "comment": "Section title for active account sessions.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active sessions"
+          }
+        }
+      }
+    },
     "settings_account__label_client": {
       "extractionState": "manual",
       "localizations": {
@@ -47535,6 +48184,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "Клиент"
+          }
+        }
+      }
+    },
+    "settings_account__label_color_name_amber": {
+      "comment": "Localized name of an account avatar color in the color picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amber"
+          }
+        }
+      }
+    },
+    "settings_account__label_color_name_blue": {
+      "comment": "Localized name of an account avatar color in the color picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blue"
+          }
+        }
+      }
+    },
+    "settings_account__label_color_name_green": {
+      "comment": "Localized name of an account avatar color in the color picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Green"
+          }
+        }
+      }
+    },
+    "settings_account__label_color_name_indigo": {
+      "comment": "Localized name of an account avatar color in the color picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indigo"
+          }
+        }
+      }
+    },
+    "settings_account__label_color_name_lime": {
+      "comment": "Localized name of an account avatar color in the color picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lime"
+          }
+        }
+      }
+    },
+    "settings_account__label_color_name_orange": {
+      "comment": "Localized name of an account avatar color in the color picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orange"
+          }
+        }
+      }
+    },
+    "settings_account__label_color_name_pink": {
+      "comment": "Localized name of an account avatar color in the color picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pink"
+          }
+        }
+      }
+    },
+    "settings_account__label_color_name_purple": {
+      "comment": "Localized name of an account avatar color in the color picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Purple"
+          }
+        }
+      }
+    },
+    "settings_account__label_color_name_red": {
+      "comment": "Localized name of an account avatar color in the color picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Red"
+          }
+        }
+      }
+    },
+    "settings_account__label_current_session": {
+      "comment": "Label identifying the current device session in account settings.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device"
+          }
+        }
+      }
+    },
+    "settings_account__label_push_notifications": {
+      "comment": "Settings label for push-notification capability.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Push notifications"
           }
         }
       }
@@ -47706,6 +48487,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Revoke token"
+          }
+        }
+      }
+    },
+    "settings_choose_language": {
+      "comment": "Settings row subtitle that opens the application language selector.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose language"
           }
         }
       }
@@ -48469,6 +49262,30 @@
         }
       }
     },
+    "signin_cloud_storage": {
+      "comment": "Cloud Storage capability label on the server sign-in screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud storage"
+          }
+        }
+      }
+    },
+    "signin_cloud_storage_retryable_failure": {
+      "comment": "Retryable Cloud Storage capability-check message on the sign-in screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not verify Cloud Storage right now. The app will retry automatically."
+          }
+        }
+      }
+    },
     "signin_device_management": {
       "extractionState": "manual",
       "localizations": {
@@ -48720,6 +49537,66 @@
           "stringUnit": {
             "state": "translated",
             "value": "Быстрая синхронизация не поддерживается. Эта функция позволяет надежно работать на мобильных устройствах и значительно улучшает взаимодействия пользователя. Не рекомендуется использовать Xabber на серверах без быстрой синхронизации."
+          }
+        }
+      }
+    },
+    "signin_server_capabilities": {
+      "comment": "Server capabilities section title on the sign-in screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server capabilities"
+          }
+        }
+      }
+    },
+    "signin_server_capabilities_partial_failure_subtitle": {
+      "comment": "Detailed sign-in status shown when only some server capabilities could be verified.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some server capabilities could not be verified right now. You can continue safely; the app will retry automatically."
+          }
+        }
+      }
+    },
+    "signin_server_capabilities_retryable_failure": {
+      "comment": "Retryable server-capability check explanation on the sign-in screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server capability check could not be completed. This is temporary and does not mean that the server lacks these features."
+          }
+        }
+      }
+    },
+    "signin_server_capabilities_retryable_subtitle": {
+      "comment": "Short sign-in status explaining that server capability discovery will retry automatically.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server capabilities will be checked again automatically."
+          }
+        }
+      }
+    },
+    "signin_server_capabilities_retryable_title": {
+      "comment": "Retryable server-capability alert. Argument 1 is the server domain.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not verify all capabilities of %1$@ right now. You can continue; the app will retry automatically."
           }
         }
       }
@@ -53328,6 +54205,30 @@
         }
       }
     },
+    "upload_error_encryption_failed": {
+      "comment": "User-facing file-upload error shown in the chat flow.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected file could not be encrypted. Please try again."
+          }
+        }
+      }
+    },
+    "upload_error_failed": {
+      "comment": "User-facing file-upload error shown in the chat flow.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File upload failed. Please try again."
+          }
+        }
+      }
+    },
     "upload_error_file_too_large": {
       "extractionState": "manual",
       "localizations": {
@@ -53362,6 +54263,30 @@
         }
       }
     },
+    "upload_error_local_file_unavailable": {
+      "comment": "User-facing file-upload error shown in the chat flow.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected file is unavailable. Please choose it again."
+          }
+        }
+      }
+    },
+    "upload_error_media_metadata": {
+      "comment": "User-facing file-upload error shown in the chat flow.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected file has unsupported media metadata. Please choose it again."
+          }
+        }
+      }
+    },
     "upload_error_no_attach": {
       "extractionState": "manual",
       "localizations": {
@@ -53375,6 +54300,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Файл не прикреплён"
+          }
+        }
+      }
+    },
+    "upload_error_prepare_failed": {
+      "comment": "User-facing file-upload error shown in the chat flow.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected file could not be prepared. Please choose it again."
           }
         }
       }
@@ -53409,6 +54346,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Сервер недоступен"
+          }
+        }
+      }
+    },
+    "upload_error_storage_update_failed": {
+      "comment": "User-facing file-upload error shown in the chat flow.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload finished, but the message could not be updated. Please try again."
           }
         }
       }
@@ -55592,6 +56541,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Рабочий адрес"
+          }
+        }
+      }
+    },
+    "verification_request_description": {
+      "comment": "Push notification body for an identity verification request. Argument 1 is the sender display name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ asks you to verify yourself"
           }
         }
       }

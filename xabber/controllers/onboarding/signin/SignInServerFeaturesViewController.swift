@@ -808,8 +808,10 @@ class SignInServerFeaturesViewController: UIViewController {
                 Datasource(
                     key: "subtitle",
                     kind: .subtitle,
-                    title: "Server capabilities will be checked again automatically."
-                        .localizeString(id: "signin_server_capabilities_retryable_subtitle", arguments: [])
+                    title: L10n.text(
+                        "signin_server_capabilities_retryable_subtitle",
+                        fallback: "Server capabilities will be checked again automatically."
+                    )
                 ),
                 Datasource(
                     key: "registerButton",
@@ -1137,8 +1139,10 @@ class SignInServerFeaturesViewController: UIViewController {
             subtitle.isHidden = false
             connectButton.isHidden = false
             subtitle.attributedText = NSAttributedString(
-                string: "Some server capabilities could not be verified right now. You can continue safely; the app will retry automatically."
-                    .localizeString(id: "signin_server_capabilities_retryable_subtitle", arguments: []),
+                string: L10n.text(
+                    "signin_server_capabilities_partial_failure_subtitle",
+                    fallback: "Some server capabilities could not be verified right now. You can continue safely; the app will retry automatically."
+                ),
                 attributes: [
                     .paragraphStyle: paragraph,
                     .foregroundColor: MDCPalette.yellow.tint800,

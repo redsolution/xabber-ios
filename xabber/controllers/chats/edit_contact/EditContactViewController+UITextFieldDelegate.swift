@@ -33,7 +33,11 @@ extension EditContactViewController: UITextFieldDelegate {
         textField.text = nil
         textField.resignFirstResponder()
         if selectedGroups.value.contains(groupName) {
-            self.view.makeToast("Circle \"\(groupName)\" already exitsts".localizeString(id: "account_circle_already_exists", arguments: []))
+            self.view.makeToast(L10n.format(
+                "account_circle_already_exists",
+                fallback: "Circle \"%@\" already exists",
+                arguments: [groupName]
+            ))
         } else {
             let datasourceItem = Datasource(kind: .select, key: "circle", title: groupName, bool: true)
             let groupsCount = self.datasource[groupsSectionIndex].count

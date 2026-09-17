@@ -26,8 +26,11 @@ struct TrustCertificatePresenter {
     let jid: String
     func present(in view: UIViewController, animated: Bool, completion: @escaping ((Bool)->Void)) {
         let alert = UIAlertController(title: "Unknown certificate".localizeString(id: "account_unknown_certificate", arguments: []),
-                                      message: "The identity of  \"\(domain)\" cannot be verified. Do you want to connect to this server anyway?"
-                                        .localizeString(id: "account_identity_not_verified_proceed_anyway", arguments: []),
+                                      message: L10n.format(
+                                        "account_identity_not_verified_proceed_anyway",
+                                        fallback: "The identity of  \"%@\" cannot be verified. Do you want to connect to this server anyway?",
+                                        arguments: [domain]
+                                      ),
                                       preferredStyle: .alert)
 //        alert.addAction(UIAlertAction(title: "Once", style: .default, handler: { (_) in
 //            completion(true)

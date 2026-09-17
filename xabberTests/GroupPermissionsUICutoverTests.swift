@@ -397,9 +397,6 @@ final class GroupPermissionsUICutoverTests: XCTestCase {
     }
 
     func testPermissionResetLocalizationExistsInEnglishAndRussian() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
         let requiredKeys = [
             "groupchat_permissions_reset_action",
             "groupchat_permissions_reset_defaults_confirmation",
@@ -409,15 +406,10 @@ final class GroupPermissionsUICutoverTests: XCTestCase {
         ]
 
         for locale in ["en", "ru"] {
-            let contents = try String(
-                contentsOf: repositoryRoot.appendingPathComponent(
-                    "xabber/translations/\(locale).lproj/Localizable.strings"
-                ),
-                encoding: .utf8
-            )
+            let keys = try LocalizationCatalogTestFixture.localizedKeys(for: locale)
             for key in requiredKeys {
                 XCTAssertTrue(
-                    contents.contains("\"\(key)\" ="),
+                    keys.contains(key),
                     "Missing \(locale) localization for \(key)"
                 )
             }
