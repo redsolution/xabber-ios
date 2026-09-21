@@ -28,6 +28,8 @@ jobs:
 
   - name: Check localization manifest
     run: |
+     python3 -B tools/localization_ui_migration.py check \
+      tools/localization_migrations/*.json
      python3 -B tools/localization_manifest.py check
 
   - name: Validate localization catalog
@@ -35,6 +37,8 @@ jobs:
      python3 -B tools/localization_catalog.py \
       xabber/translations/Localizable.xcstrings \
       --manifest docs/localization/active-keys.json
+     python3 -B tools/localization_catalog.py \
+      xabber/translations/InfoPlist.xcstrings
 
   - name: Copy local swift-ogg package into workspace
     run: |
@@ -116,7 +120,10 @@ jobs:
       -only-testing:xabberTests/LastChatsViewControllerBehaviorTests/testListOnlySyncAttachmentPreviewsUseTypedSingularAndPluralLabels \
       -only-testing:xabberTests/LastChatsViewControllerBehaviorTests/testEnglishAttachmentPreviewKeepsSingularContractAndCountsTwentyOne \
       -only-testing:xabberTests/LastChatsViewControllerBehaviorTests/testRussianAttachmentPreviewIncludesCountForTwentyOneEndingForms \
-      -only-testing:xabberTests/LastChatsViewControllerBehaviorTests/testAttachmentPreviewUsesSingularTextAndNativeCountedPluralKeys
+      -only-testing:xabberTests/LastChatsViewControllerBehaviorTests/testAttachmentPreviewUsesSingularTextAndNativeCountedPluralKeys \
+      -only-testing:xabberTests/PushNotificationRoutingTests \
+      -only-testing:xabberTests/AKESystemMessageLocalizationTests \
+      -only-testing:xabberTests/EphemeralSystemMessageLocalizationTests
 
   - name: Build app and push extension
     env:
