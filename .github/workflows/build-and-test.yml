@@ -39,6 +39,10 @@ jobs:
       --manifest docs/localization/active-keys.json
      python3 -B tools/localization_catalog.py \
       xabber/translations/InfoPlist.xcstrings
+     python3 -B tools/localization_completion.py check-csv \
+      --catalog xabber/translations/Localizable.xcstrings \
+      --manifest docs/localization/active-keys.json \
+      --output docs/localization/active-translations.csv
 
   - name: Copy local swift-ogg package into workspace
     run: |

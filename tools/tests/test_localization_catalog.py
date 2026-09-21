@@ -217,6 +217,76 @@ class CatalogValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(catalog.CatalogError, "active English.*missing"):
             catalog.validate_catalog(document, manifest=manifest)
 
+    def test_manifest_requires_every_supported_locale_for_active_key(self):
+        localizations = {
+            locale: translated("Translated") for locale in catalog.LOCALES
+        }
+        del localizations["fr"]
+        document = base_catalog(
+            {
+                "active": {
+                    "extractionState": "manual",
+                    "localizations": localizations,
+                }
+            }
+        )
+        manifest = {
+            "schemaVersion": 1,
+            "activeKeys": [
+                {
+                    "key": "active",
+                    "apis": ["text"],
+                    "formatSignature": [],
+                    "callsites": [],
+                }
+            ],
+        }
+
+        with self.assertRaisesRegex(
+            catalog.CatalogError,
+            "Missing active translation.*active.*fr",
+        ):
+            catalog.validate_catalog(
+                document,
+                manifest=manifest,
+                require_complete_translations=True,
+            )
+
+    def test_manifest_requires_every_supported_locale_for_reserved_key(self):
+        localizations = {
+            locale: translated("Translated") for locale in catalog.LOCALES
+        }
+        del localizations["ar"]
+        document = base_catalog(
+            {
+                "reserved": {
+                    "extractionState": "manual",
+                    "localizations": localizations,
+                }
+            }
+        )
+        manifest = {
+            "schemaVersion": 1,
+            "activeKeys": [],
+            "domainReservedKeys": [
+                {
+                    "key": "reserved",
+                    "apis": ["text"],
+                    "formatSignatures": [[]],
+                }
+            ],
+        }
+
+        with self.assertRaisesRegex(
+            catalog.CatalogError,
+            "Missing reserved translation.*reserved.*ar",
+        ):
+            catalog.validate_catalog(
+                document,
+                manifest=manifest,
+                require_complete_translations=True,
+            )
+
     def test_manifest_signature_must_match_english(self):
         document = base_catalog(
             {

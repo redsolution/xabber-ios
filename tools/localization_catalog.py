@@ -214,6 +214,7 @@ def validate_catalog(
     catalog: dict[str, Any],
     resources: dict[str, dict[str, str]] | None = None,
     manifest: dict[str, Any] | None = None,
+    require_complete_translations: bool = False,
 ) -> dict[str, Any]:
     if catalog.get("sourceLanguage") != "en":
         raise CatalogError("Catalog sourceLanguage must be en")
@@ -393,7 +394,11 @@ def validate_catalog(
         )
 
     if manifest is not None:
-        validate_manifest_catalog_parity(strings, manifest)
+        validate_manifest_catalog_parity(
+            strings,
+            manifest,
+            require_complete_translations=require_complete_translations,
+        )
 
     return {
         "keys": len(strings),
@@ -944,7 +949,9 @@ def localization_signatures(localization: Any) -> list[list[dict[str, Any]]] | N
 
 
 def validate_manifest_catalog_parity(
-    strings: dict[str, Any], manifest: dict[str, Any]
+    strings: dict[str, Any],
+    manifest: dict[str, Any],
+    require_complete_translations: bool = False,
 ) -> None:
     if (
         type(manifest.get("schemaVersion")) is not int
@@ -992,6 +999,13 @@ def validate_manifest_catalog_parity(
                 f"Reserved English/manifest signature mismatch for {key!r}: "
                 f"manifest={expected_signatures}, catalog={signatures}"
             )
+        if require_complete_translations:
+            localizations = strings.get(key, {}).get("localizations", {})
+            for locale in LOCALES:
+                if not localization_signatures(localizations.get(locale)):
+                    raise CatalogError(
+                        f"Missing reserved translation for {key!r}/{locale}"
+                    )
 
     for active in active_keys:
         if not isinstance(active, dict) or not isinstance(active.get("key"), str):
@@ -1032,6 +1046,14 @@ def validate_manifest_catalog_parity(
                     f"Active plural key {key!r} must use one integer count "
                     "conversion as argument 1"
                 )
+
+        if require_complete_translations:
+            localizations = strings.get(key, {}).get("localizations", {})
+            for locale in LOCALES:
+                if not localization_signatures(localizations.get(locale)):
+                    raise CatalogError(
+                        f"Missing active translation for {key!r}/{locale}"
+                    )
 
         expected_count = format_argument_count(expected)
         for callsite in active.get("callsites", []):
@@ -1122,7 +1144,10 @@ def main() -> int:
             write_catalog(make_catalog(resources), arguments.catalog)
         manifest = load_catalog(arguments.manifest) if arguments.manifest else None
         report = validate_catalog(
-            load_catalog(arguments.catalog), resources, manifest=manifest
+            load_catalog(arguments.catalog),
+            resources,
+            manifest=manifest,
+            require_complete_translations=manifest is not None,
         )
     except CatalogError as error:
         print(f"error: {error}", file=sys.stderr)

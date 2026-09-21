@@ -22281,7 +22281,7 @@
           "argumentCount": 0,
           "fallback": "Call",
           "formatSignature": [],
-          "line": 1516,
+          "line": 1519,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22353,7 +22353,7 @@
           "argumentCount": 0,
           "fallback": "Contact",
           "formatSignature": [],
-          "line": 1504,
+          "line": 1507,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22431,7 +22431,7 @@
           "argumentCount": 0,
           "fallback": "File",
           "formatSignature": [],
-          "line": 1491,
+          "line": 1494,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22475,7 +22475,7 @@
               "width": null
             }
           ],
-          "line": 1493,
+          "line": 1496,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22621,7 +22621,7 @@
           "argumentCount": 0,
           "fallback": "Forwarded message",
           "formatSignature": [],
-          "line": 1508,
+          "line": 1511,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22705,7 +22705,7 @@
           "argumentCount": 0,
           "fallback": "Image",
           "formatSignature": [],
-          "line": 1473,
+          "line": 1476,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22751,7 +22751,7 @@
               "width": null
             }
           ],
-          "line": 1475,
+          "line": 1478,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23244,7 +23244,7 @@
               "width": null
             }
           ],
-          "line": 1510,
+          "line": 1513,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23548,7 +23548,7 @@
           "argumentCount": 0,
           "fallback": "Sticker",
           "formatSignature": [],
-          "line": 1518,
+          "line": 1521,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23726,7 +23726,7 @@
           "argumentCount": 0,
           "fallback": "Video",
           "formatSignature": [],
-          "line": 1485,
+          "line": 1488,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23820,7 +23820,7 @@
               "width": null
             }
           ],
-          "line": 1487,
+          "line": 1490,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23866,7 +23866,7 @@
           "argumentCount": 0,
           "fallback": "Voice message",
           "formatSignature": [],
-          "line": 1479,
+          "line": 1482,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23958,7 +23958,7 @@
               "width": null
             }
           ],
-          "line": 1481,
+          "line": 1484,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -24155,7 +24155,7 @@
           "argumentCount": 0,
           "fallback": "This message was not sent to one or more untrusted devices.",
           "formatSignature": [],
-          "line": 1039,
+          "line": 1042,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -48807,7 +48807,7 @@
           "argumentCount": 0,
           "fallback": "Admin",
           "formatSignature": [],
-          "line": 917,
+          "line": 920,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -48843,7 +48843,7 @@
           "argumentCount": 0,
           "fallback": "None",
           "formatSignature": [],
-          "line": 918,
+          "line": 921,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -48879,7 +48879,7 @@
           "argumentCount": 0,
           "fallback": "Owner",
           "formatSignature": [],
-          "line": 916,
+          "line": 919,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -62671,7 +62671,7 @@
           "argumentCount": 0,
           "fallback": "Location",
           "formatSignature": [],
-          "line": 1226,
+          "line": 1229,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -66600,7 +66600,7 @@
           "argumentCount": 0,
           "fallback": "This media was hidden after your report.",
           "formatSignature": [],
-          "line": 1034,
+          "line": 1037,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -66636,7 +66636,7 @@
           "argumentCount": 0,
           "fallback": "This message was hidden after your report.",
           "formatSignature": [],
-          "line": 1029,
+          "line": 1032,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
