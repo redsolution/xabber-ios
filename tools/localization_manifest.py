@@ -548,54 +548,879 @@ def _callsite(
     return callsite
 
 
-def _hardcoded_candidates(
+HARDCODED_UI_PROPERTY_SINKS = (
+    "accessibilityHint",
+    "accessibilityLabel",
+    "accessibilityValue",
+    "backButtonTitle",
+    "body",
+    "localizedCancelTitle",
+    "placeholder",
+    "prompt",
+    "secondaryText",
+    "subtitle",
+    "text",
+    "title",
+)
+HARDCODED_UI_ARGUMENT_SINKS = (
+    "accessibilityHint",
+    "accessibilityLabel",
+    "accessibilityValue",
+    "actionTitle",
+    "body",
+    "buttonTitle",
+    "cancel",
+    "cancelTitle",
+    "confirmTitle",
+    "description",
+    "destructiveActionTitle",
+    "discoverabilityTitle",
+    "displayName",
+    "error",
+    "errorMessage",
+    "fileName",
+    "filename",
+    "footer",
+    "footerLabel",
+    "header",
+    "localizedReason",
+    "message",
+    "noText",
+    "placeholder",
+    "primaryActionTitle",
+    "prompt",
+    "secondaryActionTitle",
+    "senderName",
+    "subtitle",
+    "text",
+    "title",
+    "yesText",
+    "warningMessage",
+)
+HARDCODED_UI_PRODUCER_SINKS = {
+    "aboutText",
+    "alertMessage",
+    "contactStatus",
+    "controlAccessibilityLabel",
+    "currentPlayingSubtitle",
+    "descriptionText",
+    "detailText",
+    "displayName",
+    "durationText",
+    "errorMessage",
+    "footer",
+    "genericAuthenticationFailureMessage",
+    "incorrectPasswordMessage",
+    "inviteErrorMessage",
+    "message",
+    "nfcScanAlertMessage",
+    "offlineStatus",
+    "prompt",
+    "quota",
+    "reason",
+    "secondaryText",
+    "statusText",
+    "stepsText",
+    "subtitle",
+    "title",
+    "titleText",
+    "userMessage",
+}
+HARDCODED_UI_PRESENTATION_CALLS = (
+    "buildInlineMessageCard",
+    "buildSectionHeader",
+    "presentChatAttachmentError",
+    "presentError",
+    "showBotSelectionError",
+    "showError",
+    "showMessageState",
+    "state",
+)
+HARDCODED_UI_SEMANTIC_PRODUCER_SUFFIXES = (
+    "Description",
+    "Hint",
+    "Label",
+    "Message",
+    "Nickname",
+    "Placeholder",
+    "Prompt",
+    "Subtitle",
+    "Text",
+    "Title",
+)
+HARDCODED_UI_RETURN_PRODUCER_EXCLUSIONS = {
+    # These are development fallbacks that are passed through their dedicated
+    # localization facades before presentation, not hard-coded UI output.
+    "defaultValue",
+    "developmentFallback",
+    "fallbackTemplate",
+}
+HARDCODED_UI_FORMAT_TOKEN_PATTERN = re.compile(
+    r"%(?:[1-9]\d*\$)?#@[A-Za-z_][A-Za-z0-9_]*@"
+    r"|%(?:[1-9]\d*\$)?[-+ #0']*"
+    r"(?:(?:\d+)|(?:\*(?:[1-9]\d*\$)?))?"
+    r"(?:\.(?:(?:\d+)|(?:\*(?:[1-9]\d*\$)?)))?"
+    r"(?:hh|h|ll|l|q|z|t|j|L)?[@diuoxXfFeEgGaAcCsSp]"
+)
+LOCALIZING_INSTANCE_APIS = (
+    "text",
+    "format",
+    "plural",
+    "attributedMarkdown",
+)
+
+
+def _localizing_receiver_names(code_without_strings: str) -> list[str]:
+    """Return identifiers whose declaration explicitly conforms to Localizing.
+
+    Instance localization lookups intentionally require a visible type
+    annotation.  Matching every ``receiver.text(...)`` call would turn common
+    presenter/model APIs into localization lookups and could hide their UI
+    literals from the hard-coded-copy audit.
+    """
+
+    return sorted(
+        {
+            match.group("name")
+            for match in re.finditer(
+                r"\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*"
+                r"(?:\(\s*)?(?:(?:any|some)\s+)?Localizing\b",
+                code_without_strings,
+            )
+        }
+    )
+
+
+def _has_localizable_literal_text(value: str) -> bool:
+    """Return whether a UI string contains words beyond dynamic values.
+
+    Swift interpolation is normalized to ``%@`` by the tokenizer. A value made
+    only from interpolations, numbers, whitespace, or punctuation is runtime
+    data rather than untranslated copy, so it must not create a localization
+    key. Any Unicode letter outside a printf/plural token keeps the candidate.
+    """
+
+    literal_text = HARDCODED_UI_FORMAT_TOKEN_PATTERN.sub("", value)
+    return any(character.isalpha() for character in literal_text)
+
+
+def _last_assignment_sink(prefix: str) -> str | None:
+    property_pattern = "|".join(map(re.escape, HARDCODED_UI_PROPERTY_SINKS))
+    property_matches = list(
+        re.finditer(rf"\.(?P<sink>{property_pattern})\s*=", prefix)
+    )
+    # UIKit subclasses frequently assign inherited properties without an
+    # explicit receiver (`accessibilityLabel = ...`).  Treat those exactly like
+    # `view.accessibilityLabel = ...`; otherwise a whole class of VoiceOver copy
+    # silently escapes the audit.
+    exact_producer_pattern = "|".join(
+        map(
+            re.escape,
+            sorted(
+                HARDCODED_UI_PRODUCER_SINKS
+                | set(HARDCODED_UI_PROPERTY_SINKS),
+                key=lambda value: (-len(value), value),
+            ),
+        )
+    )
+    producer_matches = list(
+        re.finditer(rf"\b(?P<sink>{exact_producer_pattern})\s*=", prefix)
+    )
+    matches = property_matches + producer_matches
+    if not matches:
+        return None
+    match = max(matches, key=lambda item: item.start())
+    tail = prefix[match.end() :]
+    masked_tail = _mask_strings(tail)
+    delimiter_stack: list[str] = []
+    delimiter_pairs = {"(": ")", "[": "]", "{": "}"}
+    for character in masked_tail:
+        if character in delimiter_pairs:
+            delimiter_stack.append(delimiter_pairs[character])
+        elif character in delimiter_pairs.values():
+            if delimiter_stack and character == delimiter_stack[-1]:
+                delimiter_stack.pop()
+            else:
+                return None
+        elif not delimiter_stack and character in (",", ";"):
+            return None
+    if re.search(
+        r"\n\s*(?:(?:private|fileprivate|internal|public|open|final|lazy|"
+        r"override|static|class|required|convenience)\s+)*"
+        r"(?:let|var|func|class|struct|enum|extension|case|return|"
+        r"if|guard|switch|for|while|do|catch|defer)\b",
+        masked_tail,
+    ):
+        return None
+    if re.search(
+        r"\n\s*(?:[A-Za-z_][A-Za-z0-9_?.]*\.)?"
+        r"[A-Za-z_][A-Za-z0-9_]*\s*=",
+        masked_tail,
+    ):
+        return None
+    if re.search(
+        r"\n\s*[A-Za-z_][A-Za-z0-9_]*"
+        r"(?:[?.]+[A-Za-z_][A-Za-z0-9_]*)+\s*\(",
+        masked_tail,
+    ):
+        return None
+    if re.search(r"\b(?:forName|withName)\s*:\s*$", masked_tail):
+        return None
+    return match.group("sink")
+
+
+def _last_argument_sink(prefix: str) -> str | None:
+    argument_pattern = "|".join(map(re.escape, HARDCODED_UI_ARGUMENT_SINKS))
+    matches = list(
+        re.finditer(rf"\b(?P<sink>{argument_pattern})\s*:", prefix)
+    )
+    if not matches:
+        return None
+    match = matches[-1]
+    tail = prefix[match.end() :]
+    masked_tail = _mask_strings(tail)
+    delimiter_stack: list[str] = []
+    delimiter_pairs = {"(": ")", "[": "]", "{": "}"}
+    crosses_argument_boundary = False
+    for character in masked_tail:
+        if character in delimiter_pairs:
+            delimiter_stack.append(delimiter_pairs[character])
+        elif character in delimiter_pairs.values():
+            if delimiter_stack and character == delimiter_stack[-1]:
+                delimiter_stack.pop()
+            else:
+                crosses_argument_boundary = True
+                break
+        elif not delimiter_stack and character in (",", ";"):
+            crosses_argument_boundary = True
+            break
+    if crosses_argument_boundary:
+        return None
+    if re.search(
+        r"\n\s*(?:let|var|func|class|struct|enum|extension|case|return|"
+        r"if|guard|switch|for|while|do|catch|defer)\b",
+        masked_tail,
+    ):
+        return None
+    return match.group("sink")
+
+
+def _unmatched_opening_delimiters(
+    code_without_strings: str,
+    token_start: int,
+    *,
+    maximum_lookback: int = 4000,
+) -> list[tuple[str, int]]:
+    """Return lexical delimiters enclosing a token, nearest first."""
+
+    start = max(0, token_start - maximum_lookback)
+    expected_openings: list[str] = []
+    opening_for_closing = {")": "(", "]": "[", "}": "{"}
+    result: list[tuple[str, int]] = []
+    for index in range(token_start - 1, start - 1, -1):
+        character = code_without_strings[index]
+        if character in opening_for_closing:
+            expected_openings.append(opening_for_closing[character])
+        elif character in "([{":
+            if expected_openings and character == expected_openings[-1]:
+                expected_openings.pop()
+            elif not expected_openings:
+                result.append((character, index))
+    return result
+
+
+def _top_level_argument_prefix(
+    code_without_strings: str,
+    opening: int,
+    token_start: int,
+) -> str:
+    """Return the current call-argument prefix before a string token."""
+
+    argument_start = opening + 1
+    delimiter_stack: list[str] = []
+    delimiter_pairs = {"(": ")", "[": "]", "{": "}"}
+    for index in range(opening + 1, token_start):
+        character = code_without_strings[index]
+        if character in delimiter_pairs:
+            delimiter_stack.append(delimiter_pairs[character])
+        elif delimiter_stack and character == delimiter_stack[-1]:
+            delimiter_stack.pop()
+        elif character == "," and not delimiter_stack:
+            argument_start = index + 1
+    return code_without_strings[argument_start:token_start]
+
+
+def _enclosing_call_sink(
+    code_without_strings: str,
+    token_start: int,
+) -> str | None:
+    """Recognize UI calls whose visible string is not a direct first token."""
+
+    for delimiter, opening in _unmatched_opening_delimiters(
+        code_without_strings,
+        token_start,
+    ):
+        if delimiter != "(":
+            continue
+        call_prefix = code_without_strings[max(0, opening - 160) : opening]
+        call_match = re.search(
+            r"(?P<call>[A-Za-z_][A-Za-z0-9_]*)\s*$",
+            call_prefix,
+        )
+        if call_match is None:
+            continue
+        call = call_match.group("call")
+        argument_prefix = _top_level_argument_prefix(
+            code_without_strings,
+            opening,
+            token_start,
+        )
+        argument_label_match = re.match(
+            r"\s*(?P<label>[A-Za-z_][A-Za-z0-9_]*)\s*:",
+            argument_prefix,
+        )
+        argument_label = (
+            argument_label_match.group("label")
+            if argument_label_match is not None
+            else None
+        )
+
+        # Several UIKit table-cell types in this codebase use overloaded
+        # `cell.configure(...)` methods whose external labels do not reveal
+        # which arguments are rendered. Keep these signatures deliberately
+        # bounded: treating every custom `configure` argument as UI copy would
+        # classify identifiers, image names, and wire values throughout the
+        # app as translatable text.
+        if call == "configure" and re.search(
+            r"\bcell\s*\.\s*configure\s*$", call_prefix
+        ):
+            closing = _matching_delimiter(code_without_strings, opening)
+            call_arguments = code_without_strings[opening + 1 : closing]
+            if (
+                argument_label is None
+                and re.search(r"\bvalue\s*:", call_arguments)
+                and re.search(r"\bkey\s*:", call_arguments)
+            ):
+                return "placeholder"
+            if (
+                argument_label == "with"
+                and re.search(r"\bcolor\s*:", call_arguments)
+            ):
+                return "cellText"
+            if (
+                argument_label == "for"
+                and re.search(r"\bkey\s*:", call_arguments)
+                and re.search(r"\bactive\s*:", call_arguments)
+            ):
+                return "title"
+
+        if (
+            call == "post"
+            and argument_label == "argument"
+            and re.search(r"\bUIAccessibility\s*\.\s*post\s*$", call_prefix)
+        ):
+            return "accessibilityAnnouncement"
+
+        if call == "Datasource":
+            if argument_label == "name":
+                return "datasourceName"
+            if argument_label == "value":
+                return "datasourceValue"
+
+        # The visible copy is the first, unlabeled argument for these APIs. It
+        # may be wrapped in String(format:), a ternary, or another expression.
+        if argument_label is None:
+            first_argument_prefix = code_without_strings[opening + 1 : token_start]
+            if _top_level_argument_prefix(
+                code_without_strings,
+                opening,
+                token_start,
+            ) == first_argument_prefix:
+                if call == "setTitle":
+                    return "setTitle"
+                if call == "makeToast":
+                    return "makeToast"
+                if call in HARDCODED_UI_PRESENTATION_CALLS:
+                    return "presentationCall"
+    return None
+
+
+HARDCODED_UI_TUPLE_FIELDS = {
+    "accessibilityHint": "accessibilityHint",
+    "accessibilityLabel": "accessibilityLabel",
+    "accessibilityValue": "accessibilityValue",
+    "body": "body",
+    "buttonTitle": "buttonTitle",
+    "desc": "description",
+    "description": "description",
+    "footer": "footer",
+    "header": "header",
+    "hint": "hint",
+    "label": "label",
+    "message": "message",
+    "placeholder": "placeholder",
+    "prompt": "prompt",
+    "subtitle": "subtitle",
+    "text": "text",
+    "title": "title",
+}
+HARDCODED_UI_STRING_COLLECTIONS = {
+    "labels": "labelCollection",
+    "messages": "messageCollection",
+    "placeholders": "placeholder",
+    "prompts": "promptCollection",
+    "sections": "sectionTitle",
+    "subtitles": "subtitleCollection",
+}
+
+
+def _top_level_argument_index(
+    code_without_strings: str,
+    opening: int,
+    token_start: int,
+) -> int:
+    index = 0
+    delimiter_stack: list[str] = []
+    delimiter_pairs = {"(": ")", "[": "]", "{": "}"}
+    for character in code_without_strings[opening + 1 : token_start]:
+        if character in delimiter_pairs:
+            delimiter_stack.append(delimiter_pairs[character])
+        elif delimiter_stack and character == delimiter_stack[-1]:
+            delimiter_stack.pop()
+        elif character == "," and not delimiter_stack:
+            index += 1
+    return index
+
+
+def _enclosing_semantic_tuple_sink(
+    code_without_strings: str,
+    token_start: int,
+) -> str | None:
+    """Recognize visible fields in typed tuple-backed UI data arrays."""
+
+    delimiters = _unmatched_opening_delimiters(code_without_strings, token_start)
+    tuple_opening = next(
+        (opening for delimiter, opening in delimiters if delimiter == "("),
+        None,
+    )
+    if tuple_opening is None:
+        return None
+    array_opening = next(
+        (
+            opening
+            for delimiter, opening in delimiters
+            if delimiter == "[" and opening < tuple_opening
+        ),
+        None,
+    )
+    if array_opening is None:
+        return None
+    declaration_prefix = code_without_strings[
+        max(0, array_opening - 2400) : array_opening
+    ]
+    declaration = re.search(
+        r"\b(?:let|var)\s+[A-Za-z_][A-Za-z0-9_]*\s*:\s*"
+        r"\[\s*\((?P<fields>[^()]*)\)\s*\]\s*=\s*$",
+        declaration_prefix,
+        re.DOTALL,
+    )
+    if declaration is None:
+        return None
+    fields = re.findall(
+        r"(?:^|,)\s*([A-Za-z_][A-Za-z0-9_]*)\s*:",
+        declaration.group("fields"),
+    )
+    field_index = _top_level_argument_index(
+        code_without_strings,
+        tuple_opening,
+        token_start,
+    )
+    if field_index >= len(fields):
+        return None
+    return HARDCODED_UI_TUPLE_FIELDS.get(fields[field_index])
+
+
+def _enclosing_semantic_string_collection_sink(
+    code_without_strings: str,
+    token_start: int,
+) -> str | None:
+    """Recognize direct literals in explicitly named UI string arrays."""
+
+    delimiters = _unmatched_opening_delimiters(code_without_strings, token_start)
+    if not delimiters or delimiters[0][0] != "[":
+        return None
+    array_opening = delimiters[0][1]
+    declaration_prefix = code_without_strings[
+        max(0, array_opening - 2400) : array_opening
+    ]
+    names_pattern = "|".join(
+        map(
+            re.escape,
+            sorted(
+                HARDCODED_UI_STRING_COLLECTIONS,
+                key=lambda value: (-len(value), value),
+            ),
+        )
+    )
+    declaration = re.search(
+        rf"\b(?:let|var)\s+(?P<name>{names_pattern})\b"
+        r"(?:\s*:\s*\[\s*String\s*\??\s*\])?\s*=\s*$",
+        declaration_prefix,
+        re.DOTALL,
+    )
+    if declaration is None:
+        return None
+    return HARDCODED_UI_STRING_COLLECTIONS[declaration.group("name")]
+
+
+def _enclosing_accessibility_builder_sink(
+    code_without_strings: str,
+    token_start: int,
+) -> str | None:
+    """Recognize literal components composed into VoiceOver output."""
+
+    enclosing_functions: list[tuple[int, str]] = []
+    for match in re.finditer(
+        r"\bfunc\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\b[^{};]*\{",
+        code_without_strings,
+    ):
+        if match.start() >= token_start:
+            break
+        opening = match.end() - 1
+        try:
+            closing = _matching_delimiter(code_without_strings, opening)
+        except ManifestError:
+            continue
+        if opening < token_start < closing:
+            enclosing_functions.append((opening, match.group("name")))
+    if not enclosing_functions:
+        return None
+    _, function_name = max(enclosing_functions)
+    normalized_name = function_name.lower()
+    if "accessibilitylabel" in normalized_name:
+        sink = "accessibilityLabel"
+    elif "accessibilityhint" in normalized_name:
+        sink = "accessibilityHint"
+    elif "accessibilityvalue" in normalized_name:
+        sink = "accessibilityValue"
+    else:
+        return None
+
+    delimiters = _unmatched_opening_delimiters(code_without_strings, token_start)
+    for delimiter, opening in delimiters:
+        if delimiter == "(":
+            call_prefix = code_without_strings[max(0, opening - 80) : opening]
+            if re.search(r"\.\s*append\s*$", call_prefix):
+                return sink
+        if delimiter == "[":
+            declaration_prefix = code_without_strings[
+                max(0, opening - 400) : opening
+            ]
+            if re.search(
+                r"\b(?:let|var)\s+[A-Za-z_][A-Za-z0-9_]*\s*"
+                r":\s*\[\s*String\s*\]\s*=\s*$",
+                declaration_prefix,
+                re.DOTALL,
+            ):
+                return sink
+    return None
+
+
+def _enclosing_return_sink(
+    source: str,
+    code_without_strings: str,
+    token_start: int,
+    prefix: str,
+) -> str | None:
+    if re.search(
+        r"\breturn\b(?:(?![;{}]|\bcase\b|\bdefault\b).)*$",
+        prefix,
+        re.DOTALL,
+    ) is None:
+        return None
+    declarations: list[tuple[int, int, str, str, str]] = []
+    patterns = (
+        (
+            "func",
+            re.compile(
+                r"\bfunc\s+(?P<label>[A-Za-z_][A-Za-z0-9_]*)\b"
+                r"(?P<header>[^{};]*?)\{",
+                re.DOTALL,
+            ),
+        ),
+        (
+            "var",
+            re.compile(
+                r"\bvar\s+(?P<label>[A-Za-z_][A-Za-z0-9_]*)\b"
+                r"(?P<header>[^\n{}=]*?)\{"
+            ),
+        ),
+    )
+    for kind, pattern in patterns:
+        for match in pattern.finditer(code_without_strings, 0, token_start):
+            opening = match.end() - 1
+            try:
+                closing = _matching_delimiter(code_without_strings, opening)
+            except ManifestError:
+                continue
+            if opening < token_start < closing:
+                declarations.append(
+                    (
+                        opening,
+                        closing,
+                        match.group("label"),
+                        match.group("header"),
+                        kind,
+                    )
+                )
+    if not declarations:
+        return None
+
+    _, _, label, header, kind = max(declarations, key=lambda item: item[0])
+    if label in {"tableView", "pickerView"}:
+        delegate_match = re.search(
+            r"\b(titleForHeaderInSection|titleForFooterInSection|titleForRow)\b",
+            header,
+        )
+        if delegate_match is not None:
+            delegate_label = delegate_match.group(1)
+            return (
+                "pickerRowTitle"
+                if delegate_label == "titleForRow"
+                else "tableSectionTitle"
+            )
+
+    localized_error_sinks = {
+        "errorDescription": "localizedErrorDescription",
+        "failureReason": "failureReason",
+        "recoverySuggestion": "recoverySuggestion",
+        "userMessage": "userMessage",
+    }
+    if label in localized_error_sinks:
+        return localized_error_sinks[label]
+    if (
+        kind == "func"
+        and label == "value"
+        and re.search(r"\bfor\s+[A-Za-z_][A-Za-z0-9_]*\s*:\s*Row\b", header)
+    ):
+        return "rowValue"
+
+    named_sinks = HARDCODED_UI_PRODUCER_SINKS | {
+        "body",
+        "description",
+        "header",
+        "placeholder",
+    }
+    if label in HARDCODED_UI_RETURN_PRODUCER_EXCLUSIONS:
+        return None
+    # `var description` is overwhelmingly a diagnostics/protocol surface
+    # (`CustomStringConvertible` and NSObject debugging), not UI copy.  A
+    # named producer such as `secondaryDescription` remains auditable, and the
+    # legacy Settings row API uses `func description()` so it is preserved.
+    if label == "description" and kind == "var":
+        return None
+    if label in named_sinks:
+        return label
+    if label.endswith(HARDCODED_UI_SEMANTIC_PRODUCER_SUFFIXES):
+        return label
+    return None
+
+
+def _hardcoded_candidate_tokens(
     source: str, source_without_comments: str, path: str
 ) -> list[dict[str, Any]]:
+    """Return UI candidates plus lexical offsets for rewrite tooling.
+
+    The checked-in manifest intentionally strips ``start``, ``end`` and
+    ``literal``. Keeping detection and rewriting on this one lexical contract
+    prevents a bulk migration tool from growing a second set of sink regexes.
+    """
+
     candidates: list[dict[str, Any]] = []
+    code_without_strings = _mask_strings(source_without_comments)
+    localization_ranges: list[tuple[int, int]] = []
+    localization_patterns = [
+        r"\.localizeString\s*\(",
+        r"\bL10n\.(?:text|format|plural|attributedMarkdown)\s*\(",
+        r"\bPushNotificationLocalization\.string\s*\(",
+    ]
+    instance_api_pattern = "|".join(map(re.escape, LOCALIZING_INSTANCE_APIS))
+    localization_patterns.extend(
+        rf"\b{re.escape(receiver)}\s*\.\s*(?:{instance_api_pattern})\s*\("
+        for receiver in _localizing_receiver_names(code_without_strings)
+    )
+    for pattern in localization_patterns:
+        for match in re.finditer(pattern, code_without_strings):
+            opening = code_without_strings.find("(", match.start(), match.end())
+            localization_ranges.append(
+                (opening, _matching_delimiter(source_without_comments, opening))
+            )
     for token in _swift_string_tokens(source_without_comments):
-        prefix = source_without_comments[max(0, token["start"] - 160) : token["start"]]
-        suffix = source_without_comments[token["end"] : token["end"] + 80]
+        if any(start < token["start"] < end for start, end in localization_ranges):
+            continue
+        prefix = code_without_strings[max(0, token["start"] - 2400) : token["start"]]
+        suffix = source_without_comments[token["end"] : token["end"] + 4096]
         if re.match(r"\s*\.localizeString\s*\(", suffix):
             continue
-        sink_match = re.search(
-            r"\.(accessibilityLabel|accessibilityHint|accessibilityValue|text|title|placeholder)"
-            r"\s*=\s*$",
-            prefix,
-        )
-        sink: str | None = sink_match.group(1) if sink_match else None
-        if sink is None:
-            named_match = re.search(
-                r"\b(accessibilityLabel|accessibilityHint|accessibilityValue|"
-                r"title|message|subtitle|placeholder|text)\s*:\s*$",
-                prefix,
-            )
-            sink = named_match.group(1) if named_match else None
-        if sink is None and re.search(r"\bsetTitle\s*\(\s*$", prefix):
-            sink = "setTitle"
-        if sink is None and re.search(r"\.makeToast\s*\(\s*$", prefix):
-            sink = "makeToast"
-        if sink is None and re.search(
+        # Prefer the innermost rendering primitive over a surrounding generic
+        # argument such as ``title: NSAttributedString(string: ...)``.  This
+        # keeps the candidate classification stable and gives rewrite tooling
+        # the precise literal-bearing construct.
+        sink = None
+        if re.search(
             r"\b(?:NSAttributedString|NSMutableAttributedString|AttributedString)\s*\(\s*"
             r"(?:string\s*:\s*)?$",
             prefix,
         ):
             sink = "attributedString"
         if sink is None:
+            sink = _last_argument_sink(prefix)
+        if sink is None:
+            sink = _last_assignment_sink(prefix)
+        if sink is None:
+            sink = _enclosing_call_sink(code_without_strings, token["start"])
+        if sink is None:
+            sink = _enclosing_semantic_tuple_sink(
+                code_without_strings,
+                token["start"],
+            )
+        if sink is None:
+            sink = _enclosing_semantic_string_collection_sink(
+                code_without_strings,
+                token["start"],
+            )
+        if sink is None:
+            sink = _enclosing_accessibility_builder_sink(
+                code_without_strings,
+                token["start"],
+            )
+        if sink is None and re.search(
+            r"\bUIAccessibilityCustomAction\s*\([^)]*\bname\s*:\s*$",
+            prefix,
+            re.DOTALL,
+        ):
+            sink = "uiAccessibilityCustomAction"
+        if sink is None and re.search(
+            r"\bUISegmentedControl\s*\([^)]*\bitems\s*:\s*\[[^\]]*$",
+            prefix,
+            re.DOTALL,
+        ):
+            sink = "uiSegmentedControlItem"
+        if sink is None and re.search(
+            r"\blet\s+items\s*=\s*\[[^\]]*$",
+            prefix,
+            re.DOTALL,
+        ):
+            sink = "uiActionItem"
+        if sink is None and re.search(
+            r"\bstatusMessage\s*\.\s*accept\s*\([^)]*$",
+            prefix,
+            re.DOTALL,
+        ):
+            sink = "statusMessage"
+        if sink is None and re.search(
+            r"\bchangeNewUserState\s*\([^)]*\.failure\s*\([^)]*$",
+            prefix,
+            re.DOTALL,
+        ):
+            sink = "userVisibleFailure"
+        if sink is None:
+            sink = _enclosing_return_sink(
+                source_without_comments,
+                code_without_strings,
+                token["start"],
+                prefix,
+            )
+        if sink is None:
             continue
         if re.search(r"\b(?:logger|log|NSLog|os_log)\w*\s*\([^)]*$", prefix, re.I):
             continue
         value = token["value"]
-        if not value.strip() or value.startswith("%@"):
+        if not value.strip() or not _has_localizable_literal_text(value):
+            continue
+        if sink == "datasourceValue" and not re.search(r"[\s.!?]", value):
             continue
         candidates.append(
             {
+                "end": token["end"],
                 "line": _line_number(source, token["start"]),
+                "literal": token["literal"],
                 "path": path,
                 "sink": sink,
+                "start": token["start"],
                 "value": value,
             }
         )
-    return sorted(candidates, key=lambda item: (item["sink"], item["value"], item["line"]))
+    return sorted(
+        candidates,
+        key=lambda item: (item["sink"], item["value"], item["line"], item["start"]),
+    )
+
+
+def _hardcoded_candidates(
+    source: str, source_without_comments: str, path: str
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "line": candidate["line"],
+            "path": candidate["path"],
+            "sink": candidate["sink"],
+            "value": candidate["value"],
+        }
+        for candidate in _hardcoded_candidate_tokens(
+            source,
+            source_without_comments,
+            path,
+        )
+    ]
+
+
+def _frozen_localization_declarations(source: str) -> list[dict[str, Any]]:
+    """Find process-lifetime constants that capture the current language."""
+
+    source_without_comments = mask_swift_comments(source)
+    code_without_strings = _mask_strings(source_without_comments)
+    result: list[dict[str, Any]] = []
+    declaration = re.compile(
+        r"\bstatic\s+let\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+        r"(?:\s*:[^=\n]+)?\s*="
+    )
+    for match in declaration.finditer(code_without_strings):
+        line_start = code_without_strings.rfind("\n", 0, match.start()) + 1
+        indentation = code_without_strings[line_start:match.start()]
+        if indentation.strip():
+            indentation = re.match(r"\s*", indentation).group(0)
+        next_declaration = re.search(
+            rf"\n{re.escape(indentation)}"
+            r"(?:(?:private|fileprivate|internal|public|open|final|lazy|override|"
+            r"required|convenience)\s+)*"
+            r"(?:static\s+|class\s+)?"
+            r"(?:let|var|func|class|struct|enum|extension|init|deinit|subscript)\b",
+            code_without_strings[match.end() :],
+        )
+        relative_boundaries = (
+            [next_declaration.start()] if next_declaration is not None else []
+        )
+        if indentation:
+            enclosing_scope_end = re.search(
+                rf"\n[ \t]{{0,{len(indentation) - 1}}}\}}",
+                code_without_strings[match.end() :],
+            )
+            if enclosing_scope_end is not None:
+                relative_boundaries.append(enclosing_scope_end.start())
+        end = (
+            match.end() + min(relative_boundaries)
+            if relative_boundaries
+            else len(code_without_strings)
+        )
+        if re.search(r"\bL10n\s*\.", source_without_comments[match.end() : end]):
+            result.append(
+                {
+                    "line": _line_number(source, match.start()),
+                    "name": match.group("name"),
+                }
+            )
+    return result
 
 
 def scan_swift_source(
@@ -615,6 +1440,11 @@ def scan_swift_source(
     l10n_pattern = r"\bL10n\.(text|format|plural|attributedMarkdown)\s*\("
     for match in re.finditer(l10n_pattern, code):
         occurrences.append((match.start(), match.group(1), match))
+    instance_api_pattern = "|".join(map(re.escape, LOCALIZING_INSTANCE_APIS))
+    for receiver in _localizing_receiver_names(code):
+        pattern = rf"\b{re.escape(receiver)}\s*\.\s*({instance_api_pattern})\s*\("
+        for match in re.finditer(pattern, code):
+            occurrences.append((match.start(), match.group(1), match))
     for match in re.finditer(r"\bPushNotificationLocalization\.string\s*\(", code):
         occurrences.append((match.start(), "pushFacade", match))
 
@@ -1182,38 +2012,149 @@ def _inventory_interface_builder(root: Path, source_roots: Iterable[str]) -> lis
     )
 
 
-def _inventory_info_plist(root: Path, source_roots: Iterable[str]) -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    for source_root in source_roots:
-        directory = root / source_root
-        if not directory.is_dir():
+def _load_info_plist(path: Path, context: str) -> dict[str, Any]:
+    result = subprocess.run(
+        ["/usr/bin/plutil", "-convert", "json", "-o", "-", str(path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        suffix = f": {detail}" if detail else ""
+        raise ManifestError(f"{context} could not be parsed{suffix}")
+    try:
+        document = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise ManifestError(f"{context} could not be parsed as JSON") from error
+    if not isinstance(document, dict):
+        raise ManifestError(f"{context} must contain a top-level dictionary")
+    return document
+
+
+def _info_plist_visible_strings(
+    document: dict[str, Any],
+    context: str,
+) -> dict[str, str]:
+    visible: dict[str, str] = {}
+    for key, value in sorted(document.items()):
+        if key not in INFO_PLIST_VISIBLE_KEYS and not key.endswith("UsageDescription"):
             continue
-        for path in sorted(directory.rglob("*.plist")):
-            result = subprocess.run(
-                ["/usr/bin/plutil", "-convert", "json", "-o", "-", str(path)],
+        if not isinstance(value, str) or not value.strip():
+            raise ManifestError(
+                f"{context} visible key {key} must have a non-empty string value"
+            )
+        visible[key] = value
+    return visible
+
+
+def _configured_info_plist_templates(
+    root: Path,
+    config: dict[str, Any],
+) -> list[str]:
+    configured = config.get("infoPlistTemplates", [])
+    if not isinstance(configured, list):
+        raise ManifestError("infoPlistTemplates must be an array")
+    templates: list[str] = []
+    for index, relative in enumerate(configured):
+        context = f"infoPlistTemplates[{index}]"
+        if not isinstance(relative, str) or not relative.strip():
+            raise ManifestError(f"{context} must be a non-empty string")
+        candidate = Path(relative)
+        if (
+            candidate.is_absolute()
+            or ".." in candidate.parts
+            or candidate.as_posix() != relative
+            or any(marker in relative for marker in "*?[")
+        ):
+            raise ManifestError(
+                f"{context} must be an exact repository-relative path"
+            )
+        if relative in templates:
+            raise ManifestError(f"Duplicate {context}: {relative}")
+        if not (root / relative).is_file():
+            raise ManifestError(f"{context} must name an existing file: {relative}")
+        if (root / ".git").exists():
+            tracked = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "ls-files",
+                    "--error-unmatch",
+                    "--",
+                    relative,
+                ],
                 check=False,
                 capture_output=True,
                 text=True,
             )
-            if result.returncode != 0:
-                continue
-            try:
-                document = json.loads(result.stdout)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(document, dict):
-                continue
-            for key, value in sorted(document.items()):
-                visible = key in INFO_PLIST_VISIBLE_KEYS or key.endswith("UsageDescription")
-                if visible and isinstance(value, str) and value.strip():
-                    entries.append(
-                        {
-                            "key": key,
-                            "path": path.relative_to(root).as_posix(),
-                            "value": value,
-                        }
+            if tracked.returncode != 0:
+                raise ManifestError(
+                    f"{context} must name a git-tracked template: {relative}"
+                )
+        templates.append(relative)
+    return templates
+
+
+def _inventory_info_plist(
+    root: Path,
+    config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for relative in _configured_info_plist_templates(root, config):
+        template_path = root / relative
+        template_context = f"Info.plist template {relative}"
+        template_document = _load_info_plist(template_path, template_context)
+        template_visible = _info_plist_visible_strings(
+            template_document,
+            template_context,
+        )
+        if not template_visible:
+            raise ManifestError(f"{template_context} has no visible strings")
+
+        if relative.endswith(".example"):
+            assembled_relative = relative[: -len(".example")]
+            assembled_path = root / assembled_relative
+            if assembled_path.exists():
+                assembled_context = f"Assembled Info.plist {assembled_relative}"
+                if not assembled_path.is_file():
+                    raise ManifestError(f"{assembled_context} is not a file")
+                assembled_document = _load_info_plist(
+                    assembled_path,
+                    assembled_context,
+                )
+                assembled_visible = _info_plist_visible_strings(
+                    assembled_document,
+                    assembled_context,
+                )
+                for key, value in template_visible.items():
+                    if key not in assembled_visible:
+                        raise ManifestError(
+                            f"{assembled_context} is missing visible key {key} "
+                            f"from template {relative}"
+                        )
+                    if assembled_visible[key] != value:
+                        raise ManifestError(
+                            f"{assembled_context} visible key {key} does not "
+                            f"match template {relative}"
+                        )
+                extra_visible = sorted(set(assembled_visible) - set(template_visible))
+                if extra_visible:
+                    raise ManifestError(
+                        f"{assembled_context} has visible key {extra_visible[0]} "
+                        f"missing from template {relative}"
                     )
-    return entries
+
+        entries.extend(
+            {
+                "key": key,
+                "path": relative,
+                "value": value,
+            }
+            for key, value in template_visible.items()
+        )
+    return sorted(entries, key=lambda item: (item["path"], item["key"]))
 
 
 def _deduplicate_dicts(items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1361,8 +2302,429 @@ def _manifest_dynamic_domains(
     return result
 
 
+PBX_OBJECT_ID_PATTERN = r"[A-Za-z0-9]{24}"
+APPLICATION_TARGET_NAMES = ("xabber", "xabber-push-extension")
+
+
+def _pbx_section_objects(source: str, section: str) -> dict[str, str]:
+    """Parse object bodies from one ASCII Xcode project section."""
+
+    begin = f"/* Begin {section} section */"
+    end = f"/* End {section} section */"
+    start = source.find(begin)
+    finish = source.find(end, start + len(begin)) if start >= 0 else -1
+    if start < 0 or finish < 0:
+        return {}
+    contents = source[start + len(begin) : finish]
+    header = re.compile(
+        rf"^\s*(?P<id>{PBX_OBJECT_ID_PATTERN})"
+        r"(?:\s*/\*.*?\*/)?\s*=\s*\{",
+        re.MULTILINE,
+    )
+    result: dict[str, str] = {}
+    for match in header.finditer(contents):
+        opening = match.end() - 1
+        depth = 0
+        quoted = False
+        escaped = False
+        closing = None
+        for index in range(opening, len(contents)):
+            character = contents[index]
+            if quoted:
+                if escaped:
+                    escaped = False
+                elif character == "\\":
+                    escaped = True
+                elif character == '"':
+                    quoted = False
+                continue
+            if character == '"':
+                quoted = True
+            elif character == "{":
+                depth += 1
+            elif character == "}":
+                depth -= 1
+                if depth == 0:
+                    closing = index
+                    break
+        if closing is None:
+            raise ManifestError(
+                f"Malformed {section} object {match.group('id')} in Xcode project"
+            )
+        result[match.group("id")] = contents[opening + 1 : closing]
+    return result
+
+
+def _pbx_scalar(body: str, field: str) -> str | None:
+    match = re.search(
+        rf"(?:^|;)\s*{re.escape(field)}\s*=\s*([^;]*?);",
+        body,
+    )
+    if match is None:
+        return None
+    value = match.group(1).strip()
+    if value.startswith('"') and value.endswith('"'):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError as error:
+            raise ManifestError(
+                f"Malformed quoted {field} in Xcode project: {value}"
+            ) from error
+        return decoded if isinstance(decoded, str) else None
+    return value
+
+
+def _pbx_list_ids(body: str, field: str) -> list[str]:
+    match = re.search(
+        rf"\b{re.escape(field)}\s*=\s*\((?P<items>.*?)\);",
+        body,
+        re.DOTALL,
+    )
+    if match is None:
+        return []
+    return re.findall(rf"\b({PBX_OBJECT_ID_PATTERN})\b", match.group("items"))
+
+
+def _normalize_project_path(path: str) -> str:
+    normalized = Path(path).as_posix()
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized
+
+
+def _application_source_memberships(root: Path) -> dict[str, set[str]]:
+    project_path = root / "xabber.xcodeproj/project.pbxproj"
+    if not project_path.is_file():
+        raise ManifestError(
+            "Cannot validate non-target sources: Xcode project does not exist at "
+            "xabber.xcodeproj/project.pbxproj"
+        )
+    source = project_path.read_text(encoding="utf-8")
+    file_references = _pbx_section_objects(source, "PBXFileReference")
+    build_files = _pbx_section_objects(source, "PBXBuildFile")
+    source_phases = _pbx_section_objects(source, "PBXSourcesBuildPhase")
+    native_targets = _pbx_section_objects(source, "PBXNativeTarget")
+    groups: dict[str, str] = {}
+    for section in (
+        "PBXGroup",
+        "PBXVariantGroup",
+        "XCVersionGroup",
+        "PBXFileSystemSynchronizedRootGroup",
+    ):
+        groups.update(_pbx_section_objects(source, section))
+
+    parent_by_child: dict[str, str] = {}
+    for group_id, body in groups.items():
+        for child_id in _pbx_list_ids(body, "children"):
+            parent_by_child.setdefault(child_id, group_id)
+
+    group_path_cache: dict[str, tuple[str, ...]] = {}
+
+    def group_path(group_id: str, visiting: set[str] | None = None) -> tuple[str, ...]:
+        cached = group_path_cache.get(group_id)
+        if cached is not None:
+            return cached
+        visiting = set() if visiting is None else set(visiting)
+        if group_id in visiting:
+            raise ManifestError(f"Cyclic PBXGroup hierarchy at {group_id}")
+        visiting.add(group_id)
+        body = groups.get(group_id, "")
+        source_tree = _pbx_scalar(body, "sourceTree")
+        parent = parent_by_child.get(group_id)
+        if source_tree == "SOURCE_ROOT" or parent is None:
+            parts: tuple[str, ...] = ()
+        else:
+            parts = group_path(parent, visiting)
+        value = _pbx_scalar(body, "path")
+        if value and value != ".":
+            parts += tuple(Path(value).parts)
+        group_path_cache[group_id] = parts
+        return parts
+
+    resolved_references: dict[str, str] = {}
+    for reference_id, body in file_references.items():
+        value = _pbx_scalar(body, "path") or _pbx_scalar(body, "name")
+        if not value:
+            continue
+        source_tree = _pbx_scalar(body, "sourceTree")
+        if source_tree == "SOURCE_ROOT":
+            parts: tuple[str, ...] = ()
+        elif source_tree == "<group>" or source_tree is None:
+            parent = parent_by_child.get(reference_id)
+            parts = group_path(parent) if parent is not None else ()
+        else:
+            continue
+        resolved_references[reference_id] = _normalize_project_path(
+            Path(*parts, value).as_posix()
+        )
+
+    reference_by_build_file: dict[str, str] = {}
+    for build_id, body in build_files.items():
+        match = re.search(
+            rf"\bfileRef\s*=\s*({PBX_OBJECT_ID_PATTERN})\b",
+            body,
+        )
+        if match is not None:
+            reference_by_build_file[build_id] = match.group(1)
+
+    target_bodies: dict[str, str] = {}
+    for body in native_targets.values():
+        name = _pbx_scalar(body, "name")
+        if name in APPLICATION_TARGET_NAMES:
+            target_bodies[name] = body
+    missing_targets = sorted(set(APPLICATION_TARGET_NAMES) - set(target_bodies))
+    if missing_targets:
+        raise ManifestError(
+            "Cannot validate non-target sources: Xcode project is missing target "
+            f"{missing_targets[0]}"
+        )
+
+    memberships: dict[str, set[str]] = defaultdict(set)
+    for target_name in APPLICATION_TARGET_NAMES:
+        target_body = target_bodies[target_name]
+        for phase_id in _pbx_list_ids(target_body, "buildPhases"):
+            phase = source_phases.get(phase_id)
+            if phase is None:
+                continue
+            for build_id in _pbx_list_ids(phase, "files"):
+                reference_id = reference_by_build_file.get(build_id)
+                path = resolved_references.get(reference_id or "")
+                if path:
+                    memberships[path].add(target_name)
+
+        for group_id in _pbx_list_ids(target_body, "fileSystemSynchronizedGroups"):
+            synchronized_root = Path(*group_path(group_id))
+            absolute_root = root / synchronized_root
+            if not absolute_root.is_dir():
+                raise ManifestError(
+                    "Cannot validate non-target sources: synchronized group does not "
+                    f"exist at {synchronized_root.as_posix()}"
+                )
+            for path in absolute_root.rglob("*.swift"):
+                memberships[path.relative_to(root).as_posix()].add(target_name)
+    return memberships
+
+
+def _non_target_sources(
+    root: Path,
+    config: dict[str, Any],
+    source_roots: list[str],
+) -> dict[str, str]:
+    configured = config.get("nonTargetSources", [])
+    if not isinstance(configured, list):
+        raise ManifestError("nonTargetSources must be an array")
+    result: dict[str, str] = {}
+    for index, entry in enumerate(configured):
+        context = f"non-target source {index}"
+        if not isinstance(entry, dict) or set(entry) != {"path", "reason"}:
+            raise ManifestError(f"{context} must contain exactly path and reason")
+        path = entry["path"]
+        reason = entry["reason"]
+        if not isinstance(path, str) or not path.strip():
+            raise ManifestError(f"{context} path must be a non-empty string")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ManifestError(f"{context} reason must be a non-empty string")
+        if Path(path).is_absolute() or ".." in Path(path).parts or any(
+            marker in path for marker in "*?["
+        ):
+            raise ManifestError(
+                f"{context} must be an exact repository-relative path"
+            )
+        if path in result:
+            raise ManifestError(f"Duplicate {context}: {path}")
+        if not any(
+            path == source_root or path.startswith(source_root + "/")
+            for source_root in source_roots
+        ):
+            raise ManifestError(f"{context} is outside configured source roots: {path}")
+        target = root / path
+        if target.suffix != ".swift" or not target.is_file():
+            raise ManifestError(
+                f"{context} does not name an existing Swift source: {path}"
+            )
+        result[path] = reason
+
+    if result:
+        memberships = _application_source_memberships(root)
+        for path in sorted(result):
+            targets = sorted(memberships.get(path, set()))
+            if targets:
+                raise ManifestError(
+                    f"Stale non-target source target membership: {path} is compiled by "
+                    + ", ".join(targets)
+                )
+    return result
+
+
+def _hardcoded_ui_excluded_paths(
+    root: Path,
+    config: dict[str, Any],
+    source_roots: list[str],
+) -> dict[str, str]:
+    configured = config.get("hardcodedUIExcludedPaths", [])
+    if not isinstance(configured, list):
+        raise ManifestError("hardcodedUIExcludedPaths must be an array")
+    result: dict[str, str] = {}
+    for index, entry in enumerate(configured):
+        context = f"hardcoded UI excluded path {index}"
+        if not isinstance(entry, dict) or set(entry) != {"path", "reason"}:
+            raise ManifestError(f"{context} must contain exactly path and reason")
+        path = entry["path"]
+        reason = entry["reason"]
+        if not isinstance(path, str) or not path.strip():
+            raise ManifestError(f"{context} path must be a non-empty string")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ManifestError(f"{context} reason must be a non-empty string")
+        if Path(path).is_absolute() or ".." in Path(path).parts or any(
+            marker in path for marker in "*?["
+        ):
+            raise ManifestError(
+                f"{context} must be an exact repository-relative path"
+            )
+        if path in result:
+            raise ManifestError(f"Duplicate {context}: {path}")
+        if not any(
+            path == source_root or path.startswith(source_root + "/")
+            for source_root in source_roots
+        ):
+            raise ManifestError(f"{context} is outside configured source roots: {path}")
+        target = root / path
+        if target.suffix != ".swift" or not target.is_file():
+            raise ManifestError(
+                f"{context} does not name an existing Swift source: {path}"
+            )
+        result[path] = reason
+    return result
+
+
+def _apply_hardcoded_ui_exclusions(
+    root: Path,
+    candidates: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    configured = config.get("hardcodedUIExclusions", [])
+    if not isinstance(configured, list):
+        raise ManifestError("hardcodedUIExclusions must be an array")
+    candidate_fields = {"line", "path", "sink", "value"}
+    candidate_identities = {
+        (item["line"], item["path"], item["sink"], item["value"])
+        for item in candidates
+    }
+    candidates_by_stable_identity: dict[
+        tuple[str, str, str], list[tuple[int, str, str, str]]
+    ] = defaultdict(list)
+    for identity in candidate_identities:
+        line, path, sink, value = identity
+        candidates_by_stable_identity[(path, sink, value)].append(identity)
+    excluded: set[tuple[int, str, str, str]] = set()
+    excluded_stable_identities: set[tuple[str, str, str]] = set()
+
+    configured_files = config.get("hardcodedUIExclusionFiles", [])
+    if not isinstance(configured_files, list):
+        raise ManifestError("hardcodedUIExclusionFiles must be an array")
+    seen_files: set[str] = set()
+    for file_index, relative_path in enumerate(configured_files):
+        context = f"hardcoded UI exclusion file {file_index}"
+        if not isinstance(relative_path, str) or not relative_path.strip():
+            raise ManifestError(f"{context} must be a non-empty string")
+        if (
+            Path(relative_path).is_absolute()
+            or ".." in Path(relative_path).parts
+            or any(marker in relative_path for marker in "*?[")
+        ):
+            raise ManifestError(
+                f"{context} must be an exact repository-relative path"
+            )
+        if relative_path in seen_files:
+            raise ManifestError(
+                f"Duplicate hardcoded UI exclusion file: {relative_path}"
+            )
+        seen_files.add(relative_path)
+        path = root / relative_path
+        if path.suffix != ".json" or not path.is_file():
+            raise ManifestError(
+                f"{context} does not name an existing JSON file: {relative_path}"
+            )
+        document = load_config(path)
+        file_exclusions = document.get("exclusions")
+        if not isinstance(file_exclusions, list):
+            raise ManifestError(f"{context} must contain an exclusions array")
+        for entry_index, entry in enumerate(file_exclusions):
+            entry_context = f"{context} exclusion {entry_index}"
+            expected_fields = {"path", "sink", "value", "reason"}
+            if not isinstance(entry, dict) or set(entry) != expected_fields:
+                raise ManifestError(
+                    f"{entry_context} must contain exactly path, sink, value, and reason"
+                )
+            for field in expected_fields:
+                if not isinstance(entry[field], str) or not entry[field].strip():
+                    raise ManifestError(
+                        f"{entry_context} {field} must be a non-empty string"
+                    )
+            stable_identity = (entry["path"], entry["sink"], entry["value"])
+            if stable_identity in excluded_stable_identities:
+                raise ManifestError(
+                    f"Duplicate hardcoded UI exclusion: {stable_identity!r}"
+                )
+            matches = candidates_by_stable_identity.get(stable_identity, [])
+            if not matches:
+                raise ManifestError(
+                    "Stale hardcoded UI exclusion: "
+                    f"{entry['path']} {entry['sink']} {entry['value']!r}"
+                )
+            excluded_stable_identities.add(stable_identity)
+            # Stable mapping entries intentionally omit line numbers so they
+            # survive nearby source edits.  Repeated identical diagnostic or
+            # fixture strings in one file form one reviewed exclusion and all
+            # exact occurrences are removed together.
+            excluded.update(matches)
+
+    for index, entry in enumerate(configured):
+        context = f"hardcoded UI exclusion {index}"
+        if not isinstance(entry, dict) or set(entry) != candidate_fields | {"reason"}:
+            raise ManifestError(
+                f"{context} must contain exactly line, path, sink, value, and reason"
+            )
+        if type(entry["line"]) is not int or entry["line"] < 1:
+            raise ManifestError(f"{context} line must be a positive integer")
+        for field in ("path", "sink", "value", "reason"):
+            if not isinstance(entry[field], str) or not entry[field].strip():
+                raise ManifestError(f"{context} {field} must be a non-empty string")
+        identity = (
+            entry["line"],
+            entry["path"],
+            entry["sink"],
+            entry["value"],
+        )
+        stable_identity = (entry["path"], entry["sink"], entry["value"])
+        if stable_identity in excluded_stable_identities:
+            raise ManifestError(
+                f"Duplicate hardcoded UI exclusion: {stable_identity!r}"
+            )
+        if identity in excluded:
+            raise ManifestError(f"Duplicate {context}: {identity!r}")
+        if identity not in candidate_identities:
+            raise ManifestError(
+                f"Stale or mismatched {context}: "
+                f"{entry['path']}:{entry['line']} "
+                f"{entry['sink']} {entry['value']!r}"
+            )
+        excluded.add(identity)
+        excluded_stable_identities.add(stable_identity)
+    return [
+        item
+        for item in candidates
+        if (item["line"], item["path"], item["sink"], item["value"])
+        not in excluded
+    ]
+
+
 def build_manifest(root: Path, config: dict[str, Any]) -> dict[str, Any]:
     source_roots = config.get("sourceRoots", ["xabber", "xabber-push-extension"])
+    if not isinstance(source_roots, list) or not all(
+        isinstance(item, str) and item.strip() for item in source_roots
+    ):
+        raise ManifestError("Configured localization source roots must be strings")
     missing_source_roots = [
         source_root for source_root in source_roots if not (root / source_root).is_dir()
     ]
@@ -1370,6 +2732,15 @@ def build_manifest(root: Path, config: dict[str, Any]) -> dict[str, Any]:
         raise ManifestError(
             f"Configured localization source root is missing: {missing_source_roots[0]}"
         )
+    hardcoded_excluded_paths = _hardcoded_ui_excluded_paths(
+        root,
+        config,
+        source_roots,
+    )
+    non_target_sources = _non_target_sources(root, config, source_roots)
+    require_zero_hardcoded = config.get("requireZeroUnclassifiedHardcodedUI", False)
+    if type(require_zero_hardcoded) is not bool:
+        raise ManifestError("requireZeroUnclassifiedHardcodedUI must be a boolean")
     catalog_path = config.get("catalog", DEFAULT_CATALOG_PATH)
     try:
         catalog = load_catalog(root / catalog_path)
@@ -1387,19 +2758,47 @@ def build_manifest(root: Path, config: dict[str, Any]) -> dict[str, Any]:
     typed_definitions: list[dict[str, Any]] = []
     scanned_source_paths: list[str] = []
     excluded_paths = config.get("excludedPaths", [])
+    matched_hardcoded_excluded_paths: set[str] = set()
     for source_root in source_roots:
         directory = root / source_root
         for path in sorted(directory.rglob("*.swift")):
             relative = path.relative_to(root).as_posix()
             if any(fnmatch.fnmatch(relative, pattern) for pattern in excluded_paths):
                 continue
+            source = path.read_text(encoding="utf-8")
+            result = scan_swift_source(source, relative, config)
+            if relative in hardcoded_excluded_paths:
+                if not result["hardcodedCandidates"]:
+                    raise ManifestError(
+                        "Stale hardcoded UI excluded path has no candidates: "
+                        f"{relative}"
+                    )
+                matched_hardcoded_excluded_paths.add(relative)
+            else:
+                hardcoded.extend(result["hardcodedCandidates"])
+            if relative in non_target_sources:
+                continue
             scanned_source_paths.append(relative)
-            result = scan_swift_source(path.read_text(encoding="utf-8"), relative, config)
+            frozen = _frozen_localization_declarations(source)
+            if frozen:
+                first = frozen[0]
+                raise ManifestError(
+                    "Localized static let freezes the process language: "
+                    f"{relative}:{first['line']} ({first['name']})"
+                )
             all_calls.extend(result["calls"])
             dynamic_matches.extend(result["dynamicMatches"])
             unresolved.extend(result["unresolved"])
             direct_lookups.extend(result["directLookups"])
-            hardcoded.extend(result["hardcodedCandidates"])
+
+    unmatched_hardcoded_paths = sorted(
+        set(hardcoded_excluded_paths) - matched_hardcoded_excluded_paths
+    )
+    if unmatched_hardcoded_paths:
+        raise ManifestError(
+            "Stale hardcoded UI excluded path was not scanned: "
+            f"{unmatched_hardcoded_paths[0]}"
+        )
 
     for domain in config.get("typedDomains", []):
         if domain.get("casePolicy") not in {"allCasesRequired", "conservative"}:
@@ -1659,7 +3058,19 @@ def build_manifest(root: Path, config: dict[str, Any]) -> dict[str, Any]:
 
     unresolved = _deduplicate_dicts(unresolved)
     direct_lookups = _deduplicate_dicts(direct_lookups)
-    hardcoded = _deduplicate_dicts(hardcoded)
+    hardcoded = _apply_hardcoded_ui_exclusions(
+        root,
+        _deduplicate_dicts(hardcoded),
+        config,
+    )
+    if require_zero_hardcoded and hardcoded:
+        first = hardcoded[0]
+        raise ManifestError(
+            f"Manifest has {len(hardcoded)} unclassified hard-coded UI strings; "
+            f"first: {first['path']}:{first['line']} "
+            f"({first['sink']}: {first['value']!r})"
+        )
+    info_plist = _inventory_info_plist(root, config)
     document: dict[str, Any] = {
         "activeKeys": active_keys,
         "catalog": catalog_path,
@@ -1671,9 +3082,13 @@ def build_manifest(root: Path, config: dict[str, Any]) -> dict[str, Any]:
         "excludedPaths": sorted(excluded_paths),
         "fallbackConflictQuarantine": fallback_conflict_quarantine,
         "hardcodedCandidates": hardcoded,
-        "infoPlist": _inventory_info_plist(root, source_roots),
+        "infoPlist": info_plist,
         "interfaceBuilder": _inventory_interface_builder(root, source_roots),
         "legacyMarkupQuarantine": legacy_markup_quarantine,
+        "nonTargetSources": [
+            {"path": path, "reason": non_target_sources[path]}
+            for path in sorted(non_target_sources)
+        ],
         "schemaVersion": SCHEMA_VERSION,
         "sourceLanguage": "en",
         "summary": {
@@ -1688,8 +3103,9 @@ def build_manifest(root: Path, config: dict[str, Any]) -> dict[str, Any]:
             "excludedPaths": len(excluded_paths),
             "fallbackConflicts": fallback_conflicts,
             "hardcodedCandidates": len(hardcoded),
-            "infoPlistStrings": len(_inventory_info_plist(root, source_roots)),
+            "infoPlistStrings": len(info_plist),
             "interfaceBuilderStrings": len(_inventory_interface_builder(root, source_roots)),
+            "nonTargetSources": len(non_target_sources),
             "unresolvedDynamicCalls": len(unresolved),
         },
         "unresolvedDynamicCalls": unresolved,
@@ -1717,6 +3133,7 @@ def validate_manifest(document: dict[str, Any]) -> None:
         "infoPlist": list,
         "interfaceBuilder": list,
         "legacyMarkupQuarantine": list,
+        "nonTargetSources": list,
         "schemaVersion": int,
         "sourceLanguage": str,
         "unresolvedDynamicCalls": list,
@@ -2115,6 +3532,17 @@ def validate_manifest(document: dict[str, Any]) -> None:
 
     validate_string_list(document["excludedPaths"], "excludedPaths")
 
+    non_target_paths: list[str] = []
+    for index, entry in enumerate(document["nonTargetSources"]):
+        context = f"nonTargetSources[{index}]"
+        if not isinstance(entry, dict) or set(entry) != {"path", "reason"}:
+            raise ManifestError(f"Manifest {context} has invalid fields")
+        require_nonempty_string(entry["path"], f"{context}.path")
+        require_nonempty_string(entry["reason"], f"{context}.reason")
+        non_target_paths.append(entry["path"])
+    if non_target_paths != sorted(set(non_target_paths)):
+        raise ManifestError("Manifest nonTargetSources must be sorted and unique")
+
     inventory_shapes = {
         "hardcodedCandidates": {"line", "path", "sink", "value"},
         "infoPlist": {"key", "path", "value"},
@@ -2183,6 +3611,7 @@ def validate_manifest(document: dict[str, Any]) -> None:
         "hardcodedCandidates": len(document["hardcodedCandidates"]),
         "infoPlistStrings": len(document["infoPlist"]),
         "interfaceBuilderStrings": len(document["interfaceBuilder"]),
+        "nonTargetSources": len(document["nonTargetSources"]),
         "unresolvedDynamicCalls": len(document["unresolvedDynamicCalls"]),
     }
     if set(document["summary"]) != set(expected_summary):
