@@ -1038,7 +1038,6 @@
 		4EA910022F9A00000ABC0001 /* EphemeralSystemMessageLocalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA910012F9A00000ABC0001 /* EphemeralSystemMessageLocalizationTests.swift */; };
 		B7A100023D110000ABC00001 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B7A100013D110000ABC00001 /* Localizable.xcstrings */; };
 		B7A100033D110000ABC00001 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B7A100013D110000ABC00001 /* Localizable.xcstrings */; };
-		B7A200023D170000ABC00001 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B7A200013D170000ABC00001 /* InfoPlist.xcstrings */; };
 		B7A100063D110000ABC00001 /* LanguageSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A100053D110000ABC00001 /* LanguageSettingsViewController.swift */; };
 		B7A100083D110000ABC00001 /* LocalizationUIKitDirection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A100073D110000ABC00001 /* LocalizationUIKitDirection.swift */; };
 		B7A1000A3D110000ABC00001 /* LocalizationApplicationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A100093D110000ABC00001 /* LocalizationApplicationCoordinator.swift */; };
@@ -5183,7 +5182,7 @@
 				66159DEC201EDC7D00B1CF92 /* Sources */,
 				66159DED201EDC7D00B1CF92 /* Frameworks */,
 				66159DEE201EDC7D00B1CF92 /* Resources */,
-				66E41512207737A700489C8E /* ShellScript */,
+				66E41512207737A700489C8E /* Materialize Configured InfoPlist Localization */,
 				666FAB0420C6AFAA0057C352 /* Embed App Extensions */,
 				C9B687BEC5A32CF38B4F1BD7 /* [CP] Embed Pods Frameworks */,
 			);
@@ -5368,7 +5367,6 @@
 				66D2B54B253EC01300299578 /* icons.xcassets in Resources */,
 				66A349FE280D89DF008E5B9F /* translations.json in Resources */,
 				66159DFD201EDC7D00B1CF92 /* Assets.xcassets in Resources */,
-				B7A200023D170000ABC00001 /* InfoPlist.xcstrings in Resources */,
 				B7A100023D110000ABC00001 /* Localizable.xcstrings in Resources */,
 				6662AA93291BCC4E001A6D59 /* credential_store.plist in Resources */,
 				66159E28201EE44D00B1CF92 /* Podfile in Resources */,
@@ -5482,18 +5480,32 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		66E41512207737A700489C8E /* ShellScript */ = {
+		66E41512207737A700489C8E /* Materialize Configured InfoPlist Localization */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputPaths = (
+				"$(SRCROOT)/tools/localization_branding.py",
+				"$(SRCROOT)/tools/localization_catalog.py",
+				"$(SRCROOT)/xabber/common_config.plist",
+				"$(SRCROOT)/xabber/translations/InfoPlist.xcstrings",
+				"$(SRCROOT)/xabber/Info.plist",
 			);
+			name = "Materialize Configured InfoPlist Localization";
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ar.lproj/InfoPlist.strings",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/en.lproj/InfoPlist.strings",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/es.lproj/InfoPlist.strings",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/fr.lproj/InfoPlist.strings",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ru.lproj/InfoPlist.strings",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/zh-Hans.lproj/InfoPlist.strings",
+				"$(DERIVED_FILE_DIR)/ConfiguredInfo.plist",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\n";
+			shellScript = "set -euo pipefail\npython3 \"${SRCROOT}/tools/localization_branding.py\" \\\n  --catalog \"${SRCROOT}/xabber/translations/InfoPlist.xcstrings\" \\\n  --config \"${SRCROOT}/xabber/common_config.plist\" \\\n  --output-root \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\" \\\n  --info-plist-template \"${SRCROOT}/xabber/Info.plist\" \\\n  --info-plist-output \"${DERIVED_FILE_DIR}/ConfiguredInfo.plist\"\n";
+			showEnvVarsInLog = 0;
 		};
 		C9B687BEC5A32CF38B4F1BD7 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -6793,8 +6805,7 @@
 					"ONLY_SECURE_CHAT_ALLOWED=\"$ONLY_SECURE_CHAT_ALLOWED\"",
 				);
 				GCC_UNROLL_LOOPS = YES;
-				INFOPLIST_FILE = xabber/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Xabber;
+				INFOPLIST_FILE = "$(DERIVED_FILE_DIR)/ConfiguredInfo.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -6855,8 +6866,7 @@
 					"ONLY_SECURE_CHAT_ALLOWED=\"$ONLY_SECURE_CHAT_ALLOWED\"",
 				);
 				GCC_UNROLL_LOOPS = YES;
-				INFOPLIST_FILE = xabber/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Xabber;
+				INFOPLIST_FILE = "$(DERIVED_FILE_DIR)/ConfiguredInfo.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (

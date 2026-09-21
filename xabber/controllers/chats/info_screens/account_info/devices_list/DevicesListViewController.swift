@@ -315,7 +315,11 @@ class DevicesListViewController: BaseViewController {
                                                     "settings_account__label_active_devices",
                                                     fallback: "Active devices"
                                                   ),
-                                                  value: "You can terminate sessions you don`t need. Official Clandestino clients wipe all user data from the device upon session termination.".localizeString(id: "account_settings_terminate_description", arguments: []),
+                                                  value: L10n.format(
+                                                    "account_settings_terminate_description",
+                                                    fallback: "You can terminate sessions you don`t need. Official %1$@ clients wipe all user data from the device upon session termination.",
+                                                    arguments: [CommonConfigManager.shared.config.app_name]
+                                                  ),
                                                   editable: false)
             if self.isVerificationRequired && activeVerificationSessionSid == nil {
                 activeDevicesSection.childs.append(Datasource(.session, title: L10n.text("devices__list__non_verified_devices_connected", fallback: "Unverified devices connected"), value: L10n.text("devices__list__warning__unverified_devices_explanation", fallback: "Several devices connected to this account have enabled end-to-end encryption but were not verified.\n\nPlease, review the list below and perform device verification for every device in question."), editable: false))

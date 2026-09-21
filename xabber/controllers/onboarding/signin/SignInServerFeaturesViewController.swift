@@ -719,7 +719,10 @@ class SignInServerFeaturesViewController: UIViewController {
     }
     
     private final func loadDatasource() {
-        
+        let config = CommonConfigManager.shared.config
+        let appName = config.app_name
+        let configuredDomain = config.domain
+
         isSyncAvailable = SettingManager.shared.getKey(for: jid, scope: .clientSynchronization, key: "version") != nil
         isPushAvailable = features.isEmpty ? false : features.contains("xpush")
         isMamAvailable = features.isEmpty ? false : features.contains("mam")
@@ -728,19 +731,22 @@ class SignInServerFeaturesViewController: UIViewController {
         isPubsubAvailable = features.isEmpty ? false : features.contains("pubsub")
 //        isXabberUploadAvailable = features.isEmpty ? false : features.contains("xabber")
         
-        let syncText = NSAttributedString(string: L10n.text(
+        let syncText = NSAttributedString(string: L10n.format(
             "signin_quick_synchronization_error",
-            fallback: "Quick synchronization is not supported. This feature allows robust work on mobile devices and greatly improves user experience. It is not recommended to use Xabber on servers without quick synchronization."
+            fallback: "Quick synchronization is not supported. This feature allows robust work on mobile devices and greatly improves user experience. It is not recommended to use %1$@ on servers without quick synchronization.",
+            arguments: [appName]
         ))
 
-        let pushText = NSAttributedString(string: L10n.text(
+        let pushText = NSAttributedString(string: L10n.format(
             "signin_push_notifications_error",
-            fallback: "Push notifications are not supported. Your device won’t be able to receive incoming messages when Xabber is not active. It is not recommended to use Xabber on this server."
+            fallback: "Push notifications are not supported. Your device won’t be able to receive incoming messages when %1$@ is not active. It is not recommended to use %1$@ on this server.",
+            arguments: [appName]
         ))
 
-        let mamText = NSAttributedString(string: L10n.text(
+        let mamText = NSAttributedString(string: L10n.format(
             "signin_message_archive_error",
-            fallback: "Message Archive is not supported. Without Message Archive you can’t synchronize chat history between server and connected clients.  Xabber can not be used on servers that do not support message archive."
+            fallback: "Message Archive is not supported. Without Message Archive you can’t synchronize chat history between server and connected clients.  %1$@ can not be used on servers that do not support message archive.",
+            arguments: [appName]
         ))
 
         let rewriteText = NSAttributedString(string: L10n.text(
@@ -748,19 +754,22 @@ class SignInServerFeaturesViewController: UIViewController {
             fallback: "Message editing is not supported. You will not be able to edit or delete messages from this server’s Message Archive."
         ))
 
-        let devicesText = NSAttributedString(string: L10n.text(
+        let devicesText = NSAttributedString(string: L10n.format(
             "signin_tokens_error",
-            fallback: "Xabber devices are not supported. Without Xabber devices you can’t revoke access from compromised devices. Account password will be stored locally and can be potentially stolen. "
+            fallback: "%1$@ tokens are not supported. Without %1$@ tokens you can’t revoke access from compromised devices. Account password will be stored locally and can be potentially stolen.",
+            arguments: [appName]
         ))
 
-        let pubsubText = NSAttributedString(string: L10n.text(
+        let pubsubText = NSAttributedString(string: L10n.format(
             "signin_pubsub_error",
-            fallback: "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use Xabber on this server."
+            fallback: "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use %1$@ on this server.",
+            arguments: [appName]
         ))
 
-        let httpText = NSAttributedString(string: L10n.text(
+        let httpText = NSAttributedString(string: L10n.format(
             "signin_file_upload_error",
-            fallback: "Cloud storage is not supported. Without cloud storage, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use Xabber on servers without cloud storage support."
+            fallback: "File upload is not supported. Without file upload, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use %1$@ on servers without file upload support.",
+            arguments: [appName]
         ))
         cloudStorageUnsupportedText = httpText
         
@@ -868,7 +877,11 @@ class SignInServerFeaturesViewController: UIViewController {
                        attributedText: httpText),
             Datasource(key: "subtitle",
                        kind: .subtitle,
-                       title: "Ask to register on xabber.com if his xmpp server is old.".localizeString(id: "signin_ask_to_register", arguments: [])),
+                       title: L10n.format(
+                        "signin_ask_to_register",
+                        fallback: "Ask to register on %1$@ if his xmpp server is old.",
+                        arguments: [configuredDomain]
+                       )),
             Datasource(key: "registerButton", kind: .button, title: "Create new account"
                         .localizeString(id: "xmpp_login__button_sign_up", arguments: [])),
             Datasource(key: "connectButton", kind: .button, title: "Let's rock!"
@@ -1083,6 +1096,9 @@ class SignInServerFeaturesViewController: UIViewController {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineHeightMultiple = 1.27
         paragraph.alignment = .center
+        let config = CommonConfigManager.shared.config
+        let appName = config.app_name
+        let configuredDomain = config.domain
 
         guard let subtitle = datasource.first(where: { $0.key == "subtitle" }),
               let connectButton = datasource.first(where: { $0.key == "connectButton" }),
@@ -1122,10 +1138,22 @@ class SignInServerFeaturesViewController: UIViewController {
             subtitle.isHidden = false
             connectButton.isHidden = false
             registerButton.isHidden = false
-            let attrSubtitle = NSMutableAttributedString(string: "Not all necessary features are supported. Proceed using this account at your own risk, and with low expectations. However, we suggest creating a new account on a fully-compatible Xabber server.".localizeString(id: "signin_not_all_features", arguments: []),
+            let attrSubtitle = NSMutableAttributedString(string: L10n.format(
+                "signin_not_all_features",
+                fallback: "Not all necessary features are supported. Proceed using this account at your own risk, and with low expectations. However, we suggest creating a new account on a fully-compatible %1$@ server.",
+                arguments: [configuredDomain]
+            ),
                     attributes: [.paragraphStyle: paragraph, .foregroundColor: MDCPalette.yellow.tint800, .font: UIFont.systemFont(ofSize: 15)])
-            let range = (attrSubtitle.string as NSString).range(of: "xabber.chat")
-            attrSubtitle.addAttribute(.font, value: UIFont.systemFont(ofSize: 13, weight: .medium), range: range)
+            if configuredDomain.isNotEmpty {
+                let range = (attrSubtitle.string as NSString).range(of: configuredDomain)
+                if range.location != NSNotFound {
+                    attrSubtitle.addAttribute(
+                        .font,
+                        value: UIFont.systemFont(ofSize: 13, weight: .medium),
+                        range: range
+                    )
+                }
+            }
             subtitle.attributedText = attrSubtitle
             connectButton.title = "Proceed anyway"
                 .localizeString(id: "signin_proceed_anyway", arguments: [])
@@ -1133,7 +1161,11 @@ class SignInServerFeaturesViewController: UIViewController {
         case .messageArchiveUnsupported:
             subtitle.isHidden = false
             registerButton.isHidden = false
-            subtitle.attributedText = NSAttributedString(string: "This server does not support message archive. It is impossible for Xabber to work without message archive, so we suggest creating a new account on a fully-compatible Xabber server.".localizeString(id: "signin_no_message_archive", arguments: []),
+            subtitle.attributedText = NSAttributedString(string: L10n.format(
+                "signin_no_message_archive",
+                fallback: "This server does not support message archive. It is impossible for %1$@ to work without message archive, so we suggest creating a new account on a fully-compatible %2$@ server.",
+                arguments: [appName, configuredDomain]
+            ),
                         attributes: [.paragraphStyle: paragraph, .foregroundColor: MDCPalette.red.tint800, .font: UIFont.systemFont(ofSize: 15)])
         case .temporarilyUnverified:
             subtitle.isHidden = false

@@ -226,7 +226,12 @@ struct ModerationReportConfiguration {
     }
 
     static var supportEmail: String {
-        return configuredSubmissionAddress ?? "support@xabber.com"
+        if let configuredSubmissionAddress {
+            return configuredSubmissionAddress
+        }
+        let domain = CommonConfigManager.shared.config.domain
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return domain.isNotEmpty ? "support@\(domain)" : "support"
     }
 
     static var developerOperatedDomains: [String] {

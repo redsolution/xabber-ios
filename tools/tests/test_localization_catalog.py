@@ -116,6 +116,218 @@ class FormatSignatureTests(unittest.TestCase):
 
 
 class CatalogValidationTests(unittest.TestCase):
+    def test_brand_values_use_positional_placeholders_with_locale_parity(self):
+        document = base_catalog(
+            {
+                "branded": {
+                    "extractionState": "manual",
+                    "localizations": {
+                        locale: translated(
+                            "Welcome to %1$@ at %2$@"
+                        )
+                        for locale in catalog.LOCALES
+                    },
+                }
+            }
+        )
+
+        report = catalog.validate_catalog(document)
+
+        self.assertGreater(report["keys"], 0)
+
+    def test_brand_positional_placeholder_parity_is_enforced(self):
+        document = base_catalog(
+            {
+                "branded": {
+                    "extractionState": "manual",
+                    "localizations": {
+                        "en": translated(
+                            "Welcome to %1$@ at %2$@"
+                        ),
+                        "ru": translated("Добро пожаловать в %1$@"),
+                    },
+                }
+            }
+        )
+
+        with self.assertRaisesRegex(
+            catalog.CatalogError,
+            "Placeholder signature mismatch.*branded.*ru",
+        ):
+            catalog.validate_catalog(document)
+
+    def test_named_brand_template_tokens_are_rejected(self):
+        values = (
+            "Welcome to {{app_name}}",
+            "Connect to {{domain}}",
+            "Welcome to {{ app_name }}",
+        )
+
+        for index, value in enumerate(values):
+            with self.subTest(value=value):
+                document = base_catalog(
+                    {
+                        f"invalid_template_{index}": {
+                            "extractionState": "manual",
+                            "localizations": {"en": translated(value)},
+                        }
+                    }
+                )
+
+                with self.assertRaisesRegex(
+                    catalog.CatalogError,
+                    "Named localization tokens are not supported",
+                ):
+                    catalog.validate_catalog(document)
+
+    def test_literal_product_brands_are_rejected_case_insensitively(self):
+        for brand in (
+            "Xabber",
+            "xAbBeR",
+            "Clandestino",
+            "CLANDESTINO",
+            "إكسابير",
+            "شبير",
+        ):
+            with self.subTest(brand=brand):
+                document = base_catalog(
+                    {
+                        "literal_brand": {
+                            "extractionState": "manual",
+                            "localizations": {
+                                "en": translated(f"Welcome to {brand}")
+                            },
+                        }
+                    }
+                )
+
+                with self.assertRaisesRegex(
+                    catalog.CatalogError,
+                    "Literal product brand.*literal_brand.*en",
+                ):
+                    catalog.validate_catalog(document)
+
+    def test_exact_external_translation_project_url_is_allowed(self):
+        document = base_catalog(
+            {
+                "settings__section_interface_language__text_description___link": {
+                    "extractionState": "manual",
+                    "localizations": {
+                        "en": translated("https://crowdin.com/project/xabber")
+                    },
+                }
+            }
+        )
+
+        report = catalog.validate_catalog(document)
+
+        self.assertGreater(report["keys"], 0)
+
+    def test_external_translation_project_exception_is_exact(self):
+        document = base_catalog(
+            {
+                "settings__section_interface_language__text_description___link": {
+                    "extractionState": "manual",
+                    "localizations": {
+                        "en": translated("Open Xabber at https://crowdin.com/project/xabber")
+                    },
+                }
+            }
+        )
+
+        with self.assertRaisesRegex(catalog.CatalogError, "Literal product brand"):
+            catalog.validate_catalog(document)
+
+    def test_literal_product_hosts_are_rejected_case_insensitively(self):
+        hosts = (
+            "https://xabber.com/help",
+            "user@Xabber.chat",
+            "XABBER.ORG",
+            "https://WWW.XABBER.COM/policy",
+            "Visit Xabber.com.",
+            "https://api.xabber.com/status",
+        )
+
+        for host in hosts:
+            with self.subTest(host=host):
+                document = base_catalog(
+                    {
+                        "literal_host": {
+                            "extractionState": "manual",
+                            "localizations": {"en": translated(host)},
+                        }
+                    }
+                )
+
+                with self.assertRaisesRegex(
+                    catalog.CatalogError,
+                    "Literal product host.*literal_host.*en",
+                ):
+                    catalog.validate_catalog(document)
+
+    def test_literal_product_brand_is_rejected_inside_plural_variation(self):
+        document = base_catalog(
+            {
+                "literal_plural_brand": {
+                    "extractionState": "manual",
+                    "localizations": {
+                        "en": {
+                            "variations": {
+                                "plural": {
+                                    "one": translated("One client"),
+                                    "other": translated("Xabber clients"),
+                                }
+                            }
+                        }
+                    },
+                }
+            }
+        )
+
+        with self.assertRaisesRegex(
+            catalog.CatalogError,
+            "Literal product brand.*literal_plural_brand.*en",
+        ):
+            catalog.validate_catalog(document)
+
+    def test_brand_policy_checks_values_but_not_keys_or_comments(self):
+        document = base_catalog(
+            {
+                "xabber.com/Xabber/Clandestino": {
+                    "comment": "Xabber at xabber.com",
+                    "extractionState": "manual",
+                    "localizations": {"en": translated("Neutral copy")},
+                }
+            }
+        )
+
+        report = catalog.validate_catalog(document)
+
+        self.assertGreater(report["keys"], 0)
+
+    def test_french_flux_and_non_product_hosts_are_allowed(self):
+        document = base_catalog(
+            {
+                "ordinary_words": {
+                    "extractionState": "manual",
+                    "localizations": {
+                        "en": translated(
+                            "Stream docs at https://example.com and "
+                            "http://otr.cypherpunks.ca/ via "
+                            "https://notxabber.com"
+                        ),
+                        "fr": translated(
+                            "Erreur de flux sur https://example.com"
+                        ),
+                    },
+                }
+            }
+        )
+
+        report = catalog.validate_catalog(document)
+
+        self.assertGreater(report["keys"], 0)
+
     def test_manifest_schema_version_rejects_json_boolean(self):
         document = base_catalog({})
         manifest = {

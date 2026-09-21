@@ -748,7 +748,7 @@ class NotificationService: UNNotificationServiceExtension {
     internal func onMarkerSmart(_ payload: PayloadData) {
         guard let secret = creditionals["secret"] as? String else {
             mutateBestAttemptContent { content in
-                content.title = "Xabber"
+                content.title = CommonConfigManager.shared.config.app_name
                 content.body = L10n.text("notification__body__new_activity", fallback: "New activity")
             }
             completeBestAttemptContent()

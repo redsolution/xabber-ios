@@ -64,6 +64,29 @@ FORMAT_SPECIFIER_PATTERN = re.compile(
 SUBSTITUTION_SPECIFIER_PATTERN = re.compile(
     r"%(?P<position>[1-9]\d*\$)?#@(?P<name>[A-Za-z_][A-Za-z0-9_]*)@"
 )
+PRODUCT_BRANDS = ("Clandestino", "Xabber", "إكسابير", "شبير")
+PRODUCT_HOSTS = ("xabber.com", "xabber.chat", "xabber.org", "www.xabber.com")
+PRODUCT_IDENTITY_VALUE_EXCLUSIONS = {
+    (
+        "settings__section_interface_language__text_description___link",
+        "https://crowdin.com/project/xabber",
+    ),
+}
+PRODUCT_BRAND_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_])(?:"
+    + "|".join(re.escape(brand) for brand in PRODUCT_BRANDS)
+    + r")(?![A-Za-z0-9_])",
+    re.IGNORECASE,
+)
+PRODUCT_HOST_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9-])(?:"
+    + "|".join(
+        re.escape(host) for host in sorted(PRODUCT_HOSTS, key=len, reverse=True)
+    )
+    + r")(?![A-Za-z0-9-]|\.[A-Za-z0-9-])",
+    re.IGNORECASE,
+)
+NAMED_LOCALIZATION_TOKEN_PATTERN = re.compile(r"\{\{[^{}\n]*\}\}")
 
 PLURAL_CATEGORIES = {
     "en": {"one", "other"},
@@ -77,6 +100,33 @@ PLURAL_CATEGORIES = {
 
 class CatalogError(RuntimeError):
     pass
+
+
+def _validate_product_identity_value(key: str, locale: str, value: str) -> None:
+    named_token = NAMED_LOCALIZATION_TOKEN_PATTERN.search(value)
+    if named_token is not None:
+        raise CatalogError(
+            "Named localization tokens are not supported in "
+            f"{key!r}/{locale}: {named_token.group(0)!r}; "
+            "use positional printf placeholders"
+        )
+
+    if (key, value) in PRODUCT_IDENTITY_VALUE_EXCLUSIONS:
+        return
+
+    product_host = PRODUCT_HOST_PATTERN.search(value)
+    if product_host is not None:
+        raise CatalogError(
+            f"Literal product host in {key!r}/{locale}: "
+            f"{product_host.group(0)!r}; use CommonConfigManager domain"
+        )
+
+    product_brand = PRODUCT_BRAND_PATTERN.search(value)
+    if product_brand is not None:
+        raise CatalogError(
+            f"Literal product brand in {key!r}/{locale}: "
+            f"{product_brand.group(0)!r}; use CommonConfigManager app_name"
+        )
 
 
 def read_strings(path: Path) -> dict[str, str]:
@@ -314,6 +364,7 @@ def validate_catalog(
                     raise CatalogError(f"{key!r}/{locale} is not a string unit") from error
                 if state != "translated" or not isinstance(value, str) or not value.strip():
                     raise CatalogError(f"{key!r}/{locale} has an invalid translated value")
+                _validate_product_identity_value(key, locale, value)
             translations_by_locale[locale] += 1
 
         english_signature_map = localization_signature_map(localizations.get("en"))

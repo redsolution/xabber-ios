@@ -619,11 +619,13 @@ extension PhotoGallery {
         guard let activityImage = UIImage(named: "xabber_icon_call_kit")?.resize(targetSize: CGSize(square: 60)) else {
             return
         }
-        let xabberActivity = XabberActivity(title: "Xabber", image: activityImage)
+        let xabberActivity = XabberActivity(
+            title: CommonConfigManager.shared.config.app_name,
+            image: activityImage
+        )
         
         let activityVC = UIActivityViewController(activityItems: objectsToShare, applicationActivities: [xabberActivity])
         activityVC.excludedActivityTypes = []
         showModal(activityVC, parent: self)
     }
 }
-

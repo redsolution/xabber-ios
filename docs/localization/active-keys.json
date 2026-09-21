@@ -180,7 +180,7 @@
           "argumentCount": 0,
           "fallback": "About",
           "formatSignature": [],
-          "line": 64,
+          "line": 83,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/about/AboutXabberViewController.swift",
           "surfaces": [
@@ -208,32 +208,48 @@
     },
     {
       "apis": [
-        "legacy"
+        "format"
       ],
       "callsites": [
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "XMPP is highly extensible, via extensions known as XEPs (XMPP Extension Protocol). Clandestino supports a number of popular XEPs that are essential to providing great chat experience for our users.",
-          "formatSignature": [],
-          "line": 55,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "XMPP is highly extensible, via extensions known as XEPs (XMPP Extension Protocol). %1$@ supports a number of popular XEPs that are essential to providing great chat experience for our users.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 62,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/about/AboutXabberViewController.swift",
           "surfaces": [
             "app"
           ],
           "symbol": "configure",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         }
       ],
       "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "XMPP is highly extensible, via extensions known as XEPs (XMPP Extension Protocol). Xabber supports a number of popular XEPs that are essential to providing great chat experience for our users."
+        "fallbackStatus": "consistent",
+        "value": "XMPP is highly extensible, via extensions known as XEPs (XMPP Extension Protocol). %1$@ supports a number of popular XEPs that are essential to providing great chat experience for our users."
       },
       "fallbacks": [
-        "XMPP is highly extensible, via extensions known as XEPs (XMPP Extension Protocol). Clandestino supports a number of popular XEPs that are essential to providing great chat experience for our users."
+        "XMPP is highly extensible, via extensions known as XEPs (XMPP Extension Protocol). %1$@ supports a number of popular XEPs that are essential to providing great chat experience for our users."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "about_extension_protocols",
       "origins": [
         "sourceLiteral"
@@ -244,32 +260,76 @@
     },
     {
       "apis": [
-        "legacy"
+        "format"
       ],
       "callsites": [
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "Clandestino is an <u><b>open</b> <i>source</i></u> XMPP messenger for Android, iOS and Web platforms. It is build around open standards, interoperability, design and great user experience. Versions of Clandestino for every platform are built to provide a continuous chat experience between them.\nYou will find more information on our official website https://xabber.com",
-          "formatSignature": [],
-          "line": 53,
+          "api": "format",
+          "argumentCount": 2,
+          "fallback": "%1$@ is an <u><b>open</b> <i>source</i></u> XMPP messenger for Android, iOS and Web platforms. It is build around open standards, interoperability, design and great user experience. Versions of %1$@ for every platform are built to provide a continuous chat experience between them.\nYou will find more information on our official website https://%2$@",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            },
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            },
+            {
+              "argument": 2,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 56,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/about/AboutXabberViewController.swift",
           "surfaces": [
             "app"
           ],
           "symbol": "configure",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         }
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "Clandestino is an <u><b>open</b> <i>source</i></u> XMPP messenger for Android, iOS and Web platforms. It is build around open standards, interoperability, design and great user experience. Versions of Clandestino for every platform are built to provide a continuous chat experience between them.\nYou will find more information on our official website https://xabber.com"
+        "value": "%1$@ is an <u><b>open</b> <i>source</i></u> XMPP messenger for Android, iOS and Web platforms. It is build around open standards, interoperability, design and great user experience. Versions of %1$@ for every platform are built to provide a continuous chat experience between them.\nYou will find more information on our official website https://%2$@"
       },
       "fallbacks": [
-        "Clandestino is an <u><b>open</b> <i>source</i></u> XMPP messenger for Android, iOS and Web platforms. It is build around open standards, interoperability, design and great user experience. Versions of Clandestino for every platform are built to provide a continuous chat experience between them.\nYou will find more information on our official website https://xabber.com"
+        "%1$@ is an <u><b>open</b> <i>source</i></u> XMPP messenger for Android, iOS and Web platforms. It is build around open standards, interoperability, design and great user experience. Versions of %1$@ for every platform are built to provide a continuous chat experience between them.\nYou will find more information on our official website https://%2$@"
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        },
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        },
+        {
+          "argument": 2,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "about_xabber",
       "origins": [
         "sourceLiteral"
@@ -288,7 +348,7 @@
           "argumentCount": 0,
           "fallback": "Extensible Messaging and Presence Protocol (XMPP) is a communications protocol for message-oriented middleware based on XML (Extensible Markup Language). It enables the near-real-time exchange of structured yet extensible data between any two or more network entities. The protocol was originally named Jabber, and was developed by the Jabber open-source community in 1999 for near real-time instant messaging (IM),presence information, and contact list maintenance.",
           "formatSignature": [],
-          "line": 54,
+          "line": 61,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/about/AboutXabberViewController.swift",
           "surfaces": [
@@ -1074,7 +1134,7 @@
           "argumentCount": 0,
           "fallback": "Account already exists",
           "formatSignature": [],
-          "line": 891,
+          "line": 892,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInCreditionalsViewController.swift",
           "surfaces": [
@@ -1231,7 +1291,7 @@
           "argumentCount": 0,
           "fallback": "Can`t share QR-code",
           "formatSignature": [],
-          "line": 1031,
+          "line": 1034,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/qr_code/QRCodeViewController.swift",
           "surfaces": [
@@ -1527,7 +1587,7 @@
           "argumentCount": 0,
           "fallback": "Account color",
           "formatSignature": [],
-          "line": 197,
+          "line": 201,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -2175,7 +2235,7 @@
           "argumentCount": 0,
           "fallback": "Connection settings",
           "formatSignature": [],
-          "line": 196,
+          "line": 200,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -2189,7 +2249,7 @@
           "argumentCount": 0,
           "fallback": "Connection settings",
           "formatSignature": [],
-          "line": 205,
+          "line": 209,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -2289,7 +2349,7 @@
           "argumentCount": 0,
           "fallback": "Delete account",
           "formatSignature": [],
-          "line": 542,
+          "line": 549,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -3015,7 +3075,7 @@
           "argumentCount": 0,
           "fallback": "Devices",
           "formatSignature": [],
-          "line": 221,
+          "line": 225,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -3101,7 +3161,7 @@
           "argumentCount": 0,
           "fallback": "Profile",
           "formatSignature": [],
-          "line": 194,
+          "line": 198,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -3115,7 +3175,7 @@
           "argumentCount": 0,
           "fallback": "Profile",
           "formatSignature": [],
-          "line": 203,
+          "line": 207,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -3151,7 +3211,7 @@
           "argumentCount": 0,
           "fallback": "Profile, status, password",
           "formatSignature": [],
-          "line": 211,
+          "line": 215,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -3516,7 +3576,7 @@
           "argumentCount": 0,
           "fallback": "Password",
           "formatSignature": [],
-          "line": 195,
+          "line": 199,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -3530,7 +3590,7 @@
           "argumentCount": 0,
           "fallback": "Password",
           "formatSignature": [],
-          "line": 204,
+          "line": 208,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -3702,7 +3762,7 @@
           "argumentCount": 0,
           "fallback": "Deleting account data...",
           "formatSignature": [],
-          "line": 446,
+          "line": 450,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController.swift",
           "surfaces": [
@@ -3738,7 +3798,7 @@
           "argumentCount": 0,
           "fallback": "Deleting account data from this device",
           "formatSignature": [],
-          "line": 437,
+          "line": 441,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController.swift",
           "surfaces": [
@@ -3839,7 +3899,7 @@
           "argumentCount": 0,
           "fallback": "Resource",
           "formatSignature": [],
-          "line": 398,
+          "line": 400,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -4367,7 +4427,7 @@
           "argumentCount": 0,
           "fallback": "Devices",
           "formatSignature": [],
-          "line": 533,
+          "line": 537,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController.swift",
           "surfaces": [
@@ -5001,14 +5061,22 @@
     },
     {
       "apis": [
-        "legacy"
+        "format"
       ],
       "callsites": [
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "You can terminate sessions you don`t need. Official Clandestino clients wipe all user data from the device upon session termination.",
-          "formatSignature": [],
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "You can terminate sessions you don`t need. Official %1$@ clients wipe all user data from the device upon session termination.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
           "line": 180,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
@@ -5016,13 +5084,21 @@
             "app"
           ],
           "symbol": "updateTokensDatasorce",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         },
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "You can terminate sessions you don`t need. Official Clandestino clients wipe all user data from the device upon session termination.",
-          "formatSignature": [],
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "You can terminate sessions you don`t need. Official %1$@ clients wipe all user data from the device upon session termination.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
           "line": 318,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController.swift",
@@ -5030,17 +5106,25 @@
             "app"
           ],
           "symbol": "update",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         }
       ],
       "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "You can terminate sessions you don`t need. Official Xabber clients wipe all user data from the device upon session termination."
+        "fallbackStatus": "consistent",
+        "value": "You can terminate sessions you don`t need. Official %1$@ clients wipe all user data from the device upon session termination."
       },
       "fallbacks": [
-        "You can terminate sessions you don`t need. Official Clandestino clients wipe all user data from the device upon session termination."
+        "You can terminate sessions you don`t need. Official %1$@ clients wipe all user data from the device upon session termination."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "account_settings_terminate_description",
       "origins": [
         "sourceLiteral"
@@ -5552,7 +5636,7 @@
           "argumentCount": 0,
           "fallback": "username",
           "formatSignature": [],
-          "line": 68,
+          "line": 73,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signup/SignUpSelectUsernameViewController.swift",
           "surfaces": [
@@ -5837,7 +5921,7 @@
           "argumentCount": 0,
           "fallback": "VERIFY",
           "formatSignature": [],
-          "line": 650,
+          "line": 659,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -12596,7 +12680,7 @@
           "argumentCount": 0,
           "fallback": "Block",
           "formatSignature": [],
-          "line": 118,
+          "line": 121,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
           "surfaces": [
@@ -12777,7 +12861,7 @@
           "argumentCount": 0,
           "fallback": "Blocked contacts",
           "formatSignature": [],
-          "line": 198,
+          "line": 202,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -12791,7 +12875,7 @@
           "argumentCount": 0,
           "fallback": "Blocked contacts",
           "formatSignature": [],
-          "line": 206,
+          "line": 210,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -14067,7 +14151,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 120,
+          "line": 123,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
           "surfaces": [
@@ -14081,7 +14165,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 325,
+          "line": 328,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
           "surfaces": [
@@ -27044,14 +27128,22 @@
     },
     {
       "apis": [
-        "legacy"
+        "format"
       ],
       "callsites": [
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "xabber call",
-          "formatSignature": [],
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "%1$@ call",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
           "line": 226,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/calls/call/CallScreenViewController.swift",
@@ -27059,17 +27151,25 @@
             "app"
           ],
           "symbol": "Layout",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         }
       ],
       "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "Xabber call"
+        "fallbackStatus": "consistent",
+        "value": "%1$@ call"
       },
       "fallbacks": [
-        "xabber call"
+        "%1$@ call"
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "chat_xabber_call_hint",
       "origins": [
         "sourceLiteral"
@@ -29733,7 +29833,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 443,
+          "line": 445,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -29747,7 +29847,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 589,
+          "line": 598,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -29761,7 +29861,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 658,
+          "line": 667,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -29901,7 +30001,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 187,
+          "line": 190,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
           "surfaces": [
@@ -30083,7 +30183,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 544,
+          "line": 551,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -30203,7 +30303,7 @@
           "argumentCount": 0,
           "fallback": "Close",
           "formatSignature": [],
-          "line": 563,
+          "line": 565,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -30217,7 +30317,7 @@
           "argumentCount": 0,
           "fallback": "Close",
           "formatSignature": [],
-          "line": 573,
+          "line": 582,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -30607,7 +30707,7 @@
           "argumentCount": 0,
           "fallback": "Delete",
           "formatSignature": [],
-          "line": 582,
+          "line": 591,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -30677,7 +30777,7 @@
           "argumentCount": 0,
           "fallback": "Delete",
           "formatSignature": [],
-          "line": 185,
+          "line": 188,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
           "surfaces": [
@@ -30691,7 +30791,7 @@
           "argumentCount": 0,
           "fallback": "Delete",
           "formatSignature": [],
-          "line": 546,
+          "line": 553,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -30705,7 +30805,7 @@
           "argumentCount": 0,
           "fallback": "Delete",
           "formatSignature": [],
-          "line": 730,
+          "line": 737,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -31073,7 +31173,7 @@
           "argumentCount": 0,
           "fallback": "OK",
           "formatSignature": [],
-          "line": 688,
+          "line": 695,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -31185,7 +31285,7 @@
           "argumentCount": 0,
           "fallback": "OK",
           "formatSignature": [],
-          "line": 656,
+          "line": 669,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -31441,7 +31541,7 @@
           "argumentCount": 0,
           "fallback": "Retry",
           "formatSignature": [],
-          "line": 410,
+          "line": 423,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -31455,7 +31555,7 @@
           "argumentCount": 0,
           "fallback": "Retry",
           "formatSignature": [],
-          "line": 840,
+          "line": 857,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -31469,7 +31569,7 @@
           "argumentCount": 0,
           "fallback": "Retry",
           "formatSignature": [],
-          "line": 855,
+          "line": 872,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -31747,7 +31847,7 @@
           "argumentCount": 0,
           "fallback": "Unknown user",
           "formatSignature": [],
-          "line": 562,
+          "line": 564,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -31761,7 +31861,7 @@
           "argumentCount": 0,
           "fallback": "Unknown user",
           "formatSignature": [],
-          "line": 572,
+          "line": 579,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -32986,7 +33086,7 @@
           "argumentCount": 0,
           "fallback": "Block contact",
           "formatSignature": [],
-          "line": 115,
+          "line": 118,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
           "surfaces": [
@@ -33104,7 +33204,7 @@
               "width": null
             }
           ],
-          "line": 117,
+          "line": 120,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
           "surfaces": [
@@ -34096,7 +34196,7 @@
           "argumentCount": 0,
           "fallback": "Trusted by",
           "formatSignature": [],
-          "line": 63,
+          "line": 65,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/ContactDeviceDetailViewController.swift",
           "surfaces": [
@@ -35119,7 +35219,7 @@
           "argumentCount": 0,
           "fallback": "Client",
           "formatSignature": [],
-          "line": 421,
+          "line": 423,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -39952,7 +40052,7 @@
           "argumentCount": 0,
           "fallback": "Delete chat",
           "formatSignature": [],
-          "line": 183,
+          "line": 186,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
           "surfaces": [
@@ -40365,7 +40465,7 @@
           "argumentCount": 0,
           "fallback": "Device",
           "formatSignature": [],
-          "line": 394,
+          "line": 396,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -40379,7 +40479,7 @@
           "argumentCount": 0,
           "fallback": "Device",
           "formatSignature": [],
-          "line": 419,
+          "line": 421,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -40393,7 +40493,7 @@
           "argumentCount": 0,
           "fallback": "Device",
           "formatSignature": [],
-          "line": 77,
+          "line": 79,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/ContactDeviceDetailViewController.swift",
           "surfaces": [
@@ -40933,7 +41033,7 @@
           "argumentCount": 0,
           "fallback": "Client",
           "formatSignature": [],
-          "line": 396,
+          "line": 398,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -40969,7 +41069,7 @@
           "argumentCount": 0,
           "fallback": "Expires at",
           "formatSignature": [],
-          "line": 401,
+          "line": 403,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -40983,7 +41083,7 @@
           "argumentCount": 0,
           "fallback": "Expires at",
           "formatSignature": [],
-          "line": 424,
+          "line": 426,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41019,7 +41119,7 @@
           "argumentCount": 0,
           "fallback": "Rename",
           "formatSignature": [],
-          "line": 444,
+          "line": 446,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41055,7 +41155,7 @@
           "argumentCount": 0,
           "fallback": "Last seen",
           "formatSignature": [],
-          "line": 392,
+          "line": 394,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41069,7 +41169,7 @@
           "argumentCount": 0,
           "fallback": "Last seen",
           "formatSignature": [],
-          "line": 417,
+          "line": 419,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41083,7 +41183,7 @@
           "argumentCount": 0,
           "fallback": "Last seen",
           "formatSignature": [],
-          "line": 75,
+          "line": 77,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/ContactDeviceDetailViewController.swift",
           "surfaces": [
@@ -41161,7 +41261,7 @@
           "argumentCount": 0,
           "fallback": "Terminate session",
           "formatSignature": [],
-          "line": 410,
+          "line": 412,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41175,7 +41275,7 @@
           "argumentCount": 0,
           "fallback": "Terminate session",
           "formatSignature": [],
-          "line": 429,
+          "line": 431,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41283,7 +41383,7 @@
           "argumentCount": 0,
           "fallback": "Device",
           "formatSignature": [],
-          "line": 388,
+          "line": 390,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41391,7 +41491,7 @@
           "argumentCount": 0,
           "fallback": "Encryption not secured",
           "formatSignature": [],
-          "line": 561,
+          "line": 563,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41427,7 +41527,7 @@
           "argumentCount": 0,
           "fallback": "Encryption secured",
           "formatSignature": [],
-          "line": 571,
+          "line": 573,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41471,7 +41571,7 @@
               "width": null
             }
           ],
-          "line": 562,
+          "line": 564,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41512,8 +41612,8 @@
       "callsites": [
         {
           "api": "format",
-          "argumentCount": 1,
-          "fallback": "Encryption key verified by certificate issued by Clandestino for %@",
+          "argumentCount": 2,
+          "fallback": "Encryption key verified by certificate issued by %1$@ for %2$@",
           "formatSignature": [
             {
               "argument": 1,
@@ -41521,9 +41621,16 @@
               "flags": "",
               "precision": null,
               "width": null
+            },
+            {
+              "argument": 2,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
             }
           ],
-          "line": 572,
+          "line": 574,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41535,14 +41642,21 @@
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "Encryption key verified by certificate issued by Clandestino for %@"
+        "value": "Encryption key verified by certificate issued by %1$@ for %2$@"
       },
       "fallbacks": [
-        "Encryption key verified by certificate issued by Clandestino for %@"
+        "Encryption key verified by certificate issued by %1$@ for %2$@"
       ],
       "formatSignature": [
         {
           "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        },
+        {
+          "argument": 2,
           "conversion": "@",
           "flags": "",
           "precision": null,
@@ -41711,7 +41825,7 @@
           "argumentCount": 0,
           "fallback": "Trust this device",
           "formatSignature": [],
-          "line": 656,
+          "line": 665,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41747,7 +41861,7 @@
           "argumentCount": 0,
           "fallback": "Trusted by",
           "formatSignature": [],
-          "line": 373,
+          "line": 375,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41783,7 +41897,7 @@
           "argumentCount": 0,
           "fallback": "Untrust",
           "formatSignature": [],
-          "line": 583,
+          "line": 592,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41819,7 +41933,7 @@
           "argumentCount": 0,
           "fallback": "Untrust this device",
           "formatSignature": [],
-          "line": 587,
+          "line": 596,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41855,7 +41969,7 @@
           "argumentCount": 0,
           "fallback": "Private information",
           "formatSignature": [],
-          "line": 722,
+          "line": 731,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -41891,7 +42005,7 @@
           "argumentCount": 0,
           "fallback": "Public information",
           "formatSignature": [],
-          "line": 724,
+          "line": 733,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -42142,7 +42256,7 @@
           "argumentCount": 0,
           "fallback": "Requires confirmation.",
           "formatSignature": [],
-          "line": 749,
+          "line": 758,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -42522,7 +42636,7 @@
           "argumentCount": 0,
           "fallback": "Rename device",
           "formatSignature": [],
-          "line": 441,
+          "line": 443,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -43766,7 +43880,7 @@
           "argumentCount": 0,
           "fallback": "Unverified devices connected",
           "formatSignature": [],
-          "line": 321,
+          "line": 325,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController.swift",
           "surfaces": [
@@ -43802,7 +43916,7 @@
           "argumentCount": 0,
           "fallback": "Obsolete devices",
           "formatSignature": [],
-          "line": 344,
+          "line": 348,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController.swift",
           "surfaces": [
@@ -43910,7 +44024,7 @@
           "argumentCount": 0,
           "fallback": "Pull to refresh",
           "formatSignature": [],
-          "line": 507,
+          "line": 511,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController.swift",
           "surfaces": [
@@ -43982,7 +44096,7 @@
           "argumentCount": 0,
           "fallback": "Incorrectly published encryption keys. Something went  wrong. You should not be seeing this section. If you do, please, delete these devices.",
           "formatSignature": [],
-          "line": 345,
+          "line": 349,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController.swift",
           "surfaces": [
@@ -44018,7 +44132,7 @@
           "argumentCount": 0,
           "fallback": "Several devices connected to this account have enabled end-to-end encryption but were not verified.\n\nPlease, review the list below and perform device verification for every device in question.",
           "formatSignature": [],
-          "line": 321,
+          "line": 325,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController.swift",
           "surfaces": [
@@ -44428,7 +44542,7 @@
           "argumentCount": 0,
           "fallback": "Connect",
           "formatSignature": [],
-          "line": 823,
+          "line": 824,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInCreditionalsViewController.swift",
           "surfaces": [
@@ -44442,7 +44556,7 @@
           "argumentCount": 0,
           "fallback": "Connect",
           "formatSignature": [],
-          "line": 825,
+          "line": 826,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInCreditionalsViewController.swift",
           "surfaces": [
@@ -44506,14 +44620,22 @@
     },
     {
       "apis": [
-        "text"
+        "format"
       ],
       "callsites": [
         {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "If you don't have an account yet, press here to sign up for a Clandestino account.",
-          "formatSignature": [],
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "If you don't have an account yet, press here to sign up for a %1$@ account.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
           "line": 805,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInCreditionalsViewController.swift",
@@ -44525,13 +44647,21 @@
         }
       ],
       "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "If you don't have an account yet, press here to sign up for a Xabber account."
+        "fallbackStatus": "consistent",
+        "value": "If you don't have an account yet, press here to sign up for a %1$@ account."
       },
       "fallbacks": [
-        "If you don't have an account yet, press here to sign up for a Clandestino account."
+        "If you don't have an account yet, press here to sign up for a %1$@ account."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "dialog_jingle_message__message_sign_up",
       "origins": [
         "sourceLiteral"
@@ -44586,7 +44716,7 @@
           "argumentCount": 0,
           "fallback": "Calling...",
           "formatSignature": [],
-          "line": 666,
+          "line": 670,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/calls/call/CallScreenViewController.swift",
           "surfaces": [
@@ -44600,7 +44730,7 @@
           "argumentCount": 0,
           "fallback": "Calling...",
           "formatSignature": [],
-          "line": 672,
+          "line": 676,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/calls/call/CallScreenViewController.swift",
           "surfaces": [
@@ -44614,7 +44744,7 @@
           "argumentCount": 0,
           "fallback": "Calling...",
           "formatSignature": [],
-          "line": 677,
+          "line": 681,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/calls/call/CallScreenViewController.swift",
           "surfaces": [
@@ -44722,7 +44852,7 @@
           "argumentCount": 0,
           "fallback": "Connecting...",
           "formatSignature": [],
-          "line": 685,
+          "line": 689,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/calls/call/CallScreenViewController.swift",
           "surfaces": [
@@ -44736,7 +44866,7 @@
           "argumentCount": 0,
           "fallback": "Connecting...",
           "formatSignature": [],
-          "line": 690,
+          "line": 694,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/calls/call/CallScreenViewController.swift",
           "surfaces": [
@@ -44772,7 +44902,7 @@
           "argumentCount": 0,
           "fallback": "Disconnected",
           "formatSignature": [],
-          "line": 709,
+          "line": 713,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/calls/call/CallScreenViewController.swift",
           "surfaces": [
@@ -44808,7 +44938,7 @@
           "argumentCount": 0,
           "fallback": "Call ended",
           "formatSignature": [],
-          "line": 725,
+          "line": 729,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/calls/call/CallScreenViewController.swift",
           "surfaces": [
@@ -44916,7 +45046,7 @@
           "argumentCount": 0,
           "fallback": "Start call",
           "formatSignature": [],
-          "line": 951,
+          "line": 955,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/calls/call/CallScreenViewController.swift",
           "surfaces": [
@@ -44966,7 +45096,7 @@
           "argumentCount": 0,
           "fallback": "QR-code",
           "formatSignature": [],
-          "line": 820,
+          "line": 823,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/qr_code/QRCodeViewController.swift",
           "surfaces": [
@@ -45981,7 +46111,7 @@
           "argumentCount": 0,
           "fallback": "I have read and agree to the End User License Agreement and User Conduct Policy.",
           "formatSignature": [],
-          "line": 274,
+          "line": 276,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppRootCoordinator.swift",
           "surfaces": [
@@ -46017,7 +46147,7 @@
           "argumentCount": 0,
           "fallback": "I Agree",
           "formatSignature": [],
-          "line": 275,
+          "line": 277,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppRootCoordinator.swift",
           "surfaces": [
@@ -46053,7 +46183,7 @@
           "argumentCount": 0,
           "fallback": "Check the acknowledgement before accepting.",
           "formatSignature": [],
-          "line": 369,
+          "line": 371,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppRootCoordinator.swift",
           "surfaces": [
@@ -46089,7 +46219,7 @@
           "argumentCount": 0,
           "fallback": "Checked",
           "formatSignature": [],
-          "line": 355,
+          "line": 357,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppRootCoordinator.swift",
           "surfaces": [
@@ -46125,7 +46255,7 @@
           "argumentCount": 0,
           "fallback": "Unchecked",
           "formatSignature": [],
-          "line": 356,
+          "line": 358,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppRootCoordinator.swift",
           "surfaces": [
@@ -46161,7 +46291,7 @@
           "argumentCount": 0,
           "fallback": "Decline",
           "formatSignature": [],
-          "line": 276,
+          "line": 278,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppRootCoordinator.swift",
           "surfaces": [
@@ -46197,7 +46327,7 @@
           "argumentCount": 0,
           "fallback": "You cannot use this app unless you accept the End User License Agreement.",
           "formatSignature": [],
-          "line": 278,
+          "line": 280,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppRootCoordinator.swift",
           "surfaces": [
@@ -46233,7 +46363,7 @@
           "argumentCount": 0,
           "fallback": "You must accept these terms before using the app.",
           "formatSignature": [],
-          "line": 269,
+          "line": 271,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppRootCoordinator.swift",
           "surfaces": [
@@ -46269,7 +46399,7 @@
           "argumentCount": 0,
           "fallback": "End User License Agreement",
           "formatSignature": [],
-          "line": 223,
+          "line": 225,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppRootCoordinator.swift",
           "surfaces": [
@@ -46283,7 +46413,7 @@
           "argumentCount": 0,
           "fallback": "End User License Agreement",
           "formatSignature": [],
-          "line": 268,
+          "line": 270,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppRootCoordinator.swift",
           "surfaces": [
@@ -46363,7 +46493,7 @@
               "width": null
             }
           ],
-          "line": 272,
+          "line": 274,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppRootCoordinator.swift",
           "surfaces": [
@@ -46415,7 +46545,7 @@
               "width": null
             }
           ],
-          "line": 123,
+          "line": 125,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppRootCoordinator.swift",
           "surfaces": [
@@ -53748,7 +53878,7 @@
           "argumentCount": 0,
           "fallback": "Rename",
           "formatSignature": [],
-          "line": 406,
+          "line": 408,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -54664,14 +54794,22 @@
     },
     {
       "apis": [
-        "legacy"
+        "format"
       ],
       "callsites": [
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "https://www.xabber.com/learn/saved/",
-          "formatSignature": [],
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "https://%1$@/learn/saved/",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
           "line": 344,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/extension/ChatViewController+InitialMessage.swift",
@@ -54679,17 +54817,25 @@
             "app"
           ],
           "symbol": "update",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         }
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "https://www.xabber.com/learn/saved/"
+        "value": "https://%1$@/learn/saved/"
       },
       "fallbacks": [
-        "https://www.xabber.com/learn/saved/"
+        "https://%1$@/learn/saved/"
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "intro_saved_messages_link",
       "origins": [
         "sourceLiteral"
@@ -55116,7 +55262,7 @@
           "argumentCount": 0,
           "fallback": "All messages will be deleted",
           "formatSignature": [],
-          "line": 184,
+          "line": 187,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
           "surfaces": [
@@ -58101,7 +58247,7 @@
           "argumentCount": 0,
           "fallback": "Mute for 15 minutes",
           "formatSignature": [],
-          "line": 306,
+          "line": 309,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
           "surfaces": [
@@ -58165,7 +58311,7 @@
           "argumentCount": 0,
           "fallback": "Mute for 1 day",
           "formatSignature": [],
-          "line": 315,
+          "line": 318,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
           "surfaces": [
@@ -58229,7 +58375,7 @@
           "argumentCount": 0,
           "fallback": "Mute for 1 hour",
           "formatSignature": [],
-          "line": 309,
+          "line": 312,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
           "surfaces": [
@@ -58293,7 +58439,7 @@
           "argumentCount": 0,
           "fallback": "Mute for 2 hours",
           "formatSignature": [],
-          "line": 312,
+          "line": 315,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
           "surfaces": [
@@ -58393,7 +58539,7 @@
           "argumentCount": 0,
           "fallback": "Mute forever",
           "formatSignature": [],
-          "line": 318,
+          "line": 321,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
           "surfaces": [
@@ -59456,7 +59602,7 @@
           "argumentCount": 0,
           "fallback": "In-App Sounds",
           "formatSignature": [],
-          "line": 188,
+          "line": 192,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
           "surfaces": [
@@ -59492,7 +59638,7 @@
           "argumentCount": 0,
           "fallback": "Invites",
           "formatSignature": [],
-          "line": 168,
+          "line": 172,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
           "surfaces": [
@@ -59528,7 +59674,7 @@
           "argumentCount": 0,
           "fallback": "Messages",
           "formatSignature": [],
-          "line": 158,
+          "line": 162,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
           "surfaces": [
@@ -59564,7 +59710,7 @@
           "argumentCount": 0,
           "fallback": "Open iOS Notification Settings",
           "formatSignature": [],
-          "line": 208,
+          "line": 212,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
           "surfaces": [
@@ -59600,7 +59746,7 @@
           "argumentCount": 0,
           "fallback": "Show Banners in Chats",
           "formatSignature": [],
-          "line": 197,
+          "line": 201,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
           "surfaces": [
@@ -59636,7 +59782,7 @@
           "argumentCount": 0,
           "fallback": "Subscription Requests",
           "formatSignature": [],
-          "line": 178,
+          "line": 182,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
           "surfaces": [
@@ -60350,7 +60496,7 @@
           "argumentCount": 0,
           "fallback": "Notifications",
           "formatSignature": [],
-          "line": 77,
+          "line": 81,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
           "surfaces": [
@@ -60754,7 +60900,7 @@
               "width": null
             }
           ],
-          "line": 366,
+          "line": 370,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
           "surfaces": [
@@ -60790,14 +60936,22 @@
     },
     {
       "apis": [
-        "text"
+        "format"
       ],
       "callsites": [
         {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "Show banners and play enabled notification sounds while Xabber is open.",
-          "formatSignature": [],
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "Show banners and play enabled notification sounds while %1$@ is open.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
           "line": 41,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
@@ -60810,12 +60964,20 @@
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "Show banners and play enabled notification sounds while Xabber is open."
+        "value": "Show banners and play enabled notification sounds while %1$@ is open."
       },
       "fallbacks": [
-        "Show banners and play enabled notification sounds while Xabber is open."
+        "Show banners and play enabled notification sounds while %1$@ is open."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "notifications_settings__in_app__footer",
       "origins": [
         "sourceLiteral"
@@ -60942,7 +61104,7 @@
           "argumentCount": 0,
           "fallback": "Lock Screen previews, permissions, badges and notification delivery are controlled in iOS Settings.",
           "formatSignature": [],
-          "line": 43,
+          "line": 47,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
           "surfaces": [
@@ -61012,7 +61174,7 @@
           "argumentCount": 0,
           "fallback": " of ",
           "formatSignature": [],
-          "line": 396,
+          "line": 400,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -61169,7 +61331,7 @@
           "argumentCount": 0,
           "fallback": "Delete device",
           "formatSignature": [],
-          "line": 652,
+          "line": 661,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -61205,7 +61367,7 @@
           "argumentCount": 0,
           "fallback": "Trust",
           "formatSignature": [],
-          "line": 651,
+          "line": 660,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -62699,15 +62861,30 @@
     },
     {
       "apis": [
-        "text"
+        "format"
       ],
       "callsites": [
         {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "Xabber has always been a free, open-source messenger committed to user privacy and security. Premium features require additional server resources — persistent message archives need dedicated storage infrastructure, extended cloud capacity demands powerful servers, and digital verification certificates rely on secure cryptographic services.\n\nYour subscription directly funds the development and operation of these premium services, while helping us keep the core Xabber experience completely free and ad-free for everyone.",
-          "formatSignature": [],
-          "line": 168,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "%1$@ has always been a free, open-source messenger committed to user privacy and security. Premium features require additional server resources — persistent message archives need dedicated storage infrastructure, extended cloud capacity demands powerful servers, and digital verification certificates rely on secure cryptographic services.\n\nYour subscription directly funds the development and operation of these premium services, while helping us keep the core %1$@ experience completely free and ad-free for everyone.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            },
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 169,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -62719,12 +62896,27 @@
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "Xabber has always been a free, open-source messenger committed to user privacy and security. Premium features require additional server resources — persistent message archives need dedicated storage infrastructure, extended cloud capacity demands powerful servers, and digital verification certificates rely on secure cryptographic services.\n\nYour subscription directly funds the development and operation of these premium services, while helping us keep the core Xabber experience completely free and ad-free for everyone."
+        "value": "%1$@ has always been a free, open-source messenger committed to user privacy and security. Premium features require additional server resources — persistent message archives need dedicated storage infrastructure, extended cloud capacity demands powerful servers, and digital verification certificates rely on secure cryptographic services.\n\nYour subscription directly funds the development and operation of these premium services, while helping us keep the core %1$@ experience completely free and ad-free for everyone."
       },
       "fallbacks": [
-        "Xabber has always been a free, open-source messenger committed to user privacy and security. Premium features require additional server resources — persistent message archives need dedicated storage infrastructure, extended cloud capacity demands powerful servers, and digital verification certificates rely on secure cryptographic services.\n\nYour subscription directly funds the development and operation of these premium services, while helping us keep the core Xabber experience completely free and ad-free for everyone."
+        "%1$@ has always been a free, open-source messenger committed to user privacy and security. Premium features require additional server resources — persistent message archives need dedicated storage infrastructure, extended cloud capacity demands powerful servers, and digital verification certificates rely on secure cryptographic services.\n\nYour subscription directly funds the development and operation of these premium services, while helping us keep the core %1$@ experience completely free and ad-free for everyone."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        },
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "premium__about__open_source_and_subscription_support",
       "origins": [
         "sourceLiteral"
@@ -62743,7 +62935,7 @@
           "argumentCount": 0,
           "fallback": "Product configuration not found.",
           "formatSignature": [],
-          "line": 541,
+          "line": 554,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -62779,7 +62971,7 @@
           "argumentCount": 0,
           "fallback": "This subscription is not available from App Store Connect yet. Please try again later.",
           "formatSignature": [],
-          "line": 534,
+          "line": 547,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -62793,7 +62985,7 @@
           "argumentCount": 0,
           "fallback": "This subscription is not available from App Store Connect yet. Please try again later.",
           "formatSignature": [],
-          "line": 551,
+          "line": 564,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -62807,7 +62999,7 @@
           "argumentCount": 0,
           "fallback": "This subscription is not available from App Store Connect yet. Please try again later.",
           "formatSignature": [],
-          "line": 594,
+          "line": 607,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -62843,7 +63035,7 @@
           "argumentCount": 0,
           "fallback": "Product Unavailable",
           "formatSignature": [],
-          "line": 534,
+          "line": 547,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -62857,7 +63049,7 @@
           "argumentCount": 0,
           "fallback": "Product Unavailable",
           "formatSignature": [],
-          "line": 551,
+          "line": 564,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -62871,7 +63063,7 @@
           "argumentCount": 0,
           "fallback": "Product Unavailable",
           "formatSignature": [],
-          "line": 594,
+          "line": 607,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -62885,7 +63077,7 @@
           "argumentCount": 0,
           "fallback": "Product Unavailable",
           "formatSignature": [],
-          "line": 1621,
+          "line": 1645,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -62913,15 +63105,23 @@
     },
     {
       "apis": [
-        "text"
+        "format"
       ],
       "callsites": [
         {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "Xabber Premium",
-          "formatSignature": [],
-          "line": 237,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "%1$@ Premium",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 242,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -62931,11 +63131,19 @@
           "typeSafety": "typed"
         },
         {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "Xabber Premium",
-          "formatSignature": [],
-          "line": 776,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "%1$@ Premium",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 789,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -62947,12 +63155,20 @@
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "Xabber Premium"
+        "value": "%1$@ Premium"
       },
       "fallbacks": [
-        "Xabber Premium"
+        "%1$@ Premium"
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "premium__brand__title",
       "origins": [
         "sourceLiteral"
@@ -63071,7 +63287,7 @@
           "argumentCount": 0,
           "fallback": "Checking Subscription…",
           "formatSignature": [],
-          "line": 1597,
+          "line": 1621,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63115,7 +63331,7 @@
               "width": null
             }
           ],
-          "line": 1619,
+          "line": 1643,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63159,7 +63375,7 @@
           "argumentCount": 0,
           "fallback": "Loading Plans…",
           "formatSignature": [],
-          "line": 1602,
+          "line": 1626,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63195,7 +63411,7 @@
           "argumentCount": 0,
           "fallback": "Loading Failed",
           "formatSignature": [],
-          "line": 1604,
+          "line": 1628,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63231,7 +63447,7 @@
           "argumentCount": 0,
           "fallback": "No Plans Available",
           "formatSignature": [],
-          "line": 1606,
+          "line": 1630,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63245,7 +63461,7 @@
           "argumentCount": 0,
           "fallback": "No Plans Available",
           "formatSignature": [],
-          "line": 1609,
+          "line": 1633,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63281,7 +63497,7 @@
           "argumentCount": 0,
           "fallback": "Processing…",
           "formatSignature": [],
-          "line": 1593,
+          "line": 1617,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63317,7 +63533,7 @@
           "argumentCount": 0,
           "fallback": "Subscribe",
           "formatSignature": [],
-          "line": 1713,
+          "line": 1737,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63361,7 +63577,7 @@
               "width": null
             }
           ],
-          "line": 1708,
+          "line": 1732,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63383,7 +63599,7 @@
               "width": null
             }
           ],
-          "line": 1711,
+          "line": 1735,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63435,7 +63651,7 @@
               "width": null
             }
           ],
-          "line": 1617,
+          "line": 1641,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63479,7 +63695,7 @@
           "argumentCount": 0,
           "fallback": "Error",
           "formatSignature": [],
-          "line": 541,
+          "line": 554,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63493,7 +63709,7 @@
           "argumentCount": 0,
           "fallback": "Error",
           "formatSignature": [],
-          "line": 618,
+          "line": 631,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63529,7 +63745,7 @@
           "argumentCount": 0,
           "fallback": "Success",
           "formatSignature": [],
-          "line": 631,
+          "line": 644,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63565,7 +63781,7 @@
           "argumentCount": 0,
           "fallback": "You’re Premium",
           "formatSignature": [],
-          "line": 766,
+          "line": 779,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63609,7 +63825,7 @@
               "width": null
             }
           ],
-          "line": 771,
+          "line": 784,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63661,7 +63877,7 @@
               "width": null
             }
           ],
-          "line": 1533,
+          "line": 1557,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63705,7 +63921,7 @@
           "argumentCount": 0,
           "fallback": "the next renewal",
           "formatSignature": [],
-          "line": 1546,
+          "line": 1570,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63756,7 +63972,7 @@
               "width": null
             }
           ],
-          "line": 1550,
+          "line": 1574,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63807,7 +64023,7 @@
           "argumentCount": 0,
           "fallback": "All premium features are unlocked.\nThank you for your support!",
           "formatSignature": [],
-          "line": 773,
+          "line": 786,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63843,7 +64059,7 @@
           "argumentCount": 0,
           "fallback": "Set messages to automatically disappear after a chosen time period.",
           "formatSignature": [],
-          "line": 132,
+          "line": 133,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63879,7 +64095,7 @@
           "argumentCount": 0,
           "fallback": "Burn Messages",
           "formatSignature": [],
-          "line": 131,
+          "line": 132,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63915,7 +64131,7 @@
           "argumentCount": 0,
           "fallback": "Upload and store larger files with increased cloud storage capacity.",
           "formatSignature": [],
-          "line": 155,
+          "line": 156,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63951,7 +64167,7 @@
           "argumentCount": 0,
           "fallback": "Extended Cloud Storage",
           "formatSignature": [],
-          "line": 154,
+          "line": 155,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -63987,7 +64203,7 @@
           "argumentCount": 0,
           "fallback": "Complete message history stored securely without automatic deletion.",
           "formatSignature": [],
-          "line": 149,
+          "line": 150,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64023,7 +64239,7 @@
           "argumentCount": 0,
           "fallback": "Message Archive",
           "formatSignature": [],
-          "line": 148,
+          "line": 149,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64059,7 +64275,7 @@
           "argumentCount": 0,
           "fallback": "Protect the app with a passcode and option to erase all data on failed attempts.",
           "formatSignature": [],
-          "line": 138,
+          "line": 139,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64095,7 +64311,7 @@
           "argumentCount": 0,
           "fallback": "Personal digital certificate to verify your identity in conversations.",
           "formatSignature": [],
-          "line": 161,
+          "line": 162,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64131,7 +64347,7 @@
           "argumentCount": 0,
           "fallback": "Verification Certificate",
           "formatSignature": [],
-          "line": 160,
+          "line": 161,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64167,7 +64383,7 @@
           "argumentCount": 0,
           "fallback": "Manage Subscription",
           "formatSignature": [],
-          "line": 1161,
+          "line": 1178,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64181,7 +64397,7 @@
           "argumentCount": 0,
           "fallback": "Manage Subscription",
           "formatSignature": [],
-          "line": 1613,
+          "line": 1637,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64217,7 +64433,7 @@
           "argumentCount": 0,
           "fallback": "To manage your subscription, go to\nApp Store → Settings → Subscriptions.",
           "formatSignature": [],
-          "line": 1559,
+          "line": 1583,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64253,7 +64469,7 @@
           "argumentCount": 0,
           "fallback": "Unlock premium features and support\nopen-source development.",
           "formatSignature": [],
-          "line": 777,
+          "line": 794,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64297,7 +64513,7 @@
               "width": null
             }
           ],
-          "line": 65,
+          "line": 66,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "pluralCountArgument": true,
@@ -64342,7 +64558,7 @@
           "argumentCount": 0,
           "fallback": "yearly",
           "formatSignature": [],
-          "line": 60,
+          "line": 61,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64393,7 +64609,7 @@
               "width": null
             }
           ],
-          "line": 81,
+          "line": 82,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64459,7 +64675,7 @@
               "width": null
             }
           ],
-          "line": 1850,
+          "line": 1874,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64510,7 +64726,7 @@
           "argumentCount": 0,
           "fallback": "Your subscription change has been submitted.",
           "formatSignature": [],
-          "line": 631,
+          "line": 644,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64546,7 +64762,7 @@
           "argumentCount": 0,
           "fallback": "Purchase failed. To manage your subscriptions, go to App Store → Settings → Subscriptions.",
           "formatSignature": [],
-          "line": 618,
+          "line": 631,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64582,7 +64798,7 @@
           "argumentCount": 0,
           "fallback": "Active",
           "formatSignature": [],
-          "line": 1057,
+          "line": 1074,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64618,7 +64834,7 @@
           "argumentCount": 0,
           "fallback": "Scheduled",
           "formatSignature": [],
-          "line": 1059,
+          "line": 1076,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64668,7 +64884,7 @@
           "argumentCount": 0,
           "fallback": "No subscriptions available right now.",
           "formatSignature": [],
-          "line": 850,
+          "line": 867,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64696,15 +64912,23 @@
     },
     {
       "apis": [
-        "text"
+        "format"
       ],
       "callsites": [
         {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "ABOUT XABBER PREMIUM",
-          "formatSignature": [],
-          "line": 355,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "ABOUT %1$@ PREMIUM",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 364,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64716,12 +64940,20 @@
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "ABOUT XABBER PREMIUM"
+        "value": "ABOUT %1$@ PREMIUM"
       },
       "fallbacks": [
-        "ABOUT XABBER PREMIUM"
+        "ABOUT %1$@ PREMIUM"
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "premium_subscribtion__presentation_call__about_xabber_premium",
       "origins": [
         "sourceLiteral"
@@ -64740,7 +64972,7 @@
           "argumentCount": 0,
           "fallback": "SUBSCRIPTION ADVANTAGES",
           "formatSignature": [],
-          "line": 350,
+          "line": 359,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64776,7 +65008,7 @@
           "argumentCount": 0,
           "fallback": "SUBSCRIPTION MANAGEMENT",
           "formatSignature": [],
-          "line": 383,
+          "line": 396,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -64812,7 +65044,7 @@
           "argumentCount": 0,
           "fallback": "SUBSCRIPTION PERIOD",
           "formatSignature": [],
-          "line": 348,
+          "line": 357,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -66050,60 +66282,92 @@
     },
     {
       "apis": [
-        "legacy"
+        "format"
       ],
       "callsites": [
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "The account will be created on Clandestino server.",
-          "formatSignature": [],
-          "line": 69,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "The account will be created on %1$@ server.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 74,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signup/SignUpSelectUsernameViewController.swift",
           "surfaces": [
             "app"
           ],
           "symbol": "localizeResources",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         },
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "The account will be created on Clandestino server.",
-          "formatSignature": [],
-          "line": 81,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "The account will be created on %1$@ server.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 91,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signup/SignUpSelectUsernameViewController.swift",
           "surfaces": [
             "app"
           ],
           "symbol": "validateTextFiled",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         },
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "The account will be created on Clandestino server.",
-          "formatSignature": [],
-          "line": 150,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "The account will be created on %1$@ server.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 164,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signup/SignUpSelectUsernameViewController.swift",
           "surfaces": [
             "app"
           ],
           "symbol": "xmppRegistrationManagerCheckUsername",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         }
       ],
       "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "The account will be created on Xabber server."
+        "fallbackStatus": "consistent",
+        "value": "The account will be created on %1$@ server."
       },
       "fallbacks": [
-        "The account will be created on Clandestino server."
+        "The account will be created on %1$@ server."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "registration_title_account_created",
       "origins": [
         "sourceLiteral"
@@ -66114,32 +66378,48 @@
     },
     {
       "apis": [
-        "legacy"
+        "format"
       ],
       "callsites": [
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "Great! Now, choose a username for people to find you on Clandestino.",
-          "formatSignature": [],
-          "line": 67,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "Great! Now, choose a username for people to find you on %1$@.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 68,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signup/SignUpSelectUsernameViewController.swift",
           "surfaces": [
             "app"
           ],
           "symbol": "localizeResources",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         }
       ],
       "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "Great! Now, choose a username for people to find you on Xabber."
+        "fallbackStatus": "consistent",
+        "value": "Great! Now, choose a username for people to find you on %1$@."
       },
       "fallbacks": [
-        "Great! Now, choose a username for people to find you on Clandestino."
+        "Great! Now, choose a username for people to find you on %1$@."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "registration_title_choose_username",
       "origins": [
         "sourceLiteral"
@@ -68837,7 +69117,7 @@
           "argumentCount": 0,
           "fallback": "Scan QR Code",
           "formatSignature": [],
-          "line": 1048,
+          "line": 1051,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/qr_code/QRCodeViewController.swift",
           "surfaces": [
@@ -70807,32 +71087,48 @@
     },
     {
       "apis": [
-        "legacy"
+        "format"
       ],
       "callsites": [
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "Your server doesn`t support pinned chats. Please use Clandestino server.",
-          "formatSignature": [],
-          "line": 91,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "Your server doesn`t support pinned chats. Please use %1$@ server.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 90,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
           "surfaces": [
             "app"
           ],
           "symbol": "fallback",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         }
       ],
       "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "Your server doesn`t support pinned chats. Please use Xabber server."
+        "fallbackStatus": "consistent",
+        "value": "Your server doesn`t support pinned chats. Please use %1$@ server."
       },
       "fallbacks": [
-        "Your server doesn`t support pinned chats. Please use Clandestino server."
+        "Your server doesn`t support pinned chats. Please use %1$@ server."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "server_doesnt_support_pinned_chats",
       "origins": [
         "sourceLiteral"
@@ -71328,7 +71624,7 @@
           "argumentCount": 0,
           "fallback": "Updating...",
           "formatSignature": [],
-          "line": 394,
+          "line": 398,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -71556,14 +71852,22 @@
     },
     {
       "apis": [
-        "text"
+        "format"
       ],
       "callsites": [
         {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "Xabber Account",
-          "formatSignature": [],
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "%1$@ Account",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
           "line": 502,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/views/InfoScreenHeaderView.swift",
@@ -71576,12 +71880,20 @@
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "Xabber Account"
+        "value": "%1$@ Account"
       },
       "fallbacks": [
-        "Xabber Account"
+        "%1$@ Account"
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "settings__menu_item__xabber_account",
       "origins": [
         "sourceLiteral"
@@ -72629,7 +72941,7 @@
           "argumentCount": 0,
           "fallback": "Passcode Lock",
           "formatSignature": [],
-          "line": 137,
+          "line": 138,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
           "surfaces": [
@@ -73030,7 +73342,7 @@
           "argumentCount": 0,
           "fallback": "Quit account",
           "formatSignature": [],
-          "line": 188,
+          "line": 192,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -73044,7 +73356,7 @@
           "argumentCount": 0,
           "fallback": "Quit account",
           "formatSignature": [],
-          "line": 354,
+          "line": 358,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController.swift",
           "surfaces": [
@@ -73526,7 +73838,7 @@
           "argumentCount": 0,
           "fallback": "Push notifications",
           "formatSignature": [],
-          "line": 847,
+          "line": 856,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -73665,7 +73977,7 @@
           "argumentCount": 0,
           "fallback": "Circles",
           "formatSignature": [],
-          "line": 199,
+          "line": 203,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -73679,7 +73991,7 @@
           "argumentCount": 0,
           "fallback": "Circles",
           "formatSignature": [],
-          "line": 207,
+          "line": 211,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -73743,7 +74055,7 @@
           "argumentCount": 0,
           "fallback": "Server information",
           "formatSignature": [],
-          "line": 217,
+          "line": 221,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -74901,7 +75213,7 @@
           "argumentCount": 0,
           "fallback": "password",
           "formatSignature": [],
-          "line": 565,
+          "line": 572,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -75059,7 +75371,7 @@
           "argumentCount": 0,
           "fallback": "Passcode Lock is unavailable",
           "formatSignature": [],
-          "line": 673,
+          "line": 680,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -75159,32 +75471,48 @@
     },
     {
       "apis": [
-        "legacy"
+        "format"
       ],
       "callsites": [
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "Ask to register on xabber.com if his xmpp server is old.",
-          "formatSignature": [],
-          "line": 871,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "Ask to register on %1$@ if his xmpp server is old.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 880,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
             "app"
           ],
           "symbol": "loadDatasource",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         }
       ],
       "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "Ask to register on Xabber.com if his xmpp server is old."
+        "fallbackStatus": "consistent",
+        "value": "Ask to register on %1$@ if his xmpp server is old."
       },
       "fallbacks": [
-        "Ask to register on xabber.com if his xmpp server is old."
+        "Ask to register on %1$@ if his xmpp server is old."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "signin_ask_to_register",
       "origins": [
         "sourceLiteral"
@@ -75211,7 +75539,7 @@
               "width": null
             }
           ],
-          "line": 835,
+          "line": 844,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75256,7 +75584,7 @@
           "argumentCount": 0,
           "fallback": "Cloud storage",
           "formatSignature": [],
-          "line": 220,
+          "line": 224,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
           "surfaces": [
@@ -75270,7 +75598,7 @@
           "argumentCount": 0,
           "fallback": "Cloud storage",
           "formatSignature": [],
-          "line": 804,
+          "line": 813,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75284,7 +75612,7 @@
           "argumentCount": 0,
           "fallback": "Cloud storage",
           "formatSignature": [],
-          "line": 867,
+          "line": 876,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75320,7 +75648,7 @@
           "argumentCount": 0,
           "fallback": "Could not verify Cloud Storage right now. The app will retry automatically.",
           "formatSignature": [],
-          "line": 781,
+          "line": 790,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75334,7 +75662,7 @@
           "argumentCount": 0,
           "fallback": "Could not verify Cloud Storage right now. The app will retry automatically.",
           "formatSignature": [],
-          "line": 1053,
+          "line": 1066,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75370,7 +75698,7 @@
           "argumentCount": 0,
           "fallback": "Device management",
           "formatSignature": [],
-          "line": 855,
+          "line": 864,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75398,15 +75726,23 @@
     },
     {
       "apis": [
-        "text"
+        "format"
       ],
       "callsites": [
         {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "Cloud storage is not supported. Without cloud storage, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use Xabber on servers without cloud storage support.",
-          "formatSignature": [],
-          "line": 761,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "File upload is not supported. Without file upload, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use %1$@ on servers without file upload support.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 769,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75417,13 +75753,21 @@
         }
       ],
       "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "File upload is not supported. Without file upload, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use Xabber on servers without file upload support."
+        "fallbackStatus": "consistent",
+        "value": "File upload is not supported. Without file upload, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use %1$@ on servers without file upload support."
       },
       "fallbacks": [
-        "Cloud storage is not supported. Without cloud storage, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use Xabber on servers without cloud storage support."
+        "File upload is not supported. Without file upload, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use %1$@ on servers without file upload support."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "signin_file_upload_error",
       "origins": [
         "sourceLiteral"
@@ -75442,7 +75786,7 @@
           "argumentCount": 0,
           "fallback": "Let's rock!",
           "formatSignature": [],
-          "line": 875,
+          "line": 888,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75456,7 +75800,7 @@
           "argumentCount": 0,
           "fallback": "Let's rock!",
           "formatSignature": [],
-          "line": 1096,
+          "line": 1112,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75492,7 +75836,7 @@
           "argumentCount": 0,
           "fallback": "Message archive",
           "formatSignature": [],
-          "line": 839,
+          "line": 848,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75520,15 +75864,23 @@
     },
     {
       "apis": [
-        "text"
+        "format"
       ],
       "callsites": [
         {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "Message Archive is not supported. Without Message Archive you can’t synchronize chat history between server and connected clients.  Xabber can not be used on servers that do not support message archive.",
-          "formatSignature": [],
-          "line": 741,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "Message Archive is not supported. Without Message Archive you can’t synchronize chat history between server and connected clients.  %1$@ can not be used on servers that do not support message archive.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 746,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75540,12 +75892,20 @@
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "Message Archive is not supported. Without Message Archive you can’t synchronize chat history between server and connected clients.  Xabber can not be used on servers that do not support message archive."
+        "value": "Message Archive is not supported. Without Message Archive you can’t synchronize chat history between server and connected clients.  %1$@ can not be used on servers that do not support message archive."
       },
       "fallbacks": [
-        "Message Archive is not supported. Without Message Archive you can’t synchronize chat history between server and connected clients.  Xabber can not be used on servers that do not support message archive."
+        "Message Archive is not supported. Without Message Archive you can’t synchronize chat history between server and connected clients.  %1$@ can not be used on servers that do not support message archive."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "signin_message_archive_error",
       "origins": [
         "sourceLiteral"
@@ -75564,7 +75924,7 @@
           "argumentCount": 0,
           "fallback": "Message editing",
           "formatSignature": [],
-          "line": 851,
+          "line": 860,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75600,7 +75960,7 @@
           "argumentCount": 0,
           "fallback": "Message editing is not supported. You will not be able to edit or delete messages from this server’s Message Archive.",
           "formatSignature": [],
-          "line": 746,
+          "line": 752,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75628,32 +75988,62 @@
     },
     {
       "apis": [
-        "legacy"
+        "format"
       ],
       "callsites": [
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "This server does not support message archive. It is impossible for Xabber to work without message archive, so we suggest creating a new account on a fully-compatible Xabber server.",
-          "formatSignature": [],
-          "line": 1136,
+          "api": "format",
+          "argumentCount": 2,
+          "fallback": "This server does not support message archive. It is impossible for %1$@ to work without message archive, so we suggest creating a new account on a fully-compatible %2$@ server.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            },
+            {
+              "argument": 2,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 1164,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
             "app"
           ],
           "symbol": "showControlsRows",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         }
       ],
       "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "This server does not support message archive. It is impossible for Xabber to work without message archive, so we suggest creating a new account on a fully-compatible Xabber.chat server."
+        "fallbackStatus": "consistent",
+        "value": "This server does not support message archive. It is impossible for %1$@ to work without message archive, so we suggest creating a new account on a fully-compatible %2$@ server."
       },
       "fallbacks": [
-        "This server does not support message archive. It is impossible for Xabber to work without message archive, so we suggest creating a new account on a fully-compatible Xabber server."
+        "This server does not support message archive. It is impossible for %1$@ to work without message archive, so we suggest creating a new account on a fully-compatible %2$@ server."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        },
+        {
+          "argument": 2,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "signin_no_message_archive",
       "origins": [
         "sourceLiteral"
@@ -75664,32 +76054,48 @@
     },
     {
       "apis": [
-        "legacy"
+        "format"
       ],
       "callsites": [
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "Not all necessary features are supported. Proceed using this account at your own risk, and with low expectations. However, we suggest creating a new account on a fully-compatible Xabber server.",
-          "formatSignature": [],
-          "line": 1125,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "Not all necessary features are supported. Proceed using this account at your own risk, and with low expectations. However, we suggest creating a new account on a fully-compatible %1$@ server.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 1141,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
             "app"
           ],
           "symbol": "showControlsRows",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         }
       ],
       "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "Not all necessary features are supported. Proceed using this account at your own risk, and with low expectations. However, we suggest creating a new account on a fully-compatible Xabber.chat server."
+        "fallbackStatus": "consistent",
+        "value": "Not all necessary features are supported. Proceed using this account at your own risk, and with low expectations. However, we suggest creating a new account on a fully-compatible %1$@ server."
       },
       "fallbacks": [
-        "Not all necessary features are supported. Proceed using this account at your own risk, and with low expectations. However, we suggest creating a new account on a fully-compatible Xabber server."
+        "Not all necessary features are supported. Proceed using this account at your own risk, and with low expectations. However, we suggest creating a new account on a fully-compatible %1$@ server."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "signin_not_all_features",
       "origins": [
         "sourceLiteral"
@@ -75708,7 +76114,7 @@
           "argumentCount": 0,
           "fallback": "Proceed anyway",
           "formatSignature": [],
-          "line": 824,
+          "line": 833,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75722,7 +76128,7 @@
           "argumentCount": 0,
           "fallback": "Proceed anyway",
           "formatSignature": [],
-          "line": 1131,
+          "line": 1159,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75736,7 +76142,7 @@
           "argumentCount": 0,
           "fallback": "Proceed anyway",
           "formatSignature": [],
-          "line": 1153,
+          "line": 1185,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75772,7 +76178,7 @@
           "argumentCount": 0,
           "fallback": "Publish-subscribe",
           "formatSignature": [],
-          "line": 859,
+          "line": 868,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75800,15 +76206,23 @@
     },
     {
       "apis": [
-        "text"
+        "format"
       ],
       "callsites": [
         {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use Xabber on this server.",
-          "formatSignature": [],
-          "line": 756,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use %1$@ on this server.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 763,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75820,12 +76234,20 @@
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use Xabber on this server."
+        "value": "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use %1$@ on this server."
       },
       "fallbacks": [
-        "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use Xabber on this server."
+        "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use %1$@ on this server."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "signin_pubsub_error",
       "origins": [
         "sourceLiteral"
@@ -75836,15 +76258,30 @@
     },
     {
       "apis": [
-        "text"
+        "format"
       ],
       "callsites": [
         {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "Push notifications are not supported. Your device won’t be able to receive incoming messages when Xabber is not active. It is not recommended to use Xabber on this server.",
-          "formatSignature": [],
-          "line": 736,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "Push notifications are not supported. Your device won’t be able to receive incoming messages when %1$@ is not active. It is not recommended to use %1$@ on this server.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            },
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 740,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75856,12 +76293,27 @@
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "Push notifications are not supported. Your device won’t be able to receive incoming messages when Xabber is not active. It is not recommended to use Xabber on this server."
+        "value": "Push notifications are not supported. Your device won’t be able to receive incoming messages when %1$@ is not active. It is not recommended to use %1$@ on this server."
       },
       "fallbacks": [
-        "Push notifications are not supported. Your device won’t be able to receive incoming messages when Xabber is not active. It is not recommended to use Xabber on this server."
+        "Push notifications are not supported. Your device won’t be able to receive incoming messages when %1$@ is not active. It is not recommended to use %1$@ on this server."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        },
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "signin_push_notifications_error",
       "origins": [
         "sourceLiteral"
@@ -75872,15 +76324,23 @@
     },
     {
       "apis": [
-        "text"
+        "format"
       ],
       "callsites": [
         {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "Quick synchronization is not supported. This feature allows robust work on mobile devices and greatly improves user experience. It is not recommended to use Xabber on servers without quick synchronization.",
-          "formatSignature": [],
-          "line": 731,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "Quick synchronization is not supported. This feature allows robust work on mobile devices and greatly improves user experience. It is not recommended to use %1$@ on servers without quick synchronization.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 734,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75892,12 +76352,20 @@
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "Quick synchronization is not supported. This feature allows robust work on mobile devices and greatly improves user experience. It is not recommended to use Xabber on servers without quick synchronization."
+        "value": "Quick synchronization is not supported. This feature allows robust work on mobile devices and greatly improves user experience. It is not recommended to use %1$@ on servers without quick synchronization."
       },
       "fallbacks": [
-        "Quick synchronization is not supported. This feature allows robust work on mobile devices and greatly improves user experience. It is not recommended to use Xabber on servers without quick synchronization."
+        "Quick synchronization is not supported. This feature allows robust work on mobile devices and greatly improves user experience. It is not recommended to use %1$@ on servers without quick synchronization."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "signin_quick_synchronization_error",
       "origins": [
         "sourceLiteral"
@@ -75916,7 +76384,7 @@
           "argumentCount": 0,
           "fallback": "Server capabilities",
           "formatSignature": [],
-          "line": 796,
+          "line": 805,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75952,7 +76420,7 @@
           "argumentCount": 0,
           "fallback": "Some server capabilities could not be verified right now. You can continue safely; the app will retry automatically.",
           "formatSignature": [],
-          "line": 1142,
+          "line": 1174,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -75988,7 +76456,7 @@
           "argumentCount": 0,
           "fallback": "The server capability check could not be completed. This is temporary and does not mean that the server lacks these features.",
           "formatSignature": [],
-          "line": 777,
+          "line": 786,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -76024,7 +76492,7 @@
           "argumentCount": 0,
           "fallback": "Server capabilities will be checked again automatically.",
           "formatSignature": [],
-          "line": 811,
+          "line": 820,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -76068,7 +76536,7 @@
               "width": null
             }
           ],
-          "line": 790,
+          "line": 799,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -76148,7 +76616,7 @@
           "argumentCount": 0,
           "fallback": "Shiny! Everything’s fine! Press the button below and start messaging r-r-right away!!",
           "formatSignature": [],
-          "line": 1119,
+          "line": 1135,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -76184,7 +76652,7 @@
           "argumentCount": 0,
           "fallback": "Synchronization",
           "formatSignature": [],
-          "line": 843,
+          "line": 852,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -76212,15 +76680,30 @@
     },
     {
       "apis": [
-        "text"
+        "format"
       ],
       "callsites": [
         {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "Xabber devices are not supported. Without Xabber devices you can’t revoke access from compromised devices. Account password will be stored locally and can be potentially stolen. ",
-          "formatSignature": [],
-          "line": 751,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "%1$@ tokens are not supported. Without %1$@ tokens you can’t revoke access from compromised devices. Account password will be stored locally and can be potentially stolen.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            },
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 757,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -76231,13 +76714,28 @@
         }
       ],
       "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "Xabber tokens are not supported. Without Xabber tokens you can’t revoke access from compromised devices. Account password will be stored locally and can be potentially stolen."
+        "fallbackStatus": "consistent",
+        "value": "%1$@ tokens are not supported. Without %1$@ tokens you can’t revoke access from compromised devices. Account password will be stored locally and can be potentially stolen."
       },
       "fallbacks": [
-        "Xabber devices are not supported. Without Xabber devices you can’t revoke access from compromised devices. Account password will be stored locally and can be potentially stolen. "
+        "%1$@ tokens are not supported. Without %1$@ tokens you can’t revoke access from compromised devices. Account password will be stored locally and can be potentially stolen."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        },
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "signin_tokens_error",
       "origins": [
         "sourceLiteral"
@@ -76253,11 +76751,18 @@
       "callsites": [
         {
           "api": "format",
-          "argumentCount": 1,
-          "fallback": "Enter your password to permanently delete %@ from Clandestino.\n\nThis action can not be undone.",
+          "argumentCount": 2,
+          "fallback": "Enter your password to permanently delete %2$@ from %1$@.\n\nThis action can not be undone.",
           "formatSignature": [
             {
               "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            },
+            {
+              "argument": 2,
               "conversion": "@",
               "flags": "",
               "precision": null,
@@ -76276,14 +76781,21 @@
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "Enter your password to permanently delete %@ from Clandestino.\n\nThis action can not be undone."
+        "value": "Enter your password to permanently delete %2$@ from %1$@.\n\nThis action can not be undone."
       },
       "fallbacks": [
-        "Enter your password to permanently delete %@ from Clandestino.\n\nThis action can not be undone."
+        "Enter your password to permanently delete %2$@ from %1$@.\n\nThis action can not be undone."
       ],
       "formatSignature": [
         {
           "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        },
+        {
+          "argument": 2,
           "conversion": "@",
           "flags": "",
           "precision": null,
@@ -76316,7 +76828,7 @@
               "width": null
             }
           ],
-          "line": 539,
+          "line": 546,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -76375,7 +76887,7 @@
               "width": null
             }
           ],
-          "line": 537,
+          "line": 544,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -77863,7 +78375,7 @@
           "argumentCount": 0,
           "fallback": "Sign In",
           "formatSignature": [],
-          "line": 832,
+          "line": 833,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInCreditionalsViewController.swift",
           "surfaces": [
@@ -78932,7 +79444,7 @@
           "argumentCount": 0,
           "fallback": "Offline",
           "formatSignature": [],
-          "line": 765,
+          "line": 774,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
           "surfaces": [
@@ -81991,6 +82503,58 @@
     },
     {
       "apis": [
+        "format"
+      ],
+      "callsites": [
+        {
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "%1$@ voice call",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 1118,
+          "origin": "sourceLiteral",
+          "path": "xabber/xmpp/voip/VoIPManager/VoIPManager.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "reportFailedIncomingPush",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "%1$@ voice call"
+      },
+      "fallbacks": [
+        "%1$@ voice call"
+      ],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
+      "key": "voice_call_message",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
         "text"
       ],
       "callsites": [
@@ -82463,7 +83027,7 @@
           "argumentCount": 0,
           "fallback": "XMPP protocol",
           "formatSignature": [],
-          "line": 54,
+          "line": 61,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/about/AboutXabberViewController.swift",
           "surfaces": [
@@ -82499,7 +83063,7 @@
           "argumentCount": 0,
           "fallback": "XMPP Extension Protocols",
           "formatSignature": [],
-          "line": 55,
+          "line": 62,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/about/AboutXabberViewController.swift",
           "surfaces": [
@@ -82535,7 +83099,7 @@
           "argumentCount": 0,
           "fallback": "Developers",
           "formatSignature": [],
-          "line": 56,
+          "line": 67,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/about/AboutXabberViewController.swift",
           "surfaces": [
@@ -82571,7 +83135,7 @@
           "argumentCount": 0,
           "fallback": "Translators",
           "formatSignature": [],
-          "line": 57,
+          "line": 72,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/about/AboutXabberViewController.swift",
           "surfaces": [
@@ -82671,32 +83235,76 @@
     },
     {
       "apis": [
-        "legacy"
+        "format"
       ],
       "callsites": [
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "Clandestino for Android was originally developed by Redsolution — an international software and services company currently based in Estonia. Since then, a number of individuals joined Clandestino as developers, testers and translators.\nOur goal is to create a stable, reliable, interoperable and user friendly ecosystem for instant messaging that does not rely on proprietary services and data silos. We welcome anyone who believes in open standards and free information interchange to take part in moving Clandestino forward.\nFollow us on Twitter and Github.",
-          "formatSignature": [],
-          "line": 56,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "%1$@ for Android was originally developed by Redsolution — an international software and services company currently based in Estonia. Since then, a number of individuals joined %1$@ as developers, testers and translators.\nOur goal is to create a stable, reliable, interoperable and user friendly ecosystem for instant messaging that does not rely on proprietary services and data silos. We welcome anyone who believes in open standards and free information interchange to take part in moving %1$@ forward.\nFollow us on Twitter and Github.",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            },
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            },
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 67,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/about/AboutXabberViewController.swift",
           "surfaces": [
             "app"
           ],
           "symbol": "configure",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         }
       ],
       "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "Xabber for Android was originally developed by Redsolution — an international software and services company currently based in Estonia. Since then, a number of individuals joined Xabber as developers, testers and translators.\nOur goal is to create a stable, reliable, interoperable and user friendly ecosystem for instant messaging that does not rely on proprietary services and data silos. We welcome anyone who believes in open standards and free information interchange to take part in moving Xabber forward.\nFollow us on Twitter and Github."
+        "fallbackStatus": "consistent",
+        "value": "%1$@ for Android was originally developed by Redsolution — an international software and services company currently based in Estonia. Since then, a number of individuals joined %1$@ as developers, testers and translators.\nOur goal is to create a stable, reliable, interoperable and user friendly ecosystem for instant messaging that does not rely on proprietary services and data silos. We welcome anyone who believes in open standards and free information interchange to take part in moving %1$@ forward.\nFollow us on Twitter and Github."
       },
       "fallbacks": [
-        "Clandestino for Android was originally developed by Redsolution — an international software and services company currently based in Estonia. Since then, a number of individuals joined Clandestino as developers, testers and translators.\nOur goal is to create a stable, reliable, interoperable and user friendly ecosystem for instant messaging that does not rely on proprietary services and data silos. We welcome anyone who believes in open standards and free information interchange to take part in moving Clandestino forward.\nFollow us on Twitter and Github."
+        "%1$@ for Android was originally developed by Redsolution — an international software and services company currently based in Estonia. Since then, a number of individuals joined %1$@ as developers, testers and translators.\nOur goal is to create a stable, reliable, interoperable and user friendly ecosystem for instant messaging that does not rely on proprietary services and data silos. We welcome anyone who believes in open standards and free information interchange to take part in moving %1$@ forward.\nFollow us on Twitter and Github."
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        },
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        },
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "xabber_developers",
       "origins": [
         "sourceLiteral"
@@ -82707,32 +83315,62 @@
     },
     {
       "apis": [
-        "legacy"
+        "format"
       ],
       "callsites": [
         {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "Clandestino is available in multiple languages thanks to many fine people from all over the world. We have created a special page on our website to acknowledge their efforts.\nYou may join their ranks and help us improve translation quality by contributing your translations to Clandestino project",
-          "formatSignature": [],
-          "line": 57,
+          "api": "format",
+          "argumentCount": 1,
+          "fallback": "%1$@ is available in multiple languages thanks to many fine people from all over the world. We have created a special page on our website to acknowledge their efforts.\nYou may join their ranks and help us improve translation quality by contributing your translations to %1$@ project",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            },
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 72,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/about/AboutXabberViewController.swift",
           "surfaces": [
             "app"
           ],
           "symbol": "configure",
-          "typeSafety": "typeUnchecked"
+          "typeSafety": "typed"
         }
       ],
       "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "Xabber is available in multiple languages thanks to many fine people from all over the world. We have created a special page on our website to acknowledge their efforts.\nYou may join their ranks and help us improve translation quality by contributing your translations to Xabber project"
+        "fallbackStatus": "consistent",
+        "value": "%1$@ is available in multiple languages thanks to many fine people from all over the world. We have created a special page on our website to acknowledge their efforts.\nYou may join their ranks and help us improve translation quality by contributing your translations to %1$@ project"
       },
       "fallbacks": [
-        "Clandestino is available in multiple languages thanks to many fine people from all over the world. We have created a special page on our website to acknowledge their efforts.\nYou may join their ranks and help us improve translation quality by contributing your translations to Clandestino project"
+        "%1$@ is available in multiple languages thanks to many fine people from all over the world. We have created a special page on our website to acknowledge their efforts.\nYou may join their ranks and help us improve translation quality by contributing your translations to %1$@ project"
       ],
-      "formatSignature": [],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        },
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
       "key": "xabber_translators",
       "origins": [
         "sourceLiteral"
@@ -82821,7 +83459,7 @@
           "argumentCount": 0,
           "fallback": "Next",
           "formatSignature": [],
-          "line": 70,
+          "line": 79,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signup/SignUpSelectUsernameViewController.swift",
           "surfaces": [
@@ -82835,7 +83473,7 @@
           "argumentCount": 0,
           "fallback": "Next",
           "formatSignature": [],
-          "line": 71,
+          "line": 80,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signup/SignUpSelectUsernameViewController.swift",
           "surfaces": [
@@ -82971,7 +83609,7 @@
           "argumentCount": 0,
           "fallback": "Create new account",
           "formatSignature": [],
-          "line": 819,
+          "line": 828,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -82985,7 +83623,7 @@
           "argumentCount": 0,
           "fallback": "Create new account",
           "formatSignature": [],
-          "line": 873,
+          "line": 886,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
           "surfaces": [
@@ -83129,7 +83767,7 @@
           "argumentCount": 0,
           "fallback": "✓ Nice! That username is available.",
           "formatSignature": [],
-          "line": 142,
+          "line": 156,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/onboarding/signup/SignUpSelectUsernameViewController.swift",
           "surfaces": [
@@ -89666,10 +90304,6 @@
     },
     {
       "classification": "reviewCandidate",
-      "key": "voice_call_message"
-    },
-    {
-      "classification": "reviewCandidate",
       "key": "voice_download_dialog_agree"
     },
     {
@@ -92194,52 +92828,52 @@
     {
       "key": "CFBundleDisplayName",
       "path": "xabber/Info.plist.example",
-      "value": "Xabber"
+      "value": "__APP_NAME__"
     },
     {
       "key": "CFBundleName",
       "path": "xabber/Info.plist.example",
-      "value": "Xabber"
+      "value": "__APP_NAME__"
     },
     {
       "key": "NFCReaderUsageDescription",
       "path": "xabber/Info.plist.example",
-      "value": "Xabber uses NFC to communicate with your YubiKey."
+      "value": "__APP_NAME__ uses NFC to communicate with your YubiKey."
     },
     {
       "key": "NSCameraUsageDescription",
       "path": "xabber/Info.plist.example",
-      "value": "Xabber uses the camera to scan QR codes, take photos, and make video calls."
+      "value": "__APP_NAME__ uses the camera to scan QR codes, take photos, and make video calls."
     },
     {
       "key": "NSFaceIDUsageDescription",
       "path": "xabber/Info.plist.example",
-      "value": "Xabber uses Face ID to protect your data."
+      "value": "__APP_NAME__ uses Face ID to protect your data."
     },
     {
       "key": "NSLocalNetworkUsageDescription",
       "path": "xabber/Info.plist.example",
-      "value": "Xabber uses the local network to establish peer-to-peer voice and video calls."
+      "value": "__APP_NAME__ uses the local network to establish peer-to-peer voice and video calls."
     },
     {
       "key": "NSLocationWhenInUseUsageDescription",
       "path": "xabber/Info.plist.example",
-      "value": "Xabber uses your location when you choose to send your current location in a chat."
+      "value": "__APP_NAME__ uses your location when you choose to send your current location in a chat."
     },
     {
       "key": "NSMicrophoneUsageDescription",
       "path": "xabber/Info.plist.example",
-      "value": "Xabber uses the microphone to send voice messages and make voice and video calls."
+      "value": "__APP_NAME__ uses the microphone to send voice messages and make voice and video calls."
     },
     {
       "key": "NSPhotoLibraryAddUsageDescription",
       "path": "xabber/Info.plist.example",
-      "value": "Xabber saves photos you take in the app to your photo library."
+      "value": "__APP_NAME__ saves photos you take in the app to your photo library."
     },
     {
       "key": "NSPhotoLibraryUsageDescription",
       "path": "xabber/Info.plist.example",
-      "value": "Xabber accesses your photo library when you choose photos or videos for messages and profile pictures."
+      "value": "__APP_NAME__ accesses your photo library when you choose photos or videos for messages and profile pictures."
     }
   ],
   "interfaceBuilder": [
@@ -92667,10 +93301,10 @@
   "schemaVersion": 1,
   "sourceLanguage": "en",
   "summary": {
-    "activeKeys": 1808,
+    "activeKeys": 1809,
     "activeWithoutEnglish": 0,
     "catalogKeys": 3331,
-    "catalogOnlyKeys": 1523,
+    "catalogOnlyKeys": 1522,
     "computedFallbacks": 12,
     "directLookups": 0,
     "domainReservedKeys": 9,

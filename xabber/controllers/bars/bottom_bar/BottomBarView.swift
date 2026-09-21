@@ -59,7 +59,6 @@ class BottomBarView: UIView {
 //    let titleLabel: UILabel = {
 //        let label = UILabel()
 //        
-//        label.text = "Xabber"
 //        label.textAlignment = .center
 //        
 //        return label

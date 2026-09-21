@@ -223,7 +223,11 @@ class CallScreenViewController: BaseViewController {
     
     internal let vendorLabel: UIButton = {
         let button = UIButton()
-        button.setTitle("xabber call".localizeString(id: "chat_xabber_call_hint", arguments: [])
+        button.setTitle(L10n.format(
+                            "chat_xabber_call_hint",
+                            fallback: "%1$@ call",
+                            arguments: [CommonConfigManager.shared.config.app_name]
+                        )
                             .uppercased(), for: .normal)
         button.setImage(imageLiteral("shield.pattern.checkered"), for: .normal)
         button.tintColor = UIColor(red:1, green:1, blue:1, alpha:0.0)

@@ -38,7 +38,11 @@ final class NotificationsSettingsViewController: BaseViewController {
             case .types:
                 return L10n.text("notifications_settings__sounds__footer", fallback: "Turn sounds on or off independently for each notification type.")
             case .inApp:
-                return L10n.text("notifications_settings__in_app__footer", fallback: "Show banners and play enabled notification sounds while Xabber is open.")
+                return L10n.format(
+                    "notifications_settings__in_app__footer",
+                    fallback: "Show banners and play enabled notification sounds while %1$@ is open.",
+                    arguments: [CommonConfigManager.shared.config.app_name]
+                )
             case .system:
                 return L10n.text("notifications_settings__system__footer", fallback: "Lock Screen previews, permissions, badges and notification delivery are controlled in iOS Settings.")
             }

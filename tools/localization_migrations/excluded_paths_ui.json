@@ -36,16 +36,18 @@
     {
       "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_edit/DevicesListViewController.swift",
       "sink": "value",
-      "value": "You can terminate sessions you don`t need. Official Xabber clients wipe all user data from the device upon session termination.",
+      "value": "You can terminate sessions you don`t need. Official %1$@ clients wipe all user data from the device upon session termination.",
       "key": "account_settings_terminate_description",
+      "fallback": "You can terminate sessions you don`t need. Official %1$@ clients wipe all user data from the device upon session termination.",
+      "api": "format",
       "comment": "Legacy account-device list explanation of session termination semantics.",
       "translations": {
-        "ar": "يمكنك إنهاء الجلسات التي لا تحتاج إليها. تمسح تطبيقات Xabber الرسمية جميع بيانات المستخدم من الجهاز عند إنهاء الجلسة.",
-        "en": "You can terminate sessions you don`t need. Official Xabber clients wipe all user data from the device upon session termination.",
-        "es": "Puedes finalizar las sesiones que no necesites. Los clientes oficiales de Xabber borran todos los datos del usuario del dispositivo al finalizar una sesión.",
-        "fr": "Vous pouvez mettre fin aux sessions dont vous n’avez pas besoin. Les clients Xabber officiels effacent toutes les données utilisateur de l’appareil à la fin d’une session.",
-        "ru": "Вы можете завершить сеансы, которые вам не нужны. Официальные клиенты Xabber стирают все пользовательские данные с устройства после завершения сеанса.",
-        "zh-Hans": "你可以终止不需要的会话。会话终止后，Xabber 官方客户端会从设备中清除所有用户数据。"
+        "ar": "يمكنك إنهاء الجلسات التي لا تحتاج إليها. تمسح تطبيقات %1$@ الرسمية جميع بيانات المستخدم من الجهاز عند إنهاء الجلسة.",
+        "en": "You can terminate sessions you don`t need. Official %1$@ clients wipe all user data from the device upon session termination.",
+        "es": "Puedes finalizar las sesiones que no necesites. Los clientes oficiales de %1$@ borran todos los datos del usuario del dispositivo al finalizar una sesión.",
+        "fr": "Vous pouvez mettre fin aux sessions dont vous n’avez pas besoin. Les clients %1$@ officiels effacent toutes les données utilisateur de l’appareil à la fin d’une session.",
+        "ru": "Вы можете завершить сеансы, которые вам не нужны. Официальные клиенты %1$@ стирают все пользовательские данные с устройства после завершения сеанса.",
+        "zh-Hans": "你可以终止不需要的会话。会话终止后，%1$@ 官方客户端会从设备中清除所有用户数据。"
       }
     },
     {

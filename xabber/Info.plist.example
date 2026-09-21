@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Xabber</string>
+	<string>__APP_NAME__</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Xabber</string>
+	<string>__APP_NAME__</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -33,26 +33,26 @@
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NFCReaderUsageDescription</key>
-	<string>Xabber uses NFC to communicate with your YubiKey.</string>
+	<string>__APP_NAME__ uses NFC to communicate with your YubiKey.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Xabber uses the camera to scan QR codes, take photos, and make video calls.</string>
+	<string>__APP_NAME__ uses the camera to scan QR codes, take photos, and make video calls.</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Xabber uses Face ID to protect your data.</string>
+	<string>__APP_NAME__ uses Face ID to protect your data.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Xabber uses the microphone to send voice messages and make voice and video calls.</string>
+	<string>__APP_NAME__ uses the microphone to send voice messages and make voice and video calls.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Xabber uses the local network to establish peer-to-peer voice and video calls.</string>
+	<string>__APP_NAME__ uses the local network to establish peer-to-peer voice and video calls.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Xabber uses your location when you choose to send your current location in a chat.</string>
+	<string>__APP_NAME__ uses your location when you choose to send your current location in a chat.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Xabber saves photos you take in the app to your photo library.</string>
+	<string>__APP_NAME__ saves photos you take in the app to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Xabber accesses your photo library when you choose photos or videos for messages and profile pictures.</string>
+	<string>__APP_NAME__ accesses your photo library when you choose photos or videos for messages and profile pictures.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>INSendMessageIntent</string>

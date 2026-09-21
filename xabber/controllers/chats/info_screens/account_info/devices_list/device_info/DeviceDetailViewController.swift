@@ -363,7 +363,9 @@ class DeviceDetailViewController: SimpleBaseViewController {
                         encryptionDatasource.append(
                             Datasource(
                                 title: omemoDevice.signedBy == self.jid ? L10n.text("device_detail__title__verified_by", fallback: "Verified by") : L10n.text("device_detail__title__not_verified", fallback: "Not verified"),
-                                value: omemoDevice.signedBy == self.jid ? "Clandestino" : "",
+                                value: omemoDevice.signedBy == self.jid
+                                    ? CommonConfigManager.shared.config.app_name
+                                    : "",
                                 key: "omemo_signed_by"
                             )
                         )
@@ -569,7 +571,14 @@ extension DeviceDetailViewController: UITableViewDelegate {
                 ActionSheetPresenter().present(
                     in: self,
                     title: L10n.text("device_detail__screen__encription_secured", fallback: "Encryption secured"),
-                    message: L10n.format("device_detail__screen__encryption_key_verified_by_certificate_issued_by_clandestino_for", fallback: "Encryption key verified by certificate issued by Clandestino for %@", arguments: [String(describing: self.issuedFor ?? L10n.text("common__label__unknown_user", fallback: "Unknown user"))]),
+                    message: L10n.format(
+                        "device_detail__screen__encryption_key_verified_by_certificate_issued_by_clandestino_for",
+                        fallback: "Encryption key verified by certificate issued by %1$@ for %2$@",
+                        arguments: [
+                            CommonConfigManager.shared.config.app_name,
+                            String(describing: self.issuedFor ?? L10n.text("common__label__unknown_user", fallback: "Unknown user"))
+                        ]
+                    ),
                     cancel: L10n.text("common__action__close", fallback: "Close"),
                     values: [],
                     animated: true) { _ in

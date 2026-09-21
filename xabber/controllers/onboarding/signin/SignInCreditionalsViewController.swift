@@ -802,9 +802,10 @@ class SignInCreditionalsViewController: SimpleBaseViewController {
             .localizeString(id: "dialog_jingle_message__message_connect", arguments: [])
         setupPlaceholder("john.doe", isPassword: false)
         setupPlaceholder("password".localizeString(id: "dialog_jingle_message__password", arguments: []), isPassword: true)
-        let subtitle = NSAttributedString(string: L10n.text(
+        let subtitle = NSAttributedString(string: L10n.format(
             "dialog_jingle_message__message_sign_up",
-            fallback: "If you don't have an account yet, press here to sign up for a Clandestino account."
+            fallback: "If you don't have an account yet, press here to sign up for a %1$@ account.",
+            arguments: [CommonConfigManager.shared.config.app_name]
         ))
         
 //        let subtitleData = Data(subtitle.utf8)

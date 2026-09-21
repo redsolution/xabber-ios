@@ -53,7 +53,9 @@ class ContactDeviceDetailViewController: DeviceDetailViewController {
                     encryptionDatasource.append(
                         Datasource(
                             title: omemoDevice.signedBy == self.jid ? L10n.text("device_detail__title__verified_by", fallback: "Verified by") : L10n.text("device_detail__title__not_verified", fallback: "Not verified"),
-                            value: omemoDevice.signedBy == self.jid ? "Clandestino" : "",
+                            value: omemoDevice.signedBy == self.jid
+                                ? CommonConfigManager.shared.config.app_name
+                                : "",
                             key: "omemo_signed_by"
                         )
                     )

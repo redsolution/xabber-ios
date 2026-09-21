@@ -87,8 +87,11 @@ extension LastChatsViewController {
 
         func fallback() {
             DispatchQueue.main.async {
-                self.view.makeToast("Your server doesn`t support pinned chats. Please use Clandestino server."
-                                        .localizeString(id: "server_doesnt_support_pinned_chats", arguments: []))
+                self.view.makeToast(L10n.format(
+                    "server_doesnt_support_pinned_chats",
+                    fallback: "Your server doesn`t support pinned chats. Please use %1$@ server.",
+                    arguments: [CommonConfigManager.shared.config.app_name]
+                ))
             }
         }
 //        XMPPUIActionManager.shared.performRequest(owner: owner) { stream, session in

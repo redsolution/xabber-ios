@@ -341,9 +341,10 @@ extension ChatViewController {
                     self.learnmoreButton.accessibilityIdentifier =
                         "chat.initial_message.saved.learn_more"
                     self.learnMoreURL = URL(
-                        string: "https://www.xabber.com/learn/saved/".localizeString(
-                            id: "intro_saved_messages_link",
-                            arguments: []
+                        string: L10n.format(
+                            "intro_saved_messages_link",
+                            fallback: "https://%1$@/learn/saved/",
+                            arguments: [CommonConfigManager.shared.config.domain]
                         )
                     )
             }

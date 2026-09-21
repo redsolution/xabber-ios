@@ -57,7 +57,9 @@ enum EULAAcceptance {
             return supportJid
         }
 
-        return "abuse@xabber.com"
+        let domain = CommonConfigManager.shared.config.domain
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return domain.isNotEmpty ? "abuse@\(domain)" : "abuse"
     }
 
     static func eulaText(supportEmail: String = supportEmail()) -> String {
@@ -1045,7 +1047,7 @@ final class AppRootCoordinator: NSObject {
     func restorationActivity() -> NSUserActivity? {
         let activityType = [Bundle.main.bundleIdentifier ?? "xabber", "scene"].joined(separator: ".")
         let activity = NSUserActivity(activityType: activityType)
-        activity.title = "Xabber Scene"
+        activity.title = CommonConfigManager.shared.config.app_name
 
         switch CommonConfigManager.shared.interfaceType {
         case .tabs:

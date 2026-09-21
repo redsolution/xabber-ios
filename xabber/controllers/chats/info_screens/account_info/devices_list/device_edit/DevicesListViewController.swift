@@ -93,7 +93,11 @@ class DevicesListViewController: BaseViewController {
         if !(tokens?.isEmpty ?? true) {
             datasource.append(Datasource(.token,
                                          title: L10n.text("settings_account__label_active_sessions", fallback: "Active sessions"),
-                                         value: L10n.text("account_settings_terminate_description", fallback: "You can terminate sessions you don`t need. Official Xabber clients wipe all user data from the device upon session termination."), /* learn more - https://www.xabber.com/devicemanagement/   */
+                                         value: L10n.format(
+                                            "account_settings_terminate_description",
+                                            fallback: "You can terminate sessions you don`t need. Official %1$@ clients wipe all user data from the device upon session termination.",
+                                            arguments: [CommonConfigManager.shared.config.app_name]
+                                         ),
                        editable: false,
                        childs: []))
         }

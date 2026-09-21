@@ -64,21 +64,35 @@ class SignUpSelectUsernameViewController: SignUpBaseViewController {
     
     override func localizeResources() {
         super.localizeResources()
-        titleLabel.text = "Great! Now, choose a username for people to find you on Clandestino.".localizeString(id: "registration_title_choose_username", arguments: [])
+        let appName = CommonConfigManager.shared.config.app_name
+        titleLabel.text = L10n.format(
+            "registration_title_choose_username",
+            fallback: "Great! Now, choose a username for people to find you on %1$@.",
+            arguments: [appName]
+        )
         setupPlaceholder("username".localizeString(id: "account_user_name", arguments: []).lowercased())
-        subtitleLabel.text = "The account will be created on Clandestino server.".localizeString(id: "registration_title_account_created", arguments: [])
+        subtitleLabel.text = L10n.format(
+            "registration_title_account_created",
+            fallback: "The account will be created on %1$@ server.",
+            arguments: [appName]
+        )
         button.setTitle("Next".localizeString(id: "xaccount_next", arguments: []), for: .normal)
         button.setTitle("Next".localizeString(id: "xaccount_next", arguments: []), for: .disabled)
     }
     
     override func validateTextFiled(value: String?, callback: @escaping ((Bool) -> Void)) {
+        let appName = CommonConfigManager.shared.config.app_name
         guard let value = value,
               value.count > 3,
               let host = self.metadata["host"],
               let jid = XMPPJID(user: value, domain: host, resource: nil),
               let localpart = jid.user,
               localpart.isNotEmpty else {
-            self.subtitleLabel.text = "The account will be created on Clandestino server.".localizeString(id: "registration_title_account_created", arguments: [])
+            self.subtitleLabel.text = L10n.format(
+                "registration_title_account_created",
+                fallback: "The account will be created on %1$@ server.",
+                arguments: [appName]
+            )
             UIView.animate(withDuration: 0.33, delay: 0.0, options: [.curveEaseOut]) {
                 self.subtitleLabel.textColor = UIColor(red: 60/255, green: 60/255, blue: 65/255, alpha: 0.6)
             } completion: { result in
@@ -147,7 +161,11 @@ extension SignUpSelectUsernameViewController: XMPPRegistrationManagerDelegate {
                 }
             } else {
                 self.makeButtonDisabled(true)
-                self.subtitleLabel.text = "The account will be created on Clandestino server.".localizeString(id: "registration_title_account_created", arguments: [])
+                self.subtitleLabel.text = L10n.format(
+                    "registration_title_account_created",
+                    fallback: "The account will be created on %1$@ server.",
+                    arguments: [CommonConfigManager.shared.config.app_name]
+                )
                 UIView.animate(withDuration: 0.33, delay: 0.0, options: [.curveEaseOut]) {
                     self.subtitleLabel.textColor = UIColor(red: 60/255, green: 60/255, blue: 65/255, alpha: 0.6)
                 } completion: { result in

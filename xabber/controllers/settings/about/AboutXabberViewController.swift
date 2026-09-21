@@ -49,12 +49,31 @@ class AboutXabberViewController: BaseViewController {
     }
     
     internal func configure() {
+        let config = CommonConfigManager.shared.config
+        let appName = config.app_name
+        let domain = config.domain
         datasource = [
-            Datasource("", for: "Clandestino is an <u><b>open</b> <i>source</i></u> XMPP messenger for Android, iOS and Web platforms. It is build around open standards, interoperability, design and great user experience. Versions of Clandestino for every platform are built to provide a continuous chat experience between them.\nYou will find more information on our official website https://xabber.com".localizeString(id: "about_xabber", arguments: [])),
+            Datasource("", for: L10n.format(
+                "about_xabber",
+                fallback: "%1$@ is an <u><b>open</b> <i>source</i></u> XMPP messenger for Android, iOS and Web platforms. It is build around open standards, interoperability, design and great user experience. Versions of %1$@ for every platform are built to provide a continuous chat experience between them.\nYou will find more information on our official website https://%2$@",
+                arguments: [appName, domain]
+            )),
             Datasource("XMPP protocol".localizeString(id: "web_client__screen_about__block_1__header", arguments: []), for: "Extensible Messaging and Presence Protocol (XMPP) is a communications protocol for message-oriented middleware based on XML (Extensible Markup Language). It enables the near-real-time exchange of structured yet extensible data between any two or more network entities. The protocol was originally named Jabber, and was developed by the Jabber open-source community in 1999 for near real-time instant messaging (IM),presence information, and contact list maintenance.".localizeString(id: "about_xmpp_protocol", arguments: [])),
-            Datasource("XMPP Extension Protocols".localizeString(id: "web_client__screen_about__block_2__header", arguments: []), for: "XMPP is highly extensible, via extensions known as XEPs (XMPP Extension Protocol). Clandestino supports a number of popular XEPs that are essential to providing great chat experience for our users.".localizeString(id: "about_extension_protocols", arguments: [])),
-            Datasource("Developers".localizeString(id: "web_client__screen_about__block_3__header", arguments: []), for: "Clandestino for Android was originally developed by Redsolution — an international software and services company currently based in Estonia. Since then, a number of individuals joined Clandestino as developers, testers and translators.\nOur goal is to create a stable, reliable, interoperable and user friendly ecosystem for instant messaging that does not rely on proprietary services and data silos. We welcome anyone who believes in open standards and free information interchange to take part in moving Clandestino forward.\nFollow us on Twitter and Github.".localizeString(id: "xabber_developers", arguments: [])),
-            Datasource("Translators".localizeString(id: "web_client__screen_about__block_4__header", arguments: []), for: "Clandestino is available in multiple languages thanks to many fine people from all over the world. We have created a special page on our website to acknowledge their efforts.\nYou may join their ranks and help us improve translation quality by contributing your translations to Clandestino project".localizeString(id: "xabber_translators", arguments: []))
+            Datasource("XMPP Extension Protocols".localizeString(id: "web_client__screen_about__block_2__header", arguments: []), for: L10n.format(
+                "about_extension_protocols",
+                fallback: "XMPP is highly extensible, via extensions known as XEPs (XMPP Extension Protocol). %1$@ supports a number of popular XEPs that are essential to providing great chat experience for our users.",
+                arguments: [appName]
+            )),
+            Datasource("Developers".localizeString(id: "web_client__screen_about__block_3__header", arguments: []), for: L10n.format(
+                "xabber_developers",
+                fallback: "%1$@ for Android was originally developed by Redsolution — an international software and services company currently based in Estonia. Since then, a number of individuals joined %1$@ as developers, testers and translators.\nOur goal is to create a stable, reliable, interoperable and user friendly ecosystem for instant messaging that does not rely on proprietary services and data silos. We welcome anyone who believes in open standards and free information interchange to take part in moving %1$@ forward.\nFollow us on Twitter and Github.",
+                arguments: [appName]
+            )),
+            Datasource("Translators".localizeString(id: "web_client__screen_about__block_4__header", arguments: []), for: L10n.format(
+                "xabber_translators",
+                fallback: "%1$@ is available in multiple languages thanks to many fine people from all over the world. We have created a special page on our website to acknowledge their efforts.\nYou may join their ranks and help us improve translation quality by contributing your translations to %1$@ project",
+                arguments: [appName]
+            ))
         ]
         
         view.addSubview(tableView)

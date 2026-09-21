@@ -558,42 +558,43 @@
       }
     },
     "about_extension_protocols": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "XMPP قابل للتوسعة بدرجة كبيرة عبر الامتدادات المعروفة باسم XEPs (بروتوكولات امتداد XMPP). يدعم Xabber عددًا من امتدادات XEP الشائعة الضرورية لتوفير تجربة دردشة رائعة لمستخدمينا."
+            "value": "XMPP قابل للتوسعة بدرجة كبيرة عبر الامتدادات المعروفة باسم XEPs (بروتوكولات امتداد XMPP). يدعم %1$@ عددًا من امتدادات XEP الشائعة الضرورية لتوفير تجربة دردشة رائعة لمستخدمينا."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "XMPP is highly extensible, via extensions known as XEPs (XMPP Extension Protocol). Xabber supports a number of popular XEPs that are essential to providing great chat experience for our users."
+            "value": "XMPP is highly extensible, via extensions known as XEPs (XMPP Extension Protocol). %1$@ supports a number of popular XEPs that are essential to providing great chat experience for our users."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "XMPP es muy extensible, mediante extensiones conocidas como XEP (XMPP Extension Protocol). Xabber admite varios XEP populares que son esenciales para ofrecer a nuestros usuarios una excelente experiencia de chat."
+            "value": "XMPP es muy extensible, mediante extensiones conocidas como XEP (XMPP Extension Protocol). %1$@ admite varios XEP populares que son esenciales para ofrecer a nuestros usuarios una excelente experiencia de chat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "XMPP est hautement extensible grâce à des extensions appelées XEP (XMPP Extension Protocol). Xabber prend en charge plusieurs XEP populaires, essentielles pour offrir à nos utilisateurs une excellente expérience de messagerie."
+            "value": "XMPP est hautement extensible grâce à des extensions appelées XEP (XMPP Extension Protocol). %1$@ prend en charge plusieurs XEP populaires, essentielles pour offrir à nos utilisateurs une excellente expérience de messagerie."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "XMPP хорошо расширяется посредством протоколов, известных как XEPs (протоколы расширения XMPP). Xabber поддерживает несколько популярных XEPs, которые необходимы для создания чата для наших пользователей."
+            "value": "XMPP хорошо расширяется посредством протоколов, известных как XEPs (протоколы расширения XMPP). %1$@ поддерживает несколько популярных XEPs, которые необходимы для создания чата для наших пользователей."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "XMPP 具有高度可扩展性，可通过称为 XEP（XMPP 扩展协议）的扩展来增强功能。Xabber 支持多种常用 XEP，它们对于为用户提供出色的聊天体验至关重要。"
+            "value": "XMPP 具有高度可扩展性，可通过称为 XEP（XMPP 扩展协议）的扩展来增强功能。%1$@ 支持多种常用 XEP，它们对于为用户提供出色的聊天体验至关重要。"
           }
         }
       }
@@ -640,43 +641,43 @@
       }
     },
     "about_xabber": {
-      "comment": "Product description shown on the About screen. Existing trusted inline markup is retained for compatibility.",
+      "comment": "Product description shown on the About screen. Existing trusted inline markup is retained for compatibility.\nBranding: %1$@ is CommonConfig app_name; %2$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clandestino هو برنامج مراسلة XMPP <u><b>مفتوح</b> <i>المصدر</i></u> لمنصات Android وiOS والويب. وقد بُني على المعايير المفتوحة وقابلية التشغيل البيني والتصميم وتجربة المستخدم الرائعة. صُممت إصدارات Clandestino لكل منصة لتوفير تجربة دردشة متواصلة بينها.\nستجد مزيدًا من المعلومات على موقعنا الرسمي https://xabber.com"
+            "value": "%1$@ هو برنامج مراسلة XMPP <u><b>مفتوح</b> <i>المصدر</i></u> لمنصات Android وiOS والويب. وقد بُني على المعايير المفتوحة وقابلية التشغيل البيني والتصميم وتجربة المستخدم الرائعة. صُممت إصدارات %1$@ لكل منصة لتوفير تجربة دردشة متواصلة بينها.\nستجد مزيدًا من المعلومات على موقعنا الرسمي https://%2$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clandestino is an <u><b>open</b> <i>source</i></u> XMPP messenger for Android, iOS and Web platforms. It is build around open standards, interoperability, design and great user experience. Versions of Clandestino for every platform are built to provide a continuous chat experience between them.\nYou will find more information on our official website https://xabber.com"
+            "value": "%1$@ is an <u><b>open</b> <i>source</i></u> XMPP messenger for Android, iOS and Web platforms. It is build around open standards, interoperability, design and great user experience. Versions of %1$@ for every platform are built to provide a continuous chat experience between them.\nYou will find more information on our official website https://%2$@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clandestino es un mensajero XMPP de <u><b>código</b> <i>abierto</i></u> para las plataformas Android, iOS y Web. Está basado en estándares abiertos, interoperabilidad, diseño y una excelente experiencia de usuario. Las versiones de Clandestino para cada plataforma están creadas para ofrecer una experiencia de chat continua entre ellas.\nEncontrarás más información en nuestro sitio web oficial https://xabber.com"
+            "value": "%1$@ es un mensajero XMPP de <u><b>código</b> <i>abierto</i></u> para las plataformas Android, iOS y Web. Está basado en estándares abiertos, interoperabilidad, diseño y una excelente experiencia de usuario. Las versiones de %1$@ para cada plataforma están creadas para ofrecer una experiencia de chat continua entre ellas.\nEncontrarás más información en nuestro sitio web oficial https://%2$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clandestino est un messager XMPP <u><b>à code</b> <i>source ouvert</i></u> pour Android, iOS et le Web. Il repose sur des normes ouvertes, l’interopérabilité, le design et une excellente expérience utilisateur. Les versions de Clandestino pour chaque plateforme sont conçues pour offrir une expérience de messagerie continue entre elles.\nVous trouverez plus d’informations sur notre site officiel https://xabber.com"
+            "value": "%1$@ est un messager XMPP <u><b>à code</b> <i>source ouvert</i></u> pour Android, iOS et le Web. Il repose sur des normes ouvertes, l’interopérabilité, le design et une excellente expérience utilisateur. Les versions de %1$@ pour chaque plateforme sont conçues pour offrir une expérience de messagerie continue entre elles.\nVous trouverez plus d’informations sur notre site officiel https://%2$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clandestino — XMPP-мессенджер с <u><b>открытым</b> <i>исходным кодом</i></u> для платформ Android, iOS и Web. Он основан на открытых стандартах, совместимости, продуманном дизайне и удобстве использования. Версии Clandestino для разных платформ обеспечивают непрерывное общение между устройствами.\nДополнительную информацию можно найти на нашем официальном сайте https://xabber.com"
+            "value": "%1$@ — XMPP-мессенджер с <u><b>открытым</b> <i>исходным кодом</i></u> для платформ Android, iOS и Web. Он основан на открытых стандартах, совместимости, продуманном дизайне и удобстве использования. Версии %1$@ для разных платформ обеспечивают непрерывное общение между устройствами.\nДополнительную информацию можно найти на нашем официальном сайте https://%2$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clandestino 是一款适用于 Android、iOS 和 Web 平台的 <u><b>开放</b><i>源代码</i></u> XMPP 即时通讯应用。它围绕开放标准、互操作性、设计和出色的用户体验而构建。各平台的 Clandestino 版本共同提供连贯的聊天体验。\n请访问我们的官方网站 https://xabber.com 了解更多信息"
+            "value": "%1$@ 是一款适用于 Android、iOS 和 Web 平台的 <u><b>开放</b><i>源代码</i></u> XMPP 即时通讯应用。它围绕开放标准、互操作性、设计和出色的用户体验而构建。各平台的 %1$@ 版本共同提供连贯的聊天体验。\n请访问我们的官方网站 https://%2$@ 了解更多信息"
           }
         }
       }
@@ -1550,30 +1551,31 @@
       }
     },
     "account_active_sessions_not_supported": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "XMPP client typically needs to store a password to connect to a server. This leads to increased security threats associated with storing account password on client device: in can be extracted from the device by whoever gains access to it. Also, a user can't revoke access from connected clients even by changing password. \n\nXabber supports superior way to handle this issue: XMPP tokens. They allow users to control client sessions and revoke them when needed, providing greater chat security. However, %@ does not support this standard."
+            "value": "XMPP client typically needs to store a password to connect to a server. This leads to increased security threats associated with storing account password on client device: in can be extracted from the device by whoever gains access to it. Also, a user can't revoke access from connected clients even by changing password. \n\n%1$@ supports superior way to handle this issue: XMPP tokens. They allow users to control client sessions and revoke them when needed, providing greater chat security. However, %2$@ does not support this standard."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El cliente XMPP normalmente necesita almacenar una contraseña para conectarse a un servidor. Esto conlleva mayores amenazas de seguridad asociadas con el almacenamiento de la contraseña de la cuenta en el dispositivo cliente: puede ser extraída del dispositivo por quien tenga acceso a él. Además, un usuario no puede revocar el acceso de clientes conectados, ni siquiera cambiando la contraseña. \n\nXabber soporta una mejor forma de manejar este problema: tokens XMPP. Permiten a los usuarios controlar las sesiones del cliente y revocarlas cuando sea necesario, proporcionando una mayor seguridad en el chat. Sin embargo, %@ no soporta este estándar."
+            "value": "El cliente XMPP normalmente necesita almacenar una contraseña para conectarse a un servidor. Esto conlleva mayores amenazas de seguridad asociadas con el almacenamiento de la contraseña de la cuenta en el dispositivo cliente: puede ser extraída del dispositivo por quien tenga acceso a él. Además, un usuario no puede revocar el acceso de clientes conectados, ni siquiera cambiando la contraseña. \n\n%1$@ soporta una mejor forma de manejar este problema: tokens XMPP. Permiten a los usuarios controlar las sesiones del cliente y revocarlas cuando sea necesario, proporcionando una mayor seguridad en el chat. Sin embargo, %2$@ no soporta este estándar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le client XMPP doit généralement stocker un mot de passe pour se connecter à un serveur. Cela conduit à des menaces de sécurité accrues associées au stockage du mot de passe du compte sur le périphérique client: en entrant, on peut extraire de l'appareil par quiconque y accède. De plus, un utilisateur ne peut pas révoquer l'accès des clients connectés même en changeant de mot de passe. \n\nXabber prend en charge la manière supérieure de gérer ce problème : les jetons XMPP. Ils permettent aux utilisateurs de contrôler les sessions clients et de les révoquer en cas de besoin, offrant une meilleure sécurité dans le chat. Cependant, %@ ne prend pas en charge cette norme."
+            "value": "Le client XMPP doit généralement stocker un mot de passe pour se connecter à un serveur. Cela conduit à des menaces de sécurité accrues associées au stockage du mot de passe du compte sur le périphérique client: en entrant, on peut extraire de l'appareil par quiconque y accède. De plus, un utilisateur ne peut pas révoquer l'accès des clients connectés même en changeant de mot de passe. \n\n%1$@ prend en charge la manière supérieure de gérer ce problème : les jetons XMPP. Ils permettent aux utilisateurs de contrôler les sessions clients et de les révoquer en cas de besoin, offrant une meilleure sécurité dans le chat. Cependant, %2$@ ne prend pas en charge cette norme."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "XMPP клиент, как правило, должен хранить пароль для подключения к серверу. Это приводит к усилению угроз безопасности, связанных с хранением пароля учетной записи на клиентском устройстве: пароль может быть скомпрометирован при наличии у атакующего физического доступа к устройству. Кроме того, пользователь не может отключить уже подключенные клиенты, даже изменив пароль. \n\nXabber поддерживает более совершенный способ решения этой задачи: XMPP tokens. Они позволяют пользователям контролировать активные сеансы и отзывать их при необходимости, обеспечивая большую безопасность чата. Однако %@ не поддерживает этот стандарт."
+            "value": "XMPP клиент, как правило, должен хранить пароль для подключения к серверу. Это приводит к усилению угроз безопасности, связанных с хранением пароля учетной записи на клиентском устройстве: пароль может быть скомпрометирован при наличии у атакующего физического доступа к устройству. Кроме того, пользователь не может отключить уже подключенные клиенты, даже изменив пароль. \n\n%1$@ поддерживает более совершенный способ решения этой задачи: XMPP tokens. Они позволяют пользователям контролировать активные сеансы и отзывать их при необходимости, обеспечивая большую безопасность чата. Однако %2$@ не поддерживает этот стандарт."
           }
         }
       }
@@ -2602,30 +2604,31 @@
       }
     },
     "account_clear_history_on_exit_summary": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delete all chat messages from device before exiting Xabber."
+            "value": "Delete all chat messages from device before exiting %1$@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Borrar todos los mensajes del dispositivo antes de salir de Xabber."
+            "value": "Borrar todos los mensajes del dispositivo antes de salir de %1$@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Supprimez tous les messages du périphérique avant de quitter Xabber."
+            "value": "Supprimez tous les messages du périphérique avant de quitter %1$@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Удалять все сообщения с устройства перед выходом из Xabber."
+            "value": "Удалять все сообщения с устройства перед выходом из %1$@."
           }
         }
       }
@@ -4047,18 +4050,19 @@
       }
     },
     "account_delete_confirmation_explanation": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Account will not be deleted from server, just from Xabber"
+            "value": "Account will not be deleted from server, just from %1$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Аккаунт не будет удален с сервера, только из Xabber"
+            "value": "Аккаунт не будет удален с сервера, только из %1$@"
           }
         }
       }
@@ -4185,42 +4189,43 @@
       }
     },
     "account_deleted": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم حذف هذا الحساب Xabber"
+            "value": "تم حذف هذا الحساب %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Xabber Account was deleted"
+            "value": "This %1$@ Account was deleted"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta cuenta de Xabber fue eliminada"
+            "value": "Esta cuenta de %1$@ fue eliminada"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce compte Xabber a été supprimé"
+            "value": "Ce compte %1$@ a été supprimé"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Используемый аккаунт Xabber был удалён"
+            "value": "Используемый аккаунт %1$@ был удалён"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Xabber 帐户被删除"
+            "value": "此 %1$@ 帐户被删除"
           }
         }
       }
@@ -8243,43 +8248,43 @@
       }
     },
     "account_settings_terminate_description": {
-      "comment": "Legacy account-device list explanation of session termination semantics.",
+      "comment": "Legacy account-device list explanation of session termination semantics.\nBranding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يمكنك إنهاء الجلسات التي لا تحتاج إليها. تمسح تطبيقات Xabber الرسمية جميع بيانات المستخدم من الجهاز عند إنهاء الجلسة."
+            "value": "يمكنك إنهاء الجلسات التي لا تحتاج إليها. تمسح تطبيقات %1$@ الرسمية جميع بيانات المستخدم من الجهاز عند إنهاء الجلسة."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You can terminate sessions you don`t need. Official Xabber clients wipe all user data from the device upon session termination."
+            "value": "You can terminate sessions you don`t need. Official %1$@ clients wipe all user data from the device upon session termination."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Puedes finalizar las sesiones que no necesites. Los clientes oficiales de Xabber borran todos los datos del usuario del dispositivo al finalizar una sesión."
+            "value": "Puedes finalizar las sesiones que no necesites. Los clientes oficiales de %1$@ borran todos los datos del usuario del dispositivo al finalizar una sesión."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous pouvez mettre fin aux sessions dont vous n’avez pas besoin. Les clients Xabber officiels effacent toutes les données utilisateur de l’appareil à la fin d’une session."
+            "value": "Vous pouvez mettre fin aux sessions dont vous n’avez pas besoin. Les clients %1$@ officiels effacent toutes les données utilisateur de l’appareil à la fin d’une session."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вы можете завершить сеансы, которые вам не нужны. Официальные клиенты Xabber стирают все пользовательские данные с устройства после завершения сеанса."
+            "value": "Вы можете завершить сеансы, которые вам не нужны. Официальные клиенты %1$@ стирают все пользовательские данные с устройства после завершения сеанса."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你可以终止不需要的会话。会话终止后，Xabber 官方客户端会从设备中清除所有用户数据。"
+            "value": "你可以终止不需要的会话。会话终止后，%1$@ 官方客户端会从设备中清除所有用户数据。"
           }
         }
       }
@@ -8796,42 +8801,43 @@
       }
     },
     "account_sync_summary": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المزامنة مع حساب Xabber"
+            "value": "المزامنة مع حساب %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Synchronization with Xabber Account"
+            "value": "Synchronization with %1$@ Account"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sincronización con cuenta de Xabber"
+            "value": "Sincronización con cuenta de %1$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Synchronisation avec le compte Xabber"
+            "value": "Synchronisation avec le compte %1$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Синхронизация с аккаунтом Xabber"
+            "value": "Синхронизация с аккаунтом %1$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "与 Xabber 帐户同步"
+            "value": "与 %1$@ 帐户同步"
           }
         }
       }
@@ -19815,42 +19821,43 @@
       }
     },
     "battery_optimization_disable_dialog_message": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يقوم جهازك ببعض عمليات تحسين البطارية الثقيلة على Xabber والتي قد تؤدي إلى تأخير الإخطارات أو حتى فقدان الرسائل. n/n/ سيُطلب منك الآن تعطيلها."
+            "value": "يقوم جهازك ببعض عمليات تحسين البطارية الثقيلة على %1$@ والتي قد تؤدي إلى تأخير الإخطارات أو حتى فقدان الرسائل. n/n/ سيُطلب منك الآن تعطيلها."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your device is doing some heavy battery optimizations on Xabber that might lead to delayed notifications or even message loss.\n\nYou will now be asked to disable those."
+            "value": "Your device is doing some heavy battery optimizations on %1$@ that might lead to delayed notifications or even message loss.\n\nYou will now be asked to disable those."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El dispositivo está realizando importantes optimizaciones de la batería en Xabber lo que podría generar retraso en las notificaciones o incluso pérdida de mensajes\n\n Se le consultará ahora para desactivarlas."
+            "value": "El dispositivo está realizando importantes optimizaciones de la batería en %1$@ lo que podría generar retraso en las notificaciones o incluso pérdida de mensajes\n\n Se le consultará ahora para desactivarlas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Votre appareil procède à l'optimisation de la consommation d’énergie de Xabber, ce qui peut retarder les notifications ou mener à la perte de certains message.\n\nVous allez maintenant être invité à désactiver cette optimisation."
+            "value": "Votre appareil procède à l'optimisation de la consommation d’énergie de %1$@, ce qui peut retarder les notifications ou mener à la perte de certains message.\n\nVous allez maintenant être invité à désactiver cette optimisation."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ваше устройство оптимизирует расход батареи, что может привести к задержкам в доставке сообщений или их потере.\n\nСейчас вам предложат отключить оптимизацию."
+            "value": "Ваше устройство применяет к %1$@ агрессивную оптимизацию расхода батареи, что может привести к задержкам уведомлений или потере сообщений.\n\nСейчас вам будет предложено отключить эту оптимизацию."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "您的设备针对 Xabber 做了一些重度的电池优化，这可能导致通知的延迟或者甚至丢失消息。\n\n你现在将被要求禁用那些优化。"
+            "value": "您的设备针对 %1$@ 做了一些重度的电池优化，这可能导致通知的延迟或者甚至丢失消息。\n\n你现在将被要求禁用那些优化。"
           }
         }
       }
@@ -37865,42 +37872,43 @@
       }
     },
     "chat_xabber_call_hint": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مكالمة Xabber"
+            "value": "مكالمة %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber call"
+            "value": "%1$@ call"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Llamada de Xabber"
+            "value": "Llamada de %1$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Appel Xabber"
+            "value": "Appel %1$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вызов Xabber"
+            "value": "Вызов %1$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber 通话"
+            "value": "%1$@ 通话"
           }
         }
       }
@@ -43300,42 +43308,43 @@
       }
     },
     "connection_start_at_boot": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تشغيل عند بدء النظام\nتشغيل التطبيق عند بدء نظام التشغيل Android. هذا الإعداد لن يعمل إذا تم تثبيت Xabber على بطاقة الذاكرة SD."
+            "value": "تشغيل عند بدء النظام\nتشغيل التطبيق عند بدء نظام التشغيل Android. هذا الإعداد لن يعمل إذا تم تثبيت %1$@ على بطاقة الذاكرة SD."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start when Android boots\nStart the application when Android boots. This doesn't work when Xabber is installed on SD card."
+            "value": "Start when Android boots\nStart the application when Android boots. This doesn't work when %1$@ is installed on SD card."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iniciar al encender Android\nInicia la aplicación cuando se enciende Android. Esta opción no funciona si Xabber está instalada en la tarjeta SD."
+            "value": "Iniciar al encender Android\nInicia la aplicación cuando se enciende Android. Esta opción no funciona si %1$@ está instalada en la tarjeta SD."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Démarrer avec Android\nL'application sera lancée au démarrage d'Android. Ne fonctionne pas quand Xabber est installé sur une carte SD."
+            "value": "Démarrer avec Android\nL'application sera lancée au démarrage d'Android. Ne fonctionne pas quand %1$@ est installé sur une carte SD."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Запускать при включении телефона\nЗапускать приложение при включении телефона. Функция не будет работать, если Xabber установлен на SD-карту"
+            "value": "Запускать при включении телефона\nЗапускать приложение при включении телефона. Функция не будет работать, если %1$@ установлен на SD-карту"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "随Android启动\n当Android启动时启动该程序。如果Xabber被安装在SD卡上，此功能将会失效。"
+            "value": "随Android启动\n当Android启动时启动该程序。如果%1$@被安装在SD卡上，此功能将会失效。"
           }
         }
       }
@@ -51941,42 +51950,43 @@
       }
     },
     "dark_theme_suggest_dialog_message": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سمة مظلمة جديدة متاحة الآن لـ Xabber. الانضمام إلى الجانب المظلم أو البقاء على الجانب ضوء؟"
+            "value": "سمة مظلمة جديدة متاحة الآن لـ %1$@. الانضمام إلى الجانب المظلم أو البقاء على الجانب ضوء؟"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New dark theme is now available for Xabber. Join the dark side or stay on the light side?"
+            "value": "New dark theme is now available for %1$@. Join the dark side or stay on the light side?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un nuevo tema oscuro está disponible ahora para Xabber. ¿Puedes resistir la tentación de usarlo?"
+            "value": "Un nuevo tema oscuro está disponible ahora para %1$@. ¿Puedes resistir la tentación de usarlo?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un nouveau thème sombre est désormais disponible pour Xabber. Allez-vous résistez à la tentation de l'utiliser ?"
+            "value": "Un nouveau thème sombre est désormais disponible pour %1$@. Allez-vous résistez à la tentation de l'utiliser ?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Для Xabber доступна новая тёмная тема. Перейти на тёмную сторону или остаться на светлой?"
+            "value": "Для %1$@ доступна новая тёмная тема. Перейти на тёмную сторону или остаться на светлой?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber 有新黑暗主题可用。你能抗拒使用它的诱惑吗？"
+            "value": "%1$@ 有新黑暗主题可用。你能抗拒使用它的诱惑吗？"
           }
         }
       }
@@ -52705,42 +52715,43 @@
       }
     },
     "debug_crash_reports_dialog_message": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber يجمع تقارير الأخطاء المجهولة. يمكنك تعطيل فإنه في إعدادات التصحيح، ولكن سوف تعوق قدرتنا على توفير تجربة مراسلة موثوق بها للمستخدمين شبير."
+            "value": "%1$@ يجمع تقارير الأخطاء المجهولة. يمكنك تعطيل فإنه في إعدادات التصحيح، ولكن سوف تعوق قدرتنا على توفير تجربة مراسلة موثوق بها للمستخدمين %1$@."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber gathers anonymous bug reports. You may disable it in debug settings, but it will hinder our ability to provide reliable messaging experience to Xabber users."
+            "value": "%1$@ gathers anonymous bug reports. You may disable it in debug settings, but it will hinder our ability to provide reliable messaging experience to %1$@ users."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber recopila informes anónimos de errores. Usted puede desactivarlo en la configuración de depuración, pero obstaculizará nuestra capacidad de proporcionar una experiencia de mensajería confiable a los usuarios de Xabber."
+            "value": "%1$@ recopila informes anónimos de errores. Usted puede desactivarlo en la configuración de depuración, pero obstaculizará nuestra capacidad de proporcionar una experiencia de mensajería confiable a los usuarios de %1$@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber récupère des rapports de bugs anonyme. Vous pouvez le désactiver dans les paramètre de debogage, mais cela peut entraver notre capacité à fournir une expérience utilisateur fiable."
+            "value": "%1$@ récupère des rapports de bugs anonymes. Vous pouvez désactiver cette fonction dans les paramètres de débogage, mais cela peut entraver notre capacité à fournir une expérience de messagerie fiable aux utilisateurs de %1$@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber собирает анонимные данные о сбоях приложения. Вы можете отключить этот функционал в настройках, но это затруднит нам разработку приложения."
+            "value": "%1$@ собирает анонимные данные о сбоях приложения. Вы можете отключить эту функцию в настройках отладки, но это затруднит предоставление надёжного сервиса пользователям %1$@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber 收集匿名 bug 报告。你可以在调试设置中禁用它，但它会阻碍我们向 Xabber 用户提供可靠的消息传递经验的能力。"
+            "value": "%1$@ 收集匿名 bug 报告。你可以在调试设置中禁用它，但它会阻碍我们向 %1$@ 用户提供可靠的消息传递经验的能力。"
           }
         }
       }
@@ -52828,42 +52839,43 @@
       }
     },
     "debug_crash_reports_title": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حصة تحطم وتشخيص البيانات\nمساعدة مطوري التطبيق تحسين شبير بالسماح بتبادل البيانات تحطم وتشخيص معهم (الرجاء إعادة تشغيل التطبيق لتطبيق التغييرات)."
+            "value": "حصة تحطم وتشخيص البيانات\nمساعدة مطوري التطبيق تحسين %1$@ بالسماح بتبادل البيانات تحطم وتشخيص معهم (الرجاء إعادة تشغيل التطبيق لتطبيق التغييرات)."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Share crash and diagnostics data\nHelp app developers improve Xabber by allowing to share crash and diagnostics data with them (please restart application to apply changes)."
+            "value": "Share crash and diagnostics data\nHelp app developers improve %1$@ by allowing to share crash and diagnostics data with them (please restart application to apply changes)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compartir datos de fallos y diagnósticos\nAyuda a los desarrolladores de la aplicación a mejorar Xabber permitiendo compartir los datos de fallos y diagnósticos con ellos (por favor, reinicie la aplicación para aplicar los cambios)."
+            "value": "Compartir datos de fallos y diagnósticos\nAyuda a los desarrolladores de la aplicación a mejorar %1$@ permitiendo compartir los datos de fallos y diagnósticos con ellos (por favor, reinicie la aplicación para aplicar los cambios)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Partager les données de plantage et de diagnostique\nAidez les développeurs à améliorer Xabber en autorisant le partage des données de plantage et de diagnostique avec eux (veuillez redémarrer l'application pour appliquer les modifications)."
+            "value": "Partager les données de plantage et de diagnostique\nAidez les développeurs à améliorer %1$@ en autorisant le partage des données de plantage et de diagnostique avec eux (veuillez redémarrer l'application pour appliquer les modifications)."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сбор диагностической информации\nРазрешив сбор информации о сбоях вы поможете разработчикам улучшить Xabber (пожалуйста, перезапустите приложение, чтобы применить изменения)."
+            "value": "Сбор диагностической информации\nРазрешив сбор информации о сбоях вы поможете разработчикам улучшить %1$@ (пожалуйста, перезапустите приложение, чтобы применить изменения)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "分享的崩溃和诊断 data\n允许与应用程序开发人员分享崩溃和诊断数据来帮助他们改进 Xabber (请重新启动应用程序以应用更改)。"
+            "value": "分享的崩溃和诊断 data\n允许与应用程序开发人员分享崩溃和诊断数据来帮助他们改进 %1$@ (请重新启动应用程序以应用更改)。"
           }
         }
       }
@@ -53179,36 +53191,37 @@
       }
     },
     "debug_use_develop_api_title": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سيتم تطبيق التغييرات API شبير\nبعد إعادة التشغيل"
+            "value": "سيتم تطبيق التغييرات API %1$@\nبعد إعادة التشغيل"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use development Xabber API\nChanges will be applied after restart"
+            "value": "Use development %1$@ API\nChanges will be applied after restart"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usar la API de desarrollo de Xabber\nLos cambios se aplicarán después de reiniciar"
+            "value": "Usar la API de desarrollo de %1$@\nLos cambios se aplicarán después de reiniciar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Использовать отладочный Xabber API\nИзменения будут применены после перезапуска"
+            "value": "Использовать отладочный %1$@ API\nИзменения будут применены после перезапуска"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用开发 Xabber API\n更改将在重启后应用"
+            "value": "使用开发 %1$@ API\n更改将在重启后应用"
           }
         }
       }
@@ -53847,42 +53860,43 @@
       }
     },
     "delete_settings": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حذف إعدادات التزامن لهذا الحساب XMPP من حساب Xabber؟"
+            "value": "حذف إعدادات التزامن لهذا الحساب XMPP من حساب %1$@؟"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delete synchronised settings for this XMPP account from Xabber Account?"
+            "value": "Delete synchronised settings for this XMPP account from %1$@ Account?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Borrar los ajustes sincronizados para esta cuenta XMPP de la cuenta Xabber?"
+            "value": "¿Borrar los ajustes sincronizados para esta cuenta XMPP de la cuenta %1$@?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Supprimer les paramètres synchronisés pour ce compte XMPP de compte Xabber ?"
+            "value": "Supprimer les paramètres synchronisés pour ce compte XMPP de compte %1$@ ?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Удалить синхронизированные настройки этого XMPP аккаунта с сервера Xabber?"
+            "value": "Удалить синхронизированные настройки этого XMPP аккаунта с сервера %1$@?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "是否从 Xabber 帐户中删除此 XMPP 帐户的同步设置？"
+            "value": "是否从 %1$@ 帐户中删除此 XMPP 帐户的同步设置？"
           }
         }
       }
@@ -53952,42 +53966,43 @@
       }
     },
     "delete_settings_summary": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سيتم حذف إعدادات التزامن لهذا الحساب XMPP من حساب Xabber"
+            "value": "سيتم حذف إعدادات التزامن لهذا الحساب XMPP من حساب %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Synchronized settings for this XMPP account will be deleted from Xabber Account"
+            "value": "Synchronized settings for this XMPP account will be deleted from %1$@ Account"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los ajustes sincronizados para esta cuenta XMPP serán borrados de la cuenta de Xabber"
+            "value": "Los ajustes sincronizados para esta cuenta XMPP serán borrados de la cuenta de %1$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les paramètres synchronisés pour ce compte XMPP seront supprimés du compte Xabber"
+            "value": "Les paramètres synchronisés pour ce compte XMPP seront supprimés du compte %1$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Синхронизированные настройки этого XMPP аккаунта будут удалены с сервера Xabber"
+            "value": "Синхронизированные настройки этого XMPP аккаунта будут удалены с сервера %1$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 XMPP 帐户的同步设置将从 Xabber 帐户中删除"
+            "value": "此 XMPP 帐户的同步设置将从 %1$@ 帐户中删除"
           }
         }
       }
@@ -55406,43 +55421,43 @@
       }
     },
     "device_detail__screen__encryption_key_verified_by_certificate_issued_by_clandestino_for": {
-      "comment": "Device Detail / screen: user-visible alert or toast message. Argument 1 is the verified certificate subject. Security-sensitive copy: preserve identity and trust semantics.",
+      "comment": "Device Detail / screen: user-visible alert or toast message. Argument 1 is the verified certificate subject. Security-sensitive copy: preserve identity and trust semantics.\nBranding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم التحقق من مفتاح التشفير بشهادة صادرة من Clandestino إلى %@"
+            "value": "تم التحقق من مفتاح التشفير بشهادة صادرة من %1$@ إلى %2$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Encryption key verified by certificate issued by Clandestino for %@"
+            "value": "Encryption key verified by certificate issued by %1$@ for %2$@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La clave de cifrado está verificada por un certificado de Clandestino emitido para %@"
+            "value": "La clave de cifrado está verificada por un certificado de %1$@ emitido para %2$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La clé de chiffrement est vérifiée par un certificat Clandestino émis pour %@"
+            "value": "La clé de chiffrement est vérifiée par un certificat %1$@ émis pour %2$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ключ шифрования проверен сертификатом Clandestino, выданным для %@"
+            "value": "Ключ шифрования проверен сертификатом %1$@, выданным для %2$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "加密密钥已由 Clandestino 颁发给 %@ 的证书验证"
+            "value": "加密密钥已由 %1$@ 颁发给 %2$@ 的证书验证"
           }
         }
       }
@@ -57547,12 +57562,13 @@
       }
     },
     "devices__bottom_label": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You can terminate sessions you don't need. Official Xabber clients wipe all user data from device upon session termination."
+            "value": "You can terminate sessions you don't need. Official %1$@ clients wipe all user data from device upon session termination."
           }
         }
       }
@@ -58753,35 +58769,37 @@
       }
     },
     "dialog_add_xabber_account__header": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber Login"
+            "value": "%1$@ Login"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вход в Xabber"
+            "value": "Вход в %1$@"
           }
         }
       }
     },
     "dialog_add_xabber_account__text_no_account": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Xabber account?"
+            "value": "No %1$@ account?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нет Xabber аккаунта?"
+            "value": "Нет %1$@ аккаунта?"
           }
         }
       }
@@ -59376,42 +59394,43 @@
       }
     },
     "dialog_jingle_message__message_sign_up": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إذا لم يكن لديك حساب بعد، فاضغط هنا للتسجيل للحصول على حساب Xabber."
+            "value": "إذا لم يكن لديك حساب بعد، فاضغط هنا للتسجيل للحصول على حساب %1$@."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "If you don't have an account yet, press here to sign up for a Xabber account."
+            "value": "If you don't have an account yet, press here to sign up for a %1$@ account."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Si aún no tienes una cuenta, pulsa aquí para registrarte y obtener una cuenta de Xabber."
+            "value": "Si aún no tienes una cuenta, pulsa aquí para registrarte y obtener una cuenta de %1$@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Si vous n’avez pas encore de compte, appuyez ici pour créer un compte Xabber."
+            "value": "Si vous n’avez pas encore de compte, appuyez ici pour créer un compte %1$@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Если у вас еще нет учетной записи, нажмите здесь, чтобы зарегистрировать аккаунт Xabber."
+            "value": "Если у вас еще нет учетной записи, нажмите здесь, чтобы зарегистрировать аккаунт %1$@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "如果还没有账户，请点此注册 Xabber 账户。"
+            "value": "如果还没有账户，请点此注册 %1$@ 账户。"
           }
         }
       }
@@ -61806,24 +61825,25 @@
       }
     },
     "error_file_upload_not_support": {
+      "comment": "Branding: %1$@ is CommonConfig app_name; %2$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ server does not seem to support file transfer. This may happen because Xabber didn't yet receive server capabilities, or because of some glitch.\n\nRefresh server info in Account settings → Server info. If that does not help, consider using a server that definitely does support file transfer. One such server is Xabber.chat"
+            "value": "%3$@ server does not seem to support file transfer. This may happen because %1$@ didn't yet receive server capabilities, or because of some glitch.\n\nRefresh server info in Account settings → Server info. If that does not help, consider using a server that definitely does support file transfer. One such server is %2$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le serveur %1$@ ne semble pas prendre en charge le transfert de fichiers. Cela peut se produire parce que Xabber n'a pas encore reçu les capacités du serveur, ou à cause d'un problème quelconque.\n\nActualiser les informations du serveur dans Paramètres du compte → Informations du serveur. Si cela n'aide pas, pensez à utiliser un serveur qui supporte définitivement le transfert de fichiers. Un tel serveur est Xabber.chat"
+            "value": "Le serveur %3$@ ne semble pas prendre en charge le transfert de fichiers. Cela peut se produire parce que %1$@ n'a pas encore reçu les capacités du serveur, ou à cause d'un problème quelconque.\n\nActualiser les informations du serveur dans Paramètres du compte → Informations du serveur. Si cela n'aide pas, pensez à utiliser un serveur qui supporte définitivement le transfert de fichiers. Un tel serveur est %2$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сервер %1$@ не поддерживает передачу файлов. Это могло произойти из-за того, что Xabber еще не получил информацию о функцинале, или из-за какого-нибудь сбоя.\n\nОбновить информацию о сервере можно в настройках учетной записи → Информация о сервере. Если это не помогает, подумайте об использовании сервера, который точно поддерживает передачу файлов, например, Xabber.chat"
+            "value": "Сервер %3$@ не поддерживает передачу файлов. Это могло произойти из-за того, что %1$@ еще не получил информацию о функцинале, или из-за какого-нибудь сбоя.\n\nОбновить информацию о сервере можно в настройках учетной записи → Информация о сервере. Если это не помогает, подумайте об использовании сервера, который точно поддерживает передачу файлов, например, %2$@"
           }
         }
       }
@@ -63654,18 +63674,19 @@
       }
     },
     "events_ringtone_not_available_summary_permission": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber requires a permission to read storage to access this ringtone\nPlease grant a permission or select another ringtone"
+            "value": "%1$@ requires a permission to read storage to access this ringtone\nPlease grant a permission or select another ringtone"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber требуется разрешение на чтение данных для доступа к этому звуковому уведомлению\nПожалуйста, разрешите доступ на чтение данных или выберите другой рингтон"
+            "value": "%1$@ требуется разрешение на чтение данных для доступа к этому звуковому уведомлению\nПожалуйста, разрешите доступ на чтение данных или выберите другой рингтон"
           }
         }
       }
@@ -64810,12 +64831,13 @@
       }
     },
     "forwarded_support_text": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%d forwarded messages. Use advanced client like Xabber to view them."
+            "value": "%2$d forwarded messages. Use advanced client like %1$@ to view them."
           }
         }
       }
@@ -71071,18 +71093,19 @@
       }
     },
     "groupchat_provided_by_xabber": {
+      "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Group server provided by Xabber.chat"
+            "value": "Group server provided by %1$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Групповой сервер от Xabber.org"
+            "value": "Групповой сервер от %1$@"
           }
         }
       }
@@ -75036,24 +75059,25 @@
       }
     },
     "intro_encrypted_chat_link": {
+      "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/encrypted"
+            "value": "https://%1$@/learn/encrypted"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/encrypted"
+            "value": "https://%1$@/learn/encrypted"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/encrypted"
+            "value": "https://%1$@/learn/encrypted"
           }
         }
       }
@@ -75182,24 +75206,25 @@
       }
     },
     "intro_incognito_group_link": {
+      "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/incognito"
+            "value": "https://%1$@/learn/incognito"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/incognito"
+            "value": "https://%1$@/learn/incognito"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/incognito"
+            "value": "https://%1$@/learn/incognito"
           }
         }
       }
@@ -75328,24 +75353,25 @@
       }
     },
     "intro_private_chat_link": {
+      "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/private"
+            "value": "https://%1$@/learn/private"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/private"
+            "value": "https://%1$@/learn/private"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/private"
+            "value": "https://%1$@/learn/private"
           }
         }
       }
@@ -75474,24 +75500,25 @@
       }
     },
     "intro_public_group_link": {
+      "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/groups"
+            "value": "https://%1$@/learn/groups"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/groups"
+            "value": "https://%1$@/learn/groups"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/groups"
+            "value": "https://%1$@/learn/groups"
           }
         }
       }
@@ -75620,24 +75647,25 @@
       }
     },
     "intro_regular_chat_link": {
+      "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/regular"
+            "value": "https://%1$@/learn/regular"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/regular"
+            "value": "https://%1$@/learn/regular"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/regular"
+            "value": "https://%1$@/learn/regular"
           }
         }
       }
@@ -75725,42 +75753,43 @@
       }
     },
     "intro_saved_messages_link": {
+      "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/saved/"
+            "value": "https://%1$@/learn/saved/"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/saved/"
+            "value": "https://%1$@/learn/saved/"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/saved/"
+            "value": "https://%1$@/learn/saved/"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/saved/"
+            "value": "https://%1$@/learn/saved/"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/saved/"
+            "value": "https://%1$@/learn/saved/"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/learn/saved/"
+            "value": "https://%1$@/learn/saved/"
           }
         }
       }
@@ -76033,18 +76062,19 @@
       }
     },
     "jingle__text_body_message": {
+      "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You have received a voice call. If your are seing this, your client probably does not support this functionality. For more information, see https://xabber.com/voice/"
+            "value": "You have received a voice call. If your are seing this, your client probably does not support this functionality. For more information, see https://%1$@/voice/"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вам поступил голосовой звонок. Если вы видите это сообщение, ваш клиент, вероятно, не поддерживает функцию аудио и видеовызовов. Для получения дополнительной информации см. https://xabber.com/voice/"
+            "value": "Вам поступил голосовой звонок. Если вы видите это сообщение, ваш клиент, вероятно, не поддерживает функцию аудио и видеовызовов. Для получения дополнительной информации см. https://%1$@/voice/"
           }
         }
       }
@@ -77260,12 +77290,13 @@
       }
     },
     "license_url": {
+      "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/policy/mobile/"
+            "value": "https://%1$@/policy/mobile/"
           }
         }
       }
@@ -77480,42 +77511,43 @@
       }
     },
     "logout_summary": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سيتم إنهاء الاتصال من حساب Xabber. ولن تكون قادراً على استخدام خدمات Xabber معززة، ولكن XMPP الأساسية ستعمل كالمعتاد."
+            "value": "سيتم إنهاء الاتصال من حساب %1$@. ولن تكون قادراً على استخدام خدمات %1$@ معززة، ولكن XMPP الأساسية ستعمل كالمعتاد."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You will quit from Xabber Account. You will not be able to use enhanced Xabber services, but basic XMPP will work as usual."
+            "value": "You will quit from %1$@ Account. You will not be able to use enhanced %1$@ services, but basic XMPP will work as usual."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dejar de usar cuenta de Xabber. Usted no podrá utilizar los servicios mejorados de Xabber, pero el XMPP básico funcionará con normalidad."
+            "value": "Dejar de usar cuenta de %1$@. Usted no podrá utilizar los servicios mejorados de %1$@, pero el XMPP básico funcionará con normalidad."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous allez quitter le compte Xabber. Vous ne serez pas en mesure d’utiliser les services améliorés de Xabber, mais le XMPP basique fonctionnera comme auparavant."
+            "value": "Vous allez quitter le compte %1$@. Vous ne serez pas en mesure d’utiliser les services améliorés de %1$@, mais le XMPP basique fonctionnera comme auparavant."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вы выйдете из аккаунта Xabber. Вы не сможете использовать расширенные сервисы Xabber, но обычные XMPP аккаунты будут работать как обычно."
+            "value": "Вы выйдете из аккаунта %1$@. Вы не сможете использовать расширенные сервисы %1$@, но обычные XMPP аккаунты будут работать как обычно."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "您将退出 Xabber 帐户。您将无法使用增强的 Xabber 服务, 但基本 XMPP 将照常工作。"
+            "value": "您将退出 %1$@ 帐户。您将无法使用增强的 %1$@ 服务, 但基本 XMPP 将照常工作。"
           }
         }
       }
@@ -81162,36 +81194,37 @@
       }
     },
     "need_login_to_continue": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يجب أن تسجل في حساب Xabber للمواصلة"
+            "value": "يجب أن تسجل في حساب %1$@ للمواصلة"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You must be logged in Xabber account to continue"
+            "value": "You must be logged in %1$@ account to continue"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Debes iniciar sesión en la cuenta de Xabber para continuar"
+            "value": "Debes iniciar sesión en la cuenta de %1$@ para continuar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Войдите в аккаунт Xabber, чтобы продолжить"
+            "value": "Войдите в аккаунт %1$@, чтобы продолжить"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "您必须登录 Xabber 帐户才能继续"
+            "value": "您必须登录 %1$@ 帐户才能继续"
           }
         }
       }
@@ -83625,43 +83658,43 @@
       }
     },
     "notifications_settings__in_app__footer": {
-      "comment": "Notification settings section title or explanatory footer shown in Settings.",
+      "comment": "Notification settings section title or explanatory footer shown in Settings.\nBranding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اعرض اللافتات وشغّل أصوات الإشعارات المفعّلة أثناء فتح Xabber."
+            "value": "اعرض اللافتات وشغّل أصوات الإشعارات المفعّلة أثناء فتح %1$@."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show banners and play enabled notification sounds while Xabber is open."
+            "value": "Show banners and play enabled notification sounds while %1$@ is open."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra banners y reproduce los sonidos de notificación activados mientras Xabber está abierto."
+            "value": "Muestra banners y reproduce los sonidos de notificación activados mientras %1$@ está abierto."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affichez des bannières et jouez les sons de notification activés lorsque Xabber est ouvert."
+            "value": "Affichez des bannières et jouez les sons de notification activés lorsque %1$@ est ouvert."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показывать баннеры и воспроизводить включённые звуки уведомлений, пока Xabber открыт."
+            "value": "Показывать баннеры и воспроизводить включённые звуки уведомлений, пока %1$@ открыт."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber 打开时显示横幅并播放已启用的通知声音。"
+            "value": "%1$@ 打开时显示横幅并播放已启用的通知声音。"
           }
         }
       }
@@ -84510,18 +84543,19 @@
       }
     },
     "omemo__dialog_fingerprints__link_learn_more": {
+      "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/encryption/"
+            "value": "https://%1$@/encryption/"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/encryption/"
+            "value": "https://%1$@/encryption/"
           }
         }
       }
@@ -85967,42 +86001,43 @@
       }
     },
     "otr_request": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم طلب تشفير المحادثة باستخدام OTR لكن ليس لديك أداة تدعمها. استخدم Pidgin أو Gajim أو Adium لأنظمة الحاسوب، أو Xabber أو ChatSecure لأنظمة Android.\nتصفح http://otr.cypherpunks.ca/ لمزيد من المعلومات."
+            "value": "تم طلب تشفير المحادثة باستخدام OTR لكن ليس لديك أداة تدعمها. استخدم Pidgin أو Gajim أو Adium لأنظمة الحاسوب، أو %1$@ أو ChatSecure لأنظمة Android.\nتصفح http://otr.cypherpunks.ca/ لمزيد من المعلومات."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Off-The-Record private conversation has been requested but you do not have a supportive plugin. Use Pidgin, Gajim or Adium for PC/Mac and Xabber, Conversations or ChatSecure for Android. Go to http://otr.cypherpunks.ca/ for more information."
+            "value": "Off-The-Record private conversation has been requested but you do not have a supportive plugin. Use Pidgin, Gajim or Adium for PC/Mac and %1$@, Conversations or ChatSecure for Android. Go to http://otr.cypherpunks.ca/ for more information."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se ha pedido una conversación privada OTR (Off-the-Record) pero no tienes el complemento necesario. Usa Pidgin, Gajim o Adium para PC/Mac y Xabber o ChatSecure para Android. Más información en http://otr.cypherpunks.ca/."
+            "value": "Se ha pedido una conversación privada OTR (Off-the-Record) pero no tienes el complemento necesario. Usa Pidgin, Gajim o Adium para PC/Mac y %1$@ o ChatSecure para Android. Más información en http://otr.cypherpunks.ca/."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Une conversation privée OTR (Off-The-Record) a été demandée mais vous n'avez pas le plugin requis. Utilisez Pidgin, Gajim ou Adium sur PC / Mac, et Xabber, Conversations ou ChatSecure sur Android. Allez sur http://otr.cypherpunks.ca/ pour plus d'informations."
+            "value": "Une conversation privée OTR (Off-The-Record) a été demandée mais vous n'avez pas le plugin requis. Utilisez Pidgin, Gajim ou Adium sur PC / Mac, et %1$@, Conversations ou ChatSecure sur Android. Allez sur http://otr.cypherpunks.ca/ pour plus d'informations."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Собеседник запросил OTR шифрование беседы, но у вас не установлен плагин, который его поддерживает. Используйте Pidgin или Adium для PC/Mac и Xabber или GibberBot для Android. Посетите http://otr.cypherpunks.ca/ для получения более полной информации."
+            "value": "Собеседник запросил OTR шифрование беседы, но у вас не установлен плагин, который его поддерживает. Используйте Pidgin или Adium для PC/Mac и %1$@ или GibberBot для Android. Посетите http://otr.cypherpunks.ca/ для получения более полной информации."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Off-the-Record私人对话已被请求，但你没有支持此功能的组件。在PC/Mac上请使用Pidgin，Gajim或Adium，在Android上请使用Xabber或ChatSecure。请参见http://otr.cypherpunks.ca/"
+            "value": "Off-the-Record私人对话已被请求，但你没有支持此功能的组件。在PC/Mac上请使用Pidgin，Gajim或Adium，在Android上请使用%1$@或ChatSecure。请参见http://otr.cypherpunks.ca/"
           }
         }
       }
@@ -87704,12 +87739,13 @@
       }
     },
     "patreon_appeal_url": {
+      "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com/appeal/"
+            "value": "https://%1$@/appeal/"
           }
         }
       }
@@ -87737,12 +87773,13 @@
       }
     },
     "patreon_title": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Support Xabber on Patreon!"
+            "value": "Support %1$@ on Patreon!"
           }
         }
       }
@@ -90144,42 +90181,43 @@
       }
     },
     "preference_debug": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ضبط التصحيح\nخيارات لمساعدة المطورين في تحسين Xabber"
+            "value": "ضبط التصحيح\nخيارات لمساعدة المطورين في تحسين %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Debug settings\nSettings to help developers improve Xabber"
+            "value": "Debug settings\nSettings to help developers improve %1$@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajustes de depuración\nAjustes que permiten a los desarrolladores seguir mejorando Xabber"
+            "value": "Ajustes de depuración\nAjustes que permiten a los desarrolladores seguir mejorando %1$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paramètres de débogage\nParamètres pour aider les développeurs à améliorer Xabber"
+            "value": "Paramètres de débogage\nParamètres pour aider les développeurs à améliorer %1$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Настройки отладки\nВыберите этот пункт, если хотите помочь разработчикам сделать Xabber ещё лучше"
+            "value": "Настройки отладки\nВыберите этот пункт, если хотите помочь разработчикам сделать %1$@ ещё лучше"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "调试设置\n帮助程序员改进Xabber的设置"
+            "value": "调试设置\n帮助程序员改进%1$@的设置"
           }
         }
       }
@@ -90472,43 +90510,43 @@
       }
     },
     "premium__about__open_source_and_subscription_support": {
-      "comment": "Xabber Premium About section: explains why premium services need server resources and how subscriptions support the free, ad-free core product.",
+      "comment": "Premium About section: explains why premium services need server resources and how subscriptions support the configured app's free, ad-free core product.\nBranding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لطالما كان Xabber تطبيق مراسلة مجانيًا ومفتوح المصدر وملتزمًا بخصوصية المستخدم وأمانه. تتطلب الميزات المميزة موارد إضافية على الخادم؛ فأرشيفات الرسائل الدائمة تحتاج إلى بنية تخزين مخصصة، والسعة السحابية الموسّعة تتطلب خوادم قوية، وشهادات التحقق الرقمية تعتمد على خدمات تشفير آمنة.\n\nيموّل اشتراكك مباشرةً تطوير هذه الخدمات المميزة وتشغيلها، ويساعدنا في إبقاء تجربة Xabber الأساسية مجانية بالكامل ومن دون إعلانات للجميع."
+            "value": "لطالما كان %1$@ تطبيق مراسلة مجانيًا ومفتوح المصدر وملتزمًا بخصوصية المستخدم وأمانه. تتطلب الميزات المميزة موارد إضافية على الخادم؛ فأرشيفات الرسائل الدائمة تحتاج إلى بنية تخزين مخصصة، والسعة السحابية الموسّعة تتطلب خوادم قوية، وشهادات التحقق الرقمية تعتمد على خدمات تشفير آمنة.\n\nيموّل اشتراكك مباشرةً تطوير هذه الخدمات المميزة وتشغيلها، ويساعدنا في إبقاء تجربة %1$@ الأساسية مجانية بالكامل ومن دون إعلانات للجميع."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber has always been a free, open-source messenger committed to user privacy and security. Premium features require additional server resources — persistent message archives need dedicated storage infrastructure, extended cloud capacity demands powerful servers, and digital verification certificates rely on secure cryptographic services.\n\nYour subscription directly funds the development and operation of these premium services, while helping us keep the core Xabber experience completely free and ad-free for everyone."
+            "value": "%1$@ has always been a free, open-source messenger committed to user privacy and security. Premium features require additional server resources — persistent message archives need dedicated storage infrastructure, extended cloud capacity demands powerful servers, and digital verification certificates rely on secure cryptographic services.\n\nYour subscription directly funds the development and operation of these premium services, while helping us keep the core %1$@ experience completely free and ad-free for everyone."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber siempre ha sido un mensajero gratuito y de código abierto comprometido con la privacidad y la seguridad de sus usuarios. Las funciones Premium requieren recursos de servidor adicionales: los archivos de mensajes permanentes necesitan una infraestructura de almacenamiento dedicada, la capacidad ampliada en la nube exige servidores potentes y los certificados digitales de verificación dependen de servicios criptográficos seguros.\n\nTu suscripción financia directamente el desarrollo y el funcionamiento de estos servicios Premium, a la vez que nos ayuda a mantener la experiencia principal de Xabber totalmente gratuita y sin anuncios para todos."
+            "value": "%1$@ siempre ha sido un mensajero gratuito y de código abierto comprometido con la privacidad y la seguridad de sus usuarios. Las funciones Premium requieren recursos de servidor adicionales: los archivos de mensajes permanentes necesitan una infraestructura de almacenamiento dedicada, la capacidad ampliada en la nube exige servidores potentes y los certificados digitales de verificación dependen de servicios criptográficos seguros.\n\nTu suscripción financia directamente el desarrollo y el funcionamiento de estos servicios Premium, a la vez que nos ayuda a mantener la experiencia principal de %1$@ totalmente gratuita y sin anuncios para todos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber a toujours été une messagerie gratuite et open source, attachée à la confidentialité et à la sécurité de ses utilisateurs. Les fonctionnalités Premium nécessitent des ressources serveur supplémentaires : les archives persistantes ont besoin d’une infrastructure de stockage dédiée, l’extension du stockage cloud exige des serveurs puissants et les certificats numériques de vérification reposent sur des services cryptographiques sécurisés.\n\nVotre abonnement finance directement le développement et l’exploitation de ces services Premium, tout en nous aidant à maintenir l’expérience Xabber essentielle entièrement gratuite et sans publicité pour tout le monde."
+            "value": "%1$@ a toujours été une messagerie gratuite et open source, attachée à la confidentialité et à la sécurité de ses utilisateurs. Les fonctionnalités Premium nécessitent des ressources serveur supplémentaires : les archives persistantes ont besoin d’une infrastructure de stockage dédiée, l’extension du stockage cloud exige des serveurs puissants et les certificats numériques de vérification reposent sur des services cryptographiques sécurisés.\n\nVotre abonnement finance directement le développement et l’exploitation de ces services Premium, tout en nous aidant à maintenir l’expérience %1$@ essentielle entièrement gratuite et sans publicité pour tout le monde."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber всегда был бесплатным мессенджером с открытым исходным кодом, в котором особое внимание уделяется конфиденциальности и безопасности пользователей. Для премиум-функций требуются дополнительные серверные ресурсы: постоянным архивам сообщений нужна выделенная инфраструктура хранения, расширенному облачному хранилищу — мощные серверы, а цифровым сертификатам проверки — защищённые криптографические сервисы.\n\nВаша подписка напрямую финансирует разработку и работу этих премиум-сервисов, помогая нам сохранять основные возможности Xabber полностью бесплатными и без рекламы для всех."
+            "value": "%1$@ всегда был бесплатным мессенджером с открытым исходным кодом, в котором особое внимание уделяется конфиденциальности и безопасности пользователей. Для премиум-функций требуются дополнительные серверные ресурсы: постоянным архивам сообщений нужна выделенная инфраструктура хранения, расширенному облачному хранилищу — мощные серверы, а цифровым сертификатам проверки — защищённые криптографические сервисы.\n\nВаша подписка напрямую финансирует разработку и работу этих премиум-сервисов, помогая нам сохранять основные возможности %1$@ полностью бесплатными и без рекламы для всех."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber 始终是一款免费、开源并致力于保护用户隐私与安全的即时通讯应用。高级功能需要额外的服务器资源：永久消息存档需要专用存储基础设施，扩展云容量需要高性能服务器，数字验证证书则依赖安全的加密服务。\n\n你的订阅将直接支持这些高级服务的开发和运营，同时帮助我们继续为所有人提供完全免费且无广告的 Xabber 核心体验。"
+            "value": "%1$@ 始终是一款免费、开源并致力于保护用户隐私与安全的即时通讯应用。高级功能需要额外的服务器资源：永久消息存档需要专用存储基础设施，扩展云容量需要高性能服务器，数字验证证书则依赖安全的加密服务。\n\n你的订阅将直接支持这些高级服务的开发和运营，同时帮助我们继续为所有人提供完全免费且无广告的 %1$@ 核心体验。"
           }
         }
       }
@@ -90640,43 +90678,43 @@
       }
     },
     "premium__brand__title": {
-      "comment": "Premium marketing header. Xabber Premium is a product name and remains unchanged across locales. Premium screen navigation title. Xabber Premium is a product name and remains unchanged across locales.",
+      "comment": "Premium marketing header and screen navigation title.\nBranding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber Premium"
+            "value": "%1$@ Premium"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber Premium"
+            "value": "%1$@ Premium"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber Premium"
+            "value": "%1$@ Premium"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber Premium"
+            "value": "%1$@ Premium"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber Premium"
+            "value": "%1$@ Premium"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber Premium"
+            "value": "%1$@ Premium"
           }
         }
       }
@@ -91480,7 +91518,7 @@
       }
     },
     "premium__feature__burn_messages_description": {
-      "comment": "Xabber Premium feature description for configuring automatic message expiration.",
+      "comment": "Premium feature description for configuring automatic message expiration.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -91522,7 +91560,7 @@
       }
     },
     "premium__feature__burn_messages_title": {
-      "comment": "Xabber Premium feature title for messages that automatically disappear.",
+      "comment": "Premium feature title for messages that automatically disappear.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -91564,7 +91602,7 @@
       }
     },
     "premium__feature__extended_cloud_storage_description": {
-      "comment": "Xabber Premium feature description for increased cloud-storage capacity and larger uploads.",
+      "comment": "Premium feature description for increased cloud-storage capacity and larger uploads.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -91606,7 +91644,7 @@
       }
     },
     "premium__feature__extended_cloud_storage_title": {
-      "comment": "Xabber Premium feature title for increased cloud-storage capacity.",
+      "comment": "Premium feature title for increased cloud-storage capacity.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -91648,7 +91686,7 @@
       }
     },
     "premium__feature__message_archive_description": {
-      "comment": "Xabber Premium feature description for persistent server-side message history.",
+      "comment": "Premium feature description for persistent server-side message history.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -91690,7 +91728,7 @@
       }
     },
     "premium__feature__message_archive_title": {
-      "comment": "Xabber Premium feature title for persistent server-side message history.",
+      "comment": "Premium feature title for persistent server-side message history.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -91732,7 +91770,7 @@
       }
     },
     "premium__feature__passcode_lock_description": {
-      "comment": "Xabber Premium feature description for passcode protection and optional data erasure after failed attempts.",
+      "comment": "Premium feature description for passcode protection and optional data erasure after failed attempts.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -91774,7 +91812,7 @@
       }
     },
     "premium__feature__verification_certificate_description": {
-      "comment": "Xabber Premium feature description for verifying the user's identity in conversations with a digital certificate.",
+      "comment": "Premium feature description for verifying the user's identity in conversations with a digital certificate.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -91816,7 +91854,7 @@
       }
     },
     "premium__feature__verification_certificate_title": {
-      "comment": "Xabber Premium feature title for the personal digital identity-verification certificate.",
+      "comment": "Premium feature title for the personal digital identity-verification certificate.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -92464,43 +92502,43 @@
       }
     },
     "premium_subscribtion__presentation_call__about_xabber_premium": {
-      "comment": "Hard-coded presentationCall copy used by PremiumSubscribtionViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "comment": "Hard-coded presentationCall copy used by PremiumSubscribtionViewController. Shown to the user or exposed through accessibility/error presentation.\nBranding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حول XABBER PREMIUM"
+            "value": "حول %1$@ PREMIUM"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ABOUT XABBER PREMIUM"
+            "value": "ABOUT %1$@ PREMIUM"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "ACERCA DE XABBER PREMIUM"
+            "value": "ACERCA DE %1$@ PREMIUM"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "À PROPOS DE XABBER PREMIUM"
+            "value": "À PROPOS DE %1$@ PREMIUM"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "О XABBER PREMIUM"
+            "value": "О %1$@ PREMIUM"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关于 XABBER PREMIUM"
+            "value": "关于 %1$@ PREMIUM"
           }
         }
       }
@@ -93489,36 +93527,37 @@
       }
     },
     "progress_title_connect": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "جار الاتصال بحسابك"
+            "value": "جار الاتصال بحساب %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecting to Xabber Account"
+            "value": "Connecting to %1$@ Account"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conectando a cuenta Xabber"
+            "value": "Conectando a cuenta %1$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вход в аккаунт Xabber"
+            "value": "Вход в аккаунт %1$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连接到 Xabber 帐户"
+            "value": "连接到 %1$@ 帐户"
           }
         }
       }
@@ -94633,83 +94672,85 @@
       }
     },
     "registration_title_account_created": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سيتم إنشاء الحساب على خادم Xabber."
+            "value": "سيتم إنشاء الحساب على خادم %1$@."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The account will be created on Xabber server."
+            "value": "The account will be created on %1$@ server."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La cuenta se creará en el servidor de Xabber."
+            "value": "La cuenta se creará en el servidor de %1$@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le compte sera créé sur le serveur Xabber."
+            "value": "Le compte sera créé sur le serveur %1$@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Учетная запись будет создана на сервере Xabber."
+            "value": "Учетная запись будет создана на сервере %1$@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "账户将在 Xabber 服务器上创建。"
+            "value": "账户将在 %1$@ 服务器上创建。"
           }
         }
       }
     },
     "registration_title_choose_username": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "رائع! اختر الآن اسم مستخدم ليتمكن الآخرون من العثور عليك على Xabber."
+            "value": "رائع! اختر الآن اسم مستخدم ليتمكن الآخرون من العثور عليك على %1$@."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Great! Now, choose a username for people to find you on Xabber."
+            "value": "Great! Now, choose a username for people to find you on %1$@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¡Genial! Ahora elige un nombre de usuario para que puedan encontrarte en Xabber."
+            "value": "¡Genial! Ahora elige un nombre de usuario para que puedan encontrarte en %1$@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Parfait ! Choisissez maintenant un nom d’utilisateur afin que l’on puisse vous trouver sur Xabber."
+            "value": "Parfait ! Choisissez maintenant un nom d’utilisateur afin que l’on puisse vous trouver sur %1$@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отлично! Теперь выберите имя пользователя, чтобы вас можно было найти на Xabber."
+            "value": "Отлично! Теперь выберите имя пользователя, чтобы вас можно было найти на %1$@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "很好！现在选择一个用户名，让其他人可以在 Xabber 上找到你。"
+            "value": "很好！现在选择一个用户名，让其他人可以在 %1$@ 上找到你。"
           }
         }
       }
@@ -95125,42 +95166,43 @@
       }
     },
     "reorder_summary": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لمزامنة حسابات النظام بين الأجهزة تحتاج إلى تمكين الخيار \"مزامنة الكل\" في إعدادات الحساب Xabber"
+            "value": "لمزامنة حسابات النظام بين الأجهزة تحتاج إلى تمكين الخيار \"مزامنة الكل\" في إعدادات الحساب %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "To synchronize accounts order between devices you need to enable \"Synchronize all\" option in Xabber Account settings"
+            "value": "To synchronize accounts order between devices you need to enable \"Synchronize all\" option in %1$@ Account settings"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Para sincronizar el orden de las cuentas entre los dispositivos es necesario activar la opción \"Sincronizar todo\" en la configuración de la cuenta de Xabber"
+            "value": "Para sincronizar el orden de las cuentas entre los dispositivos es necesario activar la opción \"Sincronizar todo\" en la configuración de la cuenta de %1$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pour synchroniser l’ordre des comptes entre les périphériques, vous avez besoin d’activer l’option « Tout synchroniser » dans les paramètres du compte Xabber"
+            "value": "Pour synchroniser l’ordre des comptes entre les périphériques, vous avez besoin d’activer l’option « Tout synchroniser » dans les paramètres du compte %1$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Для синхронизации порядка аккаунтов необходимо активировать опцию «Синхронизировать все» в настройках аккаунта Xabber"
+            "value": "Для синхронизации порядка аккаунтов необходимо активировать опцию «Синхронизировать все» в настройках аккаунта %1$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "想要在设备间同步帐户排序，你需要启用 Xabber 帐户设置中的“同步所有”选项"
+            "value": "想要在设备间同步帐户排序，你需要启用 %1$@ 帐户设置中的“同步所有”选项"
           }
         }
       }
@@ -99789,42 +99831,43 @@
       }
     },
     "server_doesnt_support_pinned_chats": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يدعم خادمك تثبيت المحادثات. يرجى استخدام خادم Xabber."
+            "value": "لا يدعم خادمك تثبيت المحادثات. يرجى استخدام خادم %1$@."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your server doesn`t support pinned chats. Please use Xabber server."
+            "value": "Your server doesn`t support pinned chats. Please use %1$@ server."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tu servidor no admite chats fijados. Usa el servidor de Xabber."
+            "value": "Tu servidor no admite chats fijados. Usa el servidor de %1$@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Votre serveur ne prend pas en charge les discussions épinglées. Veuillez utiliser un serveur Xabber."
+            "value": "Votre serveur ne prend pas en charge les discussions épinglées. Veuillez utiliser un serveur %1$@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ваш сервер не поддерживает закреплённые чаты. Используйте сервер Xabber."
+            "value": "Ваш сервер не поддерживает закреплённые чаты. Используйте сервер %1$@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的服务器不支持置顶聊天。请使用 Xabber 服务器。"
+            "value": "你的服务器不支持置顶聊天。请使用 %1$@ 服务器。"
           }
         }
       }
@@ -100998,43 +101041,43 @@
       }
     },
     "settings__menu_item__xabber_account": {
-      "comment": "Info Screen / header: user-visible screen, row, or action title.",
+      "comment": "Info Screen / header: user-visible screen, row, or action title.\nBranding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حساب Xabber"
+            "value": "حساب %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber Account"
+            "value": "%1$@ Account"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuenta de Xabber"
+            "value": "Cuenta de %1$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compte Xabber"
+            "value": "Compte %1$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Аккаунт Xabber"
+            "value": "Аккаунт %1$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber 账户"
+            "value": "%1$@ 账户"
           }
         }
       }
@@ -105813,42 +105856,43 @@
       }
     },
     "signin_ask_to_register": {
+      "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اطلب التسجيل في Xabber.com إذا كان خادم XMPP قديمًا."
+            "value": "اطلب التسجيل في %1$@ إذا كان خادم XMPP قديمًا."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ask to register on Xabber.com if his xmpp server is old."
+            "value": "Ask to register on %1$@ if his xmpp server is old."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pídele que se registre en Xabber.com si su servidor XMPP es antiguo."
+            "value": "Pídele que se registre en %1$@ si su servidor XMPP es antiguo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Proposer l’inscription sur Xabber.com si le serveur XMPP utilisé est ancien."
+            "value": "Proposer l’inscription sur %1$@ si le serveur XMPP utilisé est ancien."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Предложить зарегистрироваться на Xabber.com, если его xmpp сервер старый."
+            "value": "Предложить зарегистрироваться на %1$@, если его xmpp сервер старый."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "如果对方的 XMPP 服务器过旧，请让对方在 Xabber.com 上注册。"
+            "value": "如果对方的 XMPP 服务器过旧，请让对方在 %1$@ 上注册。"
           }
         }
       }
@@ -106037,42 +106081,43 @@
       }
     },
     "signin_file_upload_error": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "رفع الملفات غير مدعوم. بدون رفع الملفات، لن تتمكن من إرسال الصور والرسائل الصوتية والوسائط الأخرى إلى جهات اتصالك. لا يُنصح باستخدام Xabber على الخوادم التي لا تدعم رفع الملفات."
+            "value": "رفع الملفات غير مدعوم. بدون رفع الملفات، لن تتمكن من إرسال الصور والرسائل الصوتية والوسائط الأخرى إلى جهات اتصالك. لا يُنصح باستخدام %1$@ على الخوادم التي لا تدعم رفع الملفات."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "File upload is not supported. Without file upload, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use Xabber on servers without file upload support."
+            "value": "File upload is not supported. Without file upload, you will not be able to send images, voice messages and other media to your contacts. It is not recommended to use %1$@ on servers without file upload support."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se admite la carga de archivos. Sin ella, no podrás enviar imágenes, mensajes de voz ni otro contenido multimedia a tus contactos. No se recomienda usar Xabber en servidores que no admitan la carga de archivos."
+            "value": "No se admite la carga de archivos. Sin ella, no podrás enviar imágenes, mensajes de voz ni otro contenido multimedia a tus contactos. No se recomienda usar %1$@ en servidores que no admitan la carga de archivos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le téléversement de fichiers n’est pas pris en charge. Sans celui-ci, vous ne pourrez pas envoyer d’images, de messages vocaux ni d’autres médias à vos contacts. Il est déconseillé d’utiliser Xabber sur un serveur qui ne prend pas en charge le téléversement de fichiers."
+            "value": "Le téléversement de fichiers n’est pas pris en charge. Sans celui-ci, vous ne pourrez pas envoyer d’images, de messages vocaux ni d’autres médias à vos contacts. Il est déconseillé d’utiliser %1$@ sur un serveur qui ne prend pas en charge le téléversement de fichiers."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Загрузка файлов не поддерживается. Без загрузки файла вы не сможете отправлять изображения, голосовые сообщения и другие медиа вашим контактам. Не рекомендуется использовать Xabber на серверах без поддержки загрузки."
+            "value": "Загрузка файлов не поддерживается. Без загрузки файла вы не сможете отправлять изображения, голосовые сообщения и другие медиа вашим контактам. Не рекомендуется использовать %1$@ на серверах без поддержки загрузки."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "不支持文件上传。若无文件上传功能，你将无法向联系人发送图片、语音消息和其他媒体。不建议在不支持文件上传的服务器上使用 Xabber。"
+            "value": "不支持文件上传。若无文件上传功能，你将无法向联系人发送图片、语音消息和其他媒体。不建议在不支持文件上传的服务器上使用 %1$@。"
           }
         }
       }
@@ -106160,42 +106205,43 @@
       }
     },
     "signin_message_archive_error": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أرشيف الرسائل غير مدعوم. من دون أرشيف الرسائل، لا يمكنك مزامنة سجل المحادثات بين الخادم والعملاء المتصلين. لا يمكن استخدام Xabber على الخوادم التي لا تدعم أرشيف الرسائل."
+            "value": "أرشيف الرسائل غير مدعوم. من دون أرشيف الرسائل، لا يمكنك مزامنة سجل المحادثات بين الخادم والعملاء المتصلين. لا يمكن استخدام %1$@ على الخوادم التي لا تدعم أرشيف الرسائل."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Message Archive is not supported. Without Message Archive you can’t synchronize chat history between server and connected clients.  Xabber can not be used on servers that do not support message archive."
+            "value": "Message Archive is not supported. Without Message Archive you can’t synchronize chat history between server and connected clients.  %1$@ can not be used on servers that do not support message archive."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se admite el Archivo de mensajes. Sin él, no puedes sincronizar el historial de chats entre el servidor y los clientes conectados. Xabber no se puede usar en servidores que no admitan el archivo de mensajes."
+            "value": "No se admite el Archivo de mensajes. Sin él, no puedes sincronizar el historial de chats entre el servidor y los clientes conectados. %1$@ no se puede usar en servidores que no admitan el archivo de mensajes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’archive des messages n’est pas prise en charge. Sans elle, vous ne pouvez pas synchroniser l’historique des discussions entre le serveur et les clients connectés. Xabber ne peut pas être utilisé sur les serveurs qui ne prennent pas en charge l’archive des messages."
+            "value": "L’archive des messages n’est pas prise en charge. Sans elle, vous ne pouvez pas synchroniser l’historique des discussions entre le serveur et les clients connectés. %1$@ ne peut pas être utilisé sur les serveurs qui ne prennent pas en charge l’archive des messages."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Архив сообщений не поддерживается. Без архива сообщений вы не сможете синхронизировать историю чата между сервером и подключенными клиентами. Xabber не может быть использован на серверах, которые не поддерживают архив сообщений."
+            "value": "Архив сообщений не поддерживается. Без архива сообщений вы не сможете синхронизировать историю чата между сервером и подключенными клиентами. %1$@ не может быть использован на серверах, которые не поддерживают архив сообщений."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "不支持消息归档。若无消息归档，你将无法在服务器和已连接的客户端之间同步聊天历史记录。Xabber 无法在不支持消息归档的服务器上使用。"
+            "value": "不支持消息归档。若无消息归档，你将无法在服务器和已连接的客户端之间同步聊天历史记录。%1$@ 无法在不支持消息归档的服务器上使用。"
           }
         }
       }
@@ -106283,83 +106329,85 @@
       }
     },
     "signin_no_message_archive": {
+      "comment": "Branding: %1$@ is CommonConfig app_name; %2$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يدعم هذا الخادم أرشيف الرسائل. لا يمكن لـ Xabber العمل من دون أرشيف الرسائل، لذا نقترح إنشاء حساب جديد على خادم Xabber.chat متوافق بالكامل."
+            "value": "لا يدعم هذا الخادم أرشيف الرسائل. لا يمكن لـ %1$@ العمل من دون أرشيف الرسائل، لذا نقترح إنشاء حساب جديد على خادم %2$@ متوافق بالكامل."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This server does not support message archive. It is impossible for Xabber to work without message archive, so we suggest creating a new account on a fully-compatible Xabber.chat server."
+            "value": "This server does not support message archive. It is impossible for %1$@ to work without message archive, so we suggest creating a new account on a fully-compatible %2$@ server."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este servidor no admite el archivo de mensajes. Xabber no puede funcionar sin él, por lo que recomendamos crear una cuenta nueva en un servidor Xabber.chat totalmente compatible."
+            "value": "Este servidor no admite el archivo de mensajes. %1$@ no puede funcionar sin él, por lo que recomendamos crear una cuenta nueva en un servidor %2$@ totalmente compatible."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce serveur ne prend pas en charge l’archive des messages. Xabber ne peut pas fonctionner sans elle. Nous vous conseillons donc de créer un compte sur un serveur Xabber.chat entièrement compatible."
+            "value": "Ce serveur ne prend pas en charge l’archive des messages. %1$@ ne peut pas fonctionner sans elle. Nous vous conseillons donc de créer un compte sur un serveur %2$@ entièrement compatible."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Этот сервер не поддерживает архив сообщений. Xabber не может работать без архива сообщений, поэтому мы предлагаем создать новую учетную запись на полностью совместимом сервере Xabber.chat."
+            "value": "Этот сервер не поддерживает архив сообщений. %1$@ не может работать без архива сообщений, поэтому мы предлагаем создать новую учетную запись на полностью совместимом сервере %2$@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此服务器不支持消息归档。没有消息归档，Xabber 无法正常工作，因此建议在完全兼容的 Xabber.chat 服务器上创建新账户。"
+            "value": "此服务器不支持消息归档。没有消息归档，%1$@ 无法正常工作，因此建议在完全兼容的 %2$@ 服务器上创建新账户。"
           }
         }
       }
     },
     "signin_not_all_features": {
+      "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ليست كل الميزات الضرورية مدعومة. تابع استخدام هذا الحساب على مسؤوليتك وبتوقعات منخفضة. ومع ذلك، نقترح إنشاء حساب جديد على خادم Xabber.chat متوافق بالكامل."
+            "value": "ليست كل الميزات الضرورية مدعومة. تابع استخدام هذا الحساب على مسؤوليتك وبتوقعات منخفضة. ومع ذلك، نقترح إنشاء حساب جديد على خادم %1$@ متوافق بالكامل."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not all necessary features are supported. Proceed using this account at your own risk, and with low expectations. However, we suggest creating a new account on a fully-compatible Xabber.chat server."
+            "value": "Not all necessary features are supported. Proceed using this account at your own risk, and with low expectations. However, we suggest creating a new account on a fully-compatible %1$@ server."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se admiten todas las funciones necesarias. Continúa usando esta cuenta por tu cuenta y riesgo y con expectativas moderadas. No obstante, recomendamos crear una cuenta nueva en un servidor Xabber.chat totalmente compatible."
+            "value": "No se admiten todas las funciones necesarias. Continúa usando esta cuenta por tu cuenta y riesgo y con expectativas moderadas. No obstante, recomendamos crear una cuenta nueva en un servidor %1$@ totalmente compatible."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Certaines fonctionnalités nécessaires ne sont pas prises en charge. Vous pouvez continuer à utiliser ce compte à vos risques et périls, avec des possibilités limitées. Nous vous conseillons toutefois de créer un compte sur un serveur Xabber.chat entièrement compatible."
+            "value": "Certaines fonctionnalités nécessaires ne sont pas prises en charge. Vous pouvez continuer à utiliser ce compte à vos risques et périls, avec des possibilités limitées. Nous vous conseillons toutefois de créer un compte sur un serveur %1$@ entièrement compatible."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не все необходимые функции поддерживаются. Продолжайте пользоваться этим аккаунтом на свой страх и риск. Тем не менее, мы предлагаем создать новую учетную запись на полностью совместимом сервере Xabber.chat."
+            "value": "Не все необходимые функции поддерживаются. Продолжайте пользоваться этим аккаунтом на свой страх и риск. Тем не менее, мы предлагаем создать новую учетную запись на полностью совместимом сервере %1$@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "并非所有必要功能均受支持。使用此账户需自行承担风险，也不要抱有太高期望。不过，建议在完全兼容的 Xabber.chat 服务器上创建新账户。"
+            "value": "并非所有必要功能均受支持。使用此账户需自行承担风险，也不要抱有太高期望。不过，建议在完全兼容的 %1$@ 服务器上创建新账户。"
           }
         }
       }
@@ -106447,124 +106495,127 @@
       }
     },
     "signin_pubsub_error": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "PubSub غير مدعوم. من دون النشر والاشتراك، لا يمكنك استخدام التشفير الحديث أو تعيين صورة المستخدم وغير ذلك. لا يُنصح باستخدام Xabber على هذا الخادم."
+            "value": "PubSub غير مدعوم. من دون النشر والاشتراك، لا يمكنك استخدام التشفير الحديث أو تعيين صورة المستخدم وغير ذلك. لا يُنصح باستخدام %1$@ على هذا الخادم."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use Xabber on this server."
+            "value": "PubSub is not supported. Without publish-subscribe, you can’t use modern encryption, set user avatar, etc. It is not recommended to use %1$@ on this server."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se admite PubSub. Sin publicación-suscripción no puedes usar cifrado moderno, establecer un avatar de usuario, etc. No se recomienda usar Xabber en este servidor."
+            "value": "No se admite PubSub. Sin publicación-suscripción no puedes usar cifrado moderno, establecer un avatar de usuario, etc. No se recomienda usar %1$@ en este servidor."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "PubSub n’est pas pris en charge. Sans publication-abonnement, vous ne pouvez pas utiliser le chiffrement moderne, définir un avatar, etc. Il est déconseillé d’utiliser Xabber sur ce serveur."
+            "value": "PubSub n’est pas pris en charge. Sans publication-abonnement, vous ne pouvez pas utiliser le chiffrement moderne, définir un avatar, etc. Il est déconseillé d’utiliser %1$@ sur ce serveur."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "PubSub не поддерживается. Без подписки на публикацию вы не можете использовать современное шифрование, установить пользовательский аватар и т. д. Не рекомендуется использовать Xabber на этом сервере."
+            "value": "PubSub не поддерживается. Без подписки на публикацию вы не можете использовать современное шифрование, установить пользовательский аватар и т. д. Не рекомендуется использовать %1$@ на этом сервере."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "不支持 PubSub。若无发布-订阅功能，你将无法使用现代加密、设置用户头像等。不建议在此服务器上使用 Xabber。"
+            "value": "不支持 PubSub。若无发布-订阅功能，你将无法使用现代加密、设置用户头像等。不建议在此服务器上使用 %1$@。"
           }
         }
       }
     },
     "signin_push_notifications_error": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الإشعارات الفورية غير مدعومة. لن يتمكن جهازك من تلقي الرسائل الواردة عندما لا يكون Xabber نشطًا. لا يُنصح باستخدام Xabber على هذا الخادم."
+            "value": "الإشعارات الفورية غير مدعومة. لن يتمكن جهازك من تلقي الرسائل الواردة عندما لا يكون %1$@ نشطًا. لا يُنصح باستخدام %1$@ على هذا الخادم."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Push notifications are not supported. Your device won’t be able to receive incoming messages when Xabber is not active. It is not recommended to use Xabber on this server."
+            "value": "Push notifications are not supported. Your device won’t be able to receive incoming messages when %1$@ is not active. It is not recommended to use %1$@ on this server."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se admiten las notificaciones push. Tu dispositivo no podrá recibir mensajes entrantes cuando Xabber no esté activo. No se recomienda usar Xabber en este servidor."
+            "value": "No se admiten las notificaciones push. Tu dispositivo no podrá recibir mensajes entrantes cuando %1$@ no esté activo. No se recomienda usar %1$@ en este servidor."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les notifications push ne sont pas prises en charge. Votre appareil ne pourra pas recevoir les messages entrants lorsque Xabber est inactif. Il est déconseillé d’utiliser Xabber sur ce serveur."
+            "value": "Les notifications push ne sont pas prises en charge. Votre appareil ne pourra pas recevoir les messages entrants lorsque %1$@ est inactif. Il est déconseillé d’utiliser %1$@ sur ce serveur."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Push-уведомления не поддерживаются. Ваше устройство не сможет принимать входящие сообщения, если Xabber не активен. Не рекомендуется использовать Xabber на этом сервере."
+            "value": "Push-уведомления не поддерживаются. Ваше устройство не сможет принимать входящие сообщения, если %1$@ не активен. Не рекомендуется использовать %1$@ на этом сервере."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "不支持推送通知。Xabber 未运行时，你的设备将无法接收传入消息。不建议在此服务器上使用 Xabber。"
+            "value": "不支持推送通知。%1$@ 未运行时，你的设备将无法接收传入消息。不建议在此服务器上使用 %1$@。"
           }
         }
       }
     },
     "signin_quick_synchronization_error": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المزامنة السريعة غير مدعومة. تتيح هذه الميزة عملًا موثوقًا على الأجهزة المحمولة وتحسّن تجربة المستخدم بدرجة كبيرة. لا يُنصح باستخدام Xabber على الخوادم التي لا تدعم المزامنة السريعة."
+            "value": "المزامنة السريعة غير مدعومة. تتيح هذه الميزة عملًا موثوقًا على الأجهزة المحمولة وتحسّن تجربة المستخدم بدرجة كبيرة. لا يُنصح باستخدام %1$@ على الخوادم التي لا تدعم المزامنة السريعة."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quick synchronization is not supported. This feature allows robust work on mobile devices and greatly improves user experience. It is not recommended to use Xabber on servers without quick synchronization."
+            "value": "Quick synchronization is not supported. This feature allows robust work on mobile devices and greatly improves user experience. It is not recommended to use %1$@ on servers without quick synchronization."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se admite la sincronización rápida. Esta función permite un funcionamiento sólido en dispositivos móviles y mejora considerablemente la experiencia de usuario. No se recomienda usar Xabber en servidores sin sincronización rápida."
+            "value": "No se admite la sincronización rápida. Esta función permite un funcionamiento sólido en dispositivos móviles y mejora considerablemente la experiencia de usuario. No se recomienda usar %1$@ en servidores sin sincronización rápida."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La synchronisation rapide n’est pas prise en charge. Cette fonctionnalité assure un fonctionnement fiable sur les appareils mobiles et améliore considérablement l’expérience utilisateur. Il est déconseillé d’utiliser Xabber sur un serveur qui ne prend pas en charge la synchronisation rapide."
+            "value": "La synchronisation rapide n’est pas prise en charge. Cette fonctionnalité assure un fonctionnement fiable sur les appareils mobiles et améliore considérablement l’expérience utilisateur. Il est déconseillé d’utiliser %1$@ sur un serveur qui ne prend pas en charge la synchronisation rapide."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Быстрая синхронизация не поддерживается. Эта функция позволяет надежно работать на мобильных устройствах и значительно улучшает взаимодействия пользователя. Не рекомендуется использовать Xabber на серверах без быстрой синхронизации."
+            "value": "Быстрая синхронизация не поддерживается. Эта функция позволяет надежно работать на мобильных устройствах и значительно улучшает взаимодействия пользователя. Не рекомендуется использовать %1$@ на серверах без быстрой синхронизации."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "不支持快速同步。此功能可让移动设备稳定运行，并显著改善用户体验。不建议在不支持快速同步的服务器上使用 Xabber。"
+            "value": "不支持快速同步。此功能可让移动设备稳定运行，并显著改善用户体验。不建议在不支持快速同步的服务器上使用 %1$@。"
           }
         }
       }
@@ -106903,42 +106954,43 @@
       }
     },
     "signin_tokens_error": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "رموز Xabber غير مدعومة. من دون رموز Xabber، لا يمكنك إبطال الوصول من الأجهزة المخترقة. ستُخزن كلمة مرور الحساب محليًا وقد تتعرض للسرقة."
+            "value": "رموز %1$@ غير مدعومة. من دون رموز %1$@، لا يمكنك إبطال الوصول من الأجهزة المخترقة. ستُخزن كلمة مرور الحساب محليًا وقد تتعرض للسرقة."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber tokens are not supported. Without Xabber tokens you can’t revoke access from compromised devices. Account password will be stored locally and can be potentially stolen."
+            "value": "%1$@ tokens are not supported. Without %1$@ tokens you can’t revoke access from compromised devices. Account password will be stored locally and can be potentially stolen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se admiten los tokens de Xabber. Sin ellos no puedes revocar el acceso de dispositivos comprometidos. La contraseña de la cuenta se almacenará localmente y podría ser robada."
+            "value": "No se admiten los tokens de %1$@. Sin los tokens de %1$@ no puedes revocar el acceso de dispositivos comprometidos. La contraseña de la cuenta se almacenará localmente y podría ser robada."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les jetons Xabber ne sont pas pris en charge. Sans eux, vous ne pouvez pas révoquer l’accès des appareils compromis. Le mot de passe du compte sera stocké localement et pourrait être dérobé."
+            "value": "Les jetons %1$@ ne sont pas pris en charge. Sans les jetons %1$@, vous ne pouvez pas révoquer l’accès des appareils compromis. Le mot de passe du compte sera stocké localement et pourrait être dérobé."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Токены Xabber не поддерживаются. Без токенов Xabber вы не можете отозвать доступ со скомпрометированных устройств. Пароль учетной записи будет храниться локально и может быть потенциально украден."
+            "value": "Токены %1$@ не поддерживаются. Без токенов %1$@ вы не можете отозвать доступ со скомпрометированных устройств. Пароль учетной записи будет храниться локально и может быть потенциально украден."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "不支持 Xabber 令牌。若无 Xabber 令牌，你将无法撤销受入侵设备的访问权限。账户密码将存储在本地，可能被窃取。"
+            "value": "不支持 %1$@ 令牌。若无 %1$@ 令牌，你将无法撤销受入侵设备的访问权限。账户密码将存储在本地，可能被窃取。"
           }
         }
       }
@@ -106979,43 +107031,43 @@
       }
     },
     "simple__alert_message__enter_your_password_to_permanently_delete_value_from_clandestino_this_action_can": {
-      "comment": "Hard-coded alertMessage copy used by SimpleTableViewController. Each %@ placeholder is a runtime value and must be preserved in translation.",
+      "comment": "Hard-coded alertMessage copy used by SimpleTableViewController. Each %@ placeholder is a runtime value and must be preserved in translation.\nBranding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أدخل كلمة المرور لحذف %@ نهائيًا من Clandestino.\n\nلا يمكن التراجع عن هذا الإجراء."
+            "value": "أدخل كلمة المرور لحذف %2$@ نهائيًا من %1$@.\n\nلا يمكن التراجع عن هذا الإجراء."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enter your password to permanently delete %@ from Clandestino.\n\nThis action can not be undone."
+            "value": "Enter your password to permanently delete %2$@ from %1$@.\n\nThis action can not be undone."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Introduce tu contraseña para eliminar permanentemente %@ de Clandestino.\n\nEsta acción no se puede deshacer."
+            "value": "Introduce tu contraseña para eliminar permanentemente %2$@ de %1$@.\n\nEsta acción no se puede deshacer."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Saisissez votre mot de passe pour supprimer définitivement %@ de Clandestino.\n\nCette action est irréversible."
+            "value": "Saisissez votre mot de passe pour supprimer définitivement %2$@ de %1$@.\n\nCette action est irréversible."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Введите пароль, чтобы навсегда удалить %@ из Clandestino.\n\nЭто действие нельзя отменить."
+            "value": "Введите пароль, чтобы навсегда удалить %2$@ из %1$@.\n\nЭто действие нельзя отменить."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "输入密码以从 Clandestino 中永久删除 %@。\n\n此操作无法撤销。"
+            "value": "输入密码以从 %1$@ 中永久删除 %2$@。\n\n此操作无法撤销。"
           }
         }
       }
@@ -107349,36 +107401,37 @@
       }
     },
     "social_bind_fail": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم ربط هذا الحساب بالفعل مع حساب إكسابير مختلف"
+            "value": "تم ربط هذا الحساب بالفعل مع حساب %1$@ مختلف"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This account is already linked with different Xabber Account"
+            "value": "This account is already linked with different %1$@ Account"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta cuenta ya está vinculada con otra cuenta de Xabber"
+            "value": "Esta cuenta ya está vinculada con otra cuenta de %1$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Этот аккаунт уже связан с другим аккаунтом Xabber"
+            "value": "Этот аккаунт уже связан с другим аккаунтом %1$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此帐户已链接到不同的 Xabber 帐户"
+            "value": "此帐户已链接到不同的 %1$@ 帐户"
           }
         }
       }
@@ -107919,42 +107972,43 @@
       }
     },
     "start_at_boot_suggest": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "هل تريد تشغيل Xabber عند بدء نظام التشغيل؟\nيمكن تغيير هذا الإعداد من \"الإعدادات\" → \"إعدادات الاتصال\" → \"تشغيل عند بدء النظام\""
+            "value": "هل تريد تشغيل %1$@ عند بدء نظام التشغيل؟\nيمكن تغيير هذا الإعداد من \"الإعدادات\" → \"إعدادات الاتصال\" → \"تشغيل عند بدء النظام\""
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do you want to run Xabber at startup?\nThis can be changed in \"Settings\" → \"Connection settings\" → \"Start when Android boots\""
+            "value": "Do you want to run %1$@ at startup?\nThis can be changed in \"Settings\" → \"Connection settings\" → \"Start when Android boots\""
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Desea que Xabber se ejecute al iniciar el dispositivo?\nEsto se puede cambiar en \"Ajustes\" → \"Ajustes de conexión\" → \"Iniciar al encender Android\""
+            "value": "¿Desea que %1$@ se ejecute al iniciar el dispositivo?\nEsto se puede cambiar en \"Ajustes\" → \"Ajustes de conexión\" → \"Iniciar al encender Android\""
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Voulez-vous lancer Xabber au démarrage ?\nCeci peut être changé via \"Paramètres\" → \"Paramètres de connexion\" → \"Démarrer avec Android\""
+            "value": "Voulez-vous lancer %1$@ au démarrage ?\nCeci peut être changé via \"Paramètres\" → \"Paramètres de connexion\" → \"Démarrer avec Android\""
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вы хотите запускать Xabber при включении телефона?\nИзменить эту настройку можно в меню \"Настройки\" → \"Настройки подключения\" → \"Запускать при включении телефона\""
+            "value": "Вы хотите запускать %1$@ при включении телефона?\nИзменить эту настройку можно в меню \"Настройки\" → \"Настройки подключения\" → \"Запускать при включении телефона\""
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "希望在系统启动时运行Xabber？\n可在“设置”→“连接设置”→“于Android启动时运行”处修改"
+            "value": "希望在系统启动时运行%1$@？\n可在“设置”→“连接设置”→“于Android启动时运行”处修改"
           }
         }
       }
@@ -109099,42 +109153,43 @@
       }
     },
     "summary_xabber_account_in_login": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حساب Xabber مطلوب لاستخدام خدمات Xabber ومزامنة إعدادات الجهاز."
+            "value": "حساب %1$@ مطلوب لاستخدام خدمات %1$@ ومزامنة إعدادات الجهاز."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber account is required to use Xabber services and sync device settings."
+            "value": "%1$@ account is required to use %1$@ services and sync device settings."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Es necesaria una cuenta de Xabber para utilizar los servicios de Xabber y sincronizar los ajustes del dispositivo."
+            "value": "Es necesaria una cuenta de %1$@ para utilizar los servicios de %1$@ y sincronizar los ajustes del dispositivo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un compte Xabber est nécessaire pour utiliser les services de Xabber et synchroniser les paramètres de l’appareil."
+            "value": "Un compte %1$@ est nécessaire pour utiliser les services de %1$@ et synchroniser les paramètres de l’appareil."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Аккаунт Xabber требуется для использования сервисов Xabber и синхронизации настроек устройств."
+            "value": "Аккаунт %1$@ требуется для использования сервисов %1$@ и синхронизации настроек устройств."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用 Xabber 服务和同步设备间的设置需要 Xabber 帐户。"
+            "value": "使用 %1$@ 服务和同步设备间的设置需要 %1$@ 帐户。"
           }
         }
       }
@@ -109696,42 +109751,43 @@
       }
     },
     "sync_with_xabber_account": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المزامنة مع حساب Xabber"
+            "value": "المزامنة مع حساب %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Synchronize with Xabber account"
+            "value": "Synchronize with %1$@ account"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sincronizar con cuenta de Xabber"
+            "value": "Sincronizar con cuenta de %1$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Synchroniser avec le compte Xabber"
+            "value": "Synchroniser avec le compte %1$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Синхронизация с аккаунтом Xabber"
+            "value": "Синхронизация с аккаунтом %1$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "与 Xabber 帐户同步"
+            "value": "与 %1$@ 帐户同步"
           }
         }
       }
@@ -110069,71 +110125,73 @@
       }
     },
     "title_delete_email": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "هل تريد إلغاء هذا البريد الإلكتروني من حساب Xabber ؟"
+            "value": "هل تريد إلغاء هذا البريد الإلكتروني من حساب %1$@ ؟"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do you want to unlink this email from Xabber Account?"
+            "value": "Do you want to unlink this email from %1$@ Account?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Desea desvincular este correo electrónico de la cuenta de Xabber?"
+            "value": "¿Desea desvincular este correo electrónico de la cuenta de %1$@?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вы хотите отвязать этот Email от аккаунта Xabber?"
+            "value": "Вы хотите отвязать этот Email от аккаунта %1$@?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "您要取消此电子邮件与Xabber帐户的链接吗？"
+            "value": "您要取消此电子邮件与%1$@帐户的链接吗？"
           }
         }
       }
     },
     "title_delete_social": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "هل تريد إلغاء هذا الحساب %1$@ من حساب إكسابير؟"
+            "value": "هل تريد إلغاء هذا الحساب %2$@ من حساب %1$@؟"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do you want to unlink this %1$@ account from Xabber Account?"
+            "value": "Do you want to unlink this %2$@ account from %1$@ Account?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Desea desvincular esta %1$@ cuenta de la cuenta de Xabber?"
+            "value": "¿Desea desvincular esta %2$@ cuenta de la cuenta de %1$@?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вы хотите отвязать учетную запись %1$@ от аккаунта Xabber?"
+            "value": "Вы хотите отвязать учетную запись %2$@ от аккаунта %1$@?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "您想要将此 %1$@ 帐户与Xabber帐户取消关联吗？"
+            "value": "您想要将此 %2$@ 帐户与%1$@帐户取消关联吗？"
           }
         }
       }
@@ -110699,36 +110757,37 @@
       }
     },
     "title_signup_step_1": {
+      "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الخطوة 1 من 4. اختيار اسم المستخدم والمخدم مثل : pousaidn@Xabber.chat"
+            "value": "الخطوة 1 من 4. اختر اسم مستخدم على %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Step 1 of 4. Pick username and domain"
+            "value": "Step 1 of 4. Pick a username on %1$@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paso 1 de 4. Elegir nombre de usuario y dominio"
+            "value": "Paso 1 de 4. Elige un nombre de usuario en %1$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Шаг 1 из 4. Выберите имя пользователя и домен"
+            "value": "Шаг 1 из 4. Выберите имя пользователя на %1$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "第1步（共4步）。选择用户名和域名"
+            "value": "第 1 步（共 4 步）。在 %1$@ 上选择用户名"
           }
         }
       }
@@ -110967,42 +111026,43 @@
       }
     },
     "title_xabber_account": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حساب إكسابير"
+            "value": "حساب %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber Account"
+            "value": "%1$@ Account"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuenta de Xabber"
+            "value": "Cuenta de %1$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compte Xabber"
+            "value": "Compte %1$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Аккаунт Xabber"
+            "value": "Аккаунт %1$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber 帐户"
+            "value": "%1$@ 帐户"
           }
         }
       }
@@ -112373,36 +112433,37 @@
       }
     },
     "tutorial_description_2": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أنت غير مقيد باستخدام مزود خدمة واحد. يعمل Xabber مع أي خادم XMPP متوافق مع خدماتنا"
+            "value": "أنت غير مقيد باستخدام مزود خدمة واحد. يعمل %1$@ مع أي خادم XMPP متوافق مع خدماتنا"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You are not locked into using a single service provider. Xabber works with to any standard-compliant XMPP server"
+            "value": "You are not locked into using a single service provider. %1$@ works with to any standard-compliant XMPP server"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No estás limitado a un único proveedor de servicio. Xabber funciona con cualquier servidor conforme con el estándar"
+            "value": "No estás limitado a un único proveedor de servicio. %1$@ funciona con cualquier servidor conforme con el estándar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вы не попадете в зависимость от единственного поставщика услуги. Xabber работает с любым стандартным XMPP сервером"
+            "value": "Вы не попадете в зависимость от единственного поставщика услуги. %1$@ работает с любым стандартным XMPP сервером"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "您不会被锁定使用单个服务提供商。xabber 适用于任何符合标准的 XMPP 服务器"
+            "value": "您不会被锁定使用单个服务提供商。%1$@ 适用于任何符合标准的 XMPP 服务器"
           }
         }
       }
@@ -112478,71 +112539,73 @@
       }
     },
     "tutorial_description_5": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اصدارات Xabber لاجهزة اندرويد وشبكات الانترنت يعمل على كافة نظم التشغيل"
+            "value": "اصدارات %1$@ لاجهزة اندرويد وشبكات الانترنت يعمل على كافة نظم التشغيل"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Versions of Xabber for Android, iOS and Web provide you consistent chat experience on every OS and device type"
+            "value": "Versions of %1$@ for Android, iOS and Web provide you consistent chat experience on every OS and device type"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Versiones de Xabber para Android, iOS y Web le proporcionan una experiencia de chat constante en todos los dispositivos y sistemas operativos"
+            "value": "Versiones de %1$@ para Android, iOS y Web le proporcionan una experiencia de chat constante en todos los dispositivos y sistemas operativos"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Версии Xabber одинаково хорошо работают в браузерах и на мобильных устройствах всех типов"
+            "value": "Версии %1$@ одинаково хорошо работают в браузерах и на мобильных устройствах всех типов"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Android、iOS 和 Web 的 Xabber 版本可在每个操作系统和设备类型上为您提供一致的聊天体验"
+            "value": "Android、iOS 和 Web 的 %1$@ 版本可在每个操作系统和设备类型上为您提供一致的聊天体验"
           }
         }
       }
     },
     "tutorial_description_6": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حساب Xabber يتيح لك بسهولة مزامنة الحسابات الخاصة بك"
+            "value": "حساب %1$@ يتيح لك بسهولة مزامنة الحسابات الخاصة بك"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber account lets you easily sync your accounts and their settings between devices and platforms"
+            "value": "%1$@ account lets you easily sync your accounts and their settings between devices and platforms"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La cuenta de Xabber le permite sincronizar fácilmente sus cuentas y sus configuraciones entre dispositivos y plataformas"
+            "value": "La cuenta de %1$@ le permite sincronizar fácilmente sus cuentas y sus configuraciones entre dispositivos y plataformas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "С помощью аккаунта Xabber можно легко синхронизировать настройки приложения между своими устройствами"
+            "value": "С помощью аккаунта %1$@ можно легко синхронизировать настройки приложения между своими устройствами"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber 帐户可让您轻松地在设备和平台之间同步您的帐户及其设置"
+            "value": "%1$@ 帐户可让您轻松地在设备和平台之间同步您的帐户及其设置"
           }
         }
       }
@@ -112583,106 +112646,109 @@
       }
     },
     "tutorial_description_8": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استخدم صحة المعلومات الاجتماعية للدخول بسرعة إلى Xabber والاتصال على الفور بجميع الحسابات الخاصة بك على جهازك جديد"
+            "value": "استخدم صحة المعلومات الاجتماعية للدخول بسرعة إلى %1$@ والاتصال على الفور بجميع الحسابات الخاصة بك على جهازك جديد"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use social authentification to quickly log in to Xabber and instantly connect all your accounts on new device"
+            "value": "Use social authentification to quickly log in to %1$@ and instantly connect all your accounts on new device"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use autenticación social para entrar rápidamente en Xabber y conectar instantáneamente todas sus cuentas en un nuevo dispositivo"
+            "value": "Use autenticación social para entrar rápidamente en %1$@ y conectar instantáneamente todas sus cuentas en un nuevo dispositivo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Социальная аутентификация позволяет быстро войти в Xabber и сразу загрузить все свои аккаунты и настройки на новое устройство"
+            "value": "Социальная аутентификация позволяет быстро войти в %1$@ и сразу загрузить все свои аккаунты и настройки на новое устройство"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用社交认证快速登录 Xabber, 并在新设备上立即连接您的所有帐户"
+            "value": "使用社交认证快速登录 %1$@, 并在新设备上立即连接您的所有帐户"
           }
         }
       }
     },
     "tutorial_description_9": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم تطوير Xabber على GitHub بواسطة مجتمع مفتوح. أي شخص مرحب به للمشاركة من خلال الإبلاغ عن الأخطاء أو رمز المساهمة"
+            "value": "تم تطوير %1$@ على GitHub بواسطة مجتمع مفتوح. أي شخص مرحب به للمشاركة من خلال الإبلاغ عن الأخطاء أو رمز المساهمة"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber is developed on GitHub by an open community. Anyone is welcome to participate by reporting bugs or contributing code"
+            "value": "%1$@ is developed on GitHub by an open community. Anyone is welcome to participate by reporting bugs or contributing code"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber es desarrollado en GitHub por una comunidad abierta. Cualquiera es bienvenido a participar a través de informes de errores o aportes de código"
+            "value": "%1$@ es desarrollado en GitHub por una comunidad abierta. Cualquiera es bienvenido a participar a través de informes de errores o aportes de código"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Работа по разработке Xabber организована через GitHub. Мы рады всем участникам проекта: разработчикам, переводчикам, тестерам"
+            "value": "Работа по разработке %1$@ организована через GitHub. Мы рады всем участникам проекта: разработчикам, переводчикам, тестерам"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber是由开放社区在GitHub上开发的。 欢迎任何人通过报告错误或贡献代码参与"
+            "value": "%1$@是由开放社区在GitHub上开发的。 欢迎任何人通过报告错误或贡献代码参与"
           }
         }
       }
     },
     "tutorial_title_1": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مرحبا بك في Xabber"
+            "value": "مرحبا بك في %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Welcome to Xabber"
+            "value": "Welcome to %1$@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bienvenido a Xabber"
+            "value": "Bienvenido a %1$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добро пожаловать в Xabber"
+            "value": "Добро пожаловать в %1$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "欢迎使用 Xabber"
+            "value": "欢迎使用 %1$@"
           }
         }
       }
@@ -116908,12 +116974,43 @@
       }
     },
     "voice_call_message": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مكالمة صوتية من %1$@"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber voice call"
+            "value": "%1$@ voice call"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Llamada de voz de %1$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appel vocal %1$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Голосовой вызов %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自 %1$@ 的语音通话"
           }
         }
       }
@@ -116936,18 +117033,19 @@
       }
     },
     "voice_download_dialog_message": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber can automatically download all incoming media files. It is way more convenient, but carries a privacy risk and may cause high data usage."
+            "value": "%1$@ can automatically download all incoming media files. It is way more convenient, but carries a privacy risk and may cause high data usage."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber может автоматически загружать все входящие медиа-файлы. Это удобно, но может скомпрометировать адрес устойства, а также привести к загрузке большого объема данных."
+            "value": "%1$@ может автоматически загружать все входящие медиа-файлы. Это удобно, но может скомпрометировать адрес устойства, а также привести к загрузке большого объема данных."
           }
         }
       }
@@ -117508,18 +117606,19 @@
       }
     },
     "warning__client_not_support_android_browser": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You should use Xabber for Android client."
+            "value": "You should use %1$@ for Android client."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Воспользуйтесь android-приложением Xabber"
+            "value": "Воспользуйтесь android-приложением %1$@"
           }
         }
       }
@@ -118156,30 +118255,31 @@
       }
     },
     "web_client__screen_about__preamble_2__link": {
+      "comment": "Branding: %1$@ is CommonConfig domain.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com"
+            "value": "https://%1$@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com"
+            "value": "https://%1$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com"
+            "value": "https://%1$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "https://www.xabber.com"
+            "value": "https://%1$@"
           }
         }
       }
@@ -118413,35 +118513,37 @@
       }
     },
     "xabber_account__login__dialog_error__text": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Token for your Xabber account expired. Do you want relogin?"
+            "value": "Token for your %1$@ account expired. Do you want relogin?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Срок действия токена для вашего аккаунта Xabber истек. Хотите перевойти?"
+            "value": "Срок действия токена для вашего аккаунта %1$@ истек. Хотите перевойти?"
           }
         }
       }
     },
     "xabber_account__login__error_auth_failed": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Authentication failed for Xabber account."
+            "value": "Authentication failed for %1$@ account."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ошибка аутентификации Xabber аккаунта."
+            "value": "Ошибка аутентификации %1$@ аккаунта."
           }
         }
       }
@@ -118498,18 +118600,19 @@
       }
     },
     "xabber_account__sync__error_no_permission_to_sync": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Xabber account has not permission to synchronize settings of XMPP accounts!"
+            "value": "Your %1$@ account has not permission to synchronize settings of XMPP accounts!"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "У вашего Xabber аккаунта нет разрешения на синхронизацию настроек XMPP аккаунтов!"
+            "value": "У вашего %1$@ аккаунта нет разрешения на синхронизацию настроек XMPP аккаунтов!"
           }
         }
       }
@@ -118651,42 +118754,43 @@
       }
     },
     "xabber_account_info": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حساب Xabber مطلوب لاستخدام خدمات Xabber ومزامنة إعدادات الجهاز."
+            "value": "حساب %1$@ مطلوب لاستخدام خدمات %1$@ ومزامنة إعدادات الجهاز."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber account is required to use Xabber services and sync device settings."
+            "value": "%1$@ account is required to use %1$@ services and sync device settings."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Es necesaria una cuenta de Xabber para utilizar los servicios de Xabber y sincronizar los ajustes del dispositivo."
+            "value": "Es necesaria una cuenta de %1$@ para utilizar los servicios de %1$@ y sincronizar los ajustes del dispositivo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un compte Xabber est nécessaire pour utiliser les services de Xabber et synchroniser les paramètres de l’appareil."
+            "value": "Un compte %1$@ est nécessaire pour utiliser les services de %1$@ et synchroniser les paramètres de l’appareil."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Аккаунт Xabber требуется для использования сервисов Xabber и синхронизации настроек устройств."
+            "value": "Аккаунт %1$@ требуется для использования сервисов %1$@ и синхронизации настроек устройств."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用 Xabber 服务和同步设备间的设置需要 Xabber 帐户。"
+            "value": "使用 %1$@ 服务和同步设备间的设置需要 %1$@ 帐户。"
           }
         }
       }
@@ -118776,42 +118880,43 @@
       }
     },
     "xabber_developers": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم تطوير Xabber لنظام Android في الأصل بواسطة Redsolution — شركة دولية للبرمجيات والخدمات يقع مقرها حاليًا في إستونيا. ومنذ ذلك الحين، انضم عدد من الأفراد إلى Xabber كمطورين ومختبرين ومترجمين.\nهدفنا هو إنشاء منظومة مستقرة وموثوقة وقابلة للتشغيل البيني وسهلة الاستخدام للمراسلة الفورية، لا تعتمد على الخدمات الاحتكارية وصوامع البيانات. نرحب بكل من يؤمن بالمعايير المفتوحة والتبادل الحر للمعلومات للمشاركة في دفع Xabber إلى الأمام.\nتابعنا على Twitter وGitHub."
+            "value": "تم تطوير %1$@ لنظام Android في الأصل بواسطة Redsolution — شركة دولية للبرمجيات والخدمات يقع مقرها حاليًا في إستونيا. ومنذ ذلك الحين، انضم عدد من الأفراد إلى %1$@ كمطورين ومختبرين ومترجمين.\nهدفنا هو إنشاء منظومة مستقرة وموثوقة وقابلة للتشغيل البيني وسهلة الاستخدام للمراسلة الفورية، لا تعتمد على الخدمات الاحتكارية وصوامع البيانات. نرحب بكل من يؤمن بالمعايير المفتوحة والتبادل الحر للمعلومات للمشاركة في دفع %1$@ إلى الأمام.\nتابعنا على Twitter وGitHub."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber for Android was originally developed by Redsolution — an international software and services company currently based in Estonia. Since then, a number of individuals joined Xabber as developers, testers and translators.\nOur goal is to create a stable, reliable, interoperable and user friendly ecosystem for instant messaging that does not rely on proprietary services and data silos. We welcome anyone who believes in open standards and free information interchange to take part in moving Xabber forward.\nFollow us on Twitter and Github."
+            "value": "%1$@ for Android was originally developed by Redsolution — an international software and services company currently based in Estonia. Since then, a number of individuals joined %1$@ as developers, testers and translators.\nOur goal is to create a stable, reliable, interoperable and user friendly ecosystem for instant messaging that does not rely on proprietary services and data silos. We welcome anyone who believes in open standards and free information interchange to take part in moving %1$@ forward.\nFollow us on Twitter and Github."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber para Android fue desarrollado originalmente por Redsolution, una empresa internacional de software y servicios con sede actual en Estonia. Desde entonces, varias personas se han unido a Xabber como desarrolladores, testers y traductores.\nNuestro objetivo es crear un ecosistema estable, fiable, interoperable y fácil de usar para la mensajería instantánea que no dependa de servicios propietarios ni silos de datos. Invitamos a todas las personas que creen en los estándares abiertos y el libre intercambio de información a participar en el avance de Xabber.\nSíguenos en Twitter y GitHub."
+            "value": "%1$@ para Android fue desarrollado originalmente por Redsolution, una empresa internacional de software y servicios con sede actual en Estonia. Desde entonces, varias personas se han unido a %1$@ como desarrolladores, testers y traductores.\nNuestro objetivo es crear un ecosistema estable, fiable, interoperable y fácil de usar para la mensajería instantánea que no dependa de servicios propietarios ni silos de datos. Invitamos a todas las personas que creen en los estándares abiertos y el libre intercambio de información a participar en el avance de %1$@.\nSíguenos en Twitter y GitHub."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber pour Android a été développé à l’origine par Redsolution, une entreprise internationale de logiciels et de services actuellement établie en Estonie. Depuis, de nombreuses personnes ont rejoint Xabber en tant que développeurs, testeurs et traducteurs.\nNotre objectif est de créer un écosystème de messagerie instantanée stable, fiable, interopérable et convivial qui ne dépende ni de services propriétaires ni de silos de données. Nous invitons toutes les personnes qui croient aux normes ouvertes et au libre échange d’informations à contribuer au développement de Xabber.\nSuivez-nous sur Twitter et GitHub."
+            "value": "%1$@ pour Android a été développé à l’origine par Redsolution, une entreprise internationale de logiciels et de services actuellement établie en Estonie. Depuis, de nombreuses personnes ont rejoint %1$@ en tant que développeurs, testeurs et traducteurs.\nNotre objectif est de créer un écosystème de messagerie instantanée stable, fiable, interopérable et convivial qui ne dépende ni de services propriétaires ni de silos de données. Nous invitons toutes les personnes qui croient aux normes ouvertes et au libre échange d’informations à contribuer au développement de %1$@.\nSuivez-nous sur Twitter et GitHub."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber для Android изначально разрабатывался Redsolution — международной компанией по разработке программного обеспечения и услуг, в настоящее время базирующейся в Эстонии. С тех пор некоторые люди присоединились к Xabber в качестве разработчиков, тестировщиков и переводчиков.\nНаша цель - создать стабильную, надежную, интерактивную и удобную для пользователей экосистему для мгновенного обмена сообщениями, которая не зависит от собственности на услуги и хранилищ данных. Мы приветствуем всех, кто верит в открытые стандарты и свободный обмен информацией, чтобы принять участие в дальнейшем развитии Xabber.\nСледите за нами в Twitter и Github."
+            "value": "%1$@ для Android изначально разрабатывался Redsolution — международной компанией по разработке программного обеспечения и услуг, в настоящее время базирующейся в Эстонии. С тех пор некоторые люди присоединились к %1$@ в качестве разработчиков, тестировщиков и переводчиков.\nНаша цель - создать стабильную, надежную, интерактивную и удобную для пользователей экосистему для мгновенного обмена сообщениями, которая не зависит от собственности на услуги и хранилищ данных. Мы приветствуем всех, кто верит в открытые стандарты и свободный обмен информацией, чтобы принять участие в дальнейшем развитии %1$@.\nСледите за нами в Twitter и Github."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber Android 版最初由 Redsolution 开发，该公司是一家目前总部位于爱沙尼亚的国际软件与服务企业。此后，许多人以开发者、测试人员和翻译人员的身份加入 Xabber。\n我们的目标是为即时通讯创建一个稳定、可靠、可互操作且用户友好的生态系统，不依赖专有服务和数据孤岛。我们欢迎所有相信开放标准和自由信息交换的人参与推动 Xabber 发展。\n在 Twitter 和 GitHub 上关注我们。"
+            "value": "%1$@ Android 版最初由 Redsolution 开发，该公司是一家目前总部位于爱沙尼亚的国际软件与服务企业。此后，许多人以开发者、测试人员和翻译人员的身份加入 %1$@。\n我们的目标是为即时通讯创建一个稳定、可靠、可互操作且用户友好的生态系统，不依赖专有服务和数据孤岛。我们欢迎所有相信开放标准和自由信息交换的人参与推动 %1$@ 发展。\n在 Twitter 和 GitHub 上关注我们。"
           }
         }
       }
@@ -118834,77 +118939,79 @@
       }
     },
     "xabber_translators": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتوفر Xabber بلغات متعددة بفضل العديد من الأشخاص الرائعين من جميع أنحاء العالم. أنشأنا صفحة خاصة على موقعنا تقديرًا لجهودهم.\nيمكنك الانضمام إليهم ومساعدتنا على تحسين جودة الترجمة من خلال المساهمة بترجماتك في مشروع Xabber"
+            "value": "يتوفر %1$@ بلغات متعددة بفضل العديد من الأشخاص الرائعين من جميع أنحاء العالم. أنشأنا صفحة خاصة على موقعنا تقديرًا لجهودهم.\nيمكنك الانضمام إليهم ومساعدتنا على تحسين جودة الترجمة من خلال المساهمة بترجماتك في مشروع %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber is available in multiple languages thanks to many fine people from all over the world. We have created a special page on our website to acknowledge their efforts.\nYou may join their ranks and help us improve translation quality by contributing your translations to Xabber project"
+            "value": "%1$@ is available in multiple languages thanks to many fine people from all over the world. We have created a special page on our website to acknowledge their efforts.\nYou may join their ranks and help us improve translation quality by contributing your translations to %1$@ project"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber está disponible en varios idiomas gracias a muchas personas de todo el mundo. Hemos creado una página especial en nuestro sitio web para reconocer su labor.\nPuedes unirte y ayudarnos a mejorar la calidad de las traducciones colaborando con el proyecto Xabber."
+            "value": "%1$@ está disponible en varios idiomas gracias a muchas personas de todo el mundo. Hemos creado una página especial en nuestro sitio web para reconocer su labor.\nPuedes unirte y ayudarnos a mejorar la calidad de las traducciones colaborando con el proyecto %1$@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber est disponible dans plusieurs langues grâce à de nombreuses personnes formidables du monde entier. Nous avons créé une page spéciale sur notre site web pour saluer leurs efforts.\nVous pouvez les rejoindre et nous aider à améliorer la qualité des traductions en contribuant au projet Xabber."
+            "value": "%1$@ est disponible dans plusieurs langues grâce à de nombreuses personnes formidables du monde entier. Nous avons créé une page spéciale sur notre site web pour saluer leurs efforts.\nVous pouvez les rejoindre et nous aider à améliorer la qualité des traductions en contribuant au projet %1$@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber доступен на нескольких языках благодаря многим прекрасным людям со всего мира. Мы создали специальную страницу на нашем сайте, чтобы признать их усилия.\nВы можете присоединиться к ним и помочь нам улучшить качество перевода, внеся свой вклад в проект Xabber."
+            "value": "%1$@ доступен на нескольких языках благодаря многим прекрасным людям со всего мира. Мы создали специальную страницу на нашем сайте, чтобы признать их усилия.\nВы можете присоединиться к ним и помочь нам улучшить качество перевода, внеся свой вклад в проект %1$@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "得益于来自世界各地许多优秀人士的贡献，Xabber 支持多种语言。我们在官方网站上创建了一个专门页面，以感谢他们的付出。\n你也可以加入他们，通过为 Xabber 项目贡献翻译来帮助我们提高翻译质量。"
+            "value": "得益于来自世界各地许多优秀人士的贡献，%1$@ 支持多种语言。我们在官方网站上创建了一个专门页面，以感谢他们的付出。\n你也可以加入他们，通过为 %1$@ 项目贡献翻译来帮助我们提高翻译质量。"
           }
         }
       }
     },
     "xaccount_exist": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حساب Xabber موجود"
+            "value": "حساب %1$@ موجود"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber Account exists"
+            "value": "%1$@ Account exists"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La cuenta de Xabber existe"
+            "value": "La cuenta de %1$@ existe"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Аккаунт Xabber уже создан"
+            "value": "Аккаунт %1$@ уже создан"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Xabber 帐户已存在"
+            "value": "%1$@ 帐户已存在"
           }
         }
       }
@@ -119027,36 +119134,37 @@
       }
     },
     "xmpp_auth_description": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سيتم استخدام الحساب XMPP المحدد لتسجيل الدخول إلى حساب شبير. عن طريق تسجيل الدخول لك قبول لدينا سياسة الخصوصية وشروط الخدمة."
+            "value": "سيتم استخدام الحساب XMPP المحدد لتسجيل الدخول إلى حساب %1$@. عن طريق تسجيل الدخول لك قبول لدينا سياسة الخصوصية وشروط الخدمة."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Selected XMPP account will be used to sign in to Xabber Account. By signing in you accept our privacy policy and terms of service."
+            "value": "Selected XMPP account will be used to sign in to %1$@ Account. By signing in you accept our privacy policy and terms of service."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La cuenta XMPP seleccionada se utilizará para acceder a la cuenta Xabber. Firmando usted acepta nuestra política de privacidad y términos de servicio."
+            "value": "La cuenta XMPP seleccionada se utilizará para acceder a la cuenta %1$@. Firmando usted acepta nuestra política de privacidad y términos de servicio."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Выберите XMPP аккаунт который будет использован для входа в аккаунт Xabber. Осуществляя вход Вы соглашаетесь с нашей политикой по обработке персональных данных и с условиями оказания услуг."
+            "value": "Выберите XMPP аккаунт который будет использован для входа в аккаунт %1$@. Осуществляя вход Вы соглашаетесь с нашей политикой по обработке персональных данных и с условиями оказания услуг."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "选定的XMPP帐户将用于登录Xabber帐户。 登录即表示您接受我们的隐私政策和服务条款。"
+            "value": "选定的XMPP帐户将用于登录%1$@帐户。 登录即表示您接受我们的隐私政策和服务条款。"
           }
         }
       }
@@ -119558,12 +119666,13 @@
       }
     },
     "xmpp_login__registration_title_jid": {
+      "comment": "Branding: %1$@ is CommonConfig app_name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Great! Now, choose username and domain for people to find you on Xabber"
+            "value": "Great! Now, choose username and domain for people to find you on %1$@"
           }
         }
       }

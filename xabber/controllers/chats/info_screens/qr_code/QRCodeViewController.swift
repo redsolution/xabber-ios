@@ -780,7 +780,10 @@ class QRCodeViewController: UIViewController {
 
         let activityImage = UIImage(imageLiteralResourceName: "xabber_icon_call_kit")
             .resize(targetSize: CGSize(square: 60))
-        let xabberActivity = XabberActivity(title: "Xabber", image: activityImage)
+        let xabberActivity = XabberActivity(
+            title: CommonConfigManager.shared.config.app_name,
+            image: activityImage
+        )
         let shareViewController = UIActivityViewController(
             activityItems: [image, stringValue],
             applicationActivities: [xabberActivity]

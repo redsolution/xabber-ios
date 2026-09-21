@@ -1,18 +1,6 @@
 {
   "exclusions": [
     {
-      "path": "xabber-push-extension/NotificationService.swift",
-      "reason": "Product, hardware, or service proper name; intentionally unchanged across locales.",
-      "sink": "title",
-      "value": "Xabber"
-    },
-    {
-      "path": "xabber/application/AppRootCoordinator.swift",
-      "reason": "Internal NSUserActivity state-restoration metadata; the Xabber product name is intentionally not localized.",
-      "sink": "title",
-      "value": "Xabber Scene"
-    },
-    {
       "path": "xabber/common/SubscribtionsManager/SubscribtionsManager.swift",
       "reason": "Internal dictionary key, accessibility identifier, protocol token, or placeholder replaced before presentation.",
       "sink": "description",
@@ -337,12 +325,6 @@
       "value": "label"
     },
     {
-      "path": "xabber/controllers/chats/image_gallery/PhotoGallery.swift",
-      "reason": "Product, hardware, or service proper name; intentionally unchanged across locales.",
-      "sink": "title",
-      "value": "Xabber"
-    },
-    {
       "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
       "reason": "Stable technical acronym; intentionally unchanged across locales.",
       "sink": "title",
@@ -353,12 +335,6 @@
       "reason": "Product, hardware, or service proper name; intentionally unchanged across locales.",
       "sink": "title",
       "value": "Yubikey"
-    },
-    {
-      "path": "xabber/controllers/chats/info_screens/qr_code/QRCodeViewController.swift",
-      "reason": "Product, hardware, or service proper name; intentionally unchanged across locales.",
-      "sink": "title",
-      "value": "Xabber"
     },
     {
       "path": "xabber/controllers/chats/info_screens/vcard_info/vCardInfoViewController.swift",

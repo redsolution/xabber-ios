@@ -531,7 +531,14 @@ extension SimpleTableViewController: UITableViewDelegate {
                 let alertMessage: String
                 
                 if CommonConfigManager.shared.config.locked_host.isNotEmpty {
-                    alertMessage = L10n.format("simple__alert_message__enter_your_password_to_permanently_delete_value_from_clandestino_this_action_can", fallback: "Enter your password to permanently delete %@ from Clandestino.\n\nThis action can not be undone.", arguments: [String(describing: self.jid)])
+                    alertMessage = L10n.format(
+                        "simple__alert_message__enter_your_password_to_permanently_delete_value_from_clandestino_this_action_can",
+                        fallback: "Enter your password to permanently delete %2$@ from %1$@.\n\nThis action can not be undone.",
+                        arguments: [
+                            CommonConfigManager.shared.config.app_name,
+                            String(describing: self.jid)
+                        ]
+                    )
                 } else {
                     if let host = XMPPJID(string: self.jid)?.domain {
                         alertMessage = L10n.format("simple__alert_message__enter_your_password_to_permanently_delete_value_from_value_this_action_can", fallback: "Enter your password to permanently delete %@ from %@.\n\nThis action can not be undone.", arguments: [String(describing: self.jid), String(describing: host)])

@@ -1100,7 +1100,7 @@ class VoIPManager: NSObject {
         } catch {
             DDLogDebug("VoIPManager; \(#function). \(error.localizedDescription)")
         }
-        self.update?.localizedCallerName = nick//"Xabber voice call".localizeString(id: "voice_call_message", arguments: [])
+        self.update?.localizedCallerName = nick
        
         provider.reportNewIncomingCall(with: callUUID, update: update!) { error in
             if let error = error {
@@ -1115,7 +1115,11 @@ class VoIPManager: NSObject {
 
     private func reportFailedIncomingPush(callUUID: UUID, completion: @escaping () -> Void) {
         let failedUpdate = Self.callUpdate()
-        failedUpdate.localizedCallerName = "Xabber voice call"
+        failedUpdate.localizedCallerName = L10n.format(
+            "voice_call_message",
+            fallback: "%1$@ voice call",
+            arguments: [CommonConfigManager.shared.config.app_name]
+        )
         failedUpdate.remoteHandle = CXHandle(type: .emailAddress, value: "unknown")
         provider.reportNewIncomingCall(with: callUUID, update: failedUpdate) { error in
             if let error {

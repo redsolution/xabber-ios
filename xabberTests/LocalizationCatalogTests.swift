@@ -256,6 +256,181 @@ final class LocalizationCatalogTests: XCTestCase {
         }
     }
 
+    func testPrivacyUsageDescriptionsUseBuildTimeConfiguredAppNameToken() throws {
+        let catalog = try infoPlistCatalogStrings()
+
+        for (key, entry) in catalog {
+            let localizations = try XCTUnwrap(
+                entry["localizations"] as? [String: Any],
+                key
+            )
+            for locale in supportedLocales {
+                let localization = try XCTUnwrap(
+                    localizations[locale] as? [String: Any],
+                    "\(key)/\(locale)"
+                )
+                let stringUnit = try XCTUnwrap(
+                    localization["stringUnit"] as? [String: Any],
+                    "\(key)/\(locale)"
+                )
+                let value = try XCTUnwrap(
+                    stringUnit["value"] as? String,
+                    "\(key)/\(locale)"
+                )
+                XCTAssertEqual(
+                    value.components(separatedBy: "__APP_NAME__").count - 1,
+                    1,
+                    "\(key)/\(locale)"
+                )
+                XCTAssertFalse(value.localizedCaseInsensitiveContains("Xabber"))
+                XCTAssertFalse(value.localizedCaseInsensitiveContains("Clandestino"))
+            }
+        }
+
+        let infoPlist = try sourceText("xabber/Info.plist.example")
+        XCTAssertTrue(infoPlist.contains("<string>__APP_NAME__</string>"))
+        XCTAssertFalse(infoPlist.contains("<string>Xabber</string>"))
+    }
+
+    func testCompiledInfoPlistBrandingUsesCommonConfigAppName() throws {
+        let appName = CommonConfigManager.shared.config.app_name
+        XCTAssertFalse(appName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        XCTAssertEqual(
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String,
+            appName
+        )
+        XCTAssertEqual(
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String,
+            appName
+        )
+
+        let expectedKeys = Set(try infoPlistCatalogStrings().keys)
+        for locale in supportedLocales {
+            let data = try XCTUnwrap(
+                localizedResourceData(
+                    "InfoPlist.strings",
+                    locale: locale,
+                    bundle: .main
+                ),
+                locale
+            )
+            let propertyList = try PropertyListSerialization.propertyList(
+                from: data,
+                options: [],
+                format: nil
+            )
+            let values = try XCTUnwrap(propertyList as? [String: String], locale)
+            XCTAssertEqual(Set(values.keys), expectedKeys, locale)
+            for (key, value) in values {
+                XCTAssertTrue(value.contains(appName), "\(locale)/\(key)")
+                XCTAssertFalse(value.contains("__APP_NAME__"), "\(locale)/\(key)")
+            }
+        }
+    }
+
+    func testActiveBrandAndDomainLocalizationCallsitesUseCommonConfigArguments() throws {
+        let manifest = try localizationManifest()
+        let activeEntries = try XCTUnwrap(
+            manifest["activeKeys"] as? [[String: Any]]
+        )
+        let requiredKeys: Set<String> = [
+            "about_extension_protocols",
+            "about_xabber",
+            "account_settings_terminate_description",
+            "chat_xabber_call_hint",
+            "device_detail__screen__encryption_key_verified_by_certificate_issued_by_clandestino_for",
+            "dialog_jingle_message__message_sign_up",
+            "intro_saved_messages_link",
+            "notifications_settings__in_app__footer",
+            "premium__about__open_source_and_subscription_support",
+            "premium__brand__title",
+            "premium_subscribtion__presentation_call__about_xabber_premium",
+            "registration_title_account_created",
+            "registration_title_choose_username",
+            "server_doesnt_support_pinned_chats",
+            "settings__menu_item__xabber_account",
+            "signin_ask_to_register",
+            "signin_file_upload_error",
+            "signin_message_archive_error",
+            "signin_no_message_archive",
+            "signin_not_all_features",
+            "signin_pubsub_error",
+            "signin_push_notifications_error",
+            "signin_quick_synchronization_error",
+            "signin_tokens_error",
+            "simple__alert_message__enter_your_password_to_permanently_delete_value_from_clandestino_this_action_can",
+            "xabber_developers",
+            "xabber_translators",
+        ]
+        let entriesByKey = Dictionary(
+            uniqueKeysWithValues: activeEntries.compactMap { entry -> (String, [String: Any])? in
+                guard let key = entry["key"] as? String else { return nil }
+                return (key, entry)
+            }
+        )
+
+        XCTAssertTrue(requiredKeys.isSubset(of: Set(entriesByKey.keys)))
+        for key in requiredKeys {
+            let entry = try XCTUnwrap(entriesByKey[key], key)
+            let apis = try XCTUnwrap(entry["apis"] as? [String], key)
+            XCTAssertEqual(Set(apis), ["format"], key)
+            let callsites = try XCTUnwrap(entry["callsites"] as? [[String: Any]], key)
+            XCTAssertFalse(callsites.isEmpty, key)
+            for callsite in callsites {
+                XCTAssertGreaterThan(callsite["argumentCount"] as? Int ?? 0, 0, key)
+                let fallback = callsite["fallback"] as? String ?? ""
+                XCTAssertFalse(fallback.localizedCaseInsensitiveContains("Xabber"), key)
+                XCTAssertFalse(fallback.localizedCaseInsensitiveContains("Clandestino"), key)
+                XCTAssertFalse(fallback.localizedCaseInsensitiveContains("xabber.com"), key)
+                XCTAssertFalse(fallback.localizedCaseInsensitiveContains("xabber.chat"), key)
+                XCTAssertFalse(fallback.localizedCaseInsensitiveContains("xabber.org"), key)
+            }
+        }
+
+        let sourcePaths = Set(requiredKeys.flatMap { key -> [String] in
+            guard let callsites = entriesByKey[key]?["callsites"] as? [[String: Any]] else {
+                return []
+            }
+            return callsites.compactMap { $0["path"] as? String }
+        })
+        let combinedSource = try sourcePaths.sorted().map(sourceText).joined(separator: "\n")
+        XCTAssertTrue(combinedSource.contains("CommonConfigManager.shared.config.app_name"))
+        XCTAssertTrue(combinedSource.contains("CommonConfigManager.shared.config.domain"))
+    }
+
+    func testVisibleBrandingOutsideCatalogUsesCommonConfig() throws {
+        let expectations: [String: String] = [
+            "xabber-push-extension/NotificationService.swift": "CommonConfigManager.shared.config.app_name",
+            "xabber/xmpp/voip/VoIPManager/VoIPManager.swift": "CommonConfigManager.shared.config.app_name",
+            "xabber/controllers/chats/image_gallery/PhotoGallery.swift": "CommonConfigManager.shared.config.app_name",
+            "xabber/controllers/chats/info_screens/qr_code/QRCodeViewController.swift": "CommonConfigManager.shared.config.app_name",
+            "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift": "CommonConfigManager.shared.config.app_name",
+            "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/ContactDeviceDetailViewController.swift": "CommonConfigManager.shared.config.app_name",
+            "xabber/application/AppRootCoordinator.swift": "CommonConfigManager.shared.config.app_name",
+        ]
+
+        for (path, requiredText) in expectations {
+            XCTAssertTrue(try sourceText(path).contains(requiredText), path)
+        }
+
+        let domainBackedFallbacks = [
+            "xabber/application/AppRootCoordinator.swift",
+            "xabber/xmpp/abuse/XMPPAbuseManager.swift",
+        ]
+        for path in domainBackedFallbacks {
+            let source = try sourceText(path)
+            XCTAssertTrue(source.contains("CommonConfigManager.shared.config.domain"), path)
+            XCTAssertFalse(source.contains("abuse@xabber.com"), path)
+            XCTAssertFalse(source.contains("support@xabber.com"), path)
+        }
+
+        let premiumSource = try sourceText(
+            "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift"
+        )
+        XCTAssertTrue(premiumSource.contains("CommonConfigManager.shared.config.domain"))
+        XCTAssertFalse(premiumSource.contains("jid.contains(\"xabber.com\")"))
+    }
+
     func testInterfaceBuilderTabTitlesUseReviewedTranslations() throws {
         let expected: [String: [String: String]] = [
             "ar": [
@@ -1468,6 +1643,16 @@ final class LocalizationCatalogTests: XCTestCase {
         let data = try Data(contentsOf: manifestURL)
         return try XCTUnwrap(
             JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+    }
+
+    private func sourceText(_ path: String) throws -> String {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return try String(
+            contentsOf: repositoryRoot.appendingPathComponent(path),
+            encoding: .utf8
         )
     }
 

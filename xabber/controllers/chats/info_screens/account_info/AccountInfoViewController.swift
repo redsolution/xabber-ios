@@ -177,7 +177,11 @@ class AccountInfoViewController: BaseViewController {
                                             "settings_account__label_active_sessions",
                                             fallback: "Active sessions"
                                          ),
-                                         value: "You can terminate sessions you don`t need. Official Clandestino clients wipe all user data from the device upon session termination.".localizeString(id: "account_settings_terminate_description", arguments: []), /* learn more - https://www.xabber.com/devicemanagement/   */
+                                         value: L10n.format(
+                                            "account_settings_terminate_description",
+                                            fallback: "You can terminate sessions you don`t need. Official %1$@ clients wipe all user data from the device upon session termination.",
+                                            arguments: [CommonConfigManager.shared.config.app_name]
+                                         ), /* learn more - https://www.xabber.com/devicemanagement/   */
                        editable: false,
                        childs: []))
         }

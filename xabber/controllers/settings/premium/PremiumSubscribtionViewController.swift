@@ -11,6 +11,7 @@ import UIKit
 import StoreKit
 import MaterialComponents
 import CocoaLumberjack
+import XMPPFramework.XMPPJID
 
 struct PremiumAdvantageItem {
     enum Kind {
@@ -165,7 +166,11 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         return result
     }
 
-    private let aboutText = L10n.text("premium__about__open_source_and_subscription_support", fallback: "Xabber has always been a free, open-source messenger committed to user privacy and security. Premium features require additional server resources — persistent message archives need dedicated storage infrastructure, extended cloud capacity demands powerful servers, and digital verification certificates rely on secure cryptographic services.\n\nYour subscription directly funds the development and operation of these premium services, while helping us keep the core Xabber experience completely free and ad-free for everyone.")
+    private let aboutText = L10n.format(
+        "premium__about__open_source_and_subscription_support",
+        fallback: "%1$@ has always been a free, open-source messenger committed to user privacy and security. Premium features require additional server resources — persistent message archives need dedicated storage infrastructure, extended cloud capacity demands powerful servers, and digital verification certificates rely on secure cryptographic services.\n\nYour subscription directly funds the development and operation of these premium services, while helping us keep the core %1$@ experience completely free and ad-free for everyone.",
+        arguments: [CommonConfigManager.shared.config.app_name]
+    )
 
     // MARK: - UI
 
@@ -234,7 +239,11 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
 
     override func configure() {
         super.configure()
-        title = L10n.text("premium__brand__title", fallback: "Xabber Premium")
+        title = L10n.format(
+            "premium__brand__title",
+            fallback: "%1$@ Premium",
+            arguments: [CommonConfigManager.shared.config.app_name]
+        )
         view.backgroundColor = .systemGroupedBackground
 
         let appearance = UINavigationBarAppearance()
@@ -352,7 +361,11 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         contentStack.addArrangedSubview(manageSectionHeaderHost)
         contentStack.addArrangedSubview(manageSectionContainer)
         configureManageSectionContainer()
-        contentStack.addArrangedSubview(buildSectionHeader(L10n.text("premium_subscribtion__presentation_call__about_xabber_premium", fallback: "ABOUT XABBER PREMIUM")))
+        contentStack.addArrangedSubview(buildSectionHeader(L10n.format(
+            "premium_subscribtion__presentation_call__about_xabber_premium",
+            fallback: "ABOUT %1$@ PREMIUM",
+            arguments: [CommonConfigManager.shared.config.app_name]
+        )))
         contentStack.addArrangedSubview(padHorizontally(aboutHost))
         contentStack.addArrangedSubview(footerHost)
 
@@ -773,7 +786,11 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
                 subtitleLabel.text = L10n.text("premium__entitlement__thanks_message", fallback: "All premium features are unlocked.\nThank you for your support!")
             }
         } else {
-            titleLabel.text = L10n.text("premium__brand__title", fallback: "Xabber Premium")
+            titleLabel.text = L10n.format(
+                "premium__brand__title",
+                fallback: "%1$@ Premium",
+                arguments: [CommonConfigManager.shared.config.app_name]
+            )
             subtitleLabel.text = L10n.text("premium__marketing__subtitle", fallback: "Unlock premium features and support\nopen-source development.")
         }
         subtitleLabel.font = .systemFont(ofSize: 15)
@@ -1295,8 +1312,15 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
             }
         }
 
+        let configuredDomain = CommonConfigManager.shared.config.domain
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let accountDomain = XMPPJID(string: jid)?.domain
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let isHostedByConfiguredDomain = configuredDomain.isNotEmpty
+            && accountDomain?.caseInsensitiveCompare(configuredDomain) == .orderedSame
+
         let featureData: [(icon: String, color: UIColor, title: String, desc: String)]
-        if jid.contains("xabber.com") {
+        if isHostedByConfiguredDomain {
             featureData = hasXabberAccount ? Self.fullFeatureData : Self.basicFeatureData
         } else {
             featureData = hasXabberAccount ? Self.fullWithoutHostedByXabberFeatureData : Self.basicFeatureData
