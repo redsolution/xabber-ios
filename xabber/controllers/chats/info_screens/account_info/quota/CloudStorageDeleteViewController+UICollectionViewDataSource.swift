@@ -26,7 +26,7 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "deleteButton", for: indexPath)
             let textView = cell.contentView.viewWithTag(101) as? UILabel ?? UILabel()
             textView.tag = 101
-            textView.text = isDeleting ? "Deleting…" : "Delete"
+            textView.text = isDeleting ? L10n.text("cloud_storage_delete__text__deleting", fallback: "Deleting…") : L10n.text("common__action__delete", fallback: "Delete")
             textView.textColor = .systemRed
             textView.textAlignment = .center
             if textView.superview == nil {
@@ -66,7 +66,7 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
                 date: item.date ?? "",
                 time: item.time ?? "",
                 sizeInBytes: item.size ?? "0 KiB",
-                filename: item.fileName ?? "File"
+                filename: item.fileName ?? L10n.text("cloud_storage__file__fallback_name", fallback: "File")
             )
             cell.senderNameLabel.text = cell.fileNameLabel.text
             cell.fileNameLabel.isHidden = true
@@ -85,7 +85,7 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
                 meters: (meters?.isEmpty == false ? meters : nil) ?? [0.0, 0.0],
                 loading: false,
                 duration: item.audioDuration ?? "",
-                senderName: item.fileName ?? "Audio message",
+                senderName: item.fileName ?? L10n.text("cloud_storage__voice__fallback_name", fallback: "Audio message"),
                 date: item.date ?? "",
                 send_time: item.time ?? "",
                 sizeInBytes: item.size ?? "0 KiB"
@@ -110,7 +110,7 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
         if indexPath.section == 0 {
             let label = UILabel()
             label.font = UIFont.preferredFont(forTextStyle: .body)
-            label.text = "Please review the advisory list of files selected to reach \(plan.percent)% free space. The server validates the cleanup again on confirmation. Avatars are excluded."
+            label.text = L10n.format("cloud_storage__cleanup__cleanup_preview_advisory", fallback: "Please review the advisory list of files selected to reach %@%% free space. The server validates the cleanup again on confirmation. Avatars are excluded.", arguments: [String(describing: plan.percent)])
             label.numberOfLines = 0
             headerView.addSubview(label)
             label.fillSuperviewWithOffset(top: 0, bottom: 0, left: 10, right: 10)
@@ -126,17 +126,17 @@ extension CloudStorageDeleteViewController: UICollectionViewDataSource {
         label.font = UIFont.preferredFont(forTextStyle: .title3).bold()
         switch datasource[indexPath.section][indexPath.row].kind {
         case .image:
-            label.text = "Images"
+            label.text = L10n.text("images", fallback: "Images")
         case .video:
-            label.text = "Videos"
+            label.text = L10n.text("videos", fallback: "Videos")
         case .file:
-            label.text = "Files"
+            label.text = L10n.text("files", fallback: "Files")
         case .voice:
-            label.text = "Voice messages"
+            label.text = L10n.text("cloud_storage__cleanup__voice_messages", fallback: "Voice messages")
         case .avatar:
-            label.text = "Avatars"
+            label.text = L10n.text("avatars", fallback: "Avatars")
         default:
-            label.text = "Undefined"
+            label.text = L10n.text("cloud_storage__cleanup__undefined", fallback: "Undefined")
         }
         headerView.addSubview(label)
         label.fillSuperviewWithOffset(top: 13, bottom: 0, left: 25, right: 0)

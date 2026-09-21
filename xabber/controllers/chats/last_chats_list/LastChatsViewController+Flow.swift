@@ -40,7 +40,7 @@ extension LastChatsViewController {
             FeedbackManager.shared.tap()
             if #available(iOS 13.0, *) {
                 if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
-                    YubiKitExternalLocalization.nfcScanAlertMessage = "Register Yubikey for account"
+                    YubiKitExternalLocalization.nfcScanAlertMessage = L10n.text("last_calls__nfc_scan_alert_message__register_yubikey_for_account", fallback: "Register Yubikey for account")
                     YubiKitManager.shared.startNFCConnection()
                     YubiKitManager.shared.delegate = SignatureManager.shared
                     SignatureManager.shared.currentAction = .certificate
@@ -180,11 +180,11 @@ extension LastChatsViewController {
         YesNoPresenter().present(
             in: self,
             style: .actionSheet,
-            title: "Delete chat",
-            message: "All messages will be deleted",
-            yesText: "Delete",
+            title: L10n.text("delete_chat", fallback: "Delete chat"),
+            message: L10n.text("last_chats__delete__all_messages_will_be_deleted", fallback: "All messages will be deleted"),
+            yesText: L10n.text("common__action__delete", fallback: "Delete"),
             dangerYes: true,
-            noText: "Cancel",
+            noText: L10n.text("common__action__cancel", fallback: "Cancel"),
             animated: true) { value in
                 if value {
 //                    XMPPUIActionManager.shared.performRequest(owner: owner) { stream, user in

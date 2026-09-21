@@ -41,15 +41,15 @@ enum OmemoManagerError: Error, Equatable {
 extension OmemoManagerError: LocalizedError {
     var errorDescription: String? {
         switch self {
-        case .bundleNotFound: return "OMEMO bundle not found"
-        case .preKeyNotFound: return "OMEMO pre-key not found"
-        case .encryptionFailed: return "OMEMO encryption failed"
-        case .invalidEncryptedPayload: return "Invalid OMEMO encrypted payload"
-        case .invalidDecryptedPayload: return "Invalid OMEMO decrypted payload"
-        case .missingRecipientKey: return "OMEMO recipient key not found"
-        case .noTrustedRecipientDevices: return "No trusted OMEMO recipient devices"
-        case .sessionCreationFailed: return "OMEMO session creation failed"
-        case .payloadAuthenticationFailed: return "OMEMO payload authentication failed"
+        case .bundleNotFound: return L10n.text("omemo__localized_error_description__omemo_bundle_not_found", fallback: "OMEMO bundle not found")
+        case .preKeyNotFound: return L10n.text("omemo__localized_error_description__omemo_pre_key_not_found", fallback: "OMEMO pre-key not found")
+        case .encryptionFailed: return L10n.text("omemo__localized_error_description__omemo_encryption_failed", fallback: "OMEMO encryption failed")
+        case .invalidEncryptedPayload: return L10n.text("omemo__localized_error_description__invalid_omemo_encrypted_payload", fallback: "Invalid OMEMO encrypted payload")
+        case .invalidDecryptedPayload: return L10n.text("omemo__localized_error_description__invalid_omemo_decrypted_payload", fallback: "Invalid OMEMO decrypted payload")
+        case .missingRecipientKey: return L10n.text("omemo__localized_error_description__omemo_recipient_key_not_found", fallback: "OMEMO recipient key not found")
+        case .noTrustedRecipientDevices: return L10n.text("omemo__localized_error_description__no_trusted_omemo_recipient_devices", fallback: "No trusted OMEMO recipient devices")
+        case .sessionCreationFailed: return L10n.text("omemo__localized_error_description__omemo_session_creation_failed", fallback: "OMEMO session creation failed")
+        case .payloadAuthenticationFailed: return L10n.text("omemo__localized_error_description__omemo_payload_authentication_failed", fallback: "OMEMO payload authentication failed")
         }
     }
 }

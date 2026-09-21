@@ -409,7 +409,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
 
         if jid != owner {
             account.omemo.initChat(jid: jid)
-            makeSystemMessage(jid: jid, body: "Outgoing verification request")
+            makeSystemMessage(jid: jid, event: .outgoingVerificationRequest)
         }
 
         let trust = XEPTrustEnvelope.makeTrustElement(sid: sid, expires: expires, timestamp: now, kind: .request(deviceId: localDeviceId, targetDeviceId: targetDeviceId))
@@ -466,7 +466,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
                 kind: .challenge(deviceId: localDeviceId, ciphertext: base64(encrypted.encrypted), iv: base64(encrypted.iv))
             )
             sendTrustElement(trust, to: toJid, ttl: max(expires - Int(Date().timeIntervalSince1970.rounded()), 1))
-            makeSystemMessage(jid: instance.jid, body: "You accepted the verification request")
+            makeSystemMessage(jid: instance.jid, event: .acceptedVerificationRequest)
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
             sendAbort(to: toJid, sid: sid, expires: expires, reason: .fail)
@@ -659,19 +659,20 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
         return message
     }
 
-    func makeSystemMessage(jid: String, body: String) {
+    func makeSystemMessage(jid: String, event: AuthenticatedKeyExchangeSystemEvent) {
         do {
             let realm = try WRealm.safe()
 
             let item = MessageStorageItem()
             item.messageId = UUID().uuidString
             item.owner = owner
-            item.body = body
+            item.body = ""
             item.opponent = jid
             item.outgoing = true
             item.isRead = true
             item.displayAs = .system
             item.conversationType = .omemo
+            item.markAuthenticatedKeyExchangeSystemEvent(event)
             item.updatePrimary(system: true, auth: false)
 
             try realm.write {
@@ -765,11 +766,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
         if peerBare == owner {
             postOnMain(AuthenticatedKeyExchangeManager.showConfirmationViewNotification, userInfo: ["owner": owner, "sid": envelope.sid])
         } else {
-            makeSystemMessage(jid: peerBare, body: "Incoming verification request")
+            let event = AuthenticatedKeyExchangeSystemEvent.incomingVerificationRequest
+            makeSystemMessage(jid: peerBare, event: event)
             showNotification(
                 title: peerBare,
                 owner: owner,
-                body: "Incoming verification request",
+                body: event.localizedText,
                 senderJid: peerBare,
                 sid: envelope.sid,
                 timestamp: TimeInterval(envelope.timestamp)
@@ -994,11 +996,11 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
         if from.bare != owner {
             switch reason {
             case .cancel:
-                makeSystemMessage(jid: from.bare, body: "Verification rejected")
+                makeSystemMessage(jid: from.bare, event: .verificationRejected)
             case .timeout:
-                makeSystemMessage(jid: from.bare, body: "Verification timed out")
+                makeSystemMessage(jid: from.bare, event: .verificationTimedOut)
             case .fail:
-                makeSystemMessage(jid: from.bare, body: "Verification failed")
+                makeSystemMessage(jid: from.bare, event: .verificationFailed)
             }
         }
 
@@ -1009,7 +1011,7 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
 
     private func onVerificationTrusted(jid: String, deviceId: Int, sid: String) {
         if jid != owner {
-            makeSystemMessage(jid: jid, body: "Verification succeeded")
+            makeSystemMessage(jid: jid, event: .verificationSucceeded)
         }
 
         AccountManager.shared.find(for: owner)?.trustSharingManager.sendListOfContactsDevices()

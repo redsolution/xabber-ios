@@ -316,8 +316,11 @@ public class PhotoGallery: UIViewController {
     }
     
     internal func updateTitle() {
-        title = "\(currentPage + 1) of \(imageUrls.count)"
-            .localizeString(id: "page_of_number_of_pictures", arguments: ["\(currentPage + 1)", "\(imageUrls.count)"])
+        title = L10n.format(
+            "photo_gallery__page_count_format",
+            fallback: "%1$lld of %2$lld",
+            arguments: [currentPage + 1, imageUrls.count]
+        )
     }
     
     internal func configureNavbar() {
@@ -623,5 +626,4 @@ extension PhotoGallery {
         showModal(activityVC, parent: self)
     }
 }
-
 

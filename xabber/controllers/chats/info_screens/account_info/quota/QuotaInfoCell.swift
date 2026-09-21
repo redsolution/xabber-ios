@@ -60,7 +60,7 @@ private final class CloudStorageQuotaBarView: UIView {
         backgroundColor = .clear
         isOpaque = false
         isAccessibilityElement = true
-        accessibilityLabel = "Cloud storage usage"
+        accessibilityLabel = L10n.text("cloud_storage__quota__usage_accessibility_label", fallback: "Cloud storage usage")
     }
 
     required init?(coder: NSCoder) {
@@ -302,7 +302,7 @@ final class QuotaInfoCell: UITableViewCell {
         case .loading:
             showLoadingState()
         case .error, .unavailable:
-            showMessageState("Cloud Storage is unavailable.")
+            showMessageState(L10n.text("cloud_storage__text__cloud_storage_is_unavailable", fallback: "Cloud Storage is unavailable."))
         case .content, .empty, .unlimited:
             showContentState()
             subscribe()

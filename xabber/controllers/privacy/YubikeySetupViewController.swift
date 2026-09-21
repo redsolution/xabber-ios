@@ -60,7 +60,7 @@ class YubikeySetupViewController: SimpleBaseViewController {
     }()
     
     internal let skipButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(title: "Skip", style: .plain, target: nil, action: nil)
+        let button = UIBarButtonItem(title: L10n.text("yubikey_setup__title__skip", fallback: "Skip"), style: .plain, target: nil, action: nil)
         
         return button
     }()
@@ -80,13 +80,13 @@ class YubikeySetupViewController: SimpleBaseViewController {
         var signatureDatasource: [Datasource] = []
         if let _ = CredentialsManager.shared.getSignatureTimestamp() {
             signatureDatasource = [
-                Datasource(title: "Valid for", subtitle: "", kind: .lbael, isTimeField: true),
-                Datasource(title: "Update signature", subtitle: "", kind: .button("sign"))
+                Datasource(title: L10n.text("yubikey_setup__title__valid_for", fallback: "Valid for"), subtitle: "", kind: .lbael, isTimeField: true),
+                Datasource(title: L10n.text("yubikey_setup__title__update_signature", fallback: "Update signature"), subtitle: "", kind: .button("sign"))
             ]
         } else {
             signatureDatasource = [
-                Datasource(title: "Signature not set", subtitle: "", kind: .lbael),
-                Datasource(title: "Update signature", subtitle: "", kind: .button("sign"))
+                Datasource(title: L10n.text("yubikey_setup__title__signature_not_set", fallback: "Signature not set"), subtitle: "", kind: .lbael),
+                Datasource(title: L10n.text("yubikey_setup__title__update_signature", fallback: "Update signature"), subtitle: "", kind: .button("sign"))
             ]
         }
         
@@ -109,8 +109,8 @@ class YubikeySetupViewController: SimpleBaseViewController {
                 issuedBy = String(serverName).capitalized
             }
             certDatasource.append(Datasource(
-                title: "Issued by",
-                subtitle: issuedBy ?? cfName as String? ?? "Undefined",
+                title: L10n.text("yubikey_setup__title__issued_by", fallback: "Issued by"),
+                subtitle: issuedBy ?? cfName as String? ?? L10n.text("devices_list__description__undefined", fallback: "Undefined"),
                 kind: .lbael
             ))
             var cfEmail: CFArray?
@@ -133,7 +133,7 @@ class YubikeySetupViewController: SimpleBaseViewController {
         self.tableView.delegate = self
         self.tableView.dataSource = self
         if !isFromOnboarding {
-            self.skipButton.title = "Cancel"
+            self.skipButton.title = L10n.text("common__action__cancel", fallback: "Cancel")
         }
 //        self.navigationItem.setRightBarButton(skipButton, animated: true)
         skipButton.target = self
@@ -204,7 +204,7 @@ extension YubikeySetupViewController: UITableViewDelegate {
                 if #available(iOS 13.0, *) {
                     if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
                         SignatureManager.shared.currentAction = .signature
-                        YubiKitExternalLocalization.nfcScanAlertMessage = "Generate digital signature"
+                        YubiKitExternalLocalization.nfcScanAlertMessage = L10n.text("yubikey_setup__nfc_scan_alert_message__generate_digital_signature", fallback: "Generate digital signature")
                         YubiKitManager.shared.startNFCConnection()
                         YubiKitManager.shared.delegate = SignatureManager.shared
                     }
@@ -215,9 +215,9 @@ extension YubikeySetupViewController: UITableViewDelegate {
                     style: .actionSheet,
                     title: "Forget registered Yubikey",
                     message: "Some text about deleting yubikey",
-                    yesText: "Forget",
+                    yesText: L10n.text("yubikey_setup__yes_text__forget", fallback: "Forget"),
                     dangerYes: true,
-                    noText: "Cancel",
+                    noText: L10n.text("common__action__cancel", fallback: "Cancel"),
                     animated: true) { result in
                         if result {
                             DispatchQueue.main.async {
@@ -257,7 +257,7 @@ extension YubikeySetupViewController: UITableViewDataSource {
                 if let signatureTs = CredentialsManager.shared.getSignatureTimestamp() {
                     let interval = signatureTs + Double(CommonConfigManager.shared.config.time_signature_for_messages_period) - Date().timeIntervalSince1970
                     if interval < 0 {
-                        cell.detailTextLabel?.text = "Expired"
+                        cell.detailTextLabel?.text = L10n.text("yubikey_setup__content__expired", fallback: "Expired")
                     } else {
                         let formatter = DateComponentsFormatter()
                         cell.detailTextLabel?.attributedText = NSAttributedString(string: formatter.string(from: interval) ?? " ",
@@ -287,8 +287,8 @@ extension YubikeySetupViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch section {
-        case 0: return "Certificate"
-        case 1: return "Signature"
+        case 0: return L10n.text("contact_fingerprints_view_controller_swift__table_section_title__certificate", fallback: "Certificate")
+        case 1: return L10n.text("contact_fingerprints_view_controller_swift__table_section_title__signature", fallback: "Signature")
         default: return nil
         }
     }

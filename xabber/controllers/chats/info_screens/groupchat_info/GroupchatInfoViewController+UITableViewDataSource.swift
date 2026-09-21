@@ -179,20 +179,11 @@ extension GroupchatInfoViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         if datasource[section].kind == .contact {
-            var participantsStr: String = "member"
-            if self.membersCount > 1 {
-//            if (contacts?.count ?? 0) > 1 {
-                participantsStr = "members"
-            }
-            if self.onlineContacts > 0 {
-                return "\(self.membersCount) \(participantsStr), \(self.onlineContacts) online"
-//                return "\(contacts?.count ?? 0) \(participantsStr), \(self.onlineContacts) online"
-            } else {
-                return "\(self.membersCount) \(participantsStr)"
-//                return "\(contacts?.count ?? 0) \(participantsStr)"
-            }
+            return GroupchatInfoCountLocalization.sectionTitle(
+                members: membersCount,
+                online: onlineContacts
+            )
         }
         return datasource[section].title
     }
 }
-

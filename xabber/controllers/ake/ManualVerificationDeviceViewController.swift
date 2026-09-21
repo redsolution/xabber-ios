@@ -45,7 +45,7 @@ class ManualVerificationDeviceViewController: SimpleBaseViewController {
     
     override func configure() {
         super.configure()
-        title = "Manual verification"
+        title = L10n.text("contact_device__verification__manual_verification", fallback: "Manual verification")
         if #available(iOS 14.0, *) {
             navigationItem.backButtonDisplayMode = .minimal
         }
@@ -66,8 +66,8 @@ class ManualVerificationDeviceViewController: SimpleBaseViewController {
             }
             datasource = [
                 Datasource(kind: .fingerprint, deviceId: String(device.deviceId), deviceLabel: device.name, fingerprint: device.fingerprint, title: self.jid),
-                Datasource(kind: .fingerprint, deviceId: String(myDevice.deviceId), deviceLabel: myDevice.name, fingerprint: myDevice.fingerprint, title: "\(self.owner) ⦁ your device"),
-                Datasource(kind: .button, title: "Match")
+                Datasource(kind: .fingerprint, deviceId: String(myDevice.deviceId), deviceLabel: myDevice.name, fingerprint: myDevice.fingerprint, title: L10n.format("manual_verification_device__title__value_your_device", fallback: "%@ ⦁ your device", arguments: [String(describing: self.owner)])),
+                Datasource(kind: .button, title: L10n.text("device_verification__manual__match", fallback: "Match"))
             ]
         } catch {
             DDLogDebug("ManualVerificationDeviceViewController: \(#function). \(error.localizedDescription)")

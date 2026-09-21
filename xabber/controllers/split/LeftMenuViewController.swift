@@ -780,33 +780,33 @@ class LeftMenuViewController: UIViewController {
             )
             if CommonConfigManager.shared.config.support_groupchats {
                 var mainItems = [
-                    Datasource(title: "Chats", icon: "custom.bubble", key: "chat", category: "", subtitle: "\(chats)", showTriangle: false),
-                    Datasource(title: "Calls", icon: "phone", key: "calls", category: "", subtitle: "\(calls.count)", showTriangle: false),
-                    Datasource(title: "Notifications", icon: "bell", key: "notifications", category: "", subtitle: "\(notificationsCount)", showTriangle: false),
-                    Datasource(title: "Contacts", icon: "person", key: "contacts", category: "contacts", subtitle: "\(contacts.count)", showTriangle: false),
-                    Datasource(title: "Groups", icon: "person.2", key: "groups", category: "public", subtitle: "\(invitations.count)", showTriangle: false),
-                    Datasource(title: "Archive", icon: "archivebox", key: "archive", category: "", subtitle: "\(archived)", showTriangle: false),
+                    Datasource(title: L10n.text("navigation__destination__chats", fallback: "Chats"), icon: "custom.bubble", key: "chat", category: "", subtitle: "\(chats)", showTriangle: false),
+                    Datasource(title: L10n.text("navigation__destination__calls", fallback: "Calls"), icon: "phone", key: "calls", category: "", subtitle: "\(calls.count)", showTriangle: false),
+                    Datasource(title: L10n.text("navigation__destination__notifications", fallback: "Notifications"), icon: "bell", key: "notifications", category: "", subtitle: "\(notificationsCount)", showTriangle: false),
+                    Datasource(title: L10n.text("navigation__destination__contacts", fallback: "Contacts"), icon: "person", key: "contacts", category: "contacts", subtitle: "\(contacts.count)", showTriangle: false),
+                    Datasource(title: L10n.text("navigation__destination__groups", fallback: "Groups"), icon: "person.2", key: "groups", category: "public", subtitle: "\(invitations.count)", showTriangle: false),
+                    Datasource(title: L10n.text("navigation__destination__archive", fallback: "Archive"), icon: "archivebox", key: "archive", category: "", subtitle: "\(archived)", showTriangle: false),
                 ]
                 if let savedItem {
                     mainItems.append(savedItem)
                 }
                 self.datasource = [mainItems, [
-                   Datasource(title: "Settings", icon: "gearshape", key: "settings", category: "", subtitle: "0", showTriangle: false),
+                   Datasource(title: L10n.text("navigation__destination__settings", fallback: "Settings"), icon: "gearshape", key: "settings", category: "", subtitle: "0", showTriangle: false),
                 ]
                ]
             } else {
                 var mainItems = [
-                    Datasource(title: "Chats", icon: "custom.bubble", key: "chat", category: "", subtitle: "\(chats)", showTriangle: false),
-                    Datasource(title: "Calls", icon: "phone", key: "calls", category: "", subtitle: "\(calls.count)", showTriangle: false),
-                    Datasource(title: "Notifications", icon: "bell", key: "notifications", category: "", subtitle: "\(notificationsCount)", showTriangle: false),
-                    Datasource(title: "Contacts", icon: "person", key: "contacts", category: "contacts", subtitle: "\(contacts.count)", showTriangle: false),
-                    Datasource(title: "Archive", icon: "archivebox", key: "archive", category: "", subtitle: "\(archived)", showTriangle: false),
+                    Datasource(title: L10n.text("navigation__destination__chats", fallback: "Chats"), icon: "custom.bubble", key: "chat", category: "", subtitle: "\(chats)", showTriangle: false),
+                    Datasource(title: L10n.text("navigation__destination__calls", fallback: "Calls"), icon: "phone", key: "calls", category: "", subtitle: "\(calls.count)", showTriangle: false),
+                    Datasource(title: L10n.text("navigation__destination__notifications", fallback: "Notifications"), icon: "bell", key: "notifications", category: "", subtitle: "\(notificationsCount)", showTriangle: false),
+                    Datasource(title: L10n.text("navigation__destination__contacts", fallback: "Contacts"), icon: "person", key: "contacts", category: "contacts", subtitle: "\(contacts.count)", showTriangle: false),
+                    Datasource(title: L10n.text("navigation__destination__archive", fallback: "Archive"), icon: "archivebox", key: "archive", category: "", subtitle: "\(archived)", showTriangle: false),
                 ]
                 if let savedItem {
                     mainItems.append(savedItem)
                 }
                 self.datasource = [mainItems, [
-                   Datasource(title: "Settings", icon: "gearshape", key: "settings", category: "", subtitle: "0", showTriangle: false),
+                   Datasource(title: L10n.text("navigation__destination__settings", fallback: "Settings"), icon: "gearshape", key: "settings", category: "", subtitle: "0", showTriangle: false),
                 ]
                ]
             }

@@ -153,15 +153,15 @@ enum AccountGalleryType: String, Equatable {
 
     var segmentTitle: String {
         switch self {
-        case .basic: return "Hosted"
-        case .premium: return "Premium"
+        case .basic: return L10n.text("cloud_storage__gallery__hosted_segment", fallback: "Hosted")
+        case .premium: return L10n.text("settings__title__premium", fallback: "Premium")
         }
     }
 
     var displayTitle: String {
         switch self {
-        case .basic: return "Basic Cloud Storage"
-        case .premium: return "Premium Cloud Storage"
+        case .basic: return L10n.text("cloud_storage__gallery__basic_title", fallback: "Basic Cloud Storage")
+        case .premium: return L10n.text("cloud_storage__gallery__premium_title", fallback: "Premium Cloud Storage")
         }
     }
 }
@@ -184,9 +184,9 @@ struct AccountGalleryPremiumMetadata: Equatable {
             return displayName?.isNotEmpty == true ? displayName : nil
         }
         if storageMegabytes % 1024 == 0 {
-            return "\(storageMegabytes / 1024) GB plan"
+            return L10n.format("cloud_storage__premium__gigabyte_plan_format", fallback: "%1$@ GB plan", arguments: [String(describing: storageMegabytes / 1024)])
         }
-        return "\(storageMegabytes) MB plan"
+        return L10n.format("cloud_storage__premium__megabyte_plan_format", fallback: "%1$@ MB plan", arguments: [String(describing: storageMegabytes)])
     }
 }
 

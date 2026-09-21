@@ -94,7 +94,7 @@ class AccountEncryptionInfoViewController: SimpleBaseViewController {
         if !(devices?.isEmpty ?? true) {
             datasource.append(Datasource(.device,
                                          title: "Other devices".localizeString(id: "account_other_devices", arguments: []),
-                       value: "some text about list of devices presented here", /* learn more - https://www.xabber.com/devicemanagement/   */
+                       value: L10n.text("account_encryption__other_devices__description", fallback: "Review the devices connected to this account and manage their end-to-end encryption."), /* learn more - https://www.xabber.com/devicemanagement/   */
                        editable: false,
                        childs: []))
         }

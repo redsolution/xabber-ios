@@ -64,12 +64,12 @@ struct NotificationsListCoordinator {
         let counters = NotificationsSupport.unreadCounters(in: realm, owners: owners)
         let visibleCounters = NotificationsSupport.visibleCounters(in: realm, owners: owners)
         let categoriesDatasource = [
-            [CategoryItem(title: "Notifications", icon: "bell.fill", key: "all", subtitle: "Manage security alerts, information updates, mentions, and other notifications.", color: .tintColor, isHeader: true, isSelectable: false)],
-            [CategoryItem(title: "Notifications", icon: "bell", key: "all", subtitle: "\(visibleCounters.total)", color: .tintColor, isHeader: false, isSelectable: true)],
+            [CategoryItem(title: L10n.text("notifications__screen__title", fallback: "Notifications"), icon: "bell.fill", key: "all", subtitle: L10n.text("notifications__overview__description", fallback: "Manage security alerts, information updates, mentions, and other notifications."), color: .tintColor, isHeader: true, isSelectable: false)],
+            [CategoryItem(title: L10n.text("notifications__screen__title", fallback: "Notifications"), icon: "bell", key: "all", subtitle: "\(visibleCounters.total)", color: .tintColor, isHeader: false, isSelectable: true)],
             [
-                CategoryItem(title: "Security", icon: "checkerboard.shield", key: "security", subtitle: "\(visibleCounters.security)", color: .tintColor, isHeader: false, isSelectable: true),
-                CategoryItem(title: "Information", icon: "info.circle", key: "info", subtitle: "\(visibleCounters.info)", color: .tintColor, isHeader: false, isSelectable: true),
-                CategoryItem(title: "Mentions", icon: "at", key: "mentions", subtitle: "\(visibleCounters.mentions)", color: .tintColor, isHeader: false, isSelectable: true),
+                CategoryItem(title: L10n.text("notifications__category__security", fallback: "Security"), icon: "checkerboard.shield", key: "security", subtitle: "\(visibleCounters.security)", color: .tintColor, isHeader: false, isSelectable: true),
+                CategoryItem(title: L10n.text("notifications__category__information", fallback: "Information"), icon: "info.circle", key: "info", subtitle: "\(visibleCounters.info)", color: .tintColor, isHeader: false, isSelectable: true),
+                CategoryItem(title: L10n.text("notifications__category__mentions", fallback: "Mentions"), icon: "at", key: "mentions", subtitle: "\(visibleCounters.mentions)", color: .tintColor, isHeader: false, isSelectable: true),
             ]
         ]
 
@@ -567,11 +567,11 @@ enum NotificationsSupport {
         let name = displayName(for: item, rosterMap: rosterMap)
         switch item.category {
         case .device:
-            return "New login to server \(name)"
+            return L10n.format("notifications__item__new_login_format", fallback: "New login to server %@", arguments: [String(describing: name)])
         case .mention:
-            return "\(name) mentioned you"
+            return L10n.format("notifications__item__mentioned_you_format", fallback: "%@ mentioned you", arguments: [String(describing: name)])
         case .info:
-            return "Information from \(name)"
+            return L10n.format("notifications__item__information_from_format", fallback: "Information from %@", arguments: [String(describing: name)])
         case .contact:
             return name
         }
@@ -714,7 +714,7 @@ class NotificationsListViewController: SimpleBaseViewController {
         if UIDevice.current.userInterfaceIdiom == .pad {
             self.title = nil
         } else {
-        self.title = "Notifications"
+        self.title = L10n.text("notifications__screen__title", fallback: "Notifications")
         }
         refreshContinuousSplitBackgroundAppearance()
         self.tableView.dataSource = self
@@ -1025,7 +1025,7 @@ class NotificationsListViewController: SimpleBaseViewController {
 
         let isActive = unreadOnly.value
         notificationsCompactBottomBarView.leftButton.accessibilityIdentifier = "notifications_unread_filter_button"
-        notificationsCompactBottomBarView.leftButton.accessibilityLabel = "Unread notifications filter"
+        notificationsCompactBottomBarView.leftButton.accessibilityLabel = L10n.text("notifications__filter__unread_accessibility_label", fallback: "Unread notifications filter")
         notificationsCompactBottomBarView.updateLeftButton(
             imageName: isActive ? "bell.badge.fill" : "bell",
             isActive: isActive
@@ -1079,17 +1079,17 @@ class NotificationsListViewController: SimpleBaseViewController {
         button.accessibilityIdentifier = "notifications_filter_menu_button"
         var childs: [UIMenuElement] = [
             UIAction(
-                title: "All",
+                title: L10n.text("notifications__filter__all", fallback: "All"),
                 image: imageLiteral("bell"),
                 identifier: .none,
-                discoverabilityTitle: "Displays all notifications",
+                discoverabilityTitle: L10n.text("notifications_list__discoverability_title__displays_all_notifications", fallback: "Displays all notifications"),
                 attributes: [],
                 state: filter.value == .all ? .on : .off,
                 handler: { action in
                     self.shouldFilterBy(category: Filter.all.rawValue)
                 }),
             UIAction(
-                title: "Security",
+                title: L10n.text("notifications__category__security", fallback: "Security"),
                 image: imageLiteral("shield"),
                 identifier: .none,
                 discoverabilityTitle: nil,
@@ -1099,7 +1099,7 @@ class NotificationsListViewController: SimpleBaseViewController {
                     self.shouldFilterBy(category: Filter.security.rawValue)
                 }),
             UIAction(
-                title: "Mentions",
+                title: L10n.text("notifications__category__mentions", fallback: "Mentions"),
                 image: imageLiteral("at"),
                 identifier: .none,
                 discoverabilityTitle: nil,
@@ -1109,7 +1109,7 @@ class NotificationsListViewController: SimpleBaseViewController {
                     self.shouldFilterBy(category: Filter.mentions.rawValue)
                 }),
             UIAction(
-                title: "Information",
+                title: L10n.text("notifications__category__information", fallback: "Information"),
                 image: imageLiteral("info.circle"),
                 identifier: .none,
                 discoverabilityTitle: nil,
@@ -1151,7 +1151,7 @@ class NotificationsListViewController: SimpleBaseViewController {
             if accountActions.count > 1 {
                 childs.append(
                     UIMenu(
-                        title: "Accounts",
+                        title: L10n.text("notifications__filter__accounts", fallback: "Accounts"),
                         options: [.displayInline],
                         children: accountActions
                     )
@@ -1261,8 +1261,8 @@ class NotificationsListViewController: SimpleBaseViewController {
                     category: .device,
                     owner: "",
                     jid: "",
-                    title: NSAttributedString(string: "Security"),
-                    message: NSAttributedString(string: "Notifications about new logins, device changes, and activity on your account."),
+                    title: NSAttributedString(string: L10n.text("notifications__category__security", fallback: "Security")),
+                    message: NSAttributedString(string: L10n.text("notifications__category__security_description", fallback: "Notifications about new logins, device changes, and activity on your account.")),
                     key: nil,
                     date: Date(),
                     avatarUrl: nil,
@@ -1278,8 +1278,8 @@ class NotificationsListViewController: SimpleBaseViewController {
                     category: .mention,
                     owner: "",
                     jid: "",
-                    title: NSAttributedString(string: "Mentions"),
-                    message: NSAttributedString(string: "Alerts when you are tagged in conversations, helping you stay aware of relevant discussions."),
+                    title: NSAttributedString(string: L10n.text("notifications__category__mentions", fallback: "Mentions")),
+                    message: NSAttributedString(string: L10n.text("notifications__category__mentions_description", fallback: "Alerts when you are tagged in conversations, helping you stay aware of relevant discussions.")),
                     key: nil,
                     date: Date(),
                     avatarUrl: nil,
@@ -1295,8 +1295,8 @@ class NotificationsListViewController: SimpleBaseViewController {
                     category: .info,
                     owner: "",
                     jid: "",
-                    title: NSAttributedString(string: "Information"),
-                    message: NSAttributedString(string: "Updates, tips, and system messages from server operators and various contacts to keep you informed about features, maintenance, and app-related news."),
+                    title: NSAttributedString(string: L10n.text("notifications__category__information", fallback: "Information")),
+                    message: NSAttributedString(string: L10n.text("notifications__category__information_description", fallback: "Updates, tips, and system messages from server operators and various contacts to keep you informed about features, maintenance, and app-related news.")),
                     key: nil,
                     date: Date(),
                     avatarUrl: nil,
@@ -2058,7 +2058,7 @@ extension NotificationsListViewController: UITableViewDelegate {
                                 configure: nil
                             ) ?? false
                         case .unavailable:
-                            self.view.makeToast("Original mention is unavailable")
+                            self.view.makeToast(L10n.text("notifications__mention__unavailable_toast", fallback: "Original mention is unavailable"))
                         }
 #if DEBUG || CHAT_PERFORMANCE_LAB
                         self.mentionOpenAttemptObserverForTests?(

@@ -14,9 +14,27 @@ struct QuitAccountPresenter {
     
     
     func present(in view: UIViewController, animated: Bool, completion: (()->Void)?) {
-        let alert = UIAlertController(title: "Quit account", message: ["You are quitting", jid, "account. Account data will be deleted from this device. Your data on server will not be affected."].joined(separator: " "), preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: nil))
-        alert.addAction(UIAlertAction(title: "Quit", style: .destructive, handler: { (_) in
+        let alert = UIAlertController(
+            title: L10n.text(
+                "settings_account__button_quit_account",
+                fallback: "Quit account"
+            ),
+            message: L10n.format(
+                "account__quit_dialog__message_format",
+                fallback: "You are quitting %1$@ account. Account data will be deleted from this device. Your data on server will not be affected.",
+                arguments: [jid]
+            ),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(
+            title: L10n.text("common__action__cancel", fallback: "Cancel"),
+            style: .cancel,
+            handler: nil
+        ))
+        alert.addAction(UIAlertAction(
+            title: L10n.text("common__action__quit", fallback: "Quit"),
+            style: .destructive,
+            handler: { (_) in
             completion?()
         }))
         if UIDevice.current.userInterfaceIdiom == .pad {

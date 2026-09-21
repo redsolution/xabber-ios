@@ -47,7 +47,7 @@ extension ChatViewController: ContextMenuDelegate {
                 if let text = formatSelectedMessagesBodyForCopy(forwardedIdsManual: [primary]) {
                     UIPasteboard.general.string = text
                     
-                    ToastPresenter().presentSuccess(message: "Text was copied to clipboard")
+                    ToastPresenter().presentSuccess(message: L10n.text("chat__message_action__text_copied", fallback: "Text was copied to clipboard"))
                 } else {
                     ToastPresenter().presentError(message: "Internal error".localizeString(id: "message_manager_error_internal", arguments: []))
                 }
@@ -317,21 +317,24 @@ extension ChatViewController: MessageCellDelegate {
             vc.owner = self.owner
             showModal(vc, parent: self)
         } else {
-            let errorMessage = "Unable to send file: \(item.messageError ?? "Unexpected error")"//
+            let errorMessage = L10n.text(
+                "chat__error_message__unable_to_send_file",
+                fallback: "Unable to send file."
+            )
             let items = [
-                ActionSheetPresenter.Item(destructive: false, title: "Resend", value: "retry"),
-                ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete"),
+                ActionSheetPresenter.Item(destructive: false, title: L10n.text("chat__message_action__resend", fallback: "Resend"), value: "retry"),
+                ActionSheetPresenter.Item(destructive: true, title: L10n.text("common__action__delete", fallback: "Delete"), value: "delete"),
             ]
             let itemsWithQuota = [
-                ActionSheetPresenter.Item(destructive: false, title: self.blockInputFieldByTimeSignature.value ? "Update signature" :  "Retry", value: "retry"),
-                ActionSheetPresenter.Item(destructive: false, title: "Manage Cloud Storage", value: "quota"),
-                ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete"),
+                ActionSheetPresenter.Item(destructive: false, title: self.blockInputFieldByTimeSignature.value ? L10n.text("chat__signature__update_signature", fallback: "Update signature") :  L10n.text("common__action__retry", fallback: "Retry"), value: "retry"),
+                ActionSheetPresenter.Item(destructive: false, title: L10n.text("chat__message_action__manage_cloud_storage", fallback: "Manage Cloud Storage"), value: "quota"),
+                ActionSheetPresenter.Item(destructive: true, title: L10n.text("common__action__delete", fallback: "Delete"), value: "delete"),
             ]
             ActionSheetPresenter().present(
                 in: self,
-                title: "Message sending error",
+                title: L10n.text("chat__message_action__message_sending_error", fallback: "Message sending error"),
                 message: errorMessage,
-                cancel: "Cancel",
+                cancel: L10n.text("common__action__cancel", fallback: "Cancel"),
                 values: ["403", "400"].contains(item.messageErrorCode) ? itemsWithQuota : items,
                 animated: true) { value in
                     switch value {
@@ -520,17 +523,17 @@ extension ChatViewController: MessageCellDelegate {
         CM.currentMessagePrimary = primary
         if item.state == .error {
             CM.items = [[
-                ContextMenuItemWithImage(title: "Resend", image: imageLiteral("arrowshape.turn.up.backward")!, value: "retry", danger: false)
+                ContextMenuItemWithImage(title: L10n.text("chat__message_action__resend", fallback: "Resend"), image: imageLiteral("arrowshape.turn.up.backward")!, value: "retry", danger: false)
             ],[
-                ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: isLocallyDeletablePending ? "delete_error" : "delete", danger: true)
+                ContextMenuItemWithImage(title: L10n.text("common__action__delete", fallback: "Delete"), image: imageLiteral("trash")!, value: isLocallyDeletablePending ? "delete_error" : "delete", danger: true)
             ]]
         } else if item.isOutgoing {
             var actions = [
-                ContextMenuItemWithImage(title: "Reply", image: imageLiteral("arrowshape.turn.up.backward")!, value: "reply", danger: false),
-                ContextMenuItemWithImage(title: "Forward", image: imageLiteral("arrowshape.turn.up.right")!, value: "forward", danger: false),
-                ContextMenuItemWithImage(title: "Copy", image: imageLiteral("doc.on.doc")!, value: "copy", danger: false),
-                ContextMenuItemWithImage(title: "Edit", image: imageLiteral("xabber.pencil.cap")!, value: "edit", danger: false),
-                ContextMenuItemWithImage(title: "Select", image: imageLiteral("checkmark.circle")!, value: "select", danger: false),
+                ContextMenuItemWithImage(title: L10n.text("common__action__reply", fallback: "Reply"), image: imageLiteral("arrowshape.turn.up.backward")!, value: "reply", danger: false),
+                ContextMenuItemWithImage(title: L10n.text("common__action__forward", fallback: "Forward"), image: imageLiteral("arrowshape.turn.up.right")!, value: "forward", danger: false),
+                ContextMenuItemWithImage(title: L10n.text("common__action__copy", fallback: "Copy"), image: imageLiteral("doc.on.doc")!, value: "copy", danger: false),
+                ContextMenuItemWithImage(title: L10n.text("common__action__edit", fallback: "Edit"), image: imageLiteral("xabber.pencil.cap")!, value: "edit", danger: false),
+                ContextMenuItemWithImage(title: L10n.text("common__action__select", fallback: "Select"), image: imageLiteral("checkmark.circle")!, value: "select", danger: false),
                 ContextMenuItemWithImage(title: "Report Message".localizeString(id: "report_message_action", arguments: []), image: imageLiteral("exclamationmark.circle")!, value: "report", danger: false)
             ]
             if hasMedia {
@@ -540,14 +543,14 @@ extension ChatViewController: MessageCellDelegate {
                 actions.append(pinItem)
             }
             CM.items = [actions, [
-                ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: isLocallyDeletablePending ? "delete_sending" : "delete", danger: true)
+                ContextMenuItemWithImage(title: L10n.text("common__action__delete", fallback: "Delete"), image: imageLiteral("trash")!, value: isLocallyDeletablePending ? "delete_sending" : "delete", danger: true)
             ]]
         } else {
             var actions = [
-                ContextMenuItemWithImage(title: "Reply", image: imageLiteral("arrowshape.turn.up.backward")!, value: "reply", danger: false),
-                ContextMenuItemWithImage(title: "Forward", image: imageLiteral("arrowshape.turn.up.right")!, value: "forward", danger: false),
-                ContextMenuItemWithImage(title: "Copy", image: imageLiteral("doc.on.doc")!, value: "copy", danger: false),
-                ContextMenuItemWithImage(title: "Select", image: imageLiteral("checkmark.circle")!, value: "select", danger: false),
+                ContextMenuItemWithImage(title: L10n.text("common__action__reply", fallback: "Reply"), image: imageLiteral("arrowshape.turn.up.backward")!, value: "reply", danger: false),
+                ContextMenuItemWithImage(title: L10n.text("common__action__forward", fallback: "Forward"), image: imageLiteral("arrowshape.turn.up.right")!, value: "forward", danger: false),
+                ContextMenuItemWithImage(title: L10n.text("common__action__copy", fallback: "Copy"), image: imageLiteral("doc.on.doc")!, value: "copy", danger: false),
+                ContextMenuItemWithImage(title: L10n.text("common__action__select", fallback: "Select"), image: imageLiteral("checkmark.circle")!, value: "select", danger: false),
                 ContextMenuItemWithImage(title: "Report Message".localizeString(id: "report_message_action", arguments: []), image: imageLiteral("exclamationmark.circle")!, value: "report", danger: false)
             ]
             if hasMedia {
@@ -557,7 +560,7 @@ extension ChatViewController: MessageCellDelegate {
                 actions.append(pinItem)
             }
             CM.items = [actions, [
-                ContextMenuItemWithImage(title: "Delete", image: imageLiteral("trash")!, value: "delete", danger: true)
+                ContextMenuItemWithImage(title: L10n.text("common__action__delete", fallback: "Delete"), image: imageLiteral("trash")!, value: "delete", danger: true)
             ]]
         }
         dismissKeyboard()
@@ -944,7 +947,7 @@ extension ChatViewController: MessageCellDelegate {
             UIApplication.shared.canOpenURL(url) else {
                 return
         }
-        YesNoPresenter().present(in: self, title: "Open this file", message: url.lastPathComponent, yesText: "Open", noText: "Cancel", animated: true) { (value) in
+        YesNoPresenter().present(in: self, title: L10n.text("open_file_message", fallback: "Open this file"), message: url.lastPathComponent, yesText: L10n.text("common__action__open", fallback: "Open"), noText: L10n.text("common__action__cancel", fallback: "Cancel"), animated: true) { (value) in
             if value {
                 UIApplication.shared.open(url, options: [:]) { (_) in }
             }

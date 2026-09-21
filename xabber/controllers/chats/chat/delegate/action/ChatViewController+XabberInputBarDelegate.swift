@@ -102,7 +102,7 @@ extension ChatViewController: XabberInputBarDelegate {
             if let url = url, let data = try AudioManager.shared.load(url) {
                 AudioManager.shared.player = try AVAudioPlayer(data: data, fileTypeHint: AVFileType.m4a.rawValue)
                 AudioManager.shared.currentPlayingTitle = self.ownerSender.displayName
-                AudioManager.shared.currentPlayingSubtitle = "Voice Message"
+                AudioManager.shared.currentPlayingSubtitle = L10n.text("voice_message", fallback: "Voice message")
                 self.xabberInputView.recordAndPlayPanel.play(for: AudioManager.shared.player?.duration ?? 0)
                 AudioManager.shared.addMulticastDelegate(self.xabberInputView)
                 AudioManager.shared.addMulticastDelegate(self.sharedAudioPlayerPanel)
@@ -478,10 +478,10 @@ extension ChatViewController: XabberInputBarDelegate {
             style: .actionSheet,
             title: nil,
             message: "Unable to record sound because the permission has not been granted. This can be changed in your settings.".localizeString(id: "audio_error_no_permission", arguments: []),
-            yesText: "Open application settings",
+            yesText: L10n.text("chat__yes_text__open_application_settings", fallback: "Open application settings"),
             dangerYes: false,
             showCancelAction: true,
-            noText: "Cancel",
+            noText: L10n.text("common__action__cancel", fallback: "Cancel"),
             animated: true) { value in
                 guard value,
                       let url = URL(string: UIApplication.openSettingsURLString),
@@ -504,7 +504,7 @@ extension ChatViewController: XabberInputBarDelegate {
         SignatureManager.shared.delegate = self
         FeedbackManager.shared.tap()
         if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
-            YubiKitExternalLocalization.nfcScanAlertMessage = "Generate digital signature for message"
+            YubiKitExternalLocalization.nfcScanAlertMessage = L10n.text("chat__nfc_scan_alert_message__generate_digital_signature_for_message", fallback: "Generate digital signature for message")
             YubiKitManager.shared.startNFCConnection()
             YubiKitManager.shared.delegate = SignatureManager.shared
             SignatureManager.shared.currentAction = .signature
@@ -553,9 +553,9 @@ extension ChatViewController: XabberInputBarDelegate {
             
             ActionSheetPresenter().present(
                 in: self,
-                title: "Burn message after",
+                title: L10n.text("chat__input__burn_message_after", fallback: "Burn message after"),
                 message: nil,
-                cancel: "Cancel",
+                cancel: L10n.text("common__action__cancel", fallback: "Cancel"),
                 values: items,
                 animated: true) { value in
                     let rawValue = Int(value)
@@ -598,15 +598,12 @@ extension ChatViewController: XabberInputBarDelegate {
                     item.begin = 0
                     item.end = 0
                     item.metadata = [
-                        "ephemeral-timer": selectedInterval.rawValue,
+                        EphemeralTimerSystemEvent.metadataKey: selectedInterval.rawValue,
                     ]
                     item.primary = UUID().uuidString
-                    var body = "Self-destruct timer was set to \(ChatMarkersManager.BurnMessagesTimerValues.verbose(selectedInterval))"
-                    if selectedInterval == .off {
-                        body = "Self-destruct timer was disabled"
-                    }
+                    let event = EphemeralTimerSystemEvent(timerValue: selectedInterval)
                     AccountManager.shared.find(for: self.owner)?.messages.sendSystemMessage(
-                        body,
+                        event.canonicalEnglishBody,
                         attachments: [item],
                         to: self.jid,
                         conversationType: self.conversationType
@@ -642,7 +639,7 @@ extension ChatViewController: XabberInputBarDelegate {
         }
         
         let message = "\n\n\n\n\n\n\n\n"
-        let alert = UIAlertController(title: "Burn message after", message: message, preferredStyle: UIAlertController.Style.actionSheet)
+        let alert = UIAlertController(title: L10n.text("chat__input__burn_message_after", fallback: "Burn message after"), message: message, preferredStyle: UIAlertController.Style.actionSheet)
          
         let picker = UIPickerView(frame: CGRect(x: 0, y: 20, width: alert.view.frame.width - 16, height: 140))
         picker.dataSource = self
@@ -675,7 +672,7 @@ extension ChatViewController: XabberInputBarDelegate {
                 popoverController.canOverlapSourceViewRect = true
             }
         }
-        let okAction = UIAlertAction(title: "Done", style: .default, handler: {
+        let okAction = UIAlertAction(title: L10n.text("common__action__done", fallback: "Done"), style: .default, handler: {
             (alert: UIAlertAction!) -> Void in
             let selectedInterval = ChatMarkersManager.BurnMessagesTimerValues.values()[self.selectedAfterburnId]
             guard self.handleAutoDeleteTimerAccess(for: selectedInterval) else {
@@ -716,15 +713,12 @@ extension ChatViewController: XabberInputBarDelegate {
             item.begin = 0
             item.end = 0
             item.metadata = [
-                "ephemeral-timer": selectedInterval.rawValue,
+                EphemeralTimerSystemEvent.metadataKey: selectedInterval.rawValue,
             ]
             item.primary = UUID().uuidString
-            var body = "Self-destruct timer was set to \(ChatMarkersManager.BurnMessagesTimerValues.verbose(selectedInterval))"
-            if selectedInterval == .off {
-                body = "Self-destruct timer was disabled"
-            }
+            let event = EphemeralTimerSystemEvent(timerValue: selectedInterval)
             AccountManager.shared.find(for: self.owner)?.messages.sendSystemMessage(
-                body,
+                event.canonicalEnglishBody,
                 attachments: [item],
                 to: self.jid,
                 conversationType: self.conversationType

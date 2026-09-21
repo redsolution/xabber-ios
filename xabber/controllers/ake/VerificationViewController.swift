@@ -230,8 +230,8 @@ class VerificationViewController: SimpleBaseViewController {
             buttonsStack.addArrangedSubview(agreeButton)
             buttonsStack.addArrangedSubview(cancelButton)
             
-            agreeButton.setTitle("Proceed to Verification", for: .normal)
-            cancelButton.setTitle("Cancel verification", for: .normal)
+            agreeButton.setTitle(L10n.text("device_verification__flow__proceed_to_verification", fallback: "Proceed to Verification"), for: .normal)
+            cancelButton.setTitle(L10n.text("device_verification__flow__cancel_verification", fallback: "Cancel verification"), for: .normal)
             
             agreeButton.addTarget(self, action: #selector(onAgreeButtonTapped), for: .touchUpInside)
             cancelButton.addTarget(self, action: #selector(onRejectButtonTapped), for: .touchUpInside)
@@ -246,15 +246,15 @@ class VerificationViewController: SimpleBaseViewController {
             config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 30, bottom: 0, trailing: 30)
             agreeButton.configuration = config
             
-            agreeButton.setTitle("Submit", for: .normal)
-            cancelButton.setTitle("Cancel verification", for: .normal)
+            agreeButton.setTitle(L10n.text("device_verification__flow__submit", fallback: "Submit"), for: .normal)
+            cancelButton.setTitle(L10n.text("device_verification__flow__cancel_verification", fallback: "Cancel verification"), for: .normal)
             
             agreeButton.addTarget(self, action: #selector(onSubmitButtonPressed), for: .touchUpInside)
             cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
             
         } else if state == .trusted {
             buttonsStack.addArrangedSubview(agreeButton)
-            agreeButton.setTitle("Great", for: .normal)
+            agreeButton.setTitle(L10n.text("device_verification__flow__great", fallback: "Great"), for: .normal)
             
             var config = UIButton.Configuration.plain()
             config.baseForegroundColor = .systemBlue
@@ -265,12 +265,12 @@ class VerificationViewController: SimpleBaseViewController {
             
         } else if state == .acceptedRequest {
             buttonsStack.addArrangedSubview(cancelButton)
-            cancelButton.setTitle("Cancel verification", for: .normal)
+            cancelButton.setTitle(L10n.text("device_verification__flow__cancel_verification", fallback: "Cancel verification"), for: .normal)
             cancelButton.addTarget(self, action: #selector(self.onCancelButtonPressed), for: .touchUpInside)
             
         } else {
             buttonsStack.addArrangedSubview(cancelButton)
-            cancelButton.setTitle("Cancel verification", for: .normal)
+            cancelButton.setTitle(L10n.text("device_verification__flow__cancel_verification", fallback: "Cancel verification"), for: .normal)
             
         }
         
@@ -292,23 +292,23 @@ class VerificationViewController: SimpleBaseViewController {
         
         switch state {
         case .receivedRequest:
-            titleText = "Incoming Device Verification Request"
-            descriptionText = self.owner == self.jid ? "A verification request has been sent from another device to establish secure and encrypted communication." : "A verification request has been sent from your contact to establish secure and encrypted communication."
-            stepsText = self.owner == self.jid ? "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tProceed to reveal the verification code necessary to complete the encryption key exchange." : "1.\tСonfirm that this contact is who he claims to be and that you recognize the initiating session.\n\n2.\tProceed to reveal the verification code necessary to complete the encryption key exchange."
+            titleText = L10n.text("verification__title_text__incoming_device_verification_request", fallback: "Incoming Device Verification Request")
+            descriptionText = self.owner == self.jid ? L10n.text("device_verification__description__request_sent_from_another_device", fallback: "A verification request has been sent from another device to establish secure and encrypted communication.") : L10n.text("device_verification__description__request_sent_from_contact", fallback: "A verification request has been sent from your contact to establish secure and encrypted communication.")
+            stepsText = self.owner == self.jid ? L10n.text("device_verification__instructions__reveal_owned_device_code", fallback: "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tProceed to reveal the verification code necessary to complete the encryption key exchange.") : L10n.text("device_verification__instructions__reveal_contact_code", fallback: "1.\tConfirm that this contact is who he claims to be and that you recognize the initiating session.\n\n2.\tProceed to reveal the verification code necessary to complete the encryption key exchange.")
             
         case .acceptedRequest:
-            titleText = "Device Verification"
-            descriptionText = self.owner == self.jid ? "You are receiving a device verification request to ensure secure and encrypted communication." : "You are about to establish a secure connection with this contact."
-            stepsText = self.owner == self.jid ? "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tBelow is the verification code. Enter this code on the primary device to complete the encryption key exchange:" : "1.\tCarefully verify the address and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:"
+            titleText = L10n.text("verification__title_text__device_verification", fallback: "Device Verification")
+            descriptionText = self.owner == self.jid ? L10n.text("device_verification__description__receiving_device_verification_request", fallback: "You are receiving a device verification request to ensure secure and encrypted communication.") : L10n.text("device_verification__description__about_to_establish_contact_connection", fallback: "You are about to establish a secure connection with this contact.")
+            stepsText = self.owner == self.jid ? L10n.text("device_verification__instructions__enter_code_on_primary_device", fallback: "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tBelow is the verification code. Enter this code on the primary device to complete the encryption key exchange:") : L10n.text("device_verification__instructions__ask_contact_to_enter_code", fallback: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:")
             
         case .receivedRequestAccept:
-            titleText = "Device Verification"
-            descriptionText = self.owner == self.jid ? "You are verifying this device to ensure secure and encrypted communication." : "You are establishing a secure connection with this contact."
-            stepsText = self.owner == self.jid ? "1.\tEnsure the other device is displaying the verification code.\n\n2.\tEnter the verification code displayed on the other device to complete the encryption key exchange:" : "1.\tCarefully verify the address and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:"
+            titleText = L10n.text("verification__title_text__device_verification", fallback: "Device Verification")
+            descriptionText = self.owner == self.jid ? L10n.text("device_verification__description__verify_this_device", fallback: "You are verifying this device to ensure secure and encrypted communication.") : L10n.text("device_verification__description__establish_contact_connection", fallback: "You are establishing a secure connection with this contact.")
+            stepsText = self.owner == self.jid ? L10n.text("device_verification__instructions__enter_other_device_code", fallback: "1.\tEnsure the other device is displaying the verification code.\n\n2.\tEnter the verification code displayed on the other device to complete the encryption key exchange:") : L10n.text("device_verification__instructions__enter_contact_code", fallback: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:")
             
         case .trusted:
-            titleText = "Verification Successful"
-            descriptionText = "Verification has been successfully completed. Your devices can now seamlessly share encrypted communications. The following devices are now trusted:"
+            titleText = L10n.text("verification__title_text__verification_successful", fallback: "Verification Successful")
+            descriptionText = L10n.text("device_verification__description__verification_succeeded_trusted_devices", fallback: "Verification has been successfully completed. Your devices can now seamlessly share encrypted communications. The following devices are now trusted:")
         default:
             break
         }

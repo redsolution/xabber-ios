@@ -262,7 +262,7 @@ extension XMPPChangePasswordManager: XMPPStreamDelegate {
         
         case .result:
             close(sender)
-            delegate?.didReceiveResponse(title: "Success", description: "Password changed")
+            delegate?.didReceiveResponse(title: L10n.text("change_password__result__success", fallback: "Success"), description: L10n.text("xmppchange_password__description__password_changed", fallback: "Password changed"))
         
         case .error:
             close(sender)

@@ -183,7 +183,7 @@ extension ChatViewController {
                 image: imageLiteral("at", dimension: NativeGlassBarStyle.iconSize)
             )
             self.badgeButton.addTarget(self, action: #selector(buttonTapped(_:)), for: .touchUpInside)
-            self.badgeButton.accessibilityLabel = "Unread mentions"
+            self.badgeButton.accessibilityLabel = L10n.text("chat__accessibility__unread_mentions", fallback: "Unread mentions")
             self.badgeButton.accessibilityIdentifier = "chat-unread-mentions-button"
 
             self.addSubview(self.badgeButton)

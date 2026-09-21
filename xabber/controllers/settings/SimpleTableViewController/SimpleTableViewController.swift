@@ -26,6 +26,51 @@ import RxCocoa
 import XMPPFramework.XMPPJID
 import LocalAuthentication
 
+enum PasscodeSettingsOptionLocalization {
+    static let autoLockSeconds = [0, 60, 120, 300, 600]
+    static let attemptLimits = [0, 1, 2, 3, 4, 5]
+    static let displayedAttemptOffsets = [0, 1, 2, 3, 4, 5, 10]
+
+    static func autoLockTitle(
+        seconds: Int,
+        localizer: Localizing
+    ) -> String {
+        guard seconds > 0 else {
+            return localizer.text(key: "never", fallback: "Never")
+        }
+        return localizer.plural(
+            key: "settings__passcode__auto_lock_minutes_count",
+            count: seconds / 60,
+            fallback: "%lld minutes"
+        )
+    }
+
+    static func attemptLimitTitle(
+        attempts: Int,
+        localizer: Localizing
+    ) -> String {
+        guard attempts > 0 else {
+            return localizer.text(
+                key: "simple__text__unlimited",
+                fallback: "Unlimited"
+            )
+        }
+        return localizer.formatters
+            .numberFormatter()
+            .string(from: NSNumber(value: attempts)) ?? String(attempts)
+    }
+
+    static func displayedAttemptOffsetTitle(
+        offset: Int,
+        localizer: Localizing
+    ) -> String {
+        let number = localizer.formatters
+            .numberFormatter()
+            .string(from: NSNumber(value: offset)) ?? String(offset)
+        return "+ \(number)"
+    }
+}
+
 class SimpleTableViewController: BaseViewController {
 
     final class ProfileMenuCell: UITableViewCell {
@@ -187,7 +232,10 @@ extension SimpleTableViewController: UITableViewDataSource {
                 let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
                 cell.textLabel?.text = menuItem.title
                 let seconds = SettingManager.shared.getInt(for: "", scope: .security, key: key.rawValue)
-                cell.detailTextLabel?.text = seconds > 0 ? "\(seconds / 60) min" : "Never"
+                cell.detailTextLabel?.text = PasscodeSettingsOptionLocalization.autoLockTitle(
+                    seconds: seconds,
+                    localizer: LocalizationRuntime.shared.service
+                )
                 cell.accessoryType = .disclosureIndicator
                 return cell
                 
@@ -195,7 +243,10 @@ extension SimpleTableViewController: UITableViewDataSource {
                 let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
                 cell.textLabel?.text = menuItem.title
                 let attempts = SettingManager.shared.getInt(for: "", scope: .security, key: key.rawValue)
-                cell.detailTextLabel?.text = attempts > 0 ? "\(attempts)" : "Unlimited"
+                cell.detailTextLabel?.text = PasscodeSettingsOptionLocalization.attemptLimitTitle(
+                    attempts: attempts,
+                    localizer: LocalizationRuntime.shared.service
+                )
                 cell.accessoryType = .disclosureIndicator
                 return cell
             
@@ -203,7 +254,10 @@ extension SimpleTableViewController: UITableViewDataSource {
                 let cell = UITableViewCell(style: .value1, reuseIdentifier: "value1CellReuseID")
                 cell.textLabel?.text = menuItem.title
                 let displayedAttempts = SettingManager.shared.getInt(for: "", scope: .security, key: key.rawValue)
-                cell.detailTextLabel?.text = "+ \(displayedAttempts)"
+                cell.detailTextLabel?.text = PasscodeSettingsOptionLocalization.displayedAttemptOffsetTitle(
+                    offset: displayedAttempts,
+                    localizer: LocalizationRuntime.shared.service
+                )
                 cell.accessoryType = .disclosureIndicator
                 return cell
                 
@@ -257,7 +311,7 @@ extension SimpleTableViewController: UITableViewDataSource {
                 cell.textLabel?.textColor = .systemBlue
                 cell.accessoryType = .none
                 let biometricsSuport = SettingManager.shared.getKeyBool(for: "", scope: .security, key: "support_touch_id") ?? false
-                cell.textLabel?.text = biometricsSuport ? "Turn Biometrics Off" : "Turn Biometrics On"
+                cell.textLabel?.text = biometricsSuport ? L10n.text("settings_security__title__turn_biometrics_off", fallback: "Turn Biometrics Off") : L10n.text("simple__text__turn_biometrics_on", fallback: "Turn Biometrics On")
                 return cell
             }
             cell.textLabel?.text = menuItem.title
@@ -355,27 +409,27 @@ extension SimpleTableViewController: UITableViewDelegate {
                 
             case .turnBiometricsOnOff:
                 guard CredentialsManager.shared.isPincodeSetted() else {
-                    self.view.makeToast("Create a passcode first")
+                    self.view.makeToast(L10n.text("settings_security__toast__create_a_passcode_first", fallback: "Create a passcode first"))
                     return
                 }
                 let biometricsSuport = SettingManager.shared.getKeyBool(for: "", scope: .security, key: "support_touch_id") ?? false
                 if biometricsSuport {
                     let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-                    let turnBiometricsOffAction = UIAlertAction(title: "Turn Biometrics Off", style: .destructive) { _ in
+                    let turnBiometricsOffAction = UIAlertAction(title: L10n.text("settings_security__title__turn_biometrics_off", fallback: "Turn Biometrics Off"), style: .destructive) { _ in
                         SettingManager.shared.saveItem(for: "", scope: .security, key: "support_touch_id", value: false)
                         self.tableView.reloadRows(at: [indexPath], with: .none)
                         return
                     }
                     alert.addAction(turnBiometricsOffAction)
-                    let cancelAction = UIAlertAction(title: "Cancel", style: .cancel)
+                    let cancelAction = UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel)
                     alert.addAction(cancelAction)
                     alert.iPadPopoverControllerInit(viewController: self)
                     self.present(alert, animated: true)
                     return
                 }
                 let context = LAContext()
-                context.localizedCancelTitle = "Use only passcode"
-                let reason = "Unlock application with biometrics"
+                context.localizedCancelTitle = L10n.text("settings__biometrics__use_passcode_only", fallback: "Use only passcode")
+                let reason = L10n.text("settings__biometrics__unlock_reason", fallback: "Unlock application with biometrics")
                 context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason ) { success, error in
                     SettingManager.shared.saveItem(for: "", scope: .security, key: "support_touch_id", value: success)
                     if success {
@@ -400,12 +454,12 @@ extension SimpleTableViewController: UITableViewDelegate {
                     return
                 }
                 let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-                let turnPasscodeOffAction = UIAlertAction(title: "Turn Passcode Off", style: .destructive, handler: { _ in
+                let turnPasscodeOffAction = UIAlertAction(title: L10n.text("settings_security__title__turn_passcode_off", fallback: "Turn Passcode Off"), style: .destructive, handler: { _ in
                     let vc = PasscodeViewController(mode: .verifyCurrent(.remove))
                     self.navigationController?.pushViewController(vc, animated: true)
                 })
                 alert.addAction(turnPasscodeOffAction)
-                let cancelAction = UIAlertAction(title: "Cancel", style: .cancel)
+                let cancelAction = UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel)
                 alert.addAction(cancelAction)
                 alert.iPadPopoverControllerInit(viewController: self)
                 self.present(alert, animated: true, completion: nil)
@@ -413,20 +467,20 @@ extension SimpleTableViewController: UITableViewDelegate {
                 
             case .passcodeTimer:
                 let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-                let items = ["Never", "1 min", "2 min", "5 min", "10 min"]
-                for item in items {
-                    let action = UIAlertAction(title: item, style: .default, handler: { item in
-                        guard let selected = item.title,
-                              let prefix = selected.split(separator: " ").first else { return }
-                        let minutes = Int(prefix) ?? 0
-                        let seconds = minutes * 60
+                let localizer = LocalizationRuntime.shared.service
+                for seconds in PasscodeSettingsOptionLocalization.autoLockSeconds {
+                    let title = PasscodeSettingsOptionLocalization.autoLockTitle(
+                        seconds: seconds,
+                        localizer: localizer
+                    )
+                    let action = UIAlertAction(title: title, style: .default, handler: { _ in
                         SettingManager.shared.saveItem(for: "", scope: .security, key: key.rawValue, value: seconds)
                         ApplicationStateManager.shared.period = TimeInterval(seconds)
                         self.tableView.reloadRows(at: [indexPath], with: .none)
                     })
                     alert.addAction(action)
                 }
-                let cancelAction = UIAlertAction(title: "Cancel", style: .cancel)
+                let cancelAction = UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel)
                 alert.addAction(cancelAction)
                 alert.iPadPopoverControllerInit(viewController: self)
                 self.present(alert, animated: true, completion: nil)
@@ -434,18 +488,20 @@ extension SimpleTableViewController: UITableViewDelegate {
                 
             case .passcodeAttempts:
                 let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-                let items = ["Unlimited", "1", "2", "3", "4", "5"]
-                for item in items {
-                    let action = UIAlertAction(title: item, style: .default, handler: { item in
-                        guard let selected = item.title else { return }
-                        let attempts = selected == "Unlimited" ? 0 : Int(selected) ?? 0
+                let localizer = LocalizationRuntime.shared.service
+                for attempts in PasscodeSettingsOptionLocalization.attemptLimits {
+                    let title = PasscodeSettingsOptionLocalization.attemptLimitTitle(
+                        attempts: attempts,
+                        localizer: localizer
+                    )
+                    let action = UIAlertAction(title: title, style: .default, handler: { _ in
                         SettingManager.shared.saveItem(for: "", scope: .security, key: key.rawValue, value: attempts)
                         CredentialsManager.shared.setPasscodeAttemptsLeft(attempts)
                         self.tableView.reloadRows(at: [indexPath], with: .none)
                     })
                     alert.addAction(action)
                 }
-                let cancelAction = UIAlertAction(title: "Cancel", style: .cancel)
+                let cancelAction = UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel)
                 alert.addAction(cancelAction)
                 alert.iPadPopoverControllerInit(viewController: self)
                 self.present(alert, animated: true)
@@ -453,17 +509,19 @@ extension SimpleTableViewController: UITableViewDelegate {
             
             case .displayedAttempts:
                 let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-                let items = ["+ 0", "+ 1", "+ 2", "+ 3", "+ 4", "+ 5", "+ 10"]
-                for item in items {
-                    let action = UIAlertAction(title: item, style: .default, handler: { item in
-                        guard let selected = item.title else { return }
-                        let displayedAttempts = Int(selected.dropFirst(2)) ?? 0
-                        SettingManager.shared.saveItem(for: "", scope: .security, key: key.rawValue, value: displayedAttempts)
+                let localizer = LocalizationRuntime.shared.service
+                for offset in PasscodeSettingsOptionLocalization.displayedAttemptOffsets {
+                    let title = PasscodeSettingsOptionLocalization.displayedAttemptOffsetTitle(
+                        offset: offset,
+                        localizer: localizer
+                    )
+                    let action = UIAlertAction(title: title, style: .default, handler: { _ in
+                        SettingManager.shared.saveItem(for: "", scope: .security, key: key.rawValue, value: offset)
                         self.tableView.reloadRows(at: [indexPath], with: .none)
                     })
                     alert.addAction(action)
                 }
-                let cancelAction = UIAlertAction(title: "Cancel", style: .cancel)
+                let cancelAction = UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel)
                 alert.addAction(cancelAction)
                 alert.iPadPopoverControllerInit(viewController: self)
                 self.present(alert, animated: true)
@@ -473,19 +531,19 @@ extension SimpleTableViewController: UITableViewDelegate {
                 let alertMessage: String
                 
                 if CommonConfigManager.shared.config.locked_host.isNotEmpty {
-                    alertMessage = "Enter your password to permanently delete \(self.jid) from Clandestino.\n\nThis action can not be undone."
+                    alertMessage = L10n.format("simple__alert_message__enter_your_password_to_permanently_delete_value_from_clandestino_this_action_can", fallback: "Enter your password to permanently delete %@ from Clandestino.\n\nThis action can not be undone.", arguments: [String(describing: self.jid)])
                 } else {
                     if let host = XMPPJID(string: self.jid)?.domain {
-                        alertMessage = "Enter your password to permanently delete \(self.jid) from \(host).\n\nThis action can not be undone."
+                        alertMessage = L10n.format("simple__alert_message__enter_your_password_to_permanently_delete_value_from_value_this_action_can", fallback: "Enter your password to permanently delete %@ from %@.\n\nThis action can not be undone.", arguments: [String(describing: self.jid), String(describing: host)])
                     } else {
-                        alertMessage = "Enter your password to permanently delete \(self.jid) from server.\n\nThis action can not be undone."
+                        alertMessage = L10n.format("simple__alert_message__enter_your_password_to_permanently_delete_value_from_server_this_action_can", fallback: "Enter your password to permanently delete %@ from server.\n\nThis action can not be undone.", arguments: [String(describing: self.jid)])
                     }
                 }
                 let alert = UIAlertController(title: "Delete account".localizeString(id: "account_delete", arguments: []),
                                               message: alertMessage, preferredStyle: .alert)
-                let cancelAction = UIAlertAction(title: "Cancel", style: .cancel, handler: nil)
+                let cancelAction = UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel, handler: nil)
                 alert.addAction(cancelAction)
-                let deleteAction = UIAlertAction(title: "Delete", style: .destructive, handler: { _ in
+                let deleteAction = UIAlertAction(title: L10n.text("common__action__delete", fallback: "Delete"), style: .destructive, handler: { _ in
                     let password = alert.textFields?.first?.text ?? ""
                     self.navigationItem.setRightBarButton(self.deleteSpinner, animated: true)
                     self.navigationItem.setHidesBackButton(true, animated: false)
@@ -504,7 +562,7 @@ extension SimpleTableViewController: UITableViewDelegate {
                     textField.textContentType = .password
                     textField.isSecureTextEntry = true
                     textField.keyboardType = .asciiCapable
-                    textField.placeholder = "password"
+                    textField.placeholder = L10n.text("settings_security__field__password", fallback: "password")
                     textField.clearButtonMode = .always
                     textField.addTarget(alert, action: #selector(alert.textDidChange), for: .editingChanged)
                 }
@@ -612,7 +670,7 @@ private extension SimpleTableViewController {
             navigationController?.pushViewController(vc, animated: true)
             return false
         case .disabledByConfig:
-            self.view.makeToast("Passcode Lock is unavailable")
+            self.view.makeToast(L10n.text("settings_security__toast__passcode_lock_is_unavailable", fallback: "Passcode Lock is unavailable"))
             return false
         }
     }
@@ -627,7 +685,7 @@ extension SimpleTableViewController: XMPPAccountDeleteManagerDelegate {
                 UIView.animate(withDuration: 0.5, animations: { self.whiteView.alpha = 0.0 })
             }
             let alert = UIAlertController(title: title, message: description, preferredStyle: .alert)
-            let action = UIAlertAction(title: "OK", style: .default, handler: {_ in
+            let action = UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default, handler: {_ in
                 if AccountManager.shared.emptyAccountsList() {
                     DispatchQueue.main.async {
                         let vc = OnboardingViewController()
@@ -669,7 +727,7 @@ extension UIAlertController {
 extension UIAlertController {
     @objc func textDidChange() {
         guard let textField = textFields?.first,
-              let deleteAction = actions.first(where: { $0.title == "Delete" }) else {
+              let deleteAction = actions.first(where: { $0.title == L10n.text("common__action__delete", fallback: "Delete") }) else {
             return
         }
         let text = textField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

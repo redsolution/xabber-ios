@@ -530,7 +530,7 @@ extension ChatViewController {
     
     internal func applyEnterCodePanel() {
         let button = makeFloatingPanelButton(
-            title: "Enter verification code",
+            title: L10n.text("chat__verification_panel__enter_verification_code", fallback: "Enter verification code"),
             action: #selector(onEnterCodeVerification)
         )
         let panel = makeFloatingPanel(
@@ -543,7 +543,7 @@ extension ChatViewController {
     
     internal func applyRequestedVerificationPanel() {
         let button = makeFloatingPanelButton(
-            title: "Outgoing verification request",
+            title: L10n.text("chat__verification_panel__outgoing_verification_request", fallback: "Outgoing verification request"),
             action: #selector(onRequestedVerification)
         )
         let panel = makeFloatingPanel(
@@ -574,7 +574,7 @@ extension ChatViewController {
 
     internal func makeRequestingVerificationPanel(isActionEnabled: Bool) -> ChatFloatingActionPanelView {
         let button = makeFloatingPanelButton(
-            title: "Accept verification request",
+            title: L10n.text("chat__verification_panel__accept_verification_request", fallback: "Accept verification request"),
             action: #selector(onRequestingVerification)
         )
         button.isEnabled = isActionEnabled
@@ -588,7 +588,7 @@ extension ChatViewController {
     
     internal func applyShouldRequestVerificationPanel(){
         let button = makeFloatingPanelButton(
-            title: "Verify contact",
+            title: L10n.text("chat__verification_panel__verify_contact", fallback: "Verify contact"),
             action: #selector(onShouldRequestVerification)
         )
         let panel = makeFloatingPanel(
@@ -601,7 +601,7 @@ extension ChatViewController {
     
     internal func applyAcceptedVerification() {
         let button = makeFloatingPanelButton(
-            title: "Show verification code",
+            title: L10n.text("chat__verification_panel__show_verification_code", fallback: "Show verification code"),
             action: #selector(onAcceptedVerification)
         )
         let panel = makeFloatingPanel(

@@ -1,0 +1,175 @@
+{
+  "migrations": [
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "%@ pt",
+      "fallback": "%1$@ pt",
+      "key": "appearance__text_size__points_format",
+      "comment": "Interface settings text-size option. Argument 1 is the selected font size in typographic points.",
+      "translations": {
+        "en": "%1$@ pt",
+        "ru": "%1$@ пт",
+        "fr": "%1$@ pt",
+        "es": "%1$@ pt",
+        "ar": "%1$@ نقطة",
+        "zh-Hans": "%1$@ 磅"
+      }
+    },
+    {
+      "path": "xabber/common/SubscribtionsManager/SubscribtionsManager.swift",
+      "sink": "displayName",
+      "value": "Premium",
+      "key": "settings__title__premium",
+      "comment": "Fallback display name for the Premium subscription product when only product identifiers are available.",
+      "translations": {
+        "en": "Premium",
+        "ru": "Премиум",
+        "fr": "Premium",
+        "es": "Premium",
+        "ar": "بريميوم",
+        "zh-Hans": "高级版"
+      }
+    }
+  ],
+  "exclusions": [
+    {
+      "path": "xabber/controllers/onboarding/signin/SignInServerFeaturesViewController.swift",
+      "sink": "subtitle",
+      "value": "subtitle",
+      "reason": "Internal datasource row identifier used to find the already-localized subtitle model; it is never rendered as copy."
+    },
+    {
+      "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController.swift",
+      "sink": "contactDisplayTitle",
+      "value": "contact_jid",
+      "reason": "Persisted contact-reference metadata field name; the looked-up JID is user data and the surrounding Contact label is localized separately."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/rx/ChatGroupProjectionAdapter.swift",
+      "sink": "localizedText",
+      "value": "No members",
+      "reason": "Development fallback passed into the injected localization wrapper; the wrapper resolves the accompanying bounded localization key before display."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/rx/ChatGroupProjectionAdapter.swift",
+      "sink": "localizedText",
+      "value": "groupchats_no_members",
+      "reason": "Bounded localization key passed into the injected localization wrapper and already registered by the chatGroupProjectionMembers dynamic domain."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/rx/ChatGroupProjectionAdapter.swift",
+      "sink": "localizedText",
+      "value": "1 member",
+      "reason": "Development fallback passed into the injected localization wrapper; the wrapper resolves the accompanying bounded localization key before display."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/rx/ChatGroupProjectionAdapter.swift",
+      "sink": "localizedText",
+      "value": "groupchats_one_member",
+      "reason": "Bounded localization key passed into the injected localization wrapper and already registered by the chatGroupProjectionMembers dynamic domain."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/rx/ChatGroupProjectionAdapter.swift",
+      "sink": "localizedText",
+      "value": "%@ members",
+      "reason": "Development format fallback passed into the injected localization wrapper; the wrapper resolves the accompanying bounded localization key before display."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/rx/ChatGroupProjectionAdapter.swift",
+      "sink": "localizedText",
+      "value": "groupchats_some_members",
+      "reason": "Bounded localization key passed into the injected localization wrapper and already registered by the chatGroupProjectionMembers dynamic domain."
+    },
+    {
+      "path": "xabber/common/SubscribtionsManager/SubscribtionsManager.swift",
+      "sink": "displayName",
+      "value": "display_name",
+      "reason": "Subscription API response field name used to decode server-provided product copy; the token itself is never displayed."
+    },
+    {
+      "path": "xabber/models/account/Account.swift",
+      "sink": "error",
+      "value": "invalid-stanza",
+      "reason": "Stable terminal send-queue diagnostic code persisted in lastError and written to logs; it is not presented as interface copy."
+    },
+    {
+      "path": "xabber/controllers/chats/common_cells/ChatListTableViewCell.swift",
+      "sink": "error",
+      "value": "xmark",
+      "reason": "Asset identifier for the failed-delivery icon; a technical image name, not user-visible text."
+    },
+    {
+      "path": "xabber/controllers/chats/attachment_picker/ChatAttachmentMediaPreparation.swift",
+      "sink": "filename",
+      "value": "mov",
+      "reason": "Fallback video filename extension used for media preparation; a file-format token that must not be localized."
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageShowFilesViewController.swift",
+      "sink": "fileName",
+      "value": "name",
+      "reason": "Cloud Storage response field name used to read the server-provided file name; the token itself is never displayed."
+    },
+    {
+      "path": "xabber/xmpp/roster/RosterManager.swift",
+      "sink": "displayName",
+      "value": "name",
+      "reason": "XMPP roster item attribute name used to read the server-provided contact name; the token itself is never displayed."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/messages_kit/Views/TimeMarkerView.swift",
+      "sink": "error",
+      "value": "exclamationmark.circle.fill",
+      "reason": "SF Symbols identifier for the failed-message indicator; a technical image name, not user-visible text."
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
+      "sink": "getGroupchatAuthorNickname",
+      "value": "nickname",
+      "reason": "Persisted group-message metadata field name used to read the server-provided author nickname; the token itself is never displayed."
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
+      "sink": "getGroupchatAuthorNickname",
+      "value": "jid",
+      "reason": "Persisted group-message metadata field name used as the author-name fallback; the token itself is never displayed."
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
+      "sink": "groupchatAuthorNickname",
+      "value": "nickname",
+      "reason": "Persisted group-message metadata field name used to read the server-provided author nickname; the token itself is never displayed."
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
+      "sink": "groupchatAuthorNickname",
+      "value": "jid",
+      "reason": "Persisted group-message metadata field name used as the author-name fallback; the token itself is never displayed."
+    },
+    {
+      "path": "xabber-push-extension/NetworkManager/NetworkManager.swift",
+      "sink": "getGrouchatUserNickname",
+      "value": "nickname",
+      "reason": "Group-message XML element name used to read the server-provided author nickname for a notification; the token itself is never displayed."
+    },
+    {
+      "path": "xabber/controllers/chats/attachment_picker/ChatAttachmentDraftModels.swift",
+      "sink": "displayName",
+      "value": "Image",
+      "reason": "Canonical attachment metadata written to the persisted/wire name field. Image renderers classify by media type and use localized UI keys instead; localizing the payload would leak the sender's language."
+    },
+    {
+      "path": "xabber/controllers/chats/attachment_picker/ChatAttachmentDraftModels.swift",
+      "sink": "displayName",
+      "value": "Video",
+      "reason": "Canonical attachment metadata written to the persisted/wire name field. Video renderers classify by media type and use localized UI keys instead; localizing the payload would leak the sender's language."
+    },
+    {
+      "path": "xabber/controllers/chats/attachment_picker/ChatAttachmentDraftModels.swift",
+      "sink": "displayName",
+      "value": "Location",
+      "reason": "Canonical attachment metadata reserved for persisted/wire content. Geolocation renderers branch on the geoloc kind and localize presentation separately; localizing metadata would leak the sender's language."
+    }
+  ]
+}

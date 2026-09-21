@@ -499,7 +499,7 @@ class InfoScreenHeaderView: UIView {
     internal let xabberAccountButton: GradientBorderButton = {
         let button = GradientBorderButton()
         var conf = UIButton.Configuration.plain()
-        conf.title = "Xabber account"
+        conf.title = L10n.text("settings__menu_item__xabber_account", fallback: "Xabber Account")
         conf.baseForegroundColor = .label
         conf.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 24, bottom: 12, trailing: 24)
         conf.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in

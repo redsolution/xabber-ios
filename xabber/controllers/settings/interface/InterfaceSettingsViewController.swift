@@ -71,7 +71,7 @@ final class InterfaceSettingsViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Interface"
+        title = L10n.text("category_interface", fallback: "Interface")
         view.backgroundColor = .systemGroupedBackground
         let cancelButton = UIBarButtonItem(
             image: UIImage(systemName: "xmark"),
@@ -80,7 +80,7 @@ final class InterfaceSettingsViewController: BaseViewController {
             action: #selector(cancelTapped)
         )
         cancelButton.accessibilityIdentifier = "interface.settings.cancel"
-        cancelButton.accessibilityLabel = "Cancel Interface changes"
+        cancelButton.accessibilityLabel = L10n.text("appearance__navigation__cancel_accessibility_label", fallback: "Cancel Interface changes")
         self.cancelButton = cancelButton
         let saveButton = UIBarButtonItem(
             image: UIImage(systemName: "checkmark"),
@@ -89,7 +89,7 @@ final class InterfaceSettingsViewController: BaseViewController {
             action: #selector(saveTapped)
         )
         saveButton.accessibilityIdentifier = "interface.settings.save"
-        saveButton.accessibilityLabel = "Save Interface changes"
+        saveButton.accessibilityLabel = L10n.text("appearance__navigation__save_accessibility_label", fallback: "Save Interface changes")
         self.saveButton = saveButton
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.dataSource = self
@@ -102,9 +102,9 @@ final class InterfaceSettingsViewController: BaseViewController {
         tableView.accessibilityIdentifier = "interface.settings.table"
         view.addSubview(tableView)
 
-        subscribePremiumButton.setTitle("Unlock premium style", for: .normal)
+        subscribePremiumButton.setTitle(L10n.text("appearance__premium__unlock_style", fallback: "Unlock premium style"), for: .normal)
         subscribePremiumButton.accessibilityIdentifier = "interface.settings.subscribePremium"
-        subscribePremiumButton.accessibilityLabel = "Unlock premium style"
+        subscribePremiumButton.accessibilityLabel = L10n.text("appearance__premium__unlock_style", fallback: "Unlock premium style")
         subscribePremiumButton.addTarget(self, action: #selector(buyPremiumTapped), for: .touchUpInside)
         subscribePremiumButton.enableFloatingShadow()
         view.addSubview(subscribePremiumButton)
@@ -250,11 +250,11 @@ final class InterfaceSettingsViewController: BaseViewController {
             }
         } catch {
             let alert = UIAlertController(
-                title: "Couldn’t apply Interface settings",
+                title: L10n.text("appearance__error__apply_title", fallback: "Couldn’t apply appearance"),
                 message: error.localizedDescription,
                 preferredStyle: .alert
             )
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            alert.addAction(UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default))
             present(alert, animated: true)
         }
     }
@@ -286,10 +286,10 @@ final class InterfaceSettingsViewController: BaseViewController {
         switch row {
         case .wallpaper:
             switch profile.wallpaper {
-            case .none: return "None"
-            case .builtIn(let name): return name
-            case .gradient: return "Custom Gradient"
-            case .cloud: return "Photo"
+            case .none: return L10n.text("appearance__wallpaper__none", fallback: "None")
+            case .builtIn(let name): return AppearanceWallpaper.displayName(forAssetName: name)
+            case .gradient: return L10n.text("appearance__wallpaper__custom_gradient", fallback: "Custom Gradient")
+            case .cloud: return L10n.text("appearance__wallpaper__photo", fallback: "Photo")
             }
         case .accent: return nil
         case .textSize: return profile.textSize.displayName
@@ -300,11 +300,16 @@ final class InterfaceSettingsViewController: BaseViewController {
 
     private func title(for row: Row) -> String {
         switch row {
-        case .wallpaper: return "Chat Wallpaper"
-        case .accent: return "Application Color"
-        case .textSize: return "Text Size"
-        case .bubbles: return "Message Bubbles"
-        case .avatars: return "Avatars"
+        case .wallpaper:
+            return L10n.text("appearance__wallpaper__screen_title", fallback: "Chat Wallpaper")
+        case .accent:
+            return L10n.text("appearance__accent__screen_title", fallback: "Application Color")
+        case .textSize:
+            return L10n.text("appearance__text_size__screen_title", fallback: "Text Size")
+        case .bubbles:
+            return L10n.text("appearance__bubbles__screen_title", fallback: "Message Bubbles")
+        case .avatars:
+            return L10n.text("appearance__avatars__screen_title", fallback: "Avatars")
         }
     }
 
@@ -341,16 +346,16 @@ final class InterfaceSettingsViewController: BaseViewController {
 
     private func createTheme() {
         let alert = UIAlertController(
-            title: "New Theme",
-            message: "Choose a unique name.",
+            title: L10n.text("appearance__theme__new_title", fallback: "New Theme"),
+            message: L10n.text("appearance__theme__unique_name_message", fallback: "Choose a unique name."),
             preferredStyle: .alert
         )
         alert.addTextField { field in
-            field.placeholder = "Theme name"
+            field.placeholder = L10n.text("appearance__theme__name_placeholder", fallback: "Theme name")
             field.autocapitalizationType = .words
         }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Create", style: .default) { [weak self, weak alert] _ in
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__create", fallback: "Create"), style: .default) { [weak self, weak alert] _ in
             guard let self, let name = alert?.textFields?.first?.text else { return }
             do {
                 let activeTheme = AppearanceThemeCatalog.theme(
@@ -367,11 +372,11 @@ final class InterfaceSettingsViewController: BaseViewController {
                 )
             } catch {
                 let errorAlert = UIAlertController(
-                    title: "Couldn’t save theme",
+                    title: L10n.text("appearance__error__save_theme_title", fallback: "Couldn’t save theme"),
                     message: error.localizedDescription,
                     preferredStyle: .alert
                 )
-                errorAlert.addAction(UIAlertAction(title: "OK", style: .default))
+                errorAlert.addAction(UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default))
                 self.present(errorAlert, animated: true)
             }
         })
@@ -430,11 +435,11 @@ final class InterfaceSettingsViewController: BaseViewController {
             tableView.reloadData()
         } catch {
             let alert = UIAlertController(
-                title: "Couldn’t apply Appearance",
+                title: L10n.text("appearance__error__apply_title", fallback: "Couldn’t apply appearance"),
                 message: error.localizedDescription,
                 preferredStyle: .alert
             )
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            alert.addAction(UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default))
             present(alert, animated: true)
         }
     }
@@ -454,8 +459,8 @@ extension InterfaceSettingsViewController: UITableViewDataSource, UITableViewDel
 
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch self.section(at: section) {
-        case .chatAppearance: return "Customisation"
-        case .mode: return "Appearance"
+        case .chatAppearance: return L10n.text("interface_settings__table_section_title__customisation", fallback: "Customisation")
+        case .mode: return L10n.text("settings__menu_item__appearance", fallback: "Appearance")
         default: return nil
         }
     }
@@ -689,9 +694,14 @@ private final class AppearanceModeOptionControl: UIControl {
         )
         selectionIndicator.tintColor = selected ? accent : .tertiaryLabel
         accessibilityIdentifier = "interface.mode.\(style.rawValue)"
-        accessibilityLabel = "\(style.displayName) appearance"
-        accessibilityValue = selected ? "Selected" : nil
-        accessibilityHint = "Applies this appearance to the app"
+        accessibilityLabel = L10n.format("appearance__mode__accessibility_label_format", fallback: "%1$@ appearance", arguments: [String(describing: style.displayName)])
+        accessibilityValue = selected
+            ? L10n.text(
+                "abuse_report__accessibility_value__selected",
+                fallback: "Selected"
+            )
+            : nil
+        accessibilityHint = L10n.text("appearance__mode__accessibility_hint", fallback: "Applies this appearance to the app")
         accessibilityTraits = selected ? [.button, .selected] : .button
     }
 }
@@ -869,7 +879,7 @@ private final class AppearanceCreateThemeControl: UIControl {
         titleLabel.font = .preferredFont(forTextStyle: .caption2)
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.textAlignment = .center
-        titleLabel.text = "New Theme"
+        titleLabel.text = L10n.text("appearance__theme__new_title", fallback: "New Theme")
         titleLabel.numberOfLines = 2
         addSubview(iconView)
         addSubview(titleLabel)
@@ -884,7 +894,7 @@ private final class AppearanceCreateThemeControl: UIControl {
             titleLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
         ])
         accessibilityIdentifier = "interface.theme.create"
-        accessibilityLabel = "Create New Theme"
+        accessibilityLabel = L10n.text("appearance__theme__create_accessibility_label", fallback: "Create New Theme")
         accessibilityTraits = .button
     }
 
@@ -975,11 +985,16 @@ private final class AppearanceThemeMiniControl: UIControl {
         incoming.accessibilityIdentifier = "interface.theme.bubble.incoming.\(theme.id)"
         outgoing.backgroundColor = snapshot.palette.outgoingBubble.uiColor
         outgoing.accessibilityIdentifier = "interface.theme.bubble.outgoing.\(theme.id)"
-        nameLabel.text = theme.name
+        nameLabel.text = theme.displayName
         layer.borderWidth = selected ? 3 : 0
         layer.borderColor = accent.cgColor
-        accessibilityLabel = theme.name
-        accessibilityValue = selected ? "Selected" : nil
+        accessibilityLabel = theme.displayName
+        accessibilityValue = selected
+            ? L10n.text(
+                "abuse_report__accessibility_value__selected",
+                fallback: "Selected"
+            )
+            : nil
         accessibilityTraits = selected ? [.button, .selected] : .button
         accessibilityIdentifier = "interface.theme.mini.\(theme.id)"
     }
@@ -1024,7 +1039,7 @@ final class AppearancePreviewView: UIView {
         ])
         isAccessibilityElement = true
         accessibilityIdentifier = "interface.preview"
-        accessibilityLabel = "Appearance preview"
+        accessibilityLabel = L10n.text("appearance__preview__accessibility_label", fallback: "Appearance preview")
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -1075,13 +1090,13 @@ final class AppearancePreviewView: UIView {
         } else {
             let incoming = AppearanceChatMessagePreviewHostView()
             incoming.configure(
-                text: "I found a quiet coffee shop near the park.",
+                text: L10n.text("appearance__overview_preview__message_incoming", fallback: "I found a quiet coffee shop near the park."),
                 outgoing: false,
                 snapshot: snapshot
             )
             let outgoing = AppearanceChatMessagePreviewHostView()
             outgoing.configure(
-                text: "That sounds perfect, I will meet you there soon.",
+                text: L10n.text("appearance__overview_preview__message_outgoing", fallback: "That sounds perfect, I will meet you there soon."),
                 outgoing: true,
                 snapshot: snapshot
             )
@@ -1110,7 +1125,7 @@ final class AppearancePreviewView: UIView {
     private func configureInterfaceOverview(snapshot: ResolvedAppearanceSnapshot) {
         contentStack.addArrangedSubview(makeInterfaceNavigationRow(snapshot: snapshot))
         let first = makeInterfaceMessageRow(
-            text: "How’s your morning going? I hope the weather is good today.",
+            text: L10n.text("appearance__interface_preview__message_morning", fallback: "How’s your morning going? I hope the weather is good today."),
             outgoing: false,
             avatarName: "interface_avatar_alicia",
             avatarIdentifier: "overview.0",
@@ -1118,7 +1133,7 @@ final class AppearancePreviewView: UIView {
             snapshot: snapshot
         )
         let second = makeInterfaceMessageRow(
-            text: "Really good — Tokyo is beautiful. I found a quiet café near the park. 😎",
+            text: L10n.text("appearance__interface_preview__message_tokyo", fallback: "Really good — Tokyo is beautiful. I found a quiet café near the park. 😎"),
             outgoing: true,
             avatarName: nil,
             avatarIdentifier: nil,
@@ -1126,7 +1141,7 @@ final class AppearancePreviewView: UIView {
             snapshot: snapshot
         )
         let third = makeInterfaceMessageRow(
-            text: "Let’s meet for lunch at two. I know a place you’ll love. ☕",
+            text: L10n.text("appearance__interface_preview__message_lunch", fallback: "Let’s meet for lunch at two. I know a place you’ll love. ☕"),
             outgoing: false,
             avatarName: "interface_avatar_alicia",
             avatarIdentifier: "overview.2",
@@ -1139,7 +1154,7 @@ final class AppearancePreviewView: UIView {
         messagesStack.spacing = 0
         contentStack.addArrangedSubview(messagesStack)
         chatMessageHosts = [first.host, second.host, third.host]
-        accessibilityLabel = "Alicia Torreaux chat preview with three messages"
+        accessibilityLabel = L10n.text("appearance__preview__sample_chat_accessibility_label", fallback: "Alicia Torreaux chat preview with three messages")
     }
 
     private func makeInterfaceNavigationRow(snapshot: ResolvedAppearanceSnapshot) -> UIView {
@@ -1194,7 +1209,7 @@ final class AppearancePreviewView: UIView {
 
         let online = UILabel()
         online.translatesAutoresizingMaskIntoConstraints = false
-        online.text = "Online"
+        online.text = L10n.text("presence__status__online", fallback: "Online")
         online.font = AppearanceTypography.font(
             textStyle: .caption1,
             appearanceSize: snapshot.profile.textSize,
@@ -1221,7 +1236,7 @@ final class AppearancePreviewView: UIView {
         avatar.contentMode = .scaleAspectFill
         avatar.clipsToBounds = true
         avatar.accessibilityIdentifier = "interface.preview.navigation.avatar"
-        avatar.accessibilityLabel = "Alicia Torreaux avatar"
+        avatar.accessibilityLabel = L10n.text("appearance__preview__alicia_avatar_accessibility_label", fallback: "Alicia Torreaux avatar")
         AppearancePreviewAvatarMaskRenderer.apply(
             .circle,
             to: avatar,
@@ -1322,7 +1337,7 @@ final class AppearancePreviewView: UIView {
         avatar.contentMode = .scaleAspectFill
         avatar.clipsToBounds = true
         avatar.accessibilityIdentifier = identifier
-        avatar.accessibilityLabel = "User avatar"
+        avatar.accessibilityLabel = L10n.text("appearance__preview__user_avatar_accessibility_label", fallback: "User avatar")
         AppearancePreviewAvatarMaskRenderer.apply(
             snapshot.profile.avatarMask,
             to: avatar,
@@ -1346,7 +1361,7 @@ final class AppearancePreviewView: UIView {
         avatar.contentMode = .scaleAspectFill
         avatar.clipsToBounds = true
         avatar.accessibilityIdentifier = "interface.preview.chatListAvatar.\(index)"
-        avatar.accessibilityLabel = "Chat avatar"
+        avatar.accessibilityLabel = L10n.text("appearance__preview__chat_avatar_accessibility_label", fallback: "Chat avatar")
         AppearancePreviewAvatarMaskRenderer.apply(
             snapshot.profile.avatarMask,
             to: avatar,
@@ -1359,12 +1374,12 @@ final class AppearancePreviewView: UIView {
             appearanceSize: snapshot.profile.textSize,
             weight: .semibold
         )
-        title.text = ["Alicia", "Roberto", "Public Chat", "Veronica"][index]
+        title.text = ["Alicia", "Roberto", L10n.text("interface_settings__text__public_chat", fallback: "Public Chat"), "Veronica"][index]
         title.textColor = .label
         let subtitle = UILabel()
         subtitle.translatesAutoresizingMaskIntoConstraints = false
         subtitle.font = AppearanceTypography.font(textStyle: .caption1, appearanceSize: snapshot.profile.textSize)
-        subtitle.text = "Preview message"
+        subtitle.text = L10n.text("appearance__preview__message_label", fallback: "Preview message")
         subtitle.textColor = .secondaryLabel
         row.addSubview(avatar)
         row.addSubview(title)
@@ -1416,7 +1431,7 @@ private enum AppearancePreviewAvatarMaskRenderer {
 final class AppearanceTintColorPreviewView: UIView {
     private let backButton = UIButton(type: .system)
     private let actionButton = UIButton(type: .system)
-    private let modeControl = UISegmentedControl(items: ["Chats", "Contacts"])
+    private let modeControl = UISegmentedControl(items: [L10n.text("appearance__content__chats", fallback: "Chats"), L10n.text("navigation__destination__contacts", fallback: "Contacts")])
     private let notificationSwitch = UISwitch()
     private let progress = UIProgressView(progressViewStyle: .default)
     private let slider = UISlider()
@@ -1431,15 +1446,15 @@ final class AppearanceTintColorPreviewView: UIView {
         layer.cornerCurve = .continuous
         clipsToBounds = true
         accessibilityIdentifier = "interface.tint.preview"
-        accessibilityLabel = "Application color preview"
+        accessibilityLabel = L10n.text("appearance__accent__preview_accessibility_label", fallback: "Application color preview")
 
         backButton.setImage(UIImage(systemName: "chevron.backward"), for: .normal)
         backButton.accessibilityIdentifier = "interface.tint.preview.back"
-        actionButton.setTitle("Edit", for: .normal)
+        actionButton.setTitle(L10n.text("common__action__edit", fallback: "Edit"), for: .normal)
         actionButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
         actionButton.accessibilityIdentifier = "interface.tint.preview.navigationAction"
         let title = UILabel()
-        title.text = "Chats"
+        title.text = L10n.text("appearance__content__chats", fallback: "Chats")
         title.font = .preferredFont(forTextStyle: .headline)
         title.textAlignment = .center
         let navigationRow = UIStackView(arrangedSubviews: [backButton, title, actionButton])
@@ -1451,7 +1466,7 @@ final class AppearanceTintColorPreviewView: UIView {
         modeControl.accessibilityIdentifier = "interface.tint.preview.mode"
 
         let notificationTitle = UILabel()
-        notificationTitle.text = "Notifications"
+        notificationTitle.text = L10n.text("appearance__content__notifications", fallback: "Notifications")
         notificationTitle.font = .preferredFont(forTextStyle: .body)
         notificationSwitch.isOn = true
         notificationSwitch.isUserInteractionEnabled = false
@@ -1464,7 +1479,7 @@ final class AppearanceTintColorPreviewView: UIView {
         composeButton.setImage(UIImage(systemName: "plus.circle.fill"), for: .normal)
         composeButton.accessibilityIdentifier = "interface.tint.preview.compose"
         let status = UILabel()
-        status.text = "New message"
+        status.text = L10n.text("appearance__content__new_message", fallback: "New message")
         status.font = .preferredFont(forTextStyle: .subheadline)
         status.textColor = .secondaryLabel
         activityIndicator.startAnimating()
@@ -1628,7 +1643,7 @@ private struct AppearancePreviewMessage: MessageType {
         status: AppearancePreviewStatus? = nil
     ) {
         primary = "appearance-preview-\(identifier ?? (outgoing ? "outgoing" : "incoming"))"
-        sender = Sender(id: outgoing ? "me" : "contact", displayName: outgoing ? "Me" : "Contact")
+        sender = Sender(id: outgoing ? "me" : "contact", displayName: outgoing ? L10n.text("appearance__preview__sender_me", fallback: "Me") : L10n.text("appearance__preview__sender_contact", fallback: "Contact"))
         messageId = primary
         isOutgoing = outgoing
         withAvatar = reservesAvatarSpace
@@ -1792,7 +1807,7 @@ private final class AppearanceChatMessagePreviewHostView: UIView {
         premiumLockView.accessibilityIdentifier = showsPremiumLock
             ? configuration.premiumLockAccessibilityIdentifier
             : nil
-        premiumLockView.accessibilityLabel = showsPremiumLock ? "Premium" : nil
+        premiumLockView.accessibilityLabel = showsPremiumLock ? L10n.text("settings__title__premium", fallback: "Premium") : nil
         if bounds.width > 0 {
             updateLayoutWidth(bounds.width)
         }
@@ -1998,8 +2013,8 @@ class AppearanceDraftViewController: BaseViewController {
     }
 
     func showError(_ message: String) {
-        let alert = UIAlertController(title: "Couldn’t apply appearance", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        let alert = UIAlertController(title: L10n.text("appearance__error__apply_title", fallback: "Couldn’t apply appearance"), message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default))
         present(alert, animated: true)
     }
 }
@@ -2016,7 +2031,7 @@ final class AppearanceAccentViewController: AppearanceDraftViewController {
     ) {
         super.init(
             document: document,
-            title: "Application Color",
+            title: L10n.text("appearance__accent__screen_title", fallback: "Application Color"),
             onDraftCommitted: onDraftCommitted
         )
     }
@@ -2067,7 +2082,7 @@ final class AppearanceAccentViewController: AppearanceDraftViewController {
         }
         let custom = UIButton(type: .system)
         custom.configuration = .filled()
-        custom.configuration?.title = "Choose Custom Color"
+        custom.configuration?.title = L10n.text("appearance__accent__choose_custom_color", fallback: "Choose Custom Color")
         custom.configuration?.image = UIImage(systemName: "circle.grid.3x3.fill")
         custom.configuration?.imagePadding = 8
         custom.addTarget(self, action: #selector(showCustomColorGrid), for: .touchUpInside)
@@ -2135,7 +2150,7 @@ private final class AppearanceAccentSwatchButton: UIControl {
     init(color: AppearanceColor) {
         self.color = color
         super.init(frame: .zero)
-        accessibilityLabel = "Application color"
+        accessibilityLabel = L10n.text("appearance__accent__color_accessibility_label", fallback: "Application color")
         colorView.isUserInteractionEnabled = false
         colorView.backgroundColor = color.uiColor
         colorView.layer.cornerCurve = .continuous
@@ -2173,7 +2188,12 @@ private final class AppearanceAccentSwatchButton: UIControl {
         layer.borderColor = selected ? UIColor.label.withAlphaComponent(0.65).cgColor : nil
         checkmarkView.tintColor = color.uiColor.isLightAppearanceColor ? .black : .white
         checkmarkView.isHidden = !selected
-        accessibilityValue = selected ? "Selected" : nil
+        accessibilityValue = selected
+            ? L10n.text(
+                "abuse_report__accessibility_value__selected",
+                fallback: "Selected"
+            )
+            : nil
         accessibilityTraits = selected ? [.button, .selected] : .button
     }
 }
@@ -2219,7 +2239,7 @@ final class AppearanceCustomAccentColorViewController: UIViewController, UIColle
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Colors"
+        title = L10n.text("interface__colors__title", fallback: "Colors")
         view.backgroundColor = .systemBackground
         if selectionMode == .confirmation {
             navigationItem.leftBarButtonItem = UIBarButtonItem(
@@ -2247,7 +2267,7 @@ final class AppearanceCustomAccentColorViewController: UIViewController, UIColle
         collectionView.backgroundColor = .clear
         collectionView.isScrollEnabled = false
         collectionView.accessibilityIdentifier = "interface.accent.custom.grid"
-        collectionView.accessibilityLabel = "Color grid"
+        collectionView.accessibilityLabel = L10n.text("appearance__accent__grid_accessibility_label", fallback: "Color grid")
         collectionView.dataSource = self
         collectionView.delegate = self
         collectionView.register(
@@ -2266,7 +2286,7 @@ final class AppearanceCustomAccentColorViewController: UIViewController, UIColle
         selectedColorPreview.layer.borderWidth = 1
         selectedColorPreview.layer.borderColor = UIColor.label.withAlphaComponent(0.1).cgColor
         selectedColorPreview.accessibilityIdentifier = "interface.accent.custom.preview"
-        selectedColorPreview.accessibilityLabel = "Selected custom color"
+        selectedColorPreview.accessibilityLabel = L10n.text("appearance__accent__selected_color_accessibility_label", fallback: "Selected custom color")
 
         configureQuickColors()
         let colorSummary = UIStackView(arrangedSubviews: [selectedColorPreview, quickColorsStack])
@@ -2423,8 +2443,13 @@ private final class AppearanceCustomAccentColorCell: UICollectionViewCell {
         contentView.backgroundColor = color.uiColor
         contentView.layer.borderWidth = selected ? 2 : 0
         contentView.layer.borderColor = selected ? UIColor.label.withAlphaComponent(0.8).cgColor : nil
-        accessibilityLabel = "Application color"
-        accessibilityValue = selected ? "Selected" : nil
+        accessibilityLabel = L10n.text("appearance__accent__color_accessibility_label", fallback: "Application color")
+        accessibilityValue = selected
+            ? L10n.text(
+                "abuse_report__accessibility_value__selected",
+                fallback: "Selected"
+            )
+            : nil
         accessibilityTraits = selected ? [.button, .selected] : .button
     }
 }
@@ -2437,7 +2462,7 @@ private final class AppearanceCustomAccentQuickColorButton: UIControl {
         super.init(frame: .zero)
         backgroundColor = color.uiColor
         layer.cornerCurve = .continuous
-        accessibilityLabel = "Quick application color"
+        accessibilityLabel = L10n.text("appearance__accent__quick_color_accessibility_label", fallback: "Quick application color")
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -2466,7 +2491,7 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
             ?? AppearanceTextSize.fixedCases.firstIndex(of: .points17)!
         super.init(
             document: document,
-            title: "Text Size",
+            title: L10n.text("appearance__text_size__screen_title", fallback: "Text Size"),
             onDraftCommitted: onDraftCommitted
         )
     }
@@ -2588,9 +2613,9 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
 
     private var sectionTitle: String {
         if draft.profile.textSize == .system {
-            return "Text size: system"
+            return L10n.text("appearance__text_size__section_system", fallback: "Text size: system")
         }
-        return "Text size: \(draft.profile.textSize.points ?? 17)"
+        return L10n.format("appearance__text_size__section_points_format", fallback: "Text size: %1$@", arguments: [String(describing: draft.profile.textSize.points ?? 17)])
     }
 
     private func refreshSectionHeader() {
@@ -2617,13 +2642,13 @@ private final class AppearanceTextSizeViewController: AppearanceDraftViewControl
     }
 
     private func configureSystemFontCell(_ cell: UITableViewCell) {
-        cell.textLabel?.text = "Set System font size"
+        cell.textLabel?.text = L10n.text("appearance__text_size__use_system", fallback: "Set System font size")
         cell.textLabel?.textColor = view.tintColor
         cell.tintColor = view.tintColor
         cell.accessoryType = .none
         cell.accessibilityIdentifier = "interface.textSize.useSystem"
-        cell.accessibilityLabel = "Set System font size"
-        cell.accessibilityValue = draft.profile.textSize == .system ? "Selected" : nil
+        cell.accessibilityLabel = L10n.text("appearance__text_size__use_system", fallback: "Set System font size")
+        cell.accessibilityValue = draft.profile.textSize == .system ? L10n.text("abuse_report__accessibility_value__selected", fallback: "Selected") : nil
         cell.accessibilityTraits = draft.profile.textSize == .system ? [.button, .selected] : .button
     }
 }
@@ -2779,7 +2804,7 @@ final class AppearanceBubbleViewController: AppearanceDraftViewController {
         self.paywallPresenter = paywallPresenter
         super.init(
             document: document,
-            title: "Message Bubbles",
+            title: L10n.text("appearance__bubbles__screen_title", fallback: "Message Bubbles"),
             onDraftCommitted: onDraftCommitted
         )
     }
@@ -3009,7 +3034,7 @@ private final class AppearanceBubbleRadiusCell: UITableViewCell {
         slider.minimumValue = 0
         slider.maximumValue = 16
         slider.accessibilityIdentifier = "interface.bubbles.radius"
-        slider.accessibilityLabel = "Radius"
+        slider.accessibilityLabel = L10n.text("appearance__bubbles__radius_accessibility_label", fallback: "Radius")
         slider.addTarget(self, action: #selector(sliderChanged), for: .valueChanged)
         contentView.addSubview(slider)
         NSLayoutConstraint.activate([
@@ -3088,7 +3113,7 @@ final class AppearanceBubbleStyleGalleryView: UIView {
             rowsContainerHeightConstraint
         ])
         accessibilityIdentifier = "interface.bubbles.gallery"
-        accessibilityLabel = "Message bubble styles"
+        accessibilityLabel = L10n.text("appearance__bubbles__styles_accessibility_label", fallback: "Message bubble styles")
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -3209,14 +3234,14 @@ final class AppearanceBubbleStyleGalleryView: UIView {
 
     private static func sampleText(for style: AppearanceBubbleStyle) -> String {
         switch style {
-        case .noTail: return "Can we meet after lunch today?"
-        case .smooth: return "The train leaves in twenty minutes."
-        case .bubble: return "I'll send the photo when I get home."
-        case .bubbles: return "The coffee place opens at eight."
-        case .curvy: return "We can talk again tomorrow morning."
-        case .stripes: return "I saved the address in the notes."
-        case .transparent: return "Let me know when you arrive home."
-        case .wedge: return "That works for me, thanks for checking."
+        case .noTail: return L10n.text("appearance__bubble_preview__no_tail_message", fallback: "Can we meet after lunch today?")
+        case .smooth: return L10n.text("appearance__bubble_preview__smooth_message", fallback: "The train leaves in twenty minutes.")
+        case .bubble: return L10n.text("appearance__bubble_preview__bubble_message", fallback: "I'll send the photo when I get home.")
+        case .bubbles: return L10n.text("appearance__bubble_preview__bubbles_message", fallback: "The coffee place opens at eight.")
+        case .curvy: return L10n.text("appearance__bubble_preview__curvy_message", fallback: "We can talk again tomorrow morning.")
+        case .stripes: return L10n.text("appearance__bubble_preview__stripes_message", fallback: "I saved the address in the notes.")
+        case .transparent: return L10n.text("appearance__bubble_preview__transparent_message", fallback: "Let me know when you arrive home.")
+        case .wedge: return L10n.text("appearance__bubble_preview__wedge_message", fallback: "That works for me, thanks for checking.")
         }
     }
 }
@@ -3309,7 +3334,17 @@ private final class AppearanceBubbleStyleRow: UIControl {
         selectionIndicator.accessibilityIdentifier = "interface.bubble.\(style.rawValue).selection"
         accessibilityIdentifier = "interface.bubble.\(style.rawValue)"
         accessibilityLabel = style.displayName
-        accessibilityValue = locked ? "Premium" : (selected ? "Selected" : nil)
+        accessibilityValue = locked
+            ? L10n.text(
+                "settings__passcode__premium_required_status",
+                fallback: "Premium"
+            )
+            : (selected
+                ? L10n.text(
+                    "abuse_report__accessibility_value__selected",
+                    fallback: "Selected"
+                )
+                : nil)
         accessibilityTraits = selected ? [.button, .selected] : .button
     }
 
@@ -3337,7 +3372,7 @@ private final class AppearanceBubbleSelectionIndicatorView: UIView {
             checkmarkView.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
         isAccessibilityElement = true
-        accessibilityLabel = "Bubble style selection"
+        accessibilityLabel = L10n.text("appearance__bubbles__selection_accessibility_label", fallback: "Bubble style selection")
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -3353,7 +3388,15 @@ private final class AppearanceBubbleSelectionIndicatorView: UIView {
         layer.borderWidth = selected ? 0 : 2
         layer.borderColor = selected ? nil : UIColor.tertiaryLabel.cgColor
         checkmarkView.isHidden = !selected
-        accessibilityValue = selected ? "Selected" : "Not selected"
+        accessibilityValue = selected
+            ? L10n.text(
+                "abuse_report__accessibility_value__selected",
+                fallback: "Selected"
+            )
+            : L10n.text(
+                "abuse_report__accessibility_value__not_selected",
+                fallback: "Not selected"
+            )
     }
 }
 
@@ -3381,7 +3424,7 @@ final class AppearanceAvatarViewController: AppearanceDraftViewController {
         self.paywallPresenter = paywallPresenter
         super.init(
             document: document,
-            title: "Avatars",
+            title: L10n.text("appearance__avatars__screen_title", fallback: "Avatars"),
             onDraftCommitted: onDraftCommitted
         )
     }
@@ -3533,7 +3576,7 @@ final class AppearanceAvatarMaskGalleryView: UIView {
             rowsContainerHeightConstraint
         ])
         accessibilityIdentifier = "interface.avatars.gallery"
-        accessibilityLabel = "Avatar shapes"
+        accessibilityLabel = L10n.text("appearance__avatars__shapes_accessibility_label", fallback: "Avatar shapes")
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -3593,15 +3636,15 @@ final class AppearanceAvatarMaskGalleryView: UIView {
         }
     }
 
-    private static let fixtures: [Fixture] = [
-        Fixture(name: "Alicia Torreaux", message: "Bob says hi. 😊 ❤️ 😱", time: "13:02", avatarAssetName: "interface_avatar_alicia", status: .offline, entity: .contact, conversationType: .regular, delivery: .read, unread: 0, isPinned: true, author: nil),
-        Fixture(name: "Roberto", message: "••• typing", time: "14:01", avatarAssetName: "interface_avatar_roberto", status: .online, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil),
-        Fixture(name: "Campus Public Chat", message: "We just reached 2,500 members! WOO!", time: "13:53", avatarAssetName: "interface_avatar_campus", status: .online, entity: .groupchat, conversationType: .group, delivery: nil, unread: 0, isPinned: false, author: "Jennie Alpha"),
-        Fixture(name: "Veronica", message: "Table for four, 2PM. Be there.", time: "13:50", avatarAssetName: "interface_avatar_veronica", status: .offline, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil),
-        Fixture(name: "Animal Videos", message: "Vote now! Moar cat videos in this channel?", time: "13:16", avatarAssetName: "interface_avatar_animal_videos", status: .offline, entity: .groupchat, conversationType: .channel, delivery: nil, unread: 0, isPinned: false, author: nil),
-        Fixture(name: "Little Sister", message: "Don’t tell mom yet, but I got the job! I’m going to ROME!", time: "12:54", avatarAssetName: "interface_avatar_little_sister", status: .offline, entity: .incognitoChat, conversationType: .omemo, delivery: nil, unread: 1, isPinned: false, author: nil),
-        Fixture(name: "Jennie Alpha", message: "🖼️ Check these out", time: "12:53", avatarAssetName: "interface_avatar_jennie", status: .offline, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil)
-    ]
+    private static var fixtures: [Fixture] { [
+        Fixture(name: "Alicia Torreaux", message: L10n.text("appearance__chat_list_preview__message_alicia", fallback: "Bob says hi. 😊 ❤️ 😱"), time: "13:02", avatarAssetName: "interface_avatar_alicia", status: .offline, entity: .contact, conversationType: .regular, delivery: .read, unread: 0, isPinned: true, author: nil),
+        Fixture(name: "Roberto", message: L10n.text("appearance__chat_list_preview__message_typing", fallback: "••• typing"), time: "14:01", avatarAssetName: "interface_avatar_roberto", status: .online, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil),
+        Fixture(name: "Campus Public Chat", message: L10n.text("appearance__chat_list_preview__message_campus", fallback: "We just reached 2,500 members! WOO!"), time: "13:53", avatarAssetName: "interface_avatar_campus", status: .online, entity: .groupchat, conversationType: .group, delivery: nil, unread: 0, isPinned: false, author: "Jennie Alpha"),
+        Fixture(name: "Veronica", message: L10n.text("appearance__chat_list_preview__message_veronica", fallback: "Table for four, 2PM. Be there."), time: "13:50", avatarAssetName: "interface_avatar_veronica", status: .offline, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil),
+        Fixture(name: "Animal Videos", message: L10n.text("appearance__chat_list_preview__message_animal_videos", fallback: "Vote now! Moar cat videos in this channel?"), time: "13:16", avatarAssetName: "interface_avatar_animal_videos", status: .offline, entity: .groupchat, conversationType: .channel, delivery: nil, unread: 0, isPinned: false, author: nil),
+        Fixture(name: "Little Sister", message: L10n.text("appearance__chat_list_preview__message_little_sister", fallback: "Don’t tell mom yet, but I got the job! I’m going to ROME!"), time: "12:54", avatarAssetName: "interface_avatar_little_sister", status: .offline, entity: .incognitoChat, conversationType: .omemo, delivery: nil, unread: 1, isPinned: false, author: nil),
+        Fixture(name: "Jennie Alpha", message: L10n.text("appearance__chat_list_preview__message_jennie", fallback: "🖼️ Check these out"), time: "12:53", avatarAssetName: "interface_avatar_jennie", status: .offline, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil)
+    ] }
 }
 
 private final class AppearanceAvatarMaskRow: UIControl {
@@ -3617,7 +3660,7 @@ private final class AppearanceAvatarMaskRow: UIControl {
     var onSelect: ((AppearanceAvatarMask) -> Void)?
 
     private let selectionIndicator = AppearanceBubbleSelectionIndicatorView(
-        accessibilityLabel: "Avatar shape selection"
+        accessibilityLabel: L10n.text("appearance__avatars__shape_accessibility_label", fallback: "Avatar shape selection")
     )
     private let chatCell = ChatListTableViewCell(style: .default, reuseIdentifier: nil)
     private let separator = UIView()
@@ -3708,7 +3751,7 @@ private final class AppearanceAvatarMaskRow: UIControl {
             hasErrorInChat: false,
             verAction: false
         )
-        chatCell.dateLabel.text = locked ? "Premium" : fixture.time
+        chatCell.dateLabel.text = locked ? L10n.text("settings__title__premium", fallback: "Premium") : fixture.time
         chatCell.accountIndicator.isHidden = true
         // These photos are local preview fixtures. Runtime chat rows keep using
         // their own avatar request/cache pipeline.
@@ -3728,8 +3771,21 @@ private final class AppearanceAvatarMaskRow: UIControl {
         chatCell.avatarView.accessibilityIdentifier = "interface.avatar.\(mask.rawValue).preview"
         chatCell.accessibilityIdentifier = "interface.avatar.\(mask.rawValue).chat"
         accessibilityIdentifier = "interface.avatar.\(mask.rawValue)"
-        accessibilityLabel = "\(mask.displayName) avatar shape"
-        accessibilityValue = locked ? "Premium" : (selected ? "Selected" : "Not selected")
+        accessibilityLabel = L10n.format("appearance__avatars__shape_accessibility_label_format", fallback: "%1$@ avatar shape", arguments: [String(describing: mask.displayName)])
+        accessibilityValue = locked
+            ? L10n.text(
+                "settings__passcode__premium_required_status",
+                fallback: "Premium"
+            )
+            : (selected
+                ? L10n.text(
+                    "abuse_report__accessibility_value__selected",
+                    fallback: "Selected"
+                )
+                : L10n.text(
+                    "abuse_report__accessibility_value__not_selected",
+                    fallback: "Not selected"
+                ))
         accessibilityTraits = selected ? [.button, .selected] : .button
         separator.isHidden = !showsSeparator
     }
@@ -3753,7 +3809,7 @@ final class AppearanceThemesViewController: BaseViewController, UICollectionView
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Chat Themes"
+        title = L10n.text("interface__chat_themes__title", fallback: "Chat Themes")
         view.backgroundColor = .systemGroupedBackground
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             image: UIImage(systemName: "plus"),
@@ -3818,27 +3874,27 @@ final class AppearanceThemesViewController: BaseViewController, UICollectionView
             guard let self else { return UIMenu() }
             if theme.isBuiltIn {
                 return UIMenu(children: [
-                    UIAction(title: "Create Editable Copy", image: UIImage(systemName: "plus.square.on.square")) { _ in
+                    UIAction(title: L10n.text("appearance__theme__create_editable_copy", fallback: "Create Editable Copy"), image: UIImage(systemName: "plus.square.on.square")) { _ in
                         self.copyForEditing(theme)
                     }
                 ])
             }
             return UIMenu(children: [
-                UIAction(title: "Edit", image: UIImage(systemName: "paintbrush")) { _ in self.edit(theme) },
-                UIAction(title: "Rename", image: UIImage(systemName: "pencil")) { _ in self.rename(theme) },
-                UIAction(title: "Delete", image: UIImage(systemName: "trash"), attributes: .destructive) { _ in self.delete(theme) }
+                UIAction(title: L10n.text("common__action__edit", fallback: "Edit"), image: UIImage(systemName: "paintbrush")) { _ in self.edit(theme) },
+                UIAction(title: L10n.text("appearance__theme__rename_action", fallback: "Rename"), image: UIImage(systemName: "pencil")) { _ in self.rename(theme) },
+                UIAction(title: L10n.text("common__action__delete", fallback: "Delete"), image: UIImage(systemName: "trash"), attributes: .destructive) { _ in self.delete(theme) }
             ])
         }
     }
 
     @objc private func createTheme() {
-        let alert = UIAlertController(title: "New Theme", message: "Choose a unique name.", preferredStyle: .alert)
+        let alert = UIAlertController(title: L10n.text("appearance__theme__new_title", fallback: "New Theme"), message: L10n.text("appearance__theme__unique_name_message", fallback: "Choose a unique name."), preferredStyle: .alert)
         alert.addTextField { field in
-            field.placeholder = "Theme name"
+            field.placeholder = L10n.text("appearance__theme__name_placeholder", fallback: "Theme name")
             field.autocapitalizationType = .words
         }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Create", style: .default) { [weak self, weak alert] _ in
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__create", fallback: "Create"), style: .default) { [weak self, weak alert] _ in
             guard let self, let name = alert?.textFields?.first?.text else { return }
             do {
                 let store = AppearanceSettingsStore() ?? AppearanceSettingsStore(defaults: .standard, defaultAccentHex: "#007AFF")
@@ -3854,10 +3910,10 @@ final class AppearanceThemesViewController: BaseViewController, UICollectionView
     }
 
     private func copyForEditing(_ source: AppearanceTheme) {
-        let alert = UIAlertController(title: "New Theme", message: "Editing a built-in theme creates a copy.", preferredStyle: .alert)
-        alert.addTextField { $0.text = "\(source.name) Copy" }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Create", style: .default) { [weak self, weak alert] _ in
+        let alert = UIAlertController(title: L10n.text("appearance__theme__new_title", fallback: "New Theme"), message: L10n.text("appearance__theme__builtin_copy_message", fallback: "Editing a built-in theme creates a copy."), preferredStyle: .alert)
+        alert.addTextField { $0.text = L10n.format("interface_settings__text__value_copy", fallback: "%@ Copy", arguments: [String(describing: source.name)]) }
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__create", fallback: "Create"), style: .default) { [weak self, weak alert] _ in
             guard let self, let name = alert?.textFields?.first?.text else { return }
             do {
                 let store = AppearanceSettingsStore() ?? AppearanceSettingsStore(defaults: .standard, defaultAccentHex: "#007AFF")
@@ -3878,10 +3934,10 @@ final class AppearanceThemesViewController: BaseViewController, UICollectionView
     }
 
     private func rename(_ theme: AppearanceTheme) {
-        let alert = UIAlertController(title: "Rename Theme", message: nil, preferredStyle: .alert)
+        let alert = UIAlertController(title: L10n.text("appearance__theme__rename_title", fallback: "Rename Theme"), message: nil, preferredStyle: .alert)
         alert.addTextField { $0.text = theme.name }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Rename", style: .default) { [weak self, weak alert] _ in
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.text("appearance__theme__rename_action", fallback: "Rename"), style: .default) { [weak self, weak alert] _ in
             guard let self, let name = alert?.textFields?.first?.text else { return }
             do {
                 let store = AppearanceSettingsStore() ?? AppearanceSettingsStore(defaults: .standard, defaultAccentHex: "#007AFF")
@@ -3895,9 +3951,9 @@ final class AppearanceThemesViewController: BaseViewController, UICollectionView
     }
 
     private func delete(_ theme: AppearanceTheme) {
-        let alert = UIAlertController(title: "Delete “\(theme.name)”?", message: "The cloud photo, if any, will remain in Cloud Storage.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
+        let alert = UIAlertController(title: L10n.format("appearance__theme__delete_title_format", fallback: "Delete “%@”?", arguments: [String(describing: theme.name)]), message: L10n.text("appearance__theme__delete_cloud_photo_message", fallback: "The cloud photo, if any, will remain in Cloud Storage."), preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__delete", fallback: "Delete"), style: .destructive) { [weak self] _ in
             guard let self else { return }
             do {
                 let store = AppearanceSettingsStore() ?? AppearanceSettingsStore(defaults: .standard, defaultAccentHex: "#007AFF")
@@ -3911,8 +3967,8 @@ final class AppearanceThemesViewController: BaseViewController, UICollectionView
     }
 
     private func presentError(_ error: Error) {
-        let alert = UIAlertController(title: "Couldn’t save theme", message: error.localizedDescription, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        let alert = UIAlertController(title: L10n.text("appearance__error__save_theme_title", fallback: "Couldn’t save theme"), message: error.localizedDescription, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default))
         present(alert, animated: true)
     }
 }
@@ -3984,11 +4040,16 @@ private final class AppearanceThemeCell: UICollectionViewCell {
         gradient.colors = palette.backgroundStops.map(\.uiColor)
         incoming.backgroundColor = palette.incomingBubble.uiColor
         outgoing.backgroundColor = palette.outgoingBubble.uiColor
-        nameLabel.text = theme.name
+        nameLabel.text = theme.displayName
         contentView.layer.borderWidth = selected ? 3 : 0
         contentView.layer.borderColor = accent.cgColor
-        accessibilityLabel = theme.name
-        accessibilityValue = selected ? "Selected" : nil
+        accessibilityLabel = theme.displayName
+        accessibilityValue = selected
+            ? L10n.text(
+                "abuse_report__accessibility_value__selected",
+                fallback: "Selected"
+            )
+            : nil
         accessibilityTraits = selected ? [.button, .selected] : .button
         accessibilityIdentifier = "interface.theme.\(theme.id)"
     }
@@ -4023,7 +4084,7 @@ private final class AppearanceThemeEditorNavigationPreview: UIView {
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.accessibilityIdentifier = "interface.themeEditor.preview.navigation.title"
         presenceLabel.translatesAutoresizingMaskIntoConstraints = false
-        presenceLabel.text = "Online"
+        presenceLabel.text = L10n.text("presence__status__online", fallback: "Online")
         presenceLabel.textAlignment = .center
         presenceLabel.adjustsFontForContentSizeCategory = true
         presenceLabel.accessibilityIdentifier = "interface.themeEditor.preview.navigation.online"
@@ -4163,7 +4224,7 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
             ]
         }
         NSLayoutConstraint.activate(constraints)
-        accessibilityLabel = "Chat preview"
+        accessibilityLabel = L10n.text("appearance__preview__chat_accessibility_label", fallback: "Chat preview")
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -4200,19 +4261,19 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
     private func configureEditorConversation(snapshot: ResolvedAppearanceSnapshot) {
         addMessage(
             id: "editor.text.0",
-            text: "I found a quiet coffee bar by the river.",
+            text: L10n.text("appearance__editor_preview__message_incoming", fallback: "I found a quiet coffee bar by the river."),
             outgoing: false,
             snapshot: snapshot
         )
         addMessage(
             id: "editor.text.1",
-            text: "Perfect, I’ll meet you there after work.",
+            text: L10n.text("appearance__editor_preview__message_outgoing", fallback: "Perfect, I’ll meet you there after work."),
             outgoing: true,
             snapshot: snapshot
         )
         addMessage(
             id: "editor.text.2",
-            text: "Great, I’ll save a table by the window.",
+            text: L10n.text("appearance__editor_preview__message_followup", fallback: "Great, I’ll save a table by the window."),
             outgoing: false,
             snapshot: snapshot
         )
@@ -4243,25 +4304,25 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
     private func configureThemeBrowserConversation(snapshot: ResolvedAppearanceSnapshot) {
         addMessage(
             id: "opening",
-            text: "For relaxing times, make it Suntory time. 😎",
+            text: L10n.text("appearance__theme_preview__message_opening", fallback: "For relaxing times, make it Suntory time. 😎"),
             outgoing: true,
             snapshot: snapshot
         )
         addMessage(
             id: "answer",
-            text: "Turn toward the camera, please.",
+            text: L10n.text("appearance__theme_preview__message_answer", fallback: "Turn toward the camera, please."),
             outgoing: false,
             snapshot: snapshot
         )
         addMessage(
             id: "question",
-            text: "That’s all?",
+            text: L10n.text("appearance__theme_preview__message_question", fallback: "That’s all?"),
             outgoing: true,
             snapshot: snapshot
         )
         addMessage(
             id: "confirmation",
-            text: "Yes, look at the camera.",
+            text: L10n.text("appearance__theme_preview__message_confirmation", fallback: "Yes, look at the camera."),
             outgoing: false,
             snapshot: snapshot
         )
@@ -4271,7 +4332,7 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
             author: "Bob Harris",
             jid: "bob@example.invalid",
             outgoing: false,
-            textMessage: NSAttributedString(string: "Yes, look at the camera."),
+            textMessage: NSAttributedString(string: L10n.text("appearance__theme_preview__message_confirmation", fallback: "Yes, look at the camera.")),
             images: [],
             videos: [],
             files: [],
@@ -4281,7 +4342,7 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
         )
         addMessage(
             id: "reply",
-            text: "Does he want me to turn from the right or the left? 🤔",
+            text: L10n.text("appearance__theme_preview__message_reply", fallback: "Does he want me to turn from the right or the left? 🤔"),
             outgoing: true,
             snapshot: snapshot
         )
@@ -4309,14 +4370,14 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
         )
         addMessage(
             id: "quoted",
-            text: "Right side. And, uh, with intensity.",
+            text: L10n.text("appearance__theme_preview__message_quote", fallback: "Right side. And, uh, with intensity."),
             outgoing: false,
             snapshot: snapshot,
             forwards: [reply]
         )
         addMessage(
             id: "closing",
-            text: "Is that everything? It seemed like he said quite a bit more than that. 😮",
+            text: L10n.text("appearance__theme_preview__message_closing", fallback: "Is that everything? It seemed like he said quite a bit more than that. 😮"),
             outgoing: true,
             snapshot: snapshot
         )
@@ -4351,7 +4412,7 @@ private final class AppearanceThemeConversationPreviewPage: UIView {
         let container = UIView()
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.text = "Today"
+        label.text = L10n.text("appearance__preview__today", fallback: "Today")
         label.textColor = .white
         label.font = AppearanceTypography.font(
             textStyle: .caption1,
@@ -4396,13 +4457,13 @@ private final class AppearanceThemeChatsPreviewPage: UIView {
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
     private let fixtures: [Fixture] = [
-        Fixture(name: "Alicia Torreaux", message: "Bob says hi. 😊 ❤️ 😱", time: "13:02", status: .offline, entity: .contact, conversationType: .regular, delivery: .read, unread: 0, isPinned: true, author: nil),
-        Fixture(name: "Roberto", message: "••• typing", time: "14:01", status: .online, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil),
-        Fixture(name: "Campus Public Chat", message: "We just reached 2,500 members! WOO!", time: "13:53", status: .online, entity: .groupchat, conversationType: .group, delivery: nil, unread: 0, isPinned: false, author: "Jennie Alpha"),
-        Fixture(name: "Veronica", message: "Table for four, 2PM. Be there.", time: "13:50", status: .offline, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil),
-        Fixture(name: "Animal Videos", message: "Vote now! Moar cat videos in this channel?", time: "13:16", status: .offline, entity: .groupchat, conversationType: .channel, delivery: nil, unread: 0, isPinned: false, author: nil),
-        Fixture(name: "Little Sister", message: "Don’t tell mom yet, but I got the job! I’m going to ROME!", time: "12:54", status: .offline, entity: .incognitoChat, conversationType: .omemo, delivery: nil, unread: 1, isPinned: false, author: nil),
-        Fixture(name: "Jennie Alpha", message: "🖼️ Check these out", time: "12:53", status: .offline, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil)
+        Fixture(name: "Alicia Torreaux", message: L10n.text("appearance__chat_list_preview__message_alicia", fallback: "Bob says hi. 😊 ❤️ 😱"), time: "13:02", status: .offline, entity: .contact, conversationType: .regular, delivery: .read, unread: 0, isPinned: true, author: nil),
+        Fixture(name: "Roberto", message: L10n.text("appearance__chat_list_preview__message_typing", fallback: "••• typing"), time: "14:01", status: .online, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil),
+        Fixture(name: "Campus Public Chat", message: L10n.text("appearance__chat_list_preview__message_campus", fallback: "We just reached 2,500 members! WOO!"), time: "13:53", status: .online, entity: .groupchat, conversationType: .group, delivery: nil, unread: 0, isPinned: false, author: "Jennie Alpha"),
+        Fixture(name: "Veronica", message: L10n.text("appearance__chat_list_preview__message_veronica", fallback: "Table for four, 2PM. Be there."), time: "13:50", status: .offline, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil),
+        Fixture(name: "Animal Videos", message: L10n.text("appearance__chat_list_preview__message_animal_videos", fallback: "Vote now! Moar cat videos in this channel?"), time: "13:16", status: .offline, entity: .groupchat, conversationType: .channel, delivery: nil, unread: 0, isPinned: false, author: nil),
+        Fixture(name: "Little Sister", message: L10n.text("appearance__chat_list_preview__message_little_sister", fallback: "Don’t tell mom yet, but I got the job! I’m going to ROME!"), time: "12:54", status: .offline, entity: .incognitoChat, conversationType: .omemo, delivery: nil, unread: 1, isPinned: false, author: nil),
+        Fixture(name: "Jennie Alpha", message: L10n.text("appearance__chat_list_preview__message_jennie", fallback: "🖼️ Check these out"), time: "12:53", status: .offline, entity: .contact, conversationType: .regular, delivery: nil, unread: 0, isPinned: false, author: nil)
     ]
 
     override init(frame: CGRect) {
@@ -4429,7 +4490,7 @@ private final class AppearanceThemeChatsPreviewPage: UIView {
             contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
             contentStack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor)
         ])
-        accessibilityLabel = "Chats preview"
+        accessibilityLabel = L10n.text("appearance__preview__chats_accessibility_label", fallback: "Chats preview")
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -4638,7 +4699,7 @@ final class AppearanceThemePreviewViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = theme.name
+        title = theme.displayName
         view.backgroundColor = .systemBackground
         let navigationAppearance = UINavigationBarAppearance()
         navigationAppearance.configureWithTransparentBackground()
@@ -4686,7 +4747,7 @@ final class AppearanceThemePreviewViewController: BaseViewController {
 
     private func makeApplyButtonConfiguration() -> UIButton.Configuration {
         var configuration = UIButton.Configuration.plain()
-        configuration.title = "Apply for All Chats"
+        configuration.title = L10n.text("appearance__theme__apply_all_chats", fallback: "Apply for All Chats")
         configuration.baseForegroundColor = .label
         configuration.cornerStyle = .capsule
         configuration.contentInsets = NSDirectionalEdgeInsets(
@@ -4721,8 +4782,8 @@ final class AppearanceThemePreviewViewController: BaseViewController {
                 animated: true
             )
         } catch {
-            let alert = UIAlertController(title: "Couldn’t apply theme", message: error.localizedDescription, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            let alert = UIAlertController(title: L10n.text("appearance__error__apply_theme_title", fallback: "Couldn’t apply theme"), message: error.localizedDescription, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default))
             present(alert, animated: true)
         }
     }
@@ -4772,7 +4833,7 @@ final class AppearanceThemeEditorViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Edit \(theme.name)"
+        title = L10n.format("interface__chat_theme__edit_title_format", fallback: "Edit %@", arguments: [String(describing: theme.name)])
         view.backgroundColor = .systemGroupedBackground
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             image: UIImage(systemName: "checkmark"),
@@ -4787,7 +4848,7 @@ final class AppearanceThemeEditorViewController: BaseViewController {
         changeButton.addTarget(self, action: #selector(changeCurrentValue), for: .touchUpInside)
         changeButton.accessibilityIdentifier = "interface.themeEditor.change"
         wallpaperButton.configuration = .bordered()
-        wallpaperButton.configuration?.title = "Choose Wallpaper"
+        wallpaperButton.configuration?.title = L10n.text("appearance__editor__choose_wallpaper", fallback: "Choose Wallpaper")
         wallpaperButton.configuration?.image = UIImage(systemName: "photo.on.rectangle")
         wallpaperButton.configuration?.imagePadding = 6
         wallpaperButton.addTarget(self, action: #selector(chooseWallpaper), for: .touchUpInside)
@@ -4815,13 +4876,13 @@ final class AppearanceThemeEditorViewController: BaseViewController {
     private func updateControls() {
         switch tabKinds[tabs.selectedSegmentIndex] {
         case .background:
-            changeButton.configuration?.title = "Choose Gradient"
+            changeButton.configuration?.title = L10n.text("appearance__editor__choose_gradient", fallback: "Choose Gradient")
             wallpaperButton.isHidden = false
         case .accent:
-            changeButton.configuration?.title = "Choose Accent"
+            changeButton.configuration?.title = L10n.text("appearance__editor__choose_accent", fallback: "Choose Accent")
             wallpaperButton.isHidden = true
         case .messages:
-            changeButton.configuration?.title = "Choose Message Colors"
+            changeButton.configuration?.title = L10n.text("appearance__editor__choose_message_colors", fallback: "Choose Message Colors")
             wallpaperButton.isHidden = true
         }
     }
@@ -4937,8 +4998,8 @@ final class AppearanceThemeEditorViewController: BaseViewController {
             AppearanceCoordinator.shared.reloadAndApply()
             navigationController?.popViewController(animated: true)
         } catch {
-            let alert = UIAlertController(title: "Couldn’t save theme", message: error.localizedDescription, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            let alert = UIAlertController(title: L10n.text("appearance__error__save_theme_title", fallback: "Couldn’t save theme"), message: error.localizedDescription, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default))
             present(alert, animated: true)
         }
     }
@@ -4970,7 +5031,7 @@ final class AppearanceThemeWallpaperPickerViewController: BaseViewController, UI
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Wallpaper"
+        title = L10n.text("interface__wallpaper__title", fallback: "Wallpaper")
         view.backgroundColor = .systemGroupedBackground
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = .clear
@@ -5074,7 +5135,7 @@ final class AppearanceWallpaperViewController: AppearanceDraftViewController, UI
         self.uploader = uploader
         super.init(
             document: document,
-            title: "Chat Wallpaper",
+            title: L10n.text("appearance__wallpaper__screen_title", fallback: "Chat Wallpaper"),
             onDraftCommitted: onDraftCommitted
         )
     }
@@ -5094,13 +5155,13 @@ final class AppearanceWallpaperViewController: AppearanceDraftViewController, UI
         collectionView.accessibilityIdentifier = "interface.wallpaper.builtInGrid"
         collectionView.register(AppearanceWallpaperCell.self, forCellWithReuseIdentifier: AppearanceWallpaperCell.reuseIdentifier)
         let colorButton = makeAction(
-            title: "Color",
+            title: L10n.text("appearance__wallpaper__color", fallback: "Color"),
             symbol: "paintpalette.fill",
             accessibilityIdentifier: "interface.wallpaper.setColor",
             selector: #selector(setColor)
         )
         let photoButton = makeAction(
-            title: "Gallery",
+            title: L10n.text("appearance__wallpaper__gallery", fallback: "Gallery"),
             symbol: "photo.on.rectangle",
             accessibilityIdentifier: "interface.wallpaper.chooseFromIPhone",
             selector: #selector(choosePhoto)
@@ -5306,11 +5367,11 @@ final class AppearanceWallpaperViewController: AppearanceDraftViewController, UI
     private func uploadFailed(_ error: Error) {
         activity.stopAnimating()
         refreshSetButton()
-        let alert = UIAlertController(title: "Couldn’t upload wallpaper", message: error.localizedDescription, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+        let alert = UIAlertController(title: L10n.text("appearance__error__upload_wallpaper_title", fallback: "Couldn’t upload wallpaper"), message: error.localizedDescription, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel) { [weak self] _ in
             self?.pendingUploadAsset = nil
         })
-        alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__retry", fallback: "Retry"), style: .default) { [weak self] _ in
             guard let self else { return }
             if let asset = self.pendingUploadAsset {
                 self.activity.startAnimating()
@@ -5380,11 +5441,17 @@ final class AppearanceWallpaperCell: UICollectionViewCell {
     ) {
         backdrop.configure(document: document)
         backdrop.accessibilityIdentifier = "interface.wallpaper.backdrop.\(name)"
-        nameLabel.text = name
+        let displayName = AppearanceWallpaper.displayName(forAssetName: name)
+        nameLabel.text = displayName
         contentView.layer.borderWidth = selected ? 3 : 0
         contentView.layer.borderColor = accent.cgColor
-        accessibilityLabel = name
-        accessibilityValue = selected ? "Selected" : nil
+        accessibilityLabel = displayName
+        accessibilityValue = selected
+            ? L10n.text(
+                "abuse_report__accessibility_value__selected",
+                fallback: "Selected"
+            )
+            : nil
         accessibilityTraits = selected ? [.button, .selected] : .button
         accessibilityIdentifier = "interface.wallpaper.\(name)"
     }

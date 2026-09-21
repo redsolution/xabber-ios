@@ -66,20 +66,20 @@ class CreateNewEntityViewController: UIViewController {
         let avatarAssetName: String
     }
 
-    static let botDefinitions: [BotDefinition] = [
+    static var botDefinitions: [BotDefinition] { [
         BotDefinition(
             title: "Call Me Bot",
             jid: "call.me.bot@test.xabber.org",
-            description: "Answers calls and mirrors your camera video.",
+            description: L10n.text("create_new_entity__description__answers_calls_and_mirrors_your_camera_video", fallback: "Answers calls and mirrors your camera video."),
             avatarAssetName: "create_new_entity_call_me_bot_avatar"
         ),
         BotDefinition(
             title: "Reply Me Bot",
             jid: "reply.me.bot@test.xabber.org",
-            description: "Echo bot that sends your messages back.",
+            description: L10n.text("create_new_entity__description__echo_bot_that_sends_your_messages_back", fallback: "Echo bot that sends your messages back."),
             avatarAssetName: "create_new_entity_reply_me_bot_avatar"
         )
-    ]
+    ] }
 
     static func shouldEnsureRoster(for subscription: RosterStorageItem.Subsccribtion?) -> Bool {
         return subscription != .both
@@ -146,7 +146,7 @@ class CreateNewEntityViewController: UIViewController {
 
     private static func botSection() -> DatasourceSection {
         return DatasourceSection(
-            title: "Bots",
+            title: L10n.text("new_entity__menu__bots", fallback: "Bots"),
             items: botDefinitions.map {
                 datasource(
                     title: $0.title,
@@ -164,7 +164,7 @@ class CreateNewEntityViewController: UIViewController {
         return DatasourceSection(
             title: nil,
             items: [
-                datasource(title: "Scan QR code", icon: "qrcode.viewfinder", key: "qr_code")
+                datasource(title: L10n.text("scan_qr_code", fallback: "Scan QR Code"), icon: "qrcode.viewfinder", key: "qr_code")
             ]
         )
     }
@@ -188,16 +188,16 @@ class CreateNewEntityViewController: UIViewController {
                         DatasourceSection(
                             title: nil,
                             items: [
-                                Self.datasource(title: "Create group", icon: "person.2", key: "create_group"),
-                                Self.datasource(title: "Create incognito group", icon: "xabber.incognito.variant", key: "create_incognito")
+                                Self.datasource(title: L10n.text("create_groupchat", fallback: "Create group"), icon: "person.2", key: "create_group"),
+                                Self.datasource(title: L10n.text("create_incognito_groupchat", fallback: "Create incognito group"), icon: "xabber.incognito.variant", key: "create_incognito")
                             ]
                         )
                     ]
                 } else {
                     self.datasource = normalSections(
                         with: [
-                            Self.datasource(title: "Add contact", icon: "person", key: "add_contact"),
-                            Self.datasource(title: "Start secret chat", icon: "custom.lock.bubble.left", key: "start_secret_chat")
+                            Self.datasource(title: L10n.text("contact_add", fallback: "Add contact"), icon: "person", key: "add_contact"),
+                            Self.datasource(title: L10n.text("chat_message_start_secret", fallback: "Start secret chat"), icon: "custom.lock.bubble.left", key: "start_secret_chat")
                         ],
                         includeBots: false
                     )
@@ -205,18 +205,18 @@ class CreateNewEntityViewController: UIViewController {
             } else if CommonConfigManager.shared.config.support_groupchats {
                 self.datasource = normalSections(
                     with: [
-                        Self.datasource(title: "Add contact", icon: "person", key: "add_contact"),
-                        Self.datasource(title: "Create group", icon: "person.2", key: "create_group"),
-                        Self.datasource(title: "Create incognito group", icon: "xabber.incognito.variant", key: "create_incognito"),
-                        Self.datasource(title: "Start secret chat", icon: "custom.lock.bubble.left", key: "start_secret_chat")
+                        Self.datasource(title: L10n.text("contact_add", fallback: "Add contact"), icon: "person", key: "add_contact"),
+                        Self.datasource(title: L10n.text("create_groupchat", fallback: "Create group"), icon: "person.2", key: "create_group"),
+                        Self.datasource(title: L10n.text("create_incognito_groupchat", fallback: "Create incognito group"), icon: "xabber.incognito.variant", key: "create_incognito"),
+                        Self.datasource(title: L10n.text("chat_message_start_secret", fallback: "Start secret chat"), icon: "custom.lock.bubble.left", key: "start_secret_chat")
                     ],
                     includeBots: true
                 )
             } else {
                 self.datasource = normalSections(
                     with: [
-                        Self.datasource(title: "Add contact", icon: "person", key: "add_contact"),
-                        Self.datasource(title: "Start secret chat", icon: "custom.lock.bubble.left", key: "start_secret_chat")
+                        Self.datasource(title: L10n.text("contact_add", fallback: "Add contact"), icon: "person", key: "add_contact"),
+                        Self.datasource(title: L10n.text("chat_message_start_secret", fallback: "Start secret chat"), icon: "custom.lock.bubble.left", key: "start_secret_chat")
                     ],
                     includeBots: true
                 )
@@ -224,7 +224,7 @@ class CreateNewEntityViewController: UIViewController {
         } else {
             self.datasource = normalSections(
                 with: [
-                    Self.datasource(title: "Add contact", icon: "person.fill", key: "add_contact")
+                    Self.datasource(title: L10n.text("contact_add", fallback: "Add contact"), icon: "person.fill", key: "add_contact")
                 ],
                 includeBots: self.filterGroupCreation == nil
             )
@@ -413,7 +413,7 @@ class CreateNewEntityViewController: UIViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        self.title = CommonConfigManager.shared.config.motivating ? self.randTitle : "New chat"
+        self.title = CommonConfigManager.shared.config.motivating ? self.randTitle : L10n.text("create_new_entity__title__new_chat", fallback: "New chat")
     }
 
     override func viewDidAppear(_ animated: Bool) {

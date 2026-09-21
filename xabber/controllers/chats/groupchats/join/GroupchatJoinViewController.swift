@@ -103,7 +103,11 @@ class GroupchatJoinViewController: BaseViewController {
     internal let joinButton: UIButton = {
         let button = UIButton()
         
-        button.setTitle("Join".uppercased(), for: .normal)
+        button.setTitle(
+            L10n.text("groupchat_join", fallback: "Join")
+                .uppercased(with: L10n.context.locale),
+            for: .normal
+        )
         button.setTitleColor(MDCPalette.green.tint500, for: .normal)
         
         return button
@@ -112,7 +116,11 @@ class GroupchatJoinViewController: BaseViewController {
     internal let declineButton: UIButton = {
         let button = UIButton()
         
-        button.setTitle("Decline".uppercased(), for: .normal)
+        button.setTitle(
+            L10n.text("decline", fallback: "Decline")
+                .uppercased(with: L10n.context.locale),
+            for: .normal
+        )
         button.setTitleColor(MDCPalette.red.tint500, for: .normal)
         
         return button
@@ -121,7 +129,11 @@ class GroupchatJoinViewController: BaseViewController {
     internal let blockButton: UIButton = {
         let button = UIButton()
         
-        button.setTitle("Block".uppercased(), for: .normal)
+        button.setTitle(
+            L10n.text("contact_bar_block", fallback: "Block")
+                .uppercased(with: L10n.context.locale),
+            for: .normal
+        )
         button.setTitleColor(MDCPalette.red.tint500, for: .normal)
         
         return button
@@ -347,9 +359,16 @@ class GroupchatJoinViewController: BaseViewController {
         }
         
         if self.isIncognitoGroup {
-            subtitleLabel.text = "You are invited to group chat. If you accept, your XMPP Id shall not be visible to group members"
+            subtitleLabel.text = L10n.text(
+                "groupchat_join__description__incognito_invitation",
+                fallback: "You are invited to group chat. If you accept, your XMPP ID will not be visible to group members."
+            )
         } else {
-            subtitleLabel.text = "You are invited to group chat. If you accept, \(owner) username shall be visible to group members"
+            subtitleLabel.text = L10n.format(
+                "groupchat_join__description__public_invitation_format",
+                fallback: "You are invited to group chat. If you accept, the account %1$@ will be visible to group members.",
+                arguments: [owner]
+            )
         }
         
         if #available(iOS 13.0, *) {

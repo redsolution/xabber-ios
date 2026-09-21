@@ -1,0 +1,525 @@
+{
+  "migrations": [
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "aboutText",
+      "value": "Xabber has always been a free, open-source messenger committed to user privacy and security. \\\nPremium features require additional server resources — persistent message archives need dedicated \\\nstorage infrastructure, extended cloud capacity demands powerful servers, and digital verification \\\ncertificates rely on secure cryptographic services.\n\nYour subscription directly funds the development and operation of these premium services, while \\\nhelping us keep the core Xabber experience completely free and ad-free for everyone.",
+      "fallback": "Xabber has always been a free, open-source messenger committed to user privacy and security. Premium features require additional server resources — persistent message archives need dedicated storage infrastructure, extended cloud capacity demands powerful servers, and digital verification certificates rely on secure cryptographic services.\n\nYour subscription directly funds the development and operation of these premium services, while helping us keep the core Xabber experience completely free and ad-free for everyone.",
+      "key": "premium__about__open_source_and_subscription_support",
+      "comment": "Xabber Premium About section: explains why premium services need server resources and how subscriptions support the free, ad-free core product.",
+      "translations": {
+        "en": "Xabber has always been a free, open-source messenger committed to user privacy and security. Premium features require additional server resources — persistent message archives need dedicated storage infrastructure, extended cloud capacity demands powerful servers, and digital verification certificates rely on secure cryptographic services.\n\nYour subscription directly funds the development and operation of these premium services, while helping us keep the core Xabber experience completely free and ad-free for everyone.",
+        "ru": "Xabber всегда был бесплатным мессенджером с открытым исходным кодом, в котором особое внимание уделяется конфиденциальности и безопасности пользователей. Для премиум-функций требуются дополнительные серверные ресурсы: постоянным архивам сообщений нужна выделенная инфраструктура хранения, расширенному облачному хранилищу — мощные серверы, а цифровым сертификатам проверки — защищённые криптографические сервисы.\n\nВаша подписка напрямую финансирует разработку и работу этих премиум-сервисов, помогая нам сохранять основные возможности Xabber полностью бесплатными и без рекламы для всех.",
+        "fr": "Xabber a toujours été une messagerie gratuite et open source, attachée à la confidentialité et à la sécurité de ses utilisateurs. Les fonctionnalités Premium nécessitent des ressources serveur supplémentaires : les archives persistantes ont besoin d’une infrastructure de stockage dédiée, l’extension du stockage cloud exige des serveurs puissants et les certificats numériques de vérification reposent sur des services cryptographiques sécurisés.\n\nVotre abonnement finance directement le développement et l’exploitation de ces services Premium, tout en nous aidant à maintenir l’expérience Xabber essentielle entièrement gratuite et sans publicité pour tout le monde.",
+        "es": "Xabber siempre ha sido un mensajero gratuito y de código abierto comprometido con la privacidad y la seguridad de sus usuarios. Las funciones Premium requieren recursos de servidor adicionales: los archivos de mensajes permanentes necesitan una infraestructura de almacenamiento dedicada, la capacidad ampliada en la nube exige servidores potentes y los certificados digitales de verificación dependen de servicios criptográficos seguros.\n\nTu suscripción financia directamente el desarrollo y el funcionamiento de estos servicios Premium, a la vez que nos ayuda a mantener la experiencia principal de Xabber totalmente gratuita y sin anuncios para todos.",
+        "ar": "لطالما كان Xabber تطبيق مراسلة مجانيًا ومفتوح المصدر وملتزمًا بخصوصية المستخدم وأمانه. تتطلب الميزات المميزة موارد إضافية على الخادم؛ فأرشيفات الرسائل الدائمة تحتاج إلى بنية تخزين مخصصة، والسعة السحابية الموسّعة تتطلب خوادم قوية، وشهادات التحقق الرقمية تعتمد على خدمات تشفير آمنة.\n\nيموّل اشتراكك مباشرةً تطوير هذه الخدمات المميزة وتشغيلها، ويساعدنا في إبقاء تجربة Xabber الأساسية مجانية بالكامل ومن دون إعلانات للجميع.",
+        "zh-Hans": "Xabber 始终是一款免费、开源并致力于保护用户隐私与安全的即时通讯应用。高级功能需要额外的服务器资源：永久消息存档需要专用存储基础设施，扩展云容量需要高性能服务器，数字验证证书则依赖安全的加密服务。\n\n你的订阅将直接支持这些高级服务的开发和运营，同时帮助我们继续为所有人提供完全免费且无广告的 Xabber 核心体验。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Message Archive",
+      "key": "premium__feature__message_archive_title",
+      "comment": "Xabber Premium feature title for persistent server-side message history.",
+      "translations": {
+        "en": "Message Archive",
+        "ru": "Архив сообщений",
+        "fr": "Archive des messages",
+        "es": "Archivo de mensajes",
+        "ar": "أرشيف الرسائل",
+        "zh-Hans": "消息存档"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "description",
+      "value": "Complete message history stored securely without automatic deletion.",
+      "key": "premium__feature__message_archive_description",
+      "comment": "Xabber Premium feature description for persistent server-side message history.",
+      "translations": {
+        "en": "Complete message history stored securely without automatic deletion.",
+        "ru": "Полная история сообщений хранится безопасно и не удаляется автоматически.",
+        "fr": "Historique complet des messages stocké en toute sécurité, sans suppression automatique.",
+        "es": "Historial completo de mensajes almacenado de forma segura sin eliminación automática.",
+        "ar": "يتم تخزين سجل الرسائل الكامل بأمان من دون حذف تلقائي.",
+        "zh-Hans": "安全存储完整消息历史记录，不会自动删除。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Extended Cloud Storage",
+      "key": "premium__feature__extended_cloud_storage_title",
+      "comment": "Xabber Premium feature title for increased cloud-storage capacity.",
+      "translations": {
+        "en": "Extended Cloud Storage",
+        "ru": "Расширенное облачное хранилище",
+        "fr": "Stockage cloud étendu",
+        "es": "Almacenamiento en la nube ampliado",
+        "ar": "مساحة تخزين سحابية موسّعة",
+        "zh-Hans": "扩展云存储"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "description",
+      "value": "Upload and store larger files with increased cloud storage capacity.",
+      "key": "premium__feature__extended_cloud_storage_description",
+      "comment": "Xabber Premium feature description for increased cloud-storage capacity and larger uploads.",
+      "translations": {
+        "en": "Upload and store larger files with increased cloud storage capacity.",
+        "ru": "Загружайте и храните файлы большего размера благодаря увеличенному объёму облачного хранилища.",
+        "fr": "Importez et stockez des fichiers plus volumineux grâce à une capacité de stockage cloud accrue.",
+        "es": "Sube y almacena archivos más grandes con una mayor capacidad de almacenamiento en la nube.",
+        "ar": "حمّل ملفات أكبر وخزّنها بفضل زيادة سعة التخزين السحابي.",
+        "zh-Hans": "借助更大的云存储容量上传和存储更大的文件。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Verification Certificate",
+      "key": "premium__feature__verification_certificate_title",
+      "comment": "Xabber Premium feature title for the personal digital identity-verification certificate.",
+      "translations": {
+        "en": "Verification Certificate",
+        "ru": "Сертификат проверки",
+        "fr": "Certificat de vérification",
+        "es": "Certificado de verificación",
+        "ar": "شهادة التحقق",
+        "zh-Hans": "验证证书"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "description",
+      "value": "Personal digital certificate to verify your identity in conversations.",
+      "key": "premium__feature__verification_certificate_description",
+      "comment": "Xabber Premium feature description for verifying the user's identity in conversations with a digital certificate.",
+      "translations": {
+        "en": "Personal digital certificate to verify your identity in conversations.",
+        "ru": "Персональный цифровой сертификат для подтверждения вашей личности в разговорах.",
+        "fr": "Certificat numérique personnel permettant de vérifier votre identité dans les conversations.",
+        "es": "Certificado digital personal para verificar tu identidad en las conversaciones.",
+        "ar": "شهادة رقمية شخصية للتحقق من هويتك في المحادثات.",
+        "zh-Hans": "用于在对话中验证你身份的个人数字证书。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Burn Messages",
+      "key": "premium__feature__burn_messages_title",
+      "comment": "Xabber Premium feature title for messages that automatically disappear.",
+      "translations": {
+        "en": "Burn Messages",
+        "ru": "Самоуничтожающиеся сообщения",
+        "fr": "Messages éphémères",
+        "es": "Mensajes temporales",
+        "ar": "الرسائل ذاتية الاختفاء",
+        "zh-Hans": "阅后即焚消息"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "description",
+      "value": "Set messages to automatically disappear after a chosen time period.",
+      "key": "premium__feature__burn_messages_description",
+      "comment": "Xabber Premium feature description for configuring automatic message expiration.",
+      "translations": {
+        "en": "Set messages to automatically disappear after a chosen time period.",
+        "ru": "Настройте автоматическое исчезновение сообщений через выбранный промежуток времени.",
+        "fr": "Configurez la disparition automatique des messages après une durée choisie.",
+        "es": "Configura los mensajes para que desaparezcan automáticamente después del periodo elegido.",
+        "ar": "اضبط الرسائل لتختفي تلقائيًا بعد مدة تختارها.",
+        "zh-Hans": "设置消息在选定时间后自动消失。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Passcode Lock",
+      "key": "settings__title__passcode_lock",
+      "comment": "Xabber Premium feature title for protecting application access with a passcode.",
+      "translations": {
+        "en": "Passcode Lock",
+        "ru": "Блокировка кодом-паролем",
+        "fr": "Verrouillage par code",
+        "es": "Bloqueo con código",
+        "ar": "القفل برمز الدخول",
+        "zh-Hans": "密码锁"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "description",
+      "value": "Protect the app with a passcode and option to erase all data on failed attempts.",
+      "key": "premium__feature__passcode_lock_description",
+      "comment": "Xabber Premium feature description for passcode protection and optional data erasure after failed attempts.",
+      "translations": {
+        "en": "Protect the app with a passcode and option to erase all data on failed attempts.",
+        "ru": "Защитите приложение кодом-паролем с возможностью удалить все данные после неудачных попыток входа.",
+        "fr": "Protégez l’app avec un code et choisissez d’effacer toutes les données après des tentatives infructueuses.",
+        "es": "Protege la app con un código y la opción de borrar todos los datos tras intentos fallidos.",
+        "ar": "احمِ التطبيق برمز دخول مع خيار مسح جميع البيانات بعد المحاولات الفاشلة.",
+        "zh-Hans": "使用密码锁保护应用，并可选择在多次尝试失败后清除所有数据。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "emptyStateTitle",
+      "value": "No contacts found",
+      "key": "application_state_nobody_by_filter",
+      "comment": "Contacts list empty-state title when no contacts match the active category and no circle filter is selected.",
+      "translations": {
+        "en": "No contacts found",
+        "ru": "Контакты не найдены",
+        "fr": "Aucun contact trouvé",
+        "es": "No se han encontrado contactos",
+        "ar": "لم يتم العثور على جهات اتصال",
+        "zh-Hans": "未找到联系人"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "emptyStateTitle",
+      "value": "No contacts found for %@",
+      "fallback": "No contacts found for %1$@",
+      "key": "contacts__empty_state__no_contacts_found_for_groups_format",
+      "comment": "Contacts list empty-state title when no contacts match the selected circles. Argument 1 is the comma-separated circle-name list.",
+      "translations": {
+        "en": "No contacts found for %1$@",
+        "ru": "Контакты не найдены для %1$@",
+        "fr": "Aucun contact trouvé pour %1$@",
+        "es": "No se encontraron contactos para %1$@",
+        "ar": "لم يتم العثور على جهات اتصال لـ %1$@",
+        "zh-Hans": "未找到属于 %1$@ 的联系人"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "emptyStateTitle",
+      "value": "No contacts online",
+      "key": "contacts__empty_state__no_contacts_online",
+      "comment": "Contacts list empty-state title when none of the user's contacts are online.",
+      "translations": {
+        "en": "No contacts online",
+        "ru": "Нет контактов в сети",
+        "fr": "Aucun contact en ligne",
+        "es": "No hay contactos en línea",
+        "ar": "لا توجد جهات اتصال متصلة",
+        "zh-Hans": "没有联系人在线"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "emptyStateTitle",
+      "value": "No online contacts found for %@",
+      "fallback": "No online contacts found for %1$@",
+      "key": "contacts__empty_state__no_online_contacts_found_for_groups_format",
+      "comment": "Contacts list empty-state title when no online contacts match the selected circles. Argument 1 is the comma-separated circle-name list.",
+      "translations": {
+        "en": "No online contacts found for %1$@",
+        "ru": "Для %1$@ не найдено контактов в сети",
+        "fr": "Aucun contact en ligne trouvé pour %1$@",
+        "es": "No se encontraron contactos en línea para %1$@",
+        "ar": "لم يتم العثور على جهات اتصال متصلة لـ %1$@",
+        "zh-Hans": "未找到 %1$@ 中的在线联系人"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "emptyStateTitle",
+      "value": "No public groups found",
+      "key": "contacts__empty_state__no_public_groups_found",
+      "comment": "Groups list empty-state title when no public groups match the active category.",
+      "translations": {
+        "en": "No public groups found",
+        "ru": "Публичные группы не найдены",
+        "fr": "Aucun groupe public trouvé",
+        "es": "No se encontraron grupos públicos",
+        "ar": "لم يتم العثور على مجموعات عامة",
+        "zh-Hans": "未找到公开群组"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "emptyStateTitle",
+      "value": "No public groups found for %@",
+      "fallback": "No public groups found for %1$@",
+      "key": "contacts__empty_state__no_public_groups_found_for_groups_format",
+      "comment": "Groups list empty-state title when no public groups match the selected group filters. Argument 1 is the comma-separated filter-name list.",
+      "translations": {
+        "en": "No public groups found for %1$@",
+        "ru": "Публичные группы не найдены для %1$@",
+        "fr": "Aucun groupe public trouvé pour %1$@",
+        "es": "No se encontraron grupos públicos para %1$@",
+        "ar": "لم يتم العثور على مجموعات عامة لـ %1$@",
+        "zh-Hans": "未找到属于 %1$@ 的公开群组"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "emptyStateTitle",
+      "value": "No incognito groups found",
+      "key": "contacts__empty_state__no_incognito_groups_found",
+      "comment": "Groups list empty-state title when no incognito groups match the active category.",
+      "translations": {
+        "en": "No incognito groups found",
+        "ru": "Инкогнито-группы не найдены",
+        "fr": "Aucun groupe incognito trouvé",
+        "es": "No se encontraron grupos de incógnito",
+        "ar": "لم يتم العثور على مجموعات مجهولة الهوية",
+        "zh-Hans": "未找到匿名群组"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "emptyStateTitle",
+      "value": "No incognito groups found for %@",
+      "fallback": "No incognito groups found for %1$@",
+      "key": "contacts__empty_state__no_incognito_groups_found_for_groups_format",
+      "comment": "Groups list empty-state title when no incognito groups match the selected group filters. Argument 1 is the comma-separated filter-name list.",
+      "translations": {
+        "en": "No incognito groups found for %1$@",
+        "ru": "Инкогнито-группы не найдены для %1$@",
+        "fr": "Aucun groupe incognito trouvé pour %1$@",
+        "es": "No se encontraron grupos de incógnito para %1$@",
+        "ar": "لم يتم العثور على مجموعات مجهولة الهوية لـ %1$@",
+        "zh-Hans": "未找到属于 %1$@ 的匿名群组"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "emptyStateTitle",
+      "value": "No private chats found",
+      "key": "contacts__empty_state__no_private_chats_found",
+      "comment": "Groups list empty-state title when no private chats match the active category.",
+      "translations": {
+        "en": "No private chats found",
+        "ru": "Приватные чаты не найдены",
+        "fr": "Aucune discussion privée trouvée",
+        "es": "No se encontraron chats privados",
+        "ar": "لم يتم العثور على محادثات خاصة",
+        "zh-Hans": "未找到私密聊天"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "emptyStateTitle",
+      "value": "No private chats found for %@",
+      "fallback": "No private chats found for %1$@",
+      "key": "contacts__empty_state__no_private_chats_found_for_groups_format",
+      "comment": "Groups list empty-state title when no private chats match the selected group filters. Argument 1 is the comma-separated filter-name list.",
+      "translations": {
+        "en": "No private chats found for %1$@",
+        "ru": "Приватные чаты не найдены для %1$@",
+        "fr": "Aucune discussion privée trouvée pour %1$@",
+        "es": "No se encontraron chats privados para %1$@",
+        "ar": "لم يتم العثور على محادثات خاصة لـ %1$@",
+        "zh-Hans": "未找到属于 %1$@ 的私密聊天"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "emptyStateTitle",
+      "value": "No groups found",
+      "key": "contacts__empty_state__no_groups_found",
+      "comment": "Groups list default empty-state title when no groups match and no group filter is selected.",
+      "translations": {
+        "en": "No groups found",
+        "ru": "Группы не найдены",
+        "fr": "Aucun groupe trouvé",
+        "es": "No se encontraron grupos",
+        "ar": "لم يتم العثور على مجموعات",
+        "zh-Hans": "未找到群组"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "emptyStateTitle",
+      "value": "No groups found for %@",
+      "fallback": "No groups found for %1$@",
+      "key": "contacts__empty_state__no_groups_found_for_groups_format",
+      "comment": "Groups list default empty-state title when no groups match the selected group filters. Argument 1 is the comma-separated filter-name list.",
+      "translations": {
+        "en": "No groups found for %1$@",
+        "ru": "Группы не найдены для %1$@",
+        "fr": "Aucun groupe trouvé pour %1$@",
+        "es": "No se encontraron grupos para %1$@",
+        "ar": "لم يتم العثور على مجموعات لـ %1$@",
+        "zh-Hans": "未找到属于 %1$@ 的群组"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceWallpaperSupport.swift",
+      "sink": "localizedErrorDescription",
+      "value": "Could not upload the wallpaper.",
+      "key": "appearance_wallpaper__localized_error_description__could_not_upload_wallpaper",
+      "comment": "Chat Wallpaper error shown when a cloud upload fails without a more specific transport error.",
+      "translations": {
+        "en": "Could not upload the wallpaper.",
+        "ru": "Не удалось загрузить обои.",
+        "fr": "Impossible d’importer le fond d’écran.",
+        "es": "No se pudo subir el fondo de pantalla.",
+        "ar": "تعذّر تحميل الخلفية.",
+        "zh-Hans": "无法上传壁纸。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/views/gallery/VoiceGalleryForChatViewController.swift",
+      "sink": "durationText",
+      "value": "Queued · %@",
+      "fallback": "Queued · %1$@",
+      "key": "voice_gallery_for_chat__duration__queued_format",
+      "comment": "Voice-message gallery status shown while a download is queued. Argument 1 is the preformatted audio duration.",
+      "translations": {
+        "en": "Queued · %1$@",
+        "ru": "В очереди · %1$@",
+        "fr": "En attente · %1$@",
+        "es": "En cola · %1$@",
+        "ar": "في قائمة الانتظار · %1$@",
+        "zh-Hans": "已排队 · %1$@"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/views/gallery/VoiceGalleryForChatViewController.swift",
+      "sink": "durationText",
+      "value": "Retry · %@",
+      "fallback": "Retry · %1$@",
+      "key": "voice_gallery_for_chat__duration__retry_format",
+      "comment": "Voice-message gallery status shown after a failed download. Argument 1 is the preformatted audio duration.",
+      "translations": {
+        "en": "Retry · %1$@",
+        "ru": "Повторить · %1$@",
+        "fr": "Réessayer · %1$@",
+        "es": "Reintentar · %1$@",
+        "ar": "إعادة المحاولة · %1$@",
+        "zh-Hans": "重试 · %1$@"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "datasourceName",
+      "value": "Secure Your Conversation",
+      "key": "trusted_devices__session_title__secure_your_conversation",
+      "comment": "Trusted Devices verification-session row title prompting the user to verify a contact's devices.",
+      "translations": {
+        "en": "Secure Your Conversation",
+        "ru": "Защитите переписку",
+        "fr": "Sécurisez votre conversation",
+        "es": "Protege tu conversación",
+        "ar": "أمّن محادثتك",
+        "zh-Hans": "保护你的对话"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "datasourceName",
+      "value": "Revoke trust",
+      "key": "trusted_devices__action__revoke_trust",
+      "comment": "Trusted Devices destructive action that revokes trust from the contact's currently trusted devices.",
+      "translations": {
+        "en": "Revoke trust",
+        "ru": "Отозвать доверие",
+        "fr": "Révoquer la confiance",
+        "es": "Revocar confianza",
+        "ar": "إلغاء الثقة",
+        "zh-Hans": "撤销信任"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController.swift",
+      "sink": "datasourceValue",
+      "value": "Several devices connected to this account have enabled end-to-end encryption but were not verified.\n\nPlease, review the list below and perform device verification for every device in question.",
+      "key": "devices__list__warning__unverified_devices_explanation",
+      "comment": "Account Devices warning explaining that connected encryption-capable devices still require verification. Security-sensitive copy.",
+      "translations": {
+        "en": "Several devices connected to this account have enabled end-to-end encryption but were not verified.\n\nPlease, review the list below and perform device verification for every device in question.",
+        "ru": "На нескольких устройствах, подключённых к этому аккаунту, включено сквозное шифрование, но сами устройства не были проверены.\n\nПросмотрите список ниже и выполните проверку каждого из этих устройств.",
+        "fr": "Plusieurs appareils connectés à ce compte ont activé le chiffrement de bout en bout, mais n’ont pas été vérifiés.\n\nConsultez la liste ci-dessous et vérifiez chacun des appareils concernés.",
+        "es": "Varios dispositivos conectados a esta cuenta tienen activado el cifrado de extremo a extremo, pero no se han verificado.\n\nRevisa la lista siguiente y verifica cada uno de estos dispositivos.",
+        "ar": "فعّلت عدة أجهزة متصلة بهذا الحساب التشفير التام بين الطرفين، لكنها لم تُتحقق بعد.\n\nراجع القائمة أدناه ونفّذ التحقق لكل جهاز معني.",
+        "zh-Hans": "连接到此账号的若干设备已启用端到端加密，但尚未经过验证。\n\n请查看下方列表并逐一验证这些设备。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController.swift",
+      "sink": "datasourceValue",
+      "value": "Incorrectly published encryption keys. Something went  wrong. You should not be seeing this section. If you do, please, delete these devices.",
+      "key": "devices__list__warning__incorrectly_published_encryption_keys",
+      "comment": "Account Devices warning for obsolete devices whose encryption keys were published incorrectly. Security-sensitive recovery guidance.",
+      "translations": {
+        "en": "Incorrectly published encryption keys. Something went  wrong. You should not be seeing this section. If you do, please, delete these devices.",
+        "ru": "Ключи шифрования опубликованы некорректно. Произошла ошибка, поэтому этот раздел обычно не должен отображаться. Если вы его видите, удалите эти устройства.",
+        "fr": "Les clés de chiffrement ont été publiées de manière incorrecte. Une erreur s’est produite et cette section ne devrait normalement pas apparaître. Si vous la voyez, supprimez ces appareils.",
+        "es": "Las claves de cifrado se publicaron incorrectamente. Algo salió mal y esta sección normalmente no debería aparecer. Si la ves, elimina estos dispositivos.",
+        "ar": "نُشرت مفاتيح التشفير بصورة غير صحيحة. حدث خطأ، ولذلك لا يُفترض أن يظهر هذا القسم عادةً. إذا ظهر، فاحذف هذه الأجهزة.",
+        "zh-Hans": "加密密钥发布不正确。发生了错误，此部分通常不应出现。如果你看到了此部分，请删除这些设备。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
+      "sink": "datasourceValue",
+      "value": "Fingerprint changed",
+      "key": "device_detail__screen__fingerprint_changed",
+      "comment": "Own-device details value shown when the OMEMO identity fingerprint changed. Security-sensitive state.",
+      "translations": {
+        "en": "Fingerprint changed",
+        "ru": "Отпечаток изменён",
+        "fr": "Empreinte modifiée",
+        "es": "Huella digital modificada",
+        "ar": "تم تغيير البصمة",
+        "zh-Hans": "指纹已更改"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/ContactDeviceDetailViewController.swift",
+      "sink": "datasourceValue",
+      "value": "Fingerprint changed",
+      "key": "contact_device__verification__fingerprint_changed",
+      "comment": "Contact-device details value shown when the OMEMO identity fingerprint changed. Security-sensitive state.",
+      "translations": {
+        "en": "Fingerprint changed",
+        "ru": "Отпечаток изменён",
+        "fr": "Empreinte modifiée",
+        "es": "Huella digital modificada",
+        "ar": "تم تغيير البصمة",
+        "zh-Hans": "指纹已更改"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController.swift",
+      "sink": "cloudStorageDetailText",
+      "value": "Updating...",
+      "key": "settings__content__updating",
+      "comment": "Account Info cloud-storage detail shown while quota information is being refreshed.",
+      "translations": {
+        "en": "Updating...",
+        "ru": "Обновление…",
+        "fr": "Mise à jour…",
+        "es": "Actualizando…",
+        "ar": "جارٍ التحديث…",
+        "zh-Hans": "正在更新…"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/encryption/AccountEncryptionInfoViewController.swift",
+      "sink": "datasourceValue",
+      "value": "some text about list of devices presented here",
+      "fallback": "Review the devices connected to this account and manage their end-to-end encryption.",
+      "key": "account_encryption__other_devices__description",
+      "comment": "Account Encryption description above the list of other connected devices.",
+      "translations": {
+        "en": "Review the devices connected to this account and manage their end-to-end encryption.",
+        "ru": "Просмотрите устройства, подключённые к этому аккаунту, и управляйте их сквозным шифрованием.",
+        "fr": "Consultez les appareils connectés à ce compte et gérez leur chiffrement de bout en bout.",
+        "es": "Revisa los dispositivos conectados a esta cuenta y gestiona su cifrado de extremo a extremo.",
+        "ar": "راجع الأجهزة المتصلة بهذا الحساب وأدِر التشفير التام بين الطرفين لها.",
+        "zh-Hans": "查看连接到此账号的设备并管理其端到端加密。"
+      }
+    }
+  ],
+  "exclusions": []
+}

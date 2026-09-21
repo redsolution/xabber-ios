@@ -28,7 +28,7 @@ struct DeleteContactPresenter {
     
     
     func present(in view: UIViewController, animated: Bool, completion: (()->Void)?) {
-        let alert = UIAlertController(title: "Delete contact".localizeString(id: "contact_delete_full", arguments: []), message: "Do you want to delete \(self.username) from your roster?", preferredStyle: .actionSheet)
+        let alert = UIAlertController(title: "Delete contact".localizeString(id: "contact_delete_full", arguments: []), message: L10n.format("delete_contact__dialog__do_you_want_to_delete_from_your_roster", fallback: "Do you want to delete %@ from your roster?", arguments: [String(describing: self.username)]), preferredStyle: .actionSheet)
         alert.addAction(UIAlertAction(title: "Cancel".localizeString(id: "cancel", arguments: []), style: .cancel, handler: nil))
         alert.addAction(UIAlertAction(title: "Delete".localizeString(id: "contact_delete", arguments: []), style: .destructive, handler: { (_) in
             view.navigationController?.setNavigationBarHidden(false, animated: true)

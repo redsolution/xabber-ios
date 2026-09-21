@@ -751,8 +751,13 @@ struct ChatMessageForwardSnapshot {
             : (didTruncateDepth ? "depth limit" : childTruncationReason)
         let displayBody: String
         if let truncationReason {
-            let separator = forward.body.isEmpty ? "" : "\n"
-            displayBody = "\(forward.body)\(separator)[Forward content unavailable: \(truncationReason)]"
+            let unavailable = L10n.text(
+                "chat__body__forward_content_unavailable",
+                fallback: "[Forward content unavailable]"
+            )
+            displayBody = forward.body.isEmpty
+                ? unavailable
+                : "\(forward.body)\n\(unavailable)"
         } else {
             displayBody = forward.body
         }
@@ -787,7 +792,10 @@ struct ChatMessageForwardSnapshot {
             opponent: forward.opponent,
             jid: forward.jid,
             parentId: forward.parentId,
-            body: "[Forward content unavailable: \(reason)]",
+            body: L10n.text(
+                "chat__body__forward_content_unavailable",
+                fallback: "[Forward content unavailable]"
+            ),
             forwardJid: forward.forwardJid,
             forwardNickname: forward.forwardNickname,
             authorName: forward.forwardNickname.isNotEmpty ? forward.forwardNickname : forward.forwardJid,
@@ -1234,20 +1242,26 @@ struct ChatDisplayModelCacheContext: Hashable {
     let bodyFontPointSize: CGFloat
     let interfaceStyleRawValue: Int
     var appearancePaintSignature: String = "legacy"
+    var localizationRevision: UInt64 = 0
 
-    static func current(searchText: String?, traitCollection: UITraitCollection) -> ChatDisplayModelCacheContext {
+    static func current(
+        searchText: String?,
+        traitCollection: UITraitCollection,
+        localizationContext: LocalizationContext = L10n.context
+    ) -> ChatDisplayModelCacheContext {
         let bodyFont = AppearanceTypography.currentFont(
             textStyle: .body,
             compatibleWith: traitCollection
         )
         var context = ChatDisplayModelCacheContext(
             searchText: searchText?.isEmpty == true ? nil : searchText,
-            localeIdentifier: Locale.current.identifier,
+            localeIdentifier: localizationContext.locale.identifier,
             contentSizeCategory: traitCollection.preferredContentSizeCategory.rawValue,
             bodyFontName: bodyFont.fontName,
             bodyFontPointSize: bodyFont.pointSize,
             interfaceStyleRawValue: traitCollection.userInterfaceStyle.rawValue
         )
+        context.localizationRevision = localizationContext.revision
         if let document = AppearanceSettingsStore()?.load() {
             let snapshot = AppearanceResolver.resolve(
                 document: document,
@@ -5478,6 +5492,7 @@ extension ChatViewController {
             .backgroundColor
         let timeMarkerColor = UIColor(red: 158.0 / 255.0, green: 158.0 / 255.0, blue: 158.0 / 255.0, alpha: 1)
         let searchText = self.searchTextObserver.value
+        let localizationContext = L10n.context
 
         return ChatDatasourceMappingContext(
             owner: self.owner,
@@ -5490,7 +5505,8 @@ extension ChatViewController {
             inSearchMode: self.inSearchMode.value,
             displayCacheContext: ChatDisplayModelCacheContext.current(
                 searchText: searchText,
-                traitCollection: traitCollection
+                traitCollection: traitCollection,
+                localizationContext: localizationContext
             ),
             bodyTextAttributes: [
                 .foregroundColor: bodyColor,
@@ -5523,7 +5539,7 @@ extension ChatViewController {
             layoutContext: ChatMessageLayoutContext(
                 width: layoutWidth,
                 contentSizeCategory: traitCollection.preferredContentSizeCategory.rawValue,
-                localeIdentifier: Locale.current.identifier,
+                localeIdentifier: localizationContext.locale.identifier,
                 interfaceStyleRawValue: traitCollection.userInterfaceStyle.rawValue,
                 messageStyle: self.messageCorner.rawValue,
                 cornerRadius: self.cornerRadius,

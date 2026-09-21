@@ -152,40 +152,46 @@ extension ChatViewController: MessagesDataSource {
         if item.isHasAttachedMessages { return nil }
         let dateString = self.messageDateFormatter.string(from: item.sentDate)
         let attributedString: NSMutableAttributedString = NSMutableAttributedString()
+        func appendMetadata(_ value: String, attributes: [NSAttributedString.Key: Any] = [:]) {
+            if attributedString.length > 0 {
+                attributedString.append(NSAttributedString(string: " "))
+            }
+            attributedString.append(NSAttributedString(string: value, attributes: attributes))
+        }
         
         if item.editDate != nil {
-            attributedString.append(NSAttributedString(string: "edited "))
+            appendMetadata(L10n.text("chat_screen__message__label_edited", fallback: "edited"))
         }
         if item.afterburnInterval > 0 {
             let remaining = item.burnDate - Date().timeIntervalSince1970
             if item.burnDate > 0 && remaining > 0 {
-                attributedString.append(NSAttributedString(string: "\(remaining.prettyMinuteFormatedString) ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+                appendMetadata(remaining.prettyMinuteFormatedString, attributes: [.foregroundColor: UIColor.systemBlue.cgColor])
             } else {
                 switch ChatMarkersManager.BurnMessagesTimerValues(rawValue: Int(item.afterburnInterval)) {
                 case .off, .none:
                     break
                 case .s5:
-                    attributedString.append(NSAttributedString(string: "5s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+                    appendMetadata(L10n.text("chat__message_metadata__5s", fallback: "5 sec"), attributes: [.foregroundColor: UIColor.systemBlue.cgColor])
                 case .s10:
-                    attributedString.append(NSAttributedString(string: "10s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+                    appendMetadata(L10n.text("chat__message_metadata__10s", fallback: "10 sec"), attributes: [.foregroundColor: UIColor.systemBlue.cgColor])
                 case .s15:
-                    attributedString.append(NSAttributedString(string: "15s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+                    appendMetadata(L10n.text("chat__message_metadata__15s", fallback: "15 sec"), attributes: [.foregroundColor: UIColor.systemBlue.cgColor])
                 case .s30:
-                    attributedString.append(NSAttributedString(string: "30s ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+                    appendMetadata(L10n.text("chat__message_metadata__30s", fallback: "30 sec"), attributes: [.foregroundColor: UIColor.systemBlue.cgColor])
                 case .m1:
-                    attributedString.append(NSAttributedString(string: "1m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+                    appendMetadata(L10n.text("chat__message_metadata__1m", fallback: "1 min"), attributes: [.foregroundColor: UIColor.systemBlue.cgColor])
                 case .m5:
-                    attributedString.append(NSAttributedString(string: "5m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+                    appendMetadata(L10n.text("chat__message_metadata__5m", fallback: "5 min"), attributes: [.foregroundColor: UIColor.systemBlue.cgColor])
                 case .m10:
-                    attributedString.append(NSAttributedString(string: "10m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+                    appendMetadata(L10n.text("chat__message_metadata__10m", fallback: "10 min"), attributes: [.foregroundColor: UIColor.systemBlue.cgColor])
                 case .m15:
-                    attributedString.append(NSAttributedString(string: "15m ", attributes: [.foregroundColor: UIColor.systemBlue.cgColor]))
+                    appendMetadata(L10n.text("chat__message_metadata__15m", fallback: "15 min"), attributes: [.foregroundColor: UIColor.systemBlue.cgColor])
                 
                 }
             }
         }
-        attributedString.append(NSAttributedString(string: dateString))
-        attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 12, weight: .regular), range: NSRange(location: 0, length: attributedString.string.count))
+        appendMetadata(dateString)
+        attributedString.addAttribute(.font, value: UIFont.systemFont(ofSize: 12, weight: .regular), range: NSRange(location: 0, length: attributedString.length))
 
 //        attributedString.addAttribute(.foregroundColor, value: UIColor.secondaryLabel.cgColor, range: NSRange(location: attributedString.string.count - dateString.count, length: dateString.count))
 //        attributedString.addAttribute(.foregroundColor, value: UIColor.secondaryLabel.cgColor, range: NSRange(location: start, length: dateString.count - 1))

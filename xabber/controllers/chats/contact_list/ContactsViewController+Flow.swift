@@ -34,7 +34,7 @@ extension ContactsViewController: SignatureManagerDelegate {
     func retrieveCertificate(with error: Error?) {
         if let error = error {
             DispatchQueue.main.async {
-                self.view.makeToast("Internal error")
+                self.view.makeToast(L10n.text("message_manager_error_internal", fallback: "Internal error"))
             }
         } else {
             DispatchQueue.main.async {

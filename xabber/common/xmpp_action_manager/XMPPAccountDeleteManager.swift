@@ -252,7 +252,7 @@ extension XMPPAccountDeleteManager: XMPPStreamDelegate {
             }
             close(sender)
             XMPPRegistrationManager.shared.close()
-            delegate?.didReceiveResponse(title: nil, description: "Account deleted.")
+            delegate?.didReceiveResponse(title: nil, description: L10n.text("xmppaccount_delete__description__account_deleted", fallback: "Account deleted."))
         
         case .error:
             close(sender)

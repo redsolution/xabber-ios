@@ -230,15 +230,15 @@ extension SettingsViewController: InfoScreenHeaderDelegate {
                 status, error in
                 self.afterFailedSettingAvatar()
                 DispatchQueue.main.async {
-                    let errorMessage = "Unable to send file: out of Cloud Storage"//item.messageError
+                    let errorMessage = L10n.text("groupchat_settings_view_controller_t__error_message__unable_to_send_file_out_of_cloud_storage", fallback: "Unable to send file: out of Cloud Storage")//item.messageError
                     let itemsWithQuota = [
-                        ActionSheetPresenter.Item(destructive: false, title: "Manage Cloud Storage", value: "quota")
+                        ActionSheetPresenter.Item(destructive: false, title: L10n.text("settings__title__manage_cloud_storage", fallback: "Manage Cloud Storage"), value: "quota")
                     ]
                     ActionSheetPresenter().present(
                         in: self,
-                        title: "Avatar upload error",
+                        title: L10n.text("settings__title__avatar_upload_error", fallback: "Avatar upload error"),
                         message: errorMessage,
-                        cancel: "Cancel",
+                        cancel: L10n.text("common__action__cancel", fallback: "Cancel"),
                         values: itemsWithQuota,
                         animated: true) { value in
                             switch value {

@@ -110,7 +110,7 @@ extension Account: XMPPStreamDelegate {
         AccountManager.shared.changeNewUserState(for: self.jid, to: .startConnection)
         func reconnect(_ error: Error) {
             self.logConnectionDiagnostics(event: "authentication_start_failed", error: error)
-            self.statusMessage.accept("Offline")
+            self.statusMessage.accept(L10n.text("account_state_offline", fallback: "Offline"))
             self.connectionGate.markFailed()
             self.scheduleConnectRetry(after: 3, trigger: .timeoutRetry, attemptID: nil)
             AccountManager.shared.changeNewUserState(for: self.jid, to: .failure(error.localizedDescription))
@@ -406,7 +406,7 @@ extension Account: XMPPStreamDelegate {
         self.logConnectionDiagnostics(event: "disconnect_told")
 //        self.statusMessage.accept("Disconnect")
         self.cancelDelayedConnectTimer()
-        self.statusMessage.accept("Offline")
+        self.statusMessage.accept(L10n.text("account_state_offline", fallback: "Offline"))
         self.statusState.accept(.offline)
         self.resetConfigs()
         self.carbonsEnabled = false
@@ -477,10 +477,10 @@ extension Account: XMPPStreamDelegate {
         self.cloudStorage.markAvailabilityRetryableFailure(stage: .disconnected)
         CredentialsManager.shared.getItem(for: self.jid).release(.authFailedRecoverable)
         self.statusState.accept(.offline)
-        self.statusMessage.accept("Offline")
+        self.statusMessage.accept(L10n.text("account_state_offline", fallback: "Offline"))
         if let nserror = error as? NSError {
             if ["kCFStreamErrorDomainNetServices", "kCFStreamErrorDomainNetDB"].contains(nserror.domain) {
-                AccountManager.shared.changeNewUserState(for: self.jid, to: .failure("Server not found"))
+                AccountManager.shared.changeNewUserState(for: self.jid, to: .failure(L10n.text("account__connection__server_not_found", fallback: "Server not found")))
             }
         }
         AccountStreamDisconnectLifecyclePolicy.apply(.didDisconnect, to: self.connectionGate)
@@ -1109,11 +1109,11 @@ extension Account: XMPPStreamManagementDelegate {
 //        self.asyncConnect()
         if failed.element(forName: "item-not-found") != nil {
             DispatchQueue.main.async {
-                ToastPresenter().presentError(message: "SM session not found")
+                ToastPresenter().presentError(message: L10n.text("connection__stream_management__session_not_found", fallback: "SM session not found"))
             }
         } else {
             DispatchQueue.main.async {
-                ToastPresenter().presentError(message: "SM session error. \(failed.children?.compactMap({ return $0.name }).reduce(" ", +) ?? "" )")
+                ToastPresenter().presentError(message: L10n.format("connection__stream_management__session_error", fallback: "SM session error. %@", arguments: [String(describing: failed.children?.compactMap({ return $0.name }).reduce(" ", +) ?? "")]))
             }
         }
         DDLogDebug("strict send readiness keeps account gated after stream management enable failure jid=\(self.jid)")

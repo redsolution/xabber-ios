@@ -1041,7 +1041,12 @@ final class RosterCircleCell: UITableViewCell {
         titleLabel.text = circle.name
         avatarStrip.configure(members: circle.members)
         accessibilityIdentifier = "settings_circle_\(circle.name)"
-        accessibilityLabel = "\(circle.name), \(circle.members.count) contacts"
+        accessibilityLabel = L10n.plural(
+            "settings__circles__accessibility_label",
+            count: circle.members.count,
+            fallback: "%2$@, %1$lld contacts",
+            arguments: [circle.name]
+        )
     }
 }
 

@@ -163,7 +163,7 @@ enum DevicesSecuritySwipeAction: Equatable {
         case .terminateSession:
             return "Terminate session".localizeString(id: "device__info__terminate_session__button", arguments: [])
         case .deleteBrokenKey:
-            return "Delete key"
+            return L10n.text("account_devices__action__delete_key", fallback: "Delete key")
         }
     }
 
@@ -318,7 +318,7 @@ class DevicesListViewController: BaseViewController {
                                                   value: "You can terminate sessions you don`t need. Official Clandestino clients wipe all user data from the device upon session termination.".localizeString(id: "account_settings_terminate_description", arguments: []),
                                                   editable: false)
             if self.isVerificationRequired && activeVerificationSessionSid == nil {
-                activeDevicesSection.childs.append(Datasource(.session, title: "Non-Verified Devices Connected", value: "Several devices connected to this account have enabled end-to-end encryption but were not verified.\n\nPlease, review the list below and perform device verification for every device in question.", editable: false))
+                activeDevicesSection.childs.append(Datasource(.session, title: L10n.text("devices__list__non_verified_devices_connected", fallback: "Unverified devices connected"), value: L10n.text("devices__list__warning__unverified_devices_explanation", fallback: "Several devices connected to this account have enabled end-to-end encryption but were not verified.\n\nPlease, review the list below and perform device verification for every device in question."), editable: false))
             } else if let activeVerificationSessionSid = self.activeVerificationSessionSid {
                 var text: String
                 var secondaryText: String?
@@ -341,8 +341,8 @@ class DevicesListViewController: BaseViewController {
         if brokenOmemoDevices.isNotEmpty {
             datasource.append(Datasource(
                 .broken,
-                title: "Obsolete devices",
-                value: "Incorrectly published encryption keys. Something went  wrong. You should not be seeing this section. If you do, please, delete these devices.",
+                title: L10n.text("devices__list__obsolete_devices", fallback: "Obsolete devices"),
+                value: L10n.text("devices__list__warning__incorrectly_published_encryption_keys", fallback: "Incorrectly published encryption keys. Something went  wrong. You should not be seeing this section. If you do, please, delete these devices."),
                 editable: false,
                 childs: []))
         }
@@ -351,7 +351,7 @@ class DevicesListViewController: BaseViewController {
             .button,
             title: "",
             editable: false,
-            childs: [Datasource(.button, title: "Quit account", value: "quit", editable: false)]
+            childs: [Datasource(.button, title: L10n.text("settings_account__button_quit_account", fallback: "Quit account"), value: "quit", editable: false)]
         ))
     }
     
@@ -504,7 +504,7 @@ class DevicesListViewController: BaseViewController {
             })
         }
 
-        refreshControl.attributedTitle = NSAttributedString(string: "Pull to refresh")
+        refreshControl.attributedTitle = NSAttributedString(string: L10n.text("devices__list__pull_to_refresh", fallback: "Pull to refresh"))
         refreshControl.addTarget(self, action: #selector(self.refresh), for: .valueChanged)
         tableView.addSubview(refreshControl)
         

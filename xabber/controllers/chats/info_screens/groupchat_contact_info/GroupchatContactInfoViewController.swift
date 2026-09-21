@@ -238,7 +238,7 @@ class GroupchatContactInfoViewController: SimpleBaseViewController {
         DDLogDebug("GroupchatContactInfoViewController: \(error.localizedDescription)")
         let message: String
         if let partial = error as? GroupModerationPartialFailure {
-            message = "Moderation partially completed (\(partial.failedStage.rawValue))"
+            message = L10n.format("groupchat__moderation__partial_failure_format", fallback: "Moderation partially completed (%@)", arguments: [String(describing: partial.failedStage.rawValue)])
         } else {
             message = "Internal error".localizeString(id: "message_manager_error_internal", arguments: [])
         }
@@ -276,19 +276,19 @@ class GroupchatContactInfoViewController: SimpleBaseViewController {
     private func configureHeaderButtons() {
         headerView.configureButtons {
             let chat = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            chat.configure(icon: "bubble", title: "Chat")
+            chat.configure(icon: "bubble", title: L10n.text("contact_bar_chat", fallback: "Chat"))
             chat.addTarget(self, action: #selector(self.onFirstButtonPressed), for: .touchUpInside)
 
             let messages = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            messages.configure(icon: "text.bubble", title: "Messages")
+            messages.configure(icon: "text.bubble", title: L10n.text("groupchat_member_messages", fallback: "Messages"))
             messages.addTarget(self, action: #selector(self.onSecondButtonPressed), for: .touchUpInside)
 
             let badge = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            badge.configure(icon: "person.text.rectangle", title: "Badge")
+            badge.configure(icon: "person.text.rectangle", title: L10n.text("groupchat_member_badge", fallback: "Badge"))
             badge.addTarget(self, action: #selector(self.onThirdButtonPressed), for: .touchUpInside)
 
             let moderation = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            moderation.configure(icon: "person.crop.circle.badge.xmark", title: "Manage", forceStrong: false)
+            moderation.configure(icon: "person.crop.circle.badge.xmark", title: L10n.text("group_member__menu__manage", fallback: "Manage"), forceStrong: false)
             moderation.addTarget(self, action: #selector(self.onFourthButtonPressed), for: .touchUpInside)
             return [chat, messages, badge, moderation]
         }

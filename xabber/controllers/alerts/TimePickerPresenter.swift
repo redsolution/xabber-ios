@@ -80,15 +80,15 @@ extension TimePickerAlertController: UIPickerViewDataSource {
             case 0:
                 return "\(days[row])"
             case 1:
-                return "days"
+                return L10n.text("duration_picker__field__days", fallback: "days")
             case 2:
                 return "\(hours[row])"
             case 3:
-                return "hours"
+                return L10n.text("duration_picker__field__hours", fallback: "hours")
             case 4:
                 return "\(minutes[row])"
             case 5:
-                return "mins"
+                return L10n.text("duration_picker__field__mins", fallback: "mins")
             default:
                 return nil
         }
@@ -112,13 +112,13 @@ extension TimePickerAlertController: UIPickerViewDataSource {
                 return label
             case 1:
                 if let label = view as? UILabel {
-                    label.text = "days"
+                    label.text = L10n.text("duration_picker__field__days", fallback: "days")
                     label.font = fontForTitle
                     label.textAlignment = NSTextAlignment.center
                     return label
                 }
                 let label = UILabel(frame: CGRectMake(35, 0, pickerView.frame.size.width/3 - 35, 30))
-                label.text = "days"
+                label.text = L10n.text("duration_picker__field__days", fallback: "days")
                 label.font = fontForTitle
                 label.textAlignment = NSTextAlignment.center
 
@@ -137,13 +137,13 @@ extension TimePickerAlertController: UIPickerViewDataSource {
                 return label
             case 3:
                 if let label = view as? UILabel {
-                    label.text = "hours"
+                    label.text = L10n.text("duration_picker__field__hours", fallback: "hours")
                     label.font = fontForTitle
                     label.textAlignment = NSTextAlignment.center
                     return label
                 }
                 let label = UILabel(frame: CGRectMake(35, 0, pickerView.frame.size.width/3 - 35, 30))
-                label.text = "hours"
+                label.text = L10n.text("duration_picker__field__hours", fallback: "hours")
                 label.font = fontForTitle
                 label.textAlignment = NSTextAlignment.center
 
@@ -162,20 +162,20 @@ extension TimePickerAlertController: UIPickerViewDataSource {
                 return label
             case 5:
                 if let label = view as? UILabel {
-                    label.text = "mins"
+                    label.text = L10n.text("duration_picker__field__mins", fallback: "mins")
                     label.font = fontForTitle
                     label.textAlignment = NSTextAlignment.center
                     return label
                 }
                 let label = UILabel(frame: CGRectMake(35, 0, pickerView.frame.size.width/3 - 35, 30))
-                label.text = "mins"
+                label.text = L10n.text("duration_picker__field__mins", fallback: "mins")
                 label.font = fontForTitle
                 label.textAlignment = NSTextAlignment.center
 
                 return label
             default:
                 let label = UILabel(frame: CGRectMake(35, 0, pickerView.frame.size.width/3 - 35, 30))
-                label.text = "mins"
+                label.text = L10n.text("duration_picker__field__mins", fallback: "mins")
                 label.font = UIFont.systemFont(ofSize: 10)
                 label.textAlignment = NSTextAlignment.center
 
@@ -225,7 +225,7 @@ class TimePickerPresenter {
             alert?.addAction(cancelUIAction)
         }
         
-        let okAction = UIAlertAction(title: "Confirm", style: .default) { action in
+        let okAction = UIAlertAction(title: L10n.text("common__action__confirm", fallback: "Confirm"), style: .default) { action in
             self.delegate?.timePickerAlertControllerDidSet(key: self.key, days: self.alert?.selectedDays, hours: self.alert?.selectedHours, minutes: self.alert?.selectedMins)
             self.alert?.dismiss(animated: false)
         }

@@ -195,7 +195,7 @@ class InfoScreenFooterView: UIView {
     }()
     
     let voiceButton: MediaKindButton = {
-        let button = MediaKindButton(title: Kind.voice.rawValue.localizeString(id: "voice", arguments: []))
+        let button = MediaKindButton(title: L10n.text("voice", fallback: "Voice messages"))
         
         button.setTitleColor(.systemGray, for: .normal)
         

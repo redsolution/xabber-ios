@@ -58,7 +58,13 @@ extension ChatViewController {
             let button = UIButton()
             
             button.tintColor = .systemBlue
-            button.setTitle("Add contact".localizeString(id: "application_action_no_contacts", arguments: []), for: .normal)
+            button.setTitle(
+                L10n.text(
+                    "application_action_no_contacts",
+                    fallback: "Add contact"
+                ),
+                for: .normal
+            )
             button.setTitleColor(.systemBlue, for: .normal)
             
             
@@ -112,20 +118,44 @@ extension ChatViewController {
             self.state = state
             switch state {
                 case .nonVerified:
-                    self.button.setTitle("Verify", for: .normal)
+                    self.button.setTitle(
+                        L10n.text(
+                            "chat__verification_panel__verify_contact",
+                            fallback: "Verify contact"
+                        ),
+                        for: .normal
+                    )
                     return 40
                 
                 case .requested:
-                    self.button.setTitle("Requested", for: .normal)
+                    self.button.setTitle(
+                        L10n.text(
+                            "chat__verification_panel__outgoing_verification_request",
+                            fallback: "Outgoing verification request"
+                        ),
+                        for: .normal
+                    )
                     self.button.isEnabled = false
                     return 40
                     
                 case .requesting:
-                    self.button.setTitle("Accept", for: .normal)
+                    self.button.setTitle(
+                        L10n.text(
+                            "chat__verification_panel__accept_verification_request",
+                            fallback: "Accept verification request"
+                        ),
+                        for: .normal
+                    )
                     return 40
             
                 case .enterCode:
-                    self.button.setTitle("Enter code", for: .normal)
+                    self.button.setTitle(
+                        L10n.text(
+                            "chat__verification_panel__enter_verification_code",
+                            fallback: "Enter verification code"
+                        ),
+                        for: .normal
+                    )
                     return 40
             }
         }

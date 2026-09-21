@@ -158,7 +158,7 @@ class CreateNewGroupSelectJIDViewController: SimpleBaseViewController {
         super.loadDatasource()
         self.datasource = [
             [
-                Datasource(kind: .localpart, title: "Group XMPP ID", value: self.selectedLocalPart)
+                Datasource(kind: .localpart, title: L10n.text("groupchats_group_xmpp_id", fallback: "Group XMPP ID"), value: self.selectedLocalPart)
             ],
             serviceJID.map { [Datasource(kind: .server, title: $0, value: $0, selected: true)] } ?? []
         ]

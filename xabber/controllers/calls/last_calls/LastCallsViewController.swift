@@ -51,11 +51,11 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         var title: String {
             switch self {
             case .missed:
-                return "Missed".localizeString(id: "chat_message_missed_call", arguments: [])
+                return L10n.text("chat_message_missed_call", fallback: "Missed call")
             case .outgoing:
-                return "Outgoing".localizeString(id: "chat_message_outgoing", arguments: [])
+                return L10n.text("chat_message_outgoing", fallback: "Outgoing call")
             case .incoming:
-                return "Incoming".localizeString(id: "chat_message_incoming", arguments: [])
+                return L10n.text("chat_message_incoming", fallback: "Incoming call")
             case .rejected:
                 return CallsListFilter.declined.title
             }
@@ -584,7 +584,7 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
             FeedbackManager.shared.tap()
             if #available(iOS 13.0, *) {
                 if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
-                    YubiKitExternalLocalization.nfcScanAlertMessage = "Register Yubikey for account"
+                    YubiKitExternalLocalization.nfcScanAlertMessage = L10n.text("last_calls__nfc_scan_alert_message__register_yubikey_for_account", fallback: "Register Yubikey for account")
                     YubiKitManager.shared.startNFCConnection()
                     YubiKitManager.shared.delegate = SignatureManager.shared
                     SignatureManager.shared.currentAction = .certificate
@@ -671,7 +671,7 @@ class LastCallsViewController: BaseViewController, LeftMenuFirstPresentationQuie
 
         let isActive = isCallsCompactMissedFilterActive
         callsCompactBottomBarView.leftButton.accessibilityIdentifier = "calls_missed_filter_button"
-        callsCompactBottomBarView.leftButton.accessibilityLabel = "Missed calls filter"
+        callsCompactBottomBarView.leftButton.accessibilityLabel = L10n.text("calls__last_calls__missed_calls_filter", fallback: "Missed calls filter")
         callsCompactBottomBarView.updateLeftButton(
             imageName: "phone.arrow.down.left",
             isActive: isActive

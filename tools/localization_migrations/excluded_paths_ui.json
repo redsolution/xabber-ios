@@ -1,0 +1,594 @@
+{
+  "exclusions": [],
+  "migrations": [
+    {
+      "path": "xabber/controllers/alerts/DeleteAccountPresenter.swift",
+      "sink": "message",
+      "value": "You are quitting %@ account. Account data will be deleted from this device. Your data on server will not be affected.",
+      "key": "account__quit_dialog__message_format",
+      "fallback": "You are quitting %1$@ account. Account data will be deleted from this device. Your data on server will not be affected.",
+      "api": "format",
+      "comment": "Quit-account confirmation body. The argument is the account JID. Destructive copy: preserve the local-device-only deletion scope.",
+      "translations": {
+        "ar": "أنت على وشك تسجيل الخروج من الحساب %1$@. ستُحذف بيانات الحساب من هذا الجهاز، ولن تتأثر بياناتك على الخادم.",
+        "en": "You are quitting %1$@ account. Account data will be deleted from this device. Your data on server will not be affected.",
+        "es": "Vas a salir de la cuenta %1$@. Los datos de la cuenta se eliminarán de este dispositivo. Tus datos del servidor no se verán afectados.",
+        "fr": "Vous quittez le compte %1$@. Les données du compte seront supprimées de cet appareil. Vos données sur le serveur ne seront pas affectées.",
+        "ru": "Вы выходите из аккаунта %1$@. Данные аккаунта будут удалены с этого устройства. Данные на сервере останутся без изменений.",
+        "zh-Hans": "你将退出账户 %1$@。该账户的数据将从此设备中删除，服务器上的数据不会受到影响。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_edit/DevicesListViewController.swift",
+      "sink": "title",
+      "value": "Devices",
+      "key": "account_settings_devices",
+      "comment": "Legacy account-device list screen title.",
+      "translations": {
+        "ar": "الأجهزة",
+        "en": "Devices",
+        "es": "Dispositivos",
+        "fr": "Appareils",
+        "ru": "Устройства",
+        "zh-Hans": "设备"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_edit/DevicesListViewController.swift",
+      "sink": "value",
+      "value": "You can terminate sessions you don`t need. Official Xabber clients wipe all user data from the device upon session termination.",
+      "key": "account_settings_terminate_description",
+      "comment": "Legacy account-device list explanation of session termination semantics.",
+      "translations": {
+        "ar": "يمكنك إنهاء الجلسات التي لا تحتاج إليها. تمسح تطبيقات Xabber الرسمية جميع بيانات المستخدم من الجهاز عند إنهاء الجلسة.",
+        "en": "You can terminate sessions you don`t need. Official Xabber clients wipe all user data from the device upon session termination.",
+        "es": "Puedes finalizar las sesiones que no necesites. Los clientes oficiales de Xabber borran todos los datos del usuario del dispositivo al finalizar una sesión.",
+        "fr": "Vous pouvez mettre fin aux sessions dont vous n’avez pas besoin. Les clients Xabber officiels effacent toutes les données utilisateur de l’appareil à la fin d’une session.",
+        "ru": "Вы можете завершить сеансы, которые вам не нужны. Официальные клиенты Xabber стирают все пользовательские данные с устройства после завершения сеанса.",
+        "zh-Hans": "你可以终止不需要的会话。会话终止后，Xabber 官方客户端会从设备中清除所有用户数据。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_edit/DevicesListViewController.swift",
+      "sink": "title",
+      "value": "Terminate all other sessions",
+      "key": "account_terminate_all_sessions",
+      "comment": "Legacy account-device list action that terminates every session except the current one.",
+      "translations": {
+        "ar": "إنهاء جميع الجلسات الأخرى",
+        "en": "Terminate all other sessions",
+        "es": "Finalizar todas las demás sesiones",
+        "fr": "Mettre fin à toutes les autres sessions",
+        "ru": "Завершить все другие сеансы",
+        "zh-Hans": "终止所有其他会话"
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/AuthenticationCodeInputViewController.swift",
+      "sink": "text",
+      "value": "You are establishing a secure connection with this contact.",
+      "key": "device_verification__description__establish_contact_connection",
+      "comment": "Device-verification description shown when verifying a contact. Security-sensitive copy.",
+      "translations": {
+        "ar": "أنت تنشئ اتصالاً آمناً مع جهة الاتصال هذه.",
+        "en": "You are establishing a secure connection with this contact.",
+        "es": "Estás estableciendo una conexión segura con este contacto.",
+        "fr": "Vous établissez une connexion sécurisée avec ce contact.",
+        "ru": "Вы устанавливаете безопасное соединение с этим контактом.",
+        "zh-Hans": "你正在与此联系人建立安全连接。"
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/AuthenticationCodeInputViewController.swift",
+      "sink": "text",
+      "value": "You are verifying this device to ensure secure and encrypted communication.",
+      "key": "device_verification__description__verify_this_device",
+      "comment": "Device-verification description shown when verifying another owned device. Security-sensitive copy.",
+      "translations": {
+        "ar": "أنت تتحقق من هذا الجهاز لضمان اتصال آمن ومشفّر.",
+        "en": "You are verifying this device to ensure secure and encrypted communication.",
+        "es": "Estás verificando este dispositivo para garantizar una comunicación segura y cifrada.",
+        "fr": "Vous vérifiez cet appareil afin de garantir des communications sécurisées et chiffrées.",
+        "ru": "Вы проверяете это устройство, чтобы обеспечить безопасное и зашифрованное общение.",
+        "zh-Hans": "你正在验证此设备，以确保通信安全且经过加密。"
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/AuthenticationCodeInputViewController.swift",
+      "sink": "setTitle",
+      "value": "Submit code",
+      "key": "device_verification__flow__submit_code",
+      "comment": "Device-verification action that submits the entered verification code.",
+      "translations": {
+        "ar": "إرسال الرمز",
+        "en": "Submit code",
+        "es": "Enviar código",
+        "fr": "Envoyer le code",
+        "ru": "Отправить код",
+        "zh-Hans": "提交验证码"
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/AuthenticationCodeInputViewController.swift",
+      "sink": "attributedString",
+      "value": "1.\tCarefully verify the address and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:",
+      "key": "device_verification__instructions__enter_contact_code",
+      "comment": "Two-step instructions for entering a verification code supplied by a contact. Security-sensitive copy.",
+      "translations": {
+        "ar": "1.\tتحقق بعناية من عنوان جهة الاتصال هذه وهويتها.\n\n2.\tأدخل رمز التحقق الذي قدمته جهة الاتصال لتأكيد الاتصال الآمن:",
+        "en": "1.\tCarefully verify the address and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:",
+        "es": "1.\tVerifica cuidadosamente la dirección y la identidad de este contacto.\n\n2.\tIntroduce el código de verificación proporcionado por el contacto para confirmar la conexión segura:",
+        "fr": "1.\tVérifiez soigneusement l’adresse et l’identité de ce contact.\n\n2.\tSaisissez le code de vérification fourni par votre contact pour confirmer la connexion sécurisée :",
+        "ru": "1.\tВнимательно проверьте адрес и личность этого контакта.\n\n2.\tВведите код проверки, полученный от контакта, чтобы подтвердить безопасное соединение:",
+        "zh-Hans": "1.\t仔细核对此联系人的地址和身份。\n\n2.\t输入联系人提供的验证码，以确认安全连接："
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/AuthenticationCodeInputViewController.swift",
+      "sink": "attributedString",
+      "value": "1.\tEnsure the other device is displaying the verification code.\n\n2.\tEnter the verification code displayed on the other device to complete the encryption key exchange:",
+      "key": "device_verification__instructions__enter_other_device_code",
+      "comment": "Two-step instructions for entering the code displayed on another owned device. Security-sensitive copy.",
+      "translations": {
+        "ar": "1.\tتأكد من أن الجهاز الآخر يعرض رمز التحقق.\n\n2.\tأدخل رمز التحقق المعروض على الجهاز الآخر لإكمال تبادل مفاتيح التشفير:",
+        "en": "1.\tEnsure the other device is displaying the verification code.\n\n2.\tEnter the verification code displayed on the other device to complete the encryption key exchange:",
+        "es": "1.\tAsegúrate de que el otro dispositivo muestre el código de verificación.\n\n2.\tIntroduce el código de verificación que aparece en el otro dispositivo para completar el intercambio de claves de cifrado:",
+        "fr": "1.\tAssurez-vous que l’autre appareil affiche le code de vérification.\n\n2.\tSaisissez le code de vérification affiché sur l’autre appareil pour terminer l’échange de clés de chiffrement :",
+        "ru": "1.\tУбедитесь, что на другом устройстве отображается код проверки.\n\n2.\tВведите код проверки с другого устройства, чтобы завершить обмен ключами шифрования:",
+        "zh-Hans": "1.\t确认另一台设备正在显示验证码。\n\n2.\t输入另一台设备上显示的验证码，以完成加密密钥交换："
+      }
+    },
+    {
+      "path": "xabber/xmpp/omemo/OmemoManagerTest.swift",
+      "sink": "message",
+      "value": "Encrypted chat created",
+      "key": "encrypted_chat_created",
+      "comment": "System message shown when an encrypted chat is created.",
+      "translations": {
+        "ar": "تم إنشاء محادثة مشفّرة",
+        "en": "Encrypted chat created",
+        "es": "Chat cifrado creado",
+        "fr": "Discussion chiffrée créée",
+        "ru": "Создан зашифрованный чат",
+        "zh-Hans": "已创建加密聊天"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/groupchats/join/GroupchatJoinViewController.swift",
+      "sink": "setTitle",
+      "value": "Join",
+      "key": "groupchat_join",
+      "comment": "Group invitation action that joins the group.",
+      "translations": {
+        "ar": "انضم",
+        "en": "Join",
+        "es": "Unirse",
+        "fr": "Rejoindre",
+        "ru": "Вступить",
+        "zh-Hans": "加入"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/groupchats/join/GroupchatJoinViewController.swift",
+      "sink": "text",
+      "value": "You are invited to group chat. If you accept, your XMPP ID will not be visible to group members.",
+      "key": "groupchat_join__description__incognito_invitation",
+      "comment": "Incognito group invitation privacy explanation.",
+      "translations": {
+        "ar": "تمت دعوتك إلى دردشة جماعية. إذا قبلت، فلن يظهر معرّف XMPP الخاص بك لأعضاء المجموعة.",
+        "en": "You are invited to group chat. If you accept, your XMPP ID will not be visible to group members.",
+        "es": "Te han invitado a un chat grupal. Si aceptas, tu ID de XMPP no será visible para los miembros del grupo.",
+        "fr": "Vous êtes invité à une discussion de groupe. Si vous acceptez, votre identifiant XMPP ne sera pas visible par les membres du groupe.",
+        "ru": "Вас пригласили в групповой чат. Если вы примете приглашение, ваш XMPP ID не будет виден участникам группы.",
+        "zh-Hans": "你受邀加入群聊。接受邀请后，群成员将看不到你的 XMPP ID。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/groupchats/join/GroupchatJoinViewController.swift",
+      "sink": "text",
+      "value": "You are invited to group chat. If you accept, the account %@ will be visible to group members.",
+      "key": "groupchat_join__description__public_invitation_format",
+      "fallback": "You are invited to group chat. If you accept, the account %1$@ will be visible to group members.",
+      "api": "format",
+      "comment": "Public group invitation privacy explanation. The argument is the account JID visible to group members.",
+      "translations": {
+        "ar": "تمت دعوتك إلى دردشة جماعية. إذا قبلت، فسيظهر الحساب %1$@ لأعضاء المجموعة.",
+        "en": "You are invited to group chat. If you accept, the account %1$@ will be visible to group members.",
+        "es": "Te han invitado a un chat grupal. Si aceptas, la cuenta %1$@ será visible para los miembros del grupo.",
+        "fr": "Vous êtes invité à une discussion de groupe. Si vous acceptez, le compte %1$@ sera visible par les membres du groupe.",
+        "ru": "Вас пригласили в групповой чат. Если вы примете приглашение, аккаунт %1$@ будет виден участникам группы.",
+        "zh-Hans": "你受邀加入群聊。接受邀请后，账户 %1$@ 将对群成员可见。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_edit/DevicesListViewController.swift",
+      "sink": "title",
+      "value": "Active sessions",
+      "key": "settings_account__label_active_sessions",
+      "comment": "Section title for active account sessions.",
+      "translations": {
+        "ar": "الجلسات النشطة",
+        "en": "Active sessions",
+        "es": "Sesiones activas",
+        "fr": "Sessions actives",
+        "ru": "Активные сеансы",
+        "zh-Hans": "活跃会话"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_edit/DevicesListViewController.swift",
+      "sink": "title",
+      "value": "This device",
+      "key": "settings_account__label_current_session",
+      "comment": "Label identifying the current device session in account settings.",
+      "translations": {
+        "ar": "هذا الجهاز",
+        "en": "This device",
+        "es": "Este dispositivo",
+        "fr": "Cet appareil",
+        "ru": "Это устройство",
+        "zh-Hans": "此设备"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_edit/DevicesListViewController.swift",
+      "sink": "value",
+      "value": "Logs out all devices except this one",
+      "key": "settings_account_label_log_out_all",
+      "comment": "Legacy current-session row explanation for the terminate-other-sessions action.",
+      "translations": {
+        "ar": "يسجّل الخروج من جميع الأجهزة باستثناء هذا الجهاز",
+        "en": "Logs out all devices except this one",
+        "es": "Cierra la sesión en todos los dispositivos excepto en este",
+        "fr": "Déconnecte tous les appareils sauf celui-ci",
+        "ru": "Выйти со всех устройств, кроме этого",
+        "zh-Hans": "退出除此设备外的所有设备"
+      }
+    },
+    {
+      "path": "xabber/controllers/onboarding/signup/YubikeySetupViewController.swift",
+      "sink": "title",
+      "value": "Verify account",
+      "key": "yubikey_configure_screen_title",
+      "comment": "Onboarding YubiKey setup screen title.",
+      "translations": {
+        "ar": "التحقق من الحساب",
+        "en": "Verify account",
+        "es": "Verificar la cuenta",
+        "fr": "Vérifier le compte",
+        "ru": "Подтвердить аккаунт",
+        "zh-Hans": "验证账户"
+      }
+    },
+    {
+      "path": "xabber/controllers/onboarding/signup/YubikeySetupViewController.swift",
+      "sink": "text",
+      "value": "Plug your YubiKey to verify your account",
+      "key": "yubikey_configure_screen_title_label",
+      "comment": "Onboarding YubiKey setup instruction.",
+      "translations": {
+        "ar": "صِل مفتاح YubiKey للتحقق من حسابك",
+        "en": "Plug your YubiKey to verify your account",
+        "es": "Conecta tu YubiKey para verificar tu cuenta",
+        "fr": "Branchez votre YubiKey pour vérifier votre compte",
+        "ru": "Подключите YubiKey, чтобы подтвердить аккаунт",
+        "zh-Hans": "插入 YubiKey 以验证你的账户"
+      }
+    },
+    {
+      "path": "xabber/controllers/onboarding/signup/YubikeySetupViewController.swift",
+      "sink": "setTitle",
+      "value": "Connect dongle",
+      "key": "yubikey_onboarding__action__connect_dongle",
+      "comment": "Onboarding action that connects a physical YubiKey accessory.",
+      "translations": {
+        "ar": "توصيل مفتاح الأمان",
+        "en": "Connect dongle",
+        "es": "Conectar llave de seguridad",
+        "fr": "Connecter la clé de sécurité",
+        "ru": "Подключить ключ безопасности",
+        "zh-Hans": "连接安全密钥"
+      }
+    },
+    {
+      "path": "xabber/controllers/onboarding/signup/YubikeySetupViewController.swift",
+      "sink": "setTitle",
+      "value": "Connect with NFC",
+      "key": "yubikey_onboarding__action__connect_with_nfc",
+      "comment": "Onboarding action that connects a YubiKey through NFC.",
+      "translations": {
+        "ar": "الاتصال عبر NFC",
+        "en": "Connect with NFC",
+        "es": "Conectar mediante NFC",
+        "fr": "Connecter via NFC",
+        "ru": "Подключить через NFC",
+        "zh-Hans": "通过 NFC 连接"
+      }
+    },
+    {
+      "path": "xabber/controllers/onboarding/signup/YubikeySetupViewController.swift",
+      "sink": "makeToast",
+      "value": "YubiKey registered",
+      "key": "yubikey_onboarding__toast__registered",
+      "comment": "Success toast shown after a YubiKey is registered during onboarding.",
+      "translations": {
+        "ar": "تم تسجيل YubiKey",
+        "en": "YubiKey registered",
+        "es": "YubiKey registrada",
+        "fr": "YubiKey enregistrée",
+        "ru": "YubiKey зарегистрирован",
+        "zh-Hans": "YubiKey 已注册"
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/AuthenticationCodeInputViewController.swift",
+      "sink": "text",
+      "value": "Device Verification",
+      "key": "verification__title_text__device_verification",
+      "comment": "Device-verification screen title. Security-sensitive copy.",
+      "translations": {
+        "ar": "التحقق من الجهاز",
+        "en": "Device Verification",
+        "es": "Verificación del dispositivo",
+        "fr": "Vérification de l’appareil",
+        "ru": "Проверка устройства",
+        "zh-Hans": "设备验证"
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/AuthenticationCodeInputViewController.swift",
+      "sink": "setTitle",
+      "value": "Cancel verification",
+      "key": "device_verification__flow__cancel_verification",
+      "comment": "Device-verification cancellation action. Security-sensitive copy.",
+      "translations": {
+        "ar": "إلغاء التحقق",
+        "en": "Cancel verification",
+        "es": "Cancelar verificación",
+        "fr": "Annuler la vérification",
+        "ru": "Отменить проверку",
+        "zh-Hans": "取消验证"
+      }
+    },
+    {
+      "path": "xabber/controllers/alerts/DeleteAccountPresenter.swift",
+      "sink": "title",
+      "value": "Quit account",
+      "key": "settings_account__button_quit_account",
+      "comment": "Quit-account confirmation title.",
+      "translations": {
+        "ar": "الخروج من الحساب",
+        "en": "Quit account",
+        "es": "Salir de la cuenta",
+        "fr": "Quitter le compte",
+        "ru": "Выйти из аккаунта",
+        "zh-Hans": "退出账户"
+      }
+    },
+    {
+      "path": "xabber/controllers/alerts/DeleteAccountPresenter.swift",
+      "sink": "title",
+      "value": "Cancel",
+      "key": "common__action__cancel",
+      "comment": "Quit-account confirmation cancellation action.",
+      "translations": {
+        "ar": "إلغاء",
+        "en": "Cancel",
+        "es": "Cancelar",
+        "fr": "Annuler",
+        "ru": "Отмена",
+        "zh-Hans": "取消"
+      }
+    },
+    {
+      "path": "xabber/controllers/alerts/DeleteAccountPresenter.swift",
+      "sink": "title",
+      "value": "Quit",
+      "key": "common__action__quit",
+      "comment": "Quit-account destructive confirmation action.",
+      "translations": {
+        "ar": "خروج",
+        "en": "Quit",
+        "es": "Salir",
+        "fr": "Quitter",
+        "ru": "Выход",
+        "zh-Hans": "退出"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+VerifyPanel.swift",
+      "sink": "setTitle",
+      "value": "Add contact",
+      "key": "application_action_no_contacts",
+      "comment": "Chat verification panel action for adding a contact.",
+      "translations": {
+        "ar": "أضف طرف اتصال",
+        "en": "Add contact",
+        "es": "Añadir contacto",
+        "fr": "Ajouter un contact",
+        "ru": "Добавить контакт",
+        "zh-Hans": "添加联系人"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+VerifyPanel.swift",
+      "sink": "setTitle",
+      "value": "Verify contact",
+      "key": "chat__verification_panel__verify_contact",
+      "comment": "Chat verification panel action that starts contact verification.",
+      "translations": {
+        "ar": "التحقق من جهة الاتصال",
+        "en": "Verify contact",
+        "es": "Verificar contacto",
+        "fr": "Vérifier le contact",
+        "ru": "Проверить контакт",
+        "zh-Hans": "验证联系人"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+VerifyPanel.swift",
+      "sink": "setTitle",
+      "value": "Outgoing verification request",
+      "key": "chat__verification_panel__outgoing_verification_request",
+      "comment": "Chat verification panel state after sending a verification request.",
+      "translations": {
+        "ar": "طلب تحقق صادر",
+        "en": "Outgoing verification request",
+        "es": "Solicitud de verificación saliente",
+        "fr": "Demande de vérification sortante",
+        "ru": "Исходящий запрос на проверку",
+        "zh-Hans": "已发送验证请求"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+VerifyPanel.swift",
+      "sink": "setTitle",
+      "value": "Accept verification request",
+      "key": "chat__verification_panel__accept_verification_request",
+      "comment": "Chat verification panel action that accepts an incoming verification request.",
+      "translations": {
+        "ar": "قبول طلب التحقق",
+        "en": "Accept verification request",
+        "es": "Aceptar la solicitud de verificación",
+        "fr": "Accepter la demande de vérification",
+        "ru": "Принять запрос на проверку",
+        "zh-Hans": "接受验证请求"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+VerifyPanel.swift",
+      "sink": "setTitle",
+      "value": "Enter verification code",
+      "key": "chat__verification_panel__enter_verification_code",
+      "comment": "Chat verification panel action that opens verification-code entry.",
+      "translations": {
+        "ar": "أدخل رمز التحقق",
+        "en": "Enter verification code",
+        "es": "Introduce el código de verificación",
+        "fr": "Saisir le code de vérification",
+        "ru": "Введите проверочный код",
+        "zh-Hans": "输入验证码"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/groupchats/join/GroupchatJoinViewController.swift",
+      "sink": "setTitle",
+      "value": "Decline",
+      "key": "decline",
+      "comment": "Group invitation action that declines the invitation.",
+      "translations": {
+        "ar": "رفض",
+        "en": "Decline",
+        "es": "Rechazar",
+        "fr": "Refuser",
+        "ru": "Отклонить",
+        "zh-Hans": "拒绝"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/groupchats/join/GroupchatJoinViewController.swift",
+      "sink": "setTitle",
+      "value": "Block",
+      "key": "contact_bar_block",
+      "comment": "Group invitation action that blocks the inviter.",
+      "translations": {
+        "ar": "حظر",
+        "en": "Block",
+        "es": "Bloquear",
+        "fr": "Bloquer",
+        "ru": "Заблокировать",
+        "zh-Hans": "屏蔽"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/footerInfoView/CloudDeleteInfoScreenView.swift",
+      "sink": "text",
+      "value": "Images",
+      "key": "images",
+      "comment": "Cloud cleanup media-section title for images.",
+      "translations": {
+        "ar": "الصور",
+        "en": "Images",
+        "es": "Imágenes",
+        "fr": "Images",
+        "ru": "Картинки",
+        "zh-Hans": "图片"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/footerInfoView/CloudDeleteInfoScreenView.swift",
+      "sink": "text",
+      "value": "Videos",
+      "key": "videos",
+      "comment": "Cloud cleanup media-section title for videos.",
+      "translations": {
+        "ar": "مقاطع الفيديو",
+        "en": "Videos",
+        "es": "Vídeos",
+        "fr": "Vidéos",
+        "ru": "Видео",
+        "zh-Hans": "视频"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/footerInfoView/CloudDeleteInfoScreenView.swift",
+      "sink": "text",
+      "value": "Files",
+      "key": "files",
+      "comment": "Cloud cleanup media-section title for files.",
+      "translations": {
+        "ar": "الملفات",
+        "en": "Files",
+        "es": "Archivos",
+        "fr": "Fichiers",
+        "ru": "Файлы",
+        "zh-Hans": "文件"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/footerInfoView/CloudDeleteInfoScreenView.swift",
+      "sink": "text",
+      "value": "Voice messages",
+      "key": "cloud_storage__cleanup__voice_messages",
+      "comment": "Cloud cleanup media-section title for voice messages.",
+      "translations": {
+        "ar": "الرسائل الصوتية",
+        "en": "Voice messages",
+        "es": "Mensajes de voz",
+        "fr": "Messages vocaux",
+        "ru": "Голосовые сообщения",
+        "zh-Hans": "语音消息"
+      }
+    },
+    {
+      "path": "xabber/controllers/onboarding/signup/YubikeySetupViewController.swift",
+      "sink": "makeToast",
+      "value": "Internal error",
+      "key": "common__error__internal",
+      "comment": "Generic internal-error toast shown by onboarding YubiKey registration.",
+      "translations": {
+        "ar": "خطأ داخلي",
+        "en": "Internal error",
+        "es": "Error interno",
+        "fr": "Erreur interne",
+        "ru": "Внутренняя ошибка",
+        "zh-Hans": "内部错误"
+      }
+    },
+    {
+      "path": "xabber/xmpp/omemo/OmemoManagerTest.swift",
+      "sink": "body",
+      "value": "Message cannot be decrypted",
+      "key": "otr_not_decrypted_message",
+      "comment": "Fallback body shown when an encrypted message cannot be decrypted.",
+      "translations": {
+        "ar": "لا يمكن فك تشفير الرسالة",
+        "en": "Message cannot be decrypted",
+        "es": "El mensaje no se ha podido descifrar",
+        "fr": "Le message n'a pas pu être déchiffré",
+        "ru": "Сообщение не может быть расшифровано",
+        "zh-Hans": "无法解密信息"
+      }
+    }
+  ]
+}

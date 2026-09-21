@@ -38,7 +38,7 @@ class BaseRootViewController: BaseViewController {
         internal let chatsButton: UIButton = {
             var conf = UIButton.Configuration.plain()
             conf.image = imageLiteral("message")
-            conf.attributedTitle = AttributedString("Chats", attributes: AttributeContainer([
+            conf.attributedTitle = AttributedString(L10n.text("navigation__destination__chats", fallback: "Chats"), attributes: AttributeContainer([
                 .font: UIFont.systemFont(ofSize: 12, weight: .regular)
             ]))
             conf.imagePlacement = .top
@@ -52,7 +52,7 @@ class BaseRootViewController: BaseViewController {
             var conf = UIButton.Configuration.plain()
             conf.image = imageLiteral("person.2")
 //            conf.title = "Contacts"
-            conf.attributedTitle = AttributedString("Contacts", attributes: AttributeContainer([
+            conf.attributedTitle = AttributedString(L10n.text("navigation__destination__contacts", fallback: "Contacts"), attributes: AttributeContainer([
                 .font: UIFont.systemFont(ofSize: 12, weight: .regular)
             ]))
             conf.imagePlacement = .top
@@ -66,7 +66,7 @@ class BaseRootViewController: BaseViewController {
             var conf = UIButton.Configuration.plain()
             conf.image = imageLiteral("bell")
 //            conf.title = "Notifications"
-            conf.attributedTitle = AttributedString("Notifications", attributes: AttributeContainer([
+            conf.attributedTitle = AttributedString(L10n.text("navigation__destination__notifications", fallback: "Notifications"), attributes: AttributeContainer([
                 .font: UIFont.systemFont(ofSize: 12, weight: .regular)
             ]))
             conf.imagePlacement = .top
@@ -80,7 +80,7 @@ class BaseRootViewController: BaseViewController {
             var conf = UIButton.Configuration.plain()
             conf.image = imageLiteral("archivebox")
 //            conf.title = "Archive"
-            conf.attributedTitle = AttributedString("Archive", attributes: AttributeContainer([
+            conf.attributedTitle = AttributedString(L10n.text("navigation__destination__archive", fallback: "Archive"), attributes: AttributeContainer([
                 .font: UIFont.systemFont(ofSize: 12, weight: .regular)
             ]))
             conf.imagePlacement = .top
@@ -94,7 +94,7 @@ class BaseRootViewController: BaseViewController {
             var conf = UIButton.Configuration.plain()
             conf.image = imageLiteral("phone")
 //            conf.title = "Calls"
-            conf.attributedTitle = AttributedString("Calls", attributes: AttributeContainer([
+            conf.attributedTitle = AttributedString(L10n.text("navigation__destination__calls", fallback: "Calls"), attributes: AttributeContainer([
                 .font: UIFont.systemFont(ofSize: 12, weight: .regular)
             ]))
             conf.imagePlacement = .top

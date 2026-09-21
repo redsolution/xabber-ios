@@ -22,6 +22,109 @@ import Foundation
 import UIKit
 import CocoaLumberjack
 
+enum ContactsFooterLocalization {
+    static func footer(
+        count: Int,
+        onlineCount: Int,
+        showOffline: Bool,
+        category: String?,
+        isGroup: Bool
+    ) -> String {
+        guard showOffline else {
+            return L10n.plural(
+                "contacts__footer__online_count",
+                count: onlineCount,
+                fallback: "%lld online"
+            )
+        }
+
+        switch category {
+        case "all":
+            return contacts(count)
+        case "online":
+            return L10n.plural(
+                "contacts__footer__online_contacts_count",
+                count: onlineCount,
+                fallback: "%lld online\u{00a0}contacts"
+            )
+        case "subscriptions":
+            return L10n.plural(
+                "contacts__footer__contact_requests_count",
+                count: count,
+                fallback: "%lld contact requests"
+            )
+        case "requests":
+            return L10n.plural(
+                "contacts__footer__outgoing_requests_count",
+                count: count,
+                fallback: "%lld outgoing requests"
+            )
+        case "public":
+            return L10n.plural(
+                "contacts__footer__public_groups_count",
+                count: count,
+                fallback: "%lld public groups"
+            )
+        case "incognito":
+            return L10n.plural(
+                "contacts__footer__incognito_groups_count",
+                count: count,
+                fallback: "%lld incognito groups"
+            )
+        case "private":
+            return L10n.plural(
+                "contacts__footer__private_chats_count",
+                count: count,
+                fallback: "%lld private chats"
+            )
+        case "invitations":
+            return L10n.plural(
+                "contacts__footer__invitations_count",
+                count: count,
+                fallback: "%lld invitations"
+            )
+        default:
+            if isGroup {
+                return L10n.plural(
+                    "contacts__footer__groups_count",
+                    count: count,
+                    fallback: "%lld groups"
+                )
+            }
+            if category == nil {
+                return contacts(count)
+            }
+            return L10n.plural(
+                "contacts__footer__contacts_with_online_count",
+                count: count,
+                fallback: "%lld contacts %lld online",
+                arguments: [onlineCount]
+            )
+        }
+    }
+
+    static func circleContext(
+        groups: Set<String>
+    ) -> String {
+        guard groups.isNotEmpty else { return "" }
+        let names = groups.sorted().joined(separator: ", ")
+        return L10n.plural(
+            "contacts__footer__circle_filter",
+            count: groups.count,
+            fallback: "in circles %2$@",
+            arguments: [names]
+        )
+    }
+
+    private static func contacts(_ count: Int) -> String {
+        L10n.plural(
+            "contacts__footer__contacts_count",
+            count: count,
+            fallback: "%lld contacts"
+        )
+    }
+}
+
 extension ContactsViewController: UITableViewDataSource {
     func numberOfSections(in tableView: UITableView) -> Int {
         return self.datasource.count
@@ -45,52 +148,14 @@ extension ContactsViewController: UITableViewDataSource {
         }
         let count = lastDatasource.count
         let onlineCount = lastDatasource.filter({ $0.status != .offline }).count
-        let commonCountPlural = count == 1
-        var groupsList: String = ""
-        var footer: String = ""
-        if self.filteredGroups.isNotEmpty {
-            let groupsSorted = self.filteredGroups.sorted()
-            if groupsSorted.count == 1 {
-                groupsList = "in circle \(groupsSorted[0])"
-            } else {
-                let groupsString = groupsSorted.joined(separator: ", ")
-                groupsList = "in circles \(groupsString)"
-            }
-        }
-        if self.showOffline == false {
-            footer = "\(onlineCount) online"
-        } else if let category = self.category {
-            switch category {
-                case "all":
-                    footer = "\(count) \(commonCountPlural ? "contact" : "contacts")"
-                case "online":
-                    footer = "\(onlineCount) online \(commonCountPlural ? "contact" : "contacts")"
-                case "subscriptions":
-                    footer = "\(count) \(commonCountPlural ? "contact request" : "contact requests")"
-                case "requests":
-                    footer = "\(count) \(commonCountPlural ? "outgoing request" : "outgoing requests")"
-                case "public":
-                    footer = "\(count) \(commonCountPlural ? "public group" : "public groups")"
-                case "incognito":
-                    footer = "\(count) \(commonCountPlural ? "incognito group" : "incognito groups")"
-                case "private":
-                    footer = "\(count) \(commonCountPlural ? "private chat" : "private chats")"
-                case "invitations":
-                    footer = "\(count) \(commonCountPlural ? "invitation" : "invitations")"
-                default:
-                    if isGroup {
-                        footer = "\(count) \(commonCountPlural ? "group" : "groups")"
-                    } else {
-                        footer = "\(count) \(commonCountPlural ? "contact" : "contacts") \(onlineCount) online"
-                    }
-            }
-        } else {
-            if isGroup {
-                footer = "\(count) \(commonCountPlural ? "group" : "groups")"
-            } else {
-                footer = "\(count) \(commonCountPlural ? "contact" : "contacts")"
-            }
-        }
+        let groupsList = ContactsFooterLocalization.circleContext(groups: filteredGroups)
+        let footer = ContactsFooterLocalization.footer(
+            count: count,
+            onlineCount: onlineCount,
+            showOffline: showOffline,
+            category: category,
+            isGroup: isGroup
+        )
         return "\(footer) \(groupsList)"
     }
     
@@ -296,7 +361,7 @@ extension ContactsViewController: GroupListActionsCellDelegate {
         var values = [
             ActionSheetPresenter.Item(
                 destructive: false,
-                title: "Decline invite",
+                title: L10n.text("contacts__request_action__decline_invite", fallback: "Decline invite"),
                 value: "decline"
             )
         ]
@@ -304,16 +369,16 @@ extension ContactsViewController: GroupListActionsCellDelegate {
             values.append(
                 ActionSheetPresenter.Item(
                     destructive: true,
-                    title: "Decline and block",
+                    title: L10n.text("contacts__request_action__decline_and_block", fallback: "Decline and block"),
                     value: "block"
                 )
             )
         }
         ActionSheetPresenter().present(
             in: self,
-            title: "Decline invite",
+            title: L10n.text("contacts__request_action__decline_invite", fallback: "Decline invite"),
             message: nil,
-            cancel: "Cancel",
+            cancel: L10n.text("common__action__cancel", fallback: "Cancel"),
             values: values,
             animated: true) {
                 
@@ -406,11 +471,11 @@ extension ContactsViewController: ContactCellSubscribtionActionsDelegate {
         ActionSheetPresenter().present(
             in: self,
             title: nil,
-            message: "Decline contact request",
-            cancel: "Cancel",
+            message: L10n.text("contacts__request_action__decline_contact_request", fallback: "Decline contact request"),
+            cancel: L10n.text("common__action__cancel", fallback: "Cancel"),
             values: [
-                ActionSheetPresenter.Item(destructive: false, title: "Decline", value: "decline"),
-                ActionSheetPresenter.Item(destructive: true, title: "Decline and block", value: "block")
+                ActionSheetPresenter.Item(destructive: false, title: L10n.text("decline", fallback: "Decline"), value: "decline"),
+                ActionSheetPresenter.Item(destructive: true, title: L10n.text("contacts__request_action__decline_and_block", fallback: "Decline and block"), value: "block")
             ],
             animated: true) {
                 

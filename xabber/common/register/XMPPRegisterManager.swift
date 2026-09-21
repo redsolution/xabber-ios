@@ -277,14 +277,14 @@ extension XMPPRegistrationManager: XMPPStreamDelegate {
                     if let text = error.element(forName: "text")?.stringValue {
                         self.delegate?.xmppRegistrationManagerFail(error: text)
                     } else {
-                        self.delegate?.xmppRegistrationManagerFail(error: "Internal error. Try again later.")
+                        self.delegate?.xmppRegistrationManagerFail(error: L10n.text("registration__error__internal_retry_later", fallback: "Internal error. Try again later."))
                     }
                 } else {
                     if query.element(forName: "registered") == nil {
                         self.delegate?.xmppRegistrationManagerSuccess()
                         self.close()
                     } else {
-                        self.delegate?.xmppRegistrationManagerFail(error: "Account already exist")
+                        self.delegate?.xmppRegistrationManagerFail(error: L10n.text("registration__error__account_already_exists", fallback: "Account already exists"))
                     }
                 }
             case .closed:

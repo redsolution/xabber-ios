@@ -807,7 +807,7 @@ final class AudioPlayerBarView: UIView {
     }()
 
     let playPauseButton: UIButton = {
-        AudioPlayerBarIconButtonStyle.makeButton(accessibilityLabel: "Play or pause voice message")
+        AudioPlayerBarIconButtonStyle.makeButton(accessibilityLabel: L10n.text("last_chats__accessibility__play_or_pause_voice_message", fallback: "Play or pause voice message"))
     }()
 
     let titleControl: UIControl = {
@@ -858,7 +858,7 @@ final class AudioPlayerBarView: UIView {
     }()
 
     let closeButton: UIButton = {
-        AudioPlayerBarIconButtonStyle.makeButton(accessibilityLabel: "Close voice player")
+        AudioPlayerBarIconButtonStyle.makeButton(accessibilityLabel: L10n.text("last_chats__accessibility__close_voice_player", fallback: "Close voice player"))
     }()
 
     weak var delegate: AudioPlayerBarViewDelegate?
@@ -895,8 +895,8 @@ final class AudioPlayerBarView: UIView {
         }
 
         isHidden = false
-        titleLabel.text = snapshot.title ?? "Voice message"
-        subtitleLabel.text = snapshot.subtitle ?? "Voice message"
+        titleLabel.text = snapshot.title ?? L10n.text("chat_list__attachment_preview__voice_message", fallback: "Voice message")
+        subtitleLabel.text = snapshot.subtitle ?? L10n.text("chat_list__attachment_preview__voice_message", fallback: "Voice message")
         titleControl.accessibilityLabel = [titleLabel.text, subtitleLabel.text]
             .compactMap { $0 }
             .joined(separator: ", ")
@@ -1108,10 +1108,17 @@ enum LastChatsRowUpdatePolicy {
 }
 
 enum SavedMessagesChatListPresentationPolicy {
-    static let title = "Saved messages"
+    static var title: String {
+        L10n.text("saved_messages__header", fallback: "Saved messages")
+    }
     static let avatarIconName = XMPPFavoritesManagerStorageItem.imageName
     static let leftMenuIconName = "bookmark"
-    static let singleAccountPlaceholder = "Save messages here"
+    static var singleAccountPlaceholder: String {
+        L10n.text(
+            "saved_messages__placeholder__save_messages_here",
+            fallback: "Save messages here"
+        )
+    }
     static let status: ResourceStatus = .offline
     static let entity: RosterItemEntity? = nil
 
@@ -1277,7 +1284,7 @@ enum LastChatMessagePreviewPolicy {
                 nonEmptyContactText(reference.metadata?["uri"])
         })
         if let caption = LastChatAttachmentPreviewFormatter.normalizedCaption(
-            message.body,
+            message.userVisibleBody,
             fallbackURIs: fallbackURIs
         ) {
             return Preview(text: caption, isItalic: false)
@@ -1793,7 +1800,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
         let title = "Mark all as read".localizeString(id: "mark_all_as_read_button", arguments: [])
 
         view.leftButton.accessibilityIdentifier = "last_chats_filter_button"
-        view.leftButton.accessibilityLabel = "Unread chats filter"
+        view.leftButton.accessibilityLabel = L10n.text("last_chats__accessibility__unread_chats_filter", fallback: "Unread chats filter")
         view.setCenterButtonTitle(
             title,
             accessibilityIdentifier: "last_chats_mark_all_read_button",
@@ -4262,7 +4269,7 @@ class LastChatsViewController: BaseViewController, LeftMenuFirstPresentationQuie
                     isSystemMessage = true
                 }
                 if item.isFreshNotEmptyEncryptedChat {
-                    message = "Write your encrypted messages here"
+                    message = L10n.text("chat__empty_conversation__encrypted_message_placeholder", fallback: "Write your encrypted messages here")
                     isSystemMessage = true
                 }
                 if presentationLastMessage == nil {

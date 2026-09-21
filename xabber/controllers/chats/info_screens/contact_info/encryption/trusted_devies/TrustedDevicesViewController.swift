@@ -84,7 +84,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
     
     override func configure() {
         super.configure()
-        title = "Identity Verification"
+        title = L10n.text("contact_device__verification__title", fallback: "Identity Verification")
         if #available(iOS 14.0, *) {
             navigationItem.backButtonDisplayMode = .minimal
         }
@@ -92,7 +92,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
         self.navigationItem.largeTitleDisplayMode = .never
         tableView.delegate = self
         tableView.dataSource = self
-        refreshControl.attributedTitle = NSAttributedString(string: "Pull to refresh")
+        refreshControl.attributedTitle = NSAttributedString(string: L10n.text("contact_device__verification__pull_to_refresh", fallback: "Pull to refresh"))
         refreshControl.addTarget(self, action: #selector(self.refresh), for: .valueChanged)
         tableView.addSubview(refreshControl)
     }
@@ -179,7 +179,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             
             var devicesDatasource: [Datasource] = []
             if isVerificationNeeded && verificationSession == nil {
-                devicesDatasource.append(Datasource(.session, name: "Secure Your Conversation", subtitle: "Your contact has devices that need to be verified to ensure encrypted and secure communication. Perform an identity verification procedure by exchanging a verification code through a secure channel. Enter the received code to confirm that each device is trusted and secure.\n\nPress 'Verify' to begin the verification process and ensure the integrity of your conversation."))
+                devicesDatasource.append(Datasource(.session, name: L10n.text("trusted_devices__session_title__secure_your_conversation", fallback: "Secure Your Conversation"), subtitle: L10n.text("contact_device__verification__unverified_devices_explanation", fallback: "Your contact has devices that need to be verified to ensure encrypted and secure communication. Perform an identity verification procedure by exchanging a verification code through a secure channel. Enter the received code to confirm that each device is trusted and secure.\n\nPress 'Verify' to begin the verification process and ensure the integrity of your conversation.")))
             } else if verificationSession != nil && verificationSession?.state != .trusted {
                 let text: String
                 let secondaryText: String?
@@ -209,7 +209,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             
             for device in devices {
                 if device.state == .trusted {
-                    datasource.append([Datasource(.button, name: "Revoke trust", key: "revoke_trust")])
+                    datasource.append([Datasource(.button, name: L10n.text("trusted_devices__action__revoke_trust", fallback: "Revoke trust"), key: "revoke_trust")])
                     break
                 }
             }
@@ -273,37 +273,37 @@ class TrustedDevicesViewController: SimpleBaseViewController {
         
         switch verificationState {
         case .sentRequest:
-            text = "Verification In Progress"
+            text = L10n.text("trusted_devices__session_status__verification_in_progress", fallback: "Verification In Progress")
             if withOwnDevice {
-                secondaryText = "A verification request has been sent to your other device. Please check the device and follow the provided instructions to complete the verification process."
+                secondaryText = L10n.text("trusted_devices__secondary_text__a_verification_request_has_been_sent_to_your_other_device_please_check", fallback: "A verification request has been sent to your other device. Please check the device and follow the provided instructions to complete the verification process.")
             } else {
-                secondaryText = "A verification request has been sent to your contact's devices. Wait for your contact to provide the verification code, then you will need to enter it to complete the identity verification."
+                secondaryText = L10n.text("trusted_devices__secondary_text__a_verification_request_has_been_sent_to_your_contact_s_devices_wait", fallback: "A verification request has been sent to your contact's devices. Wait for your contact to provide the verification code, then you will need to enter it to complete the identity verification.")
             }
             
         case .receivedRequest:
-            text = "Identity Verification Request Received"
+            text = L10n.text("trusted_devices__session_status__identity_verification_request_received", fallback: "Identity Verification Request Received")
             if withOwnDevice {
-                secondaryText = "Device has requested to establish a trusted encryption session with you. If you accept, you'll be presented with a security code which you'll need to pass to your primary device."
+                secondaryText = L10n.text("trusted_devices__secondary_text__device_has_requested_to_establish_a_trusted_encryption_session_with_you_if", fallback: "Device has requested to establish a trusted encryption session with you. If you accept, you'll be presented with a security code which you'll need to pass to your primary device.")
             } else {
-                secondaryText = "You have received an identity verification request from this contact. This step is crucial to establish a trusted connection between your devices, ensuring secure and encrypted communications.\n\nPress the button below to display a verification code. Once generated, securely communicate this code to this contact to finalize the identity verification."
+                secondaryText = L10n.text("trusted_devices__secondary_text__you_have_received_an_identity_verification_request_from_this_contact_this_step", fallback: "You have received an identity verification request from this contact. This step is crucial to establish a trusted connection between your devices, ensuring secure and encrypted communications.\n\nPress the button below to display a verification code. Once generated, securely communicate this code to this contact to finalize the identity verification.")
             }
         case .acceptedRequest:
-            text = "Incoming Verification Request"
-            secondaryText = "You have accepted the verification request."
+            text = L10n.text("authenticated_key_exchange__body__incoming_verification_request", fallback: "Incoming verification request")
+            secondaryText = L10n.text("trusted_devices__secondary_text__you_have_accepted_the_verification_request", fallback: "You have accepted the verification request.")
         case .trusted:
-            text = "Verification successful"
-            secondaryText = "The verification session was completed successfully. Now you trust this contact's devices."
+            text = L10n.text("authenticated_key_exchange__body__verification_succeeded", fallback: "Verification succeeded")
+            secondaryText = L10n.text("trusted_devices__secondary_text__the_verification_session_was_completed_successfully_now_you_trust_this_contact_s", fallback: "The verification session was completed successfully. Now you trust this contact's devices.")
         case .rejected:
-            text = "Verification rejected"
-            secondaryText = "The verification session rejected."
+            text = L10n.text("authenticated_key_exchange__body__verification_rejected", fallback: "Verification rejected")
+            secondaryText = L10n.text("trusted_devices__secondary_text__the_verification_session_rejected", fallback: "The verification session rejected.")
         case .failed:
-            text = "Verification failed"
-            secondaryText = "The verification session failed."
+            text = L10n.text("authenticated_key_exchange__body__verification_failed", fallback: "Verification failed")
+            secondaryText = L10n.text("trusted_devices__secondary_text__the_verification_session_failed", fallback: "The verification session failed.")
         case .receivedRequestAccept:
-            text = "Outgoing Verification Request"
-            secondaryText = "The contact accepted the verification request."
+            text = L10n.text("authenticated_key_exchange__body__outgoing_verification_request", fallback: "Outgoing verification request")
+            secondaryText = L10n.text("trusted_devices__secondary_text__the_contact_accepted_the_verification_request", fallback: "The contact accepted the verification request.")
         default:
-            text = "In process..."
+            text = L10n.text("trusted_devices__session_status__in_process", fallback: "In process...")
             secondaryText = nil
         }
         
@@ -445,11 +445,11 @@ extension TrustedDevicesViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         if datasource[section].isEmpty {
-            return "Сontact hasn't published keys yet"
+            return L10n.text("trusted_devices__table_section_title__contact_hasn_t_published_keys_yet", fallback: "Contact hasn't published keys yet")
         }
         switch datasource[section].first?.kind {
         case .device:
-            return "Contact`s devices"
+            return L10n.text("trusted_devices__table_section_title__contact_s_devices", fallback: "Contact's devices")
         default:
             return nil
         }
@@ -488,7 +488,7 @@ extension TrustedDevicesViewController: UITableViewDataSource {
             
             if activeVerificationSessionSid == nil {
                 cell.closeButton.removeFromSuperview()
-                cell.blueButton.setTitle("Verify", for: .normal)
+                cell.blueButton.setTitle(L10n.text("action_verify", fallback: "VERIFY"), for: .normal)
                 cell.labelsStack.addArrangedSubview(cell.blueButton)
                 cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
                 cell.blueButton.addTarget(self, action: #selector(onVerifyButtonPressed), for: .touchUpInside)
@@ -502,19 +502,19 @@ extension TrustedDevicesViewController: UITableViewDataSource {
                 
                 switch instance?.state {
                 case .receivedRequest:
-                    cell.blueButton.setTitle("Proceed to Verification", for: .normal)
+                    cell.blueButton.setTitle(L10n.text("contact_device__verification__proceed_to_verification", fallback: "Proceed to Verification"), for: .normal)
                     cell.blueButton.addTarget(self, action: #selector(onAcceptButtonPressed), for: .touchUpInside)
                     cell.labelsStack.addArrangedSubview(cell.blueButton)
                     cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
                     break
                 case .acceptedRequest:
-                    cell.blueButton.setTitle("Show the code", for: .normal)
+                    cell.blueButton.setTitle(L10n.text("contact_device__verification__show_the_code", fallback: "Show the code"), for: .normal)
                     cell.blueButton.addTarget(self, action: #selector(onShowCodePressed), for: .touchUpInside)
                     cell.labelsStack.addArrangedSubview(cell.blueButton)
                     cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
                     break
                 case .receivedRequestAccept:
-                    cell.blueButton.setTitle("Enter the code", for: .normal)
+                    cell.blueButton.setTitle(L10n.text("contact_device__verification__enter_the_code", fallback: "Enter the code"), for: .normal)
                     cell.blueButton.addTarget(self, action: #selector(onEnterCodePressed), for: .touchUpInside)
                     cell.labelsStack.addArrangedSubview(cell.blueButton)
                     cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true

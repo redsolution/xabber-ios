@@ -244,7 +244,7 @@ class VideoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
 
     override func configure() {
         super.configure()
-        title = "Videos"
+        title = L10n.text("videos", fallback: "Videos")
         kind = .video
         collectionView.prefetchDataSource = self
         collectionView.dataSource = self

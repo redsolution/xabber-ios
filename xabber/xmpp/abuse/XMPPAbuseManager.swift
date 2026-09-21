@@ -179,13 +179,13 @@ private extension ReportTargetType {
     var bodyTitle: String {
         switch self {
         case .message:
-            return "Message"
+            return L10n.text("abuse_report__target__message", fallback: "Message")
         case .media:
-            return "Media"
+            return L10n.text("abuse_report__target__media", fallback: "Media")
         case .user:
-            return "User"
+            return L10n.text("abuse_report__target__user", fallback: "User")
         case .room:
-            return "Room"
+            return L10n.text("abuse_report__target__room", fallback: "Room")
         }
     }
 }
@@ -194,23 +194,23 @@ private extension ReportReason {
     var bodyTitle: String {
         switch self {
         case .harassmentOrBullying:
-            return "Harassment or bullying"
+            return L10n.text("report_reason_harassment_or_bullying", fallback: "Harassment or bullying")
         case .hateSpeech:
-            return "Hate speech"
+            return L10n.text("report_reason_hate_speech", fallback: "Hate speech")
         case .sexualContentOrNudity:
-            return "Sexual content or nudity"
+            return L10n.text("report_reason_sexual_content_or_nudity", fallback: "Sexual content or nudity")
         case .violenceOrThreats:
-            return "Violence or threats"
+            return L10n.text("report_reason_violence_or_threats", fallback: "Violence or threats")
         case .spamScamOrPhishing:
-            return "Spam, scam, or phishing"
+            return L10n.text("report_reason_spam_scam_or_phishing", fallback: "Spam, scam, or phishing")
         case .illegalContent:
-            return "Illegal content"
+            return L10n.text("report_reason_illegal_content", fallback: "Illegal content")
         case .impersonation:
-            return "Impersonation"
+            return L10n.text("report_reason_impersonation", fallback: "Impersonation")
         case .sharingPrivateInformation:
-            return "Sharing private information"
+            return L10n.text("report_reason_sharing_private_information", fallback: "Sharing private information")
         case .other:
-            return "Other"
+            return L10n.text("report_reason_other", fallback: "Other")
         }
     }
 }

@@ -241,7 +241,7 @@ extension ContactsViewController {
         YesNoPresenter().present(
             in: self,
             title: nil,
-            message: "Do you really want to delete invite to groupchat \(jid)",
+            message: L10n.format("contacts__invitation__do_you_really_want_to_delete_invite_to_groupchat", fallback: "Do you really want to delete invite to groupchat %@", arguments: [String(describing: jid)]),
             yesText: "Delete".localizeString(id: "delete", arguments: []),
             dangerYes: true,
             noText: "Cancel".localizeString(id: "cancel", arguments: []),

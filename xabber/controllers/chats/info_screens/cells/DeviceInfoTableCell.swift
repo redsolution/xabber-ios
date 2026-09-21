@@ -128,38 +128,23 @@ class DeviceInfoTableCell: UITableViewCell {
         resetConfigurationState()
 
         if trustedBy == "manual" {
-            descriptionLabel.text = "\(ip) ⦁ trusted by \(trustedBy!)"
+            descriptionLabel.text = L10n.format(
+                "device_info__text__trusted_manually",
+                fallback: "%@ ⦁ trusted manually",
+                arguments: [String(describing: ip)]
+            )
         } else if trustedBy != nil {
-            descriptionLabel.text = "\(ip) ⦁ trusted via \(trustedBy!)"
+            descriptionLabel.text = L10n.format("device_info__text__value_trusted_via_value", fallback: "%1$@ ⦁ trusted via %2$@", arguments: [String(describing: ip), String(describing: trustedBy!)])
         } else if date != nil {
-            let today = Date()
-            
-            var dateString = "Unknown"
-            
-            let diffComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date!, to: today)
-            let year = diffComponents.year ?? 0
-            let month = diffComponents.month ?? 0
-            let day = diffComponents.day ?? 0
-            let hour = diffComponents.hour ?? 0
-            let minutes = diffComponents.minute ?? 0
-            let seconds = diffComponents.second ?? 0
-            if year > 0 {
-                dateString = "\(year) year ago"
-            } else if month > 0 {
-                dateString = "\(month) month ago"
-            } else if day > 0 {
-                dateString = "\(day) days ago"
-            } else if hour > 0 {
-                dateString = "\(hour) hours ago"
-            } else if minutes > 0 {
-                dateString = "\(minutes) min ago"
-            } else if seconds > 0 {
-                dateString = "\(seconds) seconds ago"
-            }
-            
-            descriptionLabel.text = "\(ip) ⦁ \(dateString)"
+            let formatter = L10n.formatters.relativeDateTimeFormatter()
+            let dateString = formatter.localizedString(for: date!, relativeTo: Date())
+            descriptionLabel.text = L10n.format(
+                "device_info__text__last_authenticated_format",
+                fallback: "%1$@ ⦁ %2$@",
+                arguments: [String(describing: ip), String(describing: dateString)]
+            )
         } else if trustState == .trusted {
-            descriptionLabel.text = "\(ip) ⦁ trusted by code"
+            descriptionLabel.text = L10n.format("device_info__text__value_trusted_by_code", fallback: "%@ ⦁ trusted by code", arguments: [String(describing: ip)])
         } else {
             descriptionLabel.text = "\(ip)"
         }
@@ -190,7 +175,7 @@ class DeviceInfoTableCell: UITableViewCell {
                 case .unknown, .distrusted:
                     self.trustIconView.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate)
                     self.trustIconView.tintColor = .systemOrange
-                    self.authDateLabel.text = "Action required"
+                    self.authDateLabel.text = L10n.text("device__cell__action_required", fallback: "Action required")
                     self.authDateLabel.textColor = .systemOrange
                 case .ignore:
                     self.trustIconView.tintColor = .gray
@@ -201,13 +186,13 @@ class DeviceInfoTableCell: UITableViewCell {
                         self.trustIconView.image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
                     }
                     
-                    self.authDateLabel.text = isTrustebByCertificate ? " Signed" : " Trusted"
+                    self.authDateLabel.text = isTrustebByCertificate ? L10n.text("device_info__text__signed", fallback: " Signed") : L10n.text("device_info__text__trusted", fallback: " Trusted")
                     self.authDateLabel.textColor = .systemGreen
                     self.trustIconView.tintColor = .systemGreen
                 case .fingerprintChanged, .revoked:
                     self.trustIconView.image = UIImage(systemName: "exclamationmark.triangle.fill")?.withRenderingMode(.alwaysTemplate)
                     self.trustIconView.tintColor = .systemRed
-                    self.authDateLabel.text = "Fingerprint changed"
+                    self.authDateLabel.text = L10n.text("device__cell__fingerprint_changed", fallback: "Fingerprint changed")
                     self.authDateLabel.textColor = .systemRed
                 
                     self.descriptionLabel.textColor = .systemRed
@@ -219,7 +204,7 @@ class DeviceInfoTableCell: UITableViewCell {
                 self.trustIconView.isHidden = false
                 self.trustIconView.image = nil//UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
                 self.trustIconView.tintColor = .systemGray
-                self.authDateLabel.text = "Encryption not enabled"
+                self.authDateLabel.text = L10n.text("device__cell__encryption_not_enabled", fallback: "Encryption not enabled")
                 self.authDateLabel.textColor = .systemGray
             } else {
                 self.trustIconView.isHidden = true
@@ -274,7 +259,7 @@ class DeviceInfoTableCell: UITableViewCell {
     }
 
     private func updateAccessibilityLabel(client: String, device: String, current: Bool, editable: Bool, isOnline: Bool, trustState: SignalDeviceStorageItem.TrustState?, hasBundle: Bool?, isTrustebByCertificate: Bool) {
-        var parts: [String] = ["Device session"]
+        var parts: [String] = [L10n.text("device__accessibility__session", fallback: "Device session")]
         let title = device.isNotEmpty ? device : client
         if title.isNotEmpty {
             parts.append(title)
@@ -286,25 +271,25 @@ class DeviceInfoTableCell: UITableViewCell {
            details.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty {
             parts.append(details)
         }
-        parts.append(isOnline ? "Online" : "Offline")
+        parts.append(isOnline ? L10n.text("device__accessibility__online", fallback: "Online") : L10n.text("device__accessibility__offline", fallback: "Offline"))
         if current {
-            parts.append("This device")
+            parts.append(L10n.text("device__accessibility__this_device", fallback: "This device"))
         }
 
         switch trustState {
         case .unknown, .distrusted:
-            parts.append("Action required")
+            parts.append(L10n.text("device__accessibility__action_required", fallback: "Action required"))
         case .ignore:
-            parts.append("Ignored")
+            parts.append(L10n.text("device__accessibility__ignored", fallback: "Ignored"))
         case .trusted:
-            parts.append(isTrustebByCertificate ? "Signed" : "Trusted")
+            parts.append(isTrustebByCertificate ? L10n.text("device__accessibility__signed", fallback: "Signed") : L10n.text("device__accessibility__trusted", fallback: "Trusted"))
         case .fingerprintChanged:
-            parts.append("Fingerprint changed")
+            parts.append(L10n.text("device__accessibility__fingerprint_changed", fallback: "Fingerprint changed"))
         case .revoked:
-            parts.append("Revoked")
+            parts.append(L10n.text("device__accessibility__revoked", fallback: "Revoked"))
         case nil:
             if hasBundle == false {
-                parts.append("Encryption not enabled")
+                parts.append(L10n.text("device__accessibility__encryption_not_enabled", fallback: "Encryption not enabled"))
             }
         }
 

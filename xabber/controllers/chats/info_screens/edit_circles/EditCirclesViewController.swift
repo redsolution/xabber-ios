@@ -258,7 +258,7 @@ class EditCirclesViewController: SimpleBaseViewController {
     
     override func configure() {
         super.configure()
-        self.title = "Edit circles"
+        self.title = L10n.text("circles__editor__edit_circles", fallback: "Edit circles")
         self.tableView.delegate = self
         self.tableView.dataSource = self
         self.tableView.setEditing(true, animated: false)
@@ -345,7 +345,7 @@ extension EditCirclesViewController: UITableViewDataSource {
                     fatalError()
                 }
                 
-                cell.configure("Add new circle", value: nil, key: "new_group")
+                cell.configure(L10n.text("circles__placeholder__add_new_circle", fallback: "Add new circle"), value: nil, key: "new_group")
                 cell.callback = onAddNewGroup
                 cell.configureField { field in
                     field.delegate = self

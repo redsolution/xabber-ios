@@ -191,11 +191,11 @@ enum AccountAuthenticationSafetyDisposition: Equatable {
     var userMessage: String {
         switch self {
         case .reauthenticationRequired:
-            return "Sign in again to restore account access. Your local data was kept."
+            return L10n.text("xmppauthentication_failure__user_message__sign_in_again_to_restore_account_access_your_local_data_was_kept", fallback: "Sign in again to restore account access. Your local data was kept.")
         case .retryableFailure:
-            return "Authentication failed. Please try again."
+            return L10n.text("xmppauthentication_failure__user_message__authentication_failed_please_try_again", fallback: "Authentication failed. Please try again.")
         case .authoritativeRevocation:
-            return "Device was revoked"
+            return L10n.text("xmppauthentication_failure__user_message__device_was_revoked", fallback: "Device was revoked")
         }
     }
 }
@@ -378,13 +378,24 @@ struct XMPPAuthenticationFailureResolution: Equatable {
         }
     }
 
-    private static let incorrectPasswordMessage = "Incorrect username or password"
-    private static let genericAuthenticationFailureMessage = "Authentication failed"
+    private static var incorrectPasswordMessage: String {
+        L10n.text(
+            "account__status__incorrect_credentials",
+            fallback: "Incorrect username or password"
+        )
+    }
+
+    private static var genericAuthenticationFailureMessage: String {
+        L10n.text(
+            "connection__error__text_authentication_failed_short",
+            fallback: "Authentication failed"
+        )
+    }
 
     private static func revokedDeviceMessage(from serverText: String?) -> String {
         guard let serverText = serverText,
               serverText != "Device access revoked" else {
-            return "Device was revoked"
+            return L10n.text("xmppauthentication_failure__user_message__device_was_revoked", fallback: "Device was revoked")
         }
         return serverText
     }

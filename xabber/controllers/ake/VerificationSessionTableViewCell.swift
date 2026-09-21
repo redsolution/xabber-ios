@@ -67,8 +67,8 @@ class VerificationSessionTableViewCell: UITableViewCell {
         button.contentHorizontalAlignment = .right
         button.contentVerticalAlignment = .top
         button.accessibilityIdentifier = "verification_session_close_button"
-        button.accessibilityLabel = "Close verification"
-        button.accessibilityHint = "Dismisses this verification request."
+        button.accessibilityLabel = L10n.text("device_verification__session__close_verification", fallback: "Close verification")
+        button.accessibilityHint = L10n.text("device_verification__session__dismisses_this_verification_request", fallback: "Dismisses this verification request.")
         
         return button
     }()
@@ -78,7 +78,7 @@ class VerificationSessionTableViewCell: UITableViewCell {
         var configuration = UIButton.Configuration.filled()
         configuration.baseBackgroundColor = .systemBlue
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
-        button.setTitle("Verify", for: .normal)
+        button.setTitle(L10n.text("action_verify", fallback: "VERIFY"), for: .normal)
         button.setTitleColor(.white, for: .normal)
         button.configuration = configuration
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -87,8 +87,8 @@ class VerificationSessionTableViewCell: UITableViewCell {
         button.titleLabel?.numberOfLines = 0
         button.titleLabel?.lineBreakMode = .byWordWrapping
         button.accessibilityIdentifier = "verification_session_verify_button"
-        button.accessibilityLabel = "Verify"
-        button.accessibilityHint = "Starts or continues device verification."
+        button.accessibilityLabel = L10n.text("action_verify", fallback: "VERIFY")
+        button.accessibilityHint = L10n.text("device_verification__session__starts_or_continues_device_verification", fallback: "Starts or continues device verification.")
         
         return button
     }()
@@ -136,7 +136,7 @@ class VerificationSessionTableViewCell: UITableViewCell {
         }
         blueButtonLeadingConstraint?.isActive = true
         blueButton.accessibilityLabel = accessibilityLabel ?? title
-        blueButton.accessibilityHint = accessibilityHint ?? "Starts or continues device verification."
+        blueButton.accessibilityHint = accessibilityHint ?? L10n.text("device_verification__session__starts_or_continues_device_verification", fallback: "Starts or continues device verification.")
     }
 
     func setCloseButtonVisible(_ isVisible: Bool) {

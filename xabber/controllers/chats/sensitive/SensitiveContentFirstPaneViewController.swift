@@ -102,7 +102,7 @@ class SensitiveContentFirstPaneViewController: SimpleBaseViewController {
         cancelButtonConf.buttonSize = .large
         cancelButtonConf.titleAlignment = .center
         var helpConfiguration = UIButton.Configuration.plain()
-        helpConfiguration.title = "Ways to Get Help"
+        helpConfiguration.title = L10n.text("sensitive_content__help__ways_to_get_help", fallback: "Ways to Get Help")
         helpConfiguration.buttonSize = .large
         helpConfiguration.titleAlignment = .center
         var continueConfiguration = UIButton.Configuration.plain()
@@ -186,7 +186,7 @@ class SensitiveContentFirstPaneViewController: SimpleBaseViewController {
         cancelButtonConf.buttonSize = .large
         cancelButtonConf.titleAlignment = .center
         var helpConfiguration = UIButton.Configuration.plain()
-        helpConfiguration.title = "Message someone"
+        helpConfiguration.title = L10n.text("sensitive_content__help__message_someone", fallback: "Message someone")
         helpConfiguration.buttonSize = .large
         helpConfiguration.titleAlignment = .center
         var continueConfiguration = UIButton.Configuration.plain()

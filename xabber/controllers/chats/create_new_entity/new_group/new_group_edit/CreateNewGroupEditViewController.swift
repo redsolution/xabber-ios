@@ -77,7 +77,7 @@ class CreateNewGroupEditViewController: BaseViewController {
         tableView.delegate = self
         tableView.dataSource = self
         if values.first(where: { $0["type"] == "custom" }) != nil {
-            navigationItem.setRightBarButton(UIBarButtonItem(title: "Save",
+            navigationItem.setRightBarButton(UIBarButtonItem(title: L10n.text("common__action__save", fallback: "Save"),
                                                              style: .done,
                                                              target: self,
                                                              action: #selector(done)),

@@ -9,6 +9,36 @@
 import Foundation
 import UIKit
 
+private enum DateTimePickerDurationLocalization {
+    static func summary(day: Int, hour: Int, minute: Int) -> String {
+        if day > 0 {
+            return L10n.plural(
+                "date_time_picker__duration__days_count",
+                count: day,
+                fallback: "%lld days"
+            )
+        }
+        if hour > 0 {
+            return L10n.plural(
+                "date_time_picker__duration__hours_count",
+                count: hour,
+                fallback: "%lld hours"
+            )
+        }
+        if minute > 0 {
+            return L10n.plural(
+                "date_time_picker__duration__minutes_count",
+                count: minute,
+                fallback: "%lld minutes"
+            )
+        }
+        return L10n.text(
+            "date_time_picker__duration__less_than_minute",
+            fallback: "Less than a minute"
+        )
+    }
+}
+
 
 protocol DateTimePickerTextFieldDelegate {
     func dateTimePickerTextField(_ sender: DateTimePickerTextField, didSet date: Date, key: String)
@@ -49,7 +79,7 @@ class DateTimePickerTextField: UITextField {
         self.withPlaceholder = withPlaceholder
         self.textColor = .tintColor
         if self.withPlaceholder {
-            self.placeholder = "Select date"
+            self.placeholder = L10n.text("date_time_picker__field__select_date", fallback: "Select date")
         } else {
             self.placeholder = nil
         }
@@ -72,7 +102,7 @@ class DateTimePickerTextField: UITextField {
         let toolbar = UIToolbar()
         toolbar.sizeToFit()
         
-        let doneButton = UIBarButtonItem(title: "Select", style: .done, target: self, action: #selector(donePressed))
+        let doneButton = UIBarButtonItem(title: L10n.text("common__action__select", fallback: "Select"), style: .done, target: self, action: #selector(donePressed))
         let flexibleSpace = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
         
         toolbar.setItems([flexibleSpace, doneButton], animated: true)
@@ -99,13 +129,13 @@ class DateTimePickerTextField: UITextField {
     public func updateTextField(with date: Date?, isForever: Bool) {
         
         if self.withPlaceholder {
-            self.placeholder = "Select date"
+            self.placeholder = L10n.text("date_time_picker__field__select_date", fallback: "Select date")
         } else {
             self.placeholder = nil
         }
         
         if isForever {
-            self.text = "Forever"
+            self.text = L10n.text("date_time_picker__field__forever", fallback: "Forever")
             return
         }
         guard let date = date else {
@@ -126,19 +156,11 @@ class DateTimePickerTextField: UITextField {
             return
         }
         
-        var customString = ""
-        
-        if day > 0 {
-            customString = "\(day) \(day == 1 ? "Day" : "days")"
-        } else if hour > 0 {
-            customString = "\(hour) \(hour == 1 ? "Hour" : "Hours")"
-        } else if minute > 0 {
-            customString = "\(minute) \(minute == 1 ? "Minute" : "Minutes")"
-        } else {
-            customString = "Less than a minute"
-        }
-        
-        self.text = customString
+        self.text = DateTimePickerDurationLocalization.summary(
+            day: day,
+            hour: hour,
+            minute: minute
+        )
     }
 }
 
@@ -188,7 +210,7 @@ class DatePeriodPickerTextField: UITextField {
         self.withPlaceholder = withPlaceholder
         self.textColor = .tintColor
         if self.withPlaceholder {
-            self.placeholder = "Select period"
+            self.placeholder = L10n.text("date_time_picker__field__select_period", fallback: "Select period")
         } else {
             self.placeholder = nil
         }
@@ -211,7 +233,7 @@ class DatePeriodPickerTextField: UITextField {
         let toolbar = UIToolbar()
         toolbar.sizeToFit()
         
-        let doneButton = UIBarButtonItem(title: "Select", style: .done, target: self, action: #selector(donePressed))
+        let doneButton = UIBarButtonItem(title: L10n.text("common__action__select", fallback: "Select"), style: .done, target: self, action: #selector(donePressed))
         let flexibleSpace = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
         
         toolbar.setItems([flexibleSpace, doneButton], animated: true)
@@ -238,13 +260,13 @@ class DatePeriodPickerTextField: UITextField {
     public func updateTextField(with date: Date?, isForever: Bool) {
         
         if self.withPlaceholder {
-            self.placeholder = "Select date"
+            self.placeholder = L10n.text("date_time_picker__field__select_date", fallback: "Select date")
         } else {
             self.placeholder = nil
         }
         
         if isForever {
-            self.text = "Forever"
+            self.text = L10n.text("date_time_picker__field__forever", fallback: "Forever")
             return
         }
         guard let date = date else {
@@ -265,19 +287,11 @@ class DatePeriodPickerTextField: UITextField {
             return
         }
         
-        var customString = ""
-        
-        if day > 0 {
-            customString = "\(day) \(day == 1 ? "Day" : "days")"
-        } else if hour > 0 {
-            customString = "\(hour) \(hour == 1 ? "Hour" : "Hours")"
-        } else if minute > 0 {
-            customString = "\(minute) \(minute == 1 ? "Minute" : "Minutes")"
-        } else {
-            customString = "Less than a minute"
-        }
-        
-        self.text = customString
+        self.text = DateTimePickerDurationLocalization.summary(
+            day: day,
+            hour: hour,
+            minute: minute
+        )
     }
 }
 
@@ -370,7 +384,7 @@ class DateTimePickerPresenter {
             alert?.addAction(cancelUIAction)
         }
         
-        let okAction = UIAlertAction(title: "Confirm", style: .default) { action in
+        let okAction = UIAlertAction(title: L10n.text("common__action__confirm", fallback: "Confirm"), style: .default) { action in
             self.delegate?.timePickerAlertControllerDidSet(key: self.key, days: self.alert?.selectedDays, hours: self.alert?.selectedHours, minutes: self.alert?.selectedMins)
             self.alert?.dismiss(animated: false)
         }

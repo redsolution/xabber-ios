@@ -54,10 +54,10 @@ extension CloudStorageDeleteViewController: UICollectionViewDelegateFlowLayout {
         if indexPath.section == datasource.count {
             ActionSheetPresenter()
                 .present(in: self,
-                         title: "Delete files",
-                         message: "Please confirm deleting files from a cloud storage. This action can not be undone.",
-                         cancel: "Cancel",
-                         values: [ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete")],
+                         title: L10n.text("account_delete_files_message", fallback: "Delete files"),
+                         message: L10n.text("cloud_storage__cleanup__delete_files_confirmation", fallback: "Please confirm deleting files from Cloud Storage. This action cannot be undone."),
+                         cancel: L10n.text("common__action__cancel", fallback: "Cancel"),
+                         values: [ActionSheetPresenter.Item(destructive: true, title: L10n.text("common__action__delete", fallback: "Delete"), value: "delete")],
                          animated: true) { _ in
                     self.performDeletion()
                 }

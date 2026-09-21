@@ -92,7 +92,7 @@ class SignUpSelectPasswordViewController: SignUpBaseViewController {
     override func localizeResources() {
         super.localizeResources()
         titleLabel.text = "Shiny! Time to pick a secure password for your account.".localizeString(id: "xmpp_login__registration_title_password", arguments: [])
-        setupPlaceholder("password")
+        setupPlaceholder(L10n.text("settings_security__field__password", fallback: "password"))
         subtitleLabel.text = "Using a strong password is vital for your safety. We recommend you use unique passwords and password manager apps to keep track of them.".localizeString(id: "xmpp_login__registration_description_password", arguments: [])
         button.setTitle("Next".localizeString(id: "xaccount_next", arguments: []), for: .normal)
         button.setTitle("Next".localizeString(id: "xaccount_next", arguments: []), for: .disabled)

@@ -38,7 +38,7 @@ class PasscodeViewController: UIViewController, PasscodeViewControllerDelegate {
     var mismatch: Bool = false {
         didSet {
             if mismatch {
-                showError("Passcodes did not match. Try again.")
+                showError(L10n.text("passcode__presentation_call__passcodes_did_not_match_try_again", fallback: "Passcodes did not match. Try again."))
             }
         }
     }
@@ -141,24 +141,24 @@ class PasscodeViewController: UIViewController, PasscodeViewControllerDelegate {
     private var titleText: String {
         switch mode {
         case .createNew, .confirmNew:
-            return "Passcode Lock"
+            return L10n.text("settings__title__passcode_lock", fallback: "Passcode Lock")
         case .verifyCurrent(.change):
-            return "Change Passcode"
+            return L10n.text("settings__title__change_passcode", fallback: "Change Passcode")
         case .verifyCurrent(.remove):
-            return "Turn Passcode Off"
+            return L10n.text("settings__title__turn_passcode_off", fallback: "Turn Passcode Off")
         }
     }
 
     private var captionText: String {
         switch mode {
         case .createNew:
-            return "Create a passcode to protect your data"
+            return L10n.text("settings__passcode__create_prompt", fallback: "Create a passcode to protect your data")
         case .confirmNew:
-            return "Confirm your new passcode"
+            return L10n.text("settings__passcode__confirm_prompt", fallback: "Confirm your new passcode")
         case .verifyCurrent(.change):
-            return "Enter your current passcode to change it"
+            return L10n.text("settings__passcode__enter_current_to_change", fallback: "Enter your current passcode to change it")
         case .verifyCurrent(.remove):
-            return "Enter your current passcode to turn Passcode Lock off"
+            return L10n.text("settings__passcode__enter_current_to_disable", fallback: "Enter your current passcode to turn Passcode Lock off")
         }
     }
 
@@ -183,7 +183,7 @@ class PasscodeViewController: UIViewController, PasscodeViewControllerDelegate {
 
         case .verifyCurrent(let action):
             guard CredentialsManager.shared.validatePincode(code) else {
-                showError("Incorrect passcode. Try again.")
+                showError(L10n.text("passcode__presentation_call__incorrect_passcode_try_again", fallback: "Incorrect passcode. Try again."))
                 return
             }
             handleVerifiedCurrentPasscode(action)

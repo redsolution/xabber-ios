@@ -169,7 +169,7 @@ class MessageSigningInfoViewController: SimpleBaseViewController {
     }()
     
     internal let skipButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(title: "Skip", style: .plain, target: nil, action: nil)
+        let button = UIBarButtonItem(title: L10n.text("message_signing__title__skip", fallback: "Skip"), style: .plain, target: nil, action: nil)
         
         return button
     }()
@@ -205,7 +205,7 @@ class MessageSigningInfoViewController: SimpleBaseViewController {
 //            }
             if let commonName = message.errorMetadata?["certCommonName"] as? String {
                 certDatasource.append(Datasource(
-                    title: "Account",
+                    title: L10n.text("message_signing__title__account", fallback: "Account"),
                     subtitle: commonName,
                     kind: .lbael
                 ))
@@ -213,7 +213,7 @@ class MessageSigningInfoViewController: SimpleBaseViewController {
             
             if let value = message.errorMetadata?["certConfirmed"] as? Bool {
                 certDatasource.append(Datasource(
-                    title: "Certificate signed by \(CommonConfigManager.shared.config.app_name)",
+                    title: L10n.format("message_signing__certificate__signed_by_format", fallback: "Certificate signed by %@", arguments: [String(describing: CommonConfigManager.shared.config.app_name)]),
                     subtitle: "",
                     kind: .checkmark,
                     value: value
@@ -221,7 +221,7 @@ class MessageSigningInfoViewController: SimpleBaseViewController {
             }
             if let value = message.errorMetadata?["certValid"] as? Bool {
                 certDatasource.append(Datasource(
-                    title: "Certificate valid for user",
+                    title: L10n.text("message_signing__title__certificate_valid_for_user", fallback: "Certificate valid for user"),
                     subtitle: "",
                     kind: .checkmark,
                     value: value
@@ -229,7 +229,7 @@ class MessageSigningInfoViewController: SimpleBaseViewController {
             }
             if let value = message.errorMetadata?["signed"] as? Bool {
                 signatureDatasource.append(Datasource(
-                    title: "Message signed",
+                    title: L10n.text("message_signing__title__message_signed", fallback: "Message signed"),
                     subtitle: "",
                     kind: .checkmark,
                     value: value
@@ -237,7 +237,7 @@ class MessageSigningInfoViewController: SimpleBaseViewController {
             }
             if let value = message.errorMetadata?["signDecrypted"] as? Bool {
                 signatureDatasource.append(Datasource(
-                    title: "Signature decrypted",
+                    title: L10n.text("message_signing__title__signature_decrypted", fallback: "Signature decrypted"),
                     subtitle: "",
                     kind: .checkmark,
                     value: value
@@ -245,7 +245,7 @@ class MessageSigningInfoViewController: SimpleBaseViewController {
             }
             if let value = message.errorMetadata?["signValid"] as? Bool {
                 signatureDatasource.append(Datasource(
-                    title: "Signature valid",
+                    title: L10n.text("message_signing__title__signature_valid", fallback: "Signature valid"),
                     subtitle: "",
                     kind: .checkmark,
                     value: value
@@ -274,10 +274,10 @@ class MessageSigningInfoViewController: SimpleBaseViewController {
     
     override func configure() {
         super.configure()
-        self.title = "Signed message info"
+        self.title = L10n.text("message_signing__title__signed_message_info", fallback: "Signed message info")
         self.tableView.delegate = self
         self.tableView.dataSource = self
-        self.skipButton.title = "Cancel"
+        self.skipButton.title = L10n.text("common__action__cancel", fallback: "Cancel")
         
         self.navigationItem.setLeftBarButton(skipButton, animated: true)
         skipButton.target = self
@@ -338,11 +338,11 @@ extension MessageSigningInfoViewController: UITableViewDelegate {
                 YesNoPresenter().present(
                     in: self,
                     style: .actionSheet,
-                    title: "Do you trust this message?",
+                    title: L10n.text("message_signing__title__do_you_trust_this_message", fallback: "Do you trust this message?"),
                     message: "",
-                    yesText: "Confirm",
+                    yesText: L10n.text("common__action__confirm", fallback: "Confirm"),
                     dangerYes: false,
-                    noText: "Cancel",
+                    noText: L10n.text("common__action__cancel", fallback: "Cancel"),
                     animated: true) { value in
                         if value {
                             do {
@@ -470,8 +470,8 @@ extension MessageSigningInfoViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch section {
-        case 0: return "Certificate"
-        case 1: return "Signature"
+        case 0: return L10n.text("contact_fingerprints_view_controller_swift__table_section_title__certificate", fallback: "Certificate")
+        case 1: return L10n.text("contact_fingerprints_view_controller_swift__table_section_title__signature", fallback: "Signature")
         default: return nil
         }
     }

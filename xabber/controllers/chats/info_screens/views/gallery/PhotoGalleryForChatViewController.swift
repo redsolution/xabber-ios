@@ -210,7 +210,7 @@ class PhotoGalleryForChatViewController: BaseMediaGalleryForChatViewController {
 
     override func configure() {
         super.configure()
-        title = "Images"
+        title = L10n.text("images", fallback: "Images")
         kind = .image
         collectionView.prefetchDataSource = self
         collectionView.dataSource = self

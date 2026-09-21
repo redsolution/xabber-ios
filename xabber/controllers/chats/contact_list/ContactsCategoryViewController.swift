@@ -381,7 +381,7 @@ extension ContactsCategoryViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         if section == 3 {
-            return "Circles"
+            return L10n.text("contact_circle", fallback: "Circles")
         }
         return nil
     }

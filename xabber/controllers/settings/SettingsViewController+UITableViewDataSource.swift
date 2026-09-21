@@ -74,19 +74,19 @@ extension SettingsViewController: UITableViewDataSource {
 
                 switch instance?.state {
                 case .receivedRequest:
-                    cell.blueButton.setTitle("Proceed to Verification", for: .normal)
+                    cell.blueButton.setTitle(L10n.text("settings__action__proceed_to_verification", fallback: "Proceed to Verification"), for: .normal)
                     cell.blueButton.addTarget(self, action: #selector(onAcceptButtonPressed), for: .touchUpInside)
                     cell.labelsStack.addArrangedSubview(cell.blueButton)
                     cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
                     break
                 case .acceptedRequest:
-                    cell.blueButton.setTitle("Show the code", for: .normal)
+                    cell.blueButton.setTitle(L10n.text("settings__action__show_the_code", fallback: "Show the code"), for: .normal)
                     cell.blueButton.addTarget(self, action: #selector(onShowCodePressed), for: .touchUpInside)
                     cell.labelsStack.addArrangedSubview(cell.blueButton)
                     cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
                     break
                 case .receivedRequestAccept:
-                    cell.blueButton.setTitle("Enter the code", for: .normal)
+                    cell.blueButton.setTitle(L10n.text("settings__action__enter_the_code", fallback: "Enter the code"), for: .normal)
                     cell.blueButton.addTarget(self, action: #selector(onEnterCodePressed), for: .touchUpInside)
                     cell.labelsStack.addArrangedSubview(cell.blueButton)
                     cell.blueButton.leftAnchor.constraint(equalTo: cell.labelsStack.leftAnchor).isActive = true
@@ -181,7 +181,7 @@ extension SettingsViewController: UITableViewDataSource {
                     cell.textLabel?.text = item.title
                     switch SubscribtionsManager.shared.getState(account: self.jid) {
                         case .active:
-                            cell.detailTextLabel?.text = "Premium"
+                            cell.detailTextLabel?.text = L10n.text("settings__passcode__premium_required_status", fallback: "Premium")
                         case .expired:
                             cell.detailTextLabel?.text = "Expired"
                         case .trial:
@@ -204,17 +204,17 @@ extension SettingsViewController: UITableViewDataSource {
                     cell.textLabel?.text = item.title
                     switch PasscodeLockPolicy.accessForCurrentState(jid: self.jid) {
                     case .available:
-                        cell.detailTextLabel?.text = CredentialsManager.shared.isPincodeSetted() ? "On" : "Off"
+                        cell.detailTextLabel?.text = CredentialsManager.shared.isPincodeSetted() ? L10n.text("floating_bottom_bar_view__accessibility_value__on", fallback: "On") : L10n.text("floating_bottom_bar_view__accessibility_value__off", fallback: "Off")
                         cell.textLabel?.textColor = .label
                         cell.detailTextLabel?.textColor = .secondaryLabel
                         cell.isUserInteractionEnabled = true
                     case .premiumRequired:
-                        cell.detailTextLabel?.text = "Premium"
+                        cell.detailTextLabel?.text = L10n.text("settings__passcode__premium_required_status", fallback: "Premium")
                         cell.textLabel?.textColor = .label
                         cell.detailTextLabel?.textColor = .systemOrange
                         cell.isUserInteractionEnabled = true
                     case .disabledByConfig:
-                        cell.detailTextLabel?.text = "Unavailable"
+                        cell.detailTextLabel?.text = L10n.text("settings__content__unavailable", fallback: "Unavailable")
                         cell.textLabel?.textColor = .secondaryLabel
                         cell.detailTextLabel?.textColor = .secondaryLabel
                         cell.isUserInteractionEnabled = false

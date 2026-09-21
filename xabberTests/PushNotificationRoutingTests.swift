@@ -102,9 +102,43 @@ final class PushNotificationRoutingTests: XCTestCase {
             """
         )
 
-        XCTAssertEqual(preview.body, "file: report.pdf, 3kB")
+        let expectedSize = L10n.formatters
+            .byteCountFormatter(countStyle: .file)
+            .string(fromByteCount: 3_072)
+        XCTAssertEqual(preview.body, "file: report.pdf, \(expectedSize)")
         XCTAssertEqual(preview.mediaItems.first?.kind, .file)
         XCTAssertEqual(preview.mediaItems.first?.filename, "report.pdf")
+    }
+
+    func testGenericFileWithoutNameUsesLocalizedFallbackAndByteFormatter() throws {
+        let russian = localizationService(language: .russian)
+        let expectedSize = russian.formatters
+            .byteCountFormatter(countStyle: .file)
+            .string(fromByteCount: 3_072)
+        let item = PushNotificationMediaItem(
+            kind: .file,
+            filename: "  \n",
+            mediaType: "application/octet-stream",
+            size: 3_072,
+            duration: nil,
+            url: nil,
+            thumbnailURL: nil
+        )
+
+        XCTAssertEqual(
+            PushNotificationMediaFormatter.fallbackText(
+                for: [item],
+                localizer: russian
+            ),
+            "файл: файл, \(expectedSize)"
+        )
+        XCTAssertEqual(
+            PushNotificationMediaFormatter.formatSize(
+                3_072,
+                formatterFactory: russian.formatters
+            ),
+            expectedSize
+        )
     }
 
     func testVoiceMessageParsesDurationFallback() throws {
@@ -1281,6 +1315,22 @@ final class PushNotificationRoutingTests: XCTestCase {
 
     private func parseArchivedMessage(_ messageXML: String) throws -> PushNotificationPreview {
         try XCTUnwrap(parseOptionalArchivedMessage(messageXML))
+    }
+
+    private func localizationService(
+        language: SupportedLanguage
+    ) -> LocalizationService {
+        let provider = LprojBundleProvider(resourceBundle: .main)
+        let context = LanguageResolver.makeContext(
+            selection: .fixed(language),
+            preferredLanguages: [language.rawValue],
+            baseLocale: Locale(identifier: "en_US"),
+            calendar: Calendar(identifier: .gregorian),
+            timeZone: TimeZone(secondsFromGMT: 0)!,
+            bundleProvider: provider,
+            revision: 1
+        )
+        return LocalizationService(context: context)
     }
 
     private func makeExactPendingChatRoute(

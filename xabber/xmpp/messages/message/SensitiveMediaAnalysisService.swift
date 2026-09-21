@@ -49,21 +49,21 @@ enum SensitiveMediaAnalysisError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unavailable:
-            return "SensitiveContentAnalysis is unavailable."
+            return L10n.text("sensitive_media_analysis__localized_error_description__sensitivecontentanalysis_is_unavailable", fallback: "SensitiveContentAnalysis is unavailable.")
         case .disabled:
-            return "SensitiveContentAnalysis policy is disabled."
+            return L10n.text("sensitive_media_analysis__localized_error_description__sensitivecontentanalysis_policy_is_disabled", fallback: "SensitiveContentAnalysis policy is disabled.")
         case .unsupportedMedia:
-            return "Unsupported media type for SensitiveContentAnalysis."
+            return L10n.text("sensitive_media_analysis__localized_error_description__unsupported_media_type_for_sensitivecontentanalysis", fallback: "Unsupported media type for SensitiveContentAnalysis.")
         case .missingMediaURL:
-            return "Missing media URL for SensitiveContentAnalysis."
+            return L10n.text("sensitive_media_analysis__localized_error_description__missing_media_url_for_sensitivecontentanalysis", fallback: "Missing media URL for SensitiveContentAnalysis.")
         case .encryptedRemoteVideoRequiresLocalFile:
-            return "Encrypted remote video requires a local decrypted file before analysis."
+            return L10n.text("sensitive_media_analysis__localized_error_description__encrypted_remote_video_requires_a_local_decrypted_file_before_analysis", fallback: "Encrypted remote video requires a local decrypted file before analysis.")
         case .imageDecodeFailed:
-            return "Image could not be decoded for SensitiveContentAnalysis."
+            return L10n.text("sensitive_media_analysis__localized_error_description__image_could_not_be_decoded_for_sensitivecontentanalysis", fallback: "Image could not be decoded for SensitiveContentAnalysis.")
         case .emptyAnalysisResult:
-            return "SensitiveContentAnalysis returned no result."
+            return L10n.text("sensitive_media_analysis__localized_error_description__sensitivecontentanalysis_returned_no_result", fallback: "SensitiveContentAnalysis returned no result.")
         case .unsupportedRemoteURL:
-            return "Unsupported remote media URL for SensitiveContentAnalysis."
+            return L10n.text("sensitive_media_analysis__localized_error_description__unsupported_remote_media_url_for_sensitivecontentanalysis", fallback: "Unsupported remote media URL for SensitiveContentAnalysis.")
         }
     }
 }

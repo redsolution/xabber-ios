@@ -1,0 +1,1494 @@
+{
+  "exclusions": [
+    {
+      "path": "xabber-push-extension/NotificationService.swift",
+      "reason": "Internal enum raw value used for notification/message routing; not presented to the user.",
+      "sink": "message",
+      "value": "message"
+    },
+    {
+      "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
+      "reason": "System notification category identifier; stable routing token must not be localized.",
+      "sink": "message",
+      "value": "com.xabber.ios.message"
+    },
+    {
+      "path": "xabber/common/notify_manager/ShowedNotificationRequests.swift",
+      "reason": "Internal enum raw value used for notification/message routing; not presented to the user.",
+      "sink": "message",
+      "value": "message"
+    },
+    {
+      "path": "xabber/common/xabber_account/XabberAccountManager.swift",
+      "reason": "Codable JSON field name for a server response; wire-format key must not be localized.",
+      "sink": "message",
+      "value": "message"
+    },
+    {
+      "path": "xabber/controllers/avatar/AvatarPickerViewController.swift",
+      "reason": "Stable accessibility identifier; identifiers are intentionally not localized.",
+      "sink": "subtitle",
+      "value": "avatar.emoji.subtitle"
+    },
+    {
+      "path": "xabber/controllers/avatar/AvatarPickerViewController.swift",
+      "reason": "Stable accessibility identifier; identifiers are intentionally not localized.",
+      "sink": "title",
+      "value": "avatar.emoji.title"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture screen; excluded from the production user interface.",
+      "sink": "title",
+      "value": "Last Chats Search"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+CellDelegate.swift",
+      "reason": "Internal action value used to route an already localized action-sheet title; not user-visible copy.",
+      "sink": "uiActionItem",
+      "value": "delete"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+CellDelegate.swift",
+      "reason": "Internal action value used to route an already localized action-sheet title; not user-visible copy.",
+      "sink": "uiActionItem",
+      "value": "retry"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+AdditionalNavbarPanel.swift",
+      "reason": "Realm query predicate; database syntax and field names must not be localized.",
+      "sink": "message",
+      "value": "owner == %@ AND opponent == %@ AND archivedId == %@ AND conversationType_ == %@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "reason": "Contact metadata dictionary key; persisted/interchange schema token must not be localized.",
+      "sink": "title",
+      "value": "display_title"
+    },
+    {
+      "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController.swift",
+      "reason": "SF Symbols image identifier; stable technical token, not user-visible copy.",
+      "sink": "title",
+      "value": "bookmark"
+    },
+    {
+      "path": "xabber/models/account/extensions/AccountConnectBehaviorExtension.swift",
+      "reason": "XMPP XML child element name used to extract server-provided error text; the literal itself is not presented.",
+      "sink": "statusMessage",
+      "value": "text"
+    },
+    {
+      "path": "xabber/models/account/extensions/AccountConnectBehaviorExtension.swift",
+      "reason": "XMPP XML child element name used to extract server-provided error text; the literal itself is not presented.",
+      "sink": "userVisibleFailure",
+      "value": "text"
+    },
+    {
+      "path": "xabber/xmpp/XEP-SCHEDULE/XMPPMessageScheduleManager.swift",
+      "reason": "XMPP stanza element name; wire-format token must not be localized.",
+      "sink": "message",
+      "value": "message"
+    },
+    {
+      "path": "xabber/xmpp/abuse/XMPPAbuseManager.swift",
+      "reason": "Realm query predicate; database syntax and field names must not be localized.",
+      "sink": "message",
+      "value": "owner == %@ AND messageId == %@"
+    },
+    {
+      "path": "xabber/xmpp/chat_markers/ChatMarkers.swift",
+      "reason": "Generated XMPP stanza element ID prefix used for diagnostics/correlation; not presented to the user.",
+      "sink": "message",
+      "value": "ChatMarkers: %@"
+    },
+    {
+      "path": "xabber/xmpp/groupchat/protocol/GroupProtocolCodec.swift",
+      "reason": "XMPP group protocol element or attribute name; wire-format token must not be localized.",
+      "sink": "message",
+      "value": "pinned-message"
+    },
+    {
+      "path": "xabber/xmpp/groupchat/protocol/GroupProtocolCodec.swift",
+      "reason": "XMPP group protocol element name; wire-format token must not be localized.",
+      "sink": "reason",
+      "value": "reason"
+    },
+    {
+      "path": "xabber/xmpp/upload/cloud_storage/XabberUploadManager.swift",
+      "reason": "Cloud-storage JSON field name; wire-format key must not be localized.",
+      "sink": "quota",
+      "value": "quota"
+    }
+  ],
+  "migrations": [
+    {
+      "comment": "Activity feed fallback label when an attachment has no MIME type.",
+      "key": "chat__attachment__fallback_file",
+      "path": "xabber/controllers/activity/XabberActivityViewController.swift",
+      "sink": "message",
+      "translations": {
+        "ar": "ملف",
+        "en": "file",
+        "es": "archivo",
+        "fr": "fichier",
+        "ru": "файл",
+        "zh-Hans": "文件"
+      },
+      "value": "file"
+    },
+    {
+      "comment": "Share screen navigation title.",
+      "key": "common__action__share",
+      "path": "xabber/controllers/activity/XabberActivityViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "مشاركة",
+        "en": "Share",
+        "es": "Compartir",
+        "fr": "Partager",
+        "ru": "Поделиться",
+        "zh-Hans": "分享"
+      },
+      "value": "Share"
+    },
+    {
+      "comment": "Identity verification screen title; security-sensitive copy.",
+      "key": "contact_device__verification__manual_verification",
+      "path": "xabber/controllers/ake/ManualVerificationDeviceViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "التحقق اليدوي",
+        "en": "Manual verification",
+        "es": "Verificación manual",
+        "fr": "Vérification manuelle",
+        "ru": "Ручная проверка",
+        "zh-Hans": "手动验证"
+      },
+      "value": "Manual verification"
+    },
+    {
+      "comment": "Attachment picker entity subtitle; %@ is the entity JID.",
+      "key": "chat_attachment__entity__group_format",
+      "path": "xabber/controllers/chats/attachment_picker/ChatAttachmentFlowCoordinator.swift",
+      "sink": "secondaryText",
+      "translations": {
+        "ar": "مجموعة - %@",
+        "en": "Group - %@",
+        "es": "Grupo - %@",
+        "fr": "Groupe – %@",
+        "ru": "Группа — %@",
+        "zh-Hans": "群组 - %@"
+      },
+      "value": "Group - %@"
+    },
+    {
+      "comment": "Attachment picker entity subtitle; %@ is the entity JID.",
+      "key": "chat_attachment__entity__incognito_group_format",
+      "path": "xabber/controllers/chats/attachment_picker/ChatAttachmentFlowCoordinator.swift",
+      "sink": "secondaryText",
+      "translations": {
+        "ar": "مجموعة متخفية - %@",
+        "en": "Incognito group - %@",
+        "es": "Grupo de incógnito - %@",
+        "fr": "Groupe incognito – %@",
+        "ru": "Инкогнито-группа — %@",
+        "zh-Hans": "隐身群组 - %@"
+      },
+      "value": "Incognito group - %@"
+    },
+    {
+      "comment": "Invitation banner text shown inside a group conversation.",
+      "key": "groupchat__invitation__join_chat",
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Invitations.swift",
+      "sink": "message",
+      "translations": {
+        "ar": "تمت دعوتك للانضمام إلى هذه الدردشة",
+        "en": "You are invited to join this chat",
+        "es": "Te han invitado a unirte a este chat",
+        "fr": "Vous êtes invité à rejoindre cette discussion",
+        "ru": "Вас пригласили присоединиться к этому чату",
+        "zh-Hans": "你受邀加入此聊天"
+      },
+      "value": "You are invited to join this chat"
+    },
+    {
+      "comment": "Invitation banner text shown inside a group conversation.",
+      "key": "groupchat__invitation__join_group",
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Invitations.swift",
+      "sink": "message",
+      "translations": {
+        "ar": "تمت دعوتك للانضمام إلى هذه المجموعة",
+        "en": "You are invited to join this group",
+        "es": "Te han invitado a unirte a este grupo",
+        "fr": "Vous êtes invité à rejoindre ce groupe",
+        "ru": "Вас пригласили присоединиться к этой группе",
+        "zh-Hans": "你受邀加入此群组"
+      },
+      "value": "You are invited to join this group"
+    },
+    {
+      "comment": "Invitation banner text shown inside a group conversation.",
+      "key": "incognito_group_invitation",
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Invitations.swift",
+      "sink": "message",
+      "translations": {
+        "ar": "تمت دعوتك للانضمام إلى هذه المجموعة المتخفية",
+        "en": "You are invited to join this incognito group",
+        "es": "Te han invitado a unirte a este grupo de incógnito",
+        "fr": "Vous êtes invité à rejoindre ce groupe incognito",
+        "ru": "Вас пригласили присоединиться к этой инкогнито-группе",
+        "zh-Hans": "你受邀加入此隐身群组"
+      },
+      "value": "You are invited to join this incognito group"
+    },
+    {
+      "comment": "Shared-contact attachment subtitle describing the entity type.",
+      "key": "chat__contact_attachment__type_contact",
+      "path": "xabber/controllers/chats/chat/messages_kit/Protocols/MessageType.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "جهة اتصال",
+        "en": "Contact",
+        "es": "Contacto",
+        "fr": "Contact",
+        "ru": "Контакт",
+        "zh-Hans": "联系人"
+      },
+      "value": "Contact"
+    },
+    {
+      "comment": "Shared-contact attachment subtitle describing the entity type.",
+      "key": "chat__contact_attachment__type_group",
+      "path": "xabber/controllers/chats/chat/messages_kit/Protocols/MessageType.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "مجموعة",
+        "en": "Group",
+        "es": "Grupo",
+        "fr": "Groupe",
+        "ru": "Группа",
+        "zh-Hans": "群组"
+      },
+      "value": "Group"
+    },
+    {
+      "comment": "Shared-contact attachment subtitle describing the entity type.",
+      "key": "chat__contact_attachment__type_incognito_group",
+      "path": "xabber/controllers/chats/chat/messages_kit/Protocols/MessageType.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "مجموعة متخفية",
+        "en": "Incognito group",
+        "es": "Grupo de incógnito",
+        "fr": "Groupe incognito",
+        "ru": "Инкогнито-группа",
+        "zh-Hans": "隐身群组"
+      },
+      "value": "Incognito group"
+    },
+    {
+      "comment": "Contact subscription status shown in the Edit Contact screen.",
+      "key": "subscription_status_is_allowed",
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "الاشتراك مسموح",
+        "en": "Allowing subscription",
+        "es": "Suscripción permitida",
+        "fr": "Abonnement autorisé",
+        "ru": "Подписка разрешена",
+        "zh-Hans": "允许订阅"
+      },
+      "value": "Allowing subscription"
+    },
+    {
+      "comment": "Contact subscription status shown in the Edit Contact screen.",
+      "key": "subscription_status_in_request_incoming",
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "طلب اشتراك وارد",
+        "en": "Incoming subscription request",
+        "es": "Solicitud de suscripción entrante",
+        "fr": "Demande d’abonnement entrante",
+        "ru": "Входящий запрос подписки",
+        "zh-Hans": "收到订阅请求"
+      },
+      "value": "Incoming subscription request"
+    },
+    {
+      "comment": "Contact subscription status shown in the Edit Contact screen.",
+      "key": "subscription_status_in_not_allowed",
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "الاشتراك غير مسموح",
+        "en": "Not allowing subscription",
+        "es": "Suscripción no permitida",
+        "fr": "Abonnement non autorisé",
+        "ru": "Подписка не разрешена",
+        "zh-Hans": "不允许订阅"
+      },
+      "value": "Not allowing subscription"
+    },
+    {
+      "comment": "Contact subscription status shown in the Edit Contact screen.",
+      "key": "subscription_status_out_none",
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "غير مشترك",
+        "en": "Not subscribed",
+        "es": "Sin suscripción",
+        "fr": "Non abonné",
+        "ru": "Нет подписки",
+        "zh-Hans": "未订阅"
+      },
+      "value": "Not subscribed"
+    },
+    {
+      "comment": "Contact subscription status shown in the Edit Contact screen.",
+      "key": "subscription_status_out_to",
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "تلقي تحديثات التواجد",
+        "en": "Receiving presence updates",
+        "es": "Recibiendo actualizaciones de presencia",
+        "fr": "Réception des mises à jour de présence",
+        "ru": "Получать обновления статуса",
+        "zh-Hans": "接收在线状态更新"
+      },
+      "value": "Receiving presence updates"
+    },
+    {
+      "comment": "Contact subscription status shown in the Edit Contact screen.",
+      "fallback": "Requested subscription",
+      "key": "subscription_status_out_requested",
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "تم طلب الاشتراك",
+        "en": "Requested subscription",
+        "es": "Suscripción solicitada",
+        "fr": "Abonnement demandé",
+        "ru": "Запросить подписку",
+        "zh-Hans": "已请求订阅"
+      },
+      "value": "Reqiested subscription"
+    },
+    {
+      "comment": "Contact subscription status shown in the Edit Contact screen.",
+      "key": "subscription_status_out_requested",
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "تم طلب الاشتراك",
+        "en": "Requested subscription",
+        "es": "Suscripción solicitada",
+        "fr": "Abonnement demandé",
+        "ru": "Запросить подписку",
+        "zh-Hans": "已请求订阅"
+      },
+      "value": "Requested subscription"
+    },
+    {
+      "comment": "Contact subscription status shown in the Edit Contact screen.",
+      "key": "subscription_status_in_from",
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "إرسال تحديثات التواجد",
+        "en": "Sending presence updates",
+        "es": "Enviando actualizaciones de presencia",
+        "fr": "Envoi des mises à jour de présence",
+        "ru": "Отправлять обновления статуса",
+        "zh-Hans": "发送在线状态更新"
+      },
+      "value": "Sending presence updates"
+    },
+    {
+      "comment": "Group settings screen title or member-management action.",
+      "key": "group_settings__permissions__permissions_for_new_members",
+      "path": "xabber/controllers/chats/groupchats/groupchat_settings/managed/GroupchatSettingsNewbiesPermissionsViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "أذونات الأعضاء الجدد",
+        "en": "Permissions for new members",
+        "es": "Permisos para nuevos miembros",
+        "fr": "Autorisations des nouveaux membres",
+        "ru": "Разрешения для новых участников",
+        "zh-Hans": "新成员权限"
+      },
+      "value": "Permissions for new members"
+    },
+    {
+      "comment": "User-visible interface copy migrated from a hard-coded Swift literal.",
+      "key": "groupchat_member_permissions",
+      "path": "xabber/controllers/chats/groupchats/groupchat_settings/managed/GroupchatSettingsPermissionsViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "الأذونات",
+        "en": "Permissions",
+        "es": "Permisos",
+        "fr": "Autorisations",
+        "ru": "Разрешения",
+        "zh-Hans": "权限"
+      },
+      "value": "Permissions"
+    },
+    {
+      "comment": "Group settings screen title or member-management action.",
+      "key": "group_settings__members__promote_admin",
+      "path": "xabber/controllers/chats/groupchats/groupchat_settings/managed/GroupchatSettingsPromoteAdminViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "ترقية إلى مشرف",
+        "en": "Promote admin",
+        "es": "Promover a administrador",
+        "fr": "Promouvoir comme administrateur",
+        "ru": "Повысить до администратора",
+        "zh-Hans": "提升为管理员"
+      },
+      "value": "Promote admin"
+    },
+    {
+      "comment": "Group settings screen title or member-management action.",
+      "key": "group_settings__members__restrict_member",
+      "path": "xabber/controllers/chats/groupchats/groupchat_settings/managed/GroupchatSettingsPromoteAdminViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "تقييد العضو",
+        "en": "Restrict member",
+        "es": "Restringir miembro",
+        "fr": "Restreindre le membre",
+        "ru": "Ограничить участника",
+        "zh-Hans": "限制成员"
+      },
+      "value": "Restrict member"
+    },
+    {
+      "comment": "Group settings screen title or member-management action.",
+      "key": "group_settings__screen__administrators",
+      "path": "xabber/controllers/chats/groupchats/info/GroupchatMembersListViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "المشرفون",
+        "en": "Administrators",
+        "es": "Administradores",
+        "fr": "Administrateurs",
+        "ru": "Администраторы",
+        "zh-Hans": "管理员"
+      },
+      "value": "Administrators"
+    },
+    {
+      "comment": "Group settings screen title or member-management action.",
+      "key": "group_settings__members__select_user",
+      "path": "xabber/controllers/chats/groupchats/info/GroupchatMembersListViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "اختر مستخدمًا",
+        "en": "Select user",
+        "es": "Seleccionar usuario",
+        "fr": "Sélectionner un utilisateur",
+        "ru": "Выберите пользователя",
+        "zh-Hans": "选择用户"
+      },
+      "value": "Select user"
+    },
+    {
+      "comment": "Group invitation list navigation title.",
+      "key": "contacts__list__invites",
+      "path": "xabber/controllers/chats/groupchats/invited_list/GroupchatInviteListViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "الدعوات",
+        "en": "Invites",
+        "es": "Invitaciones",
+        "fr": "Invitations",
+        "ru": "Приглашения",
+        "zh-Hans": "邀请"
+      },
+      "value": "Invites"
+    },
+    {
+      "comment": "User-visible interface copy migrated from a hard-coded Swift literal.",
+      "key": "account_devices__action__delete_key",
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "حذف المفتاح",
+        "en": "Delete key",
+        "es": "Eliminar clave",
+        "fr": "Supprimer la clé",
+        "ru": "Удалить ключ",
+        "zh-Hans": "删除密钥"
+      },
+      "value": "Delete key"
+    },
+    {
+      "comment": "Cloud Storage screen label or empty-state copy; each %@ is a runtime category/count/size value.",
+      "fallback": "%@ · %@",
+      "key": "cloud_storage__category__count_and_size_format",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageShowFilesViewController.swift",
+      "sink": "detailText",
+      "translations": {
+        "ar": "%@ · %@",
+        "en": "%@ · %@",
+        "es": "%@ · %@",
+        "fr": "%@ · %@",
+        "ru": "%@ · %@",
+        "zh-Hans": "%@ · %@"
+      },
+      "value": "%@ \\u{00b7} %@"
+    },
+    {
+      "comment": "Cloud Storage screen label or empty-state copy.",
+      "key": "cloud_storage__category__account_avatars",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageViewController.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "صور الحساب الرمزية",
+        "en": "Account avatars",
+        "es": "Avatares de la cuenta",
+        "fr": "Avatars du compte",
+        "ru": "Аватары аккаунта",
+        "zh-Hans": "账户头像"
+      },
+      "value": "Account avatars"
+    },
+    {
+      "comment": "Cloud Storage screen label or empty-state copy.",
+      "key": "cloud_storage__category__call_recordings",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageViewController.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "تسجيلات المكالمات",
+        "en": "Call recordings",
+        "es": "Grabaciones de llamadas",
+        "fr": "Enregistrements d’appels",
+        "ru": "Записи звонков",
+        "zh-Hans": "通话录音"
+      },
+      "value": "Call recordings"
+    },
+    {
+      "comment": "Cloud Storage screen label or empty-state copy.",
+      "key": "cloud_storage__category__documents_and_files",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageViewController.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "المستندات والملفات",
+        "en": "Documents and files",
+        "es": "Documentos y archivos",
+        "fr": "Documents et fichiers",
+        "ru": "Документы и файлы",
+        "zh-Hans": "文档和文件"
+      },
+      "value": "Documents and files"
+    },
+    {
+      "comment": "Cloud Storage screen label or empty-state copy; each %@ is a runtime category/count/size value.",
+      "key": "cloud_storage__empty_state__no_category_items_format",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageViewController.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "لا توجد %@",
+        "en": "No %@",
+        "es": "No hay %@",
+        "fr": "Aucun %@",
+        "ru": "Нет %@",
+        "zh-Hans": "无%@"
+      },
+      "value": "No %@"
+    },
+    {
+      "comment": "Cloud Storage screen label or empty-state copy.",
+      "key": "cloud_storage__empty_state__no_call_recordings",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageViewController.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "لا توجد تسجيلات مكالمات",
+        "en": "No call recordings",
+        "es": "No hay grabaciones de llamadas",
+        "fr": "Aucun enregistrement d’appel",
+        "ru": "Нет записей звонков",
+        "zh-Hans": "没有通话录音"
+      },
+      "value": "No call recordings"
+    },
+    {
+      "comment": "User-visible interface copy migrated from a hard-coded Swift literal.",
+      "key": "chat_gallery__empty_state__no_voice_messages",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageViewController.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "لا توجد رسائل صوتية",
+        "en": "No voice messages",
+        "es": "No hay mensajes de voz",
+        "fr": "Aucun message vocal",
+        "ru": "Нет голосовых сообщений",
+        "zh-Hans": "没有语音消息"
+      },
+      "value": "No voice messages"
+    },
+    {
+      "comment": "Cloud Storage screen label or empty-state copy.",
+      "key": "cloud_storage__category__photos_description",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageViewController.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "الصور والرسومات",
+        "en": "Photos and pictures",
+        "es": "Fotos e imágenes",
+        "fr": "Photos et images",
+        "ru": "Фотографии и изображения",
+        "zh-Hans": "照片和图片"
+      },
+      "value": "Photos and pictures"
+    },
+    {
+      "comment": "Cloud Storage screen label or empty-state copy.",
+      "key": "cloud_storage__category__video_files_description",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageViewController.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "ملفات الفيديو",
+        "en": "Video files",
+        "es": "Archivos de vídeo",
+        "fr": "Fichiers vidéo",
+        "ru": "Видеофайлы",
+        "zh-Hans": "视频文件"
+      },
+      "value": "Video files"
+    },
+    {
+      "comment": "Cloud Storage screen label or empty-state copy.",
+      "key": "cloud_storage__cleanup__voice_messages",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageViewController.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "الرسائل الصوتية",
+        "en": "Voice messages",
+        "es": "Mensajes de voz",
+        "fr": "Messages vocaux",
+        "ru": "Голосовые сообщения",
+        "zh-Hans": "语音消息"
+      },
+      "value": "Voice messages"
+    },
+    {
+      "comment": "Identity verification screen title; security-sensitive copy.",
+      "key": "contact_device__verification__title",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "التحقق من الهوية",
+        "en": "Identity Verification",
+        "es": "Verificación de identidad",
+        "fr": "Vérification d’identité",
+        "ru": "Проверка личности",
+        "zh-Hans": "身份验证"
+      },
+      "value": "Identity Verification"
+    },
+    {
+      "comment": "Group moderation partial-failure message; %@ is the failed moderation stage.",
+      "key": "groupchat__moderation__partial_failure_format",
+      "path": "xabber/controllers/chats/info_screens/groupchat_contact_info/GroupchatContactInfoViewController.swift",
+      "sink": "message",
+      "translations": {
+        "ar": "اكتملت عملية الإشراف جزئيًا (%@)",
+        "en": "Moderation partially completed (%@)",
+        "es": "Moderación completada parcialmente (%@)",
+        "fr": "Modération partiellement terminée (%@)",
+        "ru": "Модерация выполнена частично (%@)",
+        "zh-Hans": "管理操作部分完成（%@）"
+      },
+      "value": "Moderation partially completed (%@)"
+    },
+    {
+      "comment": "Chat media gallery navigation title.",
+      "key": "files",
+      "path": "xabber/controllers/chats/info_screens/views/gallery/FilesGalleryForChatViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "الملفات",
+        "en": "Files",
+        "es": "Archivos",
+        "fr": "Fichiers",
+        "ru": "Файлы",
+        "zh-Hans": "文件"
+      },
+      "value": "Files"
+    },
+    {
+      "comment": "Chat media gallery navigation title.",
+      "key": "images",
+      "path": "xabber/controllers/chats/info_screens/views/gallery/PhotoGalleryForChatViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "الصور",
+        "en": "Images",
+        "es": "Imágenes",
+        "fr": "Images",
+        "ru": "Картинки",
+        "zh-Hans": "图片"
+      },
+      "value": "Images"
+    },
+    {
+      "comment": "Chat media gallery navigation title.",
+      "key": "videos",
+      "path": "xabber/controllers/chats/info_screens/views/gallery/VideoGalleryForChatViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "مقاطع الفيديو",
+        "en": "Videos",
+        "es": "Vídeos",
+        "fr": "Vidéos",
+        "ru": "Видео",
+        "zh-Hans": "视频"
+      },
+      "value": "Videos"
+    },
+    {
+      "comment": "Chat media gallery navigation title.",
+      "key": "voice",
+      "path": "xabber/controllers/chats/info_screens/views/gallery/VoiceGalleryForChatViewController.swift",
+      "sink": "title",
+      "fallback": "Voice messages",
+      "translations": {
+        "ar": "الرسائل الصوتية",
+        "en": "Voice messages",
+        "es": "Mensajes de voz",
+        "fr": "Messages vocaux",
+        "ru": "Голосовые сообщения",
+        "zh-Hans": "语音消息"
+      },
+      "value": "Voice"
+    },
+    {
+      "comment": "Empty encrypted chat placeholder shown in chat, search, share, and recent-chat previews.",
+      "key": "chat__empty_conversation__encrypted_message_placeholder",
+      "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController.swift",
+      "sink": "message",
+      "translations": {
+        "ar": "اكتب رسائلك المشفرة هنا",
+        "en": "Write your encrypted messages here",
+        "es": "Escribe aquí tus mensajes cifrados",
+        "fr": "Écrivez vos messages chiffrés ici",
+        "ru": "Пишите здесь зашифрованные сообщения",
+        "zh-Hans": "在此编写加密消息"
+      },
+      "value": "Write your encrypted messages here"
+    },
+    {
+      "comment": "Saved Messages preview placeholder shown when the single-account conversation has no message.",
+      "key": "saved_messages__placeholder__save_messages_here",
+      "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "احفظ الرسائل هنا",
+        "en": "Save messages here",
+        "es": "Guarda mensajes aquí",
+        "fr": "Enregistrez des messages ici",
+        "ru": "Сохраняйте сообщения здесь",
+        "zh-Hans": "在此保存消息"
+      },
+      "value": "Save messages here"
+    },
+    {
+      "comment": "Saved Messages conversation title.",
+      "key": "saved_messages__header",
+      "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "الرسائل المحفوظة",
+        "en": "Saved messages",
+        "es": "Mensajes guardados",
+        "fr": "Messages enregistrés",
+        "ru": "Избранное",
+        "zh-Hans": "已保存的消息"
+      },
+      "value": "Saved messages"
+    },
+    {
+      "comment": "Saved Messages preview placeholder shown when the single-account conversation has no message.",
+      "key": "saved_messages__placeholder__save_messages_here",
+      "path": "xabber/controllers/chats/search/SearchResultsViewController.swift",
+      "sink": "message",
+      "translations": {
+        "ar": "احفظ الرسائل هنا",
+        "en": "Save messages here",
+        "es": "Guarda mensajes aquí",
+        "fr": "Enregistrez des messages ici",
+        "ru": "Сохраняйте сообщения здесь",
+        "zh-Hans": "在此保存消息"
+      },
+      "value": "Save messages here"
+    },
+    {
+      "comment": "Empty encrypted chat placeholder shown in chat, search, share, and recent-chat previews.",
+      "key": "chat__empty_conversation__encrypted_message_placeholder",
+      "path": "xabber/controllers/chats/search/SearchResultsViewController.swift",
+      "sink": "message",
+      "translations": {
+        "ar": "اكتب رسائلك المشفرة هنا",
+        "en": "Write your encrypted messages here",
+        "es": "Escribe aquí tus mensajes cifrados",
+        "fr": "Écrivez vos messages chiffrés ici",
+        "ru": "Пишите здесь зашифрованные сообщения",
+        "zh-Hans": "在此编写加密消息"
+      },
+      "value": "Write your encrypted messages here"
+    },
+    {
+      "comment": "Empty encrypted chat placeholder shown in chat, search, share, and recent-chat previews.",
+      "key": "chat__empty_conversation__encrypted_message_placeholder",
+      "path": "xabber/controllers/chats/search/search_chat_list/SearchChatListViewController.swift",
+      "sink": "message",
+      "translations": {
+        "ar": "اكتب رسائلك المشفرة هنا",
+        "en": "Write your encrypted messages here",
+        "es": "Escribe aquí tus mensajes cifrados",
+        "fr": "Écrivez vos messages chiffrés ici",
+        "ru": "Пишите здесь зашифрованные сообщения",
+        "zh-Hans": "在此编写加密消息"
+      },
+      "value": "Write your encrypted messages here"
+    },
+    {
+      "comment": "Saved Messages preview placeholder shown when the single-account conversation has no message.",
+      "key": "saved_messages__placeholder__save_messages_here",
+      "path": "xabber/controllers/chats/share/ShareDialogController.swift",
+      "sink": "message",
+      "translations": {
+        "ar": "احفظ الرسائل هنا",
+        "en": "Save messages here",
+        "es": "Guarda mensajes aquí",
+        "fr": "Enregistrez des messages ici",
+        "ru": "Сохраняйте сообщения здесь",
+        "zh-Hans": "在此保存消息"
+      },
+      "value": "Save messages here"
+    },
+    {
+      "comment": "Empty encrypted chat placeholder shown in chat, search, share, and recent-chat previews.",
+      "key": "chat__empty_conversation__encrypted_message_placeholder",
+      "path": "xabber/controllers/chats/share/ShareDialogController.swift",
+      "sink": "message",
+      "translations": {
+        "ar": "اكتب رسائلك المشفرة هنا",
+        "en": "Write your encrypted messages here",
+        "es": "Escribe aquí tus mensajes cifrados",
+        "fr": "Écrivez vos messages chiffrés ici",
+        "ru": "Пишите здесь зашифрованные сообщения",
+        "zh-Hans": "在此编写加密消息"
+      },
+      "value": "Write your encrypted messages here"
+    },
+    {
+      "comment": "Saved Messages preview placeholder shown when the single-account conversation has no message.",
+      "key": "saved_messages__placeholder__save_messages_here",
+      "path": "xabber/controllers/chats/share/search/ShareDialogSearchController.swift",
+      "sink": "message",
+      "translations": {
+        "ar": "احفظ الرسائل هنا",
+        "en": "Save messages here",
+        "es": "Guarda mensajes aquí",
+        "fr": "Enregistrez des messages ici",
+        "ru": "Сохраняйте сообщения здесь",
+        "zh-Hans": "在此保存消息"
+      },
+      "value": "Save messages here"
+    },
+    {
+      "comment": "Empty encrypted chat placeholder shown in chat, search, share, and recent-chat previews.",
+      "key": "chat__empty_conversation__encrypted_message_placeholder",
+      "path": "xabber/controllers/chats/share/search/ShareDialogSearchController.swift",
+      "sink": "message",
+      "translations": {
+        "ar": "اكتب رسائلك المشفرة هنا",
+        "en": "Write your encrypted messages here",
+        "es": "Escribe aquí tus mensajes cifrados",
+        "fr": "Écrivez vos messages chiffrés ici",
+        "ru": "Пишите здесь зашифрованные сообщения",
+        "zh-Hans": "在此编写加密消息"
+      },
+      "value": "Write your encrypted messages here"
+    },
+    {
+      "comment": "Security-check screen navigation title.",
+      "key": "credentials__security_check__title",
+      "path": "xabber/controllers/credentials/CredentialsExpiredViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "فحص الأمان",
+        "en": "Security check",
+        "es": "Comprobación de seguridad",
+        "fr": "Contrôle de sécurité",
+        "ru": "Проверка безопасности",
+        "zh-Hans": "安全检查"
+      },
+      "value": "Security check"
+    },
+    {
+      "comment": "Notification list row title; %@ is the server or sender display name.",
+      "key": "notifications__item__mentioned_you_format",
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "titleText",
+      "translations": {
+        "ar": "أشار إليك %@",
+        "en": "%@ mentioned you",
+        "es": "%@ te mencionó",
+        "fr": "%@ vous a mentionné",
+        "ru": "%@ упомянул(а) вас",
+        "zh-Hans": "%@ 提到了你"
+      },
+      "value": "%@ mentioned you"
+    },
+    {
+      "comment": "Notification list row title; %@ is the server or sender display name.",
+      "key": "notifications__item__information_from_format",
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "titleText",
+      "translations": {
+        "ar": "معلومات من %@",
+        "en": "Information from %@",
+        "es": "Información de %@",
+        "fr": "Informations de %@",
+        "ru": "Информация от %@",
+        "zh-Hans": "来自 %@ 的信息"
+      },
+      "value": "Information from %@"
+    },
+    {
+      "comment": "Notification list row title; %@ is the server or sender display name.",
+      "key": "notifications__item__new_login_format",
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "titleText",
+      "translations": {
+        "ar": "تسجيل دخول جديد إلى الخادم %@",
+        "en": "New login to server %@",
+        "es": "Nuevo inicio de sesión en el servidor %@",
+        "fr": "Nouvelle connexion au serveur %@",
+        "ru": "Новый вход на сервер %@",
+        "zh-Hans": "新登录到服务器 %@"
+      },
+      "value": "New login to server %@"
+    },
+    {
+      "comment": "LocalAuthentication cancel action that switches to passcode entry.",
+      "key": "passcode__content__enter_passcode",
+      "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+      "sink": "localizedCancelTitle",
+      "translations": {
+        "ar": "أدخل رمز الدخول",
+        "en": "Enter passcode",
+        "es": "Introduce el código",
+        "fr": "Saisissez le code",
+        "ru": "Введите код-пароль",
+        "zh-Hans": "输入密码"
+      },
+      "value": "Enter passcode"
+    },
+    {
+      "comment": "LocalAuthentication prompt text shown during biometric application unlock; %@ is the application name.",
+      "key": "passcode__biometrics__unlock_app_format",
+      "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+      "sink": "reason",
+      "translations": {
+        "ar": "فتح قفل %@",
+        "en": "Unlock %@",
+        "es": "Desbloquear %@",
+        "fr": "Déverrouiller %@",
+        "ru": "Разблокировать %@",
+        "zh-Hans": "解锁%@"
+      },
+      "value": "Unlock %@"
+    },
+    {
+      "comment": "Notification settings section title or explanatory footer shown in Settings.",
+      "key": "notifications_settings__system__footer",
+      "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
+      "sink": "footer",
+      "translations": {
+        "ar": "تتم إدارة معاينات شاشة القفل والأذونات والشارات وتسليم الإشعارات في إعدادات iOS.",
+        "en": "Lock Screen previews, permissions, badges and notification delivery are controlled in iOS Settings.",
+        "es": "Las vistas previas en la pantalla bloqueada, los permisos, los distintivos y la entrega de notificaciones se controlan en Ajustes de iOS.",
+        "fr": "Les aperçus sur l’écran verrouillé, les autorisations, les pastilles et la distribution des notifications sont gérés dans les réglages iOS.",
+        "ru": "Предпросмотр на экране блокировки, разрешения, значки и доставка уведомлений настраиваются в настройках iOS.",
+        "zh-Hans": "锁定屏幕预览、权限、角标和通知送达方式由 iOS“设置”控制。"
+      },
+      "value": "Lock Screen previews, permissions, badges and notification delivery are controlled in iOS Settings."
+    },
+    {
+      "comment": "Notification settings section title or explanatory footer shown in Settings.",
+      "key": "notifications_settings__in_app__footer",
+      "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
+      "sink": "footer",
+      "translations": {
+        "ar": "اعرض اللافتات وشغّل أصوات الإشعارات المفعّلة أثناء فتح Xabber.",
+        "en": "Show banners and play enabled notification sounds while Xabber is open.",
+        "es": "Muestra banners y reproduce los sonidos de notificación activados mientras Xabber está abierto.",
+        "fr": "Affichez des bannières et jouez les sons de notification activés lorsque Xabber est ouvert.",
+        "ru": "Показывать баннеры и воспроизводить включённые звуки уведомлений, пока Xabber открыт.",
+        "zh-Hans": "Xabber 打开时显示横幅并播放已启用的通知声音。"
+      },
+      "value": "Show banners and play enabled notification sounds while Xabber is open."
+    },
+    {
+      "comment": "Notification settings section title or explanatory footer shown in Settings.",
+      "key": "notifications_settings__sounds__footer",
+      "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
+      "sink": "footer",
+      "translations": {
+        "ar": "شغّل الأصوات أو أوقفها بشكل مستقل لكل نوع من الإشعارات.",
+        "en": "Turn sounds on or off independently for each notification type.",
+        "es": "Activa o desactiva el sonido de forma independiente para cada tipo de notificación.",
+        "fr": "Activez ou désactivez le son séparément pour chaque type de notification.",
+        "ru": "Включайте или выключайте звук отдельно для каждого типа уведомлений.",
+        "zh-Hans": "可分别为每种通知类型开启或关闭声音。"
+      },
+      "value": "Turn sounds on or off independently for each notification type."
+    },
+    {
+      "comment": "Notification settings section title or explanatory footer shown in Settings.",
+      "key": "notifications_settings__in_app__title",
+      "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "الإشعارات داخل التطبيق",
+        "en": "In-App Notifications",
+        "es": "Notificaciones en la aplicación",
+        "fr": "Notifications dans l’application",
+        "ru": "Уведомления в приложении",
+        "zh-Hans": "应用内通知"
+      },
+      "value": "In-App Notifications"
+    },
+    {
+      "comment": "Notification settings section title or explanatory footer shown in Settings.",
+      "key": "notifications_settings__sounds__title",
+      "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "أصوات الإشعارات",
+        "en": "Notification Sounds",
+        "es": "Sonidos de notificación",
+        "fr": "Sons des notifications",
+        "ru": "Звуки уведомлений",
+        "zh-Hans": "通知声音"
+      },
+      "value": "Notification Sounds"
+    },
+    {
+      "comment": "Notification settings navigation title.",
+      "key": "notifications__screen__title",
+      "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "الإشعارات",
+        "en": "Notifications",
+        "es": "Notificaciones",
+        "fr": "Notifications",
+        "ru": "Уведомления",
+        "zh-Hans": "通知"
+      },
+      "value": "Notifications"
+    },
+    {
+      "comment": "User-visible interface copy migrated from a hard-coded Swift literal.",
+      "key": "settings__title__change_passcode",
+      "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
+      "sink": "titleText",
+      "translations": {
+        "ar": "تغيير رمز الدخول",
+        "en": "Change Passcode",
+        "es": "Cambiar código",
+        "fr": "Modifier le code",
+        "ru": "Изменить код-пароль",
+        "zh-Hans": "更改密码"
+      },
+      "value": "Change Passcode"
+    },
+    {
+      "comment": "Passcode setup or verification instruction shown on the security screen.",
+      "key": "settings__passcode__confirm_prompt",
+      "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
+      "sink": "titleText",
+      "translations": {
+        "ar": "أكد رمز الدخول الجديد",
+        "en": "Confirm your new passcode",
+        "es": "Confirma tu nuevo código",
+        "fr": "Confirmez votre nouveau code",
+        "ru": "Подтвердите новый код-пароль",
+        "zh-Hans": "确认你的新密码"
+      },
+      "value": "Confirm your new passcode"
+    },
+    {
+      "comment": "Passcode setup or verification instruction shown on the security screen.",
+      "key": "settings__passcode__create_prompt",
+      "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
+      "sink": "titleText",
+      "translations": {
+        "ar": "أنشئ رمز دخول لحماية بياناتك",
+        "en": "Create a passcode to protect your data",
+        "es": "Crea un código para proteger tus datos",
+        "fr": "Créez un code pour protéger vos données",
+        "ru": "Создайте код-пароль, чтобы защитить свои данные",
+        "zh-Hans": "创建密码以保护你的数据"
+      },
+      "value": "Create a passcode to protect your data"
+    },
+    {
+      "comment": "Passcode setup or verification instruction shown on the security screen.",
+      "key": "settings__passcode__enter_current_to_change",
+      "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
+      "sink": "titleText",
+      "translations": {
+        "ar": "أدخل رمز الدخول الحالي لتغييره",
+        "en": "Enter your current passcode to change it",
+        "es": "Introduce tu código actual para cambiarlo",
+        "fr": "Saisissez votre code actuel pour le modifier",
+        "ru": "Введите текущий код-пароль, чтобы изменить его",
+        "zh-Hans": "输入当前密码以进行更改"
+      },
+      "value": "Enter your current passcode to change it"
+    },
+    {
+      "comment": "Passcode setup or verification instruction shown on the security screen.",
+      "key": "settings__passcode__enter_current_to_disable",
+      "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
+      "sink": "titleText",
+      "translations": {
+        "ar": "أدخل رمز الدخول الحالي لإيقاف القفل",
+        "en": "Enter your current passcode to turn Passcode Lock off",
+        "es": "Introduce tu código actual para desactivar el bloqueo",
+        "fr": "Saisissez votre code actuel pour désactiver le verrouillage",
+        "ru": "Введите текущий код-пароль, чтобы отключить блокировку",
+        "zh-Hans": "输入当前密码以关闭密码锁"
+      },
+      "value": "Enter your current passcode to turn Passcode Lock off"
+    },
+    {
+      "comment": "User-visible interface copy migrated from a hard-coded Swift literal.",
+      "key": "settings__title__passcode_lock",
+      "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
+      "sink": "titleText",
+      "translations": {
+        "ar": "القفل برمز الدخول",
+        "en": "Passcode Lock",
+        "es": "Bloqueo con código",
+        "fr": "Verrouillage par code",
+        "ru": "Блокировка кодом-паролем",
+        "zh-Hans": "密码锁"
+      },
+      "value": "Passcode Lock"
+    },
+    {
+      "comment": "User-visible interface copy migrated from a hard-coded Swift literal.",
+      "key": "settings__title__turn_passcode_off",
+      "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
+      "sink": "titleText",
+      "translations": {
+        "ar": "إيقاف رمز الدخول",
+        "en": "Turn Passcode Off",
+        "es": "Desactivar el código",
+        "fr": "Désactiver le code",
+        "ru": "Отключить код-пароль",
+        "zh-Hans": "关闭密码"
+      },
+      "value": "Turn Passcode Off"
+    },
+    {
+      "comment": "User-visible interface copy migrated from a hard-coded Swift literal.",
+      "key": "settings__content__unavailable",
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "presentationCall",
+      "translations": {
+        "ar": "غير متاح",
+        "en": "Unavailable",
+        "es": "No disponible",
+        "fr": "Indisponible",
+        "ru": "Недоступно",
+        "zh-Hans": "不可用"
+      },
+      "value": "Unavailable"
+    },
+    {
+      "comment": "User-visible interface copy migrated from a hard-coded Swift literal.",
+      "key": "settings__content__updating",
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "presentationCall",
+      "translations": {
+        "ar": "جارٍ التحديث…",
+        "en": "Updating...",
+        "es": "Actualizando…",
+        "fr": "Mise à jour…",
+        "ru": "Обновление…",
+        "zh-Hans": "正在更新…"
+      },
+      "value": "Updating..."
+    },
+    {
+      "comment": "Cloud Storage quota label for an unlimited quota.",
+      "key": "simple__text__unlimited",
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "quota",
+      "translations": {
+        "ar": "غير محدود",
+        "en": "Unlimited",
+        "es": "Ilimitado",
+        "fr": "Illimité",
+        "ru": "Без ограничений",
+        "zh-Hans": "无限"
+      },
+      "value": "Unlimited"
+    },
+    {
+      "comment": "LocalAuthentication prompt text shown during biometric application unlock.",
+      "key": "settings__biometrics__use_passcode_only",
+      "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+      "sink": "localizedCancelTitle",
+      "translations": {
+        "ar": "استخدام رمز الدخول فقط",
+        "en": "Use only passcode",
+        "es": "Usar solo el código",
+        "fr": "Utiliser uniquement le code",
+        "ru": "Использовать только код-пароль",
+        "zh-Hans": "仅使用密码"
+      },
+      "value": "Use only passcode"
+    },
+    {
+      "comment": "LocalAuthentication prompt text shown during biometric application unlock.",
+      "key": "settings__biometrics__unlock_reason",
+      "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+      "sink": "reason",
+      "translations": {
+        "ar": "افتح التطبيق باستخدام القياسات الحيوية",
+        "en": "Unlock application with biometrics",
+        "es": "Desbloquea la aplicación con datos biométricos",
+        "fr": "Déverrouillez l’application avec la biométrie",
+        "ru": "Разблокируйте приложение с помощью биометрии",
+        "zh-Hans": "使用生物识别解锁应用"
+      },
+      "value": "Unlock application with biometrics"
+    },
+    {
+      "comment": "Interface settings screen title.",
+      "key": "interface__chat_themes__title",
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "سمات الدردشة",
+        "en": "Chat Themes",
+        "es": "Temas de chat",
+        "fr": "Thèmes de discussion",
+        "ru": "Темы чатов",
+        "zh-Hans": "聊天主题"
+      },
+      "value": "Chat Themes"
+    },
+    {
+      "comment": "Interface settings screen title.",
+      "key": "interface__colors__title",
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "الألوان",
+        "en": "Colors",
+        "es": "Colores",
+        "fr": "Couleurs",
+        "ru": "Цвета",
+        "zh-Hans": "颜色"
+      },
+      "value": "Colors"
+    },
+    {
+      "comment": "Interface settings screen title; %@ is the chat theme name.",
+      "key": "interface__chat_theme__edit_title_format",
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "تعديل %@",
+        "en": "Edit %@",
+        "es": "Editar %@",
+        "fr": "Modifier %@",
+        "ru": "Редактировать %@",
+        "zh-Hans": "编辑%@"
+      },
+      "value": "Edit %@"
+    },
+    {
+      "comment": "Interface settings navigation title.",
+      "key": "category_interface",
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "واجهة المستخدم",
+        "en": "Interface",
+        "es": "Interfaz",
+        "fr": "Interface",
+        "ru": "Интерфейс",
+        "zh-Hans": "界面"
+      },
+      "value": "Interface"
+    },
+    {
+      "comment": "Interface settings screen title.",
+      "key": "interface__wallpaper__title",
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "خلفية الشاشة",
+        "en": "Wallpaper",
+        "es": "Fondo de pantalla",
+        "fr": "Fond d’écran",
+        "ru": "Обои",
+        "zh-Hans": "壁纸"
+      },
+      "value": "Wallpaper"
+    },
+    {
+      "comment": "Account connection status shown while the account is offline.",
+      "key": "account_state_offline",
+      "path": "xabber/models/account/Account.swift",
+      "sink": "statusMessage",
+      "translations": {
+        "ar": "غير متصل",
+        "en": "Offline",
+        "es": "Desconectado",
+        "fr": "Hors ligne",
+        "ru": "Не в сети",
+        "zh-Hans": "离线"
+      },
+      "value": "Offline"
+    },
+    {
+      "comment": "User-visible account connection status or failure message.",
+      "key": "account__status__reconnecting",
+      "path": "xabber/models/account/Account.swift",
+      "sink": "statusMessage",
+      "translations": {
+        "ar": "جارٍ إعادة الاتصال",
+        "en": "Reconnecting",
+        "es": "Reconectando",
+        "fr": "Reconnexion",
+        "ru": "Повторное подключение",
+        "zh-Hans": "正在重新连接"
+      },
+      "value": "Reconnecting"
+    },
+    {
+      "comment": "User-visible account connection status or failure message.",
+      "key": "account__connection__server_not_found",
+      "path": "xabber/models/account/Account.swift",
+      "sink": "userVisibleFailure",
+      "translations": {
+        "ar": "لم يتم العثور على الخادم",
+        "en": "Server not found",
+        "es": "Servidor no encontrado",
+        "fr": "Serveur introuvable",
+        "ru": "Сервер не найден",
+        "zh-Hans": "未找到服务器"
+      },
+      "value": "Server not found"
+    },
+    {
+      "comment": "Account connection status shown while the account is offline.",
+      "key": "account_state_offline",
+      "path": "xabber/models/account/delegates/AccountStreamDelegate.swift",
+      "sink": "statusMessage",
+      "translations": {
+        "ar": "غير متصل",
+        "en": "Offline",
+        "es": "Desconectado",
+        "fr": "Hors ligne",
+        "ru": "Не в сети",
+        "zh-Hans": "离线"
+      },
+      "value": "Offline"
+    },
+    {
+      "comment": "User-visible account connection status or failure message.",
+      "key": "account__connection__server_not_found",
+      "path": "xabber/models/account/delegates/AccountStreamDelegate.swift",
+      "sink": "userVisibleFailure",
+      "translations": {
+        "ar": "لم يتم العثور على الخادم",
+        "en": "Server not found",
+        "es": "Servidor no encontrado",
+        "fr": "Serveur introuvable",
+        "ru": "Сервер не найден",
+        "zh-Hans": "未找到服务器"
+      },
+      "value": "Server not found"
+    },
+    {
+      "comment": "User-visible account connection status or failure message.",
+      "key": "account__status__incorrect_credentials",
+      "path": "xabber/models/account/extensions/AccountConnectBehaviorExtension.swift",
+      "sink": "statusMessage",
+      "translations": {
+        "ar": "اسم المستخدم أو كلمة المرور غير صحيحة",
+        "en": "Incorrect username or password",
+        "es": "Nombre de usuario o contraseña incorrectos",
+        "fr": "Nom d’utilisateur ou mot de passe incorrect",
+        "ru": "Неверное имя пользователя или пароль",
+        "zh-Hans": "用户名或密码不正确"
+      },
+      "value": "Incorrect username or password"
+    },
+    {
+      "comment": "Account connection status shown while the account is offline.",
+      "key": "account_state_offline",
+      "path": "xabber/models/account/extensions/AccountConnectBehaviorExtension.swift",
+      "sink": "statusMessage",
+      "translations": {
+        "ar": "غير متصل",
+        "en": "Offline",
+        "es": "Desconectado",
+        "fr": "Hors ligne",
+        "ru": "Не в сети",
+        "zh-Hans": "离线"
+      },
+      "value": "Offline"
+    },
+    {
+      "comment": "User-visible account connection status or failure message.",
+      "key": "account__status__subscription_expired",
+      "path": "xabber/models/account/extensions/AccountConnectBehaviorExtension.swift",
+      "sink": "statusMessage",
+      "translations": {
+        "ar": "انتهت صلاحية الاشتراك",
+        "en": "Subscription expired",
+        "es": "La suscripción ha caducado",
+        "fr": "Abonnement expiré",
+        "ru": "Срок подписки истёк",
+        "zh-Hans": "订阅已过期"
+      },
+      "value": "Subscription expired"
+    },
+    {
+      "comment": "Account connection status shown during synchronization.",
+      "key": "account_sync",
+      "path": "xabber/models/account/extensions/AccountConnectBehaviorExtension.swift",
+      "sink": "statusMessage",
+      "translations": {
+        "ar": "مزامنة",
+        "en": "Synchronization",
+        "es": "Sincronización",
+        "fr": "Synchronisation",
+        "ru": "Синхронизация",
+        "zh-Hans": "同步"
+      },
+      "value": "Synchronization"
+    }
+  ]
+}

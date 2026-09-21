@@ -91,11 +91,11 @@ class EmptyChatViewController: UIViewController {
 //            centerStack.addArrangedSubview(newChatButton)
         switch kind {
             case .emptyChat:
-                titleLabel.text = "Select chat to start conversation"
+                titleLabel.text = L10n.text("empty_state__content__select_chat_to_start_conversation", fallback: "Select chat to start conversation")
             case .emptyContact:
-                titleLabel.text = "Select contact to start conversation"
+                titleLabel.text = L10n.text("empty_state__content__select_contact_to_start_conversation", fallback: "Select contact to start conversation")
             case .emptyCall:
-                titleLabel.text = "Select contact to start call"
+                titleLabel.text = L10n.text("empty_state__content__select_contact_to_start_call", fallback: "Select contact to start call")
         }
         
         newChatButton.titleLabel?.numberOfLines = 0

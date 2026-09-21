@@ -27,14 +27,14 @@ struct DeleteConversationPresenter {
     let displayName: String
     
     func present(in view: UIViewController, animated: Bool, completion: @escaping ((Bool)->Void)) {
-        let alert = UIAlertController(title: nil, message: "Are you sure want to delete the chat with \(jid)?", preferredStyle: .actionSheet)
+        let alert = UIAlertController(title: nil, message: L10n.format("delete_conversation__dialog__are_you_sure_want_to_delete_the_chat_with", fallback: "Are you sure you want to delete the chat with %@?", arguments: [String(describing: jid)]), preferredStyle: .actionSheet)
         alert.addAction(UIAlertAction(title: "Delete for me".localizeString(id: "delete_for_me_chat_button", arguments: []), style: .default, handler: { (_) in
             completion(false)
         }))
-        alert.addAction(UIAlertAction(title: "Delete for me and \(displayName)", style: .default, handler: { (_) in
+        alert.addAction(UIAlertAction(title: L10n.format("delete_for_me_and_chat_button", fallback: "Delete for me and %@", arguments: [String(describing: displayName)]), style: .default, handler: { (_) in
             completion(true)
         }))
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel, handler: { (_) in
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel, handler: { (_) in
             
         }))
         if UIDevice.current.userInterfaceIdiom == .pad {

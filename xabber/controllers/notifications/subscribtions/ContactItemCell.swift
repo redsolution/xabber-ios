@@ -286,8 +286,8 @@ extension NotificationsSubscribtionsListViewController {
                 messageView?.configure(message)
             }
             
-            addButton.setTitle("Add contact", for: .normal)
-            declineButton.setTitle("Decline", for: .normal)
+            addButton.setTitle(L10n.text("subscription_requests__action__add_contact", fallback: "Add contact"), for: .normal)
+            declineButton.setTitle(L10n.text("subscription_requests__action__decline", fallback: "Decline"), for: .normal)
             badgeIcon.image = imageLiteral(icon, dimension: ContactItemCell.badgeSize + 2)
             self.jid = jid
             self.owner = owner

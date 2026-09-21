@@ -276,7 +276,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
                 }
             } else if item.conversationType == .saved {
                 let usersCount = AccountManager.shared.users.count
-                message = usersCount > 1 ? item.owner : "Save messages here"
+                message = usersCount > 1 ? item.owner : L10n.text("saved_messages__placeholder__save_messages_here", fallback: "Save messages here")
             } else {
                 message = blankMessageText
             }
@@ -316,7 +316,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
                 isSystemMessage = item.lastMessage?.shouldShowAsSystemMessage() ?? false
             }
             if item.isFreshNotEmptyEncryptedChat {
-                message = "Write your encrypted messages here"
+                message = L10n.text("chat__empty_conversation__encrypted_message_placeholder", fallback: "Write your encrypted messages here")
                 isSystemMessage = true
             }
             if item.lastMessage == nil {

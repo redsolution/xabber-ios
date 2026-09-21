@@ -20,7 +20,7 @@ class ContactDeviceDetailViewController: DeviceDetailViewController {
             let deviceTitle = omemoDevice.name ?? String(omemoDevice.deviceId)
             
             var encryptionDatasource: [Datasource] = [
-                Datasource(title: "Bundle not found", value: "", key: "omemo_bundle_not_found")
+                Datasource(title: L10n.text("contact_device__verification__bundle_not_found", fallback: "Key bundle not found"), value: "", key: "omemo_bundle_not_found")
             ]
             
                 
@@ -28,23 +28,23 @@ class ContactDeviceDetailViewController: DeviceDetailViewController {
                 var trustElement: Datasource
                 switch omemoDevice.state {
                 case .ignore:
-                    trustElement = Datasource(title: "Device ignored", value: "Ignored", key: "omemo_state_ignore")
+                    trustElement = Datasource(title: L10n.text("contact_device__verification__device_ignored", fallback: "Device ignored"), value: "Ignored", key: "omemo_state_ignore")
                 case .trusted:
                         trustElement = Datasource(
-                            title: omemoDevice.isTrustedByCertificate ? "Device signed" : "Device trusted",
+                            title: omemoDevice.isTrustedByCertificate ? L10n.text("device_detail__title__device_signed", fallback: "Device signed") : L10n.text("device_detail__title__device_trusted", fallback: "Device trusted"),
                             value: omemoDevice.isTrustedByCertificate ? "Signed" : "Trusted",
                             key: omemoDevice.isTrustedByCertificate ? "omemo_state_signed" : "omemo_state_trusted"
                         )
                 case .fingerprintChanged:
-                    trustElement = Datasource(title: "Fingerprint changed", value: "Fingerprint changed", key: "omemo_state_fingerprint_changed")
+                    trustElement = Datasource(title: L10n.text("contact_device__verification__fingerprint_changed", fallback: "Fingerprint changed"), value: L10n.text("contact_device__verification__fingerprint_changed", fallback: "Fingerprint changed"), key: "omemo_state_fingerprint_changed")
                 case .revoked:
-                    trustElement = Datasource(title: "Revoked", value: "Revoked", key: "omemo_state_revoked")
+                    trustElement = Datasource(title: L10n.text("contact_device__verification__revoked", fallback: "Revoked"), value: "Revoked", key: "omemo_state_revoked")
                 case .unknown, .distrusted:
-                    trustElement = Datasource(title: "Manual verification", value: "Undefined", key: "manual_verification")
+                    trustElement = Datasource(title: L10n.text("contact_device__verification__manual_verification", fallback: "Manual verification"), value: "Undefined", key: "manual_verification")
                 }
                 encryptionDatasource = [
-                    Datasource(title: "Device ID", value: "\(omemoDevice.deviceId)", key: "omemo_deviceId"),
-                    Datasource(title: "Fingerprint", value: omemoDevice.fingerprint, key: "omemo_fingerprint")
+                    Datasource(title: L10n.text("omemo__dialog_fingerprints__label_device_id", fallback: "device ID"), value: "\(omemoDevice.deviceId)", key: "omemo_deviceId"),
+                    Datasource(title: L10n.text("contact_device__verification__fingerprint", fallback: "Fingerprint"), value: omemoDevice.fingerprint, key: "omemo_fingerprint")
                     
                 ]
                 if omemoDevice.signature != nil {
@@ -52,7 +52,7 @@ class ContactDeviceDetailViewController: DeviceDetailViewController {
                     self.issuedFor = omemoDevice.signedBy
                     encryptionDatasource.append(
                         Datasource(
-                            title: omemoDevice.signedBy == self.jid ? "Verified by" : "Not verified",
+                            title: omemoDevice.signedBy == self.jid ? L10n.text("device_detail__title__verified_by", fallback: "Verified by") : L10n.text("device_detail__title__not_verified", fallback: "Not verified"),
                             value: omemoDevice.signedBy == self.jid ? "Clandestino" : "",
                             key: "omemo_signed_by"
                         )
@@ -60,7 +60,7 @@ class ContactDeviceDetailViewController: DeviceDetailViewController {
                 }
                 if omemoDevice.trustedByDeviceId != nil {
                     encryptionDatasource.append(
-                        Datasource(title: "Trusted by", value: omemoDevice.trustedByDeviceId, key: "omemo_trusted_by")
+                        Datasource(title: L10n.text("contact_device__verification__trusted_by", fallback: "Trusted by"), value: omemoDevice.trustedByDeviceId, key: "omemo_trusted_by")
                     )
                 }
                 if !canEdit {

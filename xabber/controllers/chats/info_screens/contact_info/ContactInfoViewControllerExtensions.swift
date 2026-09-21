@@ -124,7 +124,7 @@ extension ContactInfoViewController: InfoVCDelegate {
     
     func presentYesNoPresenter(with url: URL) {
         YesNoPresenter().present(in: self, title: "Open this file".localizeString(id: "open_file_message", arguments: []),
-                                 message: url.lastPathComponent, yesText: "Open", noText: "Cancel", animated: true) { (value) in
+                                 message: url.lastPathComponent, yesText: L10n.text("common__action__open", fallback: "Open"), noText: L10n.text("common__action__cancel", fallback: "Cancel"), animated: true) { (value) in
             if value {
                 UIApplication.shared.open(url, options: [:]) { (_) in }
             }

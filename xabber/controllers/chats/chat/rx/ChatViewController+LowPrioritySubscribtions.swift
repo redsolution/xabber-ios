@@ -137,7 +137,7 @@ extension ChatViewController {
                         }
                     }
                     self.xabberInputView.contextPreviewPanel.update(
-                        title: "Reply to \(title)",
+                        title: L10n.format("chat__reply__reply_to", fallback: "Reply to %@", arguments: [String(describing: title)]),
                         attributed: message
                     )
                     self.showForwardPanel()
@@ -383,7 +383,11 @@ extension ChatViewController {
                 } catch {
                     DDLogDebug("ChatViewController: \(#function). \(error.localizedDescription)")
                 }
-                self.selectionCountLabel.text = "\(results.count) selected"
+                self.selectionCountLabel.text = L10n.plural(
+                    "chat__text__value_selected",
+                    count: results.count,
+                    fallback: "%lld messages selected"
+                )
                 self.selectionCountLabel.sizeToFit()
             })
             .disposed(by: bag)

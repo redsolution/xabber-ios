@@ -113,7 +113,7 @@ class CredentialsExpiredViewController: SimpleBaseViewController {
             let item = UIBarButtonItem(image: UIImage(systemName: "rectangle.portrait.and.arrow.right"), style: .plain, target: nil, action: nil)
             return item
         } else {
-            let item = UIBarButtonItem(title: "Quit", style: .plain, target: nil, action: nil)
+            let item = UIBarButtonItem(title: L10n.text("common__action__quit", fallback: "Quit"), style: .plain, target: nil, action: nil)
             return item
         }
     }()
@@ -238,15 +238,15 @@ class CredentialsExpiredViewController: SimpleBaseViewController {
     override func configure() {
         super.configure()
         self.makeButtonDisabled(false)
-        title = "Security check"
-        titleLabel.text = "Please enter your password to continue using \(CommonConfigManager.shared.config.app_name)"
-        subtitleLabel.text = "Sometimes we ask for you to enter your password to confirm that you are the rightful owner of this account"
-        connectButton.setTitle("Continue", for: .normal)
-        deleteButton.setTitle("Quit account", for: .normal)
+        title = L10n.text("credentials__security_check__title", fallback: "Security check")
+        titleLabel.text = L10n.format("credentials_expired__prompt__title_format", fallback: "Please enter your password to continue using %@", arguments: [String(describing: CommonConfigManager.shared.config.app_name)])
+        subtitleLabel.text = L10n.text("credentials_expired__prompt__ownership_explanation", fallback: "Sometimes we ask for you to enter your password to confirm that you are the rightful owner of this account")
+        connectButton.setTitle(L10n.text("common__action__continue", fallback: "Continue"), for: .normal)
+        deleteButton.setTitle(L10n.text("credentials_expired__action__quit_account", fallback: "Quit account"), for: .normal)
         
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
-        passwordField.attributedPlaceholder = NSAttributedString(string: "Password", attributes: [
+        passwordField.attributedPlaceholder = NSAttributedString(string: L10n.text("credentials_expired__content__password", fallback: "Password"), attributes: [
             NSAttributedString.Key.font: UIFont.systemFont(ofSize: 17, weight: .semibold),
             NSAttributedString.Key.foregroundColor: UIColor.black.withAlphaComponent(0.23),
             NSAttributedString.Key.paragraphStyle: paragraph

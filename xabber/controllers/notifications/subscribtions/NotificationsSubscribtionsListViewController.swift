@@ -78,7 +78,7 @@ class NotificationsSubscribtionsListViewController: SimpleBaseViewController {
             stack.addArrangedSubview(UIStackView())
             centerStack.addArrangedSubview(titleLabel)
 //            centerStack.addArrangedSubview(newChatButton)
-            titleLabel.text = "You don't have any subscribtion requests"
+            titleLabel.text = L10n.text("subscription_requests__empty__message", fallback: "You don’t have any subscription requests.")
             newChatButton.titleLabel?.numberOfLines = 0
             newChatButton.titleLabel?.textAlignment = .center
             activaateConstraints()
@@ -118,7 +118,7 @@ class NotificationsSubscribtionsListViewController: SimpleBaseViewController {
     
     override func configure() {
         super.configure()
-        self.title = "Subscribtions"
+        self.title = L10n.text("subscription_requests__screen__title", fallback: "Subscription Requests")
         self.tableView.dataSource = self
         self.tableView.delegate = self
         self.emptyView.configure {

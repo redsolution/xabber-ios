@@ -4252,8 +4252,8 @@ final class Account: NSObject {
             )
             self.connectionGate.markFailed()
             self.sendReadiness.markStreamError(error.localizedDescription)
-            self.statusMessage.accept("Offline")
-            AccountManager.shared.changeNewUserState(for: self.jid, to: .failure("Server not found"))
+            self.statusMessage.accept(L10n.text("account_state_offline", fallback: "Offline"))
+            AccountManager.shared.changeNewUserState(for: self.jid, to: .failure(L10n.text("account__connection__server_not_found", fallback: "Server not found")))
             AccountManager.shared.markAsNotConnecting(
                 jid: self.jid,
                 reason: "connect_throw",
@@ -4290,7 +4290,7 @@ final class Account: NSObject {
     ) {
         self.sendReadiness.markSuspectedStale(reason: reason.rawValue)
         self.statusState.accept(.offline)
-        self.statusMessage.accept("Reconnecting")
+        self.statusMessage.accept(L10n.text("account__status__reconnecting", fallback: "Reconnecting"))
         self.logConnectionDiagnostics(
             event: "connection_health_marked_stale",
             trigger: .livenessProbe,
@@ -4305,7 +4305,7 @@ final class Account: NSObject {
     private func forceCloseForResilience(cause: AccountDisconnectCause) {
         self.sendReadiness.markDisconnected(cause: cause)
         self.statusState.accept(.offline)
-        self.statusMessage.accept("Offline")
+        self.statusMessage.accept(L10n.text("account_state_offline", fallback: "Offline"))
         self.queue.async { [weak self] in
             guard let self else { return }
             guard AccountResilienceForceClosePreflight.shouldForceClose(
@@ -4843,7 +4843,7 @@ final class Account: NSObject {
  **/
     func resetModules() {
 //        self.statusMessage.accept("Waiting for network")
-        self.statusMessage.accept("Offline")
+        self.statusMessage.accept(L10n.text("account_state_offline", fallback: "Offline"))
         self.notifications.invalidateNotificationSyncSession()
         let mam = self.mam
         let scheduler = self.xmppTaskScheduler
@@ -5257,7 +5257,7 @@ extension Account: XMPPReconnectDelegate {
             details: ["connectionFlags": UInt32(connectionFlags)]
         )
         self.resetModules()
-        self.statusMessage.accept("Offline")
+        self.statusMessage.accept(L10n.text("account_state_offline", fallback: "Offline"))
         self.showReconnectStatus(connectionFlags: connectionFlags)
         AccountManager.shared.markAsConnecting(jid: self.jid)
         self.connectionResilience.scheduleReconnect(cause: .accidentalSocket, trigger: .resilienceRetry)

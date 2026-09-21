@@ -83,11 +83,11 @@ extension ChatViewController {
             }
             let message: String
             if invite.preview?.parentJID != nil {
-                message = "You are invited to join this chat"
+                message = L10n.text("groupchat__invitation__join_chat", fallback: "You are invited to join this chat")
             } else if invite.preview?.privacy == .incognito {
-                message = "You are invited to join this incognito group"
+                message = L10n.text("incognito_group_invitation", fallback: "You are invited to join this incognito group")
             } else {
-                message = "You are invited to join this group"
+                message = L10n.text("groupchat__invitation__join_group", fallback: "You are invited to join this group")
             }
 
             let alert = UIAlertController(title: nil, message: message, preferredStyle: .actionSheet)

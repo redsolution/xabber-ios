@@ -1,0 +1,533 @@
+{
+  "migrations": [],
+  "exclusions": [
+    {
+      "path": "xabber/common/XMPPBackgroundTask/XMPPBackgroundTask+Delegate.swift",
+      "sink": "disconnectErrorDescription",
+      "value": "none",
+      "reason": "Internal disconnect sentinel rendered only into diagnostics, not UI copy."
+    },
+    {
+      "path": "xabber/common/XMPPUIActionManager/XMPPUIActionManager+Delegate.swift",
+      "sink": "disconnectErrorDescription",
+      "value": "none",
+      "reason": "Internal disconnect sentinel rendered only into diagnostics, not UI copy."
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceWallpaperSupport.swift",
+      "sink": "filename",
+      "value": "chat-wallpaper-%@.jpg",
+      "reason": "Generated wallpaper cache filename; filesystem data, not user interface copy."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "adjusted=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "cellError=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "cellExists=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "cellFrame=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "cellIntersection=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "cellVisible=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "collectionBounds=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "collectionFrame=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "datasourceGeneration=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "inset=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "layoutError=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "layoutFrame=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "layoutIntersection=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "layoutVisible=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "liveCellRelativeY=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "liveLayoutRelativeY=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "nil",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "offset=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "originalRelativeY=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "safe=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "size=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "targetInDatasource=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "targetInVisible=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "targetSection=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "viewBounds=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "viewFrame=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "viewport=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "visibleIndices=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "description",
+      "value": "visiblePrimaries=%@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "title",
+      "value": "Chat open %@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "sink": "title",
+      "value": "Chat performance %@",
+      "reason": "Deterministic chat performance fixture or diagnostic copy; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatViewController.swift",
+      "sink": "description",
+      "value": "chain=%@",
+      "reason": "Debug-only chat visibility hierarchy diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatViewController.swift",
+      "sink": "description",
+      "value": "failingAlpha=%@",
+      "reason": "Debug-only chat visibility hierarchy diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatViewController.swift",
+      "sink": "description",
+      "value": "failingDepth=%@",
+      "reason": "Debug-only chat visibility hierarchy diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatViewController.swift",
+      "sink": "description",
+      "value": "failingHidden=%@",
+      "reason": "Debug-only chat visibility hierarchy diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatViewController.swift",
+      "sink": "description",
+      "value": "failingSameWindow=%@",
+      "reason": "Debug-only chat visibility hierarchy diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatViewController.swift",
+      "sink": "description",
+      "value": "failingType=%@",
+      "reason": "Debug-only chat visibility hierarchy diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatViewController.swift",
+      "sink": "description",
+      "value": "frameInWindow=%@",
+      "reason": "Debug-only chat visibility hierarchy diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatViewController.swift",
+      "sink": "description",
+      "value": "intersection=%@",
+      "reason": "Debug-only chat visibility hierarchy diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatViewController.swift",
+      "sink": "description",
+      "value": "required=%@x%@",
+      "reason": "Debug-only chat visibility hierarchy diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatViewController.swift",
+      "sink": "description",
+      "value": "rootBounds=%@",
+      "reason": "Debug-only chat visibility hierarchy diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatViewController.swift",
+      "sink": "description",
+      "value": "viewport=%@",
+      "reason": "Debug-only chat visibility hierarchy diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+AdditionalNavbarPanel.swift",
+      "sink": "pinnedMessageTitle",
+      "value": "member",
+      "reason": "Pinned-message payload field name; stable data-contract token, not UI copy."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+AdditionalNavbarPanel.swift",
+      "sink": "pinnedMessageTitle",
+      "value": "role",
+      "reason": "Pinned-message payload field name; stable data-contract token, not UI copy."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "sink": "description",
+      "value": "audios:%@",
+      "reason": "CustomStringConvertible content signature or payload field name used for diagnostics, not UI copy."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "sink": "description",
+      "value": "contacts:%@",
+      "reason": "CustomStringConvertible content signature or payload field name used for diagnostics, not UI copy."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "sink": "description",
+      "value": "files:%@",
+      "reason": "CustomStringConvertible content signature or payload field name used for diagnostics, not UI copy."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "sink": "description",
+      "value": "forwards:%@",
+      "reason": "CustomStringConvertible content signature or payload field name used for diagnostics, not UI copy."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "sink": "description",
+      "value": "locations:%@",
+      "reason": "CustomStringConvertible content signature or payload field name used for diagnostics, not UI copy."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "sink": "description",
+      "value": "videos:%@",
+      "reason": "CustomStringConvertible content signature or payload field name used for diagnostics, not UI copy."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/messages_kit/Layout/MessagesCollectionViewFlowLayout.swift",
+      "sink": "description",
+      "value": "anchorMinY=%@",
+      "reason": "Debug-only collection layout diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/messages_kit/Layout/MessagesCollectionViewFlowLayout.swift",
+      "sink": "description",
+      "value": "defaultY=%@",
+      "reason": "Debug-only collection layout diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/messages_kit/Layout/MessagesCollectionViewFlowLayout.swift",
+      "sink": "description",
+      "value": "proposedWidth=%@",
+      "reason": "Debug-only collection layout diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/messages_kit/Layout/MessagesCollectionViewFlowLayout.swift",
+      "sink": "description",
+      "value": "proposedY=%@",
+      "reason": "Debug-only collection layout diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/messages_kit/Layout/MessagesCollectionViewFlowLayout.swift",
+      "sink": "description",
+      "value": "resolvedY=%@",
+      "reason": "Debug-only collection layout diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/messages_kit/Layout/MessagesCollectionViewFlowLayout.swift",
+      "sink": "description",
+      "value": "semanticY=%@",
+      "reason": "Debug-only collection layout diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/messages_kit/Layout/MessagesCollectionViewFlowLayout.swift",
+      "sink": "description",
+      "value": "snapshotBeforeSuper=%@",
+      "reason": "Debug-only collection layout diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/messages_kit/Layout/MessagesCollectionViewFlowLayout.swift",
+      "sink": "description",
+      "value": "sourceWidth=%@",
+      "reason": "Debug-only collection layout diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/messages_kit/Layout/MessagesCollectionViewFlowLayout.swift",
+      "sink": "description",
+      "value": "targetWidth=%@",
+      "reason": "Debug-only collection layout diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/messages_kit/Layout/MessagesCollectionViewFlowLayout.swift",
+      "sink": "description",
+      "value": "viewportY=%@",
+      "reason": "Debug-only collection layout diagnostic; not production user interface text."
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "messageText",
+      "value": "text",
+      "reason": "Message payload field name; stable data-contract token, not UI copy."
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "message",
+      "value": "init(coder:) has not been implemented",
+      "reason": "Programmer-only fatalError diagnostic; never rendered in the app UI."
+    },
+    {
+      "path": "xabber/models/account/delegates/AccountStreamDelegate.swift",
+      "sink": "disconnectErrorDescription",
+      "value": "none",
+      "reason": "Internal disconnect sentinel rendered only into diagnostics, not UI copy."
+    },
+    {
+      "path": "xabber/utils/XMPPUtils/XMPPMessageInlineExtension.swift",
+      "sink": "isArchivedMessage",
+      "value": "urn:xmpp:mam:0",
+      "reason": "XMPP namespace or protocol URI used for stanza classification; stable wire token, not UI copy."
+    },
+    {
+      "path": "xabber/utils/XMPPUtils/XMPPMessageInlineExtension.swift",
+      "sink": "isArchivedMessage",
+      "value": "urn:xmpp:mam:1",
+      "reason": "XMPP namespace or protocol URI used for stanza classification; stable wire token, not UI copy."
+    },
+    {
+      "path": "xabber/utils/XMPPUtils/XMPPMessageInlineExtension.swift",
+      "sink": "isArchivedMessage",
+      "value": "urn:xmpp:mam:2",
+      "reason": "XMPP namespace or protocol URI used for stanza classification; stable wire token, not UI copy."
+    },
+    {
+      "path": "xabber/utils/XMPPUtils/XMPPMessageInlineExtension.swift",
+      "sink": "isArchivedMessage",
+      "value": "urn:xmpp:mam:3",
+      "reason": "XMPP namespace or protocol URI used for stanza classification; stable wire token, not UI copy."
+    },
+    {
+      "path": "xabber/utils/XMPPUtils/XMPPMessageInlineExtension.swift",
+      "sink": "isForwardedMessage",
+      "value": "urn:xmpp:forward:0",
+      "reason": "XMPP namespace or protocol URI used for stanza classification; stable wire token, not UI copy."
+    },
+    {
+      "path": "xabber/utils/XMPPUtils/XMPPMessageInlineExtension.swift",
+      "sink": "isPriorityMessage",
+      "value": "https://xabber.com/protocol/priority",
+      "reason": "XMPP namespace or protocol URI used for stanza classification; stable wire token, not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/avatar/AvatarUploadManager.swift",
+      "sink": "filename",
+      "value": "%@.png",
+      "reason": "Generated avatar upload filename; transport data, not user interface copy."
+    },
+    {
+      "path": "xabber/xmpp/groupchat/protocol/GroupProtocolCodec.swift",
+      "sink": "description",
+      "value": "description",
+      "reason": "Group protocol payload field name; stable wire token, not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageReferenceParser.swift",
+      "sink": "text",
+      "value": "text",
+      "reason": "Message reference payload field name; stable data-contract token, not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
+      "sink": "shouldShowAsSystemMessage",
+      "value": "file",
+      "reason": "Persisted message metadata field/raw token used for classification; not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
+      "sink": "shouldShowAsSystemMessage",
+      "value": "media-type",
+      "reason": "Persisted message metadata field/raw token used for classification; not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
+      "sink": "shouldShowAsSystemMessage",
+      "value": "name",
+      "reason": "Persisted message metadata field/raw token used for classification; not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/omemo/OmemoManager.swift",
+      "sink": "body",
+      "value": "body",
+      "reason": "OMEMO XML namespace/payload field token; not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/omemo/OmemoManager.swift",
+      "sink": "body",
+      "value": "jabber:client",
+      "reason": "OMEMO XML namespace/payload field token; not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/omemo/OmemoManagerTest.swift",
+      "sink": "message",
+      "value": "Test crypto message",
+      "reason": "Non-target OMEMO test fixture message; not production UI copy."
+    },
+    {
+      "path": "xabber/xmpp/presence/PresenceManager.swift",
+      "sink": "parseStatusMessage",
+      "value": "status",
+      "reason": "Presence stanza field name; stable data-contract token, not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/voip/VoIPManager/VoIPCall/VoIPCall.swift",
+      "sink": "isMatchingProposeMessage",
+      "value": "id",
+      "reason": "XMPP/VoIP stanza field or namespace token; not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/voip/VoIPManager/VoIPCall/VoIPCall.swift",
+      "sink": "text",
+      "value": "urn:ietf:params:xml:ns:xmpp-stanzas",
+      "reason": "XMPP/VoIP stanza field or namespace token; not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/voip/VoIPManager/VoIPManager.swift",
+      "sink": "body",
+      "value": "FAIL 0",
+      "reason": "VoIP wire-protocol token or diagnostic body; not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/voip/VoIPManager/VoIPManager.swift",
+      "sink": "isVoIPMessage",
+      "value": "accept",
+      "reason": "VoIP wire-protocol token or diagnostic body; not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/voip/VoIPManager/VoIPManager.swift",
+      "sink": "isVoIPMessage",
+      "value": "propose",
+      "reason": "VoIP wire-protocol token or diagnostic body; not UI copy."
+    },
+    {
+      "path": "xabber/xmpp/voip/VoIPManager/VoIPManager.swift",
+      "sink": "isVoIPMessage",
+      "value": "reject",
+      "reason": "VoIP wire-protocol token or diagnostic body; not UI copy."
+    }
+  ]
+}

@@ -53,7 +53,10 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
         label.textAlignment = .left
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
-        label.text = "Device Verification"
+        label.text = L10n.text(
+            "verification__title_text__device_verification",
+            fallback: "Device Verification"
+        )
         
         return label
     }()
@@ -87,7 +90,13 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
         let button = UIButton()
         button.configuration = UIButton.Configuration.filled()
         button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
-        button.setTitle("Submit code", for: .normal)
+        button.setTitle(
+            L10n.text(
+                "device_verification__flow__submit_code",
+                fallback: "Submit code"
+            ),
+            for: .normal
+        )
         button.tintColor = .systemBlue
         button.translatesAutoresizingMaskIntoConstraints = false
         
@@ -98,7 +107,13 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
         let button = UIButton()
         button.configuration = UIButton.Configuration.plain()
         button.configuration!.contentInsets = NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
-        button.setTitle("Cancel verification", for: .normal)
+        button.setTitle(
+            L10n.text(
+                "device_verification__flow__cancel_verification",
+                fallback: "Cancel verification"
+            ),
+            for: .normal
+        )
         button.setTitleColor(.systemRed, for: .normal)
         button.translatesAutoresizingMaskIntoConstraints = false
         
@@ -133,17 +148,33 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
         self.view.backgroundColor = .systemBackground
         
         if isVerificationWithUsersDevice {
-            descriptionLabel.text = "You are verifying this device to ensure secure and encrypted communication."
+            descriptionLabel.text = L10n.text(
+                "device_verification__description__verify_this_device",
+                fallback: "You are verifying this device to ensure secure and encrypted communication."
+            )
             
-            let attributedString = NSMutableAttributedString(string: "1.\tEnsure the other device is displaying the verification code.\n\n2.\tEnter the verification code displayed on the other device to complete the encryption key exchange:")
+            let attributedString = NSMutableAttributedString(
+                string: L10n.text(
+                    "device_verification__instructions__enter_other_device_code",
+                    fallback: "1.\tEnsure the other device is displaying the verification code.\n\n2.\tEnter the verification code displayed on the other device to complete the encryption key exchange:"
+                )
+            )
             let paragraphStyle = NSMutableParagraphStyle()
             paragraphStyle.headIndent = 28
             attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
             stepsLabel.attributedText = attributedString
         } else {
-            descriptionLabel.text = "You are establishing a secure connection with this contact."
+            descriptionLabel.text = L10n.text(
+                "device_verification__description__establish_contact_connection",
+                fallback: "You are establishing a secure connection with this contact."
+            )
             
-            let attributedString = NSMutableAttributedString(string: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:")
+            let attributedString = NSMutableAttributedString(
+                string: L10n.text(
+                    "device_verification__instructions__enter_contact_code",
+                    fallback: "1.\tCarefully verify the address and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:"
+                )
+            )
             let paragraphStyle = NSMutableParagraphStyle()
             paragraphStyle.headIndent = 28
             attributedString.addAttributes([NSAttributedString.Key.paragraphStyle: paragraphStyle], range: NSRange(location: 0, length: attributedString.length))
@@ -211,7 +242,11 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
             return
         }
         
-        AccountManager.shared.find(for: self.owner)?.akeManager.sendErrorMessage(fullJID: XMPPJID(string: self.jid)!, sid: self.sid, reason: "Сontact canceled verification session")
+        AccountManager.shared.find(for: self.owner)?.akeManager.sendErrorMessage(
+            fullJID: XMPPJID(string: self.jid)!,
+            sid: self.sid,
+            reason: "cancel"
+        )
         self.dismiss(animated: true)
     }
     
@@ -280,8 +315,10 @@ class AuthenticationCodeInputViewController: SimpleBaseViewController, UITextFie
                 }
                 self.deviceId = String(sessionInstance.opponentDeviceId)
                 
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "MMM d, yyyy"
+                let dateFormatter = L10n.formatters.dateFormatter(
+                    dateStyle: .medium,
+                    timeStyle: .none
+                )
                 let dateRaw = Date(timeIntervalSince1970: TimeInterval(floatLiteral: Double(sessionInstance.timestamp)!))
                 date = dateFormatter.string(from: dateRaw)
                 

@@ -279,10 +279,6 @@
     "videos": {
       "expression": "Kind.videos.rawValue",
       "reason": "The media filter enum supplies the English development label at runtime."
-    },
-    "voice": {
-      "expression": "Kind.voice.rawValue",
-      "reason": "The media filter enum supplies the English development label at runtime."
     }
   },
   "declaredKeys": [
@@ -314,15 +310,59 @@
     "vcard_family_name": "Multiple legacy surname terms share this key; catalog English remains canonical pending product copy review.",
     "vcard_given_name": "First name and Given name share this legacy key; catalog English remains canonical pending product copy review."
   },
-  "excludedPaths": [
-    "xabber/controllers/ake/AuthenticationCodeInputViewController.swift",
-    "xabber/controllers/alerts/DeleteAccountPresenter.swift",
-    "xabber/controllers/chats/chat/extension/ChatViewController+VerifyPanel.swift",
-    "xabber/controllers/chats/groupchats/join/GroupchatJoinViewController.swift",
-    "xabber/controllers/chats/info_screens/account_info/devices_list/device_edit/DevicesListViewController.swift",
-    "xabber/controllers/chats/info_screens/footerInfoView/CloudDeleteInfoScreenView.swift",
-    "xabber/controllers/onboarding/signup/YubikeySetupViewController.swift",
-    "xabber/xmpp/omemo/OmemoManagerTest.swift"
+  "nonTargetSources": [
+    {
+      "path": "xabber/controllers/ake/AuthenticationCodeInputViewController.swift",
+      "reason": "Legacy source exists in the repository but is not a member of the xabber or xabber-push-extension target."
+    },
+    {
+      "path": "xabber/controllers/alerts/DeleteAccountPresenter.swift",
+      "reason": "Legacy source exists in the repository but is not a member of the xabber or xabber-push-extension target."
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+VerifyPanel.swift",
+      "reason": "Legacy source exists in the repository but is not a member of the xabber or xabber-push-extension target."
+    },
+    {
+      "path": "xabber/controllers/chats/groupchats/join/GroupchatJoinViewController.swift",
+      "reason": "Legacy source exists in the repository but is not a member of the xabber or xabber-push-extension target."
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_edit/DevicesListViewController.swift",
+      "reason": "Legacy source exists in the repository but is not a member of the xabber or xabber-push-extension target."
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/footerInfoView/CloudDeleteInfoScreenView.swift",
+      "reason": "Legacy source exists in the repository but is not a member of the xabber or xabber-push-extension target."
+    },
+    {
+      "path": "xabber/controllers/onboarding/signup/YubikeySetupViewController.swift",
+      "reason": "Legacy source exists in the repository but is not a member of the xabber or xabber-push-extension target."
+    },
+    {
+      "path": "xabber/xmpp/omemo/OmemoManagerTest.swift",
+      "reason": "Legacy source exists in the repository but is not a member of the xabber or xabber-push-extension target."
+    }
+  ],
+  "hardcodedUIExcludedPaths": [],
+  "hardcodedUIExclusionFiles": [
+    "tools/localization_migrations/accessibility_ui.json",
+    "tools/localization_migrations/chat_ui.json",
+    "tools/localization_migrations/excluded_paths_ui.json",
+    "tools/localization_migrations/final_ui_triage.json",
+    "tools/localization_migrations/followup_ui.json",
+    "tools/localization_migrations/indirect_ui.json",
+    "tools/localization_migrations/remaining_ui.json",
+    "tools/localization_migrations/runtime_payload_tokens.json",
+    "tools/localization_migrations/scanner_diagnostics.json",
+    "tools/localization_migrations/scanner_followup_ui.json",
+    "tools/localization_migrations/semantic_ui_followup.json",
+    "tools/localization_migrations/semantic_ui_round2.json",
+    "tools/localization_migrations/settings_ui.json"
+  ],
+  "hardcodedUIExclusions": [],
+  "infoPlistTemplates": [
+    "xabber/Info.plist.example"
   ],
   "interfaceBuilderCatalogKeys": [],
   "legacyMarkupKeys": [
@@ -334,6 +374,7 @@
     "delete_chat_confirm"
   ],
   "manifest": "docs/localization/active-keys.json",
+  "requireZeroUnclassifiedHardcodedUI": true,
   "sourceRoots": [
     "xabber",
     "xabber-push-extension"

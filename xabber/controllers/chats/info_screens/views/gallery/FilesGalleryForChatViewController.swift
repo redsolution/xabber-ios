@@ -244,8 +244,8 @@ final class FilesGalleryForChatViewController: BaseMediaGalleryForChatViewContro
             accessibilityIdentifier = state.accessibilityIdentifier
             accessibilityLabel = state.accessibilityLabel
             accessibilityHint = state.canOpen
-                ? "Double tap to open. More actions are available."
-                : "More actions are available."
+                ? L10n.text("gallery__file__open_more_actions_accessibility_hint", fallback: "Double tap to open. More actions are available.")
+                : L10n.text("gallery__item__more_actions_accessibility_hint", fallback: "More actions are available.")
         }
 
         override func prepareForReuse() {
@@ -260,7 +260,7 @@ final class FilesGalleryForChatViewController: BaseMediaGalleryForChatViewContro
 
     let emptyStateLabel: UILabel = {
         let label = UILabel()
-        label.text = "No files"
+        label.text = L10n.text("no_files", fallback: "No files")
         label.font = UIFont.preferredFont(forTextStyle: .body)
         label.textColor = .secondaryLabel
         label.textAlignment = .center
@@ -323,7 +323,7 @@ final class FilesGalleryForChatViewController: BaseMediaGalleryForChatViewContro
 
     override func configure() {
         super.configure()
-        title = "Files"
+        title = L10n.text("files", fallback: "Files")
         kind = .file
         collectionView.prefetchDataSource = self
         collectionView.dataSource = self

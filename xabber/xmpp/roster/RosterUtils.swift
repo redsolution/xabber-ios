@@ -74,7 +74,7 @@ class RosterUtils {
         case .pc: return "PC".localizeString(id: "chat_resource_pc", arguments: [])
         case .phone: return "Phone".localizeString(id: "chat_resource_phone", arguments: [])
         case .sms: return "SMS".localizeString(id: "chat_resource_sms", arguments: [])
-        case .web: return "Web"
+        case .web: return L10n.text("chat_resource_web", fallback: "Web")
         case .unknown: return ""
         case .groupchat: return "Groupchat".localizeString(id: "chat_resource_groupchat", arguments: [])
         }

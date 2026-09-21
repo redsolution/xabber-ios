@@ -170,7 +170,7 @@ extension ChatViewController {
         internal let learnmoreButton: UIButton = {
             let button = UIButton(frame: .zero)
             
-            button.setTitle("learn more", for: .normal)
+            button.setTitle(L10n.text("chat__initial_message__learn_more", fallback: "Learn more"), for: .normal)
             button.setTitleColor(.tintColor, for: .normal)
             
             return button

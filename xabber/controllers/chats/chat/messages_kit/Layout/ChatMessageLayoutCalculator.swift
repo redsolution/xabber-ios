@@ -205,9 +205,11 @@ enum ChatMessageLayoutCalculator {
             case .call(let call):
                 let text: String
                 if call.incoming {
-                    text = call.missed ? "Missed call" : "Incoming call"
+                    text = call.missed
+                        ? L10n.text("chat_message_missed_call", fallback: "Missed call")
+                        : L10n.text("chat_message_incoming", fallback: "Incoming call")
                 } else {
-                    text = "Outgoing call"
+                    text = L10n.text("chat_message_outgoing", fallback: "Outgoing call")
                 }
                 attributedText = NSAttributedString(
                     string: text,

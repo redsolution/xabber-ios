@@ -212,7 +212,7 @@ class SearchChatListViewController: SimpleBaseViewController {
     
     func configureSearchBar() {
 //        self.navigationItem.setRightBarButton(UIBarButtonItem(customView: searchBar), animated: true)
-        let cancelButton = UIBarButtonItem(title: "Cancel", style: .plain, target: self, action: #selector(self.onCancelButtonTouchUpInside))
+        let cancelButton = UIBarButtonItem(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .plain, target: self, action: #selector(self.onCancelButtonTouchUpInside))
         self.navigationItem.setRightBarButtonItems([cancelButton], animated: true)
         self.searchBar.sizeToFit()
         self.navigationItem.titleView = self.searchBar
@@ -269,12 +269,12 @@ class SearchChatListViewController: SimpleBaseViewController {
         self.tableView.delegate = self
         self.tableView.dataSource = self
         self.tableView.keyboardDismissMode = .interactive
-        self.title = "Search messages"
+        self.title = L10n.text("chat__search_messages_panel__placeholder", fallback: "Search messages")
         
         emptyView.configure(
             image:  imageLiteral( "rectangle.and.text.magnifyingglass", dimension: 160),
-            title: "Search messages",
-            subtitle: "Try to start search for this chat",
+            title: L10n.text("chat__search_messages_panel__placeholder", fallback: "Search messages"),
+            subtitle: L10n.text("chat_search__screen__try_to_start_search_for_this_chat", fallback: "Start searching in this chat"),
             buttonTitle: ""
         ) {
             
@@ -344,7 +344,7 @@ class SearchChatListViewController: SimpleBaseViewController {
             
             var isSystemMessage: Bool = [.system].contains(messageItem.displayAs)
             if item.isFreshNotEmptyEncryptedChat {
-                message = "Write your encrypted messages here"
+                message = L10n.text("chat__empty_conversation__encrypted_message_placeholder", fallback: "Write your encrypted messages here")
                 isSystemMessage = true
             }
             

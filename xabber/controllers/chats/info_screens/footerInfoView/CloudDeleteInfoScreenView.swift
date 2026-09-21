@@ -47,7 +47,7 @@ class CloudDeleteInfoScreenView: UIStackView {
     
     let labelImages: UILabel = {
         let label = UILabel()
-        label.text = "Images"
+        label.text = L10n.text("images", fallback: "Images")
         label.textAlignment = .left
         label.font = UIFont.preferredFont(forTextStyle: .title3).bold()
 //        label.translatesAutoresizingMaskIntoConstraints = false
@@ -56,7 +56,7 @@ class CloudDeleteInfoScreenView: UIStackView {
     
     let labelVideos: UILabel = {
         let label = UILabel()
-        label.text = "Videos"
+        label.text = L10n.text("videos", fallback: "Videos")
         label.textAlignment = .left
         label.font = UIFont.preferredFont(forTextStyle: .title3).bold()
 //        label.translatesAutoresizingMaskIntoConstraints = false
@@ -65,7 +65,7 @@ class CloudDeleteInfoScreenView: UIStackView {
     
     let labelFiles: UILabel = {
         let label = UILabel()
-        label.text = "Files"
+        label.text = L10n.text("files", fallback: "Files")
         label.textAlignment = .left
         label.font = UIFont.preferredFont(forTextStyle: .title3).bold()
 //        label.translatesAutoresizingMaskIntoConstraints = false
@@ -74,7 +74,10 @@ class CloudDeleteInfoScreenView: UIStackView {
     
     let labelVoices: UILabel = {
         let label = UILabel()
-        label.text = "Voice messages"
+        label.text = L10n.text(
+            "cloud_storage__cleanup__voice_messages",
+            fallback: "Voice messages"
+        )
         label.textAlignment = .left
         label.font = UIFont.preferredFont(forTextStyle: .title3).bold()
 //        label.translatesAutoresizingMaskIntoConstraints = false

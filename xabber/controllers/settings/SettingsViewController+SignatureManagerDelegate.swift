@@ -32,7 +32,7 @@ extension SettingsViewController: SignatureManagerDelegate {
     func retrieveCertificate(with error: Error?) {
         if let error = error {
             DispatchQueue.main.async {
-                self.view.makeToast("Internal error")
+                self.view.makeToast(L10n.text("common__error__internal", fallback: "Internal error"))
             }
         } else {
             DispatchQueue.main.async {

@@ -69,7 +69,7 @@ class ContactFingerprintsViewController: SimpleBaseViewController {
     }()
     
     internal let skipButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(title: "Skip", style: .plain, target: nil, action: nil)
+        let button = UIBarButtonItem(title: L10n.text("skip", fallback: "Skip"), style: .plain, target: nil, action: nil)
         
         return button
     }()
@@ -101,7 +101,7 @@ class ContactFingerprintsViewController: SimpleBaseViewController {
         self.tableView.delegate = self
         self.tableView.dataSource = self
         if !isFromOnboarding {
-            self.skipButton.title = "Cancel"
+            self.skipButton.title = L10n.text("common__action__cancel", fallback: "Cancel")
         }
 //        self.navigationItem.setRightBarButton(skipButton, animated: true)
         skipButton.target = self
@@ -253,8 +253,8 @@ extension ContactFingerprintsViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch section {
-        case 0: return "Certificate"
-        case 1: return "Signature"
+        case 0: return L10n.text("contact_fingerprints_view_controller_swift__table_section_title__certificate", fallback: "Certificate")
+        case 1: return L10n.text("contact_fingerprints_view_controller_swift__table_section_title__signature", fallback: "Signature")
         default: return nil
         }
     }

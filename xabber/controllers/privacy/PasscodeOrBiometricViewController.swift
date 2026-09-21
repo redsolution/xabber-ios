@@ -50,7 +50,7 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
     private let titleLabel: UILabel = {
         let label = UILabel()
         
-        label.text = "Enter passcode"
+        label.text = L10n.text("passcode__content__enter_passcode", fallback: "Enter passcode")
         label.font = UIFont.systemFont(ofSize: 23, weight: .regular)
         label.textColor = .label
         label.textAlignment = .center
@@ -395,7 +395,11 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
                 self.subtitleLabel.text = "Connecting...".localizeString(id: "account_state_connecting", arguments: [])
                 self.keyboardButtons[9].isEnabled = false
             } else {
-                self.subtitleLabel.text = self.showAttempts ? "\(self.attempts + self.fakeAttempts) attempts left" : ""
+                self.subtitleLabel.text = self.showAttempts ? L10n.plural(
+                    "passcode_or_biometric__text__value_attempts_left",
+                    count: self.attempts + self.fakeAttempts,
+                    fallback: "%lld attempts left"
+                ) : ""
                 self.keyboardButtons[9].isEnabled = true
             }
         }
@@ -437,8 +441,8 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
         if (SettingManager.shared.getKeyBool(for: "", scope: .security, key: "support_touch_id") ?? false) {
             FeedbackManager.shared.tap()
             let context = LAContext()
-            context.localizedCancelTitle = "Enter passcode"
-            let reason = "Unlock \(CommonConfigManager.shared.config.app_name)"
+            context.localizedCancelTitle = L10n.text("passcode__content__enter_passcode", fallback: "Enter passcode")
+            let reason = L10n.format("passcode__biometrics__unlock_app_format", fallback: "Unlock %@", arguments: [String(describing: CommonConfigManager.shared.config.app_name)])
             context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason ) { success, error in
                 if success {
                     CredentialsManager.shared.updateOnlyPincodeTimestamp()
@@ -449,7 +453,7 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
             }
         } else {
             FeedbackManager.shared.errorFeedback()
-            self.view.makeToast("Touch Id not supported")
+            self.view.makeToast(L10n.text("passcode__biometrics__unsupported_toast", fallback: "Touch ID is not supported."))
         }
     }
     
@@ -488,7 +492,7 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
                 self.onUnlockSucceeded?()
             }
         } else {
-            self.view.makeToast("Internal error")
+            self.view.makeToast(L10n.text("common__error__internal", fallback: "Internal error"))
         }
     }
     
@@ -538,7 +542,7 @@ class PasscodeOrBiometricViewController: SimpleBaseViewController {
                     (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = navigationController
                     
                     let alert = UIAlertController(title: nil, message: messageText, preferredStyle: .alert)
-                    let action = UIAlertAction(title: "OK", style: .default)
+                    let action = UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default)
                     alert.addAction(action)
                     vc.present(alert, animated: true, completion: nil)
                 }

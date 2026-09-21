@@ -426,9 +426,15 @@ enum LastChatListSyncPreviewParser {
                 arguments: []
             )
         } else if isSystemMessage {
-            text = "System message"
+            text = L10n.text(
+                "chat_list__preview__system_message",
+                fallback: "System message"
+            )
         } else {
-            text = "Message"
+            text = L10n.text(
+                "chat_list__preview__message",
+                fallback: "Message"
+            )
         }
 
         return LastChatListSyncPreviewProjection(

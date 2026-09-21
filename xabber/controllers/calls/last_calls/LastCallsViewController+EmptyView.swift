@@ -85,7 +85,7 @@ extension LastCallsViewController {
             stack.addArrangedSubview(UIStackView())
             centerStack.addArrangedSubview(titleLabel)
 //            centerStack.addArrangedSubview(newChatButton)
-            titleLabel.text = "Under construction"
+            titleLabel.text = L10n.text("calls__empty_state__under_construction", fallback: "Under construction")
             titleLabel.text = "You don't have any calls".localizeString(id: "chat_no_calls_hint", arguments: [])
             newChatButton.setTitle("Add someone to your contacts, then send some messages."
                                     .localizeString(id: "chat_add_contacts_hint",

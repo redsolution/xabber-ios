@@ -70,9 +70,13 @@ enum AppearanceInterfaceStyle: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .system: return "System"
-        case .light: return "Light"
-        case .dark: return "Dark"
+        case .system:
+            return L10n.text(
+                "appearance__interface_style__system",
+                fallback: "System"
+            )
+        case .light: return L10n.text("appearance__interface_style__light", fallback: "Light")
+        case .dark: return L10n.text("appearance__interface_style__dark", fallback: "Dark")
         }
     }
 }
@@ -107,7 +111,7 @@ enum AppearanceTextSize: String, Codable, CaseIterable {
     }
 
     var displayName: String {
-        points.map { "\($0) pt" } ?? "System"
+        points.map { L10n.format("appearance__text_size__points_format", fallback: "%1$@ pt", arguments: [String(describing: $0)]) } ?? L10n.text("appearance__text_size__system", fallback: "System")
     }
 }
 
@@ -126,6 +130,21 @@ enum AppearanceBubbleStyle: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
+        case .noTail: return L10n.text("appearance__bubble_style__no_tail", fallback: "No tail")
+        case .smooth: return L10n.text("appearance__bubble_style__smooth", fallback: "Smooth")
+        case .bubble: return L10n.text("appearance__bubble_style__bubble", fallback: "Bubble")
+        case .bubbles: return L10n.text("appearance__bubble_style__bubbles", fallback: "Bubbles")
+        case .curvy: return L10n.text("appearance__bubble_style__curvy", fallback: "Curvy")
+        case .stripes: return L10n.text("appearance__bubble_style__stripes", fallback: "Stripes")
+        case .transparent: return L10n.text("appearance__bubble_style__transparent", fallback: "Transparent")
+        case .wedge: return L10n.text("appearance__bubble_style__wedge", fallback: "Wedge")
+        }
+    }
+
+    /// Stable value mirrored to legacy defaults. It must not change with the
+    /// in-app language because older builds use these English tokens as IDs.
+    var legacyName: String {
+        switch self {
         case .noTail: return "No tail"
         case .smooth: return "Smooth"
         case .bubble: return "Bubble"
@@ -141,7 +160,7 @@ enum AppearanceBubbleStyle: String, Codable, CaseIterable {
         let normalized = legacyName?.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         self = Self.allCases.first {
-            $0.displayName.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) == normalized
+            $0.legacyName.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) == normalized
         } ?? .noTail
     }
 }
@@ -159,7 +178,15 @@ enum AppearanceAvatarMask: String, Codable, CaseIterable {
     static let premiumCases: [AppearanceAvatarMask] = [.star, .pentagon, .octagon]
 
     var displayName: String {
-        rawValue.replacingOccurrences(of: "_", with: " ").capitalized
+        switch self {
+        case .circle: return L10n.text("appearance__avatar_mask__circle", fallback: "Circle")
+        case .rounded: return L10n.text("appearance__avatar_mask__rounded", fallback: "Rounded")
+        case .square: return L10n.text("appearance__avatar_mask__square", fallback: "Square")
+        case .roundedSquare: return L10n.text("appearance__avatar_mask__rounded_square", fallback: "Rounded Square")
+        case .star: return L10n.text("appearance__avatar_mask__star", fallback: "Star")
+        case .pentagon: return L10n.text("appearance__avatar_mask__pentagon", fallback: "Pentagon")
+        case .octagon: return L10n.text("appearance__avatar_mask__octagon", fallback: "Octagon")
+        }
     }
 }
 
@@ -167,7 +194,20 @@ enum AppearanceAvatarPosition: String, Codable, CaseIterable {
     case top
     case bottom
 
-    var displayName: String { rawValue.capitalized }
+    var displayName: String {
+        switch self {
+        case .top: return L10n.text("appearance__avatar_position__top", fallback: "Top")
+        case .bottom: return L10n.text("appearance__avatar_position__bottom", fallback: "Bottom")
+        }
+    }
+
+    /// Stable value mirrored to legacy defaults. See `AppearanceBubbleStyle.legacyName`.
+    var legacyName: String {
+        switch self {
+        case .top: return "Top"
+        case .bottom: return "Bottom"
+        }
+    }
 }
 
 struct CloudWallpaperReference: Codable, Equatable, Hashable {
@@ -212,6 +252,22 @@ enum AppearanceWallpaper: Codable, Equatable, Hashable {
         case .cloud: return "None"
         }
     }
+
+    /// User-facing name for a stable built-in wallpaper asset identifier.
+    /// Unknown values belong to user/server data and are returned untouched.
+    static func displayName(forAssetName name: String) -> String {
+        switch name {
+        case "None": return L10n.text("appearance__wallpaper__none", fallback: "None")
+        case "Honeycomb": return L10n.text("appearance__wallpaper__honeycomb", fallback: "Honeycomb")
+        case "Aliens": return L10n.text("appearance__wallpaper__aliens", fallback: "Aliens")
+        case "Summer": return L10n.text("appearance__wallpaper__summer", fallback: "Summer")
+        case "Cats": return L10n.text("appearance__wallpaper__cats", fallback: "Cats")
+        case "Flowers": return L10n.text("appearance__wallpaper__flowers", fallback: "Flowers")
+        case "Flowers-daisy": return L10n.text("appearance__wallpaper__daisies", fallback: "Daisies")
+        case "Hearts": return L10n.text("appearance__wallpaper__hearts", fallback: "Hearts")
+        default: return name
+        }
+    }
 }
 
 struct AppearancePalette: Codable, Equatable, Hashable {
@@ -252,6 +308,11 @@ struct AppearanceTheme: Codable, Equatable, Hashable, Identifiable {
     var lightPalette: AppearancePalette
     var darkPalette: AppearancePalette
     var wallpaper: AppearanceWallpaper
+
+    var displayName: String {
+        guard isBuiltIn else { return name }
+        return AppearanceThemeCatalog.displayName(forBuiltInID: id) ?? name
+    }
 
     func palette(for style: UIUserInterfaceStyle) -> AppearancePalette {
         style == .dark ? darkPalette : lightPalette
@@ -302,6 +363,22 @@ enum AppearanceThemeCatalog {
             )
         }
     }()
+
+    /// User-facing name for a stable built-in theme identifier. Custom theme
+    /// names remain user data and are never passed through localization.
+    static func displayName(forBuiltInID id: String) -> String? {
+        switch id {
+        case "builtin.purple": return L10n.text("appearance__theme__classic", fallback: "Classic")
+        case "builtin.darkRed": return L10n.text("appearance__theme__ember", fallback: "Ember")
+        case "builtin.lightRed": return L10n.text("appearance__theme__rose", fallback: "Rose")
+        case "builtin.yellowOrange": return L10n.text("appearance__theme__sunset", fallback: "Sunset")
+        case "builtin.yellowBlue": return L10n.text("appearance__theme__lagoon", fallback: "Lagoon")
+        case "builtin.lightGreen": return L10n.text("appearance__theme__mint", fallback: "Mint")
+        case "builtin.greenBlue": return L10n.text("appearance__theme__ocean", fallback: "Ocean")
+        case "builtin.lightBlue": return L10n.text("appearance__theme__sky", fallback: "Sky")
+        default: return nil
+        }
+    }
 
     static func theme(id: String, customThemes: [AppearanceTheme]) -> AppearanceTheme {
         (builtInThemes + customThemes).first(where: { $0.id == id }) ?? builtInThemes[0]
@@ -589,9 +666,9 @@ final class AppearanceSettingsStore: AppearanceSettingsStoring {
     private func mirrorLegacy(profile: AppearanceProfile) {
         defaults.set(profile.themeID.replacingOccurrences(of: "builtin.", with: ""), forKey: "chat_chooseBackgroundColor")
         defaults.set(profile.wallpaper.legacyName, forKey: "chat_chooseBackground")
-        defaults.set(profile.bubbleStyle.displayName, forKey: "message_corner_style")
+        defaults.set(profile.bubbleStyle.legacyName, forKey: "message_corner_style")
         defaults.set(String(profile.bubbleRadius), forKey: "message_corner_radius")
-        defaults.set(profile.avatarPosition.displayName, forKey: "avatar_chat_vertical_position")
+        defaults.set(profile.avatarPosition.legacyName, forKey: "avatar_chat_vertical_position")
         defaults.set(profile.avatarMask.rawValue, forKey: "avatar_masks_current_avatar_mask_")
     }
 

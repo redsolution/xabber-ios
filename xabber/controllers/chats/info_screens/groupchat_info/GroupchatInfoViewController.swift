@@ -30,6 +30,46 @@ enum GroupchatInfoAccessibilityIdentifiers {
     static let searchButton = ChatSearchAccessibilityIdentifier.groupInfoEntry
 }
 
+enum GroupchatInfoCountLocalization {
+    static func members(_ count: Int) -> String {
+        L10n.plural(
+            "groupchat_info__count__members",
+            count: count,
+            fallback: "%lld members"
+        )
+    }
+
+    static func online(_ count: Int) -> String {
+        L10n.plural(
+            "groupchat_info__count__online",
+            count: count,
+            fallback: "%lld online"
+        )
+    }
+
+    static func sectionTitle(members: Int, online: Int) -> String {
+        let memberSummary = self.members(members)
+        guard online > 0 else { return memberSummary }
+        return L10n.format(
+            "groupchat_info__count__summary_format",
+            fallback: "%1$@, %2$@",
+            arguments: [memberSummary, self.online(online)]
+        )
+    }
+
+    static func subtitle(members: Int, online: Int) -> String {
+        let formatter = L10n.formatters.numberFormatter(style: .decimal)
+        let memberCount = formatter.string(from: NSNumber(value: members))
+            ?? String(members)
+        guard online > 0 else { return memberCount }
+        return L10n.format(
+            "groupchat_info__count__subtitle_format",
+            fallback: "%1$@ (%2$@)",
+            arguments: [memberCount, self.online(online)]
+        )
+    }
+}
+
 final class GroupchatInfoViewController: SimpleBaseViewController {
     final class Datasource: DiffAware, Equatable, Hashable {
         enum Kind { case text, info, contact, button, danger, jid }
@@ -158,15 +198,15 @@ final class GroupchatInfoViewController: SimpleBaseViewController {
 
         headerView.configureButtons {
             let write = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            write.configure(icon: "bubble", title: "Chat")
+            write.configure(icon: "bubble", title: L10n.text("contact_bar_chat", fallback: "Chat"))
             write.addTarget(self, action: #selector(self.onWriteButtonTouchUpInside), for: .touchUpInside)
 
             let invite = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            invite.configure(icon: "xabber.person.plus", title: "Invite")
+            invite.configure(icon: "xabber.person.plus", title: L10n.text("groupchat_invite", fallback: "Invite"))
             invite.addTarget(self, action: #selector(self.onInviteButtonTouchUpInside), for: .touchUpInside)
 
             let sound = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            sound.configure(icon: "bell", title: "Sound", forceStrong: false)
+            sound.configure(icon: "bell", title: L10n.text("events_sound", fallback: "Sound"), forceStrong: false)
             sound.addTarget(self, action: #selector(self.onNotifyButtonTouchUpInside), for: .touchUpInside)
 
             let leave = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
@@ -330,16 +370,17 @@ final class GroupchatInfoViewController: SimpleBaseViewController {
                 ),
                 Datasource(.text, title: "Set status".localizeString(id: "status_editor", arguments: []), key: "gc_set_status")
             ]),
-            Datasource(.text, title: "Circles", childs: [
+            Datasource(.text, title: L10n.text("contact_circle", fallback: "Circles"), childs: [
                 Datasource(.button, title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "gc_circles")
             ]),
             Datasource(.text, title: "", key: "section_members", childs: [
                 Datasource(
                     .button,
-                    title: "Members",
-                    subtitle: onlineContacts > 0
-                        ? "\(membersCount) (\(onlineContacts) online)"
-                        : "\(membersCount)",
+                    title: L10n.text("group_settings__members_list__header", fallback: "Members"),
+                    subtitle: GroupchatInfoCountLocalization.subtitle(
+                        members: membersCount,
+                        online: onlineContacts
+                    ),
                     key: "members"
                 )
             ])
@@ -347,10 +388,10 @@ final class GroupchatInfoViewController: SimpleBaseViewController {
 
         let mediaCounts = localMediaCounts()
         result.append(Datasource(.text, title: "", key: "chat_files", childs: [
-            Datasource(.button, title: "Images", subtitle: String(mediaCounts.images), key: "images"),
-            Datasource(.button, title: "Videos", subtitle: String(mediaCounts.videos), key: "videos"),
-            Datasource(.button, title: "Files", subtitle: String(mediaCounts.files), key: "files"),
-            Datasource(.button, title: "Voice", subtitle: String(mediaCounts.voice), key: "voice")
+            Datasource(.button, title: L10n.text("images", fallback: "Images"), subtitle: String(mediaCounts.images), key: "images"),
+            Datasource(.button, title: L10n.text("videos", fallback: "Videos"), subtitle: String(mediaCounts.videos), key: "videos"),
+            Datasource(.button, title: L10n.text("files", fallback: "Files"), subtitle: String(mediaCounts.files), key: "files"),
+            Datasource(.button, title: L10n.text("voice", fallback: "Voice messages"), subtitle: String(mediaCounts.voice), key: "voice")
         ]))
         result.append(Datasource(.text, title: "Safety".localizeString(id: "report_safety_section", arguments: []), childs: [
             Datasource(.button, title: "Report Room".localizeString(id: "report_room_action", arguments: []), icon: "exclamationmark.circle", key: "report_room")
@@ -362,13 +403,8 @@ final class GroupchatInfoViewController: SimpleBaseViewController {
         let subtitle: String
         if membersCount == 0 {
             subtitle = "No members".localizeString(id: "groupchats_no_members", arguments: [])
-        } else if membersCount == 1 {
-            subtitle = "1 member".localizeString(id: "groupchats_one_member", arguments: [])
         } else {
-            subtitle = "\(membersCount) members".localizeString(
-                id: "groupchats_some_members",
-                arguments: ["\(membersCount)"]
-            )
+            subtitle = GroupchatInfoCountLocalization.members(membersCount)
         }
         headerView.configure(
             avatarUrl: snapshot.info?.avatar?.url,

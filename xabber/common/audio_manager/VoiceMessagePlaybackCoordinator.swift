@@ -480,7 +480,7 @@ final class VoiceMessagePlaybackCoordinator {
 
     private func startPlayback(_ descriptor: VoiceMessageDescriptor) {
         guard let url = descriptor.decodedURL ?? descriptor.remoteURL else {
-            setState(.failed(error: "Audio file is unavailable"), for: descriptor)
+            setState(.failed(error: L10n.text("voice_message__playback__file_unavailable", fallback: "Audio file is unavailable")), for: descriptor)
             return
         }
         stopPreviousPlaybackIfNeeded(except: descriptor.referencePrimary)

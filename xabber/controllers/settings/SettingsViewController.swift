@@ -70,32 +70,30 @@ struct SettingsCloudStorageQuotaDisplayState: Equatable {
         }
 
         if lastRefreshFailed || !isAvailable {
-            return state("Unavailable")
+            return state(L10n.text("settings__content__unavailable", fallback: "Unavailable"))
         }
 
         if isRefreshing {
-            return state("Updating...")
+            return state(L10n.text("settings__content__updating", fallback: "Updating..."))
         }
 
-        return state("Updating...")
+        return state(L10n.text("settings__content__updating", fallback: "Updating..."))
     }
 
     private static func maximumQuotaText(quotaBytes: Int) -> String {
         guard quotaBytes >= 0 else {
-            return "Unlimited"
+            return L10n.text("simple__text__unlimited", fallback: "Unlimited")
         }
         guard quotaBytes > 0 else {
-            return "0 MB"
+            return L10n.text("settings__cloud_storage__zero_quota", fallback: "0 MB")
         }
 
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useMB, .useGB]
-        formatter.countStyle = .decimal
-        return formatter
+        return L10n.formatters
+            .byteCountFormatter(
+                countStyle: .decimal,
+                allowedUnits: [.useMB, .useGB]
+            )
             .string(fromByteCount: Int64(quotaBytes))
-            .replacingOccurrences(of: ",", with: ".")
-            .replacingOccurrences(of: "ГБ", with: "GB")
-            .replacingOccurrences(of: "МБ", with: "MB")
     }
 }
 
@@ -152,7 +150,7 @@ enum SettingsAccountProfileMenuFactory {
             ),
             SettingsViewController.Datasource(
                 section: .profile,
-                title: "Profile",
+                title: L10n.text("settings__title__profile", fallback: "Profile"),
                 icon: "custom.person.square.fill",
                 color: .systemBlue,
                 key: .accountVcard
@@ -171,7 +169,7 @@ enum SettingsAccountProfileMenuFactory {
             primaryRows.append(
                 SettingsViewController.Datasource(
                     section: .profile,
-                    title: "Account color",
+                    title: L10n.text("settings__title__account_color", fallback: "Account color"),
                     icon: "custom.paintpalette.square.fill",
                     color: .systemIndigo,
                     key: .accountColor
@@ -348,7 +346,7 @@ class SettingsViewController: BaseViewController {
                 case .premium:
                     return ""
                 case .premiumFeatures:
-                    return "Premium Features"
+                    return L10n.text("settings__section__premium_features", fallback: "Premium Features")
                 case .xmppAccounts:
                     return "XMPP Accounts".localizeString(id: "xmpp_accounts", arguments: [])
                 case .interface:
@@ -360,43 +358,43 @@ class SettingsViewController: BaseViewController {
                 case .about:
                     return "About".localizeString(id: "about", arguments: [])
                 case .appearance:
-                    return "Appearance"
+                    return L10n.text("settings__menu_item__appearance", fallback: "Appearance")
                 case .chat:
-                    return "Chat"
+                    return L10n.text("account_settings_chat", fallback: "Chat")
                 case .contactList:
-                    return "Contact list"
+                    return L10n.text("category_contact_list", fallback: "Contact list")
                 case .chats:
-                    return "Chats"
+                    return L10n.text("settings__section__chats", fallback: "Chats")
                 case .calls:
-                    return "Calls"
+                    return L10n.text("settings__section__calls", fallback: "Calls")
                 case .attentionCalls:
-                    return "Attention calls"
+                    return L10n.text("settings__section__attention_calls", fallback: "Attention calls")
                 case .badgeCounter:
-                    return "Badge counter"
+                    return L10n.text("settings__section__badge_counter", fallback: "Badge counter")
                 case .inAppNotifications:
-                    return "In-app notifications"
+                    return L10n.text("account_settings_in_app_notifications", fallback: "In-app notifications")
                 case .exceptions:
-                    return "Exceptions"
+                    return L10n.text("settings__section__exceptions", fallback: "Exceptions")
                 case .privacy:
                     return "Privacy".localizeString(id: "privacy", arguments: [])
                 case .security:
-                    return "Security"
+                    return L10n.text("settings__section__security", fallback: "Security")
                 case .subscriptions:
-                    return "Subscriptions"
+                    return L10n.text("settings__section__subscriptions", fallback: "Subscriptions")
                 case .accountSettings:
-                    return "Account settings"
+                    return L10n.text("account_editor", fallback: "Account settings")
                 case .status:
-                    return "Status"
+                    return L10n.text("settings_account__label_status", fallback: "Status")
                 case .profile:
-                    return "Profile"
+                    return L10n.text("settings__title__profile", fallback: "Profile")
                 case .server:
-                    return "Server"
+                    return L10n.text("account_server_name", fallback: "Server")
                 case .autolock:
-                    return "Auto-Lock"
+                    return L10n.text("settings__title__auto_lock", fallback: "Auto-Lock")
                 case .delete:
                     return "Delete account".localizeString(id: "account_delete", arguments: [])
                 case .afterburn:
-                    return "Burning messages"
+                    return L10n.text("settings__section__burning_messages", fallback: "Burning messages")
                 default:
                     return ""
                 }
@@ -407,7 +405,7 @@ class SettingsViewController: BaseViewController {
                 case .security:
                     return ""
                 case .delete:
-                    return "This action will delete the account from the server."
+                    return L10n.text("settings__account_delete__server_warning", fallback: "This action will delete the account from the server.")
                 default:
                     return ""
                 }
@@ -812,7 +810,7 @@ class SettingsViewController: BaseViewController {
             cloudStorageHasCachedQuota = true
             cloudStorageQuotaBytes = item.quotaBytes
             used = item.total
-            quota = item.quotaBytes < 0 ? "Unlimited" : item.quota
+            quota = item.quotaBytes < 0 ? L10n.text("simple__text__unlimited", fallback: "Unlimited") : item.quota
         } else {
             cloudStorageHasCachedQuota = false
             cloudStorageQuotaBytes = 0
@@ -1037,14 +1035,14 @@ class SettingsViewController: BaseViewController {
             )
             if CommonConfigManager.shared.config.should_block_application_when_subscribtion_end {
                 datasource.append(Datasource(section: .accountSettings, childs: [
-                    Datasource(section: .accountSettings, title: "Profile, status, password", icon: "custom.person.square.fill", color: UIColor.systemBlue, viewController: SimpleTableViewController.self, childs: profileSections),
-                    Datasource(section: .accountSettings, title: "Devices", icon: "custom.desktopcomputer.square.fill", color: UIColor.systemBlue, key: .accountSessions),
+                    Datasource(section: .accountSettings, title: L10n.text("settings__title__profile_status_password", fallback: "Profile, status, password"), icon: "custom.person.square.fill", color: UIColor.systemBlue, viewController: SimpleTableViewController.self, childs: profileSections),
+                    Datasource(section: .accountSettings, title: L10n.text("settings__title__devices", fallback: "Devices"), icon: "custom.desktopcomputer.square.fill", color: UIColor.systemBlue, key: .accountSessions),
 //                    Datasource(section: .accountSettings, title: "Subscriptions", icon: "xabber.lightbulb.square.fill", color: UIColor.systemBlue, key: .subscriptions)
                 ]))
             } else {
                 datasource.append(Datasource(section: .accountSettings, childs: [
-                    Datasource(section: .accountSettings, title: "Profile, status, password", icon: "custom.person.square.fill", color: UIColor.systemBlue, viewController: SimpleTableViewController.self, childs: profileSections),
-                    Datasource(section: .accountSettings, title: "Devices", icon: "custom.desktopcomputer.square.fill", color: UIColor.systemBlue, key: .accountSessions),
+                    Datasource(section: .accountSettings, title: L10n.text("settings__title__profile_status_password", fallback: "Profile, status, password"), icon: "custom.person.square.fill", color: UIColor.systemBlue, viewController: SimpleTableViewController.self, childs: profileSections),
+                    Datasource(section: .accountSettings, title: L10n.text("settings__title__devices", fallback: "Devices"), icon: "custom.desktopcomputer.square.fill", color: UIColor.systemBlue, key: .accountSessions),
 //                    Datasource(section: .accountSettings, title: "Subscriptions", icon: "xabber.lightbulb.square.fill", color: UIColor.systemBlue, key: .subscriptions)
                 ]))
             }
@@ -1052,7 +1050,7 @@ class SettingsViewController: BaseViewController {
             if AccountManager.shared.find(for: self.jid)?.cloudStorage.isAvailable() ?? false {
                 let item = Datasource(
                     section: .accountSettings,
-                    title: "Cloud storage",
+                    title: L10n.text("settings__title__cloud_storage", fallback: "Cloud storage"),
                     icon: SettingsCloudStorageQuotaDisplayState.basicIconName,
                     color: UIColor.systemBlue,
                     key: .manageStorage
@@ -1107,21 +1105,21 @@ class SettingsViewController: BaseViewController {
         var premiumFeatures: [Datasource] = []
         if CommonConfigManager.shared.config.support_xabber_account || CommonConfigManager.shared.config.support_subscribtions {
             premiumFeatures.append(
-                Datasource(section: .accountSettings, title: "Premium", icon: "star.square.fill", color: MDCPalette.deepPurple.tint500, key: .premium)
+                Datasource(section: .accountSettings, title: L10n.text("settings__title__premium", fallback: "Premium"), icon: "star.square.fill", color: MDCPalette.deepPurple.tint500, key: .premium)
             )
         }
         if PasscodeLockPolicy.shouldShowSettingsEntry {
             premiumFeatures.append(
-                Datasource(section: .premiumFeatures, title: "Passcode Lock", icon:"custom.hand.raised.square.fill", color: UIColor.systemOrange, premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
-                    Datasource(section: .security, subtitle: "Protect the app with a passcode. If you forget it, you will need to reinstall the app.", childs: [
-                        Datasource(section: .security, title: "Change Passcode", key: .changePasscode),
-                        Datasource(section: .security, title: "Biometrics", key: .turnBiometricsOnOff),
-                        Datasource(section: .security, title: "Turn Passcode Off", key: .turnPasscodeOff)
+                Datasource(section: .premiumFeatures, title: L10n.text("settings__title__passcode_lock", fallback: "Passcode Lock"), icon:"custom.hand.raised.square.fill", color: UIColor.systemOrange, premiumOnly: true, viewController: SimpleTableViewController.self, childs: [
+                    Datasource(section: .security, subtitle: L10n.text("settings__passcode__warning", fallback: "Protect the app with a passcode. If you forget it, you will need to reinstall the app."), childs: [
+                        Datasource(section: .security, title: L10n.text("settings__title__change_passcode", fallback: "Change Passcode"), key: .changePasscode),
+                        Datasource(section: .security, title: L10n.text("settings__title__biometrics", fallback: "Biometrics"), key: .turnBiometricsOnOff),
+                        Datasource(section: .security, title: L10n.text("settings__title__turn_passcode_off", fallback: "Turn Passcode Off"), key: .turnPasscodeOff)
                     ]),
                     Datasource(section: .autolock, childs: [
-                        Datasource(section: .autolock, title: "Auto-Lock", key: .passcodeTimer),
-                        Datasource(section: .autolock, title: "Attempts", key: .passcodeAttempts),
-                        Datasource(section: .autolock, title: "Show attempts left", itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
+                        Datasource(section: .autolock, title: L10n.text("settings__title__auto_lock", fallback: "Auto-Lock"), key: .passcodeTimer),
+                        Datasource(section: .autolock, title: L10n.text("settings__title__attempts", fallback: "Attempts"), key: .passcodeAttempts),
+                        Datasource(section: .autolock, title: L10n.text("settings__title__show_attempts_left", fallback: "Show attempts left"), itemType: .toggle, toggle: (dict[Datasource.Keys.showAttempts.rawValue] as? Bool) ?? false, key: .showAttempts)
                     ])
                 ], key: .passcode)
             )
@@ -1131,7 +1129,7 @@ class SettingsViewController: BaseViewController {
         }
         if CommonConfigManager.shared.config.use_yubikey {
             datasource.append(Datasource(section: .security, title: Datasource.Section.security.description(), subtitle: Datasource.Section.security.secondaryDescription(), childs: [
-                    Datasource(section: .security, title: "Yubikey signature", icon: "custom.key.square.fill", color: UIColor.systemOrange, viewController: YubikeySetupViewController.self, key: .yubikey),
+                    Datasource(section: .security, title: L10n.text("settings__title__yubikey_signature", fallback: "YubiKey signature"), icon: "custom.key.square.fill", color: UIColor.systemOrange, viewController: YubikeySetupViewController.self, key: .yubikey),
                 ]))
         }
         datasource.append(Datasource(section: .premiumFeatures, title: "", childs: [

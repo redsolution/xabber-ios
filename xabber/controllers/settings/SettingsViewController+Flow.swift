@@ -93,7 +93,7 @@ extension SettingsViewController {
 
     internal func showSettings(by key: String?) {
         guard let key else {
-            self.view.makeToast("Feature is non implemented")
+            self.view.makeToast(L10n.text("settings__feature__not_implemented_toast", fallback: "This feature is not implemented."))
             return
         }
         if key == SettingsViewController.Datasource.Keys.languages.rawValue {
@@ -104,7 +104,7 @@ extension SettingsViewController {
             return
         }
         guard let datasource = SettingManager.shared.getDatasource(by: key) else {
-            self.view.makeToast("Feature is non implemented")
+            self.view.makeToast(L10n.text("settings__feature__not_implemented_toast", fallback: "This feature is not implemented."))
             return
         }
         let vc = SettingsItemDetailViewController()

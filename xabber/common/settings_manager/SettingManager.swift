@@ -216,7 +216,7 @@ open class SettingManager: NSObject {
                                                label: "Notifications".localizeString(id: "account_settings_notificaions", arguments: []),
                                                kind: .title,
                                                childs: [Datasource(key: "notification_in_app",
-                                                                   label: "In-App notifications".localizeString(id: "account_settings_in_app_notifications", arguments: []),
+                                                                   label: "In-app notifications".localizeString(id: "account_settings_in_app_notifications", arguments: []),
                                                                    kind: .group,
                                                                    childs: [Datasource(key: "notification_in_app_alert_last_chats",
                                                                                        label: "On chats screen message preview".localizeString(id: "account_settings_chat_message_preview", arguments: []),

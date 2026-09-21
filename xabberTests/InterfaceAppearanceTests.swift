@@ -76,6 +76,13 @@ final class InterfaceAppearanceTests: XCTestCase {
         XCTAssertEqual(profile.avatarMask, .pentagon)
     }
 
+    func testLocalizedAppearanceLabelsKeepLegacyPersistenceTokensStable() {
+        XCTAssertEqual(AppearanceBubbleStyle.noTail.legacyName, "No tail")
+        XCTAssertEqual(AppearanceBubbleStyle.smooth.legacyName, "Smooth")
+        XCTAssertEqual(AppearanceAvatarPosition.top.legacyName, "Top")
+        XCTAssertEqual(AppearanceAvatarPosition.bottom.legacyName, "Bottom")
+    }
+
     func testCorruptedPayloadFallsBackWithoutCrashing() {
         defaults.set(Data("{broken".utf8), forKey: AppearanceSettingsStore.storageKey)
 

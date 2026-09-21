@@ -54,7 +54,7 @@ extension Account {
             AccountManager.shared.markAsConnected(jid: self.jid)
 //            self.presence()
             DispatchQueue.main.async {
-                ToastPresenter().presentSuccess(message: "SM did resume")
+                ToastPresenter().presentSuccess(message: L10n.text("connection__stream_management__sm_did_resume", fallback: "Session resumed"))
             }
             _ = self.syncManager.sync(self.xmppStream)
             self.cloudStorage.resumeAvailabilityWorkIfNeeded(
@@ -63,14 +63,14 @@ extension Account {
             )
         } else {
             DispatchQueue.main.async {
-                ToastPresenter().present(message: "Synchronization", image: imageLiteral("cloud"))
+                ToastPresenter().present(message: L10n.text("account_sync", fallback: "Synchronization"), image: imageLiteral("cloud"))
             }
             self.configureExtensions()
             self.recoverCanonicalGroupRuntimeAfterFullAuthentication()
             self.disco.configure(self.xmppStream)
             if self.roster.version != nil {
                 if self.syncManager.isAvailable {
-                    self.statusMessage.accept("Synchronization")
+                    self.statusMessage.accept(L10n.text("account_sync", fallback: "Synchronization"))
                 }
             }
             self.roster.request(self.xmppStream)
@@ -137,7 +137,7 @@ extension Account {
                             if result {
                                 self.statusMessage.accept(error.element(forName: "text")?.stringValue ?? "Offline")
                             } else {
-                                self.statusMessage.accept("Subscription expired")
+                                self.statusMessage.accept(L10n.text("account__status__subscription_expired", fallback: "Subscription expired"))
                                 DispatchQueue.main.async {
                                     SubscribtionsPresenter().present(animated: true)
                                 }
@@ -151,7 +151,7 @@ extension Account {
 //                        self.tokenWasInvalidated()
 //                        return
 //                    }
-                    self.statusMessage.accept("Incorrect username or password")
+                    self.statusMessage.accept(L10n.text("account__status__incorrect_credentials", fallback: "Incorrect username or password"))
                     if self.jid != AccountManager.shared.newAccountJid {
                         self.tokenShouldUpdate()
                     }
@@ -159,7 +159,7 @@ extension Account {
                         .shared
                         .changeNewUserState(for: self.jid, to: .failure(self.statusMessage.value))
                 default:
-                    self.statusMessage.accept("Offline")
+                    self.statusMessage.accept(L10n.text("account_state_offline", fallback: "Offline"))
                     AccountManager
                         .shared
                         .changeNewUserState(for: self.jid, to: .failure(error.element(forName: "text")?.stringValue ?? "Unknown error"))
@@ -297,7 +297,7 @@ extension Account {
 //            return
 //        }
         if self.syncManager.isAvailable {
-            self.statusMessage.accept("Synchronization")
+            self.statusMessage.accept(L10n.text("account_sync", fallback: "Synchronization"))
         }
         if !self.isSynced,
            !self.syncManager.isAvailable {

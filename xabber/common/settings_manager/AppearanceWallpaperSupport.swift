@@ -131,13 +131,13 @@ enum AppearanceCloudWallpaperError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .accountUnavailable: return "No enabled account is available for Cloud Storage."
-        case .galleryUnavailable: return "Cloud Storage is not ready yet."
-        case .staleGallery: return "The Cloud Storage gallery changed during upload."
-        case .unauthorized: return "Cloud Storage authorization expired."
-        case .quotaExceeded: return "There is not enough Cloud Storage space."
-        case .invalidResponse: return "Cloud Storage returned an invalid response."
-        case .transport(let error): return error?.localizedDescription ?? "Could not upload the wallpaper."
+        case .accountUnavailable: return L10n.text("appearance_wallpaper__localized_error_description__no_enabled_account_is_available_for_cloud_storage", fallback: "No enabled account is available for Cloud Storage.")
+        case .galleryUnavailable: return L10n.text("appearance_wallpaper__localized_error_description__cloud_storage_is_not_ready_yet", fallback: "Cloud Storage is not ready yet.")
+        case .staleGallery: return L10n.text("appearance_wallpaper__localized_error_description__the_cloud_storage_gallery_changed_during_upload", fallback: "The Cloud Storage gallery changed during upload.")
+        case .unauthorized: return L10n.text("appearance_wallpaper__localized_error_description__cloud_storage_authorization_expired", fallback: "Cloud Storage authorization expired.")
+        case .quotaExceeded: return L10n.text("appearance_wallpaper__localized_error_description__there_is_not_enough_cloud_storage_space", fallback: "There is not enough Cloud Storage space.")
+        case .invalidResponse: return L10n.text("appearance_wallpaper__localized_error_description__cloud_storage_returned_an_invalid_response", fallback: "Cloud Storage returned an invalid response.")
+        case .transport(let error): return error?.localizedDescription ?? L10n.text("appearance_wallpaper__localized_error_description__could_not_upload_wallpaper", fallback: "Could not upload the wallpaper.")
         }
     }
 }

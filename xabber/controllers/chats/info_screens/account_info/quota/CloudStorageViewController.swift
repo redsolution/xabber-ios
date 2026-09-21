@@ -79,7 +79,7 @@ enum CloudStorageOverviewCategory: String, CaseIterable {
         switch self {
         case .images: return "Images".localizeString(id: "images", arguments: [])
         case .videos: return "Videos".localizeString(id: "videos", arguments: [])
-        case .voice: return "Voice".localizeString(id: "voice", arguments: [])
+        case .voice: return L10n.text("voice", fallback: "Voice messages")
         case .calls: return "Calls".localizeString(id: "chat_calls_title", arguments: [])
         case .files: return "Files".localizeString(id: "files", arguments: [])
         case .avatars: return "Avatars".localizeString(id: "avatars", arguments: [])
@@ -88,12 +88,12 @@ enum CloudStorageOverviewCategory: String, CaseIterable {
 
     var subtitle: String {
         switch self {
-        case .images: return "Photos and pictures"
-        case .videos: return "Video files"
-        case .voice: return "Voice messages"
-        case .calls: return "Call recordings"
-        case .files: return "Documents and files"
-        case .avatars: return "Account avatars"
+        case .images: return L10n.text("cloud_storage__category__photos_description", fallback: "Photos and pictures")
+        case .videos: return L10n.text("cloud_storage__category__video_files_description", fallback: "Video files")
+        case .voice: return L10n.text("cloud_storage__cleanup__voice_messages", fallback: "Voice messages")
+        case .calls: return L10n.text("cloud_storage__category__call_recordings", fallback: "Call recordings")
+        case .files: return L10n.text("cloud_storage__category__documents_and_files", fallback: "Documents and files")
+        case .avatars: return L10n.text("cloud_storage__category__account_avatars", fallback: "Account avatars")
         }
     }
 
@@ -142,9 +142,9 @@ enum CloudStorageOverviewCategory: String, CaseIterable {
 
     var emptyStateText: String {
         switch self {
-        case .voice: return "No voice messages"
-        case .calls: return "No call recordings"
-        default: return "No \(title.lowercased())"
+        case .voice: return L10n.text("chat_gallery__empty_state__no_voice_messages", fallback: "No voice messages")
+        case .calls: return L10n.text("cloud_storage__empty_state__no_call_recordings", fallback: "No call recordings")
+        default: return L10n.format("cloud_storage__empty_state__no_category_items_format", fallback: "No %@", arguments: [String(describing: title.lowercased())])
         }
     }
 }
@@ -373,7 +373,7 @@ final class CloudStorageCategoryGridCell: UITableViewCell {
         indicator.translatesAutoresizingMaskIntoConstraints = false
 
         let titleLabel = UILabel()
-        titleLabel.text = "Stored in Cloud Storage"
+        titleLabel.text = L10n.text("cloud_storage__overview__stored_in_cloud_storage", fallback: "Stored in Cloud Storage")
         titleLabel.font = .preferredFont(forTextStyle: .headline)
         titleLabel.adjustsFontForContentSizeCategory = true
 
@@ -423,15 +423,15 @@ struct CloudStorageUpsellCardState: Equatable {
     static func resolve(hasActivePremium: Bool) -> CloudStorageUpsellCardState {
         if hasActivePremium {
             return CloudStorageUpsellCardState(
-                title: "Increase storage",
-                body: "Buy external storage space: 100 GB for $5.",
+                title: L10n.text("cloud_storage__overview__increase_storage", fallback: "Increase storage"),
+                body: L10n.text("cloud_storage__body__buy_external_storage_space_100_gb_for_5", fallback: "Buy external storage space: 100 GB for $5."),
                 action: .disabled
             )
         }
 
         return CloudStorageUpsellCardState(
-            title: "Increase storage",
-            body: "Upgrade to Premium to increase your cloud storage capacity and store more media.",
+            title: L10n.text("cloud_storage__overview__increase_storage", fallback: "Increase storage"),
+            body: L10n.text("cloud_storage__body__upgrade_to_premium_to_increase_your_cloud_storage_capacity_and_store_more", fallback: "Upgrade to Premium to increase your cloud storage capacity and store more media."),
             action: .openPremium
         )
     }
@@ -528,7 +528,7 @@ class CloudStorageViewController: BaseViewController {
         ]))
 
         datasource.append(Datasource(.text, title: "", children: [
-            Datasource(.button, title: "Free up space",
+            Datasource(.button, title: L10n.text("cloud_storage__overview__free_up_space", fallback: "Free up space"),
                        key: "delete_files")
         ]))
     }
@@ -750,10 +750,10 @@ class CloudStorageViewController: BaseViewController {
         case .loading:
             tableView.backgroundView = nil
         case .error:
-            label.text = hasQuotaItem ? nil : "Cloud Storage is unavailable."
+            label.text = hasQuotaItem ? nil : L10n.text("cloud_storage__text__cloud_storage_is_unavailable", fallback: "Cloud Storage is unavailable.")
             tableView.backgroundView = label.text == nil ? nil : label
         case .unavailable:
-            label.text = hasQuotaItem ? nil : "Cloud Storage is unavailable."
+            label.text = hasQuotaItem ? nil : L10n.text("cloud_storage__text__cloud_storage_is_unavailable", fallback: "Cloud Storage is unavailable.")
             tableView.backgroundView = label.text == nil ? nil : label
         case .content, .empty, .unlimited:
             tableView.backgroundView = nil

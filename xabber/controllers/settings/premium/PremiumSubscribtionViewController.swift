@@ -51,6 +51,41 @@ enum PremiumEntitlementRefreshState: Equatable {
     case resolved
 }
 
+enum PremiumPeriodLocalization {
+    static func billingCadence(
+        totalMonths: Int,
+        localizer: Localizing
+    ) -> String {
+        if totalMonths >= 12 {
+            return localizer.text(
+                key: "premium__period__billing_cadence_yearly",
+                fallback: "yearly"
+            )
+        }
+        return localizer.plural(
+            key: "premium__period__billing_cadence_months_count",
+            count: totalMonths,
+            fallback: "%lld months"
+        )
+    }
+
+    static func equivalentBilling(
+        monthlyPriceText: String,
+        totalMonths: Int,
+        localizer: Localizing
+    ) -> String {
+        let cadence = billingCadence(
+            totalMonths: totalMonths,
+            localizer: localizer
+        )
+        return localizer.format(
+            key: "premium__period__equivalent_billing_format",
+            fallback: "Equivalent to %1$@/month, billed %2$@",
+            arguments: [monthlyPriceText, cadence]
+        )
+    }
+}
+
 struct PremiumCTAState: Equatable {
     let title: String
     let isEnabled: Bool
@@ -80,36 +115,57 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
     private var periodItems: [PeriodItem] = []
     private var currentAPIProduct: APIProduct?
 
-    private static let fullFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] = [
-        ("archivebox.fill",     .systemBlue,   "Message Archive",          "Complete message history stored securely without automatic deletion."),
-        ("cloud.fill",          .systemOrange, "Extended Cloud Storage",   "Upload and store larger files with increased cloud storage capacity."),
-        ("checkmark.seal.fill", .systemGreen,  "Verification Certificate", "Personal digital certificate to verify your identity in conversations."),
-        ("flame.fill",          .systemRed,    "Burn Messages",            "Set messages to automatically disappear after a chosen time period."),
-        ("lock.shield.fill",    .systemPurple, "Passcode Lock",            "Protect the app with a passcode and option to erase all data on failed attempts."),
-    ]
+    private static var fullFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] {
+        premiumFeatureData
+    }
 
-    private static let fullWithoutHostedByXabberFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] = [
-        ("archivebox.fill",     .systemBlue,   "Message Archive",          "Complete message history stored securely without automatic deletion."),
-        ("cloud.fill",          .systemOrange, "Extended Cloud Storage",   "Upload and store larger files with increased cloud storage capacity."),
-        ("checkmark.seal.fill", .systemGreen,  "Verification Certificate", "Personal digital certificate to verify your identity in conversations."),
-        ("flame.fill",          .systemRed,    "Burn Messages",            "Set messages to automatically disappear after a chosen time period."),
-        ("lock.shield.fill",    .systemPurple, "Passcode Lock",            "Protect the app with a passcode and option to erase all data on failed attempts."),
-    ]
+    private static var fullWithoutHostedByXabberFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] {
+        premiumFeatureData
+    }
 
-    private static let basicFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] = [
-        ("flame.fill",          .systemRed,    "Burn Messages",            "Set messages to automatically disappear after a chosen time period."),
-        ("lock.shield.fill",    .systemPurple, "Passcode Lock",            "Protect the app with a passcode and option to erase all data on failed attempts."),
-    ]
+    private static var basicFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] {
+        [
+            (
+                "flame.fill",
+                .systemRed,
+                L10n.text("premium__feature__burn_messages_title", fallback: "Burn Messages"),
+                L10n.text("premium__feature__burn_messages_description", fallback: "Set messages to automatically disappear after a chosen time period.")
+            ),
+            (
+                "lock.shield.fill",
+                .systemPurple,
+                L10n.text("settings__title__passcode_lock", fallback: "Passcode Lock"),
+                L10n.text("premium__feature__passcode_lock_description", fallback: "Protect the app with a passcode and option to erase all data on failed attempts.")
+            )
+        ]
+    }
 
-    private let aboutText = """
-    Xabber has always been a free, open-source messenger committed to user privacy and security. \
-    Premium features require additional server resources — persistent message archives need dedicated \
-    storage infrastructure, extended cloud capacity demands powerful servers, and digital verification \
-    certificates rely on secure cryptographic services.
+    private static var premiumFeatureData: [(icon: String, color: UIColor, title: String, desc: String)] {
+        var result: [(icon: String, color: UIColor, title: String, desc: String)] = [
+            (
+                "archivebox.fill",
+                .systemBlue,
+                L10n.text("premium__feature__message_archive_title", fallback: "Message Archive"),
+                L10n.text("premium__feature__message_archive_description", fallback: "Complete message history stored securely without automatic deletion.")
+            ),
+            (
+                "cloud.fill",
+                .systemOrange,
+                L10n.text("premium__feature__extended_cloud_storage_title", fallback: "Extended Cloud Storage"),
+                L10n.text("premium__feature__extended_cloud_storage_description", fallback: "Upload and store larger files with increased cloud storage capacity.")
+            ),
+            (
+                "checkmark.seal.fill",
+                .systemGreen,
+                L10n.text("premium__feature__verification_certificate_title", fallback: "Verification Certificate"),
+                L10n.text("premium__feature__verification_certificate_description", fallback: "Personal digital certificate to verify your identity in conversations.")
+            )
+        ]
+        result.append(contentsOf: basicFeatureData)
+        return result
+    }
 
-    Your subscription directly funds the development and operation of these premium services, while \
-    helping us keep the core Xabber experience completely free and ad-free for everyone.
-    """
+    private let aboutText = L10n.text("premium__about__open_source_and_subscription_support", fallback: "Xabber has always been a free, open-source messenger committed to user privacy and security. Premium features require additional server resources — persistent message archives need dedicated storage infrastructure, extended cloud capacity demands powerful servers, and digital verification certificates rely on secure cryptographic services.\n\nYour subscription directly funds the development and operation of these premium services, while helping us keep the core Xabber experience completely free and ad-free for everyone.")
 
     // MARK: - UI
 
@@ -178,7 +234,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
 
     override func configure() {
         super.configure()
-        title = "Xabber Premium"
+        title = L10n.text("premium__brand__title", fallback: "Xabber Premium")
         view.backgroundColor = .systemGroupedBackground
 
         let appearance = UINavigationBarAppearance()
@@ -289,14 +345,14 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         ])
 
         contentStack.addArrangedSubview(headerHost)
-        contentStack.addArrangedSubview(buildSectionHeader("SUBSCRIPTION PERIOD"))
+        contentStack.addArrangedSubview(buildSectionHeader(L10n.text("premium_subscribtion__presentation_call__subscription_period", fallback: "SUBSCRIPTION PERIOD")))
         contentStack.addArrangedSubview(padHorizontally(periodHost))
-        contentStack.addArrangedSubview(buildSectionHeader("SUBSCRIPTION ADVANTAGES"))
+        contentStack.addArrangedSubview(buildSectionHeader(L10n.text("premium_subscribtion__presentation_call__subscription_advantages", fallback: "SUBSCRIPTION ADVANTAGES")))
         contentStack.addArrangedSubview(padHorizontally(featuresHost))
         contentStack.addArrangedSubview(manageSectionHeaderHost)
         contentStack.addArrangedSubview(manageSectionContainer)
         configureManageSectionContainer()
-        contentStack.addArrangedSubview(buildSectionHeader("ABOUT XABBER PREMIUM"))
+        contentStack.addArrangedSubview(buildSectionHeader(L10n.text("premium_subscribtion__presentation_call__about_xabber_premium", fallback: "ABOUT XABBER PREMIUM")))
         contentStack.addArrangedSubview(padHorizontally(aboutHost))
         contentStack.addArrangedSubview(footerHost)
 
@@ -324,7 +380,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
 
     private func renderStaticState() {
         replaceHostedView(in: headerHost, with: buildHeader())
-        replaceHostedView(in: manageSectionHeaderHost, with: buildSectionHeader("SUBSCRIPTION MANAGEMENT"))
+        replaceHostedView(in: manageSectionHeaderHost, with: buildSectionHeader(L10n.text("premium_subscribtion__presentation_call__subscription_management", fallback: "SUBSCRIPTION MANAGEMENT")))
         replaceHostedView(in: manageSectionHost, with: buildManageSubscriptionCard())
         renderManageSectionVisibility()
         replaceHostedView(in: aboutHost, with: buildAboutCard())
@@ -351,7 +407,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         case .error(let message):
             currentAPIProduct = nil
             periodItems.removeAll()
-            replaceHostedView(in: periodHost, with: buildInlineMessageCard(message: message, actionTitle: "Retry", action: #selector(retryLoadingTapped)))
+            replaceHostedView(in: periodHost, with: buildInlineMessageCard(message: message, actionTitle: L10n.text("common__action__retry", fallback: "Retry"), action: #selector(retryLoadingTapped)))
             replaceHostedView(in: featuresHost, with: buildInlineMessageCard(message: message))
         }
         renderCallToAction()
@@ -475,14 +531,14 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
             manageSubscriptionTapped()
             return
         case .unavailable:
-            showAlert(title: "Product Unavailable", message: "This subscription is not available from App Store Connect yet. Please try again later.")
+            showAlert(title: L10n.text("premium__availability__unavailable_title", fallback: "Product Unavailable"), message: L10n.text("premium__availability__unavailable_message", fallback: "This subscription is not available from App Store Connect yet. Please try again later."))
             return
         case .subscribe, .upgrade, .downgrade:
             break
         }
 
         guard let selectedItem = selectedPeriodItem() else {
-            showAlert(title: "Error", message: "Product configuration not found.")
+            showAlert(title: L10n.text("premium__dialog__error_title", fallback: "Error"), message: L10n.text("premium__availability__configuration_missing_message", fallback: "Product configuration not found."))
             return
         }
 
@@ -492,7 +548,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         }
 
         guard selectedItem.storeProduct != nil else {
-            showAlert(title: "Product Unavailable", message: "This subscription is not available from App Store Connect yet. Please try again later.")
+            showAlert(title: L10n.text("premium__availability__unavailable_title", fallback: "Product Unavailable"), message: L10n.text("premium__availability__unavailable_message", fallback: "This subscription is not available from App Store Connect yet. Please try again later."))
             return
         }
 
@@ -535,7 +591,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
     private func startPurchase(_ selectedItem: PeriodItem) {
         guard selectedItem.storeProduct != nil else {
             setLoading(false)
-            showAlert(title: "Product Unavailable", message: "This subscription is not available from App Store Connect yet. Please try again later.")
+            showAlert(title: L10n.text("premium__availability__unavailable_title", fallback: "Product Unavailable"), message: L10n.text("premium__availability__unavailable_message", fallback: "This subscription is not available from App Store Connect yet. Please try again later."))
             return
         }
 
@@ -559,7 +615,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
                         return
                     }
                     self.setLoading(false)
-                    self.showAlert(title: "Error", message: "Purchase failed. To manage your subscriptions, go to App Store → Settings → Subscriptions.")
+                    self.showAlert(title: L10n.text("premium__dialog__error_title", fallback: "Error"), message: L10n.text("premium__purchase__failed_message", fallback: "Purchase failed. To manage your subscriptions, go to App Store → Settings → Subscriptions."))
                 }
                 return
             }
@@ -572,7 +628,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
                 self.renderStaticState()
                 self.renderRemoteSections()
 
-                self.showAlert(title: "Success", message: "Your subscription change has been submitted.")
+                self.showAlert(title: L10n.text("premium__dialog__success_title", fallback: "Success"), message: L10n.text("premium__purchase__change_submitted_message", fallback: "Your subscription change has been submitted."))
             }
         }
     }
@@ -597,7 +653,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
     private func showAlert(title: String, message: String, completion: (() -> Void)? = nil) {
         DispatchQueue.main.async {
             let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in
+            alert.addAction(UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default) { _ in
                 completion?()
             })
             self.present(alert, animated: true)
@@ -707,15 +763,18 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         // Subtitle
         let subtitleLabel = UILabel()
         if presentationState.hasActiveEntitlement {
-            titleLabel.text = "You're Premium"
+            titleLabel.text = L10n.text("premium__entitlement__active_title", fallback: "You’re Premium")
             if let expires = presentationState.activeExpires {
-                subtitleLabel.text = "Your subscription is active until\n\(expires.formatted(date: .long, time: .omitted))"
+                let date = L10n.formatters
+                    .dateFormatter(dateStyle: .long)
+                    .string(from: expires)
+                subtitleLabel.text = L10n.format("premium__entitlement__active_until_format", fallback: "Your subscription is active until\n%@", arguments: [String(describing: date)])
             } else {
-                subtitleLabel.text = "All premium features are unlocked.\nThank you for your support!"
+                subtitleLabel.text = L10n.text("premium__entitlement__thanks_message", fallback: "All premium features are unlocked.\nThank you for your support!")
             }
         } else {
-            titleLabel.text = "Xabber Premium"
-            subtitleLabel.text = "Unlock premium features and support\nopen-source development."
+            titleLabel.text = L10n.text("premium__brand__title", fallback: "Xabber Premium")
+            subtitleLabel.text = L10n.text("premium__marketing__subtitle", fallback: "Unlock premium features and support\nopen-source development.")
         }
         subtitleLabel.font = .systemFont(ofSize: 15)
         subtitleLabel.textColor = UIColor.white.withAlphaComponent(0.8)
@@ -778,7 +837,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
                 stack.addArrangedSubview(
                     buildInlineMessageCard(
                         message: warning,
-                        actionTitle: "Retry",
+                        actionTitle: L10n.text("common__action__retry", fallback: "Retry"),
                         action: #selector(retryLoadingTapped)
                     )
                 )
@@ -788,12 +847,12 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
             let stack = UIStackView()
             stack.axis = .vertical
             stack.spacing = 12
-            stack.addArrangedSubview(buildInlineMessageCard(message: warning ?? "No subscriptions available right now."))
+            stack.addArrangedSubview(buildInlineMessageCard(message: warning ?? L10n.text("premium_subscribtion__message__no_subscriptions_available_right_now", fallback: "No subscriptions available right now.")))
             return stack
         case .loading:
             return buildPeriodSkeletonCard()
         case .error(let message):
-            return buildInlineMessageCard(message: message, actionTitle: "Retry", action: #selector(retryLoadingTapped))
+            return buildInlineMessageCard(message: message, actionTitle: L10n.text("common__action__retry", fallback: "Retry"), action: #selector(retryLoadingTapped))
         }
     }
 
@@ -942,8 +1001,11 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         }
         let monthlyEquivalent = totalPrice / Decimal(totalMonths)
         let monthlyPriceText = Self.priceText(monthlyEquivalent, storeProduct: item.storeProduct)
-        let cadence = totalMonths >= 12 ? "yearly" : "\(totalMonths) months"
-        return "Equivalent to \(monthlyPriceText)/month, billed \(cadence)"
+        return PremiumPeriodLocalization.equivalentBilling(
+            monthlyPriceText: monthlyPriceText,
+            totalMonths: totalMonths,
+            localizer: LocalizationRuntime.shared.service
+        )
     }
 
     private func buildDiscount(for item: PeriodItem, monthlyUnitPrice: Decimal?) -> String? {
@@ -992,9 +1054,9 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         let trailingView: UIView
         switch rowState {
         case .active:
-            trailingView = statusBadge(text: "Active", color: .systemGreen)
+            trailingView = statusBadge(text: L10n.text("premium__status__active", fallback: "Active"), color: .systemGreen)
         case .scheduled:
-            trailingView = statusBadge(text: "Scheduled", color: .systemOrange)
+            trailingView = statusBadge(text: L10n.text("premium__status__scheduled", fallback: "Scheduled"), color: .systemOrange)
         case .selectable, .unavailable:
             let priceLabel = UILabel()
             priceLabel.text = price
@@ -1096,7 +1158,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         card.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(manageSubscriptionTapped)))
 
         let titleLabel = UILabel()
-        titleLabel.text = "Manage Subscription"
+        titleLabel.text = L10n.text("premium__management__action", fallback: "Manage Subscription")
         titleLabel.font = .systemFont(ofSize: 17, weight: .medium)
         titleLabel.textColor = .label
 
@@ -1465,7 +1527,10 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
 
         if presentationState.hasActiveEntitlement, let expires = presentationState.activeExpires {
             let expiresLabel = UILabel()
-            expiresLabel.text = "Expires: \(expires.formatted(date: .long, time: .shortened))"
+            let date = L10n.formatters
+                .dateFormatter(dateStyle: .long, timeStyle: .short)
+                .string(from: expires)
+            expiresLabel.text = L10n.format("premium__entitlement__expires_format", fallback: "Expires: %@", arguments: [String(describing: date)])
             expiresLabel.font = .systemFont(ofSize: 14, weight: .medium)
             expiresLabel.textColor = .secondaryLabel
             expiresLabel.textAlignment = .center
@@ -1476,9 +1541,13 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         if let scheduledProductId = presentationState.scheduledProductId {
             let scheduledLabel = UILabel()
             let scheduledName = periodItems.first(where: { $0.priceId == scheduledProductId })?.name ?? scheduledProductId
-            let effectiveDate = presentationState.scheduledEffectiveDate?
-                .formatted(date: .long, time: .omitted) ?? "the next renewal"
-            scheduledLabel.text = "Scheduled change: \(scheduledName) on \(effectiveDate)"
+            let effectiveDate = presentationState.scheduledEffectiveDate.map {
+                L10n.formatters.dateFormatter(dateStyle: .long).string(from: $0)
+            } ?? L10n.text(
+                "premium__entitlement__next_renewal",
+                fallback: "the next renewal"
+            )
+            scheduledLabel.text = L10n.format("premium__entitlement__scheduled_change_format", fallback: "Scheduled change: %1$@ on %2$@", arguments: [String(describing: scheduledName), String(describing: effectiveDate)])
             scheduledLabel.font = .systemFont(ofSize: 14)
             scheduledLabel.textColor = .secondaryLabel
             scheduledLabel.textAlignment = .center
@@ -1487,7 +1556,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         }
 
         let manageLabel = UILabel()
-        manageLabel.text = "To manage your subscription, go to\nApp Store → Settings → Subscriptions."
+        manageLabel.text = L10n.text("premium__management__instructions", fallback: "To manage your subscription, go to\nApp Store → Settings → Subscriptions.")
         manageLabel.font = .systemFont(ofSize: 13)
         manageLabel.textColor = .tertiaryLabel
         manageLabel.textAlignment = .center
@@ -1521,35 +1590,35 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         isProcessing: Bool
     ) -> PremiumCTAState {
         if isProcessing {
-            return PremiumCTAState(title: "Processing…", isEnabled: false)
+            return PremiumCTAState(title: L10n.text("premium__cta__processing", fallback: "Processing…"), isEnabled: false)
         }
 
         if entitlementState == .checking {
-            return PremiumCTAState(title: "Checking Subscription…", isEnabled: false)
+            return PremiumCTAState(title: L10n.text("premium__cta__checking", fallback: "Checking Subscription…"), isEnabled: false)
         }
 
         switch remoteState {
         case .loading:
-            return PremiumCTAState(title: "Loading Plans…", isEnabled: false)
+            return PremiumCTAState(title: L10n.text("premium__cta__loading", fallback: "Loading Plans…"), isEnabled: false)
         case .error:
-            return PremiumCTAState(title: "Loading Failed", isEnabled: false)
+            return PremiumCTAState(title: L10n.text("premium__cta__loading_failed", fallback: "Loading Failed"), isEnabled: false)
         case .empty:
-            return PremiumCTAState(title: "No Plans Available", isEnabled: false)
+            return PremiumCTAState(title: L10n.text("premium__cta__no_plans", fallback: "No Plans Available"), isEnabled: false)
         case .loaded:
             guard let selectedItem, let selectedAction else {
-                return PremiumCTAState(title: "No Plans Available", isEnabled: false, isVisible: false)
+                return PremiumCTAState(title: L10n.text("premium__cta__no_plans", fallback: "No Plans Available"), isEnabled: false, isVisible: false)
             }
             switch selectedAction {
             case .manage:
-                return PremiumCTAState(title: "Manage Subscription", isEnabled: false, isVisible: false)
+                return PremiumCTAState(title: L10n.text("premium__management__action", fallback: "Manage Subscription"), isEnabled: false, isVisible: false)
             case .subscribe:
                 return PremiumCTAState(title: subscribeTitle(for: selectedItem), isEnabled: true)
             case .upgrade(let planName):
-                return PremiumCTAState(title: "Upgrade to \(planName)", isEnabled: true)
+                return PremiumCTAState(title: L10n.format("premium__cta__upgrade_format", fallback: "Upgrade to %@", arguments: [String(describing: planName)]), isEnabled: true)
             case .downgrade(let planName):
-                return PremiumCTAState(title: "Downgrade to \(planName)", isEnabled: true)
+                return PremiumCTAState(title: L10n.format("premium__cta__downgrade_format", fallback: "Downgrade to %@", arguments: [String(describing: planName)]), isEnabled: true)
             case .unavailable:
-                return PremiumCTAState(title: "Product Unavailable", isEnabled: false)
+                return PremiumCTAState(title: L10n.text("premium__availability__unavailable_title", fallback: "Product Unavailable"), isEnabled: false)
             }
         }
     }
@@ -1636,12 +1705,12 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
 
     static func subscribeTitle(for item: PeriodItem) -> String {
         if let product = item.storeProduct {
-            return "Subscribe for \(product.displayPrice)"
+            return L10n.format("premium__cta__subscribe_for_format", fallback: "Subscribe for %1$@", arguments: [String(describing: product.displayPrice)])
         }
         if item.fallbackPrice.isNotEmpty {
-            return "Subscribe for \(item.fallbackPrice)"
+            return L10n.format("premium__cta__subscribe_for_format", fallback: "Subscribe for %1$@", arguments: [String(describing: item.fallbackPrice)])
         }
-        return "Subscribe"
+        return L10n.text("premium__cta__subscribe", fallback: "Subscribe")
     }
 
     static func planRank(for productId: String) -> Int {
@@ -1778,7 +1847,7 @@ class PremiumSubscribtionViewController: SimpleBaseViewController, UIScrollViewD
         let percent = Int(percentValue.doubleValue)
         guard savings > 0, percent > 0 else { return nil }
 
-        return "Save \(priceText(savings, storeProduct: storeProduct)) (\(percent)%)"
+        return L10n.format("premium__period__savings_format", fallback: "Save %1$@ (%2$@%%)", arguments: [String(describing: priceText(savings, storeProduct: storeProduct)), String(describing: percent)])
     }
 
     static func aboutTextAttributedString(_ text: String) -> NSAttributedString {

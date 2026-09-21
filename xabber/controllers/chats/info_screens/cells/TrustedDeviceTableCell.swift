@@ -109,7 +109,7 @@ class TrustedDeviceTableCell: UITableViewCell {
     var signedLabel: UILabel = {
         let label = UILabel()
         
-        label.text = "Signed"
+        label.text = L10n.text("trusted_device__cell__signed", fallback: "Signed")
         label.textColor = .systemGreen
         label.isHidden = true
         label.textAlignment = .right
@@ -149,7 +149,7 @@ class TrustedDeviceTableCell: UITableViewCell {
         clientLabel.text = name
         deviceLabel.text = devieId
         if trustedBy != nil {
-            trustedByLabel.text = "trusted by: \(trustedBy!)"
+            trustedByLabel.text = L10n.format("trusted_device__cell__trusted_by", fallback: "Trusted by: %@", arguments: [String(describing: trustedBy!)])
         }
         if !signed {
             self.stateSwitch.isHidden = !editable

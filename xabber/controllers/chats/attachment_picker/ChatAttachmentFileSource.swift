@@ -896,7 +896,7 @@ final class ChatAttachmentFileSourceViewController: UIViewController,
 
         switch visibleSections[section] {
         case .selectedLocalFiles:
-            return "Selected files"
+            return L10n.text("chat_attachment_file_source__table_section_title__selected_files", fallback: "Selected files")
         case .cloudFiles:
             return nil
         }

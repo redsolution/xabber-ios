@@ -50,7 +50,7 @@ extension ChatViewController {
         let signButton: UIButton = {
             let button = UIButton()
 
-            button.setTitle("Update signature", for: .normal)
+            button.setTitle(L10n.text("chat__signature__update_signature", fallback: "Update signature"), for: .normal)
             button.setTitleColor(.systemBlue, for: .normal)
             button.tintColor = MDCPalette.grey.tint500
             button.setContentHuggingPriority(.defaultHigh, for: .horizontal)
@@ -189,7 +189,7 @@ extension ChatViewController: TimeSignatureBlockingPanelDelegate {
         FeedbackManager.shared.tap()
         if #available(iOS 13.0, *) {
             if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
-                YubiKitExternalLocalization.nfcScanAlertMessage = "Generate digital signature for message"
+                YubiKitExternalLocalization.nfcScanAlertMessage = L10n.text("chat__nfc_scan_alert_message__generate_digital_signature_for_message", fallback: "Generate digital signature for message")
                 YubiKitManager.shared.startNFCConnection()
                 YubiKitManager.shared.delegate = SignatureManager.shared
                 SignatureManager.shared.currentAction = .signature

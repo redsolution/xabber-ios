@@ -116,7 +116,7 @@ class GroupchatInviteListViewController: SimpleBaseViewController {
         super.configure()
         tableView.delegate = self
         tableView.dataSource = self
-        title = "Invites"
+        title = L10n.text("contacts__list__invites", fallback: "Invites")
         let inviteBarButton = UIBarButtonItem(image: imageLiteral("xabber.person.plus.fill"), style: .plain, target: self, action: #selector(onInviteBarButtonTouchUpInside))
         
         self.navigationItem.setRightBarButton(inviteBarButton, animated: true)
@@ -278,7 +278,7 @@ extension GroupchatInviteListViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
         let index = indexPath.row
-        let cancelInviteAction = UIContextualAction(style: .destructive, title: "Revoke") { action, view, handler in
+        let cancelInviteAction = UIContextualAction(style: .destructive, title: L10n.text("groupchat_revoke", fallback: "Revoke")) { action, view, handler in
             let item = self.datasource[index]
             self.onCancelInvite(jid: item.jid)
             handler(true)
@@ -294,7 +294,7 @@ extension GroupchatInviteListViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
         let index = indexPath.row
-        let directChat = UIContextualAction(style: .normal, title: "Chat") { action, view, handler in
+        let directChat = UIContextualAction(style: .normal, title: L10n.text("contact_bar_chat", fallback: "Chat")) { action, view, handler in
             let item = self.datasource[index]
             self.onDirectChat(jid: item.jid)
             handler(true)

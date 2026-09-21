@@ -62,15 +62,23 @@ class ChatMarkersManager: AbstractXMPPManager {
         
         static func verbose(_ value: BurnMessagesTimerValues) -> String {
             switch value {
-                case .off: return "Off"
-                case .s5: return "5 seconds"
-                case .s10: return "10 seconds"
-                case .s15: return "15 seconds"
-                case .s30: return "30 seconds"
-                case .m1: return "1 minute"
-                case .m5: return "5 minutes"
-                case .m10: return "10 minutes"
-                case .m15: return "15 minutes"
+                case .off:
+                    return L10n.text(
+                        "chat__self_destruct_timer__off",
+                        fallback: "Off"
+                    )
+                case .s5, .s10, .s15, .s30:
+                    return L10n.plural(
+                        "chat__self_destruct_timer__seconds_count",
+                        count: value.rawValue,
+                        fallback: "%lld seconds"
+                    )
+                case .m1, .m5, .m10, .m15:
+                    return L10n.plural(
+                        "chat__self_destruct_timer__minutes_count",
+                        count: value.rawValue / 60,
+                        fallback: "%lld minutes"
+                    )
             }
         }
         

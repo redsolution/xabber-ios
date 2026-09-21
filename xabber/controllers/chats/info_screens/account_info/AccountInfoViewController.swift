@@ -191,34 +191,34 @@ class AccountInfoViewController: BaseViewController {
     internal func updateDatasource() {
         datasource = []
         var profileChilds = [
-            SettingsViewController.Datasource(section: .profile, title: "Profile", key: .accountVcard),
-            SettingsViewController.Datasource(section: .profile, title: "Password"),
-            SettingsViewController.Datasource(section: .profile, title: "Connection settings"),
-            SettingsViewController.Datasource(section: .profile, title: "Account color", key: .accountColor),
-            SettingsViewController.Datasource(section: .profile, title: "Blocked contacts", key: .accountBlockedContacts),
-            SettingsViewController.Datasource(section: .profile, title: "Circles")
+            SettingsViewController.Datasource(section: .profile, title: L10n.text("account_info__menu__profile", fallback: "Profile"), key: .accountVcard),
+            SettingsViewController.Datasource(section: .profile, title: L10n.text("account_password", fallback: "Password")),
+            SettingsViewController.Datasource(section: .profile, title: L10n.text("account_connection_settings", fallback: "Connection settings")),
+            SettingsViewController.Datasource(section: .profile, title: L10n.text("account_color", fallback: "Account color"), key: .accountColor),
+            SettingsViewController.Datasource(section: .profile, title: L10n.text("blocked_contacts", fallback: "Blocked contacts"), key: .accountBlockedContacts),
+            SettingsViewController.Datasource(section: .profile, title: L10n.text("settings_account__section_header_circles", fallback: "Circles"))
         ]
         if CommonConfigManager.shared.config.locked_account_color.isNotEmpty {
             profileChilds = [
-                SettingsViewController.Datasource(section: .profile, title: "Profile", key: .accountVcard),
-                SettingsViewController.Datasource(section: .profile, title: "Password"),
-                SettingsViewController.Datasource(section: .profile, title: "Connection settings"),
-                SettingsViewController.Datasource(section: .profile, title: "Blocked contacts", key: .accountBlockedContacts),
-                SettingsViewController.Datasource(section: .profile, title: "Circles")
+                SettingsViewController.Datasource(section: .profile, title: L10n.text("account_info__menu__profile", fallback: "Profile"), key: .accountVcard),
+                SettingsViewController.Datasource(section: .profile, title: L10n.text("account_password", fallback: "Password")),
+                SettingsViewController.Datasource(section: .profile, title: L10n.text("account_connection_settings", fallback: "Connection settings")),
+                SettingsViewController.Datasource(section: .profile, title: L10n.text("blocked_contacts", fallback: "Blocked contacts"), key: .accountBlockedContacts),
+                SettingsViewController.Datasource(section: .profile, title: L10n.text("settings_account__section_header_circles", fallback: "Circles"))
             ]
         }
         self.datasource.append(SettingsViewController.Datasource(section: .accountSettings, childs: [
-                SettingsViewController.Datasource(section: .accountSettings, title: "Profile, status, password", viewController: SimpleTableViewController.self, childs: [
+                SettingsViewController.Datasource(section: .accountSettings, title: L10n.text("account_info__menu__profile_status_password", fallback: "Profile, status, password"), viewController: SimpleTableViewController.self, childs: [
                     SettingsViewController.Datasource(section: .status, childs: [
                         SettingsViewController.Datasource(section: .status, title: SettingsViewController.Datasource.Section.status.description(), current: "Offline", key: .accountStatus)
                     ]),
                     SettingsViewController.Datasource(section: .profile, childs: profileChilds),
                     SettingsViewController.Datasource(section: .server, childs: [
-                        SettingsViewController.Datasource(section: .server, title: "Server information")
+                        SettingsViewController.Datasource(section: .server, title: L10n.text("settings_account__section_header_server_info", fallback: "Server information"))
                     ]),
                 ]),
-                SettingsViewController.Datasource(section: .accountSettings, title: "Cloud storage", key: .manageStorage),
-                SettingsViewController.Datasource(section: .accountSettings, title: "Devices", key: .accountSessions)
+                SettingsViewController.Datasource(section: .accountSettings, title: L10n.text("signin_cloud_storage", fallback: "Cloud storage"), key: .manageStorage),
+                SettingsViewController.Datasource(section: .accountSettings, title: L10n.text("account_info__menu__devices", fallback: "Devices"), key: .accountSessions)
             ]))
     }
 
@@ -391,7 +391,7 @@ class AccountInfoViewController: BaseViewController {
             if let planDisplayText = galleryConfiguration.currentGalleryPlanDisplayText {
                 return galleryTitle + " · " + planDisplayText
             }
-            return galleryTitle + " · " + "Updating..."
+            return galleryTitle + " · " + L10n.text("settings__content__updating", fallback: "Updating...")
         }
         return galleryTitle + " · " + used + " of ".localizeString(id: "of", arguments: []) + quota
     }

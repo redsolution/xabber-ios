@@ -114,7 +114,7 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
         
         internal let actionButton: UIButton = {
             var conf = UIButton.Configuration.plain()
-            conf.title = "Set new photo"
+            conf.title = L10n.text("group_settings__screen__set_new_photo", fallback: "Set new photo")
             conf.baseForegroundColor = .tintColor
             conf.buttonSize = .medium
             
@@ -205,7 +205,7 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
         
         internal let actionButton: UIButton = {
             var conf = UIButton.Configuration.plain()
-            conf.title = "Set new photo"
+            conf.title = L10n.text("group_settings__screen__set_new_photo", fallback: "Set new photo")
             conf.baseForegroundColor = .tintColor
             conf.buttonSize = .medium
             
@@ -737,11 +737,11 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
                 try repository.applyPatch(patch, owner: self.owner, groupJID: self.jid)
                 let projection = try repository.projection(owner: self.owner, groupJID: self.jid)
                 self.apply(projection, force: true)
-                ToastPresenter().presentSuccess(message: "Info updated")
+                ToastPresenter().presentSuccess(message: L10n.text("group_settings__screen__info_updated", fallback: "Information updated"))
             } catch is CancellationError {
                 return
             } catch {
-                ToastPresenter().presentError(message: "Error: \(error.localizedDescription)")
+                ToastPresenter().presentError(message: L10n.format("group_settings__screen__error", fallback: "Error: %@", arguments: [String(describing: error.localizedDescription)]))
             }
         }
     }
@@ -789,13 +789,13 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
         var sections: [[Datasource]] = [[
             Datasource(
                 kind: .textField,
-                title: "Name",
+                title: L10n.text("group_settings__screen__name", fallback: "Name"),
                 key: "title",
                 value: editing ? (titleObserver.value ?? "") : model.name
             ),
             Datasource(
                 kind: .multilineTextField,
-                title: "Description",
+                title: L10n.text("group_settings__screen__description", fallback: "Description"),
                 key: "description",
                 value: editing ? (descriptionObserver.value ?? "") : model.description
             ),
@@ -811,7 +811,7 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
             sections.append([
                 Datasource(
                     kind: .item,
-                    title: "Group type",
+                    title: L10n.text("groupchat_group_type", fallback: "Group type"),
                     icon: "custom.person.2.square.fill",
                     key: "membership",
                     value: membershipTitle(model.membership)
@@ -824,7 +824,7 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
             administration.append(
                 Datasource(
                     kind: .item,
-                    title: "Permissions",
+                    title: L10n.text("groupchat_member_permissions", fallback: "Permissions"),
                     icon: "custom.key.square.fill",
                     key: "permissions",
                     value: "\(model.enabledDefaultPermissionCount) / \(model.defaultPermissionCount)"
@@ -835,7 +835,7 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
             administration.append(
                 Datasource(
                     kind: .item,
-                    title: "Administrators",
+                    title: L10n.text("group_settings__screen__administrators", fallback: "Administrators"),
                     icon: "star.square.fill",
                     key: "admins",
                     value: "\(model.administratorCount)"
@@ -851,7 +851,7 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
             membershipActions.append(
                 Datasource(
                     kind: .item,
-                    title: "Invitations",
+                    title: L10n.text("groupchat_invitations", fallback: "Invitations"),
                     icon: "xabber.invite.square.fill",
                     key: "invites",
                     value: "\(model.outgoingInviteCount)"
@@ -862,7 +862,7 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
             membershipActions.append(
                 Datasource(
                     kind: .item,
-                    title: "Blocked",
+                    title: L10n.text("group_settings__block_list__header", fallback: "Blocked"),
                     icon: "custom.nosign.square.fill",
                     key: "block",
                     value: "\(model.blockedCount)"
@@ -877,7 +877,7 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
             sections.append([
                 Datasource(
                     kind: .delete,
-                    title: "Delete group",
+                    title: L10n.text("group_settings__button_delete_group", fallback: "Delete group"),
                     key: "delete",
                     value: ""
                 )
@@ -966,12 +966,12 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
     private func confirmDelete() {
         guard canonicalModel?.canDelete == true else { return }
         let alert = UIAlertController(
-            title: "Delete group",
-            message: "Deleting this group removes it for every member.",
+            title: L10n.text("group_settings__button_delete_group", fallback: "Delete group"),
+            message: L10n.text("group_settings__screen__delete_group_confirmation", fallback: "Deleting this group removes it for every member."),
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__delete", fallback: "Delete"), style: .destructive) { [weak self] _ in
             self?.deleteGroup()
         })
         present(alert, animated: true)
@@ -994,7 +994,7 @@ class GroupchatSettingsViewControllerT: SimpleBaseViewController {
             } catch is CancellationError {
                 return
             } catch {
-                ToastPresenter().presentError(message: "Error: \(error.localizedDescription)")
+                ToastPresenter().presentError(message: L10n.format("group_settings__screen__error", fallback: "Error: %@", arguments: [String(describing: error.localizedDescription)]))
             }
         }
     }
@@ -1271,15 +1271,15 @@ extension GroupchatSettingsViewControllerT {
             }, failureCallback: { _, _ in
                 self.afterAvatarUploadFailure()
                 DispatchQueue.main.async {
-                    let errorMessage = "Unable to send file: out of Cloud Storage"//item.messageError
+                    let errorMessage = L10n.text("groupchat_settings_view_controller_t__error_message__unable_to_send_file_out_of_cloud_storage", fallback: "Unable to send file: out of Cloud Storage")//item.messageError
                     let itemsWithQuota = [
-                        ActionSheetPresenter.Item(destructive: false, title: "Manage Cloud Storage", value: "quota")
+                        ActionSheetPresenter.Item(destructive: false, title: L10n.text("group_settings__screen__manage_cloud_storage", fallback: "Manage Cloud Storage"), value: "quota")
                     ]
                     ActionSheetPresenter().present(
                         in: self,
-                        title: "Avatar upload error",
+                        title: L10n.text("group_settings__screen__avatar_upload_error", fallback: "Avatar upload error"),
                         message: errorMessage,
-                        cancel: "Cancel",
+                        cancel: L10n.text("common__action__cancel", fallback: "Cancel"),
                         values: itemsWithQuota,
                         animated: true) { value in
                             switch value {

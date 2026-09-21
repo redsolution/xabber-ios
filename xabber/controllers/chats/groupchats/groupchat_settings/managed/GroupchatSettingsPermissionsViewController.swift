@@ -233,7 +233,7 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
 
     override func configure() {
         super.configure()
-        title = "Permissions"
+        title = L10n.text("groupchat_member_permissions", fallback: "Permissions")
         tableView.dataSource = self
         tableView.delegate = self
         cancelBarButton.action = #selector(onCancel)
@@ -307,7 +307,7 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
             [
                 Datasource(
                     button: "newbies",
-                    title: "Permissions for new members",
+                    title: L10n.text("group_settings__permissions__permissions_for_new_members", fallback: "Permissions for new members"),
                     badge: "\(newbies?.permissions.count ?? 0) / \(defaultPermissions.count)"
                 )
             ],
@@ -394,12 +394,12 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
                 }
                 self.repository = repository
                 try repository.replacePermissionSet(authoritative, owner: self.owner, groupJID: self.jid)
-                ToastPresenter().presentSuccess(message: "Changes saved")
+                ToastPresenter().presentSuccess(message: L10n.text("group_settings__permissions__changes_saved", fallback: "Changes saved"))
                 self.navigationController?.popViewController(animated: true)
             } catch is CancellationError {
                 return
             } catch {
-                ToastPresenter().presentError(message: "Error: \(error.localizedDescription)")
+                ToastPresenter().presentError(message: L10n.format("group_settings__permissions__error", fallback: "Error: %@", arguments: [String(describing: error.localizedDescription)]))
             }
         }
     }
@@ -473,7 +473,7 @@ class GroupchatSettingsPermissionsViewController: SimpleBaseViewController {
             } catch is CancellationError {
                 return
             } catch {
-                ToastPresenter().presentError(message: "Error: \(error.localizedDescription)")
+                ToastPresenter().presentError(message: L10n.format("group_settings__permissions__error", fallback: "Error: %@", arguments: [String(describing: error.localizedDescription)]))
             }
         }
     }
@@ -540,9 +540,9 @@ extension GroupchatSettingsPermissionsViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         switch section {
         case 0:
-            return "Default permissions apply to members unless a personal permission overrides them."
+            return L10n.text("groupchat_settings_permissions__table_section_title__default_permissions_apply_to_members_unless_a_personal_permission_overrides_them", fallback: "Default permissions apply to members unless a personal permission overrides them.")
         case 1:
-            return "New-member permissions replace the full temporary permission set."
+            return L10n.text("groupchat_settings_permissions__table_section_title__new_member_permissions_replace_the_full_temporary_permission_set", fallback: "New-member permissions replace the full temporary permission set.")
         default:
             return nil
         }

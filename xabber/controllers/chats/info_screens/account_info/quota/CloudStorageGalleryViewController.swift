@@ -88,14 +88,14 @@ final class CloudStorageGalleryPagingFooterView: UICollectionReusableView {
         switch indicator {
         case .nextPageLoading:
             spinner.startAnimating()
-            accessibilityLabel = "Loading more Cloud Storage files"
+            accessibilityLabel = L10n.text("cloud_storage__gallery__loading_more_accessibility_label", fallback: "Loading more Cloud Storage files")
         case .nextPageRetry:
             retryButton.isHidden = false
-            retryButton.setTitle("Couldn't load more. Tap to retry.", for: .normal)
+            retryButton.setTitle(L10n.text("cloud_storage__gallery__couldn_t_load_more_tap_to_retry", fallback: "Couldn't load more. Tap to retry."), for: .normal)
             accessibilityLabel = retryButton.title(for: .normal)
         case .refreshRetry:
             retryButton.isHidden = false
-            retryButton.setTitle("Couldn't refresh. Tap to retry.", for: .normal)
+            retryButton.setTitle(L10n.text("cloud_storage__gallery__couldn_t_refresh_tap_to_retry", fallback: "Couldn't refresh. Tap to retry."), for: .normal)
             accessibilityLabel = retryButton.title(for: .normal)
         default:
             accessibilityLabel = nil
@@ -169,10 +169,10 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         guard selectedIDs.isNotEmpty else { return }
         ActionSheetPresenter()
             .present(in: self,
-                     title: "Delete files",
-                     message: "Please confirm deleting files from a cloud storage. This action can not be undone.",
-                     cancel: "Cancel",
-                     values: [ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete")],
+                     title: L10n.text("account_delete_files_message", fallback: "Delete files"),
+                     message: L10n.text("cloud_storage__cleanup__delete_files_confirmation", fallback: "Please confirm deleting files from Cloud Storage. This action cannot be undone."),
+                     cancel: L10n.text("common__action__cancel", fallback: "Cancel"),
+                     values: [ActionSheetPresenter.Item(destructive: true, title: L10n.text("common__action__delete", fallback: "Delete"), value: "delete")],
                      animated: true) { [weak self] _ in
                 self?.deleteFiles(selectedIDs)
             }
@@ -284,17 +284,21 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
 
     private func updateSelectionControls() {
         guard collectionView.isEditing else { return }
-        navigationItem.title = "\(remainingSelectedFileIDs.count) \(selectedType)s selected"
+        navigationItem.title = L10n.plural(
+            "cloud_storage_gallery__title__value_values_selected",
+            count: remainingSelectedFileIDs.count,
+            fallback: "%lld items selected"
+        )
         deleteSelectedFilesButton?.isEnabled = !isDeletingSelectedFiles && remainingSelectedFileIDs.isNotEmpty
     }
 
     private func presentDeletionError() {
         let alert = UIAlertController(
-            title: "Couldn't delete files",
-            message: "Cloud Storage was not changed completely. Check your connection and try again.",
+            title: L10n.text("cloud_storage__gallery__couldn_t_delete_files", fallback: "Couldn't delete files"),
+            message: L10n.text("cloud_storage__gallery__cleanup_partially_failed_message", fallback: "Cloud Storage was not fully changed. Check your connection and try again."),
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default))
         present(alert, animated: true)
     }
     
@@ -311,7 +315,7 @@ class CloudStorageGalleryViewController: CloudStorageShowFilesViewController {
         impactFeedbackGenerator.impactOccurred()
         impactFeedbackGenerator.prepare()
         remainingSelectedFileIDs = [fileID]
-        cancelSelectButton = UIBarButtonItem(title: "Cancel", style: .plain, target: self, action: #selector(cancelSelectButtonTapped))
+        cancelSelectButton = UIBarButtonItem(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .plain, target: self, action: #selector(cancelSelectButtonTapped))
         deleteSelectedFilesButton = UIBarButtonItem(image: imageLiteral( "trash-outline"), style: .plain, target: self, action: #selector(deleteSelectedFilesButtonTapped))
         navigationItem.hidesBackButton = true
         navigationItem.setRightBarButton(deleteSelectedFilesButton, animated: true)
@@ -575,7 +579,7 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: NoFilesMediaCollectionCell.cellName, for: indexPath) as! NoFilesMediaCollectionCell
             cell.setup()
             if loadError != nil {
-                cell.label.text = "Couldn't load Cloud Storage. Tap to retry."
+                cell.label.text = L10n.text("cloud_storage__gallery__couldn_t_load_cloud_storage_tap_to_retry", fallback: "Couldn't load Cloud Storage. Tap to retry.")
                 cell.accessibilityIdentifier = "cloudStorage.category.retry"
             } else {
                 cell.label.text = category.emptyStateText
@@ -629,7 +633,7 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
                 meters: renderedMeters,
                 loading: false,
                 duration: item.audioDuration ?? "",
-                senderName: item.fileName ?? "Audio message",
+                senderName: item.fileName ?? L10n.text("cloud_storage__voice__fallback_name", fallback: "Audio message"),
                 date: item.date ?? "",
                 send_time: item.time ?? "",
                 sizeInBytes: item.size ?? "0 KiB"
@@ -665,7 +669,7 @@ extension CloudStorageGalleryViewController: UICollectionViewDataSource {
             return cell
         default:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: FilesMediaCollectionCell.cellName, for: indexPath) as! FilesMediaCollectionCell
-            cell.setup(mimeType: item.mimeType ?? "file", sender: item.senderName ?? "", date: item.date ?? "", time: item.time ?? "", sizeInBytes: item.size ?? "0 KiB", filename: item.fileName ?? "File")
+            cell.setup(mimeType: item.mimeType ?? "file", sender: item.senderName ?? "", date: item.date ?? "", time: item.time ?? "", sizeInBytes: item.size ?? "0 KiB", filename: item.fileName ?? L10n.text("cloud_storage__file__fallback_name", fallback: "File"))
             
             cell.senderNameLabel.text = cell.fileNameLabel.text
             cell.fileNameLabel.isHidden = true
@@ -859,7 +863,7 @@ extension CloudStorageGalleryViewController: UITableViewDataSource {
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell()
         let label = UILabel()
-        label.text = "Select files"
+        label.text = L10n.text("cloud_storage__gallery__select_files", fallback: "Select files")
         label.font = UIFont.preferredFont(forTextStyle: .body)
         cell.addSubview(label)
         label.fillSuperviewWithOffset(top: 0, bottom: 0, left: 15, right: 0)
@@ -879,7 +883,7 @@ extension CloudStorageGalleryViewController: UITableViewDelegate {
         tableView.deselectRow(at: indexPath, animated: true)
         dismiss(animated: false)
         remainingSelectedFileIDs.removeAll()
-        cancelSelectButton = UIBarButtonItem(title: "Cancel", style: .plain, target: self, action: #selector(cancelSelectButtonTapped))
+        cancelSelectButton = UIBarButtonItem(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .plain, target: self, action: #selector(cancelSelectButtonTapped))
         deleteSelectedFilesButton = UIBarButtonItem(image: imageLiteral( "trash-outline"), style: .plain, target: self, action: #selector(deleteSelectedFilesButtonTapped))
         deleteSelectedFilesButton?.isEnabled = false
         navigationItem.hidesBackButton = true
@@ -896,7 +900,7 @@ extension CloudStorageGalleryViewController: InfoVCDelegate {
     }
     
     func presentYesNoPresenter(with url: URL) {
-        YesNoPresenter().present(in: self, title: "Open this file".localizeString(id: "open_file_message", arguments: []), message: url.lastPathComponent, yesText: "Open", noText: "Cancel", animated: true) { (value) in
+        YesNoPresenter().present(in: self, title: "Open this file".localizeString(id: "open_file_message", arguments: []), message: url.lastPathComponent, yesText: L10n.text("common__action__open", fallback: "Open"), noText: L10n.text("common__action__cancel", fallback: "Cancel"), animated: true) { (value) in
             if value {
                 UIApplication.shared.open(url, options: [:]) { (_) in }
             }

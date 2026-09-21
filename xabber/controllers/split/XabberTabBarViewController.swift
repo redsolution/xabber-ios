@@ -20,16 +20,16 @@ class XabberTabBarViewController: UITabBarController {
     private func configure() {
         self.tabBar.itemPositioning = .automatic
         self.tabBar.items?[0].image = imageLiteral("message")
-        self.tabBar.items?[0].title = "Chats"
+        self.tabBar.items?[0].title = L10n.text("navigation__destination__chats", fallback: "Chats")
         self.tabBar.items?[1].image = imageLiteral("person.2")
-        self.tabBar.items?[1].title = "Contacts"
+        self.tabBar.items?[1].title = L10n.text("navigation__destination__contacts", fallback: "Contacts")
         self.tabBar.items?[2].image = imageLiteral("bell")
-        self.tabBar.items?[2].title = "Notifications"
+        self.tabBar.items?[2].title = L10n.text("navigation__destination__notifications", fallback: "Notifications")
         self.tabBar.items?[3].image = imageLiteral("archivebox")
-        self.tabBar.items?[3].title = "Archive"
+        self.tabBar.items?[3].title = L10n.text("navigation__destination__archive", fallback: "Archive")
         if CommonConfigManager.shared.config.support_calls {
             self.tabBar.items?[4].image = imageLiteral("phone")
-            self.tabBar.items?[4].title = "Calls"
+            self.tabBar.items?[4].title = L10n.text("navigation__destination__calls", fallback: "Calls")
         }
     }
     

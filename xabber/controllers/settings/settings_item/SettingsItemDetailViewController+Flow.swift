@@ -32,7 +32,7 @@ extension SettingsItemDetailViewController {
             .sortedLogFilePaths
             .compactMap({ return URL(fileURLWithPath: $0) }) else {
             if SettingManager.logEnabled {
-                self.view.makeToast("Please restart application to enable logs.")
+                self.view.makeToast(L10n.text("debug_settings__toast__please_restart_application_to_enable_logs", fallback: "Please restart application to enable logs."))
             } else {
                 self.view.makeToast("There are no log files on your phone".localizeString(id: "debug_no_log_files", arguments: []))
             }

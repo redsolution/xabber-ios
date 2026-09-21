@@ -45,10 +45,10 @@ extension ChatViewController: MessageLabelDelegate {
             let decodedUrl: String = url.absoluteString
             YesNoPresenter().present(
                 in: self,
-                title: "Open this link?",
+                title: L10n.text("open_this_link", fallback: "Open this link?"),
                 message: decodedUrl,
-                yesText: "Open",
-                noText: "Cancel",
+                yesText: L10n.text("common__action__open", fallback: "Open"),
+                noText: L10n.text("common__action__cancel", fallback: "Cancel"),
                 animated: true
             ) { (value) in
                 if value {

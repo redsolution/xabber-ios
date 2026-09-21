@@ -97,7 +97,7 @@ class OnboardingViewController: SimpleBaseViewController {
     private let privacyButton: UIButton = {
         let button = UIButton()
         
-        button.setTitle("Privacy settings", for: .normal)
+        button.setTitle(L10n.text("onboarding__action__privacy_settings", fallback: "Privacy settings"), for: .normal)
         button.setTitleColor(.secondaryLabel, for: .normal)
 //        button.layer.cornerRadius = 22
         button.layer.borderWidth = 0

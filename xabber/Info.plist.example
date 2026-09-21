@@ -33,22 +33,26 @@
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NFCReaderUsageDescription</key>
-	<string>The application needs access to NFC reading to communicate with your YubiKey.</string>
+	<string>Xabber uses NFC to communicate with your YubiKey.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>App uses access to camera when you want to take picture and send it</string>
+	<string>Xabber uses the camera to scan QR codes, take photos, and make video calls.</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>App uses access to protect your data</string>
+	<string>Xabber uses Face ID to protect your data.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Allow access to Microphone to send voice messages and make voice call</string>
+	<string>Xabber uses the microphone to send voice messages and make voice and video calls.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Xabber uses the local network to establish peer-to-peer voice and video calls.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Xabber uses your location when you choose to send your current location in a chat.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>App uses access to Photo library when you take photos</string>
+	<string>Xabber saves photos you take in the app to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>App uses access to Photos when you attach photo to message</string>
+	<string>Xabber accesses your photo library when you choose photos or videos for messages and profile pictures.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>INSendMessageIntent</string>

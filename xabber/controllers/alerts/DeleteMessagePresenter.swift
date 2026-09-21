@@ -40,7 +40,7 @@ struct DeleteMessagePresenter {
             alert.addAction(UIAlertAction(title: "Delete for me".localizeString(id: "delete_for_me_chat_button", arguments: []), style: .default, handler: { (_) in
                 completion(false)
             }))
-            alert.addAction(UIAlertAction(title: "Delete for me and \(username) ", style: .default, handler: { (_) in
+            alert.addAction(UIAlertAction(title: L10n.format("delete_for_me_and_chat_button", fallback: "Delete for me and %@", arguments: [String(describing: username)]), style: .default, handler: { (_) in
                 completion(true)
             }))
         }

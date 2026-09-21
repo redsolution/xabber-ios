@@ -113,7 +113,7 @@ extension EditContactViewController {
             switch ask.value {
             case .none, .in:
                 items = [
-                    ActionSheetPresenter.Item(destructive: false, title: "Stop receiving", value: "unsubscribe")
+                    ActionSheetPresenter.Item(destructive: false, title: L10n.text("contact__subscription__stop_receiving", fallback: "Stop receiving"), value: "unsubscribe")
                 ]
             default:
                 break
@@ -122,33 +122,33 @@ extension EditContactViewController {
             switch ask.value {
             case .none:
                 items = [
-                    ActionSheetPresenter.Item(destructive: false, title: "Request subscription", value: "subscribe")
+                    ActionSheetPresenter.Item(destructive: false, title: L10n.text("contact_subscription_request_subscription", fallback: "Request subscription"), value: "subscribe")
                 ]
             case .out:
                 items = [
-                    ActionSheetPresenter.Item(destructive: false, title: "Cancel request", value: "unsubscribe")
+                    ActionSheetPresenter.Item(destructive: false, title: L10n.text("contact__subscription__cancel_request", fallback: "Cancel request"), value: "unsubscribe")
                 ]
             default:
                 break
             }
         case .both:
             items = [
-                ActionSheetPresenter.Item(destructive: false, title: "Stop receiving", value: "unsubscribe")
+                ActionSheetPresenter.Item(destructive: false, title: L10n.text("contact__subscription__stop_receiving", fallback: "Stop receiving"), value: "unsubscribe")
             ]
         case .none:
             switch ask.value {
             case .none, .in:
                 items = [
-                    ActionSheetPresenter.Item(destructive: false, title: "Request subscription", value: "subscribe")
+                    ActionSheetPresenter.Item(destructive: false, title: L10n.text("contact_subscription_request_subscription", fallback: "Request subscription"), value: "subscribe")
                 ]
             case .out, .both:
                 items = [
-                    ActionSheetPresenter.Item(destructive: false, title: "Cancel request", value: "unsubscribe")
+                    ActionSheetPresenter.Item(destructive: false, title: L10n.text("contact__subscription__cancel_request", fallback: "Cancel request"), value: "unsubscribe")
                 ]
             }
         case .undefined:
             items = [
-                ActionSheetPresenter.Item(destructive: false, title: "Add contact", value: "add_contact")
+                ActionSheetPresenter.Item(destructive: false, title: L10n.text("contact_add", fallback: "Add contact"), value: "add_contact")
             ]
         }
         
@@ -168,17 +168,17 @@ extension EditContactViewController {
             case .none:
                 if approved.value {
                     items = [
-                        ActionSheetPresenter.Item(destructive: false, title: "Unallow subscription", value: "unsubscribed")
+                        ActionSheetPresenter.Item(destructive: false, title: L10n.text("contact__subscription__disallow_subscription", fallback: "Disallow subscription"), value: "unsubscribed")
                     ]
                 } else {
                     items = [
-                        ActionSheetPresenter.Item(destructive: false, title: "Allow subscription", value: "subscribed")
+                        ActionSheetPresenter.Item(destructive: false, title: L10n.text("contact_subscription_allow_subscription", fallback: "Allow subscription"), value: "subscribed")
                     ]
                 }
             case .in:
                 items = [
-                    ActionSheetPresenter.Item(destructive: false, title: "Allow subscription", value: "subscribed"),
-                    ActionSheetPresenter.Item(destructive: false, title: "Decline", value: "unsubscribed")
+                    ActionSheetPresenter.Item(destructive: false, title: L10n.text("contact_subscription_allow_subscription", fallback: "Allow subscription"), value: "subscribed"),
+                    ActionSheetPresenter.Item(destructive: false, title: L10n.text("decline", fallback: "Decline"), value: "unsubscribed")
                 ]
             default:
                 break
@@ -187,30 +187,30 @@ extension EditContactViewController {
             switch ask.value {
             case .none, .out:
                 items = [
-                    ActionSheetPresenter.Item(destructive: false, title: "Stop sending", value: "unsubscribed")
+                    ActionSheetPresenter.Item(destructive: false, title: L10n.text("contact__subscription__stop_sending", fallback: "Stop sending"), value: "unsubscribed")
                 ]
             default:
                 break
             }
         case .both:
             items = [
-                ActionSheetPresenter.Item(destructive: false, title: "Stop sending", value: "unsubscribed")
+                ActionSheetPresenter.Item(destructive: false, title: L10n.text("contact__subscription__stop_sending", fallback: "Stop sending"), value: "unsubscribed")
             ]
         case .none:
             switch ask.value {
             case .none, .out:
                 if approved.value {
                     items = [
-                        ActionSheetPresenter.Item(destructive: false, title: "Unallow subscribtion", value: "unsubscribed")
+                        ActionSheetPresenter.Item(destructive: false, title: L10n.text("contact__subscription__disallow_subscription", fallback: "Disallow subscription"), value: "unsubscribed")
                     ]
                 } else {
                     items = [
-                        ActionSheetPresenter.Item(destructive: false, title: "Allow subscribtion".localizeString(id: "contact_subscription_allow_subscription", arguments: []), value: "subscribed")
+                        ActionSheetPresenter.Item(destructive: false, title: L10n.text("contact_subscription_allow_subscription", fallback: "Allow subscription"), value: "subscribed")
                     ]
                 }
             case .in, .both:
                 items = [
-                    ActionSheetPresenter.Item(destructive: false, title: "Allow subscribtion".localizeString(id: "contact_subscription_allow_subscription", arguments: []), value: "subscribed"),
+                    ActionSheetPresenter.Item(destructive: false, title: L10n.text("contact_subscription_allow_subscription", fallback: "Allow subscription"), value: "subscribed"),
                     ActionSheetPresenter.Item(destructive: false, title: "Decline".localizeString(id: "decline", arguments: []), value: "unsubscribed")
                 ]
             }
@@ -272,7 +272,7 @@ extension EditContactViewController {
             ActionSheetPresenter().present(
                 in: self,
                 title: "Delete contact".localizeString(id: "remove_contact", arguments: []),
-                message: "Do you really want to delete contact \(displayedName)?",
+                message: L10n.format("contact_delete_confirm_short", fallback: "Do you really want to delete contact %@?", arguments: [String(describing: displayedName)]),
                 cancel: "Cancel".localizeString(id: "cancel", arguments: []),
                 values: deleteItems,
                 animated: true

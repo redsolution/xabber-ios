@@ -1,0 +1,102 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "NSCameraUsageDescription": {
+      "comment": "System camera permission dialog shown before taking a photo to send in chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يستخدم Xabber الكاميرا لمسح رموز QR والتقاط الصور وإجراء مكالمات الفيديو."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Xabber uses the camera to scan QR codes, take photos, and make video calls."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Xabber usa la cámara para escanear códigos QR, tomar fotos y realizar videollamadas."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Xabber utilise l’appareil photo pour scanner des codes QR, prendre des photos et passer des appels vidéo."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Xabber использует камеру для сканирования QR-кодов, съёмки фотографий и видеовызовов."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Xabber 使用相机扫描二维码、拍摄照片和进行视频通话。"}}
+      }
+    },
+    "NSFaceIDUsageDescription": {
+      "comment": "System Face ID permission dialog shown when biometric protection is enabled.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يستخدم Xabber بصمة الوجه لحماية بياناتك."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Xabber uses Face ID to protect your data."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Xabber usa Face ID para proteger tus datos."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Xabber utilise Face ID pour protéger vos données."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Xabber использует Face ID для защиты ваших данных."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Xabber 使用面容 ID 保护您的数据。"}}
+      }
+    },
+    "NSLocalNetworkUsageDescription": {
+      "comment": "System local-network permission dialog used for peer-to-peer voice calls.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يستخدم Xabber الشبكة المحلية لإجراء مكالمات صوتية ومكالمات فيديو مباشرة بين الأجهزة."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Xabber uses the local network to establish peer-to-peer voice and video calls."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Xabber usa la red local para establecer llamadas de voz y videollamadas entre pares."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Xabber utilise le réseau local pour établir des appels vocaux et vidéo pair à pair."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Xabber использует локальную сеть для одноранговых голосовых и видеовызовов."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Xabber 使用本地网络建立点对点语音和视频通话。"}}
+      }
+    },
+    "NSLocationWhenInUseUsageDescription": {
+      "comment": "System location permission dialog shown when the user sends their current location in chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يستخدم Xabber موقعك عندما تختار إرسال موقعك الحالي في محادثة."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Xabber uses your location when you choose to send your current location in a chat."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Xabber usa tu ubicación cuando decides enviar tu ubicación actual en un chat."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Xabber utilise votre position lorsque vous choisissez d’envoyer votre position actuelle dans une discussion."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Xabber использует вашу геопозицию, когда вы решаете отправить текущее местоположение в чат."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "当您选择在聊天中发送当前位置时，Xabber 会使用您的位置信息。"}}
+      }
+    },
+    "NSMicrophoneUsageDescription": {
+      "comment": "System microphone permission dialog used for voice messages and voice calls.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يستخدم Xabber الميكروفون لإرسال الرسائل الصوتية وإجراء المكالمات الصوتية ومكالمات الفيديو."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Xabber uses the microphone to send voice messages and make voice and video calls."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Xabber usa el micrófono para enviar mensajes de voz y realizar llamadas de voz y videollamadas."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Xabber utilise le microphone pour envoyer des messages vocaux et passer des appels vocaux et vidéo."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Xabber использует микрофон для отправки голосовых сообщений, голосовых и видеовызовов."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Xabber 使用麦克风发送语音消息和进行语音及视频通话。"}}
+      }
+    },
+    "NSPhotoLibraryAddUsageDescription": {
+      "comment": "System photo-library add permission dialog shown when saving a downloaded photo.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يحفظ Xabber الصور التي تلتقطها في التطبيق في مكتبة الصور."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Xabber saves photos you take in the app to your photo library."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Xabber guarda en tu fototeca las fotos que tomas en la aplicación."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Xabber enregistre dans votre photothèque les photos prises dans l’application."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Xabber сохраняет сделанные в приложении фотографии в медиатеку."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Xabber 会将您在应用中拍摄的照片保存到照片图库。"}}
+      }
+    },
+    "NSPhotoLibraryUsageDescription": {
+      "comment": "System photo-library permission dialog shown when attaching an existing photo to a message.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يصل Xabber إلى مكتبة الصور عندما تختار صورًا أو مقاطع فيديو للرسائل وصور الملف الشخصي."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Xabber accesses your photo library when you choose photos or videos for messages and profile pictures."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Xabber accede a tu fototeca cuando eliges fotos o vídeos para mensajes e imágenes de perfil."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Xabber accède à votre photothèque lorsque vous choisissez des photos ou des vidéos pour les messages et les photos de profil."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Xabber получает доступ к медиатеке, когда вы выбираете фото или видео для сообщений и изображений профиля."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "当您为消息和个人资料图片选择照片或视频时，Xabber 会访问您的照片图库。"}}
+      }
+    },
+    "NFCReaderUsageDescription": {
+      "comment": "System NFC permission dialog shown when communicating with a YubiKey.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يستخدم Xabber تقنية NFC للاتصال بمفتاح YubiKey الخاص بك."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Xabber uses NFC to communicate with your YubiKey."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Xabber usa NFC para comunicarse con tu YubiKey."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Xabber utilise le NFC pour communiquer avec votre YubiKey."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Xabber использует NFC для взаимодействия с вашим YubiKey."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Xabber 使用 NFC 与您的 YubiKey 通信。"}}
+      }
+    }
+  },
+  "version": "1.0"
+}

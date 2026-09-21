@@ -922,9 +922,9 @@ private final class ChatAttachmentContactSourceCell: UITableViewCell {
         case .contact:
             return item.jid
         case .groupchat:
-            return "Group - \(item.jid)"
+            return L10n.format("chat_attachment__entity__group_format", fallback: "Group - %@", arguments: [String(describing: item.jid)])
         case .incognito:
-            return "Incognito group - \(item.jid)"
+            return L10n.format("chat_attachment__entity__incognito_group_format", fallback: "Incognito group - %@", arguments: [String(describing: item.jid)])
         }
     }
 

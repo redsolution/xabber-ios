@@ -1,0 +1,417 @@
+{
+  "migrations": [
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "%@ appearance",
+      "key": "appearance__mode__accessibility_label_format",
+      "fallback": "%1$@ appearance",
+      "api": "format",
+      "comment": "Interface settings appearance-mode cell VoiceOver label. Argument 1 is the localized appearance name.",
+      "translations": {
+        "en": "%1$@ appearance",
+        "ru": "Оформление: %1$@",
+        "fr": "Apparence : %1$@",
+        "es": "Apariencia: %1$@",
+        "ar": "المظهر: %1$@",
+        "zh-Hans": "%1$@外观"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityHint",
+      "value": "Applies this appearance to the app",
+      "key": "appearance__mode__accessibility_hint",
+      "comment": "Interface settings appearance-mode cell VoiceOver hint.",
+      "translations": {
+        "en": "Applies this appearance to the app",
+        "ru": "Применяет это оформление ко всему приложению",
+        "fr": "Applique cette apparence à l’application",
+        "es": "Aplica esta apariencia a la aplicación",
+        "ar": "يطبّق هذا المظهر على التطبيق",
+        "zh-Hans": "将此外观应用到整个应用"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Create New Theme",
+      "key": "appearance__theme__create_accessibility_label",
+      "comment": "Interface settings create-theme button VoiceOver label.",
+      "translations": {
+        "en": "Create New Theme",
+        "ru": "Создать новую тему",
+        "fr": "Créer un nouveau thème",
+        "es": "Crear un tema nuevo",
+        "ar": "إنشاء سمة جديدة",
+        "zh-Hans": "创建新主题"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Appearance preview",
+      "key": "appearance__preview__accessibility_label",
+      "comment": "Interface settings appearance preview VoiceOver label.",
+      "translations": {
+        "en": "Appearance preview",
+        "ru": "Предпросмотр оформления",
+        "fr": "Aperçu de l’apparence",
+        "es": "Vista previa de la apariencia",
+        "ar": "معاينة المظهر",
+        "zh-Hans": "外观预览"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Alicia Torreaux chat preview with three messages",
+      "key": "appearance__preview__sample_chat_accessibility_label",
+      "comment": "VoiceOver summary for the sample chat in the interface preview.",
+      "translations": {
+        "en": "Alicia Torreaux chat preview with three messages",
+        "ru": "Предпросмотр чата с Алисией Торро и тремя сообщениями",
+        "fr": "Aperçu de la discussion avec Alicia Torreaux contenant trois messages",
+        "es": "Vista previa del chat con Alicia Torreaux y tres mensajes",
+        "ar": "معاينة محادثة أليسيا تورو مع ثلاث رسائل",
+        "zh-Hans": "Alicia Torreaux 的聊天预览，包含三条消息"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Application color preview",
+      "key": "appearance__accent__preview_accessibility_label",
+      "comment": "Interface settings application-color preview VoiceOver label.",
+      "translations": {
+        "en": "Application color preview",
+        "ru": "Предпросмотр цвета приложения",
+        "fr": "Aperçu de la couleur de l’application",
+        "es": "Vista previa del color de la aplicación",
+        "ar": "معاينة لون التطبيق",
+        "zh-Hans": "应用颜色预览"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Application color",
+      "key": "appearance__accent__color_accessibility_label",
+      "comment": "Interface settings application-color swatch VoiceOver label.",
+      "translations": {
+        "en": "Application color",
+        "ru": "Цвет приложения",
+        "fr": "Couleur de l’application",
+        "es": "Color de la aplicación",
+        "ar": "لون التطبيق",
+        "zh-Hans": "应用颜色"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Quick application color",
+      "key": "appearance__accent__quick_color_accessibility_label",
+      "comment": "Interface settings quick application-color swatch VoiceOver label.",
+      "translations": {
+        "en": "Quick application color",
+        "ru": "Быстрый выбор цвета приложения",
+        "fr": "Couleur rapide de l’application",
+        "es": "Color rápido de la aplicación",
+        "ar": "لون سريع للتطبيق",
+        "zh-Hans": "快捷应用颜色"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Message bubble styles",
+      "key": "appearance__bubbles__styles_accessibility_label",
+      "comment": "Interface settings message-bubble style gallery VoiceOver label.",
+      "translations": {
+        "en": "Message bubble styles",
+        "ru": "Стили пузырей сообщений",
+        "fr": "Styles des bulles de message",
+        "es": "Estilos de burbujas de mensaje",
+        "ar": "أنماط فقاعات الرسائل",
+        "zh-Hans": "消息气泡样式"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Bubble style selection",
+      "key": "appearance__bubbles__selection_accessibility_label",
+      "comment": "Interface settings bubble-style selection preview VoiceOver label.",
+      "translations": {
+        "en": "Bubble style selection",
+        "ru": "Выбор стиля пузырей",
+        "fr": "Sélection du style des bulles",
+        "es": "Selección del estilo de burbujas",
+        "ar": "اختيار نمط الفقاعات",
+        "zh-Hans": "气泡样式选择"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Avatar shapes",
+      "key": "appearance__avatars__shapes_accessibility_label",
+      "comment": "Interface settings avatar-shape gallery VoiceOver label.",
+      "translations": {
+        "en": "Avatar shapes",
+        "ru": "Формы аватаров",
+        "fr": "Formes des avatars",
+        "es": "Formas de los avatares",
+        "ar": "أشكال الصور الرمزية",
+        "zh-Hans": "头像形状"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "%@ avatar shape",
+      "key": "appearance__avatars__shape_accessibility_label_format",
+      "fallback": "%1$@ avatar shape",
+      "api": "format",
+      "comment": "Interface settings avatar-shape option VoiceOver label. Argument 1 is the localized shape name.",
+      "translations": {
+        "en": "%1$@ avatar shape",
+        "ru": "Форма аватара: %1$@",
+        "fr": "Forme de l’avatar : %1$@",
+        "es": "Forma del avatar: %1$@",
+        "ar": "شكل الصورة الرمزية: %1$@",
+        "zh-Hans": "%1$@头像形状"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Chat preview",
+      "key": "appearance__preview__chat_accessibility_label",
+      "comment": "Interface theme editor single-chat preview VoiceOver label.",
+      "translations": {
+        "en": "Chat preview",
+        "ru": "Предпросмотр чата",
+        "fr": "Aperçu de la discussion",
+        "es": "Vista previa del chat",
+        "ar": "معاينة المحادثة",
+        "zh-Hans": "聊天预览"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Chats preview",
+      "key": "appearance__preview__chats_accessibility_label",
+      "comment": "Interface theme editor chat-list preview VoiceOver label.",
+      "translations": {
+        "en": "Chats preview",
+        "ru": "Предпросмотр списка чатов",
+        "fr": "Aperçu des discussions",
+        "es": "Vista previa de los chats",
+        "ar": "معاينة المحادثات",
+        "zh-Hans": "聊天列表预览"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/views/gallery/FilesGalleryForChatViewController.swift",
+      "sink": "accessibilityHint",
+      "value": "Double tap to open. More actions are available.",
+      "key": "gallery__file__open_more_actions_accessibility_hint",
+      "comment": "VoiceOver hint for a file that can be opened and also has a context menu.",
+      "translations": {
+        "en": "Double tap to open. More actions are available.",
+        "ru": "Дважды коснитесь, чтобы открыть. Доступны дополнительные действия.",
+        "fr": "Touchez deux fois pour ouvrir. D’autres actions sont disponibles.",
+        "es": "Toca dos veces para abrir. Hay más acciones disponibles.",
+        "ar": "اضغط مرتين للفتح. تتوفر إجراءات إضافية.",
+        "zh-Hans": "轻点两下以打开。还有更多操作可用。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/views/gallery/FilesGalleryForChatViewController.swift",
+      "sink": "accessibilityHint",
+      "value": "More actions are available.",
+      "key": "gallery__item__more_actions_accessibility_hint",
+      "comment": "VoiceOver hint for a gallery item with a context menu.",
+      "translations": {
+        "en": "More actions are available.",
+        "ru": "Доступны дополнительные действия.",
+        "fr": "D’autres actions sont disponibles.",
+        "es": "Hay más acciones disponibles.",
+        "ar": "تتوفر إجراءات إضافية.",
+        "zh-Hans": "还有更多操作可用。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/views/gallery/VoiceGalleryForChatViewController.swift",
+      "sink": "accessibilityHint",
+      "value": "Double tap to play or download. More actions are available.",
+      "key": "gallery__voice__play_download_more_actions_accessibility_hint",
+      "comment": "VoiceOver hint for a voice message that can be played or downloaded and has a context menu.",
+      "translations": {
+        "en": "Double tap to play or download. More actions are available.",
+        "ru": "Дважды коснитесь, чтобы воспроизвести или скачать. Доступны дополнительные действия.",
+        "fr": "Touchez deux fois pour lire ou télécharger. D’autres actions sont disponibles.",
+        "es": "Toca dos veces para reproducir o descargar. Hay más acciones disponibles.",
+        "ar": "اضغط مرتين للتشغيل أو التنزيل. تتوفر إجراءات إضافية.",
+        "zh-Hans": "轻点两下以播放或下载。还有更多操作可用。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/QuotaInfoCell.swift",
+      "sink": "accessibilityLabel",
+      "value": "Cloud storage usage",
+      "key": "cloud_storage__quota__usage_accessibility_label",
+      "comment": "VoiceOver label for the Cloud Storage quota usage bar.",
+      "translations": {
+        "en": "Cloud storage usage",
+        "ru": "Использование облачного хранилища",
+        "fr": "Utilisation du stockage cloud",
+        "es": "Uso del almacenamiento en la nube",
+        "ar": "استخدام التخزين السحابي",
+        "zh-Hans": "云存储用量"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageGalleryViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Loading more Cloud Storage files",
+      "key": "cloud_storage__gallery__loading_more_accessibility_label",
+      "comment": "VoiceOver status while the next Cloud Storage gallery page is loading.",
+      "translations": {
+        "en": "Loading more Cloud Storage files",
+        "ru": "Загрузка дополнительных файлов из облачного хранилища",
+        "fr": "Chargement d’autres fichiers du stockage cloud",
+        "es": "Cargando más archivos del almacenamiento en la nube",
+        "ar": "جارٍ تحميل المزيد من ملفات التخزين السحابي",
+        "zh-Hans": "正在加载更多云存储文件"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "text",
+      "value": "Verification In Progress",
+      "key": "trusted_devices__session_status__verification_in_progress",
+      "comment": "Trusted Devices verification-session status title.",
+      "translations": {
+        "en": "Verification In Progress",
+        "ru": "Проверка выполняется",
+        "fr": "Vérification en cours",
+        "es": "Verificación en curso",
+        "ar": "جارٍ التحقق",
+        "zh-Hans": "正在验证"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "text",
+      "value": "Identity Verification Request Received",
+      "key": "trusted_devices__session_status__identity_verification_request_received",
+      "comment": "Trusted Devices status when an identity-verification request arrives.",
+      "translations": {
+        "en": "Identity Verification Request Received",
+        "ru": "Получен запрос на проверку личности",
+        "fr": "Demande de vérification d’identité reçue",
+        "es": "Solicitud de verificación de identidad recibida",
+        "ar": "تم استلام طلب التحقق من الهوية",
+        "zh-Hans": "已收到身份验证请求"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "text",
+      "value": "Incoming Verification Request",
+      "key": "authenticated_key_exchange__body__incoming_verification_request",
+      "fallback": "Incoming verification request",
+      "comment": "Trusted Devices status for an accepted incoming verification request.",
+      "translations": {
+        "en": "Incoming verification request",
+        "ru": "Входящий запрос на проверку",
+        "fr": "Demande de vérification entrante",
+        "es": "Solicitud de verificación entrante",
+        "ar": "طلب تحقق وارد",
+        "zh-Hans": "收到验证请求"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "text",
+      "value": "Verification successful",
+      "key": "authenticated_key_exchange__body__verification_succeeded",
+      "fallback": "Verification succeeded",
+      "comment": "Trusted Devices status for a successfully completed verification session.",
+      "translations": {
+        "en": "Verification succeeded",
+        "ru": "Проверка выполнена успешно",
+        "fr": "Vérification réussie",
+        "es": "Verificación completada",
+        "ar": "نجح التحقق",
+        "zh-Hans": "验证成功"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "text",
+      "value": "Verification rejected",
+      "key": "authenticated_key_exchange__body__verification_rejected",
+      "comment": "Trusted Devices status for a rejected verification session.",
+      "translations": {
+        "en": "Verification rejected",
+        "ru": "Проверка отклонена",
+        "fr": "Vérification rejetée",
+        "es": "Verificación rechazada",
+        "ar": "تم رفض التحقق",
+        "zh-Hans": "验证已拒绝"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "text",
+      "value": "Verification failed",
+      "key": "authenticated_key_exchange__body__verification_failed",
+      "comment": "Trusted Devices status for a failed verification session.",
+      "translations": {
+        "en": "Verification failed",
+        "ru": "Проверка не удалась",
+        "fr": "Échec de la vérification",
+        "es": "Error de verificación",
+        "ar": "فشل التحقق",
+        "zh-Hans": "验证失败"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "text",
+      "value": "Outgoing Verification Request",
+      "key": "authenticated_key_exchange__body__outgoing_verification_request",
+      "fallback": "Outgoing verification request",
+      "comment": "Trusted Devices status for an accepted outgoing verification request.",
+      "translations": {
+        "en": "Outgoing verification request",
+        "ru": "Исходящий запрос на проверку",
+        "fr": "Demande de vérification sortante",
+        "es": "Solicitud de verificación saliente",
+        "ar": "طلب تحقق صادر",
+        "zh-Hans": "已发送验证请求"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "text",
+      "value": "In process...",
+      "key": "trusted_devices__session_status__in_process",
+      "comment": "Fallback Trusted Devices verification-session status.",
+      "translations": {
+        "en": "In process...",
+        "ru": "Выполняется...",
+        "fr": "En cours...",
+        "es": "En curso...",
+        "ar": "جارٍ التنفيذ...",
+        "zh-Hans": "处理中..."
+      }
+    }
+  ],
+  "exclusions": []
+}

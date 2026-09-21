@@ -97,32 +97,32 @@ class PrivacySettingsViewController: SimpleBaseViewController {
             Datasource(
                 section: .privacy,
                 valueType: .checkobox,
-                title: "Device Metadata Sharing",
+                title: L10n.text("privacy__title__device_metadata_sharing", fallback: "Device Metadata Sharing"),
                 key: "",
-                footerLabel: "Incognito Mode text description",
+                footerLabel: L10n.text("privacy_settings__footer_label__incognito_mode_text_description", fallback: "Incognito Mode text description"),
                 childs: [
                     Datasource(
                         section: .privacy,
                         valueType: .checkobox,
-                        title: "Server and Contacts",
+                        title: L10n.text("privacy__title__server_and_contacts", fallback: "Server and Contacts"),
                         key: SettingManager.PrivacyLevel.serverContacts.rawValue,
-                        footerLabel: "This option shares your device information (type and OS) with both the server and your contacts. The server uses this data solely for device management purposes, allowing users to see which devices are connected to their account. Your contacts might see this information during device verification, enhancing the user experience at the cost of some privacy.",
+                        footerLabel: L10n.text("privacy_settings__footer_label__this_option_shares_your_device_information_type_and_os_with_both_the", fallback: "This option shares your device information (type and OS) with both the server and your contacts. The server uses this data solely for device management purposes, allowing users to see which devices are connected to their account. Your contacts might see this information during device verification, enhancing the user experience at the cost of some privacy."),
                         childs: []
                     ),
                     Datasource(
                         section: .privacy,
                         valueType: .checkobox,
-                        title: "Server Only",
+                        title: L10n.text("privacy__title__server_only", fallback: "Server Only"),
                         key: SettingManager.PrivacyLevel.server.rawValue,
-                        footerLabel: "With this setting, your device information is shared only with the server for device management, ensuring users can manage their connected devices. Contacts, however, will see anonymized data instead, preserving your privacy. This setting provides a balance between functional device management and personal privacy.",
+                        footerLabel: L10n.text("privacy_settings__footer_label__with_this_setting_your_device_information_is_shared_only_with_the_server", fallback: "With this setting, your device information is shared only with the server for device management, ensuring users can manage their connected devices. Contacts, however, will see anonymized data instead, preserving your privacy. This setting provides a balance between functional device management and personal privacy."),
                         childs: []
                     ),
                     Datasource(
                         section: .privacy,
                         valueType: .checkobox,
-                        title: "Incognito Mode",
+                        title: L10n.text("privacy__title__incognito_mode", fallback: "Incognito Mode"),
                         key: SettingManager.PrivacyLevel.incognito.rawValue,
-                        footerLabel: "Incognito Mode offers maximum privacy by not sharing any device details. Both the server and your contacts will see only anonymized data, even in the context of device management. This setting ensures your device information remains completely private, prioritizing user anonymity over personalized device management.",
+                        footerLabel: L10n.text("privacy_settings__footer_label__incognito_mode_offers_maximum_privacy_by_not_sharing_any_device_details_both", fallback: "Incognito Mode offers maximum privacy by not sharing any device details. Both the server and your contacts will see only anonymized data, even in the context of device management. This setting ensures your device information remains completely private, prioritizing user anonymity over personalized device management."),
                         childs: []
                     )
                 ]
@@ -130,16 +130,16 @@ class PrivacySettingsViewController: SimpleBaseViewController {
             Datasource(
                 section: .typing,
                 valueType: .boolean,
-                title: "typing notifications",
+                title: L10n.text("privacy__title__typing_notifications", fallback: "Typing Notifications"),
                 key: "",
-                footerLabel: "typing notifications text description",
+                footerLabel: L10n.text("privacy_settings__footer_label__typing_notifications_text_description", fallback: "typing notifications text description"),
                 childs: [
                     Datasource(
                         section: .privacy,
                         valueType: .boolean,
-                        title: "Send typing notifications",
+                        title: L10n.text("privacy__title__send_typing_notifications", fallback: "Send typing notifications"),
                         key: SettingManager.PrivacySettings.typingNotification.rawValue,
-                        footerLabel: "Server and Contacts text description",
+                        footerLabel: L10n.text("privacy_settings__footer_label__server_and_contacts_text_description", fallback: "Server and Contacts text description"),
                         childs: []
                     )
                 ]
@@ -158,7 +158,7 @@ class PrivacySettingsViewController: SimpleBaseViewController {
     override func configure() {
         super.configure()
         self.view.addSubview(self.tableView)
-        self.navigationItem.title = "Privacy settings"
+        self.navigationItem.title = L10n.text("privacy__title__privacy_settings", fallback: "Privacy settings")
         self.navigationController?.isNavigationBarHidden = false
         if CommonConfigManager.shared.config.use_large_title {
             self.navigationItem.largeTitleDisplayMode = .automatic

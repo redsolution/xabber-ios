@@ -417,6 +417,167 @@ final class ChatLocalHistoryIndexStorageItem: Object {
     }
 }
 
+/// A protocol-defined self-destruct timer change carried by the existing
+/// `ephemeral-timer` system-message reference metadata.
+///
+/// New messages retain a stable English body for older clients and wire-level
+/// fallback. User-visible copy is resolved from the semantic timer value so
+/// changing the in-app language also updates history.
+enum EphemeralTimerSystemEvent: Equatable {
+    static let metadataKey = "ephemeral-timer"
+
+    case disabled
+    case enabled(seconds: Int)
+
+    init(timerValue: ChatMarkersManager.BurnMessagesTimerValues) {
+        if timerValue == .off {
+            self = .disabled
+        } else {
+            self = .enabled(seconds: timerValue.rawValue)
+        }
+    }
+
+    init?(timerSeconds: Int) {
+        guard let timerValue = ChatMarkersManager.BurnMessagesTimerValues(rawValue: timerSeconds) else {
+            return nil
+        }
+        self.init(timerValue: timerValue)
+    }
+
+    /// Stable body used for local persistence and XMPP interoperability with
+    /// clients that do not understand the semantic system-message reference.
+    /// It intentionally does not depend on the current in-app language.
+    var canonicalEnglishBody: String {
+        switch self {
+        case .disabled:
+            return "Self-destruct timer was disabled"
+        case .enabled(let seconds) where seconds.isMultiple(of: 60):
+            let minutes = seconds / 60
+            let unit = minutes == 1 ? "minute" : "minutes"
+            return "Self-destruct timer was set to \(minutes) \(unit)"
+        case .enabled(let seconds):
+            let unit = seconds == 1 ? "second" : "seconds"
+            return "Self-destruct timer was set to \(seconds) \(unit)"
+        }
+    }
+
+    var localizedText: String {
+        switch self {
+        case .disabled:
+            return L10n.text(
+                "chat__system_message__self_destruct_timer_disabled",
+                fallback: "Self-destruct timer was disabled"
+            )
+        case .enabled(let seconds) where seconds.isMultiple(of: 60):
+            return L10n.plural(
+                "chat__system_message__self_destruct_timer_set_minutes",
+                count: seconds / 60,
+                fallback: "Self-destruct timer was set to %lld minutes"
+            )
+        case .enabled(let seconds):
+            return L10n.plural(
+                "chat__system_message__self_destruct_timer_set_seconds",
+                count: seconds,
+                fallback: "Self-destruct timer was set to %lld seconds"
+            )
+        }
+    }
+}
+
+/// Semantic local-only events emitted by the authenticated key exchange flow.
+///
+/// The raw value is persisted in `MessageStorageItem.systemMetadata_`; rendered
+/// text is deliberately resolved from the current localization context.
+enum AuthenticatedKeyExchangeSystemEvent: String, CaseIterable {
+    case outgoingVerificationRequest = "outgoing_verification_request"
+    case acceptedVerificationRequest = "accepted_verification_request"
+    case incomingVerificationRequest = "incoming_verification_request"
+    case verificationRejected = "verification_rejected"
+    case verificationTimedOut = "verification_timed_out"
+    case verificationFailed = "verification_failed"
+    case verificationSucceeded = "verification_succeeded"
+
+    var localizationKey: String {
+        switch self {
+        case .outgoingVerificationRequest:
+            return "authenticated_key_exchange__body__outgoing_verification_request"
+        case .acceptedVerificationRequest:
+            return "authenticated_key_exchange__body__you_accepted_the_verification_request"
+        case .incomingVerificationRequest:
+            return "authenticated_key_exchange__body__incoming_verification_request"
+        case .verificationRejected:
+            return "authenticated_key_exchange__body__verification_rejected"
+        case .verificationTimedOut:
+            return "authenticated_key_exchange__body__verification_timed_out"
+        case .verificationFailed:
+            return "authenticated_key_exchange__body__verification_failed"
+        case .verificationSucceeded:
+            return "authenticated_key_exchange__body__verification_succeeded"
+        }
+    }
+
+    var englishFallback: String {
+        switch self {
+        case .outgoingVerificationRequest:
+            return "Outgoing verification request"
+        case .acceptedVerificationRequest:
+            return "You accepted the verification request"
+        case .incomingVerificationRequest:
+            return "Incoming verification request"
+        case .verificationRejected:
+            return "Verification rejected"
+        case .verificationTimedOut:
+            return "Verification timed out"
+        case .verificationFailed:
+            return "Verification failed"
+        case .verificationSucceeded:
+            return "Verification succeeded"
+        }
+    }
+
+    var localizedText: String {
+        // Keep the lookup keys literal here so localization-manifest scanning
+        // continues to prove that every member of this closed enum is active.
+        switch self {
+        case .outgoingVerificationRequest:
+            return L10n.text(
+                "authenticated_key_exchange__body__outgoing_verification_request",
+                fallback: "Outgoing verification request"
+            )
+        case .acceptedVerificationRequest:
+            return L10n.text(
+                "authenticated_key_exchange__body__you_accepted_the_verification_request",
+                fallback: "You accepted the verification request"
+            )
+        case .incomingVerificationRequest:
+            return L10n.text(
+                "authenticated_key_exchange__body__incoming_verification_request",
+                fallback: "Incoming verification request"
+            )
+        case .verificationRejected:
+            return L10n.text(
+                "authenticated_key_exchange__body__verification_rejected",
+                fallback: "Verification rejected"
+            )
+        case .verificationTimedOut:
+            return L10n.text(
+                "authenticated_key_exchange__body__verification_timed_out",
+                fallback: "Verification timed out"
+            )
+        case .verificationFailed:
+            return L10n.text(
+                "authenticated_key_exchange__body__verification_failed",
+                fallback: "Verification failed"
+            )
+        case .verificationSucceeded:
+            return L10n.text(
+                "authenticated_key_exchange__body__verification_succeeded",
+                fallback: "Verification succeeded"
+            )
+        }
+    }
+}
+
 
 class MessageStorageItem: Object {
     
@@ -714,7 +875,7 @@ class MessageStorageItem: Object {
             if role?.lowercased() == "member" {
                 return badge
             } else {
-                return badge ?? role?.capitalized
+                return badge ?? role.map(Self.groupchatRoleLabel)
             }
         }
     }
@@ -727,7 +888,7 @@ class MessageStorageItem: Object {
         get {
             if let nick = groupchatAuthorNickname,
                 self.displayAs != .system {
-                return outgoing ? "You:" : nick
+                return outgoing ? L10n.text("groupchat__message_preview__sender_you", fallback: "You:") : nick
             }
             return nil
         }
@@ -746,6 +907,20 @@ class MessageStorageItem: Object {
             return nil
         }
         return value
+    }
+
+    /// Localizes only protocol-defined role tokens. Unknown values may be
+    /// server-provided copy and must be preserved verbatim.
+    private static func groupchatRoleLabel(_ role: String) -> String {
+        guard let knownRole = GroupMemberRole(rawValue: role.lowercased()) else {
+            return role
+        }
+        switch knownRole {
+        case .owner: return L10n.text("groupchat__message_author_role__owner", fallback: "Owner")
+        case .admin: return L10n.text("groupchat__message_author_role__admin", fallback: "Admin")
+        case .none: return L10n.text("groupchat__message_author_role__none", fallback: "None")
+        case .member: return role
+        }
     }
     
     var errorMetadata: [String: Any]? {
@@ -868,6 +1043,57 @@ class MessageStorageItem: Object {
     }
     static let messageWarningMetadataKey: String = "warning"
     static let omemoUntrustedContactDevicesWarningCode: String = "omemo_untrusted_contact_devices"
+    static let authenticatedKeyExchangeEventMetadataKey: String = "authenticated_key_exchange_event_v1"
+
+    /// Recognized semantic AKE events are accepted only for the exact local
+    /// message shape created by `AuthenticatedKeyExchangeManager`. Unknown or
+    /// legacy metadata therefore cannot replace a server-authored body.
+    var authenticatedKeyExchangeSystemEvent: AuthenticatedKeyExchangeSystemEvent? {
+        guard displayAs == .system,
+              conversationType == .omemo,
+              outgoing,
+              let rawValue = systemMetadata?[Self.authenticatedKeyExchangeEventMetadataKey] as? String else {
+            return nil
+        }
+        return AuthenticatedKeyExchangeSystemEvent(rawValue: rawValue)
+    }
+
+    func markAuthenticatedKeyExchangeSystemEvent(_ event: AuthenticatedKeyExchangeSystemEvent) {
+        var metadata = systemMetadata ?? [:]
+        metadata[Self.authenticatedKeyExchangeEventMetadataKey] = event.rawValue
+        systemMetadata = metadata
+    }
+
+    /// Only an actual system-message reference with a known timer value is
+    /// interpreted semantically. Missing, malformed, and future values keep the
+    /// stored body as a backward-compatible fallback.
+    var ephemeralTimerSystemEvent: EphemeralTimerSystemEvent? {
+        guard displayAs == .system,
+              let timerReference = references.first(where: {
+                  $0.kind == .systemMessage
+                      && $0.metadata?[EphemeralTimerSystemEvent.metadataKey] != nil
+              }),
+              let timerSeconds = timerReference.metadata?[EphemeralTimerSystemEvent.metadataKey] as? Int else {
+            return nil
+        }
+        return EphemeralTimerSystemEvent(timerSeconds: timerSeconds)
+    }
+
+    private var semanticSystemMessageBody: String? {
+        if let authenticatedKeyExchangeSystemEvent {
+            return authenticatedKeyExchangeSystemEvent.localizedText
+        }
+        if let ephemeralTimerSystemEvent {
+            return ephemeralTimerSystemEvent.localizedText
+        }
+        return nil
+    }
+
+    /// The body shown to the user. Existing rows without recognized semantic
+    /// metadata retain their stored text verbatim for backward compatibility.
+    var userVisibleBody: String {
+        semanticSystemMessageBody ?? body
+    }
 
     var messageWarningText: String? {
         guard let warningCode = systemMetadata?[MessageStorageItem.messageWarningMetadataKey] as? String else {
@@ -1082,8 +1308,9 @@ class MessageStorageItem: Object {
     }
 
     final var bodyForAttachmentRendering: String {
-        let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedBody.isNotEmpty else { return body }
+        let sourceBody = userVisibleBody
+        let trimmedBody = sourceBody.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedBody.isNotEmpty else { return sourceBody }
         let bodyMatchesLocationFallback = visibleGeolocReferences.contains { reference in
             let candidates = [
                 reference.url,
@@ -1094,10 +1321,13 @@ class MessageStorageItem: Object {
         if bodyMatchesLocationFallback {
             return ""
         }
-        return bodyExcludingContactFallback(body)
+        return bodyExcludingContactFallback(sourceBody)
     }
 
     final func copyableBodyText() -> String {
+        if let semanticSystemMessageBody {
+            return semanticSystemMessageBody
+        }
         let rawBody = legacyBody.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty ? legacyBody : body
         if rawBody.trimmingCharacters(in: .whitespacesAndNewlines).isNotEmpty {
             return rawBody
@@ -1156,7 +1386,7 @@ class MessageStorageItem: Object {
                     }
                     return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", mimeType: item.mimeType, downloaded: item.isDownloaded)
                 }
-                resultBody += body.trimmingCharacters(in: .whitespacesAndNewlines)
+                resultBody += userVisibleBody.trimmingCharacters(in: .whitespacesAndNewlines)
                 if resultBody.isEmpty {
                     if images.count > 0 {
                         return true
@@ -1239,7 +1469,7 @@ class MessageStorageItem: Object {
                     return FileAttachment(primary: item.primary, url: url, size: Double(item.sizeInBytesRaw), name: item.filename ?? item.name ?? "file", mimeType: item.mimeType, downloaded: item.isDownloaded)
                 }
                 let locations = visibleGeolocReferences
-                resultBody += body.trimmingCharacters(in: .whitespacesAndNewlines)
+                resultBody += userVisibleBody.trimmingCharacters(in: .whitespacesAndNewlines)
                 if resultBody.isEmpty {
                     
                     if images.count == 1 {

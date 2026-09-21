@@ -83,24 +83,24 @@ class SystemMessageCell: MessageContentCell {
                 case .call(let call):
                     if call.incoming {
                         if call.missed {
-                            messageLabel.attributedText = NSAttributedString(string: "Missed call", attributes: [
+                            messageLabel.attributedText = NSAttributedString(string: L10n.text("chat_message_missed_call", fallback: "Missed call"), attributes: [
                                 .font: UIFont.preferredFont(forTextStyle: .caption1),
                                 .foregroundColor: UIColor.white,
                             ])
                         } else {
-                            messageLabel.attributedText = NSAttributedString(string: "Incoming call", attributes: [
+                            messageLabel.attributedText = NSAttributedString(string: L10n.text("chat_message_incoming", fallback: "Incoming call"), attributes: [
                                 .font: UIFont.preferredFont(forTextStyle: .caption1),
                                 .foregroundColor: UIColor.white,
                             ])
                         }
                     } else {
                         if call.missed {
-                            messageLabel.attributedText = NSAttributedString(string: "Outgoing call", attributes: [
+                            messageLabel.attributedText = NSAttributedString(string: L10n.text("chat_message_outgoing", fallback: "Outgoing call"), attributes: [
                                                                 .font: UIFont.preferredFont(forTextStyle: .caption1),
                                                                 .foregroundColor: UIColor.white,
                                                             ])
                         } else {
-                            messageLabel.attributedText = NSAttributedString(string: "Outgoing call", attributes: [
+                            messageLabel.attributedText = NSAttributedString(string: L10n.text("chat_message_outgoing", fallback: "Outgoing call"), attributes: [
                                 .font: UIFont.preferredFont(forTextStyle: .caption1),
                                 .foregroundColor: UIColor.white,
                             ])

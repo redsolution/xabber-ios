@@ -54,7 +54,7 @@ extension CloudStorageViewController: UITableViewDelegate {
             let deleteItems = CloudStorageCleanupPolicy.supportedPercents.map { percent in
                 ActionSheetPresenter.Item(
                     destructive: false,
-                    title: "Free up \(percent)% of space",
+                    title: L10n.format("cloud_storage__overview__free_up_of_space", fallback: "Free up %@%% of space", arguments: [String(describing: percent)]),
                     value: "\(percent)percent",
                     isEnabled: CloudStorageCleanupPolicy.isEnabled(
                         percent: percent,
@@ -65,7 +65,7 @@ extension CloudStorageViewController: UITableViewDelegate {
 
             ActionSheetPresenter()
                 .present(in: self,
-                         title: "Free up space",
+                         title: L10n.text("cloud_storage__overview__free_up_space", fallback: "Free up space"),
                          message: "Select how much space you want to free up on your cloud storage:".localizeString(id: "account_which_files_to_delete", arguments: []), // "Choose how many files will be deleted to free up space (as a percentage)"
                          cancel: "Cancel".localizeString(id: "cancel", arguments: []),
                          values: deleteItems,

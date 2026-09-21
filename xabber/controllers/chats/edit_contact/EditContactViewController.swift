@@ -218,7 +218,7 @@ class EditContactViewController: BaseViewController {
                     )
                 }
                 
-                datasource.append(contactGroups + [Datasource(kind: .field, key: "new_circle", title: "Create new circle")])
+                datasource.append(contactGroups + [Datasource(kind: .field, key: "new_circle", title: L10n.text("contact__editor__create_new_circle", fallback: "Create new circle"))])
                 
                 contactGroups
                     .enumerated()

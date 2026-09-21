@@ -142,32 +142,32 @@ enum MediaGalleryVoiceRowStatePolicy {
         switch playbackState {
         case .notDownloaded:
             controlIconSystemName = "square.and.arrow.down"
-            controlAccessibilityLabel = "Download voice message"
+            controlAccessibilityLabel = L10n.text("voice_gallery_for_chat__control_accessibility_label__download_voice_message", fallback: "Download voice message")
             durationText = totalText
         case .queued:
             controlIconSystemName = "clock"
-            controlAccessibilityLabel = "Voice message queued for download"
-            durationText = "Queued · \(totalText)"
+            controlAccessibilityLabel = L10n.text("voice_gallery_for_chat__control_accessibility_label__voice_message_queued_for_download", fallback: "Voice message queued for download")
+            durationText = L10n.format("voice_gallery_for_chat__duration__queued_format", fallback: "Queued · %1$@", arguments: [String(describing: totalText)])
         case .downloading(let progress):
             controlIconSystemName = "xmark"
-            controlAccessibilityLabel = "Cancel voice message download"
+            controlAccessibilityLabel = L10n.text("voice_gallery_for_chat__control_accessibility_label__cancel_voice_message_download", fallback: "Cancel voice message download")
             durationText = "\(totalText) · \(Int((min(max(progress, 0), 1) * 100).rounded()))%"
         case .downloaded:
             controlIconSystemName = "play.fill"
-            controlAccessibilityLabel = "Play voice message"
+            controlAccessibilityLabel = L10n.text("voice_gallery_for_chat__control_accessibility_label__play_voice_message", fallback: "Play voice message")
             durationText = totalText
         case .playing(let currentTime, let duration):
             controlIconSystemName = "pause.fill"
-            controlAccessibilityLabel = "Pause voice message"
+            controlAccessibilityLabel = L10n.text("voice_gallery_for_chat__control_accessibility_label__pause_voice_message", fallback: "Pause voice message")
             durationText = "\(MediaGalleryDatasourceMapper.formatDuration(currentTime)) / \(MediaGalleryDatasourceMapper.formatDuration(duration))"
         case .paused(let currentTime, let duration):
             controlIconSystemName = "play.fill"
-            controlAccessibilityLabel = "Resume voice message"
+            controlAccessibilityLabel = L10n.text("voice_gallery_for_chat__control_accessibility_label__resume_voice_message", fallback: "Resume voice message")
             durationText = "\(MediaGalleryDatasourceMapper.formatDuration(currentTime)) / \(MediaGalleryDatasourceMapper.formatDuration(duration))"
         case .failed:
             controlIconSystemName = "arrow.clockwise"
-            controlAccessibilityLabel = "Retry voice message download"
-            durationText = "Retry · \(totalText)"
+            controlAccessibilityLabel = L10n.text("voice_gallery_for_chat__control_accessibility_label__retry_voice_message_download", fallback: "Retry voice message download")
+            durationText = L10n.format("voice_gallery_for_chat__duration__retry_format", fallback: "Retry · %1$@", arguments: [String(describing: totalText)])
         }
 
         let metadataText = DateFormatter.localizedString(
@@ -184,7 +184,7 @@ enum MediaGalleryVoiceRowStatePolicy {
             durationText: durationText,
             metadataText: metadataText,
             accessibilityIdentifier: "mediaGallery.voice.row.\(descriptor.referencePrimary)",
-            accessibilityLabel: ["Voice message", metadataText, durationText]
+            accessibilityLabel: [L10n.text("chat_list__attachment_preview__voice_message", fallback: "Voice message"), metadataText, durationText]
                 .filter { !$0.isEmpty }
                 .joined(separator: ", "),
             controlAccessibilityLabel: controlAccessibilityLabel
@@ -318,7 +318,7 @@ final class VoiceGalleryForChatViewController: BaseMediaGalleryForChatViewContro
             durationLabel.text = state.durationText
             accessibilityIdentifier = state.accessibilityIdentifier
             accessibilityLabel = state.accessibilityLabel
-            accessibilityHint = "Double tap to play or download. More actions are available."
+            accessibilityHint = L10n.text("gallery__voice__play_download_more_actions_accessibility_hint", fallback: "Double tap to play or download. More actions are available.")
         }
 
         override func accessibilityActivate() -> Bool {
@@ -387,7 +387,7 @@ final class VoiceGalleryForChatViewController: BaseMediaGalleryForChatViewContro
 
     let emptyStateLabel: UILabel = {
         let label = UILabel()
-        label.text = "No voice messages"
+        label.text = L10n.text("chat_gallery__empty_state__no_voice_messages", fallback: "No voice messages")
         label.font = UIFont.preferredFont(forTextStyle: .body)
         label.textColor = .secondaryLabel
         label.textAlignment = .center
@@ -459,7 +459,7 @@ final class VoiceGalleryForChatViewController: BaseMediaGalleryForChatViewContro
 
     override func configure() {
         super.configure()
-        title = "Voice"
+        title = L10n.text("voice", fallback: "Voice messages")
         kind = .voice
         collectionView.prefetchDataSource = self
         collectionView.dataSource = self

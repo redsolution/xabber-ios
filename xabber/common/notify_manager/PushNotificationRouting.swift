@@ -457,7 +457,10 @@ struct PushNotificationMediaItem: Equatable {
 }
 
 enum PushNotificationMediaFormatter {
-    static func fallbackText(for items: [PushNotificationMediaItem]) -> String? {
+    static func fallbackText(
+        for items: [PushNotificationMediaItem],
+        localizer: Localizing = LocalizationRuntime.shared.service
+    ) -> String? {
         guard !items.isEmpty else {
             return nil
         }
@@ -520,11 +523,26 @@ enum PushNotificationMediaFormatter {
             return PushNotificationLocalization.string("chat_message_video", fallback: "Video")
         case .file:
             let filename = item.filename?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let safeFilename = (filename?.isEmpty == false) ? filename! : "file"
+            let safeFilename = filename.flatMap { $0.isEmpty ? nil : $0 }
+                ?? localizer.text(
+                    key: "push__attachment__filename_unknown",
+                    fallback: "file"
+                )
             if let size = item.size, size > 0 {
-                return "file: \(safeFilename), \(formatSize(size))"
+                return localizer.format(
+                    key: "push__attachment__file_with_size_format",
+                    fallback: "file: %1$@, %2$@",
+                    arguments: [
+                        safeFilename,
+                        formatSize(size, formatterFactory: localizer.formatters)
+                    ]
+                )
             }
-            return "file: \(safeFilename)"
+            return localizer.format(
+                key: "push__attachment__file_format",
+                fallback: "file: %1$@",
+                arguments: [safeFilename]
+            )
         case .image:
             return PushNotificationLocalization.string("chat_message_image", fallback: "Image")
         case .forward:
@@ -535,17 +553,13 @@ enum PushNotificationMediaFormatter {
         }
     }
 
-    static func formatSize(_ bytes: Int64) -> String {
-        if bytes < 1024 {
-            return "\(bytes)B"
-        }
-        if bytes < 1024 * 1024 {
-            return "\(bytes / 1024)kB"
-        }
-        if bytes < 1024 * 1024 * 1024 {
-            return "\(bytes / (1024 * 1024))MB"
-        }
-        return "\(bytes / (1024 * 1024 * 1024))GB"
+    static func formatSize(
+        _ bytes: Int64,
+        formatterFactory: LocalizationFormatterFactory = L10n.formatters
+    ) -> String {
+        formatterFactory
+            .byteCountFormatter(countStyle: .file)
+            .string(fromByteCount: bytes)
     }
 
     static func formatDuration(_ duration: Int) -> String {
@@ -1242,10 +1256,12 @@ enum PushNotificationArchiveParser {
             senderJid: sender.isEmpty ? nil : sender,
             sid: trimmed(trust.attributeString("sid"))
         )
-        let displaySender = sender.isEmpty ? "Somebody" : sender
+        let displaySender = sender.isEmpty
+            ? L10n.text("push_sender_unknown", fallback: "Somebody")
+            : sender
         return PushNotificationPreview(
             route: route,
-            body: "\(displaySender) asks you to verify yourself",
+            body: L10n.format("push_notification_routing__body__value_asks_you_to_verify_yourself", fallback: "%@ asks you to verify yourself", arguments: [String(describing: displaySender)]),
             groupName: nil,
             mediaItems: []
         )

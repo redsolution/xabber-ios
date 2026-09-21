@@ -289,7 +289,7 @@ class DeviceDetailViewController: SimpleBaseViewController {
     
     override func configure() {
         super.configure()
-        self.title = "Device information"
+        self.title = L10n.text("device_detail__screen__device_information", fallback: "Device information")
         tableView.delegate = self
         tableView.dataSource = self
     }
@@ -324,7 +324,7 @@ class DeviceDetailViewController: SimpleBaseViewController {
             }
             
             var encryptionDatasource: [Datasource] = [
-                Datasource(title: "Bundle not found", value: "", key: "omemo_bundle_not_found")
+                Datasource(title: L10n.text("device_detail__screen__bundle_not_found", fallback: "Key bundle not found"), value: "", key: "omemo_bundle_not_found")
             ]
             
             if deviceInstance.encryptionEnabled {
@@ -334,35 +334,35 @@ class DeviceDetailViewController: SimpleBaseViewController {
                     var trustElement: Datasource
                     switch omemoDevice.state {
                     case .ignore:
-                        trustElement = Datasource(title: "Device ignored", value: "Ignored", key: "omemo_state_ignore")
+                        trustElement = Datasource(title: L10n.text("device_detail__screen__device_ignored", fallback: "Device ignored"), value: "Ignored", key: "omemo_state_ignore")
                     case .trusted:
                             trustElement = Datasource(
-                                title: omemoDevice.isTrustedByCertificate ? "Device signed" : "Device trusted",
+                                title: omemoDevice.isTrustedByCertificate ? L10n.text("device_detail__title__device_signed", fallback: "Device signed") : L10n.text("device_detail__title__device_trusted", fallback: "Device trusted"),
                                 value: omemoDevice.isTrustedByCertificate ? "Signed" : "Trusted",
                                 key: omemoDevice.isTrustedByCertificate ? "omemo_state_signed" : "omemo_state_trusted"
                             )
                     case .fingerprintChanged:
-                        trustElement = Datasource(title: "Fingerprint changed", value: "Fingerprint changed", key: "omemo_state_fingerprint_changed")
+                        trustElement = Datasource(title: L10n.text("device_detail__screen__fingerprint_changed", fallback: "Fingerprint changed"), value: L10n.text("device_detail__screen__fingerprint_changed", fallback: "Fingerprint changed"), key: "omemo_state_fingerprint_changed")
                     case .revoked:
-                        trustElement = Datasource(title: "Revoked", value: "Revoked", key: "omemo_state_revoked")
+                        trustElement = Datasource(title: L10n.text("device_detail__screen__revoked", fallback: "Revoked"), value: "Revoked", key: "omemo_state_revoked")
                     case .unknown, .distrusted:
-                        trustElement = Datasource(title: "Action required", value: "Undefined", key: "omemo_state_undefined")
+                        trustElement = Datasource(title: L10n.text("device_detail__screen__action_required", fallback: "Action required"), value: "Undefined", key: "omemo_state_undefined")
                     }
                     encryptionDatasource = [
-                        Datasource(title: "Device ID", value: "\(omemoDevice.deviceId)", key: "omemo_deviceId")
+                        Datasource(title: L10n.text("omemo__dialog_fingerprints__label_device_id", fallback: "device ID"), value: "\(omemoDevice.deviceId)", key: "omemo_deviceId")
                     ]
                     
                     if omemoDevice.name != nil {
-                        encryptionDatasource.append(Datasource(title: "Name", value: "\(omemoDevice.name!)", key: "omemo_device_name"))
+                        encryptionDatasource.append(Datasource(title: L10n.text("device_detail__screen__name", fallback: "Name"), value: "\(omemoDevice.name!)", key: "omemo_device_name"))
                     }
-                    encryptionDatasource.append(Datasource(title: "Fingerprint", value: omemoDevice.fingerprint, key: "omemo_fingerprint"))
+                    encryptionDatasource.append(Datasource(title: L10n.text("device_detail__screen__fingerprint", fallback: "Fingerprint"), value: omemoDevice.fingerprint, key: "omemo_fingerprint"))
                     
                     if omemoDevice.signature != nil {
                         self.dangerInEncryption = omemoDevice.signedBy != self.jid
                         self.issuedFor = omemoDevice.signedBy
                         encryptionDatasource.append(
                             Datasource(
-                                title: omemoDevice.signedBy == self.jid ? "Verified by" : "Not verified",
+                                title: omemoDevice.signedBy == self.jid ? L10n.text("device_detail__title__verified_by", fallback: "Verified by") : L10n.text("device_detail__title__not_verified", fallback: "Not verified"),
                                 value: omemoDevice.signedBy == self.jid ? "Clandestino" : "",
                                 key: "omemo_signed_by"
                             )
@@ -370,7 +370,7 @@ class DeviceDetailViewController: SimpleBaseViewController {
                     }
                     if omemoDevice.trustedByDeviceId != nil {
                         encryptionDatasource.append(
-                            Datasource(title: "Trusted by", value: omemoDevice.trustedByDeviceId, key: "omemo_trusted_by")
+                            Datasource(title: L10n.text("device_detail__screen__trusted_by", fallback: "Trusted by"), value: omemoDevice.trustedByDeviceId, key: "omemo_trusted_by")
                         )
                     }
                     if !canEdit {
@@ -385,7 +385,7 @@ class DeviceDetailViewController: SimpleBaseViewController {
             if canEdit {
                 datasource = [
                     [
-                        Datasource(title: "Device", value: deviceTitle, key: "title"),
+                        Datasource(title: L10n.text("device_detail__screen__device", fallback: "Device"), value: deviceTitle, key: "title"),
 //                        Datasource(title: "Description", value: deviceDescr, key: "descr")
                     ],
                     [
@@ -440,7 +440,7 @@ class DeviceDetailViewController: SimpleBaseViewController {
             in: self,
             title: "Rename device".localizeString(id: "device_info_rename_device", arguments: []),
             message: nil,
-            cancel: "Cancel".localizeString(id: "cancel", arguments: []),
+            cancel: L10n.text("common__action__cancel", fallback: "Cancel"),
             set: "Rename".localizeString(id: "device__info__rename__button", arguments: []),
             currentValue: self.currentDeviceDescription,
             animated: true) { value in
@@ -558,9 +558,9 @@ extension DeviceDetailViewController: UITableViewDelegate {
             if self.dangerInEncryption {
                 ActionSheetPresenter().present(
                     in: self,
-                    title: "Encription not secured",
-                    message: "Encryption key signed by certificate issued for \(self.issuedFor ?? "unknown user")",
-                    cancel: "Close",
+                    title: L10n.text("device_detail__screen__encription_not_secured", fallback: "Encryption not secured"),
+                    message: L10n.format("device_detail__screen__encryption_key_signed_by_certificate_issued_for", fallback: "Encryption key signed by certificate issued for %@", arguments: [String(describing: self.issuedFor ?? L10n.text("common__label__unknown_user", fallback: "Unknown user"))]),
+                    cancel: L10n.text("common__action__close", fallback: "Close"),
                     values: [],
                     animated: true) { _ in
                         
@@ -568,9 +568,9 @@ extension DeviceDetailViewController: UITableViewDelegate {
             } else {
                 ActionSheetPresenter().present(
                     in: self,
-                    title: "Encription secured",
-                    message: "Encryption key verified by certificate issued by Clandestino for \(self.issuedFor ?? "")",
-                    cancel: "Close",
+                    title: L10n.text("device_detail__screen__encription_secured", fallback: "Encryption secured"),
+                    message: L10n.format("device_detail__screen__encryption_key_verified_by_certificate_issued_by_clandestino_for", fallback: "Encryption key verified by certificate issued by Clandestino for %@", arguments: [String(describing: self.issuedFor ?? L10n.text("common__label__unknown_user", fallback: "Unknown user"))]),
+                    cancel: L10n.text("common__action__close", fallback: "Close"),
                     values: [],
                     animated: true) { _ in
                         
@@ -579,14 +579,14 @@ extension DeviceDetailViewController: UITableViewDelegate {
             
         case "omemo_state_trusted":
             let items: [ActionSheetPresenter.Item] = [
-                ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete"),
-                ActionSheetPresenter.Item(destructive: false, title: "Untrust", value: "untrust")
+                ActionSheetPresenter.Item(destructive: true, title: L10n.text("common__action__delete", fallback: "Delete"), value: "delete"),
+                ActionSheetPresenter.Item(destructive: false, title: L10n.text("device_detail__screen__untrust", fallback: "Untrust"), value: "untrust")
             ]
             ActionSheetPresenter().present(
                 in: self,
-                title: "Untrust this device",
+                title: L10n.text("device_detail__screen__untrust_this_device", fallback: "Untrust this device"),
                 message: nil,
-                cancel: "Cancel",
+                cancel: L10n.text("common__action__cancel", fallback: "Cancel"),
                 values: items,
                 animated: true) { value in
                     switch value {
@@ -647,15 +647,15 @@ extension DeviceDetailViewController: UITableViewDelegate {
                 }
         case "omemo_state_fingerprint_changed", "omemo_state_undefined":
             let items: [ActionSheetPresenter.Item] = [
-                ActionSheetPresenter.Item(destructive: false, title: "Verify", value: "verify"),
-                ActionSheetPresenter.Item(destructive: false, title: "Trust", value: "trust"),
-                ActionSheetPresenter.Item(destructive: true, title: "Delete device", value: "delete")
+                ActionSheetPresenter.Item(destructive: false, title: L10n.text("action_verify", fallback: "VERIFY"), value: "verify"),
+                ActionSheetPresenter.Item(destructive: false, title: L10n.text("omemo__dialog_fingerprints__button_trust", fallback: "Trust"), value: "trust"),
+                ActionSheetPresenter.Item(destructive: true, title: L10n.text("omemo__dialog_delete_device__header", fallback: "Delete device"), value: "delete")
             ]
             ActionSheetPresenter().present(
                 in: self,
-                title: "Trust this device",
+                title: L10n.text("device_detail__screen__trust_this_device", fallback: "Trust this device"),
                 message: nil,
-                cancel: "Cancel",
+                cancel: L10n.text("common__action__cancel", fallback: "Cancel"),
                 values: items,
                 animated: true) { value in
                     switch value {
@@ -719,9 +719,9 @@ extension DeviceDetailViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         if datasource[section].first?.key == "status" {
-            return "Private information"
+            return L10n.text("device_detail__table_section_title__private_information", fallback: "Private information")
         } else if datasource[section].first?.key == "omemo_deviceId" {
-            return "Public information"
+            return L10n.text("device_detail__table_section_title__public_information", fallback: "Public information")
         } else {
             return nil
         }

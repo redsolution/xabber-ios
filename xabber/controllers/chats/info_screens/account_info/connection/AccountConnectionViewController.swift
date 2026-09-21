@@ -109,7 +109,7 @@ class AccountConnectionViewController: BaseViewController {
     
     internal func update() {
         datasource = [Datasource(.resource,
-                                 title: "resource",
+                                 title: L10n.text("account_resource", fallback: "Resource"),
                                  editable: false,
                                  childs: [Datasource(.resource,
                                                      title: "Resource".localizeString(id: "account_resource", arguments: []),
@@ -144,7 +144,7 @@ class AccountConnectionViewController: BaseViewController {
     
     open func configure(for jid: String) {
         self.jid =  jid
-        title = "Conenction settings".localizeString(id: "account_connection_settings", arguments: [])
+        title = L10n.text("account_connection_settings", fallback: "Connection settings")
         view.addSubview(tableView)
         tableView.fillSuperview()
         tableView.delegate = self

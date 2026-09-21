@@ -749,7 +749,7 @@ class NotificationService: UNNotificationServiceExtension {
         guard let secret = creditionals["secret"] as? String else {
             mutateBestAttemptContent { content in
                 content.title = "Xabber"
-                content.body = "New \(payload.action.rawValue)"
+                content.body = L10n.text("notification__body__new_activity", fallback: "New activity")
             }
             completeBestAttemptContent()
             return

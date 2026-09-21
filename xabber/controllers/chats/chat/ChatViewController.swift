@@ -4042,7 +4042,7 @@ class ChatViewController: MessagesViewController {
     
     
     let deleteSelectionBarButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(title: "Delete", style: .done, target: nil, action: nil)
+        let button = UIBarButtonItem(title: L10n.text("common__action__delete", fallback: "Delete"), style: .done, target: nil, action: nil)
         
         return button
     }()
@@ -4987,7 +4987,7 @@ class ChatViewController: MessagesViewController {
 
     
     internal let cancelSearchBarButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(title: "Cancel", style: .plain, target: nil, action: nil)
+        let button = UIBarButtonItem(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .plain, target: nil, action: nil)
         if #available(iOS 26.0, *) {
             button.hidesSharedBackground = true
         }
@@ -5164,7 +5164,7 @@ class ChatViewController: MessagesViewController {
             return
             
         } else if (XMPPJID(string: self.jid)?.isServer ?? false) {
-            self.contactStatus = "Server"
+            self.contactStatus = L10n.text("chat__contact_status__server", fallback: "Server")
             if self.statusLabel.text != self.contactStatus {
                 self.statusLabel.text = self.contactStatus
             }

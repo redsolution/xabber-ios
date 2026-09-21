@@ -29,7 +29,7 @@ class AddNewContactViewController: UIViewController {
             let field = UITextField()
             
             let placeholderDomain = CommonConfigManager.shared.config.domain
-            field.placeholder = "john.doe@\(placeholderDomain.isEmpty ? "example.com" : placeholderDomain)"
+            field.placeholder = L10n.format("new_contact__form__john_doe", fallback: "john.doe@%@", arguments: [String(describing: placeholderDomain.isEmpty ? "example.com" : placeholderDomain)])
             field.keyboardType = .emailAddress
             field.returnKeyType = .done
             field.autocapitalizationType = .none
@@ -154,7 +154,7 @@ class AddNewContactViewController: UIViewController {
     }
     
     internal let addButton: UIBarButtonItem = {
-        let button = UIBarButtonItem(title: "Add", style: .done, target: nil, action: nil)
+        let button = UIBarButtonItem(title: L10n.text("common__action__add", fallback: "Add"), style: .done, target: nil, action: nil)
         
         button.isEnabled = false
         
@@ -240,7 +240,7 @@ class AddNewContactViewController: UIViewController {
                             } else {
                                 self.errorsObserver.accept(.notFound)
                                 DispatchQueue.main.async {
-                                    self.view.makeToast("Contact server not found")
+                                    self.view.makeToast(L10n.text("new_contact__form__contact_server_not_found", fallback: "Contact server not found"))
                                 }
                             }
                         }
@@ -266,7 +266,7 @@ class AddNewContactViewController: UIViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        self.title = "Add contact"
+        self.title = L10n.text("contact_add", fallback: "Add contact")
         self.subscribe()
     }
 
@@ -315,9 +315,9 @@ extension AddNewContactViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         if section == 1 {
-            return "Selected XMPP Account"
+            return L10n.text("add_new_contact__table_section_title__selected_xmpp_account", fallback: "Selected XMPP Account")
         }
-        return "Contact XMPP ID"
+        return L10n.text("dialog_add_contact__label_jid", fallback: "Contact XMPP ID")
     }
     
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {

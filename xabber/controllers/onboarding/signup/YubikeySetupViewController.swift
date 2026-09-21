@@ -44,20 +44,38 @@ class YubikeySetupViewController: SignUpBaseViewController {
     override func onAppear() {
         super.onAppear()
         SignatureManager.shared.delegate = self
-        button.setTitle("Connect dongle", for: .normal)
+        button.setTitle(
+            L10n.text(
+                "yubikey_onboarding__action__connect_dongle",
+                fallback: "Connect dongle"
+            ),
+            for: .normal
+        )
         
         if #available(iOS 13.0, *) {
             if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
                 makeSecondaryButtonEnabled(true)
-                secondaryButton.setTitle("Connect with NFC", for: .normal)
+                secondaryButton.setTitle(
+                    L10n.text(
+                        "yubikey_onboarding__action__connect_with_nfc",
+                        fallback: "Connect with NFC"
+                    ),
+                    for: .normal
+                )
             }
         }
-        title = "Verify account".localizeString(id: "yubikey_configure_screen_title", arguments: [])
+        title = L10n.text(
+            "yubikey_configure_screen_title",
+            fallback: "Verify account"
+        )
     }
     
     override func localizeResources() {
         super.localizeResources()
-        titleLabel.text = "Plug your YubiKey to verify your account".localizeString(id: "yubikey_configure_screen_title_label", arguments: [])
+        titleLabel.text = L10n.text(
+            "yubikey_configure_screen_title_label",
+            fallback: "Plug your YubiKey to verify your account"
+        )
     }
     
     @objc
@@ -110,11 +128,18 @@ extension YubikeySetupViewController: SignatureManagerDelegate {
     func didGenerateDigitalSignature(with error: Error?) {
         if let error = error {
             DispatchQueue.main.async {
-                self.view.makeToast("Internal error")
+                self.view.makeToast(
+                    L10n.text("common__error__internal", fallback: "Internal error")
+                )
             }
         } else {
             DispatchQueue.main.async {
-                self.view.makeToast("Yubikey registered")
+                self.view.makeToast(
+                    L10n.text(
+                        "yubikey_onboarding__toast__registered",
+                        fallback: "YubiKey registered"
+                    )
+                )
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {

@@ -192,11 +192,11 @@ class ContactAttachment {
     var subtitle: String {
         switch entity {
         case .contact:
-            return "Contact"
+            return L10n.text("chat__contact_attachment__type_contact", fallback: "Contact")
         case .groupchat:
-            return "Group"
+            return L10n.text("chat__contact_attachment__type_group", fallback: "Group")
         case .incognito:
-            return "Incognito group"
+            return L10n.text("chat__contact_attachment__type_incognito_group", fallback: "Incognito group")
         }
     }
 }

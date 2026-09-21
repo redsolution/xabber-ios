@@ -86,11 +86,11 @@ extension DevicesListViewController: UITableViewDelegate {
                     YesNoPresenter().present(
                         in: self,
                         style: .actionSheet,
-                        title: "Delete broken device",
+                        title: L10n.text("devices__list__delete_broken_device", fallback: "Delete broken device"),
                         message: "",
-                        yesText: "Delete",
+                        yesText: L10n.text("common__action__delete", fallback: "Delete"),
                         dangerYes: true,
-                        noText: "Cancel",
+                        noText: L10n.text("common__action__cancel", fallback: "Cancel"),
                         animated: true) { value in
                             if value {
                                 let item = self.brokenOmemoDevices[indexPath.row]
@@ -103,8 +103,8 @@ extension DevicesListViewController: UITableViewDelegate {
                 } else {
                     ActionSheetPresenter().present(
                         in: self,
-                        title: "No connection",
-                        message: "Please wait while connection established",
+                        title: L10n.text("devices__list__no_connection", fallback: "No connection"),
+                        message: L10n.text("devices__list__connection_pending_message", fallback: "Please wait while the connection is established."),
                         cancel: "Cancel".localizeString(id: "cancel", arguments: []),
                         values: [],
                         animated: true) { _ in
@@ -268,8 +268,8 @@ extension DevicesListViewController {
     private func presentNoConnectionForSessionTermination() {
         ActionSheetPresenter().present(
             in: self,
-            title: "No connection",
-            message: "Please wait while connection established",
+            title: L10n.text("devices__list__no_connection", fallback: "No connection"),
+            message: L10n.text("devices__list__connection_pending_message", fallback: "Please wait while the connection is established."),
             cancel: "Cancel".localizeString(id: "cancel", arguments: []),
             values: [],
             animated: true) { _ in

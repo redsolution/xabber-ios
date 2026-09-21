@@ -1,0 +1,3437 @@
+{
+  "migrations": [
+    {
+      "path": "xabber/controllers/activity/XabberActivityViewController.swift",
+      "sink": "placeholder",
+      "value": "Search",
+      "key": "activity__field__search",
+      "comment": "Activity composer: input placeholder.",
+      "translations": {
+        "en": "Search",
+        "ru": "Поиск",
+        "fr": "Rechercher",
+        "es": "Buscar",
+        "ar": "بحث",
+        "zh-Hans": "搜索"
+      }
+    },
+    {
+      "path": "xabber/controllers/activity/XabberActivityViewController.swift",
+      "sink": "title",
+      "value": "Send",
+      "key": "activity__title__send",
+      "comment": "Activity composer: visible title or action.",
+      "translations": {
+        "en": "Send",
+        "ru": "Отправить",
+        "fr": "Envoyer",
+        "es": "Enviar",
+        "ar": "أرسل",
+        "zh-Hans": "发送"
+      }
+    },
+    {
+      "path": "xabber/controllers/credentials/CredentialsExpiredViewController.swift",
+      "sink": "attributedString",
+      "value": "Password",
+      "key": "credentials_expired__content__password",
+      "comment": "Expired credentials prompt: attributed visible copy.",
+      "translations": {
+        "en": "Password",
+        "ru": "Пароль",
+        "fr": "Mot de passe",
+        "es": "Contraseña",
+        "ar": "كلمة المرور",
+        "zh-Hans": "密码"
+      }
+    },
+    {
+      "path": "xabber/controllers/credentials/CredentialsExpiredViewController.swift",
+      "sink": "setTitle",
+      "value": "Continue",
+      "key": "common__action__continue",
+      "comment": "Expired credentials prompt: button title.",
+      "translations": {
+        "en": "Continue",
+        "ru": "Далее",
+        "fr": "Continuer",
+        "es": "Continuar",
+        "ar": "متابعة",
+        "zh-Hans": "继续"
+      }
+    },
+    {
+      "path": "xabber/controllers/credentials/CredentialsExpiredViewController.swift",
+      "sink": "setTitle",
+      "value": "Quit account",
+      "key": "credentials_expired__action__quit_account",
+      "comment": "Expired credentials prompt: button title.",
+      "translations": {
+        "en": "Quit account",
+        "ru": "Выйти из аккаунта",
+        "fr": "Quitter le compte",
+        "es": "Salir de la cuenta",
+        "ar": "تسجيل الخروج من الحساب",
+        "zh-Hans": "退出账户"
+      }
+    },
+    {
+      "path": "xabber/controllers/credentials/CredentialsExpiredViewController.swift",
+      "sink": "text",
+      "value": "Please enter your password to continue using %@",
+      "key": "credentials_expired__prompt__title_format",
+      "comment": "Expired credentials prompt title. Argument 1 is the configured application display name.",
+      "translations": {
+        "en": "Please enter your password to continue using %@",
+        "ru": "Введите пароль, чтобы продолжить пользоваться %@",
+        "fr": "Saisissez votre mot de passe pour continuer à utiliser %@",
+        "es": "Introduce tu contraseña para seguir usando %@",
+        "ar": "أدخل كلمة المرور لمتابعة استخدام %@",
+        "zh-Hans": "请输入密码以继续使用%@"
+      }
+    },
+    {
+      "path": "xabber/controllers/credentials/CredentialsExpiredViewController.swift",
+      "sink": "text",
+      "value": "Sometimes we ask for you to enter your password to confirm that you are the rightful owner of this account",
+      "key": "credentials_expired__prompt__ownership_explanation",
+      "comment": "Expired credentials prompt: visible label.",
+      "translations": {
+        "en": "Sometimes we ask for you to enter your password to confirm that you are the rightful owner of this account",
+        "ru": "Иногда мы просим вас ввести пароль, чтобы подтвердить, что вы являетесь владельцем этой учётной записи",
+        "fr": "Nous vous demandons parfois de saisir votre mot de passe afin de confirmer que vous êtes bien le propriétaire de ce compte",
+        "es": "A veces te pedimos que introduzcas tu contraseña para confirmar que eres el propietario legítimo de esta cuenta",
+        "ar": "نطلب منك أحيانًا إدخال كلمة المرور للتأكد من أنك المالك الشرعي لهذا الحساب",
+        "zh-Hans": "有时我们会要求你输入密码，以确认你是此账户的合法所有者"
+      }
+    },
+    {
+      "path": "xabber/controllers/credentials/CredentialsExpiredViewController.swift",
+      "sink": "title",
+      "value": "Quit",
+      "key": "common__action__quit",
+      "comment": "Expired credentials prompt: visible title or action.",
+      "translations": {
+        "en": "Quit",
+        "ru": "Выход",
+        "fr": "Quitter",
+        "es": "Salir",
+        "ar": "خروج",
+        "zh-Hans": "退出"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Unread notifications filter",
+      "key": "notifications__filter__unread_accessibility_label",
+      "comment": "Notifications list: VoiceOver label.",
+      "translations": {
+        "en": "Unread notifications filter",
+        "ru": "Фильтр непрочитанных уведомлений",
+        "fr": "Filtre des notifications non lues",
+        "es": "Filtro de notificaciones no leídas",
+        "ar": "عامل تصفية الإشعارات غير المقروءة",
+        "zh-Hans": "未读通知筛选器"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "attributedString",
+      "value": "Alerts when you are tagged in conversations, helping you stay aware of relevant discussions.",
+      "key": "notifications__category__mentions_description",
+      "comment": "Notifications list: attributed visible copy.",
+      "translations": {
+        "en": "Alerts when you are tagged in conversations, helping you stay aware of relevant discussions.",
+        "ru": "Оповещения о ваших упоминаниях в беседах помогают не пропускать важные обсуждения.",
+        "fr": "Alertes lorsque vous êtes mentionné dans des conversations afin de suivre les discussions pertinentes.",
+        "es": "Alertas cuando te mencionan en conversaciones para que estés al tanto de las discusiones relevantes.",
+        "ar": "تنبيهات عند الإشارة إليك في المحادثات لمساعدتك على متابعة النقاشات المهمة.",
+        "zh-Hans": "当你在对话中被提及时发出提醒，帮助你及时关注相关讨论。"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "attributedString",
+      "value": "Information",
+      "key": "notifications__category__information",
+      "comment": "Notifications list: attributed visible copy.",
+      "translations": {
+        "en": "Information",
+        "ru": "Информация",
+        "fr": "Informations",
+        "es": "Información",
+        "ar": "المعلومات",
+        "zh-Hans": "信息"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "attributedString",
+      "value": "Mentions",
+      "key": "notifications__category__mentions",
+      "comment": "Notifications list: attributed visible copy.",
+      "translations": {
+        "en": "Mentions",
+        "ru": "Упоминания",
+        "fr": "Mentions",
+        "es": "Menciones",
+        "ar": "الإشارات",
+        "zh-Hans": "提及"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "attributedString",
+      "value": "Notifications about new logins, device changes, and activity on your account.",
+      "key": "notifications__category__security_description",
+      "comment": "Notifications list: attributed visible copy.",
+      "translations": {
+        "en": "Notifications about new logins, device changes, and activity on your account.",
+        "ru": "Уведомления о новых входах, изменениях устройств и активности вашей учётной записи.",
+        "fr": "Notifications concernant les nouvelles connexions, les changements d’appareil et l’activité de votre compte.",
+        "es": "Notificaciones sobre nuevos inicios de sesión, cambios de dispositivos y actividad en tu cuenta.",
+        "ar": "إشعارات بشأن عمليات تسجيل الدخول الجديدة وتغييرات الأجهزة والنشاط في حسابك.",
+        "zh-Hans": "有关新登录、设备变更和账户活动的通知。"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "attributedString",
+      "value": "Security",
+      "key": "notifications__category__security",
+      "comment": "Notifications list: attributed visible copy.",
+      "translations": {
+        "en": "Security",
+        "ru": "Безопасность",
+        "fr": "Sécurité",
+        "es": "Seguridad",
+        "ar": "الأمان",
+        "zh-Hans": "安全"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "attributedString",
+      "value": "Updates, tips, and system messages from server operators and various contacts to keep you informed about features, maintenance, and app-related news.",
+      "key": "notifications__category__information_description",
+      "comment": "Notifications list: attributed visible copy.",
+      "translations": {
+        "en": "Updates, tips, and system messages from server operators and various contacts to keep you informed about features, maintenance, and app-related news.",
+        "ru": "Обновления, советы и системные сообщения от операторов серверов и контактов о функциях, обслуживании и новостях приложения.",
+        "fr": "Mises à jour, conseils et messages système des opérateurs de serveur et de différents contacts concernant les fonctionnalités, la maintenance et l’actualité de l’application.",
+        "es": "Actualizaciones, consejos y mensajes del sistema de operadores del servidor y distintos contactos sobre funciones, mantenimiento y novedades de la app.",
+        "ar": "تحديثات ونصائح ورسائل نظام من مشغلي الخوادم وجهات اتصال مختلفة لإبقائك على اطلاع بالميزات والصيانة وأخبار التطبيق.",
+        "zh-Hans": "来自服务器运营方和各个联系人的更新、提示及系统消息，让你及时了解功能、维护和应用相关新闻。"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "makeToast",
+      "value": "Original mention is unavailable",
+      "key": "notifications__mention__unavailable_toast",
+      "comment": "Notifications list: toast message.",
+      "translations": {
+        "en": "Original mention is unavailable",
+        "ru": "Исходное упоминание недоступно",
+        "fr": "La mention d’origine est indisponible",
+        "es": "La mención original no está disponible",
+        "ar": "الإشارة الأصلية غير متاحة",
+        "zh-Hans": "原始提及不可用"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "subtitle",
+      "value": "Manage security alerts, information updates, mentions, and other notifications.",
+      "key": "notifications__overview__description",
+      "comment": "Notifications list: visible subtitle.",
+      "translations": {
+        "en": "Manage security alerts, information updates, mentions, and other notifications.",
+        "ru": "Управляйте оповещениями безопасности, информационными обновлениями, упоминаниями и другими уведомлениями.",
+        "fr": "Gérez les alertes de sécurité, les informations, les mentions et les autres notifications.",
+        "es": "Gestiona alertas de seguridad, novedades informativas, menciones y otras notificaciones.",
+        "ar": "أدِر تنبيهات الأمان والتحديثات المعلوماتية والإشارات والإشعارات الأخرى.",
+        "zh-Hans": "管理安全提醒、信息更新、提及和其他通知。"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "title",
+      "value": "Accounts",
+      "key": "notifications__filter__accounts",
+      "comment": "Notifications list: visible title or action.",
+      "translations": {
+        "en": "Accounts",
+        "ru": "Учётные записи",
+        "fr": "Comptes",
+        "es": "Cuentas",
+        "ar": "الحسابات",
+        "zh-Hans": "账户"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "title",
+      "value": "All",
+      "key": "notifications__filter__all",
+      "comment": "Notifications list: visible title or action.",
+      "translations": {
+        "en": "All",
+        "ru": "Все",
+        "fr": "Tout",
+        "es": "Todo",
+        "ar": "الكل",
+        "zh-Hans": "全部"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "title",
+      "value": "Information",
+      "key": "notifications__category__information",
+      "comment": "Notifications list: visible title or action.",
+      "translations": {
+        "en": "Information",
+        "ru": "Информация",
+        "fr": "Informations",
+        "es": "Información",
+        "ar": "المعلومات",
+        "zh-Hans": "信息"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "title",
+      "value": "Mentions",
+      "key": "notifications__category__mentions",
+      "comment": "Notifications list: visible title or action.",
+      "translations": {
+        "en": "Mentions",
+        "ru": "Упоминания",
+        "fr": "Mentions",
+        "es": "Menciones",
+        "ar": "الإشارات",
+        "zh-Hans": "提及"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "title",
+      "value": "Notifications",
+      "key": "notifications__screen__title",
+      "comment": "Notifications list: visible title or action.",
+      "translations": {
+        "en": "Notifications",
+        "ru": "Уведомления",
+        "fr": "Notifications",
+        "es": "Notificaciones",
+        "ar": "الإشعارات",
+        "zh-Hans": "通知"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "title",
+      "value": "Security",
+      "key": "notifications__category__security",
+      "comment": "Notifications list: visible title or action.",
+      "translations": {
+        "en": "Security",
+        "ru": "Безопасность",
+        "fr": "Sécurité",
+        "es": "Seguridad",
+        "ar": "الأمان",
+        "zh-Hans": "安全"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/subscribtions/ContactItemCell.swift",
+      "sink": "setTitle",
+      "value": "Add contact",
+      "key": "subscription_requests__action__add_contact",
+      "comment": "Subscription requests: button title.",
+      "translations": {
+        "en": "Add contact",
+        "ru": "Добавить контакт",
+        "fr": "Ajouter un contact",
+        "es": "Añadir contacto",
+        "ar": "أضف طرف اتصال",
+        "zh-Hans": "添加联系人"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/subscribtions/ContactItemCell.swift",
+      "sink": "setTitle",
+      "value": "Decline",
+      "key": "subscription_requests__action__decline",
+      "comment": "Subscription requests: button title.",
+      "translations": {
+        "en": "Decline",
+        "ru": "Отклонить",
+        "fr": "Refuser",
+        "es": "Rechazar",
+        "ar": "رفض",
+        "zh-Hans": "拒绝"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/subscribtions/NotificationsSubscribtionsListViewController.swift",
+      "sink": "text",
+      "value": "You don't have any subscribtion requests",
+      "key": "subscription_requests__empty__message",
+      "fallback": "You don’t have any subscription requests.",
+      "comment": "Subscription requests empty-state message; canonical English should correct the legacy 'subscribtion' typo.",
+      "translations": {
+        "en": "You don’t have any subscription requests.",
+        "ru": "У вас нет запросов на подписку.",
+        "fr": "Vous n’avez aucune demande d’abonnement.",
+        "es": "No tienes solicitudes de suscripción.",
+        "ar": "ليس لديك أي طلبات اشتراك.",
+        "zh-Hans": "你没有任何订阅请求。"
+      }
+    },
+    {
+      "path": "xabber/controllers/notifications/subscribtions/NotificationsSubscribtionsListViewController.swift",
+      "sink": "title",
+      "value": "Subscribtions",
+      "key": "subscription_requests__screen__title",
+      "fallback": "Subscription Requests",
+      "comment": "Subscription requests screen title; canonical English should be 'Subscription Requests'.",
+      "translations": {
+        "en": "Subscription Requests",
+        "ru": "Запросы на подписку",
+        "fr": "Demandes d’abonnement",
+        "es": "Solicitudes de suscripción",
+        "ar": "طلبات الاشتراك",
+        "zh-Hans": "订阅请求"
+      }
+    },
+    {
+      "path": "xabber/controllers/onboarding/OnboardingViewController.swift",
+      "sink": "setTitle",
+      "value": "Privacy settings",
+      "key": "onboarding__action__privacy_settings",
+      "comment": "Onboarding: button title.",
+      "translations": {
+        "en": "Privacy settings",
+        "ru": "Настройки приватности",
+        "fr": "Paramètres de confidentialité",
+        "es": "Ajustes de privacidad",
+        "ar": "إعدادات الخصوصية",
+        "zh-Hans": "隐私设置"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/MessageSigningInfoViewController.swift",
+      "sink": "title",
+      "value": "Account",
+      "key": "message_signing__title__account",
+      "comment": "Signed message details: visible title or action.",
+      "translations": {
+        "en": "Account",
+        "ru": "Аккаунт",
+        "fr": "Compte",
+        "es": "Cuenta",
+        "ar": "حساب",
+        "zh-Hans": "账户"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/MessageSigningInfoViewController.swift",
+      "sink": "title",
+      "value": "Cancel",
+      "key": "common__action__cancel",
+      "comment": "Signed message details: visible title or action.",
+      "translations": {
+        "en": "Cancel",
+        "ru": "Отмена",
+        "fr": "Annuler",
+        "es": "Cancelar",
+        "ar": "إلغاء",
+        "zh-Hans": "取消"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/MessageSigningInfoViewController.swift",
+      "sink": "title",
+      "value": "Certificate signed by %@",
+      "key": "message_signing__certificate__signed_by_format",
+      "comment": "Signed message certificate row. Argument 1 is the configured application display name.",
+      "translations": {
+        "en": "Certificate signed by %@",
+        "ru": "Сертификат подписан %@",
+        "fr": "Certificat signé par %@",
+        "es": "Certificado firmado por %@",
+        "ar": "الشهادة موقعة من %@",
+        "zh-Hans": "证书由%@签名"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/MessageSigningInfoViewController.swift",
+      "sink": "title",
+      "value": "Certificate valid for user",
+      "key": "message_signing__title__certificate_valid_for_user",
+      "comment": "Signed message details: visible title or action.",
+      "translations": {
+        "en": "Certificate valid for user",
+        "ru": "Сертификат действителен для пользователя",
+        "fr": "Certificat valide pour l’utilisateur",
+        "es": "Certificado válido para el usuario",
+        "ar": "الشهادة صالحة للمستخدم",
+        "zh-Hans": "证书对该用户有效"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/MessageSigningInfoViewController.swift",
+      "sink": "title",
+      "value": "Do you trust this message?",
+      "key": "message_signing__title__do_you_trust_this_message",
+      "comment": "Signed message details: visible title or action.",
+      "translations": {
+        "en": "Do you trust this message?",
+        "ru": "Вы доверяете этому сообщению?",
+        "fr": "Faites-vous confiance à ce message ?",
+        "es": "¿Confías en este mensaje?",
+        "ar": "هل تثق بهذه الرسالة؟",
+        "zh-Hans": "你信任此消息吗？"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/MessageSigningInfoViewController.swift",
+      "sink": "title",
+      "value": "Message signed",
+      "key": "message_signing__title__message_signed",
+      "comment": "Signed message details: visible title or action.",
+      "translations": {
+        "en": "Message signed",
+        "ru": "Сообщение подписано",
+        "fr": "Message signé",
+        "es": "Mensaje firmado",
+        "ar": "الرسالة موقعة",
+        "zh-Hans": "消息已签名"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/MessageSigningInfoViewController.swift",
+      "sink": "title",
+      "value": "Signature decrypted",
+      "key": "message_signing__title__signature_decrypted",
+      "comment": "Signed message details: visible title or action.",
+      "translations": {
+        "en": "Signature decrypted",
+        "ru": "Подпись расшифрована",
+        "fr": "Signature déchiffrée",
+        "es": "Firma descifrada",
+        "ar": "تم فك تشفير التوقيع",
+        "zh-Hans": "签名已解密"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/MessageSigningInfoViewController.swift",
+      "sink": "title",
+      "value": "Signature valid",
+      "key": "message_signing__title__signature_valid",
+      "comment": "Signed message details: visible title or action.",
+      "translations": {
+        "en": "Signature valid",
+        "ru": "Подпись действительна",
+        "fr": "Signature valide",
+        "es": "Firma válida",
+        "ar": "التوقيع صالح",
+        "zh-Hans": "签名有效"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/MessageSigningInfoViewController.swift",
+      "sink": "title",
+      "value": "Signed message info",
+      "key": "message_signing__title__signed_message_info",
+      "comment": "Signed message details: visible title or action.",
+      "translations": {
+        "en": "Signed message info",
+        "ru": "Сведения о подписанном сообщении",
+        "fr": "Informations sur le message signé",
+        "es": "Información del mensaje firmado",
+        "ar": "معلومات الرسالة الموقعة",
+        "zh-Hans": "已签名消息信息"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/MessageSigningInfoViewController.swift",
+      "sink": "title",
+      "value": "Skip",
+      "key": "message_signing__title__skip",
+      "comment": "Signed message details: visible title or action.",
+      "translations": {
+        "en": "Skip",
+        "ru": "Пропустить",
+        "fr": "Passer",
+        "es": "Omitir",
+        "ar": "تخطي",
+        "zh-Hans": "跳过"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+      "sink": "makeToast",
+      "value": "Internal error",
+      "key": "common__error__internal",
+      "comment": "Passcode and biometrics: toast message.",
+      "translations": {
+        "en": "Internal error",
+        "ru": "Внутренняя ошибка",
+        "fr": "Erreur interne",
+        "es": "Error interno",
+        "ar": "خطأ داخلي",
+        "zh-Hans": "内部错误"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+      "sink": "makeToast",
+      "value": "Touch Id not supported",
+      "key": "passcode__biometrics__unsupported_toast",
+      "fallback": "Touch ID is not supported.",
+      "comment": "Passcode and biometrics toast; canonical English should use Apple's 'Touch ID' spelling.",
+      "translations": {
+        "en": "Touch ID is not supported.",
+        "ru": "Touch ID не поддерживается.",
+        "fr": "Touch ID n’est pas pris en charge.",
+        "es": "Touch ID no es compatible.",
+        "ar": "Touch ID غير مدعوم.",
+        "zh-Hans": "不支持 Touch ID。"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+      "sink": "text",
+      "value": "Enter passcode",
+      "key": "passcode__content__enter_passcode",
+      "comment": "Passcode and biometrics: visible label.",
+      "translations": {
+        "en": "Enter passcode",
+        "ru": "Введите код-пароль",
+        "fr": "Saisissez le code",
+        "es": "Introduce el código",
+        "ar": "أدخل رمز الدخول",
+        "zh-Hans": "输入密码"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+      "sink": "title",
+      "value": "OK",
+      "key": "common__action__ok",
+      "comment": "Passcode and biometrics: visible title or action.",
+      "translations": {
+        "en": "OK",
+        "ru": "ОК",
+        "fr": "OK",
+        "es": "Aceptar",
+        "ar": "حسناً",
+        "zh-Hans": "确定"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/PrivacySettingsViewController.swift",
+      "sink": "title",
+      "value": "Device Metadata Sharing",
+      "key": "privacy__title__device_metadata_sharing",
+      "comment": "Privacy settings: visible title or action.",
+      "translations": {
+        "en": "Device Metadata Sharing",
+        "ru": "Передача метаданных устройства",
+        "fr": "Partage des métadonnées de l’appareil",
+        "es": "Compartir metadatos del dispositivo",
+        "ar": "مشاركة البيانات الوصفية للجهاز",
+        "zh-Hans": "共享设备元数据"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/PrivacySettingsViewController.swift",
+      "sink": "title",
+      "value": "Incognito Mode",
+      "key": "privacy__title__incognito_mode",
+      "comment": "Privacy settings: visible title or action.",
+      "translations": {
+        "en": "Incognito Mode",
+        "ru": "Режим инкогнито",
+        "fr": "Mode navigation privée",
+        "es": "Modo incógnito",
+        "ar": "وضع التصفح الخفي",
+        "zh-Hans": "隐身模式"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/PrivacySettingsViewController.swift",
+      "sink": "title",
+      "value": "Privacy settings",
+      "key": "privacy__title__privacy_settings",
+      "comment": "Privacy settings: visible title or action.",
+      "translations": {
+        "en": "Privacy settings",
+        "ru": "Настройки приватности",
+        "fr": "Paramètres de confidentialité",
+        "es": "Ajustes de privacidad",
+        "ar": "إعدادات الخصوصية",
+        "zh-Hans": "隐私设置"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/PrivacySettingsViewController.swift",
+      "sink": "title",
+      "value": "Send typing notifications",
+      "key": "privacy__title__send_typing_notifications",
+      "comment": "Privacy settings: visible title or action.",
+      "translations": {
+        "en": "Send typing notifications",
+        "ru": "Отправлять уведомления о наборе текста",
+        "fr": "Envoyer les notifications de saisie",
+        "es": "Enviar notificaciones de escritura",
+        "ar": "إرسال إشعارات الكتابة",
+        "zh-Hans": "发送正在输入通知"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/PrivacySettingsViewController.swift",
+      "sink": "title",
+      "value": "Server Only",
+      "key": "privacy__title__server_only",
+      "comment": "Privacy settings: visible title or action.",
+      "translations": {
+        "en": "Server Only",
+        "ru": "Только сервер",
+        "fr": "Serveur uniquement",
+        "es": "Solo el servidor",
+        "ar": "الخادم فقط",
+        "zh-Hans": "仅服务器"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/PrivacySettingsViewController.swift",
+      "sink": "title",
+      "value": "Server and Contacts",
+      "key": "privacy__title__server_and_contacts",
+      "comment": "Privacy settings: visible title or action.",
+      "translations": {
+        "en": "Server and Contacts",
+        "ru": "Сервер и контакты",
+        "fr": "Serveur et contacts",
+        "es": "Servidor y contactos",
+        "ar": "الخادم وجهات الاتصال",
+        "zh-Hans": "服务器和联系人"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/PrivacySettingsViewController.swift",
+      "sink": "title",
+      "value": "typing notifications",
+      "key": "privacy__title__typing_notifications",
+      "fallback": "Typing Notifications",
+      "comment": "Privacy settings: visible title or action.",
+      "translations": {
+        "en": "Typing Notifications",
+        "ru": "Уведомления о наборе текста",
+        "fr": "Notifications de saisie",
+        "es": "Notificaciones de escritura",
+        "ar": "إشعارات الكتابة",
+        "zh-Hans": "正在输入通知"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/YubikeyApproveViewController.swift",
+      "sink": "makeToast",
+      "value": "Internal error",
+      "key": "common__error__internal",
+      "comment": "YubiKey approval: toast message.",
+      "translations": {
+        "en": "Internal error",
+        "ru": "Внутренняя ошибка",
+        "fr": "Erreur interne",
+        "es": "Error interno",
+        "ar": "خطأ داخلي",
+        "zh-Hans": "内部错误"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/YubikeyApproveViewController.swift",
+      "sink": "setTitle",
+      "value": "Tap to unlock",
+      "key": "yubikey_approval__action__tap_to_unlock",
+      "comment": "YubiKey approval: button title.",
+      "translations": {
+        "en": "Tap to unlock",
+        "ru": "Нажмите, чтобы разблокировать",
+        "fr": "Touchez pour déverrouiller",
+        "es": "Toca para desbloquear",
+        "ar": "اضغط لفتح القفل",
+        "zh-Hans": "轻点以解锁"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "sink": "text",
+      "value": "Expired",
+      "key": "yubikey_setup__content__expired",
+      "comment": "YubiKey setup: visible label.",
+      "translations": {
+        "en": "Expired",
+        "ru": "Срок истёк",
+        "fr": "Expirée",
+        "es": "Caducada",
+        "ar": "منتهية",
+        "zh-Hans": "已过期"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "sink": "title",
+      "value": "Cancel",
+      "key": "common__action__cancel",
+      "comment": "YubiKey setup: visible title or action.",
+      "translations": {
+        "en": "Cancel",
+        "ru": "Отмена",
+        "fr": "Annuler",
+        "es": "Cancelar",
+        "ar": "إلغاء",
+        "zh-Hans": "取消"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "sink": "title",
+      "value": "Issued by",
+      "key": "yubikey_setup__title__issued_by",
+      "comment": "YubiKey setup: visible title or action.",
+      "translations": {
+        "en": "Issued by",
+        "ru": "Кем выдан",
+        "fr": "Émis par",
+        "es": "Emitido por",
+        "ar": "صادرة عن",
+        "zh-Hans": "颁发者"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "sink": "title",
+      "value": "Signature not set",
+      "key": "yubikey_setup__title__signature_not_set",
+      "comment": "YubiKey setup: visible title or action.",
+      "translations": {
+        "en": "Signature not set",
+        "ru": "Подпись не настроена",
+        "fr": "Signature non configurée",
+        "es": "Firma no configurada",
+        "ar": "لم يتم إعداد التوقيع",
+        "zh-Hans": "未设置签名"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "sink": "title",
+      "value": "Skip",
+      "key": "yubikey_setup__title__skip",
+      "comment": "YubiKey setup: visible title or action.",
+      "translations": {
+        "en": "Skip",
+        "ru": "Пропустить",
+        "fr": "Passer",
+        "es": "Omitir",
+        "ar": "تخطي",
+        "zh-Hans": "跳过"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "sink": "title",
+      "value": "Update signature",
+      "key": "yubikey_setup__title__update_signature",
+      "comment": "YubiKey setup: visible title or action.",
+      "translations": {
+        "en": "Update signature",
+        "ru": "Обновить подпись",
+        "fr": "Mettre à jour la signature",
+        "es": "Actualizar firma",
+        "ar": "تحديث التوقيع",
+        "zh-Hans": "更新签名"
+      }
+    },
+    {
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "sink": "title",
+      "value": "Valid for",
+      "key": "yubikey_setup__title__valid_for",
+      "comment": "YubiKey setup: visible title or action.",
+      "translations": {
+        "en": "Valid for",
+        "ru": "Действительна ещё",
+        "fr": "Valide pendant",
+        "es": "Válida durante",
+        "ar": "صالحة لمدة",
+        "zh-Hans": "有效期"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/ChangePasswordTableViewController.swift",
+      "sink": "title",
+      "value": "Cancel",
+      "key": "common__action__cancel",
+      "comment": "Change password: visible title or action.",
+      "translations": {
+        "en": "Cancel",
+        "ru": "Отмена",
+        "fr": "Annuler",
+        "es": "Cancelar",
+        "ar": "إلغاء",
+        "zh-Hans": "取消"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/ChangePasswordTableViewController.swift",
+      "sink": "title",
+      "value": "Change",
+      "key": "password_change__title__change",
+      "comment": "Change password: visible title or action.",
+      "translations": {
+        "en": "Change",
+        "ru": "Изменить",
+        "fr": "Modifier",
+        "es": "Cambiar",
+        "ar": "تغيير",
+        "zh-Hans": "更改"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/ChangePasswordTableViewController.swift",
+      "sink": "title",
+      "value": "Change password",
+      "key": "password_change__title__change_password",
+      "comment": "Change password: visible title or action.",
+      "translations": {
+        "en": "Change password",
+        "ru": "Изменить пароль",
+        "fr": "Modifier le mot de passe",
+        "es": "Cambiar contraseña",
+        "ar": "تغيير كلمة المرور",
+        "zh-Hans": "修改密码"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/ChangePasswordTableViewController.swift",
+      "sink": "title",
+      "value": "Confirm change password",
+      "key": "password_change__title__confirm_change_password",
+      "fallback": "Confirm Password Change",
+      "comment": "Change password: visible title or action.",
+      "translations": {
+        "en": "Confirm Password Change",
+        "ru": "Подтверждение смены пароля",
+        "fr": "Confirmer la modification du mot de passe",
+        "es": "Confirmar el cambio de contraseña",
+        "ar": "تأكيد تغيير كلمة المرور",
+        "zh-Hans": "确认更改密码"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/ChangePasswordTableViewController.swift",
+      "sink": "title",
+      "value": "OK",
+      "key": "common__action__ok",
+      "comment": "Change password: visible title or action.",
+      "translations": {
+        "en": "OK",
+        "ru": "ОК",
+        "fr": "OK",
+        "es": "Aceptar",
+        "ar": "حسناً",
+        "zh-Hans": "确定"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
+      "sink": "title",
+      "value": "In-App Sounds",
+      "key": "notification_settings__title__in_app_sounds",
+      "comment": "Notification settings: visible title or action.",
+      "translations": {
+        "en": "In-App Sounds",
+        "ru": "Звуки в приложении",
+        "fr": "Sons dans l’app",
+        "es": "Sonidos en la app",
+        "ar": "الأصوات داخل التطبيق",
+        "zh-Hans": "App 内声音"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
+      "sink": "title",
+      "value": "Invites",
+      "key": "notification_settings__title__invites",
+      "comment": "Notification settings: visible title or action.",
+      "translations": {
+        "en": "Invites",
+        "ru": "Приглашения",
+        "fr": "Invitations",
+        "es": "Invitaciones",
+        "ar": "الدعوات",
+        "zh-Hans": "邀请"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
+      "sink": "title",
+      "value": "Messages",
+      "key": "notification_settings__title__messages",
+      "comment": "Notification settings: visible title or action.",
+      "translations": {
+        "en": "Messages",
+        "ru": "Сообщения",
+        "fr": "Messages",
+        "es": "Mensajes",
+        "ar": "الرسائل",
+        "zh-Hans": "消息"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
+      "sink": "title",
+      "value": "Open iOS Notification Settings",
+      "key": "notification_settings__title__open_ios_notification_settings",
+      "comment": "Notification settings: visible title or action.",
+      "translations": {
+        "en": "Open iOS Notification Settings",
+        "ru": "Открыть настройки уведомлений iOS",
+        "fr": "Ouvrir les réglages de notifications iOS",
+        "es": "Abrir los ajustes de notificaciones de iOS",
+        "ar": "فتح إعدادات إشعارات iOS",
+        "zh-Hans": "打开 iOS 通知设置"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
+      "sink": "title",
+      "value": "Show Banners in Chats",
+      "key": "notification_settings__title__show_banners_in_chats",
+      "comment": "Notification settings: visible title or action.",
+      "translations": {
+        "en": "Show Banners in Chats",
+        "ru": "Показывать баннеры в чатах",
+        "fr": "Afficher les bannières dans les discussions",
+        "es": "Mostrar banners en los chats",
+        "ar": "إظهار اللافتات في الدردشات",
+        "zh-Hans": "在聊天中显示横幅"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
+      "sink": "title",
+      "value": "Subscription Requests",
+      "key": "notification_settings__title__subscription_requests",
+      "comment": "Notification settings: visible title or action.",
+      "translations": {
+        "en": "Subscription Requests",
+        "ru": "Запросы на подписку",
+        "fr": "Demandes d’abonnement",
+        "es": "Solicitudes de suscripción",
+        "ar": "طلبات الاشتراك",
+        "zh-Hans": "订阅请求"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController+Flow.swift",
+      "sink": "makeToast",
+      "value": "Feature is non implemented",
+      "key": "settings__feature__not_implemented_toast",
+      "fallback": "This feature is not implemented.",
+      "comment": "Settings placeholder toast; canonical English should be 'This feature is not implemented.'",
+      "translations": {
+        "en": "This feature is not implemented.",
+        "ru": "Эта функция ещё не реализована.",
+        "fr": "Cette fonctionnalité n’est pas encore disponible.",
+        "es": "Esta función aún no está implementada.",
+        "ar": "هذه الميزة غير متاحة بعد.",
+        "zh-Hans": "此功能尚未实现。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController+InfoScreenHeaderButtonDelegate.swift",
+      "sink": "title",
+      "value": "Avatar upload error",
+      "key": "settings__title__avatar_upload_error",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "Avatar upload error",
+        "ru": "Ошибка загрузки аватара",
+        "fr": "Erreur d’envoi de l’avatar",
+        "es": "Error al subir el avatar",
+        "ar": "خطأ في رفع الصورة الرمزية",
+        "zh-Hans": "头像上传错误"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController+InfoScreenHeaderButtonDelegate.swift",
+      "sink": "title",
+      "value": "Manage Cloud Storage",
+      "key": "settings__title__manage_cloud_storage",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "Manage Cloud Storage",
+        "ru": "Управление облачным хранилищем",
+        "fr": "Gérer le stockage cloud",
+        "es": "Gestionar almacenamiento en la nube",
+        "ar": "إدارة التخزين السحابي",
+        "zh-Hans": "管理云存储"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController+SignatureManagerDelegate.swift",
+      "sink": "makeToast",
+      "value": "Internal error",
+      "key": "common__error__internal",
+      "comment": "Settings: toast message.",
+      "translations": {
+        "en": "Internal error",
+        "ru": "Внутренняя ошибка",
+        "fr": "Erreur interne",
+        "es": "Error interno",
+        "ar": "خطأ داخلي",
+        "zh-Hans": "内部错误"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController+UITableViewDataSource.swift",
+      "sink": "setTitle",
+      "value": "Enter the code",
+      "key": "settings__action__enter_the_code",
+      "comment": "Settings: button title.",
+      "translations": {
+        "en": "Enter the code",
+        "ru": "Введите код",
+        "fr": "Saisir le code",
+        "es": "Introduce el código",
+        "ar": "أدخل الرمز",
+        "zh-Hans": "输入代码"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController+UITableViewDataSource.swift",
+      "sink": "setTitle",
+      "value": "Proceed to Verification",
+      "key": "settings__action__proceed_to_verification",
+      "comment": "Settings: button title.",
+      "translations": {
+        "en": "Proceed to Verification",
+        "ru": "Перейти к проверке",
+        "fr": "Passer à la vérification",
+        "es": "Continuar con la verificación",
+        "ar": "المتابعة إلى التحقق",
+        "zh-Hans": "继续验证"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController+UITableViewDataSource.swift",
+      "sink": "setTitle",
+      "value": "Show the code",
+      "key": "settings__action__show_the_code",
+      "comment": "Settings: button title.",
+      "translations": {
+        "en": "Show the code",
+        "ru": "Показать код",
+        "fr": "Afficher le code",
+        "es": "Mostrar el código",
+        "ar": "إظهار الرمز",
+        "zh-Hans": "显示代码"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController+UITableViewDataSource.swift",
+      "sink": "text",
+      "value": "Premium",
+      "key": "settings__passcode__premium_required_status",
+      "comment": "Active Settings passcode row status when a Premium entitlement is required; the same literal also remains in an unreachable legacy subscription branch.",
+      "translations": {
+        "en": "Premium",
+        "ru": "Премиум",
+        "fr": "Premium",
+        "es": "Premium",
+        "ar": "بريميوم",
+        "zh-Hans": "高级版"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController+UITableViewDataSource.swift",
+      "sink": "text",
+      "value": "Unavailable",
+      "key": "settings__content__unavailable",
+      "comment": "Settings: visible label.",
+      "translations": {
+        "en": "Unavailable",
+        "ru": "Недоступно",
+        "fr": "Indisponible",
+        "es": "No disponible",
+        "ar": "غير متاح",
+        "zh-Hans": "不可用"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController+UITableViewDelegate.swift",
+      "sink": "makeToast",
+      "value": "Passcode Lock is unavailable",
+      "key": "settings__toast__passcode_lock_is_unavailable",
+      "comment": "Settings: toast message.",
+      "translations": {
+        "en": "Passcode Lock is unavailable",
+        "ru": "Блокировка кодом-паролем недоступна",
+        "fr": "Le verrouillage par code est indisponible",
+        "es": "El bloqueo con código no está disponible",
+        "ar": "القفل برمز الدخول غير متاح",
+        "zh-Hans": "密码锁不可用"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "subtitle",
+      "value": "Protect the app with a passcode. If you forget it, you will need to reinstall the app.",
+      "key": "settings__passcode__warning",
+      "comment": "Settings: visible subtitle.",
+      "translations": {
+        "en": "Protect the app with a passcode. If you forget it, you will need to reinstall the app.",
+        "ru": "Защитите приложение кодом-паролем. Если вы его забудете, приложение придётся переустановить.",
+        "fr": "Protégez l’application avec un code. Si vous l’oubliez, vous devrez réinstaller l’application.",
+        "es": "Protege la app con un código. Si lo olvidas, tendrás que reinstalar la app.",
+        "ar": "احمِ التطبيق برمز دخول. إذا نسيته، فستحتاج إلى إعادة تثبيت التطبيق.",
+        "zh-Hans": "使用密码保护应用。如果忘记密码，你将需要重新安装应用。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "title",
+      "value": "Account color",
+      "key": "settings__title__account_color",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "Account color",
+        "ru": "Цвет учётной записи",
+        "fr": "Couleur du compte",
+        "es": "Color de la cuenta",
+        "ar": "لون الحساب",
+        "zh-Hans": "账户颜色"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "title",
+      "value": "Attempts",
+      "key": "settings__title__attempts",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "Attempts",
+        "ru": "Попытки",
+        "fr": "Tentatives",
+        "es": "Intentos",
+        "ar": "المحاولات",
+        "zh-Hans": "尝试次数"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "title",
+      "value": "Auto-Lock",
+      "key": "settings__title__auto_lock",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "Auto-Lock",
+        "ru": "Автоблокировка",
+        "fr": "Verrouillage automatique",
+        "es": "Bloqueo automático",
+        "ar": "القفل التلقائي",
+        "zh-Hans": "自动锁定"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "title",
+      "value": "Biometrics",
+      "key": "settings__title__biometrics",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "Biometrics",
+        "ru": "Биометрия",
+        "fr": "Données biométriques",
+        "es": "Biometría",
+        "ar": "المصادقة الحيوية",
+        "zh-Hans": "生物识别"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "title",
+      "value": "Change Passcode",
+      "key": "settings__title__change_passcode",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "Change Passcode",
+        "ru": "Изменить код-пароль",
+        "fr": "Modifier le code",
+        "es": "Cambiar código",
+        "ar": "تغيير رمز الدخول",
+        "zh-Hans": "更改密码"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "title",
+      "value": "Cloud storage",
+      "key": "settings__title__cloud_storage",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "Cloud storage",
+        "ru": "Облачное хранилище",
+        "fr": "Stockage cloud",
+        "es": "Almacenamiento en la nube",
+        "ar": "التخزين السحابي",
+        "zh-Hans": "云存储"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "title",
+      "value": "Devices",
+      "key": "settings__title__devices",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "Devices",
+        "ru": "Устройства",
+        "fr": "Appareils",
+        "es": "Dispositivos",
+        "ar": "الأجهزة",
+        "zh-Hans": "设备"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "title",
+      "value": "Passcode Lock",
+      "key": "settings__title__passcode_lock",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "Passcode Lock",
+        "ru": "Блокировка кодом-паролем",
+        "fr": "Verrouillage par code",
+        "es": "Bloqueo con código",
+        "ar": "القفل برمز الدخول",
+        "zh-Hans": "密码锁"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "title",
+      "value": "Premium",
+      "key": "settings__title__premium",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "Premium",
+        "ru": "Премиум",
+        "fr": "Premium",
+        "es": "Premium",
+        "ar": "بريميوم",
+        "zh-Hans": "高级版"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "title",
+      "value": "Profile",
+      "key": "settings__title__profile",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "Profile",
+        "ru": "Профиль",
+        "fr": "Profil",
+        "es": "Perfil",
+        "ar": "الملف الشخصي",
+        "zh-Hans": "个人资料"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "title",
+      "value": "Profile, status, password",
+      "key": "settings__title__profile_status_password",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "Profile, status, password",
+        "ru": "Профиль, статус, пароль",
+        "fr": "Profil, statut, mot de passe",
+        "es": "Perfil, estado y contraseña",
+        "ar": "الملف الشخصي والحالة وكلمة المرور",
+        "zh-Hans": "个人资料、状态和密码"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "title",
+      "value": "Show attempts left",
+      "key": "settings__title__show_attempts_left",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "Show attempts left",
+        "ru": "Показывать оставшиеся попытки",
+        "fr": "Afficher les tentatives restantes",
+        "es": "Mostrar intentos restantes",
+        "ar": "إظهار المحاولات المتبقية",
+        "zh-Hans": "显示剩余尝试次数"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "title",
+      "value": "Turn Passcode Off",
+      "key": "settings__title__turn_passcode_off",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "Turn Passcode Off",
+        "ru": "Отключить код-пароль",
+        "fr": "Désactiver le code",
+        "es": "Desactivar el código",
+        "ar": "إيقاف رمز الدخول",
+        "zh-Hans": "关闭密码"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "title",
+      "value": "Yubikey signature",
+      "key": "settings__title__yubikey_signature",
+      "fallback": "YubiKey signature",
+      "comment": "Settings: visible title or action.",
+      "translations": {
+        "en": "YubiKey signature",
+        "ru": "Подпись YubiKey",
+        "fr": "Signature YubiKey",
+        "es": "Firma YubiKey",
+        "ar": "توقيع YubiKey",
+        "zh-Hans": "YubiKey 签名"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+      "sink": "makeToast",
+      "value": "Create a passcode first",
+      "key": "settings_security__toast__create_a_passcode_first",
+      "comment": "Settings security flow: toast message.",
+      "translations": {
+        "en": "Create a passcode first",
+        "ru": "Сначала создайте код-пароль",
+        "fr": "Créez d’abord un code",
+        "es": "Crea primero un código",
+        "ar": "أنشئ رمز دخول أولًا",
+        "zh-Hans": "请先创建密码"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+      "sink": "makeToast",
+      "value": "Passcode Lock is unavailable",
+      "key": "settings_security__toast__passcode_lock_is_unavailable",
+      "comment": "Settings security flow: toast message.",
+      "translations": {
+        "en": "Passcode Lock is unavailable",
+        "ru": "Блокировка кодом-паролем недоступна",
+        "fr": "Le verrouillage par code est indisponible",
+        "es": "El bloqueo con código no está disponible",
+        "ar": "القفل برمز الدخول غير متاح",
+        "zh-Hans": "密码锁不可用"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+      "sink": "placeholder",
+      "value": "password",
+      "key": "settings_security__field__password",
+      "comment": "Settings security flow: input placeholder.",
+      "translations": {
+        "en": "password",
+        "ru": "пароль",
+        "fr": "mot de passe",
+        "es": "contraseña",
+        "ar": "كلمة المرور",
+        "zh-Hans": "密码"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+      "sink": "title",
+      "value": "Cancel",
+      "key": "common__action__cancel",
+      "comment": "Settings security flow: visible title or action.",
+      "translations": {
+        "en": "Cancel",
+        "ru": "Отмена",
+        "fr": "Annuler",
+        "es": "Cancelar",
+        "ar": "إلغاء",
+        "zh-Hans": "取消"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+      "sink": "title",
+      "value": "Delete",
+      "key": "common__action__delete",
+      "comment": "Settings security flow: visible title or action.",
+      "translations": {
+        "en": "Delete",
+        "ru": "Удалить",
+        "fr": "Supprimer",
+        "es": "Eliminar",
+        "ar": "حذف",
+        "zh-Hans": "删除"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+      "sink": "title",
+      "value": "OK",
+      "key": "common__action__ok",
+      "comment": "Settings security flow: visible title or action.",
+      "translations": {
+        "en": "OK",
+        "ru": "ОК",
+        "fr": "OK",
+        "es": "Aceptar",
+        "ar": "حسناً",
+        "zh-Hans": "确定"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+      "sink": "title",
+      "value": "Turn Biometrics Off",
+      "key": "settings_security__title__turn_biometrics_off",
+      "comment": "Settings security flow: visible title or action.",
+      "translations": {
+        "en": "Turn Biometrics Off",
+        "ru": "Отключить биометрию",
+        "fr": "Désactiver la biométrie",
+        "es": "Desactivar la biometría",
+        "ar": "إيقاف المصادقة الحيوية",
+        "zh-Hans": "关闭生物识别"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+      "sink": "title",
+      "value": "Turn Passcode Off",
+      "key": "settings_security__title__turn_passcode_off",
+      "comment": "Settings security flow: visible title or action.",
+      "translations": {
+        "en": "Turn Passcode Off",
+        "ru": "Отключить код-пароль",
+        "fr": "Désactiver le code",
+        "es": "Desactivar el código",
+        "ar": "إيقاف رمز الدخول",
+        "zh-Hans": "关闭密码"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/device_privacy/DevicePrivacyViewController.swift",
+      "sink": "title",
+      "value": "Privacy",
+      "key": "device_privacy__title__privacy",
+      "comment": "Device privacy: visible title or action.",
+      "translations": {
+        "en": "Privacy",
+        "ru": "Приватность",
+        "fr": "Confidentialité",
+        "es": "Privacidad",
+        "ar": "الخصوصية",
+        "zh-Hans": "隐私"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Alicia Torreaux avatar",
+      "key": "appearance__preview__alicia_avatar_accessibility_label",
+      "comment": "Interface appearance preview VoiceOver label; localize so the preview follows the selected language and RTL direction.",
+      "translations": {
+        "en": "Alicia Torreaux avatar",
+        "ru": "Аватар Алисии Торро",
+        "fr": "Avatar d’Alicia Torreaux",
+        "es": "Avatar de Alicia Torreaux",
+        "ar": "الصورة الرمزية لأليسيا تورو",
+        "zh-Hans": "Alicia Torreaux 的头像"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Avatar shape selection",
+      "key": "appearance__avatars__shape_accessibility_label",
+      "comment": "Interface appearance settings: VoiceOver label.",
+      "translations": {
+        "en": "Avatar shape selection",
+        "ru": "Выбор формы аватара",
+        "fr": "Sélection de la forme de l’avatar",
+        "es": "Selección de forma del avatar",
+        "ar": "اختيار شكل الصورة الرمزية",
+        "zh-Hans": "头像形状选择"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Cancel Interface changes",
+      "key": "appearance__navigation__cancel_accessibility_label",
+      "comment": "Interface appearance settings: VoiceOver label.",
+      "translations": {
+        "en": "Cancel Interface changes",
+        "ru": "Отменить изменения интерфейса",
+        "fr": "Annuler les modifications de l’interface",
+        "es": "Cancelar cambios de la interfaz",
+        "ar": "إلغاء تغييرات الواجهة",
+        "zh-Hans": "取消界面更改"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Chat avatar",
+      "key": "appearance__preview__chat_avatar_accessibility_label",
+      "comment": "Interface appearance preview VoiceOver label; localize so the preview follows the selected language and RTL direction.",
+      "translations": {
+        "en": "Chat avatar",
+        "ru": "Аватар чата",
+        "fr": "Avatar de la discussion",
+        "es": "Avatar del chat",
+        "ar": "الصورة الرمزية للدردشة",
+        "zh-Hans": "聊天头像"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Color grid",
+      "key": "appearance__accent__grid_accessibility_label",
+      "comment": "Interface appearance settings: VoiceOver label.",
+      "translations": {
+        "en": "Color grid",
+        "ru": "Сетка цветов",
+        "fr": "Grille de couleurs",
+        "es": "Cuadrícula de colores",
+        "ar": "شبكة الألوان",
+        "zh-Hans": "颜色网格"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Radius",
+      "key": "appearance__bubbles__radius_accessibility_label",
+      "comment": "Interface appearance settings: VoiceOver label.",
+      "translations": {
+        "en": "Radius",
+        "ru": "Радиус",
+        "fr": "Rayon",
+        "es": "Radio",
+        "ar": "نصف القطر",
+        "zh-Hans": "圆角半径"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Save Interface changes",
+      "key": "appearance__navigation__save_accessibility_label",
+      "comment": "Interface appearance settings: VoiceOver label.",
+      "translations": {
+        "en": "Save Interface changes",
+        "ru": "Сохранить изменения интерфейса",
+        "fr": "Enregistrer les modifications de l’interface",
+        "es": "Guardar cambios de la interfaz",
+        "ar": "حفظ تغييرات الواجهة",
+        "zh-Hans": "保存界面更改"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Selected custom color",
+      "key": "appearance__accent__selected_color_accessibility_label",
+      "comment": "Interface appearance settings: VoiceOver label.",
+      "translations": {
+        "en": "Selected custom color",
+        "ru": "Выбранный пользовательский цвет",
+        "fr": "Couleur personnalisée sélectionnée",
+        "es": "Color personalizado seleccionado",
+        "ar": "اللون المخصص المحدد",
+        "zh-Hans": "已选自定义颜色"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Set System font size",
+      "key": "appearance__text_size__use_system",
+      "comment": "Interface appearance settings: VoiceOver label.",
+      "translations": {
+        "en": "Set System font size",
+        "ru": "Использовать системный размер шрифта",
+        "fr": "Utiliser la taille de police du système",
+        "es": "Usar el tamaño de letra del sistema",
+        "ar": "استخدام حجم خط النظام",
+        "zh-Hans": "使用系统字体大小"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "Unlock premium style",
+      "key": "appearance__premium__unlock_style",
+      "comment": "Interface appearance settings: VoiceOver label.",
+      "translations": {
+        "en": "Unlock premium style",
+        "ru": "Разблокировать премиум-стиль",
+        "fr": "Déverrouiller le style Premium",
+        "es": "Desbloquear estilo Premium",
+        "ar": "فتح النمط المميز",
+        "zh-Hans": "解锁高级样式"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "value": "User avatar",
+      "key": "appearance__preview__user_avatar_accessibility_label",
+      "comment": "Interface appearance preview VoiceOver label; localize so the preview follows the selected language and RTL direction.",
+      "translations": {
+        "en": "User avatar",
+        "ru": "Аватар пользователя",
+        "fr": "Avatar de l’utilisateur",
+        "es": "Avatar del usuario",
+        "ar": "الصورة الرمزية للمستخدم",
+        "zh-Hans": "用户头像"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "attributedString",
+      "value": "Yes, look at the camera.",
+      "key": "appearance__theme_preview__message_confirmation",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Yes, look at the camera.",
+        "ru": "Да, смотрите в камеру.",
+        "fr": "Oui, regardez l’objectif.",
+        "es": "Sí, mira a la cámara.",
+        "ar": "نعم، انظر إلى الكاميرا.",
+        "zh-Hans": "对，请看镜头。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "message",
+      "value": "Bob says hi. 😊 ❤️ 😱",
+      "key": "appearance__chat_list_preview__message_alicia",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Bob says hi. 😊 ❤️ 😱",
+        "ru": "Боб передаёт привет. 😊 ❤️ 😱",
+        "fr": "Bob te dit bonjour. 😊 ❤️ 😱",
+        "es": "Bob te manda saludos. 😊 ❤️ 😱",
+        "ar": "بوب يرسل تحياته. 😊 ❤️ 😱",
+        "zh-Hans": "Bob 向你问好。😊 ❤️ 😱"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "message",
+      "value": "Choose a unique name.",
+      "key": "appearance__theme__unique_name_message",
+      "comment": "Interface appearance settings: dialog or explanatory message.",
+      "translations": {
+        "en": "Choose a unique name.",
+        "ru": "Выберите уникальное имя.",
+        "fr": "Choisissez un nom unique.",
+        "es": "Elige un nombre único.",
+        "ar": "اختر اسمًا فريدًا.",
+        "zh-Hans": "请选择一个唯一名称。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "message",
+      "value": "Don’t tell mom yet, but I got the job! I’m going to ROME!",
+      "key": "appearance__chat_list_preview__message_little_sister",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Don’t tell mom yet, but I got the job! I’m going to ROME!",
+        "ru": "Маме пока не говори, но меня взяли! Я еду в РИМ!",
+        "fr": "Ne le dis pas encore à maman, mais j’ai eu le poste ! Je vais à ROME !",
+        "es": "No se lo digas aún a mamá, ¡pero conseguí el trabajo! ¡Me voy a ROMA!",
+        "ar": "لا تخبر أمي الآن، لكنني حصلت على الوظيفة! سأذهب إلى روما!",
+        "zh-Hans": "先别告诉妈妈，我拿到这份工作了！我要去罗马！"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "message",
+      "value": "Editing a built-in theme creates a copy.",
+      "key": "appearance__theme__builtin_copy_message",
+      "comment": "Interface appearance settings: dialog or explanatory message.",
+      "translations": {
+        "en": "Editing a built-in theme creates a copy.",
+        "ru": "При редактировании встроенной темы будет создана копия.",
+        "fr": "La modification d’un thème intégré crée une copie.",
+        "es": "Al editar un tema integrado se crea una copia.",
+        "ar": "يؤدي تعديل سمة مدمجة إلى إنشاء نسخة.",
+        "zh-Hans": "编辑内置主题会创建一个副本。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "message",
+      "value": "Table for four, 2PM. Be there.",
+      "key": "appearance__chat_list_preview__message_veronica",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Table for four, 2PM. Be there.",
+        "ru": "Столик на четверых, в 14:00. Приходи.",
+        "fr": "Une table pour quatre, à 14 h. Sois là.",
+        "es": "Mesa para cuatro, a las 14:00. No faltes.",
+        "ar": "طاولة لأربعة أشخاص، الساعة 2 مساءً. كن هناك.",
+        "zh-Hans": "四人桌，下午 2 点。准时到。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "message",
+      "value": "The cloud photo, if any, will remain in Cloud Storage.",
+      "key": "appearance__theme__delete_cloud_photo_message",
+      "comment": "Interface appearance settings: dialog or explanatory message.",
+      "translations": {
+        "en": "The cloud photo, if any, will remain in Cloud Storage.",
+        "ru": "Фото в облаке, если оно есть, останется в облачном хранилище.",
+        "fr": "La photo dans le cloud, s’il y en a une, restera dans le stockage cloud.",
+        "es": "La foto en la nube, si existe, permanecerá en el almacenamiento en la nube.",
+        "ar": "ستبقى الصورة السحابية، إن وجدت، في التخزين السحابي.",
+        "zh-Hans": "云端照片（如有）将保留在云存储中。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "message",
+      "value": "Vote now! Moar cat videos in this channel?",
+      "key": "appearance__chat_list_preview__message_animal_videos",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Vote now! Moar cat videos in this channel?",
+        "ru": "Голосуем! Добавить в этот канал ещё больше видео с котиками?",
+        "fr": "Votez ! Encore plus de vidéos de chats sur ce canal ?",
+        "es": "¡Vota! ¿Más vídeos de gatos en este canal?",
+        "ar": "صوّت الآن! هل تريد المزيد من مقاطع القطط في هذه القناة؟",
+        "zh-Hans": "快投票！这个频道要不要更多猫咪视频？"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "message",
+      "value": "We just reached 2,500 members! WOO!",
+      "key": "appearance__chat_list_preview__message_campus",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "We just reached 2,500 members! WOO!",
+        "ru": "Нас уже 2 500! УРА!",
+        "fr": "Nous venons d’atteindre 2 500 membres ! OUAIS !",
+        "es": "¡Acabamos de llegar a 2500 miembros! ¡BIEN!",
+        "ar": "وصل عددنا للتو إلى 2500 عضو! رائع!",
+        "zh-Hans": "我们刚刚达到 2,500 名成员！太棒了！"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "message",
+      "value": "••• typing",
+      "key": "appearance__chat_list_preview__message_typing",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "••• typing",
+        "ru": "••• печатает",
+        "fr": "••• écrit",
+        "es": "••• escribiendo",
+        "ar": "••• يكتب",
+        "zh-Hans": "••• 正在输入"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "message",
+      "value": "🖼️ Check these out",
+      "key": "appearance__chat_list_preview__message_jennie",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "🖼️ Check these out",
+        "ru": "🖼️ Посмотрите",
+        "fr": "🖼️ Regardez ça",
+        "es": "🖼️ Mira esto",
+        "ar": "🖼️ ألقِ نظرة على هذه",
+        "zh-Hans": "🖼️ 看看这些"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "placeholder",
+      "value": "Theme name",
+      "key": "appearance__theme__name_placeholder",
+      "comment": "Interface appearance settings: input placeholder.",
+      "translations": {
+        "en": "Theme name",
+        "ru": "Название темы",
+        "fr": "Nom du thème",
+        "es": "Nombre del tema",
+        "ar": "اسم السمة",
+        "zh-Hans": "主题名称"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "setTitle",
+      "value": "Edit",
+      "key": "common__action__edit",
+      "comment": "Interface appearance settings: button title.",
+      "translations": {
+        "en": "Edit",
+        "ru": "Редактировать",
+        "fr": "Modifier",
+        "es": "Editar",
+        "ar": "تعديل",
+        "zh-Hans": "编辑"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "setTitle",
+      "value": "Unlock premium style",
+      "key": "appearance__premium__unlock_style",
+      "comment": "Interface appearance settings: button title.",
+      "translations": {
+        "en": "Unlock premium style",
+        "ru": "Разблокировать премиум-стиль",
+        "fr": "Déverrouiller le style Premium",
+        "es": "Desbloquear estilo Premium",
+        "ar": "فتح النمط المميز",
+        "zh-Hans": "解锁高级样式"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "Chats",
+      "key": "appearance__content__chats",
+      "comment": "Interface appearance settings: visible label.",
+      "translations": {
+        "en": "Chats",
+        "ru": "Чаты",
+        "fr": "Chats",
+        "es": "Chats",
+        "ar": "الدردشات",
+        "zh-Hans": "聊天"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "Does he want me to turn from the right or the left? 🤔",
+      "key": "appearance__theme_preview__message_reply",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Does he want me to turn from the right or the left? 🤔",
+        "ru": "Он хочет, чтобы я повернулась вправо или влево? 🤔",
+        "fr": "Veut-il que je me tourne vers la droite ou vers la gauche ? 🤔",
+        "es": "¿Quiere que gire a la derecha o a la izquierda? 🤔",
+        "ar": "هل يريدني أن أستدير إلى اليمين أم اليسار؟ 🤔",
+        "zh-Hans": "他想让我向右转还是向左转？🤔"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "For relaxing times, make it Suntory time. 😎",
+      "key": "appearance__theme_preview__message_opening",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "For relaxing times, make it Suntory time. 😎",
+        "ru": "Для отдыха выбирайте время Suntory. 😎",
+        "fr": "Pour vous détendre, passez à l’heure Suntory. 😎",
+        "es": "Para relajarte, haz que sea la hora de Suntory. 😎",
+        "ar": "لأوقات الاسترخاء، اجعلها لحظة Suntory. 😎",
+        "zh-Hans": "放松时刻，就选 Suntory。😎"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "Great, I’ll save a table by the window.",
+      "key": "appearance__editor_preview__message_followup",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Great, I’ll save a table by the window.",
+        "ru": "Отлично, я займу столик у окна.",
+        "fr": "Parfait, je vais réserver une table près de la fenêtre.",
+        "es": "Genial, reservaré una mesa junto a la ventana.",
+        "ar": "رائع، سأحجز طاولة بجوار النافذة.",
+        "zh-Hans": "太好了，我会留一张靠窗的桌子。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "How’s your morning going? I hope the weather is good today.",
+      "key": "appearance__interface_preview__message_morning",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "How’s your morning going? I hope the weather is good today.",
+        "ru": "Как проходит утро? Надеюсь, сегодня хорошая погода.",
+        "fr": "Comment se passe ta matinée ? J’espère qu’il fait beau aujourd’hui.",
+        "es": "¿Qué tal va tu mañana? Espero que hoy haga buen tiempo.",
+        "ar": "كيف يسير صباحك؟ آمل أن يكون الطقس جميلًا اليوم.",
+        "zh-Hans": "你今天早上过得怎么样？希望今天天气不错。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "I found a quiet coffee bar by the river.",
+      "key": "appearance__editor_preview__message_incoming",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "I found a quiet coffee bar by the river.",
+        "ru": "Я нашёл тихую кофейню у реки.",
+        "fr": "J’ai trouvé un café tranquille au bord de la rivière.",
+        "es": "Encontré una cafetería tranquila junto al río.",
+        "ar": "وجدت مقهى هادئًا بجوار النهر.",
+        "zh-Hans": "我在河边找到了一家安静的咖啡馆。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "I found a quiet coffee shop near the park.",
+      "key": "appearance__overview_preview__message_incoming",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "I found a quiet coffee shop near the park.",
+        "ru": "Я нашёл тихую кофейню рядом с парком.",
+        "fr": "J’ai trouvé un café tranquille près du parc.",
+        "es": "Encontré una cafetería tranquila cerca del parque.",
+        "ar": "وجدت مقهى هادئًا بالقرب من الحديقة.",
+        "zh-Hans": "我在公园附近找到了一家安静的咖啡馆。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "Is that everything? It seemed like he said quite a bit more than that. 😮",
+      "key": "appearance__theme_preview__message_closing",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Is that everything? It seemed like he said quite a bit more than that. 😮",
+        "ru": "И это всё? Кажется, он сказал гораздо больше. 😮",
+        "fr": "C’est tout ? Il me semblait qu’il en avait dit bien plus. 😮",
+        "es": "¿Eso es todo? Parecía que había dicho bastante más. 😮",
+        "ar": "هل هذا كل شيء؟ بدا لي أنه قال أكثر من ذلك بكثير. 😮",
+        "zh-Hans": "就这些吗？感觉他说的远不止这些。😮"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "Let’s meet for lunch at two. I know a place you’ll love. ☕",
+      "key": "appearance__interface_preview__message_lunch",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Let’s meet for lunch at two. I know a place you’ll love. ☕",
+        "ru": "Давай встретимся на обед в два. Я знаю место, которое тебе понравится. ☕",
+        "fr": "Retrouvons-nous pour déjeuner à deux heures. Je connais un endroit qui va te plaire. ☕",
+        "es": "Quedemos para comer a las dos. Conozco un sitio que te encantará. ☕",
+        "ar": "لنلتقِ لتناول الغداء الساعة الثانية. أعرف مكانًا سيعجبك. ☕",
+        "zh-Hans": "我们两点见面吃午饭吧。我知道一个你会喜欢的地方。☕"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "New Theme",
+      "key": "appearance__theme__new_title",
+      "comment": "Interface appearance settings: visible label.",
+      "translations": {
+        "en": "New Theme",
+        "ru": "Новая тема",
+        "fr": "Nouveau thème",
+        "es": "Tema nuevo",
+        "ar": "سمة جديدة",
+        "zh-Hans": "新主题"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "New message",
+      "key": "appearance__content__new_message",
+      "comment": "Interface appearance settings: visible label.",
+      "translations": {
+        "en": "New message",
+        "ru": "Новое сообщение",
+        "fr": "Nouveau message",
+        "es": "Mensaje nuevo",
+        "ar": "رسالة جديدة",
+        "zh-Hans": "新消息"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "Notifications",
+      "key": "appearance__content__notifications",
+      "comment": "Interface appearance settings: visible label.",
+      "translations": {
+        "en": "Notifications",
+        "ru": "Уведомления",
+        "fr": "Notifications",
+        "es": "Notificaciones",
+        "ar": "الإشعارات",
+        "zh-Hans": "通知"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "Online",
+      "key": "presence__status__online",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Online",
+        "ru": "В сети",
+        "fr": "En ligne",
+        "es": "En línea",
+        "ar": "متصل",
+        "zh-Hans": "在线"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "Perfect, I’ll meet you there after work.",
+      "key": "appearance__editor_preview__message_outgoing",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Perfect, I’ll meet you there after work.",
+        "ru": "Отлично, встретимся там после работы.",
+        "fr": "Parfait, je t’y retrouve après le travail.",
+        "es": "Perfecto, nos vemos allí después del trabajo.",
+        "ar": "رائع، سأقابلك هناك بعد العمل.",
+        "zh-Hans": "太好了，下班后在那里见。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "Preview message",
+      "key": "appearance__preview__message_label",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Preview message",
+        "ru": "Предпросмотр сообщения",
+        "fr": "Aperçu du message",
+        "es": "Vista previa del mensaje",
+        "ar": "معاينة الرسالة",
+        "zh-Hans": "预览消息"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "Really good — Tokyo is beautiful. I found a quiet café near the park. 😎",
+      "key": "appearance__interface_preview__message_tokyo",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Really good — Tokyo is beautiful. I found a quiet café near the park. 😎",
+        "ru": "Отлично — Токио прекрасен. Я нашёл тихое кафе рядом с парком. 😎",
+        "fr": "Très bien — Tokyo est magnifique. J’ai trouvé un café tranquille près du parc. 😎",
+        "es": "Muy bien: Tokio es precioso. Encontré un café tranquilo cerca del parque. 😎",
+        "ar": "رائع جدًا — طوكيو جميلة. وجدت مقهى هادئًا بالقرب من الحديقة. 😎",
+        "zh-Hans": "很好——东京很美。我在公园附近找到了一家安静的咖啡馆。😎"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "Right side. And, uh, with intensity.",
+      "key": "appearance__theme_preview__message_quote",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Right side. And, uh, with intensity.",
+        "ru": "Вправо. И, э-э, поэнергичнее.",
+        "fr": "Côté droit. Et, euh, avec intensité.",
+        "es": "Hacia la derecha. Y, eh, con intensidad.",
+        "ar": "إلى اليمين. وبقوة، نوعًا ما.",
+        "zh-Hans": "右边。然后，呃，再有力度一点。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "Set System font size",
+      "key": "appearance__text_size__use_system",
+      "comment": "Interface appearance settings: visible label.",
+      "translations": {
+        "en": "Set System font size",
+        "ru": "Использовать системный размер шрифта",
+        "fr": "Utiliser la taille de police du système",
+        "es": "Usar el tamaño de letra del sistema",
+        "ar": "استخدام حجم خط النظام",
+        "zh-Hans": "使用系统字体大小"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "That sounds perfect, I will meet you there soon.",
+      "key": "appearance__overview_preview__message_outgoing",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "That sounds perfect, I will meet you there soon.",
+        "ru": "Звучит отлично, скоро увидимся там.",
+        "fr": "Parfait, je t’y retrouve bientôt.",
+        "es": "Suena perfecto, nos vemos allí pronto.",
+        "ar": "يبدو رائعًا، سأقابلك هناك قريبًا.",
+        "zh-Hans": "听起来很棒，我很快就去那里见你。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "That’s all?",
+      "key": "appearance__theme_preview__message_question",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "That’s all?",
+        "ru": "И это всё?",
+        "fr": "C’est tout ?",
+        "es": "¿Eso es todo?",
+        "ar": "هل هذا كل شيء؟",
+        "zh-Hans": "就这些吗？"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "Today",
+      "key": "appearance__preview__today",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Today",
+        "ru": "Сегодня",
+        "fr": "Aujourd’hui",
+        "es": "Hoy",
+        "ar": "اليوم",
+        "zh-Hans": "今天"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "Turn toward the camera, please.",
+      "key": "appearance__theme_preview__message_answer",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Turn toward the camera, please.",
+        "ru": "Повернитесь к камере, пожалуйста.",
+        "fr": "Tournez-vous vers l’objectif, s’il vous plaît.",
+        "es": "Gira hacia la cámara, por favor.",
+        "ar": "استدر نحو الكاميرا، من فضلك.",
+        "zh-Hans": "请转向镜头。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "value": "Yes, look at the camera.",
+      "key": "appearance__theme_preview__message_confirmation",
+      "comment": "Synthetic interface appearance preview copy; localize because it is visible UI and must demonstrate the selected language and RTL direction.",
+      "translations": {
+        "en": "Yes, look at the camera.",
+        "ru": "Да, смотрите в камеру.",
+        "fr": "Oui, regardez l’objectif.",
+        "es": "Sí, mira a la cámara.",
+        "ar": "نعم، انظر إلى الكاميرا.",
+        "zh-Hans": "对，请看镜头。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Application Color",
+      "key": "appearance__accent__screen_title",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Application Color",
+        "ru": "Цвет приложения",
+        "fr": "Couleur de l’application",
+        "es": "Color de la aplicación",
+        "ar": "لون التطبيق",
+        "zh-Hans": "应用颜色"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Apply for All Chats",
+      "key": "appearance__theme__apply_all_chats",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Apply for All Chats",
+        "ru": "Применить ко всем чатам",
+        "fr": "Appliquer à toutes les discussions",
+        "es": "Aplicar a todos los chats",
+        "ar": "تطبيق على جميع الدردشات",
+        "zh-Hans": "应用到所有聊天"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Avatars",
+      "key": "appearance__avatars__screen_title",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Avatars",
+        "ru": "Аватары",
+        "fr": "Avatars",
+        "es": "Avatares",
+        "ar": "الصور الرمزية",
+        "zh-Hans": "头像"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Cancel",
+      "key": "common__action__cancel",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Cancel",
+        "ru": "Отмена",
+        "fr": "Annuler",
+        "es": "Cancelar",
+        "ar": "إلغاء",
+        "zh-Hans": "取消"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Chat Wallpaper",
+      "key": "appearance__wallpaper__screen_title",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Chat Wallpaper",
+        "ru": "Обои чата",
+        "fr": "Fond d’écran de discussion",
+        "es": "Fondo del chat",
+        "ar": "خلفية الدردشة",
+        "zh-Hans": "聊天壁纸"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Choose Accent",
+      "key": "appearance__editor__choose_accent",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Choose Accent",
+        "ru": "Выбрать акцентный цвет",
+        "fr": "Choisir la couleur d’accentuation",
+        "es": "Elegir color de acento",
+        "ar": "اختيار لون التمييز",
+        "zh-Hans": "选择强调色"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Choose Custom Color",
+      "key": "appearance__accent__choose_custom_color",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Choose Custom Color",
+        "ru": "Выбрать свой цвет",
+        "fr": "Choisir une couleur personnalisée",
+        "es": "Elegir color personalizado",
+        "ar": "اختيار لون مخصص",
+        "zh-Hans": "选择自定义颜色"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Choose Gradient",
+      "key": "appearance__editor__choose_gradient",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Choose Gradient",
+        "ru": "Выбрать градиент",
+        "fr": "Choisir un dégradé",
+        "es": "Elegir degradado",
+        "ar": "اختيار تدرج لوني",
+        "zh-Hans": "选择渐变"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Choose Message Colors",
+      "key": "appearance__editor__choose_message_colors",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Choose Message Colors",
+        "ru": "Выбрать цвета сообщений",
+        "fr": "Choisir les couleurs des messages",
+        "es": "Elegir colores de mensajes",
+        "ar": "اختيار ألوان الرسائل",
+        "zh-Hans": "选择消息颜色"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Choose Wallpaper",
+      "key": "appearance__editor__choose_wallpaper",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Choose Wallpaper",
+        "ru": "Выбрать обои",
+        "fr": "Choisir un fond d’écran",
+        "es": "Elegir fondo",
+        "ar": "اختيار خلفية",
+        "zh-Hans": "选择壁纸"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Color",
+      "key": "appearance__wallpaper__color",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Color",
+        "ru": "Цвет",
+        "fr": "Couleur",
+        "es": "Color",
+        "ar": "اللون",
+        "zh-Hans": "颜色"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Couldn’t apply Appearance",
+      "key": "appearance__error__apply_title",
+      "fallback": "Couldn’t apply appearance",
+      "comment": "Interface appearance error title; canonical English should be 'Couldn’t apply appearance'.",
+      "translations": {
+        "en": "Couldn’t apply appearance",
+        "ru": "Не удалось применить оформление",
+        "fr": "Impossible d’appliquer l’apparence",
+        "es": "No se pudo aplicar la apariencia",
+        "ar": "تعذر تطبيق المظهر",
+        "zh-Hans": "无法应用外观"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Couldn’t apply Interface settings",
+      "key": "appearance__error__apply_title",
+      "fallback": "Couldn’t apply appearance",
+      "comment": "Interface appearance error title; canonical English should be 'Couldn’t apply appearance'.",
+      "translations": {
+        "en": "Couldn’t apply appearance",
+        "ru": "Не удалось применить оформление",
+        "fr": "Impossible d’appliquer l’apparence",
+        "es": "No se pudo aplicar la apariencia",
+        "ar": "تعذر تطبيق المظهر",
+        "zh-Hans": "无法应用外观"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Couldn’t apply appearance",
+      "key": "appearance__error__apply_title",
+      "fallback": "Couldn’t apply appearance",
+      "comment": "Interface appearance error title; canonical English should be 'Couldn’t apply appearance'.",
+      "translations": {
+        "en": "Couldn’t apply appearance",
+        "ru": "Не удалось применить оформление",
+        "fr": "Impossible d’appliquer l’apparence",
+        "es": "No se pudo aplicar la apariencia",
+        "ar": "تعذر تطبيق المظهر",
+        "zh-Hans": "无法应用外观"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Couldn’t apply theme",
+      "key": "appearance__error__apply_theme_title",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Couldn’t apply theme",
+        "ru": "Не удалось применить тему",
+        "fr": "Impossible d’appliquer le thème",
+        "es": "No se pudo aplicar el tema",
+        "ar": "تعذر تطبيق السمة",
+        "zh-Hans": "无法应用主题"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Couldn’t save theme",
+      "key": "appearance__error__save_theme_title",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Couldn’t save theme",
+        "ru": "Не удалось сохранить тему",
+        "fr": "Impossible d’enregistrer le thème",
+        "es": "No se pudo guardar el tema",
+        "ar": "تعذر حفظ السمة",
+        "zh-Hans": "无法保存主题"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Couldn’t upload wallpaper",
+      "key": "appearance__error__upload_wallpaper_title",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Couldn’t upload wallpaper",
+        "ru": "Не удалось загрузить обои",
+        "fr": "Impossible d’envoyer le fond d’écran",
+        "es": "No se pudo subir el fondo",
+        "ar": "تعذر رفع الخلفية",
+        "zh-Hans": "无法上传壁纸"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Create",
+      "key": "common__action__create",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Create",
+        "ru": "Создать",
+        "fr": "Créer",
+        "es": "Crear",
+        "ar": "إنشاء",
+        "zh-Hans": "创建"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Create Editable Copy",
+      "key": "appearance__theme__create_editable_copy",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Create Editable Copy",
+        "ru": "Создать редактируемую копию",
+        "fr": "Créer une copie modifiable",
+        "es": "Crear copia editable",
+        "ar": "إنشاء نسخة قابلة للتعديل",
+        "zh-Hans": "创建可编辑副本"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Delete",
+      "key": "common__action__delete",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Delete",
+        "ru": "Удалить",
+        "fr": "Supprimer",
+        "es": "Eliminar",
+        "ar": "حذف",
+        "zh-Hans": "删除"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Delete “%@”?",
+      "key": "appearance__theme__delete_title_format",
+      "comment": "Destructive theme deletion dialog title. Argument 1 is the user-visible theme name.",
+      "translations": {
+        "en": "Delete “%@”?",
+        "ru": "Удалить «%@»?",
+        "fr": "Supprimer « %@ » ?",
+        "es": "¿Eliminar «%@»?",
+        "ar": "هل تريد حذف «%@»؟",
+        "zh-Hans": "删除“%@”？"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Edit",
+      "key": "common__action__edit",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Edit",
+        "ru": "Редактировать",
+        "fr": "Modifier",
+        "es": "Editar",
+        "ar": "تعديل",
+        "zh-Hans": "编辑"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Gallery",
+      "key": "appearance__wallpaper__gallery",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Gallery",
+        "ru": "Галерея",
+        "fr": "Galerie",
+        "es": "Galería",
+        "ar": "المعرض",
+        "zh-Hans": "图库"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Message Bubbles",
+      "key": "appearance__bubbles__screen_title",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Message Bubbles",
+        "ru": "Пузыри сообщений",
+        "fr": "Bulles de messages",
+        "es": "Burbujas de mensajes",
+        "ar": "فقاعات الرسائل",
+        "zh-Hans": "消息气泡"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "New Theme",
+      "key": "appearance__theme__new_title",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "New Theme",
+        "ru": "Новая тема",
+        "fr": "Nouveau thème",
+        "es": "Tema nuevo",
+        "ar": "سمة جديدة",
+        "zh-Hans": "新主题"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "OK",
+      "key": "common__action__ok",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "OK",
+        "ru": "ОК",
+        "fr": "OK",
+        "es": "Aceptar",
+        "ar": "حسناً",
+        "zh-Hans": "确定"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Rename",
+      "key": "appearance__theme__rename_action",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Rename",
+        "ru": "Переименовать",
+        "fr": "Renommer",
+        "es": "Renombrar",
+        "ar": "إعادة التسمية",
+        "zh-Hans": "重命名"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Rename Theme",
+      "key": "appearance__theme__rename_title",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Rename Theme",
+        "ru": "Переименовать тему",
+        "fr": "Renommer le thème",
+        "es": "Cambiar nombre del tema",
+        "ar": "إعادة تسمية السمة",
+        "zh-Hans": "重命名主题"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Retry",
+      "key": "common__action__retry",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Retry",
+        "ru": "Повторить",
+        "fr": "Réessayer",
+        "es": "Reintentar",
+        "ar": "إعادة المحاولة",
+        "zh-Hans": "重试"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "title",
+      "value": "Text Size",
+      "key": "appearance__text_size__screen_title",
+      "comment": "Interface appearance settings: visible title or action.",
+      "translations": {
+        "en": "Text Size",
+        "ru": "Размер текста",
+        "fr": "Taille du texte",
+        "es": "Tamaño del texto",
+        "ar": "حجم النص",
+        "zh-Hans": "文字大小"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "message",
+      "value": "Product configuration not found.",
+      "key": "premium__availability__configuration_missing_message",
+      "comment": "Premium subscription: dialog or explanatory message.",
+      "translations": {
+        "en": "Product configuration not found.",
+        "ru": "Конфигурация продукта не найдена.",
+        "fr": "Configuration du produit introuvable.",
+        "es": "No se encontró la configuración del producto.",
+        "ar": "لم يتم العثور على إعداد المنتج.",
+        "zh-Hans": "未找到产品配置。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "message",
+      "value": "Purchase failed. To manage your subscriptions, go to App Store → Settings → Subscriptions.",
+      "key": "premium__purchase__failed_message",
+      "comment": "Premium subscription: dialog or explanatory message.",
+      "translations": {
+        "en": "Purchase failed. To manage your subscriptions, go to App Store → Settings → Subscriptions.",
+        "ru": "Покупка не удалась. Для управления подписками откройте App Store → Настройки → Подписки.",
+        "fr": "L’achat a échoué. Pour gérer vos abonnements, accédez à App Store → Réglages → Abonnements.",
+        "es": "La compra ha fallado. Para gestionar tus suscripciones, ve a App Store → Ajustes → Suscripciones.",
+        "ar": "فشلت عملية الشراء. لإدارة اشتراكاتك، انتقل إلى App Store ← الإعدادات ← الاشتراكات.",
+        "zh-Hans": "购买失败。要管理订阅，请前往 App Store → 设置 → 订阅。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "message",
+      "value": "This subscription is not available from App Store Connect yet. Please try again later.",
+      "key": "premium__availability__unavailable_message",
+      "comment": "Premium subscription: dialog or explanatory message.",
+      "translations": {
+        "en": "This subscription is not available from App Store Connect yet. Please try again later.",
+        "ru": "Эта подписка пока недоступна в App Store Connect. Повторите попытку позже.",
+        "fr": "Cet abonnement n’est pas encore disponible dans App Store Connect. Réessayez plus tard.",
+        "es": "Esta suscripción aún no está disponible en App Store Connect. Inténtalo de nuevo más tarde.",
+        "ar": "هذا الاشتراك غير متاح بعد في App Store Connect. يرجى المحاولة لاحقًا.",
+        "zh-Hans": "此订阅在 App Store Connect 中尚不可用。请稍后再试。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "message",
+      "value": "Your subscription change has been submitted.",
+      "key": "premium__purchase__change_submitted_message",
+      "comment": "Premium subscription: dialog or explanatory message.",
+      "translations": {
+        "en": "Your subscription change has been submitted.",
+        "ru": "Запрос на изменение подписки отправлен.",
+        "fr": "Votre demande de modification d’abonnement a été envoyée.",
+        "es": "Se ha enviado el cambio de suscripción.",
+        "ar": "تم إرسال طلب تغيير اشتراكك.",
+        "zh-Hans": "你的订阅更改已提交。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "text",
+      "value": "Active",
+      "key": "premium__status__active",
+      "comment": "Premium subscription: visible label.",
+      "translations": {
+        "en": "Active",
+        "ru": "Активна",
+        "fr": "Actif",
+        "es": "Activa",
+        "ar": "نشط",
+        "zh-Hans": "有效"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "text",
+      "value": "All premium features are unlocked.\nThank you for your support!",
+      "key": "premium__entitlement__thanks_message",
+      "comment": "Premium subscription: visible label.",
+      "translations": {
+        "en": "All premium features are unlocked.\nThank you for your support!",
+        "ru": "Все премиум-функции разблокированы.\nСпасибо за вашу поддержку!",
+        "fr": "Toutes les fonctionnalités Premium sont déverrouillées.\nMerci pour votre soutien !",
+        "es": "Todas las funciones Premium están desbloqueadas.\n¡Gracias por tu apoyo!",
+        "ar": "تم فتح جميع الميزات المميزة.\nشكرًا لدعمك!",
+        "zh-Hans": "所有高级功能均已解锁。\n感谢你的支持！"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "text",
+      "value": "Expires: %@",
+      "key": "premium__entitlement__expires_format",
+      "comment": "Premium plan expiration label. Argument 1 is the expiration date/time formatted with the localization context.",
+      "translations": {
+        "en": "Expires: %@",
+        "ru": "Истекает: %@",
+        "fr": "Expire le : %@",
+        "es": "Caduca: %@",
+        "ar": "تنتهي الصلاحية: %@",
+        "zh-Hans": "到期时间：%@"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "text",
+      "value": "Manage Subscription",
+      "key": "premium__management__action",
+      "comment": "Premium subscription: visible label.",
+      "translations": {
+        "en": "Manage Subscription",
+        "ru": "Управление подпиской",
+        "fr": "Gérer l’abonnement",
+        "es": "Gestionar suscripción",
+        "ar": "إدارة الاشتراك",
+        "zh-Hans": "管理订阅"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "text",
+      "value": "Scheduled",
+      "key": "premium__status__scheduled",
+      "comment": "Premium subscription: visible label.",
+      "translations": {
+        "en": "Scheduled",
+        "ru": "Запланировано",
+        "fr": "Planifié",
+        "es": "Programado",
+        "ar": "مجدول",
+        "zh-Hans": "已计划"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "text",
+      "value": "Scheduled change: %@ on %@",
+      "fallback": "Scheduled change: %1$@ on %2$@",
+      "key": "premium__entitlement__scheduled_change_format",
+      "comment": "Premium scheduled-change label. Argument 1 is the target plan name; argument 2 is the effective date formatted with the localization context.",
+      "translations": {
+        "en": "Scheduled change: %1$@ on %2$@",
+        "ru": "Запланировано изменение на %1$@ — %2$@",
+        "fr": "Modification planifiée vers %1$@ le %2$@",
+        "es": "Cambio programado a %1$@ para %2$@",
+        "ar": "تغيير مجدول إلى %1$@ في %2$@",
+        "zh-Hans": "计划更改为%1$@，生效日期：%2$@"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "text",
+      "value": "To manage your subscription, go to\nApp Store → Settings → Subscriptions.",
+      "key": "premium__management__instructions",
+      "comment": "Premium subscription: visible label.",
+      "translations": {
+        "en": "To manage your subscription, go to\nApp Store → Settings → Subscriptions.",
+        "ru": "Чтобы управлять подпиской, откройте\nApp Store → Настройки → Подписки.",
+        "fr": "Pour gérer votre abonnement, accédez à\nApp Store → Réglages → Abonnements.",
+        "es": "Para gestionar tu suscripción, ve a\nApp Store → Ajustes → Suscripciones.",
+        "ar": "لإدارة اشتراكك، انتقل إلى\nApp Store ← الإعدادات ← الاشتراكات.",
+        "zh-Hans": "要管理订阅，请前往\nApp Store → 设置 → 订阅。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "text",
+      "value": "Unlock premium features and support\nopen-source development.",
+      "key": "premium__marketing__subtitle",
+      "comment": "Premium subscription: visible label.",
+      "translations": {
+        "en": "Unlock premium features and support\nopen-source development.",
+        "ru": "Разблокируйте премиум-функции и поддержите\nразработку с открытым исходным кодом.",
+        "fr": "Déverrouillez les fonctionnalités Premium et soutenez\nle développement open source.",
+        "es": "Desbloquea funciones Premium y apoya\nel desarrollo de código abierto.",
+        "ar": "افتح الميزات المميزة وادعم\nتطوير البرمجيات مفتوحة المصدر.",
+        "zh-Hans": "解锁高级功能，并支持\n开源开发。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "text",
+      "value": "You're Premium",
+      "key": "premium__entitlement__active_title",
+      "fallback": "You’re Premium",
+      "comment": "Premium subscription: visible label.",
+      "translations": {
+        "en": "You’re Premium",
+        "ru": "У вас Премиум",
+        "fr": "Vous êtes Premium",
+        "es": "Tienes Premium",
+        "ar": "أنت مشترك في بريميوم",
+        "zh-Hans": "你已是高级版用户"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "text",
+      "value": "Your subscription is active until\n%@",
+      "key": "premium__entitlement__active_until_format",
+      "comment": "Premium entitlement summary. Argument 1 is the expiration date/time formatted with the localization context.",
+      "translations": {
+        "en": "Your subscription is active until\n%@",
+        "ru": "Ваша подписка активна до\n%@",
+        "fr": "Votre abonnement est actif jusqu’au\n%@",
+        "es": "Tu suscripción está activa hasta\n%@",
+        "ar": "اشتراكك نشط حتى\n%@",
+        "zh-Hans": "你的订阅有效期至\n%@"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Checking Subscription…",
+      "key": "premium__cta__checking",
+      "comment": "Premium subscription: visible title or action.",
+      "translations": {
+        "en": "Checking Subscription…",
+        "ru": "Проверка подписки…",
+        "fr": "Vérification de l’abonnement…",
+        "es": "Comprobando suscripción…",
+        "ar": "جارٍ التحقق من الاشتراك…",
+        "zh-Hans": "正在检查订阅…"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Downgrade to %@",
+      "key": "premium__cta__downgrade_format",
+      "comment": "Premium CTA. Argument 1 is the target plan display name.",
+      "translations": {
+        "en": "Downgrade to %@",
+        "ru": "Перейти на %@",
+        "fr": "Passer à l’offre %@",
+        "es": "Cambiar a %@",
+        "ar": "الانتقال إلى %@",
+        "zh-Hans": "降级到%@"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Error",
+      "key": "premium__dialog__error_title",
+      "comment": "Premium subscription: visible title or action.",
+      "translations": {
+        "en": "Error",
+        "ru": "Ошибка",
+        "fr": "Erreur",
+        "es": "Error",
+        "ar": "خطأ",
+        "zh-Hans": "错误"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Loading Failed",
+      "key": "premium__cta__loading_failed",
+      "comment": "Premium subscription: visible title or action.",
+      "translations": {
+        "en": "Loading Failed",
+        "ru": "Не удалось загрузить",
+        "fr": "Échec du chargement",
+        "es": "Error de carga",
+        "ar": "فشل التحميل",
+        "zh-Hans": "加载失败"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Loading Plans…",
+      "key": "premium__cta__loading",
+      "comment": "Premium subscription: visible title or action.",
+      "translations": {
+        "en": "Loading Plans…",
+        "ru": "Загрузка тарифов…",
+        "fr": "Chargement des offres…",
+        "es": "Cargando planes…",
+        "ar": "جارٍ تحميل الخطط…",
+        "zh-Hans": "正在加载方案…"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Manage Subscription",
+      "key": "premium__management__action",
+      "comment": "Premium subscription: visible title or action.",
+      "translations": {
+        "en": "Manage Subscription",
+        "ru": "Управление подпиской",
+        "fr": "Gérer l’abonnement",
+        "es": "Gestionar suscripción",
+        "ar": "إدارة الاشتراك",
+        "zh-Hans": "管理订阅"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "No Plans Available",
+      "key": "premium__cta__no_plans",
+      "comment": "Premium subscription: visible title or action.",
+      "translations": {
+        "en": "No Plans Available",
+        "ru": "Нет доступных тарифов",
+        "fr": "Aucune offre disponible",
+        "es": "No hay planes disponibles",
+        "ar": "لا توجد خطط متاحة",
+        "zh-Hans": "没有可用方案"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "OK",
+      "key": "common__action__ok",
+      "comment": "Premium subscription: visible title or action.",
+      "translations": {
+        "en": "OK",
+        "ru": "ОК",
+        "fr": "OK",
+        "es": "Aceptar",
+        "ar": "حسناً",
+        "zh-Hans": "确定"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Processing…",
+      "key": "premium__cta__processing",
+      "comment": "Premium subscription: visible title or action.",
+      "translations": {
+        "en": "Processing…",
+        "ru": "Обработка…",
+        "fr": "Traitement…",
+        "es": "Procesando…",
+        "ar": "جارٍ المعالجة…",
+        "zh-Hans": "正在处理…"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Product Unavailable",
+      "key": "premium__availability__unavailable_title",
+      "comment": "Premium subscription: visible title or action.",
+      "translations": {
+        "en": "Product Unavailable",
+        "ru": "Продукт недоступен",
+        "fr": "Produit indisponible",
+        "es": "Producto no disponible",
+        "ar": "المنتج غير متاح",
+        "zh-Hans": "产品不可用"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Success",
+      "key": "premium__dialog__success_title",
+      "comment": "Premium subscription: visible title or action.",
+      "translations": {
+        "en": "Success",
+        "ru": "Успешно",
+        "fr": "Succès",
+        "es": "Éxito",
+        "ar": "تم بنجاح",
+        "zh-Hans": "成功"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Upgrade to %@",
+      "key": "premium__cta__upgrade_format",
+      "comment": "Premium CTA. Argument 1 is the target plan display name.",
+      "translations": {
+        "en": "Upgrade to %@",
+        "ru": "Перейти на %@",
+        "fr": "Passer à l’offre %@",
+        "es": "Mejorar a %@",
+        "ar": "الترقية إلى %@",
+        "zh-Hans": "升级到%@"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/settings_item/SettingsItemDetailViewController+Flow.swift",
+      "sink": "makeToast",
+      "value": "Please restart application to enable logs.",
+      "key": "debug_settings__toast__please_restart_application_to_enable_logs",
+      "comment": "Debug settings: toast message.",
+      "translations": {
+        "en": "Please restart application to enable logs.",
+        "ru": "Перезапустите приложение, чтобы включить журналирование.",
+        "fr": "Redémarrez l’application pour activer les journaux.",
+        "es": "Reinicia la aplicación para activar los registros.",
+        "ar": "أعد تشغيل التطبيق لتفعيل السجلات.",
+        "zh-Hans": "请重新启动应用以启用日志。"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/BaseRootViewController.swift",
+      "sink": "attributedString",
+      "value": "Archive",
+      "key": "navigation__destination__archive",
+      "comment": "Root navigation: attributed visible copy.",
+      "translations": {
+        "en": "Archive",
+        "ru": "Архив",
+        "fr": "Archives",
+        "es": "Archivo",
+        "ar": "الأرشيف",
+        "zh-Hans": "归档"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/BaseRootViewController.swift",
+      "sink": "attributedString",
+      "value": "Calls",
+      "key": "navigation__destination__calls",
+      "comment": "Root navigation: attributed visible copy.",
+      "translations": {
+        "en": "Calls",
+        "ru": "Звонки",
+        "fr": "Appels",
+        "es": "Llamadas",
+        "ar": "المكالمات",
+        "zh-Hans": "通话"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/BaseRootViewController.swift",
+      "sink": "attributedString",
+      "value": "Chats",
+      "key": "navigation__destination__chats",
+      "comment": "Root navigation: attributed visible copy.",
+      "translations": {
+        "en": "Chats",
+        "ru": "Чаты",
+        "fr": "Chats",
+        "es": "Chats",
+        "ar": "الدردشات",
+        "zh-Hans": "聊天"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/BaseRootViewController.swift",
+      "sink": "attributedString",
+      "value": "Contacts",
+      "key": "navigation__destination__contacts",
+      "comment": "Root navigation: attributed visible copy.",
+      "translations": {
+        "en": "Contacts",
+        "ru": "Контакты",
+        "fr": "Contacts",
+        "es": "Contactos",
+        "ar": "جهات الاتصال",
+        "zh-Hans": "联系人"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/BaseRootViewController.swift",
+      "sink": "attributedString",
+      "value": "Notifications",
+      "key": "navigation__destination__notifications",
+      "comment": "Root navigation: attributed visible copy.",
+      "translations": {
+        "en": "Notifications",
+        "ru": "Уведомления",
+        "fr": "Notifications",
+        "es": "Notificaciones",
+        "ar": "الإشعارات",
+        "zh-Hans": "通知"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/EmptyChatViewController.swift",
+      "sink": "text",
+      "value": "Select chat to start conversation",
+      "key": "empty_state__content__select_chat_to_start_conversation",
+      "comment": "Split-view empty state: visible label.",
+      "translations": {
+        "en": "Select chat to start conversation",
+        "ru": "Выберите чат, чтобы начать беседу",
+        "fr": "Sélectionnez une discussion pour commencer la conversation",
+        "es": "Selecciona un chat para iniciar la conversación",
+        "ar": "اختر دردشة لبدء المحادثة",
+        "zh-Hans": "选择聊天以开始对话"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/EmptyChatViewController.swift",
+      "sink": "text",
+      "value": "Select contact to start call",
+      "key": "empty_state__content__select_contact_to_start_call",
+      "comment": "Split-view empty state: visible label.",
+      "translations": {
+        "en": "Select contact to start call",
+        "ru": "Выберите контакт, чтобы начать звонок",
+        "fr": "Sélectionnez un contact pour démarrer un appel",
+        "es": "Selecciona un contacto para iniciar una llamada",
+        "ar": "اختر جهة اتصال لبدء مكالمة",
+        "zh-Hans": "选择联系人以发起通话"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/EmptyChatViewController.swift",
+      "sink": "text",
+      "value": "Select contact to start conversation",
+      "key": "empty_state__content__select_contact_to_start_conversation",
+      "comment": "Split-view empty state: visible label.",
+      "translations": {
+        "en": "Select contact to start conversation",
+        "ru": "Выберите контакт, чтобы начать беседу",
+        "fr": "Sélectionnez un contact pour commencer la conversation",
+        "es": "Selecciona un contacto para iniciar la conversación",
+        "ar": "اختر جهة اتصال لبدء المحادثة",
+        "zh-Hans": "选择联系人以开始对话"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/LeftMenuViewController.swift",
+      "sink": "title",
+      "value": "Archive",
+      "key": "navigation__destination__archive",
+      "comment": "Root navigation: visible title or action.",
+      "translations": {
+        "en": "Archive",
+        "ru": "Архив",
+        "fr": "Archives",
+        "es": "Archivo",
+        "ar": "الأرشيف",
+        "zh-Hans": "归档"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/LeftMenuViewController.swift",
+      "sink": "title",
+      "value": "Calls",
+      "key": "navigation__destination__calls",
+      "comment": "Root navigation: visible title or action.",
+      "translations": {
+        "en": "Calls",
+        "ru": "Звонки",
+        "fr": "Appels",
+        "es": "Llamadas",
+        "ar": "المكالمات",
+        "zh-Hans": "通话"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/LeftMenuViewController.swift",
+      "sink": "title",
+      "value": "Chats",
+      "key": "navigation__destination__chats",
+      "comment": "Root navigation: visible title or action.",
+      "translations": {
+        "en": "Chats",
+        "ru": "Чаты",
+        "fr": "Chats",
+        "es": "Chats",
+        "ar": "الدردشات",
+        "zh-Hans": "聊天"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/LeftMenuViewController.swift",
+      "sink": "title",
+      "value": "Contacts",
+      "key": "navigation__destination__contacts",
+      "comment": "Root navigation: visible title or action.",
+      "translations": {
+        "en": "Contacts",
+        "ru": "Контакты",
+        "fr": "Contacts",
+        "es": "Contactos",
+        "ar": "جهات الاتصال",
+        "zh-Hans": "联系人"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/LeftMenuViewController.swift",
+      "sink": "title",
+      "value": "Groups",
+      "key": "navigation__destination__groups",
+      "comment": "Root navigation: visible title or action.",
+      "translations": {
+        "en": "Groups",
+        "ru": "Группы",
+        "fr": "Groupes",
+        "es": "Grupos",
+        "ar": "المجموعات",
+        "zh-Hans": "群组"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/LeftMenuViewController.swift",
+      "sink": "title",
+      "value": "Notifications",
+      "key": "navigation__destination__notifications",
+      "comment": "Root navigation: visible title or action.",
+      "translations": {
+        "en": "Notifications",
+        "ru": "Уведомления",
+        "fr": "Notifications",
+        "es": "Notificaciones",
+        "ar": "الإشعارات",
+        "zh-Hans": "通知"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/LeftMenuViewController.swift",
+      "sink": "title",
+      "value": "Settings",
+      "key": "navigation__destination__settings",
+      "comment": "Root navigation: visible title or action.",
+      "translations": {
+        "en": "Settings",
+        "ru": "Настройки",
+        "fr": "Paramètres",
+        "es": "Ajustes",
+        "ar": "إعدادات",
+        "zh-Hans": "设置"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/XabberTabBarViewController.swift",
+      "sink": "title",
+      "value": "Archive",
+      "key": "navigation__destination__archive",
+      "comment": "Root navigation: visible title or action.",
+      "translations": {
+        "en": "Archive",
+        "ru": "Архив",
+        "fr": "Archives",
+        "es": "Archivo",
+        "ar": "الأرشيف",
+        "zh-Hans": "归档"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/XabberTabBarViewController.swift",
+      "sink": "title",
+      "value": "Calls",
+      "key": "navigation__destination__calls",
+      "comment": "Root navigation: visible title or action.",
+      "translations": {
+        "en": "Calls",
+        "ru": "Звонки",
+        "fr": "Appels",
+        "es": "Llamadas",
+        "ar": "المكالمات",
+        "zh-Hans": "通话"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/XabberTabBarViewController.swift",
+      "sink": "title",
+      "value": "Chats",
+      "key": "navigation__destination__chats",
+      "comment": "Root navigation: visible title or action.",
+      "translations": {
+        "en": "Chats",
+        "ru": "Чаты",
+        "fr": "Chats",
+        "es": "Chats",
+        "ar": "الدردشات",
+        "zh-Hans": "聊天"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/XabberTabBarViewController.swift",
+      "sink": "title",
+      "value": "Contacts",
+      "key": "navigation__destination__contacts",
+      "comment": "Root navigation: visible title or action.",
+      "translations": {
+        "en": "Contacts",
+        "ru": "Контакты",
+        "fr": "Contacts",
+        "es": "Contactos",
+        "ar": "جهات الاتصال",
+        "zh-Hans": "联系人"
+      }
+    },
+    {
+      "path": "xabber/controllers/split/XabberTabBarViewController.swift",
+      "sink": "title",
+      "value": "Notifications",
+      "key": "navigation__destination__notifications",
+      "comment": "Root navigation: visible title or action.",
+      "translations": {
+        "en": "Notifications",
+        "ru": "Уведомления",
+        "fr": "Notifications",
+        "es": "Notificaciones",
+        "ar": "الإشعارات",
+        "zh-Hans": "通知"
+      }
+    }
+  ],
+  "exclusions": []
+}

@@ -1,0 +1,498 @@
+{
+  "migrations": [
+    {
+      "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
+      "sink": "currentPlayingSubtitle",
+      "value": "Voice Message",
+      "fallback": "Voice message",
+      "key": "voice_message",
+      "comment": "Chat voice-message preview: subtitle shown in the shared audio player while the freshly recorded message is playing.",
+      "translations": {
+        "en": "Voice message",
+        "ru": "Аудиосообщение",
+        "fr": "Message vocal",
+        "es": "Mensaje de voz",
+        "ar": "رسالة صوتية",
+        "zh-Hans": "语音消息"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "emptyStateTitle",
+      "value": "No contact requests",
+      "key": "contacts__empty_state__no_contact_requests",
+      "comment": "Contacts list empty-state title when there are no incoming contact requests.",
+      "translations": {
+        "en": "No contact requests",
+        "ru": "Нет запросов в контакты",
+        "fr": "Aucune demande de contact",
+        "es": "No hay solicitudes de contacto",
+        "ar": "لا توجد طلبات اتصال",
+        "zh-Hans": "没有联系人请求"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "emptyStateTitle",
+      "value": "No invitations found",
+      "key": "contacts__empty_state__no_invitations_found",
+      "comment": "Groups list empty-state title when no group invitations match the active filter.",
+      "translations": {
+        "en": "No invitations found",
+        "ru": "Приглашения не найдены",
+        "fr": "Aucune invitation trouvée",
+        "es": "No se encontraron invitaciones",
+        "ar": "لم يتم العثور على دعوات",
+        "zh-Hans": "未找到邀请"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "emptyStateTitle",
+      "value": "No outgoing contact requests",
+      "key": "contacts__empty_state__no_outgoing_contact_requests",
+      "comment": "Contacts list empty-state title when there are no outgoing contact requests.",
+      "translations": {
+        "en": "No outgoing contact requests",
+        "ru": "Нет исходящих запросов в контакты",
+        "fr": "Aucune demande de contact envoyée",
+        "es": "No hay solicitudes de contacto salientes",
+        "ar": "لا توجد طلبات اتصال صادرة",
+        "zh-Hans": "没有已发送的联系人请求"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/groupchats/blocked_list/GroupchatBlockedViewController.swift",
+      "sink": "subtitle",
+      "value": "Domain",
+      "key": "groupchat_blocklist__subtitle__domain",
+      "comment": "Group blocklist row subtitle identifying a blocked target as an entire domain.",
+      "translations": {
+        "en": "Domain",
+        "ru": "Домен",
+        "fr": "Domaine",
+        "es": "Dominio",
+        "ar": "النطاق",
+        "zh-Hans": "域名"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/groupchats/blocked_list/GroupchatBlockedViewController.swift",
+      "sink": "subtitle",
+      "value": "XMPP ID",
+      "key": "hint_xmpp_id",
+      "comment": "Group blocklist row subtitle identifying a blocked target as an individual XMPP address.",
+      "translations": {
+        "en": "XMPP ID",
+        "ru": "XMPP ID",
+        "fr": "ID XMPP",
+        "es": "ID de XMPP",
+        "ar": "معرّف XMPP",
+        "zh-Hans": "XMPP ID"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "tableSectionTitle",
+      "value": "Contact has sent you a request to see your presence information.\n\nYou have not sent a request to access presence information of this contact.",
+      "fallback": "Contact has sent you a request to see your presence information.\n \n You have not sent a request to access presence information of this contact.",
+      "key": "subscription_status_description_out_none_in_request_incoming",
+      "comment": "Edit Contact subscription footer: the contact requested the user's presence while the user has not requested the contact's presence.",
+      "translations": {
+        "en": "Contact has sent you a request to see your presence information.\n \n You have not sent a request to access presence information of this contact.",
+        "ru": "Контакт отправил вам запрос на получение информации о вашем присутствии.\n\nВы не отправляли запрос на доступ к информации о присутствии этого контакта.",
+        "fr": "Le contact vous a envoyé une demande pour voir vos informations de présence.\n\nVous n’avez pas envoyé de demande pour accéder aux informations de présence de ce contact.",
+        "es": "El contacto te ha enviado una solicitud para ver tu información de presencia.\n\nNo has enviado una solicitud para acceder a la información de presencia de este contacto.",
+        "ar": "أرسلت إليك جهة الاتصال طلبًا للاطلاع على معلومات حضورك.\n\nلم ترسل طلبًا للوصول إلى معلومات حضور جهة الاتصال هذه.",
+        "zh-Hans": "联系人已向你发送查看在线状态信息的请求。\n\n你尚未发送访问该联系人在线状态信息的请求。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "tableSectionTitle",
+      "value": "Contact is added to your roster, but presence information is not shared in either direction.\n\nIncoming subscription requests will be accepted automatically.",
+      "key": "subscription_status_description_out_none_in_allowed",
+      "comment": "Edit Contact subscription footer: no presence is shared and future incoming subscription requests will be auto-accepted.",
+      "translations": {
+        "en": "Contact is added to your roster, but presence information is not shared in either direction.\n\nIncoming subscription requests will be accepted automatically.",
+        "ru": "Контакт добавлен в ваш список, но информация о присутствии не передаётся ни в одном направлении.\n\nВходящие запросы на подписку будут приниматься автоматически.",
+        "fr": "Le contact est ajouté à votre liste, mais les informations de présence ne sont partagées dans aucun sens.\n\nLes demandes d’abonnement entrantes seront acceptées automatiquement.",
+        "es": "El contacto se ha añadido a tu lista, pero la información de presencia no se comparte en ninguna dirección.\n\nLas solicitudes de suscripción entrantes se aceptarán automáticamente.",
+        "ar": "أُضيفت جهة الاتصال إلى قائمتك، لكن معلومات الحضور لا تتم مشاركتها في أي من الاتجاهين.\n\nسيتم قبول طلبات الاشتراك الواردة تلقائيًا.",
+        "zh-Hans": "联系人已添加到你的联系人列表，但双方均未共享在线状态信息。\n\n传入的订阅请求将自动接受。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "tableSectionTitle",
+      "value": "Contact is added to your roster, but presence information is not shared in either direction.\n\nIncoming subscription requests will not be accepted automatically.",
+      "fallback": "Contact is added to your roster, but presence information is not shared in either direction.\n \n Incoming subscription requests will not be accepted automatically.",
+      "key": "subscription_status_description_out_none_in_not_allowed",
+      "comment": "Edit Contact subscription footer: no presence is shared and future incoming subscription requests will require manual approval.",
+      "translations": {
+        "en": "Contact is added to your roster, but presence information is not shared in either direction.\n \n Incoming subscription requests will not be accepted automatically.",
+        "ru": "Контакт добавлен в ваш список, но информация о присутствии не передаётся ни в одном направлении.\n\nВходящие запросы на подписку не будут приниматься автоматически.",
+        "fr": "Le contact est ajouté à votre liste, mais les informations de présence ne sont partagées dans aucun sens.\n\nLes demandes d’abonnement entrantes ne seront pas acceptées automatiquement.",
+        "es": "El contacto se ha añadido a tu lista, pero la información de presencia no se comparte en ninguna dirección.\n\nLas solicitudes de suscripción entrantes no se aceptarán automáticamente.",
+        "ar": "أُضيفت جهة الاتصال إلى قائمتك، لكن معلومات الحضور لا تتم مشاركتها في أي من الاتجاهين.\n\nلن يتم قبول طلبات الاشتراك الواردة تلقائيًا.",
+        "zh-Hans": "联系人已添加到你的联系人列表，但双方均未共享在线状态信息。\n\n传入的订阅请求不会自动接受。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "tableSectionTitle",
+      "value": "You and this contact are sharing presence information with each other.",
+      "key": "subscription_status_description_both",
+      "comment": "Edit Contact subscription footer: both parties currently share presence information.",
+      "translations": {
+        "en": "You and this contact are sharing presence information with each other.",
+        "ru": "Вы и этот контакт обмениваетесь информацией о присутствии.",
+        "fr": "Vous et ce contact partagez vos informations de présence.",
+        "es": "Tú y este contacto compartís información de presencia.",
+        "ar": "تتبادل أنت وجهة الاتصال هذه معلومات الحضور.",
+        "zh-Hans": "你和此联系人正在互相共享在线状态信息。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "tableSectionTitle",
+      "value": "You and this contact have both sent each other requests to see each other's presence information. Generally, mutual subscription requests are automatically accepted, so you should not be seeing this description, ever. But since you do, it means that something went wrong, huh.",
+      "key": "subscription_status_description_out_requested_in_request_incoming",
+      "comment": "Edit Contact subscription footer: both parties have pending presence requests, an exceptional state normally resolved automatically.",
+      "translations": {
+        "en": "You and this contact have both sent each other requests to see each other's presence information. Generally, mutual subscription requests are automatically accepted, so you should not be seeing this description, ever. But since you do, it means that something went wrong, huh.",
+        "ru": "Вы и этот контакт отправили друг другу запросы на получение информации о присутствии. Обычно взаимные запросы на подписку принимаются автоматически, поэтому это описание не должно отображаться. Но раз вы его видите, значит, что-то пошло не так.",
+        "fr": "Vous et ce contact vous êtes mutuellement envoyé des demandes pour voir vos informations de présence. En général, les demandes d’abonnement réciproques sont acceptées automatiquement, vous ne devriez donc jamais voir cette description. Si elle apparaît, quelque chose s’est mal passé.",
+        "es": "Tú y este contacto os habéis enviado solicitudes para ver la información de presencia del otro. Normalmente, las solicitudes de suscripción mutuas se aceptan automáticamente, por lo que no deberías ver esta descripción. Si aparece, significa que algo ha salido mal.",
+        "ar": "أرسلت أنت وجهة الاتصال هذه طلبات متبادلة للاطلاع على معلومات الحضور. عادةً ما تُقبل طلبات الاشتراك المتبادلة تلقائيًا، لذا يفترض ألا ترى هذا الوصف. إذا ظهر، فهذا يعني أن خطأً ما قد حدث.",
+        "zh-Hans": "你和此联系人都向对方发送了查看在线状态信息的请求。通常，双方的订阅请求会自动接受，因此你不应看到此说明。如果出现此说明，则表示发生了错误。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "tableSectionTitle",
+      "value": "You have sent a request to see presence information of this contact. It is not yet answered.\n\nIncoming subscription requests will be accepted automatically.",
+      "key": "subscription_status_description_out_requested_in_allowed",
+      "comment": "Edit Contact subscription footer: the user's presence request is pending and future incoming requests will be auto-accepted.",
+      "translations": {
+        "en": "You have sent a request to see presence information of this contact. It is not yet answered.\n\nIncoming subscription requests will be accepted automatically.",
+        "ru": "Вы отправили запрос на получение информации о присутствии этого контакта. Ответ пока не получен.\n\nВходящие запросы на подписку будут приниматься автоматически.",
+        "fr": "Vous avez envoyé une demande pour voir les informations de présence de ce contact. Elle n’a pas encore reçu de réponse.\n\nLes demandes d’abonnement entrantes seront acceptées automatiquement.",
+        "es": "Has enviado una solicitud para ver la información de presencia de este contacto. Todavía no ha recibido respuesta.\n\nLas solicitudes de suscripción entrantes se aceptarán automáticamente.",
+        "ar": "لقد أرسلت طلبًا للاطلاع على معلومات حضور جهة الاتصال هذه، ولم تتم الإجابة عنه بعد.\n\nسيتم قبول طلبات الاشتراك الواردة تلقائيًا.",
+        "zh-Hans": "你已发送查看此联系人在线状态信息的请求，但尚未收到回复。\n\n传入的订阅请求将自动接受。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "tableSectionTitle",
+      "value": "You have sent a request to see presence information of this contact. It is not yet answered.\n\nIncoming subscription requests will not be accepted automatically.",
+      "fallback": "You have sent a request to see presence information of this contact. It is not yet answered.\n \n Incoming subscription requests will not be accepted automatically.",
+      "key": "subscription_status_description_out_requested_in_not_allowed",
+      "comment": "Edit Contact subscription footer: the user's presence request is pending and future incoming requests will require manual approval.",
+      "translations": {
+        "en": "You have sent a request to see presence information of this contact. It is not yet answered.\n \n Incoming subscription requests will not be accepted automatically.",
+        "ru": "Вы отправили запрос на получение информации о присутствии этого контакта. Ответ пока не получен.\n\nВходящие запросы на подписку не будут приниматься автоматически.",
+        "fr": "Vous avez envoyé une demande pour voir les informations de présence de ce contact. Elle n’a pas encore reçu de réponse.\n\nLes demandes d’abonnement entrantes ne seront pas acceptées automatiquement.",
+        "es": "Has enviado una solicitud para ver la información de presencia de este contacto. Todavía no ha recibido respuesta.\n\nLas solicitudes de suscripción entrantes no se aceptarán automáticamente.",
+        "ar": "لقد أرسلت طلبًا للاطلاع على معلومات حضور جهة الاتصال هذه، ولم تتم الإجابة عنه بعد.\n\nلن يتم قبول طلبات الاشتراك الواردة تلقائيًا.",
+        "zh-Hans": "你已发送查看此联系人在线状态信息的请求，但尚未收到回复。\n\n传入的订阅请求不会自动接受。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "tableSectionTitle",
+      "value": "You have sent a request to see presence information of this contact. It is not yet answered.\n\nThe contact receives your presence information.",
+      "fallback": "You have sent a request to see presence information of this contact. It is not yet answered.\n \nThe contact receives your presence information.\n",
+      "key": "subscription_status_description_out_requested_in_from",
+      "comment": "Edit Contact subscription footer: the user's request is pending while the contact already receives the user's presence.",
+      "translations": {
+        "en": "You have sent a request to see presence information of this contact. It is not yet answered.\n \nThe contact receives your presence information.\n",
+        "ru": "Вы отправили запрос на получение информации о присутствии этого контакта. Ответ пока не получен.\n\nКонтакт получает информацию о вашем присутствии.",
+        "fr": "Vous avez envoyé une demande pour voir les informations de présence de ce contact. Elle n’a pas encore reçu de réponse.\n\nLe contact reçoit vos informations de présence.",
+        "es": "Has enviado una solicitud para ver la información de presencia de este contacto. Todavía no ha recibido respuesta.\n\nEl contacto recibe tu información de presencia.",
+        "ar": "لقد أرسلت طلبًا للاطلاع على معلومات حضور جهة الاتصال هذه، ولم تتم الإجابة عنه بعد.\n\nتتلقى جهة الاتصال معلومات حضورك.",
+        "zh-Hans": "你已发送查看此联系人在线状态信息的请求，但尚未收到回复。\n\n该联系人可以接收你的在线状态信息。"
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "descriptionText",
+      "value": "A verification request has been sent from another device to establish secure and encrypted communication.",
+      "key": "device_verification__description__request_sent_from_another_device",
+      "comment": "Device-verification request description when another device owned by the user initiated the encrypted key exchange. Security-sensitive copy.",
+      "translations": {
+        "en": "A verification request has been sent from another device to establish secure and encrypted communication.",
+        "ru": "Запрос на проверку отправлен с другого устройства для установления безопасного и зашифрованного соединения.",
+        "fr": "Une demande de vérification a été envoyée depuis un autre appareil afin d’établir une communication sécurisée et chiffrée.",
+        "es": "Se ha enviado una solicitud de verificación desde otro dispositivo para establecer una comunicación segura y cifrada.",
+        "ar": "تم إرسال طلب تحقق من جهاز آخر لإنشاء اتصال آمن ومشفّر.",
+        "zh-Hans": "另一台设备已发送验证请求，以建立安全的加密通信。"
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "descriptionText",
+      "value": "A verification request has been sent from your contact to establish secure and encrypted communication.",
+      "key": "device_verification__description__request_sent_from_contact",
+      "comment": "Device-verification request description when a contact initiated the encrypted key exchange. Security-sensitive copy.",
+      "translations": {
+        "en": "A verification request has been sent from your contact to establish secure and encrypted communication.",
+        "ru": "Ваш контакт отправил запрос на проверку для установления безопасного и зашифрованного соединения.",
+        "fr": "Votre contact a envoyé une demande de vérification afin d’établir une communication sécurisée et chiffrée.",
+        "es": "Tu contacto ha enviado una solicitud de verificación para establecer una comunicación segura y cifrada.",
+        "ar": "أرسلت جهة الاتصال طلب تحقق لإنشاء اتصال آمن ومشفّر.",
+        "zh-Hans": "你的联系人已发送验证请求，以建立安全的加密通信。"
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "descriptionText",
+      "value": "Verification has been successfully completed. Your devices can now seamlessly share encrypted communications. The following devices are now trusted:",
+      "key": "device_verification__description__verification_succeeded_trusted_devices",
+      "comment": "Device-verification success description immediately above the list of devices that became trusted. Security-sensitive copy.",
+      "translations": {
+        "en": "Verification has been successfully completed. Your devices can now seamlessly share encrypted communications. The following devices are now trusted:",
+        "ru": "Проверка успешно завершена. Теперь ваши устройства могут беспрепятственно обмениваться зашифрованными данными. Следующие устройства теперь считаются доверенными:",
+        "fr": "La vérification a été effectuée avec succès. Vos appareils peuvent désormais échanger des communications chiffrées de manière transparente. Les appareils suivants sont maintenant approuvés :",
+        "es": "La verificación se completó correctamente. Tus dispositivos ahora pueden intercambiar comunicaciones cifradas sin interrupciones. Los siguientes dispositivos ahora son de confianza:",
+        "ar": "اكتمل التحقق بنجاح. يمكن لأجهزتك الآن تبادل الاتصالات المشفّرة بسلاسة. أصبحت الأجهزة التالية موثوقة الآن:",
+        "zh-Hans": "验证已成功完成。你的设备现在可以顺畅地共享加密通信。以下设备现已受信任："
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "descriptionText",
+      "value": "You are about to establish a secure connection with this contact.",
+      "key": "device_verification__description__about_to_establish_contact_connection",
+      "comment": "Device-verification description shown before establishing a secure connection with a contact. Security-sensitive copy.",
+      "translations": {
+        "en": "You are about to establish a secure connection with this contact.",
+        "ru": "Вы собираетесь установить безопасное соединение с этим контактом.",
+        "fr": "Vous êtes sur le point d’établir une connexion sécurisée avec ce contact.",
+        "es": "Estás a punto de establecer una conexión segura con este contacto.",
+        "ar": "أنت على وشك إنشاء اتصال آمن مع جهة الاتصال هذه.",
+        "zh-Hans": "你即将与此联系人建立安全连接。"
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "descriptionText",
+      "value": "You are establishing a secure connection with this contact.",
+      "key": "device_verification__description__establish_contact_connection",
+      "comment": "Device-verification description shown while establishing a secure connection with a contact. Security-sensitive copy.",
+      "translations": {
+        "en": "You are establishing a secure connection with this contact.",
+        "ru": "Вы устанавливаете безопасное соединение с этим контактом.",
+        "fr": "Vous établissez une connexion sécurisée avec ce contact.",
+        "es": "Estás estableciendo una conexión segura con este contacto.",
+        "ar": "أنت تنشئ اتصالاً آمناً مع جهة الاتصال هذه.",
+        "zh-Hans": "你正在与此联系人建立安全连接。"
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "descriptionText",
+      "value": "You are receiving a device verification request to ensure secure and encrypted communication.",
+      "key": "device_verification__description__receiving_device_verification_request",
+      "comment": "Device-verification description while receiving a verification request from another owned device. Security-sensitive copy.",
+      "translations": {
+        "en": "You are receiving a device verification request to ensure secure and encrypted communication.",
+        "ru": "Вы получили запрос на проверку устройства для обеспечения безопасного и зашифрованного общения.",
+        "fr": "Vous recevez une demande de vérification d’appareil afin de garantir des communications sécurisées et chiffrées.",
+        "es": "Estás recibiendo una solicitud de verificación de dispositivo para garantizar una comunicación segura y cifrada.",
+        "ar": "أنت تتلقى طلب تحقق من جهاز لضمان اتصال آمن ومشفّر.",
+        "zh-Hans": "你正在接收设备验证请求，以确保通信安全且经过加密。"
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "descriptionText",
+      "value": "You are verifying this device to ensure secure and encrypted communication.",
+      "key": "device_verification__description__verify_this_device",
+      "comment": "Device-verification description shown while verifying another device owned by the user. Security-sensitive copy.",
+      "translations": {
+        "en": "You are verifying this device to ensure secure and encrypted communication.",
+        "ru": "Вы проверяете это устройство, чтобы обеспечить безопасное и зашифрованное общение.",
+        "fr": "Vous vérifiez cet appareil afin de garantir des communications sécurisées et chiffrées.",
+        "es": "Estás verificando este dispositivo para garantizar una comunicación segura y cifrada.",
+        "ar": "أنت تتحقق من هذا الجهاز لضمان اتصال آمن ومشفّر.",
+        "zh-Hans": "你正在验证此设备，以确保通信安全且经过加密。"
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "stepsText",
+      "value": "1.\tCarefully verify the address and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:",
+      "key": "device_verification__instructions__enter_contact_code",
+      "comment": "Two-step instructions for validating a contact and entering the code supplied by that contact. Security-sensitive copy.",
+      "translations": {
+        "en": "1.\tCarefully verify the address and identity of this contact.\n\n2.\tEnter the verification code provided by your contact to confirm the secure connection:",
+        "ru": "1.\tВнимательно проверьте адрес и личность этого контакта.\n\n2.\tВведите код проверки, полученный от контакта, чтобы подтвердить безопасное соединение:",
+        "fr": "1.\tVérifiez soigneusement l’adresse et l’identité de ce contact.\n\n2.\tSaisissez le code de vérification fourni par votre contact pour confirmer la connexion sécurisée :",
+        "es": "1.\tVerifica cuidadosamente la dirección y la identidad de este contacto.\n\n2.\tIntroduce el código de verificación proporcionado por el contacto para confirmar la conexión segura:",
+        "ar": "1.\tتحقق بعناية من عنوان جهة الاتصال هذه وهويتها.\n\n2.\tأدخل رمز التحقق الذي قدمته جهة الاتصال لتأكيد الاتصال الآمن:",
+        "zh-Hans": "1.\t仔细核对此联系人的地址和身份。\n\n2.\t输入联系人提供的验证码，以确认安全连接："
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "stepsText",
+      "value": "1.\tCarefully verify the address and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:",
+      "key": "device_verification__instructions__ask_contact_to_enter_code",
+      "comment": "Two-step instructions for validating a contact and securely asking them to enter the displayed code. Security-sensitive copy.",
+      "translations": {
+        "en": "1.\tCarefully verify the address and identity of this contact.\n\n2.\tUse a secure method (preferably in person) to ask the contact to verify identity by entering the following code:",
+        "ru": "1.\tВнимательно проверьте адрес и личность этого контакта.\n\n2.\tИспользуйте безопасный способ связи (желательно лично), чтобы попросить контакт подтвердить личность, введя следующий код:",
+        "fr": "1.\tVérifiez soigneusement l’adresse et l’identité de ce contact.\n\n2.\tUtilisez un moyen sécurisé (de préférence en personne) pour demander au contact de confirmer son identité en saisissant le code suivant :",
+        "es": "1.\tVerifica cuidadosamente la dirección y la identidad de este contacto.\n\n2.\tUsa un método seguro (preferiblemente en persona) para pedir al contacto que verifique su identidad introduciendo el siguiente código:",
+        "ar": "1.\tتحقق بعناية من عنوان جهة الاتصال هذه وهويتها.\n\n2.\tاستخدم طريقة آمنة (ويُفضل شخصيًا) لطلب التحقق من الهوية من جهة الاتصال عبر إدخال الرمز التالي:",
+        "zh-Hans": "1.\t仔细核对此联系人的地址和身份。\n\n2.\t使用安全方式（最好当面）请联系人输入以下验证码以确认身份："
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "stepsText",
+      "value": "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tBelow is the verification code. Enter this code on the primary device to complete the encryption key exchange:",
+      "key": "device_verification__instructions__enter_code_on_primary_device",
+      "comment": "Two-step instructions for recognizing an owned device and entering its displayed code on the primary device. Security-sensitive copy.",
+      "translations": {
+        "en": "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tBelow is the verification code. Enter this code on the primary device to complete the encryption key exchange:",
+        "ru": "1.\tПодтвердите, что это ваше устройство и что вы узнаёте сеанс, начавший проверку.\n\n2.\tНиже приведён код проверки. Введите этот код на основном устройстве, чтобы завершить обмен ключами шифрования:",
+        "fr": "1.\tConfirmez qu’il s’agit bien de votre appareil et que vous reconnaissez la session à l’origine de la demande.\n\n2.\tLe code de vérification figure ci-dessous. Saisissez-le sur l’appareil principal pour terminer l’échange de clés de chiffrement :",
+        "es": "1.\tConfirma que este dispositivo es tuyo y que reconoces la sesión que inició la solicitud.\n\n2.\tA continuación se muestra el código de verificación. Introduce este código en el dispositivo principal para completar el intercambio de claves de cifrado:",
+        "ar": "1.\tأكّد أن هذا الجهاز يخصك وأنك تتعرّف على الجلسة التي بدأت الطلب.\n\n2.\tيظهر رمز التحقق أدناه. أدخل هذا الرمز على الجهاز الرئيسي لإكمال تبادل مفاتيح التشفير:",
+        "zh-Hans": "1.\t确认这是你的设备，并且你认识发起请求的会话。\n\n2.\t验证码如下。请在主设备上输入此代码，以完成加密密钥交换："
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "stepsText",
+      "value": "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tProceed to reveal the verification code necessary to complete the encryption key exchange.",
+      "key": "device_verification__instructions__reveal_owned_device_code",
+      "comment": "Two-step instructions for recognizing an owned device before revealing the code used for the key exchange. Security-sensitive copy.",
+      "translations": {
+        "en": "1.\tConfirm that this device is yours and that you recognize the initiating session.\n\n2.\tProceed to reveal the verification code necessary to complete the encryption key exchange.",
+        "ru": "1.\tПодтвердите, что это ваше устройство и что вы узнаёте сеанс, начавший проверку.\n\n2.\tПерейдите к отображению кода проверки, необходимого для завершения обмена ключами шифрования.",
+        "fr": "1.\tConfirmez qu’il s’agit bien de votre appareil et que vous reconnaissez la session à l’origine de la demande.\n\n2.\tContinuez pour afficher le code de vérification nécessaire à l’échange de clés de chiffrement.",
+        "es": "1.\tConfirma que este dispositivo es tuyo y que reconoces la sesión que inició la solicitud.\n\n2.\tContinúa para mostrar el código de verificación necesario para completar el intercambio de claves de cifrado.",
+        "ar": "1.\tأكّد أن هذا الجهاز يخصك وأنك تتعرّف على الجلسة التي بدأت الطلب.\n\n2.\tتابع لإظهار رمز التحقق اللازم لإكمال تبادل مفاتيح التشفير.",
+        "zh-Hans": "1.\t确认这是你的设备，并且你认识发起请求的会话。\n\n2.\t继续操作以显示完成加密密钥交换所需的验证码。"
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "stepsText",
+      "value": "1.\tEnsure the other device is displaying the verification code.\n\n2.\tEnter the verification code displayed on the other device to complete the encryption key exchange:",
+      "key": "device_verification__instructions__enter_other_device_code",
+      "comment": "Two-step instructions for entering the verification code displayed on another owned device. Security-sensitive copy.",
+      "translations": {
+        "en": "1.\tEnsure the other device is displaying the verification code.\n\n2.\tEnter the verification code displayed on the other device to complete the encryption key exchange:",
+        "ru": "1.\tУбедитесь, что на другом устройстве отображается код проверки.\n\n2.\tВведите код проверки с другого устройства, чтобы завершить обмен ключами шифрования:",
+        "fr": "1.\tAssurez-vous que l’autre appareil affiche le code de vérification.\n\n2.\tSaisissez le code de vérification affiché sur l’autre appareil pour terminer l’échange de clés de chiffrement :",
+        "es": "1.\tAsegúrate de que el otro dispositivo muestre el código de verificación.\n\n2.\tIntroduce el código de verificación que aparece en el otro dispositivo para completar el intercambio de claves de cifrado:",
+        "ar": "1.\tتأكد من أن الجهاز الآخر يعرض رمز التحقق.\n\n2.\tأدخل رمز التحقق المعروض على الجهاز الآخر لإكمال تبادل مفاتيح التشفير:",
+        "zh-Hans": "1.\t确认另一台设备正在显示验证码。\n\n2.\t输入另一台设备上显示的验证码，以完成加密密钥交换："
+      }
+    },
+    {
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "stepsText",
+      "value": "1.\tСonfirm that this contact is who he claims to be and that you recognize the initiating session.\n\n2.\tProceed to reveal the verification code necessary to complete the encryption key exchange.",
+      "fallback": "1.\tConfirm that this contact is who he claims to be and that you recognize the initiating session.\n\n2.\tProceed to reveal the verification code necessary to complete the encryption key exchange.",
+      "key": "device_verification__instructions__reveal_contact_code",
+      "comment": "Two-step instructions for recognizing a contact before revealing the code used for the key exchange. Security-sensitive copy.",
+      "translations": {
+        "en": "1.\tConfirm that this contact is who he claims to be and that you recognize the initiating session.\n\n2.\tProceed to reveal the verification code necessary to complete the encryption key exchange.",
+        "ru": "1.\tПодтвердите личность контакта и убедитесь, что вы узнаёте сеанс, начавший проверку.\n\n2.\tПерейдите к отображению кода проверки, необходимого для завершения обмена ключами шифрования.",
+        "fr": "1.\tConfirmez l’identité de ce contact et vérifiez que vous reconnaissez la session à l’origine de la demande.\n\n2.\tContinuez pour afficher le code de vérification nécessaire à l’échange de clés de chiffrement.",
+        "es": "1.\tConfirma la identidad de este contacto y que reconoces la sesión que inició la solicitud.\n\n2.\tContinúa para mostrar el código de verificación necesario para completar el intercambio de claves de cifrado.",
+        "ar": "1.\tأكّد هوية جهة الاتصال هذه وتحقق من أنك تتعرّف على الجلسة التي بدأت الطلب.\n\n2.\tتابع لإظهار رمز التحقق اللازم لإكمال تبادل مفاتيح التشفير.",
+        "zh-Hans": "1.\t确认此联系人的身份，并确认你认识发起请求的会话。\n\n2.\t继续操作以显示完成加密密钥交换所需的验证码。"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/groupchats/groupchat_settings/managed/GroupchatSettingsNewbiesPermissionsViewController.swift",
+      "sink": "durationTitle",
+      "value": "Forever",
+      "key": "date_time_picker__field__forever",
+      "comment": "New-member group permission duration displayed when the permission has no expiration.",
+      "translations": {
+        "en": "Forever",
+        "ru": "Навсегда",
+        "fr": "Toujours",
+        "es": "Para siempre",
+        "ar": "إلى الأبد",
+        "zh-Hans": "永久"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/groupchats/groupchat_settings/managed/GroupchatSettingsPromoteAdminViewController.swift",
+      "sink": "durationTitle",
+      "value": "Forever",
+      "key": "date_time_picker__field__forever",
+      "comment": "Group administrator permission duration displayed when the permission has no expiration.",
+      "translations": {
+        "en": "Forever",
+        "ru": "Навсегда",
+        "fr": "Toujours",
+        "es": "Para siempre",
+        "ar": "إلى الأبد",
+        "zh-Hans": "永久"
+      }
+    },
+    {
+      "path": "xabber/models/account/extensions/XMPPAuthenticationFailure.swift",
+      "sink": "genericAuthenticationFailureMessage",
+      "value": "Authentication failed",
+      "key": "connection__error__text_authentication_failed_short",
+      "comment": "Generic user-visible fallback for an XMPP authentication failure when the server supplied no explanatory text.",
+      "translations": {
+        "en": "Authentication failed",
+        "ru": "Ошибка аутентификации",
+        "fr": "Échec de l’authentification",
+        "es": "Error de autenticación",
+        "ar": "فشلت المصادقة",
+        "zh-Hans": "认证失败"
+      }
+    },
+    {
+      "path": "xabber/models/account/extensions/XMPPAuthenticationFailure.swift",
+      "sink": "incorrectPasswordMessage",
+      "value": "Incorrect username or password",
+      "key": "account__status__incorrect_credentials",
+      "comment": "User-visible XMPP authentication failure for invalid password credentials.",
+      "translations": {
+        "en": "Incorrect username or password",
+        "ru": "Неверное имя пользователя или пароль",
+        "fr": "Nom d’utilisateur ou mot de passe incorrect",
+        "es": "Nombre de usuario o contraseña incorrectos",
+        "ar": "اسم المستخدم أو كلمة المرور غير صحيحة",
+        "zh-Hans": "用户名或密码不正确"
+      }
+    },
+    {
+      "path": "xabber/models/account/extensions/XMPPAuthenticationFailure.swift",
+      "sink": "revokedDeviceMessage",
+      "value": "Device was revoked",
+      "key": "xmppauthentication_failure__user_message__device_was_revoked",
+      "comment": "User-visible XMPP authentication failure when the current device's access was revoked.",
+      "translations": {
+        "en": "Device was revoked",
+        "ru": "Доступ устройства отозван",
+        "fr": "L’appareil a été révoqué",
+        "es": "Se revocó el dispositivo",
+        "ar": "تم إلغاء الجهاز",
+        "zh-Hans": "设备已被撤销"
+      }
+    }
+  ],
+  "exclusions": [
+    {
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "title",
+      "value": "title",
+      "reason": "Dictionary key used to decode the verification payload title; it is a stable data-contract token and is never presented directly to the user."
+    }
+  ]
+}

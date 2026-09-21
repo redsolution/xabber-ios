@@ -171,7 +171,7 @@ class InlineFilesGridView: InlineAttachmentView {
                 progressLayer.strokeEnd = 0
                 iconButton.tintColor = .systemRed
                 sizeLabel.textColor = .systemRed
-                sizeLabel.text = "Transfer failed"
+                sizeLabel.text = L10n.text("chat__file_transfer__transfer_failed", fallback: "Transfer failed")
             }
             CATransaction.commit()
         }

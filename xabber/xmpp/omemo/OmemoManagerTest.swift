@@ -381,7 +381,10 @@ open class OmemoManager: AbstractXMPPManager {
                     owner,
                     opponent: jid,
                     conversationType: .omemo,
-                    text: "Encrypted chat created".localizeString(id: "encrypted_chat_created", arguments: []),
+                    text: L10n.text(
+                        "encrypted_chat_created",
+                        fallback: "Encrypted chat created"
+                    ),
                     date: Date(),
                     isRead: true
                 )
@@ -983,7 +986,12 @@ extension OmemoManager {
         do {
             let body = try self.decryptMessage(message)
             message.remove(forName: "body")
-            message.addBody(body ?? "Failed to decrypt")
+            message.addBody(
+                body ?? L10n.text(
+                    "otr_not_decrypted_message",
+                    fallback: "Message cannot be decrypted"
+                )
+            )
             
             print(123)
         } catch {
@@ -1005,7 +1013,15 @@ extension OmemoManager {
                 let body = try self.decryptMessage(bareMessage)
                 
                 message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.remove(forName: "body")
-                message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt"))
+                message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(
+                    DDXMLElement(
+                        name: "body",
+                        stringValue: body ?? L10n.text(
+                            "otr_not_decrypted_message",
+                            fallback: "Message cannot be decrypted"
+                        )
+                    )
+                )
                 AccountManager.shared.find(for: self.owner)?.messages.receiveArchived(message)
             } catch {
 //                fatalError(error.localizedDescription)
@@ -1018,7 +1034,12 @@ extension OmemoManager {
             do {
                 let body = try self.decryptMessage(message)
                 message.remove(forName: "body")
-                message.addBody(body ?? "Failed to decrypt")
+                message.addBody(
+                    body ?? L10n.text(
+                        "otr_not_decrypted_message",
+                        fallback: "Message cannot be decrypted"
+                    )
+                )
                 AccountManager.shared.find(for: self.owner)?.messages.receiveRuntime(message)
                 print(123)
             } catch {

@@ -548,14 +548,14 @@ enum ContactsListSupport {
 
         return [
             [
-                ContactsCategoryViewController.Datasource(title: "Contacts", icon: "person.fill", key: "all", subtitle: "Text about contacts, circles and other", color: .tintColor, isImportant: false, value: 0, isHeader: true, isSelectable: false),
+                ContactsCategoryViewController.Datasource(title: L10n.text("contacts", fallback: "Contacts"), icon: "person.fill", key: "all", subtitle: L10n.text("contacts__list__text_about_contacts_circles_and_other", fallback: "Contacts, circles, and more"), color: .tintColor, isImportant: false, value: 0, isHeader: true, isSelectable: false),
             ],
             [
-                ContactsCategoryViewController.Datasource(title: "Contacts", icon: "person.crop.rectangle.stack", key: "all", subtitle: "\(contactsCount)", color: .tintColor, isImportant: false, value: contactsCount, isHeader: false),
+                ContactsCategoryViewController.Datasource(title: L10n.text("contacts", fallback: "Contacts"), icon: "person.crop.rectangle.stack", key: "all", subtitle: "\(contactsCount)", color: .tintColor, isImportant: false, value: contactsCount, isHeader: false),
             ],
             [
-                ContactsCategoryViewController.Datasource(title: "Contact Requests", icon: "person.text.rectangle", key: "subscribtions", subtitle: "\(subscriptionsCount)", color: .tintColor, isImportant: true, value: subscriptionsCount, isHeader: false),
-                ContactsCategoryViewController.Datasource(title: "Outgoing Requests", icon: "xabber.person.plus", key: "requests", subtitle: "\(requestsCount)", color: .tintColor, isImportant: false, value: requestsCount, isHeader: false)
+                ContactsCategoryViewController.Datasource(title: L10n.text("contacts__list__contact_requests", fallback: "Contact Requests"), icon: "person.text.rectangle", key: "subscribtions", subtitle: "\(subscriptionsCount)", color: .tintColor, isImportant: true, value: subscriptionsCount, isHeader: false),
+                ContactsCategoryViewController.Datasource(title: L10n.text("contacts__list__outgoing_requests", fallback: "Outgoing Requests"), icon: "xabber.person.plus", key: "requests", subtitle: "\(requestsCount)", color: .tintColor, isImportant: false, value: requestsCount, isHeader: false)
             ],
             circles
         ]
@@ -589,15 +589,15 @@ enum ContactsListSupport {
 
         return [
             [
-                ContactsCategoryViewController.Datasource(title: "Groups", icon: "person.2.fill", key: "all", subtitle: "Text about groups, incognito groups and private chats", color: .tintColor, isImportant: false, value: 0, isHeader: true, isSelectable: false),
+                ContactsCategoryViewController.Datasource(title: L10n.text("contacts__list__groups", fallback: "Groups"), icon: "person.2.fill", key: "all", subtitle: L10n.text("contacts__list__text_about_groups_incognito_groups_and_private_chats", fallback: "Public groups, incognito groups, and private chats"), color: .tintColor, isImportant: false, value: 0, isHeader: true, isSelectable: false),
             ],
             [
-                ContactsCategoryViewController.Datasource(title: "Public Groups", icon: "person.2", key: "public", subtitle: "\(publicCount)", color: .tintColor, isImportant: false, value: publicCount, isHeader: false),
-                ContactsCategoryViewController.Datasource(title: "Incognito Groups", icon: "xabber.incognito.variant", key: "incognito", subtitle: "\(incognitoCount)", color: .tintColor, isImportant: false, value: incognitoCount, isHeader: false),
-                ContactsCategoryViewController.Datasource(title: "Private Chats", icon: "bubble", key: "private", subtitle: "\(privateCount)", color: .tintColor, isImportant: false, value: privateCount, isHeader: false)
+                ContactsCategoryViewController.Datasource(title: L10n.text("contacts__list__public_groups", fallback: "Public Groups"), icon: "person.2", key: "public", subtitle: "\(publicCount)", color: .tintColor, isImportant: false, value: publicCount, isHeader: false),
+                ContactsCategoryViewController.Datasource(title: L10n.text("contacts__list__incognito_groups", fallback: "Incognito Groups"), icon: "xabber.incognito.variant", key: "incognito", subtitle: "\(incognitoCount)", color: .tintColor, isImportant: false, value: incognitoCount, isHeader: false),
+                ContactsCategoryViewController.Datasource(title: L10n.text("contacts__list__private_chats", fallback: "Private Chats"), icon: "bubble", key: "private", subtitle: "\(privateCount)", color: .tintColor, isImportant: false, value: privateCount, isHeader: false)
             ],
             [
-                ContactsCategoryViewController.Datasource(title: "Invitations", icon: "xabber.invite", key: "invitations", subtitle: "\(invitationsCount)", color: .tintColor, isImportant: true, value: invitationsCount, isHeader: false)
+                ContactsCategoryViewController.Datasource(title: L10n.text("groupchat_invitations", fallback: "Invitations"), icon: "xabber.invite", key: "invitations", subtitle: "\(invitationsCount)", color: .tintColor, isImportant: true, value: invitationsCount, isHeader: false)
             ],
             circles
         ]
@@ -1080,26 +1080,26 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         let groupsString = filteredGroups.sorted().joined(separator: ", ")
         switch category {
         case "all":
-            return filteredGroups.isNotEmpty ? "No contacts found for \(groupsString)" : "No contacts found"
+            return filteredGroups.isNotEmpty ? L10n.format("contacts__empty_state__no_contacts_found_for_groups_format", fallback: "No contacts found for %1$@", arguments: [String(describing: groupsString)]) : L10n.text("application_state_nobody_by_filter", fallback: "No contacts found")
         case "online":
-            return filteredGroups.isNotEmpty ? "No online contacts found for \(groupsString)" : "No contacts online"
+            return filteredGroups.isNotEmpty ? L10n.format("contacts__empty_state__no_online_contacts_found_for_groups_format", fallback: "No online contacts found for %1$@", arguments: [String(describing: groupsString)]) : L10n.text("contacts__empty_state__no_contacts_online", fallback: "No contacts online")
         case "subscriptions", "subscribtions":
-            return "No contact requests"
+            return L10n.text("contacts__empty_state__no_contact_requests", fallback: "No contact requests")
         case "requests":
-            return "No outgoing contact requests"
+            return L10n.text("contacts__empty_state__no_outgoing_contact_requests", fallback: "No outgoing contact requests")
         case "public":
-            return filteredGroups.isNotEmpty ? "No public groups found for \(groupsString)" : "No public groups found"
+            return filteredGroups.isNotEmpty ? L10n.format("contacts__empty_state__no_public_groups_found_for_groups_format", fallback: "No public groups found for %1$@", arguments: [String(describing: groupsString)]) : L10n.text("contacts__empty_state__no_public_groups_found", fallback: "No public groups found")
         case "incognito":
-            return filteredGroups.isNotEmpty ? "No incognito groups found for \(groupsString)" : "No incognito groups found"
+            return filteredGroups.isNotEmpty ? L10n.format("contacts__empty_state__no_incognito_groups_found_for_groups_format", fallback: "No incognito groups found for %1$@", arguments: [String(describing: groupsString)]) : L10n.text("contacts__empty_state__no_incognito_groups_found", fallback: "No incognito groups found")
         case "private":
-            return filteredGroups.isNotEmpty ? "No private chats found for \(groupsString)" : "No private chats found"
+            return filteredGroups.isNotEmpty ? L10n.format("contacts__empty_state__no_private_chats_found_for_groups_format", fallback: "No private chats found for %1$@", arguments: [String(describing: groupsString)]) : L10n.text("contacts__empty_state__no_private_chats_found", fallback: "No private chats found")
         case "invitations":
-            return "No invitations found"
+            return L10n.text("contacts__empty_state__no_invitations_found", fallback: "No invitations found")
         default:
             if isGroup {
-                return filteredGroups.isNotEmpty ? "No groups found for \(groupsString)" : "No groups found"
+                return filteredGroups.isNotEmpty ? L10n.format("contacts__empty_state__no_groups_found_for_groups_format", fallback: "No groups found for %1$@", arguments: [String(describing: groupsString)]) : L10n.text("contacts__empty_state__no_groups_found", fallback: "No groups found")
             }
-            return filteredGroups.isNotEmpty ? "No contacts found for \(groupsString)" : "No contacts found"
+            return filteredGroups.isNotEmpty ? L10n.format("contacts__empty_state__no_contacts_found_for_groups_format", fallback: "No contacts found for %1$@", arguments: [String(describing: groupsString)]) : L10n.text("application_state_nobody_by_filter", fallback: "No contacts found")
         }
     }
     
@@ -1129,7 +1129,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                 hasContactsRequestSection = true
                 out.append(Datasource(
                     owner: "",
-                    title: "Contact requests",
+                    title: L10n.text("contacts__list__contact_requests", fallback: "Contact Requests"),
                     jid: "",
                     subtitle: "\(requests.count)",
                     groups: [],
@@ -1156,9 +1156,9 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         if state.category == "subscribtions" {
             categoryHeader.append(Datasource(
                 owner: "",
-                title: "Contact Requests",
+                title: L10n.text("contacts__list__contact_requests", fallback: "Contact Requests"),
                 jid: "",
-                subtitle: "List of incoming contact requests. After accepting, contacts can message freely and share presence information.",
+                subtitle: L10n.text("contacts__list__incoming_requests_description", fallback: "List of incoming contact requests. After accepting, contacts can message freely and share presence information."),
                 groups: [],
                 conversationType: .regular,
                 isHeader: true,
@@ -1181,9 +1181,9 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         if state.category == "requests" {
             categoryHeader.append(Datasource(
                 owner: "",
-                title: "Outgoing Requests",
+                title: L10n.text("contacts__list__outgoing_requests", fallback: "Outgoing Requests"),
                 jid: "",
-                subtitle: "List of outgoing contact requests. After accepting, contacts would start sharing presence information.",
+                subtitle: L10n.text("contacts__list__outgoing_requests_description", fallback: "List of outgoing contact requests. After accepting, contacts would start sharing presence information."),
                 groups: [],
                 conversationType: .regular,
                 isHeader: true,
@@ -1252,9 +1252,9 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                 hasContactsRequestSection = true
                 out.append(Datasource(
                     owner: "",
-                    title: "Invites",
+                    title: L10n.text("contacts__list__invites", fallback: "Invites"),
                     jid: "",
-                    subtitle: "show all",
+                    subtitle: L10n.text("contacts__list__show_all", fallback: "Show all"),
                     groups: [],
                     conversationType: .regular,
                     isButton: true,
@@ -1270,9 +1270,9 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         if state.category == "invitations" {
             categoryHeader.append(Datasource(
                 owner: "",
-                title: "Invitations",
+                title: L10n.text("groupchat_invitations", fallback: "Invitations"),
                 jid: "",
-                subtitle: "View the list of received invitations to join both public and incognito groups.",
+                subtitle: L10n.text("contacts__list__group_invitations_description", fallback: "View the list of received invitations to join both public and incognito groups."),
                 groups: [],
                 conversationType: .regular,
                 isHeader: true,
@@ -1289,9 +1289,9 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             }
             categoryHeader.append(Datasource(
                 owner: "",
-                title: "Public Groups",
+                title: L10n.text("contacts__list__public_groups", fallback: "Public Groups"),
                 jid: "",
-                subtitle: "In public groups, members can see XMPP IDs of other participants.",
+                subtitle: L10n.text("contacts__list__public_groups_description", fallback: "In public groups, members can see XMPP IDs of other participants."),
                 groups: [],
                 conversationType: .regular,
                 isHeader: true,
@@ -1317,9 +1317,9 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             }
             categoryHeader.append(Datasource(
                 owner: "",
-                title: "Incognito Groups",
+                title: L10n.text("contacts__list__incognito_groups", fallback: "Incognito Groups"),
                 jid: "",
-                subtitle: "In incognito groups, members use pseudonyms, hiding XMPP IDs from others.",
+                subtitle: L10n.text("contacts__list__incognito_groups_description", fallback: "In incognito groups, members use pseudonyms, hiding XMPP IDs from others."),
                 groups: [],
                 conversationType: .regular,
                 isHeader: true,
@@ -1344,9 +1344,9 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             }
             categoryHeader.append(Datasource(
                 owner: "",
-                title: "Private Chats",
+                title: L10n.text("contacts__list__private_chats", fallback: "Private Chats"),
                 jid: "",
-                subtitle: "One-on-one chats with users of incognito groups, with real XMPP IDs hidden.",
+                subtitle: L10n.text("contacts__list__private_chats_description", fallback: "One-on-one chats with users of incognito groups, with real XMPP IDs hidden."),
                 groups: [],
                 conversationType: .regular,
                 isHeader: true,
@@ -1905,7 +1905,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             FeedbackManager.shared.tap()
             if #available(iOS 13.0, *) {
                 if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
-                    YubiKitExternalLocalization.nfcScanAlertMessage = "Register Yubikey for account"
+                    YubiKitExternalLocalization.nfcScanAlertMessage = L10n.text("last_calls__nfc_scan_alert_message__register_yubikey_for_account", fallback: "Register Yubikey for account")
                     YubiKitManager.shared.startNFCConnection()
                     YubiKitManager.shared.delegate = SignatureManager.shared
                     SignatureManager.shared.currentAction = .certificate
@@ -2043,7 +2043,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
         let prefix = contactsNavigationPrefix
         let active = isContactsCompactOnlineFilterActive
         contactsCompactBottomBarView.leftButton.accessibilityIdentifier = "\(prefix)_online_filter_button"
-        contactsCompactBottomBarView.leftButton.accessibilityLabel = isGroup ? "Online groups filter" : "Online contacts filter"
+        contactsCompactBottomBarView.leftButton.accessibilityLabel = isGroup ? L10n.text("contacts__accessibility_label__online_groups_filter", fallback: "Online groups filter") : L10n.text("contacts__accessibility_label__online_contacts_filter", fallback: "Online contacts filter")
         contactsCompactBottomBarView.updateLeftButton(
             imageName: active ? "person.fill" : "person",
             isActive: active
@@ -2141,30 +2141,30 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             childs = [
                 UIMenu(title: "", subtitle: nil, image: nil, identifier: nil, options: .displayInline, children: [
                     UIAction(
-                        title: "Public",
+                        title: L10n.text("groupchat_privacy_type_public", fallback: "Public"),
                         image: imageLiteral("person.2"),
                         identifier: .none,
-                        discoverabilityTitle: "Show all contacts",
+                        discoverabilityTitle: L10n.text("contacts__discoverability_title__show_all_contacts", fallback: "Show all contacts"),
                         attributes: [],
                         state: filter.value == .all ? .on : .off,
                         handler: { action in
                             self.shouldFilterBy(category: "public")
                         }),
                     UIAction(
-                        title: "Incognito",
+                        title: L10n.text("groupchat_privacy_type_incognito", fallback: "Incognito"),
                         image: imageLiteral("xabber.incognito.variant"),
                         identifier: .none,
-                        discoverabilityTitle: "Show only online",
+                        discoverabilityTitle: L10n.text("contacts__discoverability_title__show_only_online", fallback: "Show only online"),
                         attributes: [],
                         state: filter.value == .online ? .on : .off,
                         handler: { action in
                             self.shouldFilterBy(category: "incognito")
                         }),
                     UIAction(
-                        title: "Private chats",
+                        title: L10n.text("contacts__list__private_chats", fallback: "Private Chats"),
                         image: imageLiteral("bubble"),
                         identifier: .none,
-                        discoverabilityTitle: "Show only online",
+                        discoverabilityTitle: L10n.text("contacts__discoverability_title__show_only_online", fallback: "Show only online"),
                         attributes: [],
                         state: filter.value == .online ? .on : .off,
                         handler: { action in
@@ -2173,10 +2173,10 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                 ]),
                 UIMenu(title: "", subtitle: nil, image: nil, identifier: nil, options: .displayInline, children: [
                     UIAction(
-                        title: "Invitations",
+                        title: L10n.text("groupchat_invitations", fallback: "Invitations"),
                         image: imageLiteral("xabber.invite"),
                         identifier: .none,
-                        discoverabilityTitle: "Show contact requests",
+                        discoverabilityTitle: L10n.text("contacts__discoverability_title__show_contact_requests", fallback: "Show contact requests"),
                         attributes: [],
                         state: filter.value == .subscribtions ? .on : .off,
                         handler: { action in
@@ -2223,20 +2223,20 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             childs.append(contentsOf: [
                 UIMenu(title: "", subtitle: nil, image: nil, identifier: nil, options: .displayInline, children: [
                     UIAction(
-                        title: "Contacts",
+                        title: L10n.text("contacts", fallback: "Contacts"),
                         image: imageLiteral("person.crop.rectangle.stack"),
                         identifier: .none,
-                        discoverabilityTitle: "Show all contacts",
+                        discoverabilityTitle: L10n.text("contacts__discoverability_title__show_all_contacts", fallback: "Show all contacts"),
                         attributes: [],
                         state: filter.value == .all ? .on : .off,
                         handler: { action in
                             self.shouldFilterBy(category: Filter.all.rawValue)
                         }),
                     UIAction(
-                        title: "Online",
+                        title: L10n.text("online", fallback: "Online"),
                         image: imageLiteral("person"),
                         identifier: .none,
-                        discoverabilityTitle: "Show only online",
+                        discoverabilityTitle: L10n.text("contacts__discoverability_title__show_only_online", fallback: "Show only online"),
                         attributes: [],
                         state: filter.value == .online ? .on : .off,
                         handler: { action in
@@ -2245,20 +2245,20 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                 ]),
                 UIMenu(title: "", subtitle: nil, image: nil, identifier: nil, options: .displayInline, children: [
                     UIAction(
-                        title: "Contact requests",
+                        title: L10n.text("contacts__list__contact_requests", fallback: "Contact Requests"),
                         image: imageLiteral("xabber.person.plus"),
                         identifier: .none,
-                        discoverabilityTitle: "Show contact requests",
+                        discoverabilityTitle: L10n.text("contacts__discoverability_title__show_contact_requests", fallback: "Show contact requests"),
                         attributes: [],
                         state: filter.value == .subscribtions ? .on : .off,
                         handler: { action in
                             self.shouldFilterBy(category: Filter.subscribtions.rawValue)
                         }),
                     UIAction(
-                        title: "Outgoing requests",
+                        title: L10n.text("contacts__list__outgoing_requests", fallback: "Outgoing Requests"),
                         image: imageLiteral("person.text.rectangle"),
                         identifier: .none,
-                        discoverabilityTitle: "Show outgoing requests",
+                        discoverabilityTitle: L10n.text("contacts__discoverability_title__show_outgoing_requests", fallback: "Show outgoing requests"),
                         attributes: [],
                         state: filter.value == .requests ? .on : .off,
                         handler: { action in
@@ -2331,7 +2331,7 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
                         }
                     )
                 })
-                childs.append(UIMenu(title: "Circles", subtitle: " ", image: nil, identifier: nil, options: .displayInline, children: groups))
+                childs.append(UIMenu(title: L10n.text("contact_circle", fallback: "Circles"), subtitle: " ", image: nil, identifier: nil, options: .displayInline, children: groups))
             }
         } catch {
             DDLogDebug("NotificationsListViewController: \(#function). \(error.localizedDescription)")
@@ -2438,26 +2438,26 @@ class ContactsViewController: BaseViewController, LeftMenuFirstPresentationQuiet
             switch self.category ?? "" {
                 
                 case "all":
-                  self.title = "Contacts"
+                  self.title = L10n.text("contacts", fallback: "Contacts")
                 case "online":
-                  self.title = "Online contacts"
+                  self.title = L10n.text("contacts__list__online_contacts", fallback: "Online contacts")
                 case "subscribtions":
-                  self.title = "Contact requests"
+                  self.title = L10n.text("contacts__list__contact_requests", fallback: "Contact Requests")
                 case "requests":
-                  self.title = "Outgoing requests"
+                  self.title = L10n.text("contacts__list__outgoing_requests", fallback: "Outgoing Requests")
                 case "public":
-                  self.title = "Public groups"
+                  self.title = L10n.text("contacts__list__public_groups", fallback: "Public Groups")
                 case "incognito":
-                  self.title = "Incognito groups"
+                  self.title = L10n.text("contacts__list__incognito_groups", fallback: "Incognito Groups")
                 case "private":
-                  self.title = "Private groups"
+                  self.title = L10n.text("contacts__list__private_groups", fallback: "Private groups")
                 case "invitations":
-                  self.title = "Group invitations"
+                  self.title = L10n.text("contacts__list__group_invitations", fallback: "Group invitations")
                 default:
                     if isGroup {
-                        self.title = "Public groups"
+                        self.title = L10n.text("contacts__list__public_groups", fallback: "Public Groups")
                     } else {
-                        self.title = "Contacts"
+                        self.title = L10n.text("contacts", fallback: "Contacts")
                     }
             }
         }

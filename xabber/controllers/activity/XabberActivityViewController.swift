@@ -88,7 +88,7 @@ class XabberActivityViewController: SimpleBaseViewController {
     internal let button: UIButton = {
         let button = UIButton()
         var config = UIButton.Configuration.filled()
-        config.title = "Send"
+        config.title = L10n.text("activity__title__send", fallback: "Send")
         config.baseBackgroundColor = .systemBlue
         button.configuration = config
         button.isEnabled = false
@@ -107,7 +107,7 @@ class XabberActivityViewController: SimpleBaseViewController {
     
     internal var searchController: UISearchController = {
         let controller = UISearchController(searchResultsController: nil)
-        controller.searchBar.placeholder = "Search"
+        controller.searchBar.placeholder = L10n.text("activity__field__search", fallback: "Search")
         
         controller.searchBar.searchBarStyle = .prominent
         controller.searchBar.placeholder = "Search contacts and messages".localizeString(id: "search_contacts_and_messages", arguments: [])
@@ -124,7 +124,7 @@ class XabberActivityViewController: SimpleBaseViewController {
     }
     
     override func setupSubviews() {
-        title = "Share"
+        title = L10n.text("common__action__share", fallback: "Share")
         
         view.backgroundColor = .systemBackground
         
@@ -200,9 +200,9 @@ class XabberActivityViewController: SimpleBaseViewController {
             var message: String? = nil
             if let messageItem = item.lastMessage {
                 if messageItem.references.isNotEmpty {
-                    message = messageItem.references.last?.mimeType ?? "file" + " " + (item.lastMessage?.references.last?.sizeInBytes ?? "")
+                    message = messageItem.references.last?.mimeType ?? L10n.text("chat__attachment__fallback_file", fallback: "file") + " " + (item.lastMessage?.references.last?.sizeInBytes ?? "")
                 } else {
-                    message = messageItem.body
+                    message = messageItem.userVisibleBody
                 }
             }
             
@@ -211,7 +211,7 @@ class XabberActivityViewController: SimpleBaseViewController {
                 owner: item.owner,
                 username: username,
                 attributedUsername: attributedUsername,
-                message: message ?? "No messages",
+                message: message ?? L10n.text("no_messages", fallback: "No messages"),
                 date: item.messageDate,
                 state: item.lastMessage?.state,
                 isMute: item.isMuted,

@@ -32,14 +32,14 @@ class ChangePasswordTableViewController: UITableViewController {
     var saveButton: UIBarButtonItem? = nil
     var eyeButton: UIBarButtonItem? = nil
     var cells: [TextEditBaseCell] = []
-    let sections: [String] = ["Old password",
-                              "New password"]
-    let placeholders: [String] = ["old password", "new password", "repeat new password"]
+    let sections: [String] = [L10n.text("password_change__section__old_password", fallback: "Old password"),
+                              L10n.text("password_change__section__new_password", fallback: "New password")]
+    let placeholders: [String] = [L10n.text("password_change__field__old_password_placeholder", fallback: "old password"), L10n.text("password_change__field__new_password_placeholder", fallback: "new password"), L10n.text("password_change__field__repeat_new_password_placeholder", fallback: "repeat new password")]
     open var jid: String = ""
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        self.title = "Change password"
+        self.title = L10n.text("password_change__title__change_password", fallback: "Change password")
         for placeholder in placeholders {
             let cell = TextEditBaseCell()
             cell.textField.textContentType = .newPassword
@@ -51,7 +51,7 @@ class ChangePasswordTableViewController: UITableViewController {
             cell.textField.delegate = self
             cells.append(cell)
         }
-        saveButton = UIBarButtonItem(title: "Change", style: .plain, target: self, action: #selector(onSave))
+        saveButton = UIBarButtonItem(title: L10n.text("password_change__title__change", fallback: "Change"), style: .plain, target: self, action: #selector(onSave))
         saveButton?.isEnabled = false
         eyeButton = UIBarButtonItem(image: UIImage(named: "eye-off"), style: .plain, target: self, action: #selector(showPassword))
         self.navigationItem.setRightBarButtonItems([saveButton].compactMap { $0 }, animated: true)
@@ -79,7 +79,7 @@ class ChangePasswordTableViewController: UITableViewController {
     
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         if section == 1 {
-            return "It is recommended to make your passwords at least 12-14 characters long. In general, the longer the password, the better it is against a brute force attack.\n\nThird party servers may have different password difficulty requirements."
+            return L10n.text("change_password__table_section_title__it_is_recommended_to_make_your_passwords_at_least_12_14_characters", fallback: "It is recommended to make your passwords at least 12-14 characters long. In general, the longer the password, the better it is against a brute force attack.\n\nThird party servers may have different password difficulty requirements.")
         }
         return nil
     }
@@ -112,7 +112,7 @@ class ChangePasswordTableViewController: UITableViewController {
         self.saveButton?.isEnabled = false
         let textFields = cells.compactMap { $0.textField }
         let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        let setNewPasswordAction = UIAlertAction(title: "Confirm change password", style: .destructive, handler: { [weak self] _ in
+        let setNewPasswordAction = UIAlertAction(title: L10n.text("password_change__title__confirm_change_password", fallback: "Confirm Password Change"), style: .destructive, handler: { [weak self] _ in
             guard let self = self,
                   let oldPassword = textFields.first?.text,
                   let newpPassword = textFields.last?.text else {
@@ -122,7 +122,7 @@ class ChangePasswordTableViewController: UITableViewController {
             XMPPChangePasswordManager.shared.changePassword(jid: self.jid, oldPassword: oldPassword, newPassword: newpPassword, delegate: self)
         })
         alert.addAction(setNewPasswordAction)
-        let cancelAction = UIAlertAction(title: "Cancel", style: .cancel, handler: { _ in self.saveButton?.isEnabled = true })
+        let cancelAction = UIAlertAction(title: L10n.text("common__action__cancel", fallback: "Cancel"), style: .cancel, handler: { _ in self.saveButton?.isEnabled = true })
         alert.addAction(cancelAction)
         if UIDevice.current.userInterfaceIdiom == .pad {
             if let popoverController = alert.popoverPresentationController {
@@ -179,7 +179,7 @@ extension ChangePasswordTableViewController: XMPPChangePasswordManagerDelegate {
         DispatchQueue.main.async {
             self.saveButton?.customView = nil
             let alert = UIAlertController(title: title, message: description, preferredStyle: .alert)
-            let action = UIAlertAction(title: "OK", style: .default, handler: { _ in
+            let action = UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default, handler: { _ in
                 self.navigationController?.popViewController(animated: true)
             })
             alert.addAction(action)

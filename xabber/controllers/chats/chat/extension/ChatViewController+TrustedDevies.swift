@@ -50,7 +50,7 @@ extension ChatViewController {
         let checkButton: UIButton = {
             let button = UIButton()
 
-            button.setTitle("Check contact’s devices", for: .normal)
+            button.setTitle(L10n.text("chat__trusted_devices__check_contacts_devices", fallback: "Check contact’s devices"), for: .normal)
             button.setTitleColor(.systemBlue, for: .normal)
             button.tintColor = MDCPalette.grey.tint500
             button.setContentHuggingPriority(.defaultHigh, for: .horizontal)

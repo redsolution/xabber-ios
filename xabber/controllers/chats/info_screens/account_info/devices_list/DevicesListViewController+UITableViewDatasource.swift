@@ -65,7 +65,7 @@ extension DevicesListViewController: UITableViewDataSource {
                 if item.value == "terminate_all_sessions" {
                     cell.configure(for: item.title, style: .destructiveSubtle)
                     cell.accessibilityIdentifier = "devices_terminate_all_other_sessions_button"
-                    cell.accessibilityHint = "Requires confirmation."
+                    cell.accessibilityHint = L10n.text("device_detail_terminate_session_accessibility_hint", fallback: "Requires confirmation.")
                 } else {
                     cell.configure(for: item.title, style: .danger)
                 }
@@ -81,7 +81,7 @@ extension DevicesListViewController: UITableViewDataSource {
                 
                 if activeVerificationSessionSid == nil {
                     cell.setCloseButtonVisible(false)
-                    cell.showVerificationButton(title: "Verify")
+                    cell.showVerificationButton(title: L10n.text("action_verify", fallback: "VERIFY"))
                     cell.blueButton.addTarget(self, action: #selector(onVerifyButtonPressed), for: .touchUpInside)
                     
                     return cell
@@ -95,17 +95,17 @@ extension DevicesListViewController: UITableViewDataSource {
                     
                     switch instance?.state {
                     case .receivedRequest:
-                        cell.showVerificationButton(title: "Proceed to Verification")
+                        cell.showVerificationButton(title: L10n.text("devices__list__proceed_to_verification", fallback: "Proceed to Verification"))
                         cell.blueButton.addTarget(self, action: #selector(onAcceptButtonPressed), for: .touchUpInside)
                         break
                         
                     case .acceptedRequest:
-                        cell.showVerificationButton(title: "Show the code")
+                        cell.showVerificationButton(title: L10n.text("devices__list__show_the_code", fallback: "Show the code"))
                         cell.blueButton.addTarget(self, action: #selector(onShowCodePressed), for: .touchUpInside)
                         break
                         
                     case .receivedRequestAccept:
-                        cell.showVerificationButton(title: "Enter the code")
+                        cell.showVerificationButton(title: L10n.text("devices__list__enter_the_code", fallback: "Enter the code"))
                         cell.blueButton.addTarget(self, action: #selector(onEnterCodePressed), for: .touchUpInside)
                         break
                         
@@ -161,7 +161,7 @@ extension DevicesListViewController: UITableViewDataSource {
             cell.configure(
                 client: brokenItem.name ?? "\(brokenItem.deviceId)",
                 device: "Undefined",
-                description: "Undefined",
+                description: L10n.text("devices_list__description__undefined", fallback: "Undefined"),
                 ip: "\(brokenItem.deviceId)",
                 lastAuth: brokenItem.updateDate,
                 current: false,

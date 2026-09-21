@@ -27,8 +27,8 @@ final class NotificationsSettingsViewController: BaseViewController {
 
         var title: String? {
             switch self {
-            case .types: return "Notification Sounds"
-            case .inApp: return "In-App Notifications"
+            case .types: return L10n.text("notifications_settings__sounds__title", fallback: "Notification Sounds")
+            case .inApp: return L10n.text("notifications_settings__in_app__title", fallback: "In-App Notifications")
             case .system: return nil
             }
         }
@@ -36,11 +36,11 @@ final class NotificationsSettingsViewController: BaseViewController {
         var footer: String? {
             switch self {
             case .types:
-                return "Turn sounds on or off independently for each notification type."
+                return L10n.text("notifications_settings__sounds__footer", fallback: "Turn sounds on or off independently for each notification type.")
             case .inApp:
-                return "Show banners and play enabled notification sounds while Xabber is open."
+                return L10n.text("notifications_settings__in_app__footer", fallback: "Show banners and play enabled notification sounds while Xabber is open.")
             case .system:
-                return "Lock Screen previews, permissions, badges and notification delivery are controlled in iOS Settings."
+                return L10n.text("notifications_settings__system__footer", fallback: "Lock Screen previews, permissions, badges and notification delivery are controlled in iOS Settings.")
             }
         }
     }
@@ -74,7 +74,7 @@ final class NotificationsSettingsViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Notifications"
+        title = L10n.text("notifications__screen__title", fallback: "Notifications")
         view.backgroundColor = .systemGroupedBackground
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.backgroundColor = .clear
@@ -155,7 +155,7 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
             return makeNotificationTypeCell(
                 tableView: tableView,
                 indexPath: indexPath,
-                title: "Messages",
+                title: L10n.text("notification_settings__title__messages", fallback: "Messages"),
                 icon: "custom.bubble.square.fill",
                 iconColor: .systemBlue,
                 preference: .messages,
@@ -165,7 +165,7 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
             return makeNotificationTypeCell(
                 tableView: tableView,
                 indexPath: indexPath,
-                title: "Invites",
+                title: L10n.text("notification_settings__title__invites", fallback: "Invites"),
                 icon: "xabber.invite.square.fill",
                 iconColor: .systemOrange,
                 preference: .invites,
@@ -175,7 +175,7 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
             return makeNotificationTypeCell(
                 tableView: tableView,
                 indexPath: indexPath,
-                title: "Subscription Requests",
+                title: L10n.text("notification_settings__title__subscription_requests", fallback: "Subscription Requests"),
                 icon: "xabber.person.plus.square.fill",
                 iconColor: .systemGreen,
                 preference: .subscriptionRequests,
@@ -185,7 +185,7 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
             return makeToggleCell(
                 tableView: tableView,
                 indexPath: indexPath,
-                title: "In-App Sounds",
+                title: L10n.text("notification_settings__title__in_app_sounds", fallback: "In-App Sounds"),
                 key: SettingsViewController.Datasource.Keys.notificationInAppSound.rawValue,
                 defaultValue: true,
                 accessibilityIdentifier: "notifications.inAppSounds"
@@ -194,7 +194,7 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
             return makeToggleCell(
                 tableView: tableView,
                 indexPath: indexPath,
-                title: "Show Banners in Chats",
+                title: L10n.text("notification_settings__title__show_banners_in_chats", fallback: "Show Banners in Chats"),
                 key: SettingsViewController.Datasource.Keys.notificationInAppAlertLastChats.rawValue,
                 defaultValue: false,
                 accessibilityIdentifier: "notifications.bannersOnChats"
@@ -205,7 +205,7 @@ extension NotificationsSettingsViewController: UITableViewDataSource {
                 for: indexPath
             ) as! NotificationsSettingsActionCell
             cell.configure(
-                title: "Open iOS Notification Settings",
+                title: L10n.text("notification_settings__title__open_ios_notification_settings", fallback: "Open iOS Notification Settings"),
                 accessibilityIdentifier: "notifications.systemSettings"
             )
             return cell
@@ -363,7 +363,7 @@ private final class NotificationsSettingsIconToggleCell: UITableViewCell {
         tintColor = iconColor
         imageView?.accessibilityIdentifier = accessibilityIdentifier + ".icon"
         toggle.isOn = isOn
-        toggle.accessibilityLabel = "\(title) Notification Sound"
+        toggle.accessibilityLabel = L10n.format("notifications_settings__accessibility_label__value_notification_sound", fallback: "%@ Notification Sound", arguments: [String(describing: title)])
         toggle.accessibilityIdentifier = accessibilityIdentifier + ".switch"
         self.accessibilityIdentifier = accessibilityIdentifier
         self.onValueChanged = onValueChanged

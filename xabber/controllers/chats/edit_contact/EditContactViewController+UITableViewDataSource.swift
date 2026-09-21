@@ -80,21 +80,21 @@ extension EditContactViewController: UITableViewDataSource {
                 case .in:
                     switch item.key {
                     case "presence_receive":
-                        title = "Receiving presence updates"
+                        title = L10n.text("subscription_status_out_to", fallback: "Receiving presence updates")
                     case "presence_send":
-                        title = "Incoming subscription request"
+                        title = L10n.text("subscription_status_in_request_incoming", fallback: "Incoming subscription request")
                     default:
                         break
                     }
                 case .none:
                     switch item.key {
                     case "presence_receive":
-                        title = "Receiving presence updates"
+                        title = L10n.text("subscription_status_out_to", fallback: "Receiving presence updates")
                     case "presence_send":
                         if approved.value {
-                            title = "Allowing subscription"
+                            title = L10n.text("subscription_status_is_allowed", fallback: "Allowing subscription")
                         } else {
-                            title = "Not allowing subscription"
+                            title = L10n.text("subscription_status_in_not_allowed", fallback: "Not allowing subscription")
                         }
                     default:
                         break
@@ -107,20 +107,20 @@ extension EditContactViewController: UITableViewDataSource {
                 case .none:
                     switch item.key {
                     case "presence_receive":
-                        title = "Not subscribed"
+                        title = L10n.text("subscription_status_out_none", fallback: "Not subscribed")
                     case "presence_send":
-                        title = "Sending presence updates"
+                        title = L10n.text("subscription_status_in_from", fallback: "Sending presence updates")
                     default:
                         break
                     }
                 case .out:
                     switch item.key {
                     case "presence_receive":
-                        title = "Reqiested subscription"
+                        title = L10n.text("subscription_status_out_requested", fallback: "Requested subscription")
                         showIndicator = false
                         highlight = .middle
                     case "presence_send":
-                        title = "Sending presence updates"
+                        title = L10n.text("subscription_status_in_from", fallback: "Sending presence updates")
                     default:
                         break
                     }
@@ -130,9 +130,9 @@ extension EditContactViewController: UITableViewDataSource {
             case .both:
                 switch item.key {
                 case "presence_receive":
-                    title = "Receiving presence updates"
+                    title = L10n.text("subscription_status_out_to", fallback: "Receiving presence updates")
                 case "presence_send":
-                    title = "Sending presence updates"
+                    title = L10n.text("subscription_status_in_from", fallback: "Sending presence updates")
                 default:
                     break
                 }
@@ -141,12 +141,12 @@ extension EditContactViewController: UITableViewDataSource {
                 case .none:
                     switch item.key {
                     case "presence_receive":
-                        title = "Not subscribed"
+                        title = L10n.text("subscription_status_out_none", fallback: "Not subscribed")
                     case "presence_send":
                         if approved.value {
-                            title = "Allowing subscription"
+                            title = L10n.text("subscription_status_is_allowed", fallback: "Allowing subscription")
                         } else {
-                            title = "Not allowing subscription"
+                            title = L10n.text("subscription_status_in_not_allowed", fallback: "Not allowing subscription")
                         }
                     default:
                         break
@@ -154,22 +154,22 @@ extension EditContactViewController: UITableViewDataSource {
                 case .in:
                     switch item.key {
                     case "presence_receive":
-                        title = "Not subscribed"
+                        title = L10n.text("subscription_status_out_none", fallback: "Not subscribed")
                     case "presence_send":
-                        title = "Incoming subscription request"
+                        title = L10n.text("subscription_status_in_request_incoming", fallback: "Incoming subscription request")
                     default:
                         break
                     }
                 case .out:
                     switch item.key {
                     case "presence_receive":
-                        title = "Requested subscription"
+                        title = L10n.text("subscription_status_out_requested", fallback: "Requested subscription")
                         showIndicator = true
                     case "presence_send":
                         if approved.value {
-                            title = "Allowing subscription"
+                            title = L10n.text("subscription_status_is_allowed", fallback: "Allowing subscription")
                         } else {
-                            title = "Not allowing subscription"
+                            title = L10n.text("subscription_status_in_not_allowed", fallback: "Not allowing subscription")
                         }
                         highlight = .low
                     default:
@@ -178,9 +178,9 @@ extension EditContactViewController: UITableViewDataSource {
                 case .both:
                     switch item.key {
                     case "presence_receive":
-                        title = "Requested subscription"
+                        title = L10n.text("subscription_status_out_requested", fallback: "Requested subscription")
                     case "presence_send":
-                        title = "Incoming subscription request"
+                        title = L10n.text("subscription_status_in_request_incoming", fallback: "Incoming subscription request")
                     default:
                         break
                     }
@@ -237,86 +237,44 @@ extension EditContactViewController: UITableViewDataSource {
                     switch ask.value {
                     case .none:
                         if approved.value {
-                            return """
-                            You receive presence information for this contact, but the contact has not asked to see yours.
-                             
-                            Incoming subscription requests will be accepted automatically.
-                            """.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                            return L10n.text("edit_contact__table_section_title__you_receive_presence_information_for_this_contact_but_the_contact_has_not", fallback: "You receive presence information for this contact, but the contact has not asked to see yours.\n\nIncoming subscription requests will be accepted automatically.").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                         } else {
-                            return """
-                            You receive presence information for this contact, but the contact has not asked to see yours.
-                             
-                            Incoming subscription requests will not be accepted automatically.
-                            """.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+                            return L10n.text("edit_contact__table_section_title__you_receive_presence_information_for_this_contact_but_the_contact_has_not__variant_2", fallback: "You receive presence information for this contact, but the contact has not asked to see yours.\n\nIncoming subscription requests will not be accepted automatically.").trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                         }
                     case .in:
-                        return """
-                        You receive presence information for this contact, and the contact has sent you a request to see your presence information.
-                        """
+                        return L10n.text("edit_contact__table_section_title__you_receive_presence_information_for_this_contact_and_the_contact_has_sent", fallback: "You receive presence information for this contact, and the contact has sent you a request to see your presence information.")
                     default:
                         return nil
                     }
                 case .from:
                     switch ask.value {
                     case .none:
-                        return """
-                        The contact receives your presence information.
-
-                        You have not sent a request to access presence information of this contact.
-                        """
+                        return L10n.text("edit_contact__table_section_title__the_contact_receives_your_presence_information_you_have_not_sent_a_request", fallback: "The contact receives your presence information.\n\nYou have not sent a request to access presence information of this contact.")
                     case .out:
-                        return """
-                        You have sent a request to see presence information of this contact. It is not yet answered.
-
-                        The contact receives your presence information.
-                        """
+                        return L10n.text("subscription_status_description_out_requested_in_from", fallback: "You have sent a request to see presence information of this contact. It is not yet answered.\n \nThe contact receives your presence information.\n")
                     default:
                         return nil
                     }
                 case .both:
-                    return """
-                    You and this contact are sharing presence information with each other.
-                    """
+                    return L10n.text("subscription_status_description_both", fallback: "You and this contact are sharing presence information with each other.")
                 case .none:
                     switch ask.value {
                     case .none:
                         if approved.value {
-                            return """
-                            Contact is added to your roster, but presence information is not shared in either direction.
-
-                            Incoming subscription requests will be accepted automatically.
-                            """
+                            return L10n.text("subscription_status_description_out_none_in_allowed", fallback: "Contact is added to your roster, but presence information is not shared in either direction.\n\nIncoming subscription requests will be accepted automatically.")
                         } else {
-                            return """
-                            Contact is added to your roster, but presence information is not shared in either direction.
-
-                            Incoming subscription requests will not be accepted automatically.
-                            """
+                            return L10n.text("subscription_status_description_out_none_in_not_allowed", fallback: "Contact is added to your roster, but presence information is not shared in either direction.\n \n Incoming subscription requests will not be accepted automatically.")
                         }
                     case .in:
-                        return """
-                        Contact has sent you a request to see your presence information.
-
-                        You have not sent a request to access presence information of this contact.
-                        """
+                        return L10n.text("subscription_status_description_out_none_in_request_incoming", fallback: "Contact has sent you a request to see your presence information.\n \n You have not sent a request to access presence information of this contact.")
                     case .out:
                         if approved.value {
-                            return """
-                            You have sent a request to see presence information of this contact. It is not yet answered.
-
-                            Incoming subscription requests will be accepted automatically.
-                            """
+                            return L10n.text("subscription_status_description_out_requested_in_allowed", fallback: "You have sent a request to see presence information of this contact. It is not yet answered.\n\nIncoming subscription requests will be accepted automatically.")
                         } else {
-                            return """
-                            You have sent a request to see presence information of this contact. It is not yet answered.
-
-                            Incoming subscription requests will not be accepted automatically.
-                            """
+                            return L10n.text("subscription_status_description_out_requested_in_not_allowed", fallback: "You have sent a request to see presence information of this contact. It is not yet answered.\n \n Incoming subscription requests will not be accepted automatically.")
                         }
                     case .both:
-                        return """
-                        You and this contact have both sent each other requests to see each other's presence information. Generally, mutual subscription requests are automatically accepted, so you should not be seeing this description, ever. But since you do, it means that something went wrong, huh.
-                        """
+                        return L10n.text("subscription_status_description_out_requested_in_request_incoming", fallback: "You and this contact have both sent each other requests to see each other's presence information. Generally, mutual subscription requests are automatically accepted, so you should not be seeing this description, ever. But since you do, it means that something went wrong, huh.")
                     }
                 case .undefined:
                     return nil

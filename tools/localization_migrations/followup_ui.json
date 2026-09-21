@@ -1,0 +1,3161 @@
+{
+  "exclusions": [
+    {
+      "path": "xabber-push-extension/NotificationService.swift",
+      "reason": "Product, hardware, or service proper name; intentionally unchanged across locales.",
+      "sink": "title",
+      "value": "Xabber"
+    },
+    {
+      "path": "xabber/application/AppRootCoordinator.swift",
+      "reason": "Internal NSUserActivity state-restoration metadata; the Xabber product name is intentionally not localized.",
+      "sink": "title",
+      "value": "Xabber Scene"
+    },
+    {
+      "path": "xabber/common/SubscribtionsManager/SubscribtionsManager.swift",
+      "reason": "Internal dictionary key, accessibility identifier, protocol token, or placeholder replaced before presentation.",
+      "sink": "description",
+      "value": "description"
+    },
+    {
+      "path": "xabber/controllers/alerts/ListItemChoicePresenter.swift",
+      "reason": "Internal dictionary key, accessibility identifier, protocol token, or placeholder replaced before presentation.",
+      "sink": "title",
+      "value": "label"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "bounded formatted message "
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "deterministic chat-open fixture row %@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "deterministic unrelated fixture mention"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "fixture message %@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "incoming while scrolled"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "release optimistic probe"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "test exact target"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "description",
+      "value": "t=%@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "text",
+      "value": "%@ scale=%@ logical=%@ resident=%@ applies=%@ layouts=%@ offsets=%@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "text",
+      "value": "CHAT_OPEN_FIXTURE_RECEIPT %@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal performance-fixture diagnostics; intentionally not localized.",
+      "sink": "text",
+      "value": "Mention"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal performance-fixture diagnostics; intentionally not localized.",
+      "sink": "text",
+      "value": "anchor=%@ optimistic=%@ edited=%@ media=%@/%@/%@ skeleton=%@ target=%@ corrections=%@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "text",
+      "value": "phase=%@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "text",
+      "value": "postInteractions=%@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "text",
+      "value": "postReady=%@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "text",
+      "value": "real=%@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "text",
+      "value": "scenario=%@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal performance-fixture diagnostics; intentionally not localized.",
+      "sink": "text",
+      "value": "scenario=%@ stable=false receipt=0"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "text",
+      "value": "skeleton=%@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "text",
+      "value": "target=%@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtureViewController.swift",
+      "reason": "Internal performance-fixture diagnostics; intentionally not localized.",
+      "sink": "text",
+      "value": "test exact target"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtures.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "contact"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtures.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "deterministic long content "
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtures.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "edited"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtures.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "error"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtures.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "forward"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtures.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "image-five"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtures.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "image-one"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtures.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "location"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtures.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "read"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtures.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "short"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtures.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "video"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceFixtures.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "body",
+      "value": "voice"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatPerformanceIntegrationGate.swift",
+      "reason": "Internal chat performance fixture or diagnostic; never rendered in the production user interface.",
+      "sink": "message",
+      "value": "message"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/ChatViewController.swift",
+      "reason": "Internal debug description of a chat update blocker; not user-facing copy.",
+      "sink": "description",
+      "value": "blocker=%@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "reason": "Internal diff/debug description used for diagnostics and hashing, not user-facing copy.",
+      "sink": "description",
+      "value": "ChatDiffContentSignature(kind:%@,timeLength:%@,attachments:%@)"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "reason": "Internal diff/debug description used for diagnostics and hashing, not user-facing copy.",
+      "sink": "description",
+      "value": "attributed(length:%@,runs:%@)"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "reason": "Internal diff/debug description used for diagnostics and hashing, not user-facing copy.",
+      "sink": "description",
+      "value": "audio(primary:%@,duration:%@,downloaded:%@,pcm:%@)"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "reason": "Internal diff/debug description used for diagnostics and hashing, not user-facing copy.",
+      "sink": "description",
+      "value": "contact(primary:%@,jid:%@,entity:%@,metadata:%@)"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "reason": "Internal diff/debug description used for diagnostics and hashing, not user-facing copy.",
+      "sink": "description",
+      "value": "count:%@,hash:%@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "reason": "Internal diff/debug description used for diagnostics and hashing, not user-facing copy.",
+      "sink": "description",
+      "value": "file(primary:%@,name:%@,size:%@,downloaded:%@)"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "reason": "Internal diff/debug description used for diagnostics and hashing, not user-facing copy.",
+      "sink": "description",
+      "value": "forward(primary:%@,outgoing:%@,textLength:%@,attachments:%@)"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "reason": "Internal diff/debug description used for diagnostics and hashing, not user-facing copy.",
+      "sink": "description",
+      "value": "image(primary:%@,url:%@,preview:%@,size:%@,sensitive:%@,revealed:%@)"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "reason": "Internal diff/debug description used for diagnostics and hashing, not user-facing copy.",
+      "sink": "description",
+      "value": "images:%@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "reason": "Internal diff/debug description used for diagnostics and hashing, not user-facing copy.",
+      "sink": "description",
+      "value": "location(primary:%@,lat:%@,lon:%@)"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+Dataset.swift",
+      "reason": "Internal diff/debug description used for diagnostics and hashing, not user-facing copy.",
+      "sink": "description",
+      "value": "video(primary:%@,duration:%@,downloaded:%@)"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/messages_kit/Layout/MessagesCollectionViewFlowLayout.swift",
+      "reason": "Internal layout diagnostic description; never presented to users.",
+      "sink": "description",
+      "value": "phase=%@"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/messages_kit/Layout/MessagesCollectionViewFlowLayout.swift",
+      "reason": "Internal layout diagnostic description; never presented to users.",
+      "sink": "description",
+      "value": "targetOffset"
+    },
+    {
+      "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
+      "reason": "Internal context-preview placeholder immediately replaced by real message content.",
+      "sink": "title",
+      "value": "title"
+    },
+    {
+      "path": "xabber/controllers/chats/create_new_entity/CreateNewEntityViewController.swift",
+      "reason": "Product, hardware, or service proper name; intentionally unchanged across locales.",
+      "sink": "title",
+      "value": "Call Me Bot"
+    },
+    {
+      "path": "xabber/controllers/chats/create_new_entity/CreateNewEntityViewController.swift",
+      "reason": "Product, hardware, or service proper name; intentionally unchanged across locales.",
+      "sink": "title",
+      "value": "Reply Me Bot"
+    },
+    {
+      "path": "xabber/controllers/chats/create_new_entity/new_group/new_group_edit/CreateNewGroupEditViewController.swift",
+      "reason": "Internal dictionary key, accessibility identifier, protocol token, or placeholder replaced before presentation.",
+      "sink": "text",
+      "value": "label"
+    },
+    {
+      "path": "xabber/controllers/chats/image_gallery/PhotoGallery.swift",
+      "reason": "Product, hardware, or service proper name; intentionally unchanged across locales.",
+      "sink": "title",
+      "value": "Xabber"
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
+      "reason": "Stable technical acronym; intentionally unchanged across locales.",
+      "sink": "title",
+      "value": "IP"
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/ContactFingerprintsViewController.swift.swift",
+      "reason": "Product, hardware, or service proper name; intentionally unchanged across locales.",
+      "sink": "title",
+      "value": "Yubikey"
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/qr_code/QRCodeViewController.swift",
+      "reason": "Product, hardware, or service proper name; intentionally unchanged across locales.",
+      "sink": "title",
+      "value": "Xabber"
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/vcard_info/vCardInfoViewController.swift",
+      "reason": "Stable technical acronym; intentionally unchanged across locales.",
+      "sink": "title",
+      "value": "URL"
+    },
+    {
+      "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController.swift",
+      "reason": "SF Symbols system image identifier; stable technical token, not localized user-facing text.",
+      "sink": "text",
+      "value": "play.fill"
+    },
+    {
+      "path": "xabber/controllers/onboarding/signin/SignInCreditionalsViewController.swift",
+      "reason": "Brand, technical acronym, fictional/person name, or non-linguistic typography specimen intentionally unchanged across locales.",
+      "sink": "text",
+      "value": "john.doe"
+    },
+    {
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "reason": "Unreachable placeholder: the only delete datasource row is commented out; remove with the dead branch instead of translating.",
+      "sink": "message",
+      "value": "Some text about deleting yubikey"
+    },
+    {
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "reason": "Unreachable action: the only delete datasource row is commented out; remove with the dead branch instead of translating.",
+      "sink": "title",
+      "value": "Forget registered Yubikey"
+    },
+    {
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "reason": "Technical certificate abbreviation intentionally remains ID in every supported locale.",
+      "sink": "title",
+      "value": "ID"
+    },
+    {
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "reason": "Product name used as the screen title; preserve the YubiKey brand spelling instead of translating it.",
+      "sink": "title",
+      "value": "Yubikey"
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController+UITableViewDataSource.swift",
+      "reason": "Unreachable legacy subscription row: every datasource entry using the .subscriptions key is commented out.",
+      "sink": "text",
+      "value": "Expired"
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController+UITableViewDataSource.swift",
+      "reason": "Unreachable legacy subscription row: every datasource entry using the .subscriptions key is commented out.",
+      "sink": "text",
+      "value": "Trial"
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "reason": "Typography size glyph shown at both ends of the slider; it is a specimen glyph, not translatable copy.",
+      "sink": "text",
+      "value": "A"
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "reason": "Brand, technical acronym, fictional/person name, or non-linguistic typography specimen intentionally unchanged across locales.",
+      "sink": "text",
+      "value": "Alicia"
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "reason": "Fictional proper name in the appearance preview; names are intentionally not localized.",
+      "sink": "text",
+      "value": "Alicia Torreaux"
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "reason": "Brand, technical acronym, fictional/person name, or non-linguistic typography specimen intentionally unchanged across locales.",
+      "sink": "text",
+      "value": "Roberto"
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "reason": "Brand, technical acronym, fictional/person name, or non-linguistic typography specimen intentionally unchanged across locales.",
+      "sink": "text",
+      "value": "Veronica"
+    },
+    {
+      "path": "xabber/controllers/split/XabberTabBarViewController.swift",
+      "reason": "SF Symbols system image identifier; stable technical token, not localized user-facing text.",
+      "sink": "title",
+      "value": "archivebox"
+    },
+    {
+      "path": "xabber/controllers/split/XabberTabBarViewController.swift",
+      "reason": "SF Symbols system image identifier; stable technical token, not localized user-facing text.",
+      "sink": "title",
+      "value": "bell"
+    },
+    {
+      "path": "xabber/controllers/split/XabberTabBarViewController.swift",
+      "reason": "SF Symbols system image identifier; stable technical token, not localized user-facing text.",
+      "sink": "title",
+      "value": "person.2"
+    },
+    {
+      "path": "xabber/utils/String/StringExtensions.swift",
+      "reason": "Compiler deprecation diagnostic; never rendered in the app UI.",
+      "sink": "message",
+      "value": "Use L10n.text, L10n.format, or L10n.plural"
+    }
+  ],
+  "migrations": [
+    {
+      "api": "format",
+      "comment": "Hard-coded body copy used by PushNotificationRouting. Each %@ placeholder is a runtime value and must be preserved in translation.",
+      "key": "push_notification_routing__body__value_asks_you_to_verify_yourself",
+      "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
+      "sink": "body",
+      "translations": {
+        "ar": "يطلب منك %@ التحقق من هويتك",
+        "en": "%@ asks you to verify yourself",
+        "es": "%@ te pide que verifiques tu identidad",
+        "fr": "%@ vous demande de vérifier votre identité",
+        "ru": "%@ просит вас подтвердить свою личность",
+        "zh-Hans": "%@ 请求你验证身份"
+      },
+      "value": "%@ asks you to verify yourself"
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by AppearanceWallpaperSupport. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "appearance_wallpaper__localized_error_description__cloud_storage_authorization_expired",
+      "path": "xabber/common/settings_manager/AppearanceWallpaperSupport.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "انتهت صلاحية تفويض التخزين السحابي.",
+        "en": "Cloud Storage authorization expired.",
+        "es": "La autorización de Almacenamiento en la nube ha caducado.",
+        "fr": "L’autorisation du Stockage cloud a expiré.",
+        "ru": "Срок авторизации в Облачном хранилище истёк.",
+        "zh-Hans": "云存储授权已过期。"
+      },
+      "value": "Cloud Storage authorization expired."
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by AppearanceWallpaperSupport. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "appearance_wallpaper__localized_error_description__cloud_storage_is_not_ready_yet",
+      "path": "xabber/common/settings_manager/AppearanceWallpaperSupport.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "التخزين السحابي غير جاهز بعد.",
+        "en": "Cloud Storage is not ready yet.",
+        "es": "El Almacenamiento en la nube aún no está listo.",
+        "fr": "Le Stockage cloud n’est pas encore prêt.",
+        "ru": "Облачное хранилище ещё не готово.",
+        "zh-Hans": "云存储尚未就绪。"
+      },
+      "value": "Cloud Storage is not ready yet."
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by AppearanceWallpaperSupport. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "appearance_wallpaper__localized_error_description__cloud_storage_returned_an_invalid_response",
+      "path": "xabber/common/settings_manager/AppearanceWallpaperSupport.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "أعاد التخزين السحابي استجابة غير صالحة.",
+        "en": "Cloud Storage returned an invalid response.",
+        "es": "El Almacenamiento en la nube devolvió una respuesta no válida.",
+        "fr": "Le Stockage cloud a renvoyé une réponse non valide.",
+        "ru": "Облачное хранилище вернуло некорректный ответ.",
+        "zh-Hans": "云存储返回了无效响应。"
+      },
+      "value": "Cloud Storage returned an invalid response."
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by AppearanceWallpaperSupport. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "appearance_wallpaper__localized_error_description__no_enabled_account_is_available_for_cloud_storage",
+      "path": "xabber/common/settings_manager/AppearanceWallpaperSupport.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "لا يتوفر حساب مفعّل للتخزين السحابي.",
+        "en": "No enabled account is available for Cloud Storage.",
+        "es": "No hay ninguna cuenta activa disponible para Almacenamiento en la nube.",
+        "fr": "Aucun compte actif n’est disponible pour le Stockage cloud.",
+        "ru": "Нет включённого аккаунта для Облачного хранилища.",
+        "zh-Hans": "没有可用于云存储的已启用账号。"
+      },
+      "value": "No enabled account is available for Cloud Storage."
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by AppearanceWallpaperSupport. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "appearance_wallpaper__localized_error_description__the_cloud_storage_gallery_changed_during_upload",
+      "path": "xabber/common/settings_manager/AppearanceWallpaperSupport.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "تغيّر معرض التخزين السحابي أثناء الرفع.",
+        "en": "The Cloud Storage gallery changed during upload.",
+        "es": "La galería de Almacenamiento en la nube cambió durante la carga.",
+        "fr": "La galerie du Stockage cloud a changé pendant le téléversement.",
+        "ru": "Галерея Облачного хранилища изменилась во время загрузки.",
+        "zh-Hans": "上传期间云存储图库发生了变化。"
+      },
+      "value": "The Cloud Storage gallery changed during upload."
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by AppearanceWallpaperSupport. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "appearance_wallpaper__localized_error_description__there_is_not_enough_cloud_storage_space",
+      "path": "xabber/common/settings_manager/AppearanceWallpaperSupport.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "لا توجد مساحة كافية في التخزين السحابي.",
+        "en": "There is not enough Cloud Storage space.",
+        "es": "No hay suficiente espacio en Almacenamiento en la nube.",
+        "fr": "L’espace disponible dans le Stockage cloud est insuffisant.",
+        "ru": "Недостаточно места в Облачном хранилище.",
+        "zh-Hans": "云存储空间不足。"
+      },
+      "value": "There is not enough Cloud Storage space."
+    },
+    {
+      "comment": "Hard-coded description copy used by XMPPAccountDeleteManager. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "xmppaccount_delete__description__account_deleted",
+      "path": "xabber/common/xmpp_action_manager/XMPPAccountDeleteManager.swift",
+      "sink": "description",
+      "translations": {
+        "ar": "تم حذف الحساب.",
+        "en": "Account deleted.",
+        "es": "Cuenta eliminada.",
+        "fr": "Compte supprimé.",
+        "ru": "Аккаунт удалён.",
+        "zh-Hans": "账号已删除。"
+      },
+      "value": "Account deleted."
+    },
+    {
+      "comment": "Hard-coded description copy used by XMPPChangePasswordManager. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "xmppchange_password__description__password_changed",
+      "path": "xabber/common/xmpp_action_manager/XMPPChangePasswordManager.swift",
+      "sink": "description",
+      "translations": {
+        "ar": "تم تغيير كلمة المرور",
+        "en": "Password changed",
+        "es": "Contraseña cambiada",
+        "fr": "Mot de passe modifié",
+        "ru": "Пароль изменён",
+        "zh-Hans": "密码已更改"
+      },
+      "value": "Password changed"
+    },
+    {
+      "comment": "Hard-coded message copy used by XabberActivityViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "no_messages",
+      "path": "xabber/controllers/activity/XabberActivityViewController.swift",
+      "sink": "message",
+      "translations": {
+        "ar": "لايوجد رسائل",
+        "en": "No messages",
+        "es": "No hay mensajes",
+        "fr": "Pas de message",
+        "ru": "Нет сообщений",
+        "zh-Hans": "无消息"
+      },
+      "value": "No messages"
+    },
+    {
+      "api": "format",
+      "comment": "Hard-coded title copy used by ManualVerificationDeviceViewController. Each %@ placeholder is a runtime value and must be preserved in translation.",
+      "key": "manual_verification_device__title__value_your_device",
+      "path": "xabber/controllers/ake/ManualVerificationDeviceViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "%@ ⦁ جهازك",
+        "en": "%@ ⦁ your device",
+        "es": "%@ ⦁ tu dispositivo",
+        "fr": "%@ ⦁ votre appareil",
+        "ru": "%@ ⦁ ваше устройство",
+        "zh-Hans": "%@ ⦁ 你的设备"
+      },
+      "value": "%@ ⦁ your device"
+    },
+    {
+      "comment": "Hard-coded titleText copy used by VerificationViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "verification__title_text__device_verification",
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "titleText",
+      "translations": {
+        "ar": "التحقق من الجهاز",
+        "en": "Device Verification",
+        "es": "Verificación del dispositivo",
+        "fr": "Vérification de l’appareil",
+        "ru": "Проверка устройства",
+        "zh-Hans": "设备验证"
+      },
+      "value": "Device Verification"
+    },
+    {
+      "comment": "Hard-coded titleText copy used by VerificationViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "verification__title_text__incoming_device_verification_request",
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "titleText",
+      "translations": {
+        "ar": "طلب وارد للتحقق من الجهاز",
+        "en": "Incoming Device Verification Request",
+        "es": "Solicitud entrante de verificación del dispositivo",
+        "fr": "Demande entrante de vérification d’appareil",
+        "ru": "Входящий запрос на проверку устройства",
+        "zh-Hans": "收到设备验证请求"
+      },
+      "value": "Incoming Device Verification Request"
+    },
+    {
+      "comment": "Hard-coded titleText copy used by VerificationViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "verification__title_text__verification_successful",
+      "path": "xabber/controllers/ake/VerificationViewController.swift",
+      "sink": "titleText",
+      "translations": {
+        "ar": "تم التحقق بنجاح",
+        "en": "Verification Successful",
+        "es": "Verificación correcta",
+        "fr": "Vérification réussie",
+        "ru": "Проверка выполнена",
+        "zh-Hans": "验证成功"
+      },
+      "value": "Verification Successful"
+    },
+    {
+      "comment": "Hard-coded accessibilityValue copy used by FloatingBottomBarView. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "floating_bottom_bar_view__accessibility_value__off",
+      "path": "xabber/controllers/bars/bottom_bar/FloatingBottomBarView.swift",
+      "sink": "accessibilityValue",
+      "translations": {
+        "ar": "متوقف",
+        "en": "Off",
+        "es": "Desactivado",
+        "fr": "Désactivé",
+        "ru": "Выкл.",
+        "zh-Hans": "关闭"
+      },
+      "value": "Off"
+    },
+    {
+      "comment": "Hard-coded accessibilityValue copy used by FloatingBottomBarView. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "floating_bottom_bar_view__accessibility_value__on",
+      "path": "xabber/controllers/bars/bottom_bar/FloatingBottomBarView.swift",
+      "sink": "accessibilityValue",
+      "translations": {
+        "ar": "مفعّل",
+        "en": "On",
+        "es": "Activado",
+        "fr": "Activé",
+        "ru": "Вкл.",
+        "zh-Hans": "开启"
+      },
+      "value": "On"
+    },
+    {
+      "comment": "Hard-coded nfcScanAlertMessage copy used by LastCallsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "last_calls__nfc_scan_alert_message__register_yubikey_for_account",
+      "path": "xabber/controllers/calls/last_calls/LastCallsViewController.swift",
+      "sink": "nfcScanAlertMessage",
+      "translations": {
+        "ar": "تسجيل YubiKey للحساب",
+        "en": "Register Yubikey for account",
+        "es": "Registrar YubiKey para la cuenta",
+        "fr": "Enregistrer la YubiKey pour le compte",
+        "ru": "Зарегистрировать YubiKey для аккаунта",
+        "zh-Hans": "为账号注册 YubiKey"
+      },
+      "value": "Register Yubikey for account"
+    },
+    {
+      "comment": "Hard-coded accessibilityValue copy used by AbuseReportViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "abuse_report__accessibility_value__not_selected",
+      "path": "xabber/controllers/chats/abuse/AbuseReportViewController.swift",
+      "sink": "accessibilityValue",
+      "translations": {
+        "ar": "غير محدد",
+        "en": "Not selected",
+        "es": "No seleccionado",
+        "fr": "Non sélectionné",
+        "ru": "Не выбрано",
+        "zh-Hans": "未选择"
+      },
+      "value": "Not selected"
+    },
+    {
+      "comment": "Hard-coded accessibilityValue copy used by AbuseReportViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "abuse_report__accessibility_value__selected",
+      "path": "xabber/controllers/chats/abuse/AbuseReportViewController.swift",
+      "sink": "accessibilityValue",
+      "translations": {
+        "ar": "محدد",
+        "en": "Selected",
+        "es": "Seleccionado",
+        "fr": "Sélectionné",
+        "ru": "Выбрано",
+        "zh-Hans": "已选择"
+      },
+      "value": "Selected"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by ChatAttachmentFileSource. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "chat_attachment_file_source__table_section_title__selected_files",
+      "path": "xabber/controllers/chats/attachment_picker/ChatAttachmentFileSource.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "الملفات المحددة",
+        "en": "Selected files",
+        "es": "Archivos seleccionados",
+        "fr": "Fichiers sélectionnés",
+        "ru": "Выбранные файлы",
+        "zh-Hans": "已选择的文件"
+      },
+      "value": "Selected files"
+    },
+    {
+      "comment": "Hard-coded contactStatus copy used by ChatViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "chat__contact_status__server",
+      "path": "xabber/controllers/chats/chat/ChatViewController.swift",
+      "sink": "contactStatus",
+      "translations": {
+        "ar": "الخادم",
+        "en": "Server",
+        "es": "Servidor",
+        "fr": "Serveur",
+        "ru": "Сервер",
+        "zh-Hans": "服务器"
+      },
+      "value": "Server"
+    },
+    {
+      "comment": "Hard-coded noText copy used by ChatViewController+CellDelegate. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__cancel",
+      "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+CellDelegate.swift",
+      "sink": "noText",
+      "translations": {
+        "ar": "إلغاء",
+        "en": "Cancel",
+        "es": "Cancelar",
+        "fr": "Annuler",
+        "ru": "Отмена",
+        "zh-Hans": "取消"
+      },
+      "value": "Cancel"
+    },
+    {
+      "comment": "Hard-coded title copy used by ChatViewController+CellDelegate. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__retry",
+      "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+CellDelegate.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "إعادة المحاولة",
+        "en": "Retry",
+        "es": "Reintentar",
+        "fr": "Réessayer",
+        "ru": "Повторить",
+        "zh-Hans": "重试"
+      },
+      "value": "Retry"
+    },
+    {
+      "comment": "Hard-coded title copy used by ChatViewController+CellDelegate. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "chat__signature__update_signature",
+      "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+CellDelegate.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "تحديث التوقيع",
+        "en": "Update signature",
+        "es": "Actualizar firma",
+        "fr": "Mettre à jour la signature",
+        "ru": "Обновить подпись",
+        "zh-Hans": "更新签名"
+      },
+      "value": "Update signature"
+    },
+    {
+      "comment": "Hard-coded yesText copy used by ChatViewController+CellDelegate. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__open",
+      "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+CellDelegate.swift",
+      "sink": "yesText",
+      "translations": {
+        "ar": "فتح",
+        "en": "Open",
+        "es": "Abrir",
+        "fr": "Ouvrir",
+        "ru": "Открыть",
+        "zh-Hans": "打开"
+      },
+      "value": "Open"
+    },
+    {
+      "comment": "Hard-coded noText copy used by ChatViewController+MessageLabelDelegate. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__cancel",
+      "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+MessageLabelDelegate.swift",
+      "sink": "noText",
+      "translations": {
+        "ar": "إلغاء",
+        "en": "Cancel",
+        "es": "Cancelar",
+        "fr": "Annuler",
+        "ru": "Отмена",
+        "zh-Hans": "取消"
+      },
+      "value": "Cancel"
+    },
+    {
+      "comment": "Hard-coded yesText copy used by ChatViewController+MessageLabelDelegate. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__open",
+      "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+MessageLabelDelegate.swift",
+      "sink": "yesText",
+      "translations": {
+        "ar": "فتح",
+        "en": "Open",
+        "es": "Abrir",
+        "fr": "Ouvrir",
+        "ru": "Открыть",
+        "zh-Hans": "打开"
+      },
+      "value": "Open"
+    },
+    {
+      "comment": "Hard-coded nfcScanAlertMessage copy used by ChatViewController+XabberInputBarDelegate. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "chat__nfc_scan_alert_message__generate_digital_signature_for_message",
+      "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
+      "sink": "nfcScanAlertMessage",
+      "translations": {
+        "ar": "إنشاء توقيع رقمي للرسالة",
+        "en": "Generate digital signature for message",
+        "es": "Generar una firma digital para el mensaje",
+        "fr": "Générer une signature numérique pour le message",
+        "ru": "Создать цифровую подпись сообщения",
+        "zh-Hans": "为消息生成数字签名"
+      },
+      "value": "Generate digital signature for message"
+    },
+    {
+      "comment": "Hard-coded noText copy used by ChatViewController+XabberInputBarDelegate. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__cancel",
+      "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
+      "sink": "noText",
+      "translations": {
+        "ar": "إلغاء",
+        "en": "Cancel",
+        "es": "Cancelar",
+        "fr": "Annuler",
+        "ru": "Отмена",
+        "zh-Hans": "取消"
+      },
+      "value": "Cancel"
+    },
+    {
+      "comment": "Hard-coded yesText copy used by ChatViewController+XabberInputBarDelegate. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "chat__yes_text__open_application_settings",
+      "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+XabberInputBarDelegate.swift",
+      "sink": "yesText",
+      "translations": {
+        "ar": "فتح إعدادات التطبيق",
+        "en": "Open application settings",
+        "es": "Abrir los ajustes de la aplicación",
+        "fr": "Ouvrir les réglages de l’application",
+        "ru": "Открыть настройки приложения",
+        "zh-Hans": "打开应用设置"
+      },
+      "value": "Open application settings"
+    },
+    {
+      "comment": "Hard-coded nfcScanAlertMessage copy used by ChatViewController+DigitalSignature. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "chat__nfc_scan_alert_message__generate_digital_signature_for_message",
+      "path": "xabber/controllers/chats/chat/extension/ChatViewController+DigitalSignature.swift",
+      "sink": "nfcScanAlertMessage",
+      "translations": {
+        "ar": "إنشاء توقيع رقمي للرسالة",
+        "en": "Generate digital signature for message",
+        "es": "Generar una firma digital para el mensaje",
+        "fr": "Générer une signature numérique pour le message",
+        "ru": "Создать цифровую подпись сообщения",
+        "zh-Hans": "为消息生成数字签名"
+      },
+      "value": "Generate digital signature for message"
+    },
+    {
+      "comment": "Hard-coded accessibilityLabel copy used by ModernXabberInputView. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "chat_composer_record_voice_message_accessibility",
+      "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
+      "sink": "accessibilityLabel",
+      "translations": {
+        "ar": "تسجيل رسالة صوتية",
+        "en": "Record voice message",
+        "es": "Grabar mensaje de voz",
+        "fr": "Enregistrer un message vocal",
+        "ru": "Записать голосовое сообщение",
+        "zh-Hans": "录制语音消息"
+      },
+      "value": "Record voice message"
+    },
+    {
+      "comment": "Hard-coded accessibilityLabel copy used by ModernXabberInputView. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "chat_composer_send_voice_message_accessibility",
+      "path": "xabber/controllers/chats/chat/messages_kit/Views/ModernXabberInputView.swift",
+      "sink": "accessibilityLabel",
+      "translations": {
+        "ar": "إرسال الرسالة الصوتية",
+        "en": "Send voice message",
+        "es": "Enviar mensaje de voz",
+        "fr": "Envoyer le message vocal",
+        "ru": "Отправить голосовое сообщение",
+        "zh-Hans": "发送语音消息"
+      },
+      "value": "Send voice message"
+    },
+    {
+      "comment": "Hard-coded contactStatus copy used by ChatViewController+HighPrioritySubscribtions. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "chat__contact_status__server",
+      "path": "xabber/controllers/chats/chat/rx/ChatViewController+HighPrioritySubscribtions.swift",
+      "sink": "contactStatus",
+      "translations": {
+        "ar": "الخادم",
+        "en": "Server",
+        "es": "Servidor",
+        "fr": "Serveur",
+        "ru": "Сервер",
+        "zh-Hans": "服务器"
+      },
+      "value": "Server"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by ContactsCategoryViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "contact_circle",
+      "path": "xabber/controllers/chats/contact_list/ContactsCategoryViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "الدوائر",
+        "en": "Circles",
+        "es": "Círculos",
+        "fr": "Cercles",
+        "ru": "Круги",
+        "zh-Hans": "圈子"
+      },
+      "value": "Circles"
+    },
+    {
+      "comment": "Hard-coded accessibilityLabel copy used by ContactsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "contacts__accessibility_label__online_contacts_filter",
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "accessibilityLabel",
+      "translations": {
+        "ar": "عامل تصفية جهات الاتصال المتصلة",
+        "en": "Online contacts filter",
+        "es": "Filtro de contactos en línea",
+        "fr": "Filtre des contacts en ligne",
+        "ru": "Фильтр контактов в сети",
+        "zh-Hans": "在线联系人筛选"
+      },
+      "value": "Online contacts filter"
+    },
+    {
+      "comment": "Hard-coded accessibilityLabel copy used by ContactsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "contacts__accessibility_label__online_groups_filter",
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "accessibilityLabel",
+      "translations": {
+        "ar": "عامل تصفية المجموعات المتصلة",
+        "en": "Online groups filter",
+        "es": "Filtro de grupos en línea",
+        "fr": "Filtre des groupes en ligne",
+        "ru": "Фильтр групп в сети",
+        "zh-Hans": "在线群组筛选"
+      },
+      "value": "Online groups filter"
+    },
+    {
+      "comment": "Hard-coded discoverabilityTitle copy used by ContactsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "contacts__discoverability_title__show_all_contacts",
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "discoverabilityTitle",
+      "translations": {
+        "ar": "إظهار جميع جهات الاتصال",
+        "en": "Show all contacts",
+        "es": "Mostrar todos los contactos",
+        "fr": "Afficher tous les contacts",
+        "ru": "Показать все контакты",
+        "zh-Hans": "显示所有联系人"
+      },
+      "value": "Show all contacts"
+    },
+    {
+      "comment": "Hard-coded discoverabilityTitle copy used by ContactsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "contacts__discoverability_title__show_contact_requests",
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "discoverabilityTitle",
+      "translations": {
+        "ar": "إظهار طلبات جهات الاتصال",
+        "en": "Show contact requests",
+        "es": "Mostrar solicitudes de contacto",
+        "fr": "Afficher les demandes de contact",
+        "ru": "Показать запросы контактов",
+        "zh-Hans": "显示联系人请求"
+      },
+      "value": "Show contact requests"
+    },
+    {
+      "comment": "Hard-coded discoverabilityTitle copy used by ContactsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "contacts__discoverability_title__show_only_online",
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "discoverabilityTitle",
+      "translations": {
+        "ar": "إظهار المتصلين فقط",
+        "en": "Show only online",
+        "es": "Mostrar solo conectados",
+        "fr": "Afficher uniquement les contacts en ligne",
+        "ru": "Показать только тех, кто в сети",
+        "zh-Hans": "仅显示在线"
+      },
+      "value": "Show only online"
+    },
+    {
+      "comment": "Hard-coded discoverabilityTitle copy used by ContactsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "contacts__discoverability_title__show_outgoing_requests",
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "discoverabilityTitle",
+      "translations": {
+        "ar": "إظهار الطلبات الصادرة",
+        "en": "Show outgoing requests",
+        "es": "Mostrar solicitudes salientes",
+        "fr": "Afficher les demandes envoyées",
+        "ru": "Показать исходящие запросы",
+        "zh-Hans": "显示已发送的请求"
+      },
+      "value": "Show outgoing requests"
+    },
+    {
+      "comment": "Hard-coded nfcScanAlertMessage copy used by ContactsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "last_calls__nfc_scan_alert_message__register_yubikey_for_account",
+      "path": "xabber/controllers/chats/contact_list/ContactsViewController.swift",
+      "sink": "nfcScanAlertMessage",
+      "translations": {
+        "ar": "تسجيل YubiKey للحساب",
+        "en": "Register Yubikey for account",
+        "es": "Registrar YubiKey para la cuenta",
+        "fr": "Enregistrer la YubiKey pour le compte",
+        "ru": "Зарегистрировать YubiKey для аккаунта",
+        "zh-Hans": "为账号注册 YubiKey"
+      },
+      "value": "Register Yubikey for account"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by AddNewContactViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "dialog_add_contact__label_jid",
+      "path": "xabber/controllers/chats/create_new_entity/AddNewContactViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "معرّف XMPP لجهة الاتصال",
+        "en": "Contact XMPP ID",
+        "es": "ID XMPP del contacto",
+        "fr": "Identifiant XMPP du contact",
+        "ru": "XMPP ID контакта",
+        "zh-Hans": "联系人的 XMPP ID"
+      },
+      "value": "Contact XMPP ID"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by AddNewContactViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "add_new_contact__table_section_title__selected_xmpp_account",
+      "path": "xabber/controllers/chats/create_new_entity/AddNewContactViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "حساب XMPP المحدد",
+        "en": "Selected XMPP Account",
+        "es": "Cuenta XMPP seleccionada",
+        "fr": "Compte XMPP sélectionné",
+        "ru": "Выбранный XMPP-аккаунт",
+        "zh-Hans": "已选择的 XMPP 账号"
+      },
+      "value": "Selected XMPP Account"
+    },
+    {
+      "comment": "Hard-coded description copy used by CreateNewEntityViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "create_new_entity__description__answers_calls_and_mirrors_your_camera_video",
+      "path": "xabber/controllers/chats/create_new_entity/CreateNewEntityViewController.swift",
+      "sink": "description",
+      "translations": {
+        "ar": "يرد على المكالمات ويعكس فيديو الكاميرا.",
+        "en": "Answers calls and mirrors your camera video.",
+        "es": "Responde llamadas y refleja el vídeo de tu cámara.",
+        "fr": "Répond aux appels et renvoie la vidéo de votre caméra.",
+        "ru": "Отвечает на звонки и зеркально отображает видео с вашей камеры.",
+        "zh-Hans": "接听通话并镜像你的摄像头视频。"
+      },
+      "value": "Answers calls and mirrors your camera video."
+    },
+    {
+      "comment": "Hard-coded description copy used by CreateNewEntityViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "create_new_entity__description__echo_bot_that_sends_your_messages_back",
+      "path": "xabber/controllers/chats/create_new_entity/CreateNewEntityViewController.swift",
+      "sink": "description",
+      "translations": {
+        "ar": "روبوت صدى يعيد إرسال رسائلك إليك.",
+        "en": "Echo bot that sends your messages back.",
+        "es": "Bot de eco que te devuelve tus mensajes.",
+        "fr": "Bot écho qui vous renvoie vos messages.",
+        "ru": "Эхо-бот, который отправляет ваши сообщения обратно.",
+        "zh-Hans": "回显机器人，会将你的消息发回给你。"
+      },
+      "value": "Echo bot that sends your messages back."
+    },
+    {
+      "comment": "Hard-coded title copy used by CreateNewEntityViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "create_new_entity__title__new_chat",
+      "path": "xabber/controllers/chats/create_new_entity/CreateNewEntityViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "محادثة جديدة",
+        "en": "New chat",
+        "es": "Nuevo chat",
+        "fr": "Nouvelle discussion",
+        "ru": "Новый чат",
+        "zh-Hans": "新聊天"
+      },
+      "value": "New chat"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by EditContactViewController+UITableViewDataSource. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "edit_contact__table_section_title__the_contact_receives_your_presence_information_you_have_not_sent_a_request",
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "تتلقى جهة الاتصال معلومات حضورك.\n\nلم ترسل طلبًا للوصول إلى معلومات حضور جهة الاتصال هذه.",
+        "en": "The contact receives your presence information.\n\nYou have not sent a request to access presence information of this contact.",
+        "es": "El contacto recibe tu información de presencia.\n\nNo has enviado una solicitud para acceder a la información de presencia de este contacto.",
+        "fr": "Le contact reçoit vos informations de présence.\n\nVous n’avez pas envoyé de demande pour accéder aux informations de présence de ce contact.",
+        "ru": "Контакт получает информацию о вашем присутствии.\n\nВы не отправляли запрос на доступ к информации о присутствии этого контакта.",
+        "zh-Hans": "该联系人会收到你的在线状态信息。\n\n你尚未请求查看该联系人的在线状态信息。"
+      },
+      "value": "The contact receives your presence information.\n\nYou have not sent a request to access presence information of this contact."
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by EditContactViewController+UITableViewDataSource. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "edit_contact__table_section_title__you_receive_presence_information_for_this_contact_and_the_contact_has_sent",
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "تتلقى معلومات حضور جهة الاتصال هذه، وقد أرسلت إليك طلبًا للاطلاع على معلومات حضورك.",
+        "en": "You receive presence information for this contact, and the contact has sent you a request to see your presence information.",
+        "es": "Recibes la información de presencia de este contacto y el contacto te ha solicitado ver la tuya.",
+        "fr": "Vous recevez les informations de présence de ce contact, qui vous a demandé à voir les vôtres.",
+        "ru": "Вы получаете информацию о присутствии этого контакта, а контакт запросил доступ к информации о вашем присутствии.",
+        "zh-Hans": "你会收到此联系人的在线状态信息，并且该联系人已请求查看你的在线状态信息。"
+      },
+      "value": "You receive presence information for this contact, and the contact has sent you a request to see your presence information."
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by EditContactViewController+UITableViewDataSource. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "edit_contact__table_section_title__you_receive_presence_information_for_this_contact_but_the_contact_has_not",
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "تتلقى معلومات حضور جهة الاتصال هذه، لكنها لم تطلب الاطلاع على معلومات حضورك.\n\nسيتم قبول طلبات الاشتراك الواردة تلقائيًا.",
+        "en": "You receive presence information for this contact, but the contact has not asked to see yours.\n\nIncoming subscription requests will be accepted automatically.",
+        "es": "Recibes la información de presencia de este contacto, pero el contacto no ha solicitado ver la tuya.\n\nLas solicitudes de suscripción entrantes se aceptarán automáticamente.",
+        "fr": "Vous recevez les informations de présence de ce contact, mais il n’a pas demandé à voir les vôtres.\n\nLes demandes d’abonnement entrantes seront acceptées automatiquement.",
+        "ru": "Вы получаете информацию о присутствии этого контакта, но контакт не запрашивал доступ к вашей.\n\nВходящие запросы подписки будут приниматься автоматически.",
+        "zh-Hans": "你会收到此联系人的在线状态信息，但对方尚未请求查看你的状态。\n\n收到的订阅请求将自动接受。"
+      },
+      "value": "You receive presence information for this contact, but the contact has not asked to see yours.\n\nIncoming subscription requests will be accepted automatically."
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by EditContactViewController+UITableViewDataSource. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "edit_contact__table_section_title__you_receive_presence_information_for_this_contact_but_the_contact_has_not__variant_2",
+      "path": "xabber/controllers/chats/edit_contact/EditContactViewController+UITableViewDataSource.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "تتلقى معلومات حضور جهة الاتصال هذه، لكنها لم تطلب الاطلاع على معلومات حضورك.\n\nلن يتم قبول طلبات الاشتراك الواردة تلقائيًا.",
+        "en": "You receive presence information for this contact, but the contact has not asked to see yours.\n\nIncoming subscription requests will not be accepted automatically.",
+        "es": "Recibes la información de presencia de este contacto, pero el contacto no ha solicitado ver la tuya.\n\nLas solicitudes de suscripción entrantes no se aceptarán automáticamente.",
+        "fr": "Vous recevez les informations de présence de ce contact, mais il n’a pas demandé à voir les vôtres.\n\nLes demandes d’abonnement entrantes ne seront pas acceptées automatiquement.",
+        "ru": "Вы получаете информацию о присутствии этого контакта, но контакт не запрашивал доступ к вашей.\n\nВходящие запросы подписки не будут приниматься автоматически.",
+        "zh-Hans": "你会收到此联系人的在线状态信息，但对方尚未请求查看你的状态。\n\n收到的订阅请求不会自动接受。"
+      },
+      "value": "You receive presence information for this contact, but the contact has not asked to see yours.\n\nIncoming subscription requests will not be accepted automatically."
+    },
+    {
+      "comment": "Hard-coded errorMessage copy used by GroupchatSettingsViewControllerT. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "groupchat_settings_view_controller_t__error_message__unable_to_send_file_out_of_cloud_storage",
+      "path": "xabber/controllers/chats/groupchats/groupchat_settings/GroupchatSettingsViewControllerT.swift",
+      "sink": "errorMessage",
+      "translations": {
+        "ar": "تعذر إرسال الملف: نفدت مساحة التخزين السحابي",
+        "en": "Unable to send file: out of Cloud Storage",
+        "es": "No se pudo enviar el archivo: sin espacio en Almacenamiento en la nube",
+        "fr": "Impossible d’envoyer le fichier : espace du Stockage cloud épuisé",
+        "ru": "Не удалось отправить файл: в Облачном хранилище нет места",
+        "zh-Hans": "无法发送文件：云存储空间不足"
+      },
+      "value": "Unable to send file: out of Cloud Storage"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by GroupchatSettingsPermissionsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "groupchat_settings_permissions__table_section_title__default_permissions_apply_to_members_unless_a_personal_permission_overrides_them",
+      "path": "xabber/controllers/chats/groupchats/groupchat_settings/managed/GroupchatSettingsPermissionsViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "تُطبّق الأذونات الافتراضية على الأعضاء ما لم يتجاوزها إذن شخصي.",
+        "en": "Default permissions apply to members unless a personal permission overrides them.",
+        "es": "Los permisos predeterminados se aplican a los miembros salvo que un permiso personal los sustituya.",
+        "fr": "Les autorisations par défaut s’appliquent aux membres, sauf si une autorisation personnelle les remplace.",
+        "ru": "Разрешения по умолчанию применяются к участникам, если их не переопределяют персональные разрешения.",
+        "zh-Hans": "默认权限适用于成员，除非个人权限将其覆盖。"
+      },
+      "value": "Default permissions apply to members unless a personal permission overrides them."
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by GroupchatSettingsPermissionsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "groupchat_settings_permissions__table_section_title__new_member_permissions_replace_the_full_temporary_permission_set",
+      "path": "xabber/controllers/chats/groupchats/groupchat_settings/managed/GroupchatSettingsPermissionsViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "تحل أذونات الأعضاء الجدد محل مجموعة الأذونات المؤقتة بالكامل.",
+        "en": "New-member permissions replace the full temporary permission set.",
+        "es": "Los permisos de nuevos miembros sustituyen todo el conjunto de permisos temporales.",
+        "fr": "Les autorisations des nouveaux membres remplacent l’ensemble complet des autorisations temporaires.",
+        "ru": "Разрешения для новых участников полностью заменяют временный набор разрешений.",
+        "zh-Hans": "新成员权限会替换整套临时权限。"
+      },
+      "value": "New-member permissions replace the full temporary permission set."
+    },
+    {
+      "comment": "Hard-coded errorMessage copy used by AccountInfoViewController+InfoScreenHeaderButtonDelegate. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "groupchat_settings_view_controller_t__error_message__unable_to_send_file_out_of_cloud_storage",
+      "path": "xabber/controllers/chats/info_screens/account_info/AccountInfoViewController+InfoScreenHeaderButtonDelegate.swift",
+      "sink": "errorMessage",
+      "translations": {
+        "ar": "تعذر إرسال الملف: نفدت مساحة التخزين السحابي",
+        "en": "Unable to send file: out of Cloud Storage",
+        "es": "No se pudo enviar el archivo: sin espacio en Almacenamiento en la nube",
+        "fr": "Impossible d’envoyer le fichier : espace du Stockage cloud épuisé",
+        "ru": "Не удалось отправить файл: в Облачном хранилище нет места",
+        "zh-Hans": "无法发送文件：云存储空间不足"
+      },
+      "value": "Unable to send file: out of Cloud Storage"
+    },
+    {
+      "comment": "Hard-coded description copy used by DevicesListViewController+UITableViewDatasource. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "devices_list__description__undefined",
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController+UITableViewDatasource.swift",
+      "sink": "description",
+      "translations": {
+        "ar": "غير محدد",
+        "en": "Undefined",
+        "es": "Sin definir",
+        "fr": "Non défini",
+        "ru": "Не определено",
+        "zh-Hans": "未定义"
+      },
+      "value": "Undefined"
+    },
+    {
+      "comment": "Hard-coded noText copy used by DevicesListViewController+UITableViewDelegate. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__cancel",
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController+UITableViewDelegate.swift",
+      "sink": "noText",
+      "translations": {
+        "ar": "إلغاء",
+        "en": "Cancel",
+        "es": "Cancelar",
+        "fr": "Annuler",
+        "ru": "Отмена",
+        "zh-Hans": "取消"
+      },
+      "value": "Cancel"
+    },
+    {
+      "comment": "Hard-coded yesText copy used by DevicesListViewController+UITableViewDelegate. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__delete",
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController+UITableViewDelegate.swift",
+      "sink": "yesText",
+      "translations": {
+        "ar": "حذف",
+        "en": "Delete",
+        "es": "Eliminar",
+        "fr": "Supprimer",
+        "ru": "Удалить",
+        "zh-Hans": "删除"
+      },
+      "value": "Delete"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by DeviceDetailViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "device_detail__table_section_title__private_information",
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "معلومات خاصة",
+        "en": "Private information",
+        "es": "Información privada",
+        "fr": "Informations privées",
+        "ru": "Личная информация",
+        "zh-Hans": "私密信息"
+      },
+      "value": "Private information"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by DeviceDetailViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "device_detail__table_section_title__public_information",
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "معلومات عامة",
+        "en": "Public information",
+        "es": "Información pública",
+        "fr": "Informations publiques",
+        "ru": "Публичная информация",
+        "zh-Hans": "公开信息"
+      },
+      "value": "Public information"
+    },
+    {
+      "comment": "Hard-coded title copy used by DeviceDetailViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "device_detail__title__device_signed",
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "الجهاز موقّع",
+        "en": "Device signed",
+        "es": "Dispositivo firmado",
+        "fr": "Appareil signé",
+        "ru": "Устройство подписано",
+        "zh-Hans": "设备已签名"
+      },
+      "value": "Device signed"
+    },
+    {
+      "comment": "Hard-coded title copy used by DeviceDetailViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "device_detail__title__device_trusted",
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "الجهاز موثوق",
+        "en": "Device trusted",
+        "es": "Dispositivo de confianza",
+        "fr": "Appareil approuvé",
+        "ru": "Устройство доверенное",
+        "zh-Hans": "设备已信任"
+      },
+      "value": "Device trusted"
+    },
+    {
+      "comment": "Hard-coded title copy used by DeviceDetailViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "device_detail__title__not_verified",
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "غير متحقق",
+        "en": "Not verified",
+        "es": "No verificado",
+        "fr": "Non vérifié",
+        "ru": "Не проверено",
+        "zh-Hans": "未验证"
+      },
+      "value": "Not verified"
+    },
+    {
+      "comment": "Hard-coded title copy used by DeviceDetailViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "device_detail__title__verified_by",
+      "path": "xabber/controllers/chats/info_screens/account_info/devices_list/device_info/DeviceDetailViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "تم التحقق بواسطة",
+        "en": "Verified by",
+        "es": "Verificado por",
+        "fr": "Vérifié par",
+        "ru": "Проверено с помощью",
+        "zh-Hans": "验证者"
+      },
+      "value": "Verified by"
+    },
+    {
+      "comment": "Hard-coded errorMessage copy used by AccountEditViewController+Flow. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "groupchat_settings_view_controller_t__error_message__unable_to_send_file_out_of_cloud_storage",
+      "path": "xabber/controllers/chats/info_screens/account_info/edit/AccountEditViewController+Flow.swift",
+      "sink": "errorMessage",
+      "translations": {
+        "ar": "تعذر إرسال الملف: نفدت مساحة التخزين السحابي",
+        "en": "Unable to send file: out of Cloud Storage",
+        "es": "No se pudo enviar el archivo: sin espacio en Almacenamiento en la nube",
+        "fr": "Impossible d’envoyer le fichier : espace du Stockage cloud épuisé",
+        "ru": "Не удалось отправить файл: в Облачном хранилище нет места",
+        "zh-Hans": "无法发送文件：云存储空间不足"
+      },
+      "value": "Unable to send file: out of Cloud Storage"
+    },
+    {
+      "comment": "Hard-coded text copy used by CloudStorageDeleteViewController+UICollectionViewDataSource. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__delete",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageDeleteViewController+UICollectionViewDataSource.swift",
+      "sink": "text",
+      "translations": {
+        "ar": "حذف",
+        "en": "Delete",
+        "es": "Eliminar",
+        "fr": "Supprimer",
+        "ru": "Удалить",
+        "zh-Hans": "删除"
+      },
+      "value": "Delete"
+    },
+    {
+      "comment": "Hard-coded text copy used by CloudStorageDeleteViewController+UICollectionViewDataSource. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "cloud_storage_delete__text__deleting",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageDeleteViewController+UICollectionViewDataSource.swift",
+      "sink": "text",
+      "translations": {
+        "ar": "جارٍ الحذف…",
+        "en": "Deleting…",
+        "es": "Eliminando…",
+        "fr": "Suppression…",
+        "ru": "Удаление…",
+        "zh-Hans": "正在删除…"
+      },
+      "value": "Deleting…"
+    },
+    {
+      "comment": "Hard-coded yesText copy used by CloudStorageGalleryViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__open",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageGalleryViewController.swift",
+      "sink": "yesText",
+      "translations": {
+        "ar": "فتح",
+        "en": "Open",
+        "es": "Abrir",
+        "fr": "Ouvrir",
+        "ru": "Открыть",
+        "zh-Hans": "打开"
+      },
+      "value": "Open"
+    },
+    {
+      "comment": "Hard-coded body copy used by CloudStorageViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "cloud_storage__body__buy_external_storage_space_100_gb_for_5",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageViewController.swift",
+      "sink": "body",
+      "translations": {
+        "ar": "اشترِ مساحة تخزين خارجية: 100 غيغابايت مقابل 5 دولارات.",
+        "en": "Buy external storage space: 100 GB for $5.",
+        "es": "Compra almacenamiento externo: 100 GB por 5 $.",
+        "fr": "Achetez un espace de stockage externe : 100 Go pour 5 $.",
+        "ru": "Купите дополнительное хранилище: 100 ГБ за 5 $.",
+        "zh-Hans": "购买外部存储空间：100 GB，价格 5 美元。"
+      },
+      "value": "Buy external storage space: 100 GB for $5."
+    },
+    {
+      "comment": "Hard-coded body copy used by CloudStorageViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "cloud_storage__body__upgrade_to_premium_to_increase_your_cloud_storage_capacity_and_store_more",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageViewController.swift",
+      "sink": "body",
+      "translations": {
+        "ar": "قم بالترقية إلى Premium لزيادة سعة التخزين السحابي وحفظ المزيد من الوسائط.",
+        "en": "Upgrade to Premium to increase your cloud storage capacity and store more media.",
+        "es": "Mejora a Premium para aumentar la capacidad de Almacenamiento en la nube y guardar más contenido multimedia.",
+        "fr": "Passez à Premium pour augmenter la capacité de votre Stockage cloud et conserver plus de médias.",
+        "ru": "Перейдите на Премиум, чтобы увеличить объём Облачного хранилища и хранить больше медиафайлов.",
+        "zh-Hans": "升级到高级版以扩充云存储容量并保存更多媒体。"
+      },
+      "value": "Upgrade to Premium to increase your cloud storage capacity and store more media."
+    },
+    {
+      "comment": "Hard-coded text copy used by CloudStorageViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "cloud_storage__text__cloud_storage_is_unavailable",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageViewController.swift",
+      "sink": "text",
+      "translations": {
+        "ar": "التخزين السحابي غير متاح.",
+        "en": "Cloud Storage is unavailable.",
+        "es": "El Almacenamiento en la nube no está disponible.",
+        "fr": "Le Stockage cloud est indisponible.",
+        "ru": "Облачное хранилище недоступно.",
+        "zh-Hans": "云存储不可用。"
+      },
+      "value": "Cloud Storage is unavailable."
+    },
+    {
+      "comment": "Hard-coded presentationCall copy used by QuotaInfoCell. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "cloud_storage__text__cloud_storage_is_unavailable",
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/QuotaInfoCell.swift",
+      "sink": "presentationCall",
+      "translations": {
+        "ar": "التخزين السحابي غير متاح.",
+        "en": "Cloud Storage is unavailable.",
+        "es": "El Almacenamiento en la nube no está disponible.",
+        "fr": "Le Stockage cloud est indisponible.",
+        "ru": "Облачное хранилище недоступно.",
+        "zh-Hans": "云存储不可用。"
+      },
+      "value": "Cloud Storage is unavailable."
+    },
+    {
+      "comment": "Hard-coded text copy used by DeviceInfoTableCell. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "device_info__text__signed",
+      "path": "xabber/controllers/chats/info_screens/cells/DeviceInfoTableCell.swift",
+      "sink": "text",
+      "translations": {
+        "ar": " موقّع",
+        "en": " Signed",
+        "es": " Firmado",
+        "fr": " Signé",
+        "ru": " Подписано",
+        "zh-Hans": " 已签名"
+      },
+      "value": " Signed"
+    },
+    {
+      "comment": "Hard-coded text copy used by DeviceInfoTableCell. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "device_info__text__trusted",
+      "path": "xabber/controllers/chats/info_screens/cells/DeviceInfoTableCell.swift",
+      "sink": "text",
+      "translations": {
+        "ar": " موثوق",
+        "en": " Trusted",
+        "es": " De confianza",
+        "fr": " Approuvé",
+        "ru": " Доверенное",
+        "zh-Hans": " 已信任"
+      },
+      "value": " Trusted"
+    },
+    {
+      "api": "format",
+      "comment": "Hard-coded text copy used by DeviceInfoTableCell. Each %@ placeholder is a runtime value and must be preserved in translation.",
+      "key": "device_info__text__value_trusted_by_code",
+      "path": "xabber/controllers/chats/info_screens/cells/DeviceInfoTableCell.swift",
+      "sink": "text",
+      "translations": {
+        "ar": "%@ ⦁ موثوق بواسطة الرمز",
+        "en": "%@ ⦁ trusted by code",
+        "es": "%@ ⦁ de confianza mediante código",
+        "fr": "%@ ⦁ approuvé par code",
+        "ru": "%@ ⦁ доверено по коду",
+        "zh-Hans": "%@ ⦁ 通过验证码信任"
+      },
+      "value": "%@ ⦁ trusted by code"
+    },
+    {
+      "api": "format",
+      "comment": "Hard-coded text copy used by DeviceInfoTableCell. Each %@ placeholder is a runtime value and must be preserved in translation.",
+      "fallback": "%1$@ ⦁ trusted via %2$@",
+      "key": "device_info__text__value_trusted_via_value",
+      "path": "xabber/controllers/chats/info_screens/cells/DeviceInfoTableCell.swift",
+      "sink": "text",
+      "translations": {
+        "ar": "%1$@ ⦁ موثوق عبر %2$@",
+        "en": "%1$@ ⦁ trusted via %2$@",
+        "es": "%1$@ ⦁ de confianza mediante %2$@",
+        "fr": "%1$@ ⦁ approuvé via %2$@",
+        "ru": "%1$@ ⦁ доверено через %2$@",
+        "zh-Hans": "%1$@ ⦁ 通过 %2$@ 信任"
+      },
+      "value": "%@ ⦁ trusted via %@"
+    },
+    {
+      "comment": "Hard-coded noText copy used by ContactInfoViewControllerExtensions. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__cancel",
+      "path": "xabber/controllers/chats/info_screens/contact_info/ContactInfoViewControllerExtensions.swift",
+      "sink": "noText",
+      "translations": {
+        "ar": "إلغاء",
+        "en": "Cancel",
+        "es": "Cancelar",
+        "fr": "Annuler",
+        "ru": "Отмена",
+        "zh-Hans": "取消"
+      },
+      "value": "Cancel"
+    },
+    {
+      "comment": "Hard-coded yesText copy used by ContactInfoViewControllerExtensions. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__open",
+      "path": "xabber/controllers/chats/info_screens/contact_info/ContactInfoViewControllerExtensions.swift",
+      "sink": "yesText",
+      "translations": {
+        "ar": "فتح",
+        "en": "Open",
+        "es": "Abrir",
+        "fr": "Ouvrir",
+        "ru": "Открыть",
+        "zh-Hans": "打开"
+      },
+      "value": "Open"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by ContactFingerprintsViewController.swift. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "contact_fingerprints_view_controller_swift__table_section_title__certificate",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/ContactFingerprintsViewController.swift.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "الشهادة",
+        "en": "Certificate",
+        "es": "Certificado",
+        "fr": "Certificat",
+        "ru": "Сертификат",
+        "zh-Hans": "证书"
+      },
+      "value": "Certificate"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by ContactFingerprintsViewController.swift. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "contact_fingerprints_view_controller_swift__table_section_title__signature",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/ContactFingerprintsViewController.swift.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "التوقيع",
+        "en": "Signature",
+        "es": "Firma",
+        "fr": "Signature",
+        "ru": "Подпись",
+        "zh-Hans": "签名"
+      },
+      "value": "Signature"
+    },
+    {
+      "comment": "Hard-coded title copy used by ContactDeviceDetailViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "device_detail__title__device_signed",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/ContactDeviceDetailViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "الجهاز موقّع",
+        "en": "Device signed",
+        "es": "Dispositivo firmado",
+        "fr": "Appareil signé",
+        "ru": "Устройство подписано",
+        "zh-Hans": "设备已签名"
+      },
+      "value": "Device signed"
+    },
+    {
+      "comment": "Hard-coded title copy used by ContactDeviceDetailViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "device_detail__title__device_trusted",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/ContactDeviceDetailViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "الجهاز موثوق",
+        "en": "Device trusted",
+        "es": "Dispositivo de confianza",
+        "fr": "Appareil approuvé",
+        "ru": "Устройство доверенное",
+        "zh-Hans": "设备已信任"
+      },
+      "value": "Device trusted"
+    },
+    {
+      "comment": "Hard-coded title copy used by ContactDeviceDetailViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "device_detail__title__not_verified",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/ContactDeviceDetailViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "غير متحقق",
+        "en": "Not verified",
+        "es": "No verificado",
+        "fr": "Non vérifié",
+        "ru": "Не проверено",
+        "zh-Hans": "未验证"
+      },
+      "value": "Not verified"
+    },
+    {
+      "comment": "Hard-coded title copy used by ContactDeviceDetailViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "device_detail__title__verified_by",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/ContactDeviceDetailViewController.swift",
+      "sink": "title",
+      "translations": {
+        "ar": "تم التحقق بواسطة",
+        "en": "Verified by",
+        "es": "Verificado por",
+        "fr": "Vérifié par",
+        "ru": "Проверено с помощью",
+        "zh-Hans": "验证者"
+      },
+      "value": "Verified by"
+    },
+    {
+      "comment": "Hard-coded secondaryText copy used by TrustedDevicesViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "trusted_devices__secondary_text__a_verification_request_has_been_sent_to_your_contact_s_devices_wait",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "secondaryText",
+      "translations": {
+        "ar": "تم إرسال طلب تحقق إلى أجهزة جهة الاتصال. انتظر حتى يزوّدك جهة الاتصال برمز التحقق، ثم أدخله لإكمال التحقق من الهوية.",
+        "en": "A verification request has been sent to your contact's devices. Wait for your contact to provide the verification code, then you will need to enter it to complete the identity verification.",
+        "es": "Se ha enviado una solicitud de verificación a los dispositivos de tu contacto. Espera a que tu contacto te facilite el código de verificación y, después, introdúcelo para completar la verificación de identidad.",
+        "fr": "Une demande de vérification a été envoyée aux appareils de votre contact. Attendez que votre contact vous communique le code de vérification, puis saisissez-le pour terminer la vérification d’identité.",
+        "ru": "Запрос на проверку отправлен на устройства контакта. Дождитесь кода проверки от контакта, затем введите его, чтобы завершить проверку личности.",
+        "zh-Hans": "验证请求已发送到联系人的设备。请等待联系人提供验证码，然后输入验证码以完成身份验证。"
+      },
+      "value": "A verification request has been sent to your contact's devices. Wait for your contact to provide the verification code, then you will need to enter it to complete the identity verification."
+    },
+    {
+      "comment": "Hard-coded secondaryText copy used by TrustedDevicesViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "trusted_devices__secondary_text__a_verification_request_has_been_sent_to_your_other_device_please_check",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "secondaryText",
+      "translations": {
+        "ar": "تم إرسال طلب تحقق إلى جهازك الآخر. تحقّق من الجهاز واتبع التعليمات لإكمال عملية التحقق.",
+        "en": "A verification request has been sent to your other device. Please check the device and follow the provided instructions to complete the verification process.",
+        "es": "Se ha enviado una solicitud de verificación a tu otro dispositivo. Compruébalo y sigue las instrucciones para completar la verificación.",
+        "fr": "Une demande de vérification a été envoyée à votre autre appareil. Consultez cet appareil et suivez les instructions pour terminer la vérification.",
+        "ru": "Запрос на проверку отправлен на другое ваше устройство. Проверьте его и следуйте инструкциям, чтобы завершить проверку.",
+        "zh-Hans": "验证请求已发送到你的另一台设备。请查看该设备并按照说明完成验证。"
+      },
+      "value": "A verification request has been sent to your other device. Please check the device and follow the provided instructions to complete the verification process."
+    },
+    {
+      "comment": "Hard-coded secondaryText copy used by TrustedDevicesViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "trusted_devices__secondary_text__device_has_requested_to_establish_a_trusted_encryption_session_with_you_if",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "secondaryText",
+      "translations": {
+        "ar": "طلب جهاز إنشاء جلسة تشفير موثوقة معك. إذا وافقت، فسيظهر رمز أمان يجب تمريره إلى جهازك الأساسي.",
+        "en": "Device has requested to establish a trusted encryption session with you. If you accept, you'll be presented with a security code which you'll need to pass to your primary device.",
+        "es": "Un dispositivo ha solicitado establecer una sesión cifrada de confianza contigo. Si aceptas, se mostrará un código de seguridad que deberás proporcionar a tu dispositivo principal.",
+        "fr": "Un appareil a demandé à établir une session chiffrée de confiance avec vous. Si vous acceptez, un code de sécurité s’affichera ; vous devrez le transmettre à votre appareil principal.",
+        "ru": "Устройство запросило создание доверенного зашифрованного сеанса. Если вы согласитесь, появится код безопасности, который нужно передать на основное устройство.",
+        "zh-Hans": "一台设备请求与你建立可信加密会话。接受后会显示安全码，你需要将其提供给主设备。"
+      },
+      "value": "Device has requested to establish a trusted encryption session with you. If you accept, you'll be presented with a security code which you'll need to pass to your primary device."
+    },
+    {
+      "comment": "Hard-coded secondaryText copy used by TrustedDevicesViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "trusted_devices__secondary_text__the_contact_accepted_the_verification_request",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "secondaryText",
+      "translations": {
+        "ar": "قبلت جهة الاتصال طلب التحقق.",
+        "en": "The contact accepted the verification request.",
+        "es": "El contacto aceptó la solicitud de verificación.",
+        "fr": "Le contact a accepté la demande de vérification.",
+        "ru": "Контакт принял запрос на проверку.",
+        "zh-Hans": "联系人已接受验证请求。"
+      },
+      "value": "The contact accepted the verification request."
+    },
+    {
+      "comment": "Hard-coded secondaryText copy used by TrustedDevicesViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "trusted_devices__secondary_text__the_verification_session_failed",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "secondaryText",
+      "translations": {
+        "ar": "فشلت جلسة التحقق.",
+        "en": "The verification session failed.",
+        "es": "La sesión de verificación ha fallado.",
+        "fr": "La session de vérification a échoué.",
+        "ru": "Сеанс проверки завершился с ошибкой.",
+        "zh-Hans": "验证会话失败。"
+      },
+      "value": "The verification session failed."
+    },
+    {
+      "comment": "Hard-coded secondaryText copy used by TrustedDevicesViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "trusted_devices__secondary_text__the_verification_session_rejected",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "secondaryText",
+      "translations": {
+        "ar": "تم رفض جلسة التحقق.",
+        "en": "The verification session rejected.",
+        "es": "La sesión de verificación fue rechazada.",
+        "fr": "La session de vérification a été rejetée.",
+        "ru": "Сеанс проверки отклонён.",
+        "zh-Hans": "验证会话已被拒绝。"
+      },
+      "value": "The verification session rejected."
+    },
+    {
+      "comment": "Hard-coded secondaryText copy used by TrustedDevicesViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "trusted_devices__secondary_text__the_verification_session_was_completed_successfully_now_you_trust_this_contact_s",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "secondaryText",
+      "translations": {
+        "ar": "اكتملت جلسة التحقق بنجاح. أصبحت الآن تثق بأجهزة جهة الاتصال هذه.",
+        "en": "The verification session was completed successfully. Now you trust this contact's devices.",
+        "es": "La sesión de verificación se completó correctamente. Ahora confías en los dispositivos de este contacto.",
+        "fr": "La session de vérification a réussi. Vous faites désormais confiance aux appareils de ce contact.",
+        "ru": "Сеанс проверки успешно завершён. Теперь вы доверяете устройствам этого контакта.",
+        "zh-Hans": "验证会话已成功完成。你现在信任该联系人的设备。"
+      },
+      "value": "The verification session was completed successfully. Now you trust this contact's devices."
+    },
+    {
+      "comment": "Hard-coded secondaryText copy used by TrustedDevicesViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "trusted_devices__secondary_text__you_have_accepted_the_verification_request",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "secondaryText",
+      "translations": {
+        "ar": "لقد قبلت طلب التحقق.",
+        "en": "You have accepted the verification request.",
+        "es": "Has aceptado la solicitud de verificación.",
+        "fr": "Vous avez accepté la demande de vérification.",
+        "ru": "Вы приняли запрос на проверку.",
+        "zh-Hans": "你已接受验证请求。"
+      },
+      "value": "You have accepted the verification request."
+    },
+    {
+      "comment": "Hard-coded secondaryText copy used by TrustedDevicesViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "trusted_devices__secondary_text__you_have_received_an_identity_verification_request_from_this_contact_this_step",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "secondaryText",
+      "translations": {
+        "ar": "لقد تلقيت طلب تحقق من الهوية من جهة الاتصال هذه. هذه الخطوة ضرورية لإنشاء اتصال موثوق بين أجهزتك وضمان اتصالات آمنة ومشفّرة.\n\nاضغط الزر أدناه لعرض رمز التحقق. بعد إنشائه، أرسله بأمان إلى جهة الاتصال لإكمال التحقق من الهوية.",
+        "en": "You have received an identity verification request from this contact. This step is crucial to establish a trusted connection between your devices, ensuring secure and encrypted communications.\n\nPress the button below to display a verification code. Once generated, securely communicate this code to this contact to finalize the identity verification.",
+        "es": "Has recibido una solicitud de verificación de identidad de este contacto. Este paso es esencial para establecer una conexión de confianza entre los dispositivos y garantizar comunicaciones seguras y cifradas.\n\nPulsa el botón de abajo para mostrar un código de verificación. Después, comunícalo de forma segura a este contacto para completar la verificación.",
+        "fr": "Vous avez reçu une demande de vérification d’identité de ce contact. Cette étape est essentielle pour établir une connexion de confiance entre vos appareils et garantir des communications sécurisées et chiffrées.\n\nAppuyez sur le bouton ci-dessous pour afficher un code de vérification. Communiquez ensuite ce code de façon sûre à ce contact pour terminer la vérification.",
+        "ru": "Вы получили от этого контакта запрос на проверку личности. Этот шаг необходим для создания доверенного соединения между устройствами и безопасного зашифрованного общения.\n\nНажмите кнопку ниже, чтобы показать код проверки. Затем безопасно передайте его контакту, чтобы завершить проверку личности.",
+        "zh-Hans": "你收到了此联系人的身份验证请求。此步骤对于在设备之间建立可信连接并确保通信安全和加密至关重要。\n\n按下方按钮显示验证码。生成后，请通过安全方式将此验证码告知该联系人，以完成身份验证。"
+      },
+      "value": "You have received an identity verification request from this contact. This step is crucial to establish a trusted connection between your devices, ensuring secure and encrypted communications.\n\nPress the button below to display a verification code. Once generated, securely communicate this code to this contact to finalize the identity verification."
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by TrustedDevicesViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "fallback": "Contact's devices",
+      "key": "trusted_devices__table_section_title__contact_s_devices",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "أجهزة جهة الاتصال",
+        "en": "Contact's devices",
+        "es": "Dispositivos del contacto",
+        "fr": "Appareils du contact",
+        "ru": "Устройства контакта",
+        "zh-Hans": "联系人的设备"
+      },
+      "value": "Contact`s devices"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by TrustedDevicesViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "fallback": "Contact hasn't published keys yet",
+      "key": "trusted_devices__table_section_title__contact_hasn_t_published_keys_yet",
+      "path": "xabber/controllers/chats/info_screens/contact_info/encryption/trusted_devies/TrustedDevicesViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "لم تنشر جهة الاتصال المفاتيح بعد",
+        "en": "Contact hasn't published keys yet",
+        "es": "El contacto aún no ha publicado sus claves",
+        "fr": "Le contact n’a pas encore publié ses clés",
+        "ru": "Контакт ещё не опубликовал ключи",
+        "zh-Hans": "联系人尚未发布密钥"
+      },
+      "value": "Сontact hasn't published keys yet"
+    },
+    {
+      "comment": "Hard-coded accessibilityLabel copy used by VoiceGalleryForChatViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "chat_list__attachment_preview__voice_message",
+      "path": "xabber/controllers/chats/info_screens/views/gallery/VoiceGalleryForChatViewController.swift",
+      "sink": "accessibilityLabel",
+      "translations": {
+        "ar": "رسالة صوتية",
+        "en": "Voice message",
+        "es": "Mensaje de voz",
+        "fr": "Message vocal",
+        "ru": "Голосовое сообщение",
+        "zh-Hans": "语音消息"
+      },
+      "value": "Voice message"
+    },
+    {
+      "comment": "Hard-coded controlAccessibilityLabel copy used by VoiceGalleryForChatViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "voice_gallery_for_chat__control_accessibility_label__cancel_voice_message_download",
+      "path": "xabber/controllers/chats/info_screens/views/gallery/VoiceGalleryForChatViewController.swift",
+      "sink": "controlAccessibilityLabel",
+      "translations": {
+        "ar": "إلغاء تنزيل الرسالة الصوتية",
+        "en": "Cancel voice message download",
+        "es": "Cancelar la descarga del mensaje de voz",
+        "fr": "Annuler le téléchargement du message vocal",
+        "ru": "Отменить загрузку голосового сообщения",
+        "zh-Hans": "取消下载语音消息"
+      },
+      "value": "Cancel voice message download"
+    },
+    {
+      "comment": "Hard-coded controlAccessibilityLabel copy used by VoiceGalleryForChatViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "voice_gallery_for_chat__control_accessibility_label__download_voice_message",
+      "path": "xabber/controllers/chats/info_screens/views/gallery/VoiceGalleryForChatViewController.swift",
+      "sink": "controlAccessibilityLabel",
+      "translations": {
+        "ar": "تنزيل الرسالة الصوتية",
+        "en": "Download voice message",
+        "es": "Descargar el mensaje de voz",
+        "fr": "Télécharger le message vocal",
+        "ru": "Скачать голосовое сообщение",
+        "zh-Hans": "下载语音消息"
+      },
+      "value": "Download voice message"
+    },
+    {
+      "comment": "Hard-coded controlAccessibilityLabel copy used by VoiceGalleryForChatViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "voice_gallery_for_chat__control_accessibility_label__pause_voice_message",
+      "path": "xabber/controllers/chats/info_screens/views/gallery/VoiceGalleryForChatViewController.swift",
+      "sink": "controlAccessibilityLabel",
+      "translations": {
+        "ar": "إيقاف الرسالة الصوتية مؤقتًا",
+        "en": "Pause voice message",
+        "es": "Pausar el mensaje de voz",
+        "fr": "Mettre le message vocal en pause",
+        "ru": "Приостановить голосовое сообщение",
+        "zh-Hans": "暂停语音消息"
+      },
+      "value": "Pause voice message"
+    },
+    {
+      "comment": "Hard-coded controlAccessibilityLabel copy used by VoiceGalleryForChatViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "voice_gallery_for_chat__control_accessibility_label__play_voice_message",
+      "path": "xabber/controllers/chats/info_screens/views/gallery/VoiceGalleryForChatViewController.swift",
+      "sink": "controlAccessibilityLabel",
+      "translations": {
+        "ar": "تشغيل الرسالة الصوتية",
+        "en": "Play voice message",
+        "es": "Reproducir el mensaje de voz",
+        "fr": "Lire le message vocal",
+        "ru": "Воспроизвести голосовое сообщение",
+        "zh-Hans": "播放语音消息"
+      },
+      "value": "Play voice message"
+    },
+    {
+      "comment": "Hard-coded controlAccessibilityLabel copy used by VoiceGalleryForChatViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "voice_gallery_for_chat__control_accessibility_label__resume_voice_message",
+      "path": "xabber/controllers/chats/info_screens/views/gallery/VoiceGalleryForChatViewController.swift",
+      "sink": "controlAccessibilityLabel",
+      "translations": {
+        "ar": "استئناف الرسالة الصوتية",
+        "en": "Resume voice message",
+        "es": "Reanudar el mensaje de voz",
+        "fr": "Reprendre le message vocal",
+        "ru": "Продолжить голосовое сообщение",
+        "zh-Hans": "继续播放语音消息"
+      },
+      "value": "Resume voice message"
+    },
+    {
+      "comment": "Hard-coded controlAccessibilityLabel copy used by VoiceGalleryForChatViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "voice_gallery_for_chat__control_accessibility_label__retry_voice_message_download",
+      "path": "xabber/controllers/chats/info_screens/views/gallery/VoiceGalleryForChatViewController.swift",
+      "sink": "controlAccessibilityLabel",
+      "translations": {
+        "ar": "إعادة محاولة تنزيل الرسالة الصوتية",
+        "en": "Retry voice message download",
+        "es": "Reintentar la descarga del mensaje de voz",
+        "fr": "Réessayer de télécharger le message vocal",
+        "ru": "Повторить загрузку голосового сообщения",
+        "zh-Hans": "重试下载语音消息"
+      },
+      "value": "Retry voice message download"
+    },
+    {
+      "comment": "Hard-coded controlAccessibilityLabel copy used by VoiceGalleryForChatViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "voice_gallery_for_chat__control_accessibility_label__voice_message_queued_for_download",
+      "path": "xabber/controllers/chats/info_screens/views/gallery/VoiceGalleryForChatViewController.swift",
+      "sink": "controlAccessibilityLabel",
+      "translations": {
+        "ar": "تمت إضافة الرسالة الصوتية إلى قائمة التنزيل",
+        "en": "Voice message queued for download",
+        "es": "Mensaje de voz en cola de descarga",
+        "fr": "Message vocal mis en file de téléchargement",
+        "ru": "Голосовое сообщение добавлено в очередь загрузки",
+        "zh-Hans": "语音消息已加入下载队列"
+      },
+      "value": "Voice message queued for download"
+    },
+    {
+      "comment": "Hard-coded nfcScanAlertMessage copy used by LastChatsViewController+Flow. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "last_calls__nfc_scan_alert_message__register_yubikey_for_account",
+      "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
+      "sink": "nfcScanAlertMessage",
+      "translations": {
+        "ar": "تسجيل YubiKey للحساب",
+        "en": "Register Yubikey for account",
+        "es": "Registrar YubiKey para la cuenta",
+        "fr": "Enregistrer la YubiKey pour le compte",
+        "ru": "Зарегистрировать YubiKey для аккаунта",
+        "zh-Hans": "为账号注册 YubiKey"
+      },
+      "value": "Register Yubikey for account"
+    },
+    {
+      "comment": "Hard-coded noText copy used by LastChatsViewController+Flow. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__cancel",
+      "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
+      "sink": "noText",
+      "translations": {
+        "ar": "إلغاء",
+        "en": "Cancel",
+        "es": "Cancelar",
+        "fr": "Annuler",
+        "ru": "Отмена",
+        "zh-Hans": "取消"
+      },
+      "value": "Cancel"
+    },
+    {
+      "comment": "Hard-coded yesText copy used by LastChatsViewController+Flow. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__delete",
+      "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+Flow.swift",
+      "sink": "yesText",
+      "translations": {
+        "ar": "حذف",
+        "en": "Delete",
+        "es": "Eliminar",
+        "fr": "Supprimer",
+        "ru": "Удалить",
+        "zh-Hans": "删除"
+      },
+      "value": "Delete"
+    },
+    {
+      "api": "format",
+      "comment": "Hard-coded subtitle copy used by LastChatsViewController+UITableViewDatasource. Each %@ placeholder is a runtime value and must be preserved in translation.",
+      "key": "last_chats__subtitle__join_value",
+      "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+UITableViewDatasource.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "الانضمام إلى %@",
+        "en": "Join %@",
+        "es": "Unirse a %@",
+        "fr": "Rejoindre %@",
+        "ru": "Присоединиться к %@",
+        "zh-Hans": "加入 %@"
+      },
+      "value": "Join %@"
+    },
+    {
+      "api": "format",
+      "comment": "Hard-coded subtitle copy used by LastChatsViewController+UITableViewDatasource. Each %@ placeholder is a runtime value and must be preserved in translation.",
+      "key": "last_chats__subtitle__join_new_groups_value_and_more",
+      "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+UITableViewDatasource.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "الانضمام إلى مجموعات جديدة: %@ والمزيد",
+        "en": "Join new groups: %@ and more",
+        "es": "Unirse a nuevos grupos: %@ y más",
+        "fr": "Rejoindre de nouveaux groupes : %@ et plus",
+        "ru": "Присоединиться к новым группам: %@ и другим",
+        "zh-Hans": "加入新群组：%@ 等"
+      },
+      "value": "Join new groups: %@ and more"
+    },
+    {
+      "api": "format",
+      "comment": "Hard-coded subtitle copy used by LastChatsViewController+UITableViewDatasource. Each %@ placeholder is a runtime value and must be preserved in translation.",
+      "key": "last_chats__subtitle__new_contact_request_from_value",
+      "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+UITableViewDatasource.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "طلب جهة اتصال جديد من %@",
+        "en": "New contact request from %@",
+        "es": "Nueva solicitud de contacto de %@",
+        "fr": "Nouvelle demande de contact de %@",
+        "ru": "Новый запрос на добавление в контакты от %@",
+        "zh-Hans": "来自 %@ 的新联系人请求"
+      },
+      "value": "New contact request from %@"
+    },
+    {
+      "api": "format",
+      "comment": "Hard-coded subtitle copy used by LastChatsViewController+UITableViewDatasource. Each %@ placeholder is a runtime value and must be preserved in translation.",
+      "key": "last_chats__subtitle__new_contact_requests_from_value_and_others",
+      "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController+UITableViewDatasource.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "طلبات جهات اتصال جديدة من %@ وآخرين",
+        "en": "New contact requests from: %@ and others",
+        "es": "Nuevas solicitudes de contacto de %@ y otros",
+        "fr": "Nouvelles demandes de contact de %@ et d’autres personnes",
+        "ru": "Новые запросы на добавление в контакты от %@ и других",
+        "zh-Hans": "来自 %@ 等人的新联系人请求"
+      },
+      "value": "New contact requests from: %@ and others"
+    },
+    {
+      "comment": "Hard-coded text copy used by LastChatsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "chat_list__attachment_preview__voice_message",
+      "path": "xabber/controllers/chats/last_chats_list/LastChatsViewController.swift",
+      "sink": "text",
+      "translations": {
+        "ar": "رسالة صوتية",
+        "en": "Voice message",
+        "es": "Mensaje de voz",
+        "fr": "Message vocal",
+        "ru": "Голосовое сообщение",
+        "zh-Hans": "语音消息"
+      },
+      "value": "Voice message"
+    },
+    {
+      "comment": "Hard-coded discoverabilityTitle copy used by NotificationsListViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "notifications_list__discoverability_title__displays_all_notifications",
+      "path": "xabber/controllers/notifications/NotificationsListViewController.swift",
+      "sink": "discoverabilityTitle",
+      "translations": {
+        "ar": "يعرض جميع الإشعارات",
+        "en": "Displays all notifications",
+        "es": "Muestra todas las notificaciones",
+        "fr": "Affiche toutes les notifications",
+        "ru": "Показывает все уведомления",
+        "zh-Hans": "显示所有通知"
+      },
+      "value": "Displays all notifications"
+    },
+    {
+      "comment": "Hard-coded text copy used by SignUpSelectPasswordViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "settings_security__field__password",
+      "path": "xabber/controllers/onboarding/signup/SignUpSelectPasswordViewController.swift",
+      "sink": "text",
+      "translations": {
+        "ar": "كلمة المرور",
+        "en": "password",
+        "es": "contraseña",
+        "fr": "mot de passe",
+        "ru": "пароль",
+        "zh-Hans": "密码"
+      },
+      "value": "password"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by MessageSigningInfoViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "contact_fingerprints_view_controller_swift__table_section_title__certificate",
+      "path": "xabber/controllers/privacy/MessageSigningInfoViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "الشهادة",
+        "en": "Certificate",
+        "es": "Certificado",
+        "fr": "Certificat",
+        "ru": "Сертификат",
+        "zh-Hans": "证书"
+      },
+      "value": "Certificate"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by MessageSigningInfoViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "contact_fingerprints_view_controller_swift__table_section_title__signature",
+      "path": "xabber/controllers/privacy/MessageSigningInfoViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "التوقيع",
+        "en": "Signature",
+        "es": "Firma",
+        "fr": "Signature",
+        "ru": "Подпись",
+        "zh-Hans": "签名"
+      },
+      "value": "Signature"
+    },
+    {
+      "comment": "Hard-coded yesText copy used by MessageSigningInfoViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__confirm",
+      "path": "xabber/controllers/privacy/MessageSigningInfoViewController.swift",
+      "sink": "yesText",
+      "translations": {
+        "ar": "تأكيد",
+        "en": "Confirm",
+        "es": "Confirmar",
+        "fr": "Confirmer",
+        "ru": "Подтвердить",
+        "zh-Hans": "确认"
+      },
+      "value": "Confirm"
+    },
+    {
+      "comment": "Hard-coded footerLabel copy used by PrivacySettingsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "privacy_settings__footer_label__incognito_mode_offers_maximum_privacy_by_not_sharing_any_device_details_both",
+      "path": "xabber/controllers/privacy/PrivacySettingsViewController.swift",
+      "sink": "footerLabel",
+      "translations": {
+        "ar": "يوفر وضع التصفح المتخفي أقصى قدر من الخصوصية من خلال عدم مشاركة أي تفاصيل عن الجهاز. لن يرى الخادم وجهات الاتصال سوى بيانات مجهولة حتى عند إدارة الأجهزة. يحافظ هذا الإعداد على خصوصية معلومات جهازك بالكامل ويعطي الأولوية لإخفاء هويتك.",
+        "en": "Incognito Mode offers maximum privacy by not sharing any device details. Both the server and your contacts will see only anonymized data, even in the context of device management. This setting ensures your device information remains completely private, prioritizing user anonymity over personalized device management.",
+        "es": "El modo Incógnito ofrece la máxima privacidad al no compartir ningún dato del dispositivo. Tanto el servidor como tus contactos solo verán datos anonimizados, incluso al gestionar dispositivos. Este ajuste mantiene privada la información del dispositivo y prioriza tu anonimato.",
+        "fr": "Le mode Incognito offre une confidentialité maximale en ne partageant aucune information sur l’appareil. Le serveur et vos contacts ne voient que des données anonymisées, même pour la gestion des appareils. Ce réglage préserve entièrement la confidentialité de votre appareil et privilégie votre anonymat.",
+        "ru": "Режим инкогнито обеспечивает максимальную конфиденциальность: данные об устройстве не передаются. Сервер и контакты видят только обезличенные данные даже при управлении устройствами. Этот режим полностью скрывает сведения об устройстве, отдавая приоритет анонимности.",
+        "zh-Hans": "隐身模式不会共享任何设备详情，从而提供最高级别的隐私保护。即使在设备管理中，服务器和联系人也只会看到匿名数据。此设置确保设备信息完全保密，优先保护用户匿名性。"
+      },
+      "value": "Incognito Mode offers maximum privacy by not sharing any device details. Both the server and your contacts will see only anonymized data, even in the context of device management. This setting ensures your device information remains completely private, prioritizing user anonymity over personalized device management."
+    },
+    {
+      "comment": "Hard-coded footerLabel copy used by PrivacySettingsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "privacy_settings__footer_label__incognito_mode_text_description",
+      "path": "xabber/controllers/privacy/PrivacySettingsViewController.swift",
+      "sink": "footerLabel",
+      "translations": {
+        "ar": "وصف وضع التصفح المتخفي",
+        "en": "Incognito Mode text description",
+        "es": "Descripción del modo Incógnito",
+        "fr": "Description du mode Incognito",
+        "ru": "Описание режима инкогнито",
+        "zh-Hans": "隐身模式说明"
+      },
+      "value": "Incognito Mode text description"
+    },
+    {
+      "comment": "Hard-coded footerLabel copy used by PrivacySettingsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "privacy_settings__footer_label__server_and_contacts_text_description",
+      "path": "xabber/controllers/privacy/PrivacySettingsViewController.swift",
+      "sink": "footerLabel",
+      "translations": {
+        "ar": "وصف وضع الخادم وجهات الاتصال",
+        "en": "Server and Contacts text description",
+        "es": "Descripción del modo Servidor y contactos",
+        "fr": "Description du mode Serveur et contacts",
+        "ru": "Описание режима «Сервер и контакты»",
+        "zh-Hans": "“服务器和联系人”模式说明"
+      },
+      "value": "Server and Contacts text description"
+    },
+    {
+      "comment": "Hard-coded footerLabel copy used by PrivacySettingsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "privacy_settings__footer_label__this_option_shares_your_device_information_type_and_os_with_both_the",
+      "path": "xabber/controllers/privacy/PrivacySettingsViewController.swift",
+      "sink": "footerLabel",
+      "translations": {
+        "ar": "يشارك هذا الخيار معلومات جهازك (النوع ونظام التشغيل) مع الخادم وجهات الاتصال. يستخدم الخادم هذه البيانات لإدارة الأجهزة فقط، مما يسمح بعرض الأجهزة المتصلة بالحساب. قد ترى جهات الاتصال هذه المعلومات أثناء التحقق من الجهاز، ما يحسّن التجربة على حساب بعض الخصوصية.",
+        "en": "This option shares your device information (type and OS) with both the server and your contacts. The server uses this data solely for device management purposes, allowing users to see which devices are connected to their account. Your contacts might see this information during device verification, enhancing the user experience at the cost of some privacy.",
+        "es": "Esta opción comparte la información de tu dispositivo (tipo y sistema operativo) con el servidor y tus contactos. El servidor usa estos datos solo para gestionar dispositivos y mostrar cuáles están conectados a la cuenta. Tus contactos pueden verlos durante la verificación, lo que mejora la experiencia a costa de cierta privacidad.",
+        "fr": "Cette option partage les informations de votre appareil (type et système d’exploitation) avec le serveur et vos contacts. Le serveur les utilise uniquement pour la gestion des appareils afin d’afficher ceux qui sont connectés au compte. Vos contacts peuvent voir ces informations lors de la vérification, ce qui améliore l’expérience au prix d’une certaine confidentialité.",
+        "ru": "Этот параметр передаёт сведения об устройстве (тип и ОС) серверу и контактам. Сервер использует их только для управления устройствами, чтобы показывать подключённые к аккаунту устройства. Контакты могут видеть эти сведения при проверке устройств, что улучшает удобство за счёт некоторого снижения конфиденциальности.",
+        "zh-Hans": "此选项会将设备信息（类型和操作系统）同时共享给服务器和联系人。服务器仅将这些数据用于设备管理，以便显示连接到账号的设备。联系人可能会在设备验证期间看到这些信息，这会提升体验，但会牺牲部分隐私。"
+      },
+      "value": "This option shares your device information (type and OS) with both the server and your contacts. The server uses this data solely for device management purposes, allowing users to see which devices are connected to their account. Your contacts might see this information during device verification, enhancing the user experience at the cost of some privacy."
+    },
+    {
+      "comment": "Hard-coded footerLabel copy used by PrivacySettingsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "privacy_settings__footer_label__with_this_setting_your_device_information_is_shared_only_with_the_server",
+      "path": "xabber/controllers/privacy/PrivacySettingsViewController.swift",
+      "sink": "footerLabel",
+      "translations": {
+        "ar": "باستخدام هذا الإعداد، تتم مشاركة معلومات جهازك مع الخادم فقط لإدارة الأجهزة المتصلة. سترى جهات الاتصال بيانات مجهولة بدلًا من ذلك، مما يحافظ على خصوصيتك. يوازن هذا الإعداد بين إدارة الأجهزة والخصوصية الشخصية.",
+        "en": "With this setting, your device information is shared only with the server for device management, ensuring users can manage their connected devices. Contacts, however, will see anonymized data instead, preserving your privacy. This setting provides a balance between functional device management and personal privacy.",
+        "es": "Con este ajuste, la información de tu dispositivo solo se comparte con el servidor para gestionar los dispositivos conectados. Los contactos ven datos anonimizados, lo que protege tu privacidad. Este ajuste equilibra la gestión de dispositivos y la privacidad personal.",
+        "fr": "Avec ce réglage, les informations de votre appareil sont partagées uniquement avec le serveur pour gérer les appareils connectés. Vos contacts voient à la place des données anonymisées, ce qui protège votre vie privée. Ce réglage équilibre gestion des appareils et confidentialité.",
+        "ru": "При этом параметре сведения об устройстве передаются только серверу для управления подключёнными устройствами. Контакты видят обезличенные данные, что сохраняет конфиденциальность. Этот режим сочетает управление устройствами с защитой личных данных.",
+        "zh-Hans": "启用此设置后，设备信息只会共享给服务器，用于管理已连接设备。联系人只会看到匿名数据，从而保护你的隐私。此设置在设备管理功能与个人隐私之间取得平衡。"
+      },
+      "value": "With this setting, your device information is shared only with the server for device management, ensuring users can manage their connected devices. Contacts, however, will see anonymized data instead, preserving your privacy. This setting provides a balance between functional device management and personal privacy."
+    },
+    {
+      "comment": "Hard-coded footerLabel copy used by PrivacySettingsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "privacy_settings__footer_label__typing_notifications_text_description",
+      "path": "xabber/controllers/privacy/PrivacySettingsViewController.swift",
+      "sink": "footerLabel",
+      "translations": {
+        "ar": "وصف إشعارات الكتابة",
+        "en": "typing notifications text description",
+        "es": "Descripción de las notificaciones de escritura",
+        "fr": "Description des notifications de saisie",
+        "ru": "Описание уведомлений о наборе текста",
+        "zh-Hans": "正在输入通知说明"
+      },
+      "value": "typing notifications text description"
+    },
+    {
+      "comment": "Hard-coded nfcScanAlertMessage copy used by YubikeySetupViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "yubikey_setup__nfc_scan_alert_message__generate_digital_signature",
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "sink": "nfcScanAlertMessage",
+      "translations": {
+        "ar": "إنشاء توقيع رقمي",
+        "en": "Generate digital signature",
+        "es": "Generar firma digital",
+        "fr": "Générer une signature numérique",
+        "ru": "Создать цифровую подпись",
+        "zh-Hans": "生成数字签名"
+      },
+      "value": "Generate digital signature"
+    },
+    {
+      "comment": "Hard-coded subtitle copy used by YubikeySetupViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "devices_list__description__undefined",
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "sink": "subtitle",
+      "translations": {
+        "ar": "غير محدد",
+        "en": "Undefined",
+        "es": "Sin definir",
+        "fr": "Non défini",
+        "ru": "Не определено",
+        "zh-Hans": "未定义"
+      },
+      "value": "Undefined"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by YubikeySetupViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "contact_fingerprints_view_controller_swift__table_section_title__certificate",
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "الشهادة",
+        "en": "Certificate",
+        "es": "Certificado",
+        "fr": "Certificat",
+        "ru": "Сертификат",
+        "zh-Hans": "证书"
+      },
+      "value": "Certificate"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by YubikeySetupViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "contact_fingerprints_view_controller_swift__table_section_title__signature",
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "التوقيع",
+        "en": "Signature",
+        "es": "Firma",
+        "fr": "Signature",
+        "ru": "Подпись",
+        "zh-Hans": "签名"
+      },
+      "value": "Signature"
+    },
+    {
+      "comment": "Hard-coded yesText copy used by YubikeySetupViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "yubikey_setup__yes_text__forget",
+      "path": "xabber/controllers/privacy/YubikeySetupViewController.swift",
+      "sink": "yesText",
+      "translations": {
+        "ar": "نسيان",
+        "en": "Forget",
+        "es": "Olvidar",
+        "fr": "Oublier",
+        "ru": "Забыть",
+        "zh-Hans": "忘记"
+      },
+      "value": "Forget"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by ChangePasswordTableViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "change_password__table_section_title__it_is_recommended_to_make_your_passwords_at_least_12_14_characters",
+      "path": "xabber/controllers/settings/ChangePasswordTableViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "يُوصى بأن تتكون كلمات المرور من 12 إلى 14 حرفًا على الأقل. عمومًا، كلما كانت كلمة المرور أطول كانت مقاومتها لهجمات التخمين أفضل.\n\nقد تفرض خوادم الجهات الخارجية متطلبات مختلفة لتعقيد كلمة المرور.",
+        "en": "It is recommended to make your passwords at least 12-14 characters long. In general, the longer the password, the better it is against a brute force attack.\n\nThird party servers may have different password difficulty requirements.",
+        "es": "Se recomienda usar contraseñas de al menos 12–14 caracteres. En general, cuanto más larga sea la contraseña, mejor resistirá los ataques de fuerza bruta.\n\nLos servidores de terceros pueden tener requisitos de complejidad diferentes.",
+        "fr": "Il est recommandé d’utiliser des mots de passe d’au moins 12 à 14 caractères. En général, plus le mot de passe est long, mieux il résiste aux attaques par force brute.\n\nLes serveurs tiers peuvent imposer d’autres exigences de complexité.",
+        "ru": "Рекомендуется использовать пароли длиной не менее 12–14 символов. Как правило, чем длиннее пароль, тем лучше он защищён от перебора.\n\nНа сторонних серверах требования к сложности пароля могут отличаться.",
+        "zh-Hans": "建议密码至少包含 12–14 个字符。通常，密码越长，抵御暴力破解的能力越强。\n\n第三方服务器可能有不同的密码复杂度要求。"
+      },
+      "value": "It is recommended to make your passwords at least 12-14 characters long. In general, the longer the password, the better it is against a brute force attack.\n\nThird party servers may have different password difficulty requirements."
+    },
+    {
+      "api": "format",
+      "comment": "Hard-coded accessibilityLabel copy used by NotificationsSettingsViewController. Each %@ placeholder is a runtime value and must be preserved in translation.",
+      "key": "notifications_settings__accessibility_label__value_notification_sound",
+      "path": "xabber/controllers/settings/NotificationsSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "translations": {
+        "ar": "%@، صوت الإشعارات",
+        "en": "%@ Notification Sound",
+        "es": "%@, sonido de notificación",
+        "fr": "%@, son de notification",
+        "ru": "%@, звук уведомлений",
+        "zh-Hans": "%@，通知声音"
+      },
+      "value": "%@ Notification Sound"
+    },
+    {
+      "comment": "Hard-coded presentationCall copy used by PasscodeViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "passcode__presentation_call__incorrect_passcode_try_again",
+      "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
+      "sink": "presentationCall",
+      "translations": {
+        "ar": "رمز الدخول غير صحيح. حاول مرة أخرى.",
+        "en": "Incorrect passcode. Try again.",
+        "es": "Código incorrecto. Inténtalo de nuevo.",
+        "fr": "Code incorrect. Réessayez.",
+        "ru": "Неверный код-пароль. Повторите попытку.",
+        "zh-Hans": "密码错误。请重试。"
+      },
+      "value": "Incorrect passcode. Try again."
+    },
+    {
+      "comment": "Hard-coded presentationCall copy used by PasscodeViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "passcode__presentation_call__passcodes_did_not_match_try_again",
+      "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
+      "sink": "presentationCall",
+      "translations": {
+        "ar": "رمزا الدخول غير متطابقين. حاول مرة أخرى.",
+        "en": "Passcodes did not match. Try again.",
+        "es": "Los códigos no coinciden. Inténtalo de nuevo.",
+        "fr": "Les codes ne correspondent pas. Réessayez.",
+        "ru": "Коды-пароли не совпадают. Повторите попытку.",
+        "zh-Hans": "两次输入的密码不一致。请重试。"
+      },
+      "value": "Passcodes did not match. Try again."
+    },
+    {
+      "comment": "Hard-coded errorMessage copy used by SettingsViewController+InfoScreenHeaderButtonDelegate. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "groupchat_settings_view_controller_t__error_message__unable_to_send_file_out_of_cloud_storage",
+      "path": "xabber/controllers/settings/SettingsViewController+InfoScreenHeaderButtonDelegate.swift",
+      "sink": "errorMessage",
+      "translations": {
+        "ar": "تعذر إرسال الملف: نفدت مساحة التخزين السحابي",
+        "en": "Unable to send file: out of Cloud Storage",
+        "es": "No se pudo enviar el archivo: sin espacio en Almacenamiento en la nube",
+        "fr": "Impossible d’envoyer le fichier : espace du Stockage cloud épuisé",
+        "ru": "Не удалось отправить файл: в Облачном хранилище нет места",
+        "zh-Hans": "无法发送文件：云存储空间不足"
+      },
+      "value": "Unable to send file: out of Cloud Storage"
+    },
+    {
+      "comment": "Hard-coded text copy used by SettingsViewController+UITableViewDataSource. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "floating_bottom_bar_view__accessibility_value__off",
+      "path": "xabber/controllers/settings/SettingsViewController+UITableViewDataSource.swift",
+      "sink": "text",
+      "translations": {
+        "ar": "متوقف",
+        "en": "Off",
+        "es": "Desactivado",
+        "fr": "Désactivé",
+        "ru": "Выкл.",
+        "zh-Hans": "关闭"
+      },
+      "value": "Off"
+    },
+    {
+      "comment": "Hard-coded text copy used by SettingsViewController+UITableViewDataSource. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "floating_bottom_bar_view__accessibility_value__on",
+      "path": "xabber/controllers/settings/SettingsViewController+UITableViewDataSource.swift",
+      "sink": "text",
+      "translations": {
+        "ar": "مفعّل",
+        "en": "On",
+        "es": "Activado",
+        "fr": "Activé",
+        "ru": "Вкл.",
+        "zh-Hans": "开启"
+      },
+      "value": "On"
+    },
+    {
+      "comment": "Hard-coded nfcScanAlertMessage copy used by SettingsViewController+UITableViewDelegate. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "last_calls__nfc_scan_alert_message__register_yubikey_for_account",
+      "path": "xabber/controllers/settings/SettingsViewController+UITableViewDelegate.swift",
+      "sink": "nfcScanAlertMessage",
+      "translations": {
+        "ar": "تسجيل YubiKey للحساب",
+        "en": "Register Yubikey for account",
+        "es": "Registrar YubiKey para la cuenta",
+        "fr": "Enregistrer la YubiKey pour le compte",
+        "ru": "Зарегистрировать YubiKey для аккаунта",
+        "zh-Hans": "为账号注册 YubiKey"
+      },
+      "value": "Register Yubikey for account"
+    },
+    {
+      "api": "format",
+      "comment": "Hard-coded alertMessage copy used by SimpleTableViewController. Each %@ placeholder is a runtime value and must be preserved in translation.",
+      "key": "simple__alert_message__enter_your_password_to_permanently_delete_value_from_value_this_action_can",
+      "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+      "sink": "alertMessage",
+      "translations": {
+        "ar": "أدخل كلمة المرور لحذف %@ نهائيًا من %@.\n\nلا يمكن التراجع عن هذا الإجراء.",
+        "en": "Enter your password to permanently delete %@ from %@.\n\nThis action can not be undone.",
+        "es": "Introduce tu contraseña para eliminar permanentemente %@ de %@.\n\nEsta acción no se puede deshacer.",
+        "fr": "Saisissez votre mot de passe pour supprimer définitivement %@ de %@.\n\nCette action est irréversible.",
+        "ru": "Введите пароль, чтобы навсегда удалить %@ из %@.\n\nЭто действие нельзя отменить.",
+        "zh-Hans": "输入密码以永久删除 %@（来自 %@）。\n\n此操作无法撤销。"
+      },
+      "value": "Enter your password to permanently delete %@ from %@.\n\nThis action can not be undone."
+    },
+    {
+      "api": "format",
+      "comment": "Hard-coded alertMessage copy used by SimpleTableViewController. Each %@ placeholder is a runtime value and must be preserved in translation.",
+      "key": "simple__alert_message__enter_your_password_to_permanently_delete_value_from_clandestino_this_action_can",
+      "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+      "sink": "alertMessage",
+      "translations": {
+        "ar": "أدخل كلمة المرور لحذف %@ نهائيًا من Clandestino.\n\nلا يمكن التراجع عن هذا الإجراء.",
+        "en": "Enter your password to permanently delete %@ from Clandestino.\n\nThis action can not be undone.",
+        "es": "Introduce tu contraseña para eliminar permanentemente %@ de Clandestino.\n\nEsta acción no se puede deshacer.",
+        "fr": "Saisissez votre mot de passe pour supprimer définitivement %@ de Clandestino.\n\nCette action est irréversible.",
+        "ru": "Введите пароль, чтобы навсегда удалить %@ из Clandestino.\n\nЭто действие нельзя отменить.",
+        "zh-Hans": "输入密码以从 Clandestino 中永久删除 %@。\n\n此操作无法撤销。"
+      },
+      "value": "Enter your password to permanently delete %@ from Clandestino.\n\nThis action can not be undone."
+    },
+    {
+      "api": "format",
+      "comment": "Hard-coded alertMessage copy used by SimpleTableViewController. Each %@ placeholder is a runtime value and must be preserved in translation.",
+      "key": "simple__alert_message__enter_your_password_to_permanently_delete_value_from_server_this_action_can",
+      "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+      "sink": "alertMessage",
+      "translations": {
+        "ar": "أدخل كلمة المرور لحذف %@ نهائيًا من الخادم.\n\nلا يمكن التراجع عن هذا الإجراء.",
+        "en": "Enter your password to permanently delete %@ from server.\n\nThis action can not be undone.",
+        "es": "Introduce tu contraseña para eliminar permanentemente %@ del servidor.\n\nEsta acción no se puede deshacer.",
+        "fr": "Saisissez votre mot de passe pour supprimer définitivement %@ du serveur.\n\nCette action est irréversible.",
+        "ru": "Введите пароль, чтобы навсегда удалить %@ с сервера.\n\nЭто действие нельзя отменить.",
+        "zh-Hans": "输入密码以从服务器永久删除 %@。\n\n此操作无法撤销。"
+      },
+      "value": "Enter your password to permanently delete %@ from server.\n\nThis action can not be undone."
+    },
+    {
+      "comment": "Hard-coded text copy used by SimpleTableViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "simple__text__turn_biometrics_on",
+      "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+      "sink": "text",
+      "translations": {
+        "ar": "تشغيل القياسات الحيوية",
+        "en": "Turn Biometrics On",
+        "es": "Activar biometría",
+        "fr": "Activer la biométrie",
+        "ru": "Включить биометрию",
+        "zh-Hans": "开启生物识别"
+      },
+      "value": "Turn Biometrics On"
+    },
+    {
+      "comment": "Hard-coded text copy used by SimpleTableViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "simple__text__unlimited",
+      "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+      "sink": "text",
+      "translations": {
+        "ar": "غير محدود",
+        "en": "Unlimited",
+        "es": "Ilimitado",
+        "fr": "Illimité",
+        "ru": "Без ограничений",
+        "zh-Hans": "无限"
+      },
+      "value": "Unlimited"
+    },
+    {
+      "api": "format",
+      "comment": "Hard-coded tableSectionTitle copy used by DevicePrivacyViewController. Each %@ placeholder is a runtime value and must be preserved in translation.",
+      "key": "device_privacy__table_section_title__if_this_option_enabled_your_device_info_will_be_available_for_your",
+      "path": "xabber/controllers/settings/device_privacy/DevicePrivacyViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "إذا تم تفعيل هذا الخيار، فستظهر معلومات جهازك لجهات الاتصال باسم %@",
+        "en": "If this option enabled, your device info will be available for your contacts as %@",
+        "es": "Si esta opción está activada, la información de tu dispositivo estará disponible para tus contactos como %@",
+        "fr": "Si cette option est activée, les informations de votre appareil seront visibles par vos contacts sous le nom %@",
+        "ru": "Если включить этот параметр, информация об устройстве будет доступна контактам как %@",
+        "zh-Hans": "启用此选项后，你的联系人会看到设备信息：%@"
+      },
+      "value": "If this option enabled, your device info will be available for your contacts as %@"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by DevicePrivacyViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "device_privacy__table_section_title__your_contacts_can_see_this_device_name_in_identity_section",
+      "path": "xabber/controllers/settings/device_privacy/DevicePrivacyViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "يمكن لجهات اتصالك رؤية اسم هذا الجهاز في قسم الهوية",
+        "en": "Your contacts can see this device name in identity section",
+        "es": "Tus contactos pueden ver el nombre de este dispositivo en la sección Identidad",
+        "fr": "Vos contacts peuvent voir le nom de cet appareil dans la section Identité",
+        "ru": "Ваши контакты могут видеть имя этого устройства в разделе идентификации",
+        "zh-Hans": "你的联系人可以在身份部分看到此设备名称"
+      },
+      "value": "Your contacts can see this device name in identity section"
+    },
+    {
+      "comment": "Hard-coded accessibilityLabel copy used by InterfaceSettingsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "settings__title__premium",
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityLabel",
+      "translations": {
+        "ar": "بريميوم",
+        "en": "Premium",
+        "es": "Premium",
+        "fr": "Premium",
+        "ru": "Премиум",
+        "zh-Hans": "高级版"
+      },
+      "value": "Premium"
+    },
+    {
+      "comment": "Hard-coded accessibilityValue copy used by InterfaceSettingsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "abuse_report__accessibility_value__selected",
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "accessibilityValue",
+      "translations": {
+        "ar": "محدد",
+        "en": "Selected",
+        "es": "Seleccionado",
+        "fr": "Sélectionné",
+        "ru": "Выбрано",
+        "zh-Hans": "已选择"
+      },
+      "value": "Selected"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by InterfaceSettingsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "settings__menu_item__appearance",
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "المظهر",
+        "en": "Appearance",
+        "es": "Apariencia",
+        "fr": "Apparence",
+        "ru": "Внешний вид",
+        "zh-Hans": "外观"
+      },
+      "value": "Appearance"
+    },
+    {
+      "comment": "Hard-coded tableSectionTitle copy used by InterfaceSettingsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "interface_settings__table_section_title__customisation",
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "tableSectionTitle",
+      "translations": {
+        "ar": "التخصيص",
+        "en": "Customisation",
+        "es": "Personalización",
+        "fr": "Personnalisation",
+        "ru": "Настройка",
+        "zh-Hans": "自定义"
+      },
+      "value": "Customisation"
+    },
+    {
+      "api": "format",
+      "comment": "Hard-coded text copy used by InterfaceSettingsViewController. Each %@ placeholder is a runtime value and must be preserved in translation.",
+      "key": "interface_settings__text__value_copy",
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "translations": {
+        "ar": "نسخة من %@",
+        "en": "%@ Copy",
+        "es": "Copia de %@",
+        "fr": "Copie de %@",
+        "ru": "Копия %@",
+        "zh-Hans": "%@ 的副本"
+      },
+      "value": "%@ Copy"
+    },
+    {
+      "comment": "Hard-coded text copy used by InterfaceSettingsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "settings__title__premium",
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "translations": {
+        "ar": "بريميوم",
+        "en": "Premium",
+        "es": "Premium",
+        "fr": "Premium",
+        "ru": "Премиум",
+        "zh-Hans": "高级版"
+      },
+      "value": "Premium"
+    },
+    {
+      "comment": "Hard-coded text copy used by InterfaceSettingsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "interface_settings__text__public_chat",
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "text",
+      "translations": {
+        "ar": "محادثة عامة",
+        "en": "Public Chat",
+        "es": "Chat público",
+        "fr": "Discussion publique",
+        "ru": "Публичный чат",
+        "zh-Hans": "公开聊天"
+      },
+      "value": "Public Chat"
+    },
+    {
+      "comment": "Hard-coded uiSegmentedControlItem copy used by InterfaceSettingsViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "navigation__destination__contacts",
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "uiSegmentedControlItem",
+      "translations": {
+        "ar": "جهات الاتصال",
+        "en": "Contacts",
+        "es": "Contactos",
+        "fr": "Contacts",
+        "ru": "Контакты",
+        "zh-Hans": "联系人"
+      },
+      "value": "Contacts"
+    },
+    {
+      "comment": "Hard-coded actionTitle copy used by PremiumSubscribtionViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "common__action__retry",
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "actionTitle",
+      "translations": {
+        "ar": "إعادة المحاولة",
+        "en": "Retry",
+        "es": "Reintentar",
+        "fr": "Réessayer",
+        "ru": "Повторить",
+        "zh-Hans": "重试"
+      },
+      "value": "Retry"
+    },
+    {
+      "comment": "Hard-coded message copy used by PremiumSubscribtionViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "premium_subscribtion__message__no_subscriptions_available_right_now",
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "message",
+      "translations": {
+        "ar": "لا توجد اشتراكات متاحة حاليًا.",
+        "en": "No subscriptions available right now.",
+        "es": "No hay suscripciones disponibles en este momento.",
+        "fr": "Aucun abonnement disponible pour le moment.",
+        "ru": "Сейчас нет доступных подписок.",
+        "zh-Hans": "目前没有可用订阅。"
+      },
+      "value": "No subscriptions available right now."
+    },
+    {
+      "comment": "Hard-coded presentationCall copy used by PremiumSubscribtionViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "premium_subscribtion__presentation_call__about_xabber_premium",
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "presentationCall",
+      "translations": {
+        "ar": "حول XABBER PREMIUM",
+        "en": "ABOUT XABBER PREMIUM",
+        "es": "ACERCA DE XABBER PREMIUM",
+        "fr": "À PROPOS DE XABBER PREMIUM",
+        "ru": "О XABBER PREMIUM",
+        "zh-Hans": "关于 XABBER PREMIUM"
+      },
+      "value": "ABOUT XABBER PREMIUM"
+    },
+    {
+      "comment": "Hard-coded presentationCall copy used by PremiumSubscribtionViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "premium_subscribtion__presentation_call__subscription_advantages",
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "presentationCall",
+      "translations": {
+        "ar": "مزايا الاشتراك",
+        "en": "SUBSCRIPTION ADVANTAGES",
+        "es": "VENTAJAS DE LA SUSCRIPCIÓN",
+        "fr": "AVANTAGES DE L’ABONNEMENT",
+        "ru": "ПРЕИМУЩЕСТВА ПОДПИСКИ",
+        "zh-Hans": "订阅优势"
+      },
+      "value": "SUBSCRIPTION ADVANTAGES"
+    },
+    {
+      "comment": "Hard-coded presentationCall copy used by PremiumSubscribtionViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "premium_subscribtion__presentation_call__subscription_management",
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "presentationCall",
+      "translations": {
+        "ar": "إدارة الاشتراك",
+        "en": "SUBSCRIPTION MANAGEMENT",
+        "es": "GESTIÓN DE LA SUSCRIPCIÓN",
+        "fr": "GESTION DE L’ABONNEMENT",
+        "ru": "УПРАВЛЕНИЕ ПОДПИСКОЙ",
+        "zh-Hans": "订阅管理"
+      },
+      "value": "SUBSCRIPTION MANAGEMENT"
+    },
+    {
+      "comment": "Hard-coded presentationCall copy used by PremiumSubscribtionViewController. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "premium_subscribtion__presentation_call__subscription_period",
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "presentationCall",
+      "translations": {
+        "ar": "مدة الاشتراك",
+        "en": "SUBSCRIPTION PERIOD",
+        "es": "PERIODO DE SUSCRIPCIÓN",
+        "fr": "PÉRIODE D’ABONNEMENT",
+        "ru": "ПЕРИОД ПОДПИСКИ",
+        "zh-Hans": "订阅周期"
+      },
+      "value": "SUBSCRIPTION PERIOD"
+    },
+    {
+      "comment": "Hard-coded userMessage copy used by XMPPAuthenticationFailure. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "xmppauthentication_failure__user_message__authentication_failed_please_try_again",
+      "path": "xabber/models/account/extensions/XMPPAuthenticationFailure.swift",
+      "sink": "userMessage",
+      "translations": {
+        "ar": "فشلت المصادقة. حاول مرة أخرى.",
+        "en": "Authentication failed. Please try again.",
+        "es": "Error de autenticación. Inténtalo de nuevo.",
+        "fr": "Échec de l’authentification. Réessayez.",
+        "ru": "Не удалось выполнить аутентификацию. Повторите попытку.",
+        "zh-Hans": "认证失败。请重试。"
+      },
+      "value": "Authentication failed. Please try again."
+    },
+    {
+      "comment": "Hard-coded userMessage copy used by XMPPAuthenticationFailure. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "xmppauthentication_failure__user_message__device_was_revoked",
+      "path": "xabber/models/account/extensions/XMPPAuthenticationFailure.swift",
+      "sink": "userMessage",
+      "translations": {
+        "ar": "تم إلغاء الجهاز",
+        "en": "Device was revoked",
+        "es": "Se revocó el dispositivo",
+        "fr": "L’appareil a été révoqué",
+        "ru": "Доступ устройства отозван",
+        "zh-Hans": "设备已被撤销"
+      },
+      "value": "Device was revoked"
+    },
+    {
+      "comment": "Hard-coded userMessage copy used by XMPPAuthenticationFailure. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "xmppauthentication_failure__user_message__sign_in_again_to_restore_account_access_your_local_data_was_kept",
+      "path": "xabber/models/account/extensions/XMPPAuthenticationFailure.swift",
+      "sink": "userMessage",
+      "translations": {
+        "ar": "سجّل الدخول مرة أخرى لاستعادة الوصول إلى الحساب. تم الاحتفاظ ببياناتك المحلية.",
+        "en": "Sign in again to restore account access. Your local data was kept.",
+        "es": "Vuelve a iniciar sesión para recuperar el acceso a la cuenta. Tus datos locales se han conservado.",
+        "fr": "Reconnectez-vous pour rétablir l’accès au compte. Vos données locales ont été conservées.",
+        "ru": "Войдите снова, чтобы восстановить доступ к аккаунту. Локальные данные сохранены.",
+        "zh-Hans": "请重新登录以恢复账号访问权限。本地数据已保留。"
+      },
+      "value": "Sign in again to restore account access. Your local data was kept."
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by SensitiveMediaAnalysisService. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "sensitive_media_analysis__localized_error_description__encrypted_remote_video_requires_a_local_decrypted_file_before_analysis",
+      "path": "xabber/xmpp/messages/message/SensitiveMediaAnalysisService.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "يتطلب تحليل فيديو بعيد مشفّر ملفًا محليًا مفكوك التشفير أولًا.",
+        "en": "Encrypted remote video requires a local decrypted file before analysis.",
+        "es": "Para analizar un vídeo remoto cifrado, primero se necesita un archivo local descifrado.",
+        "fr": "L’analyse d’une vidéo distante chiffrée nécessite d’abord un fichier local déchiffré.",
+        "ru": "Для анализа зашифрованного удалённого видео требуется локальный расшифрованный файл.",
+        "zh-Hans": "分析加密的远程视频前，需要先取得本地解密文件。"
+      },
+      "value": "Encrypted remote video requires a local decrypted file before analysis."
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by SensitiveMediaAnalysisService. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "sensitive_media_analysis__localized_error_description__image_could_not_be_decoded_for_sensitivecontentanalysis",
+      "path": "xabber/xmpp/messages/message/SensitiveMediaAnalysisService.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "تعذر فك ترميز الصورة من أجل SensitiveContentAnalysis.",
+        "en": "Image could not be decoded for SensitiveContentAnalysis.",
+        "es": "No se pudo decodificar la imagen para SensitiveContentAnalysis.",
+        "fr": "L’image n’a pas pu être décodée pour SensitiveContentAnalysis.",
+        "ru": "Не удалось декодировать изображение для SensitiveContentAnalysis.",
+        "zh-Hans": "无法为 SensitiveContentAnalysis 解码图像。"
+      },
+      "value": "Image could not be decoded for SensitiveContentAnalysis."
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by SensitiveMediaAnalysisService. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "sensitive_media_analysis__localized_error_description__missing_media_url_for_sensitivecontentanalysis",
+      "path": "xabber/xmpp/messages/message/SensitiveMediaAnalysisService.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "عنوان URL للوسائط المطلوب لـ SensitiveContentAnalysis مفقود.",
+        "en": "Missing media URL for SensitiveContentAnalysis.",
+        "es": "Falta la URL del contenido multimedia para SensitiveContentAnalysis.",
+        "fr": "L’URL du média pour SensitiveContentAnalysis est manquante.",
+        "ru": "Отсутствует URL медиафайла для SensitiveContentAnalysis.",
+        "zh-Hans": "缺少 SensitiveContentAnalysis 所需的媒体 URL。"
+      },
+      "value": "Missing media URL for SensitiveContentAnalysis."
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by SensitiveMediaAnalysisService. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "sensitive_media_analysis__localized_error_description__sensitivecontentanalysis_is_unavailable",
+      "path": "xabber/xmpp/messages/message/SensitiveMediaAnalysisService.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "ميزة SensitiveContentAnalysis غير متاحة.",
+        "en": "SensitiveContentAnalysis is unavailable.",
+        "es": "SensitiveContentAnalysis no está disponible.",
+        "fr": "SensitiveContentAnalysis est indisponible.",
+        "ru": "SensitiveContentAnalysis недоступен.",
+        "zh-Hans": "SensitiveContentAnalysis 不可用。"
+      },
+      "value": "SensitiveContentAnalysis is unavailable."
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by SensitiveMediaAnalysisService. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "sensitive_media_analysis__localized_error_description__sensitivecontentanalysis_policy_is_disabled",
+      "path": "xabber/xmpp/messages/message/SensitiveMediaAnalysisService.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "سياسة SensitiveContentAnalysis معطلة.",
+        "en": "SensitiveContentAnalysis policy is disabled.",
+        "es": "La política de SensitiveContentAnalysis está desactivada.",
+        "fr": "La stratégie SensitiveContentAnalysis est désactivée.",
+        "ru": "Политика SensitiveContentAnalysis отключена.",
+        "zh-Hans": "SensitiveContentAnalysis 策略已停用。"
+      },
+      "value": "SensitiveContentAnalysis policy is disabled."
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by SensitiveMediaAnalysisService. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "sensitive_media_analysis__localized_error_description__sensitivecontentanalysis_returned_no_result",
+      "path": "xabber/xmpp/messages/message/SensitiveMediaAnalysisService.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "لم تُرجع ميزة SensitiveContentAnalysis أي نتيجة.",
+        "en": "SensitiveContentAnalysis returned no result.",
+        "es": "SensitiveContentAnalysis no devolvió ningún resultado.",
+        "fr": "SensitiveContentAnalysis n’a renvoyé aucun résultat.",
+        "ru": "SensitiveContentAnalysis не вернул результат.",
+        "zh-Hans": "SensitiveContentAnalysis 未返回结果。"
+      },
+      "value": "SensitiveContentAnalysis returned no result."
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by SensitiveMediaAnalysisService. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "sensitive_media_analysis__localized_error_description__unsupported_media_type_for_sensitivecontentanalysis",
+      "path": "xabber/xmpp/messages/message/SensitiveMediaAnalysisService.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "نوع الوسائط غير مدعوم في SensitiveContentAnalysis.",
+        "en": "Unsupported media type for SensitiveContentAnalysis.",
+        "es": "Tipo de contenido multimedia no compatible con SensitiveContentAnalysis.",
+        "fr": "Type de média non pris en charge par SensitiveContentAnalysis.",
+        "ru": "Тип медиафайла не поддерживается SensitiveContentAnalysis.",
+        "zh-Hans": "SensitiveContentAnalysis 不支持此媒体类型。"
+      },
+      "value": "Unsupported media type for SensitiveContentAnalysis."
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by SensitiveMediaAnalysisService. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "sensitive_media_analysis__localized_error_description__unsupported_remote_media_url_for_sensitivecontentanalysis",
+      "path": "xabber/xmpp/messages/message/SensitiveMediaAnalysisService.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "عنوان URL للوسائط البعيدة غير مدعوم في SensitiveContentAnalysis.",
+        "en": "Unsupported remote media URL for SensitiveContentAnalysis.",
+        "es": "URL de contenido multimedia remoto no compatible con SensitiveContentAnalysis.",
+        "fr": "URL de média distant non prise en charge par SensitiveContentAnalysis.",
+        "ru": "URL удалённого медиафайла не поддерживается SensitiveContentAnalysis.",
+        "zh-Hans": "SensitiveContentAnalysis 不支持此远程媒体 URL。"
+      },
+      "value": "Unsupported remote media URL for SensitiveContentAnalysis."
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by OmemoManager+Encryption. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "omemo__localized_error_description__invalid_omemo_decrypted_payload",
+      "path": "xabber/xmpp/omemo/OmemoManager+Encryption.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "حمولة OMEMO مفكوكة التشفير غير صالحة",
+        "en": "Invalid OMEMO decrypted payload",
+        "es": "Contenido descifrado OMEMO no válido",
+        "fr": "Contenu déchiffré OMEMO non valide",
+        "ru": "Некорректные расшифрованные данные OMEMO",
+        "zh-Hans": "OMEMO 解密载荷无效"
+      },
+      "value": "Invalid OMEMO decrypted payload"
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by OmemoManager+Encryption. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "omemo__localized_error_description__invalid_omemo_encrypted_payload",
+      "path": "xabber/xmpp/omemo/OmemoManager+Encryption.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "حمولة OMEMO مشفّرة غير صالحة",
+        "en": "Invalid OMEMO encrypted payload",
+        "es": "Contenido cifrado OMEMO no válido",
+        "fr": "Contenu chiffré OMEMO non valide",
+        "ru": "Некорректные зашифрованные данные OMEMO",
+        "zh-Hans": "OMEMO 加密载荷无效"
+      },
+      "value": "Invalid OMEMO encrypted payload"
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by OmemoManager+Encryption. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "omemo__localized_error_description__no_trusted_omemo_recipient_devices",
+      "path": "xabber/xmpp/omemo/OmemoManager+Encryption.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "لا توجد أجهزة OMEMO موثوقة للمستلم",
+        "en": "No trusted OMEMO recipient devices",
+        "es": "No hay dispositivos OMEMO de destinatario de confianza",
+        "fr": "Aucun appareil OMEMO de destinataire approuvé",
+        "ru": "Нет доверенных устройств получателя OMEMO",
+        "zh-Hans": "没有可信的收件人 OMEMO 设备"
+      },
+      "value": "No trusted OMEMO recipient devices"
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by OmemoManager+Encryption. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "omemo__localized_error_description__omemo_bundle_not_found",
+      "path": "xabber/xmpp/omemo/OmemoManager+Encryption.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "لم يتم العثور على حزمة OMEMO",
+        "en": "OMEMO bundle not found",
+        "es": "No se encontró el paquete OMEMO",
+        "fr": "Paquet OMEMO introuvable",
+        "ru": "Пакет OMEMO не найден",
+        "zh-Hans": "未找到 OMEMO 包"
+      },
+      "value": "OMEMO bundle not found"
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by OmemoManager+Encryption. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "omemo__localized_error_description__omemo_encryption_failed",
+      "path": "xabber/xmpp/omemo/OmemoManager+Encryption.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "فشل تشفير OMEMO",
+        "en": "OMEMO encryption failed",
+        "es": "Error de cifrado OMEMO",
+        "fr": "Échec du chiffrement OMEMO",
+        "ru": "Не удалось зашифровать с помощью OMEMO",
+        "zh-Hans": "OMEMO 加密失败"
+      },
+      "value": "OMEMO encryption failed"
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by OmemoManager+Encryption. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "omemo__localized_error_description__omemo_payload_authentication_failed",
+      "path": "xabber/xmpp/omemo/OmemoManager+Encryption.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "فشلت مصادقة حمولة OMEMO",
+        "en": "OMEMO payload authentication failed",
+        "es": "Error de autenticación del contenido OMEMO",
+        "fr": "Échec de l’authentification du contenu OMEMO",
+        "ru": "Не удалось проверить подлинность данных OMEMO",
+        "zh-Hans": "OMEMO 载荷认证失败"
+      },
+      "value": "OMEMO payload authentication failed"
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by OmemoManager+Encryption. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "omemo__localized_error_description__omemo_pre_key_not_found",
+      "path": "xabber/xmpp/omemo/OmemoManager+Encryption.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "لم يتم العثور على المفتاح المسبق لـ OMEMO",
+        "en": "OMEMO pre-key not found",
+        "es": "No se encontró la preclave OMEMO",
+        "fr": "Pré-clé OMEMO introuvable",
+        "ru": "Предварительный ключ OMEMO не найден",
+        "zh-Hans": "未找到 OMEMO 预密钥"
+      },
+      "value": "OMEMO pre-key not found"
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by OmemoManager+Encryption. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "omemo__localized_error_description__omemo_recipient_key_not_found",
+      "path": "xabber/xmpp/omemo/OmemoManager+Encryption.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "لم يتم العثور على مفتاح OMEMO للمستلم",
+        "en": "OMEMO recipient key not found",
+        "es": "No se encontró la clave OMEMO del destinatario",
+        "fr": "Clé OMEMO du destinataire introuvable",
+        "ru": "Ключ получателя OMEMO не найден",
+        "zh-Hans": "未找到收件人的 OMEMO 密钥"
+      },
+      "value": "OMEMO recipient key not found"
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by OmemoManager+Encryption. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "omemo__localized_error_description__omemo_session_creation_failed",
+      "path": "xabber/xmpp/omemo/OmemoManager+Encryption.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "فشل إنشاء جلسة OMEMO",
+        "en": "OMEMO session creation failed",
+        "es": "No se pudo crear la sesión OMEMO",
+        "fr": "Échec de la création de la session OMEMO",
+        "ru": "Не удалось создать сеанс OMEMO",
+        "zh-Hans": "创建 OMEMO 会话失败"
+      },
+      "value": "OMEMO session creation failed"
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by XabberAxolotlStorage. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "xabber_axolotl_storage__localized_error_description__local_omemo_identity_key_pair_is_unavailable",
+      "path": "xabber/xmpp/omemo/storage/XabberAxolotlStorage.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "زوج مفاتيح هوية OMEMO المحلي غير متاح",
+        "en": "Local OMEMO identity key pair is unavailable",
+        "es": "El par de claves de identidad OMEMO local no está disponible",
+        "fr": "La paire de clés d’identité OMEMO locale est indisponible",
+        "ru": "Локальная пара ключей идентификации OMEMO недоступна",
+        "zh-Hans": "本地 OMEMO 身份密钥对不可用"
+      },
+      "value": "Local OMEMO identity key pair is unavailable"
+    },
+    {
+      "comment": "Hard-coded localizedErrorDescription copy used by XabberAxolotlStorage. Shown to the user or exposed through accessibility/error presentation.",
+      "key": "xabber_axolotl_storage__localized_error_description__local_omemo_key_material_is_unavailable",
+      "path": "xabber/xmpp/omemo/storage/XabberAxolotlStorage.swift",
+      "sink": "localizedErrorDescription",
+      "translations": {
+        "ar": "مادة مفاتيح OMEMO المحلية غير متاحة",
+        "en": "Local OMEMO key material is unavailable",
+        "es": "El material de claves OMEMO local no está disponible",
+        "fr": "Le matériel de clé OMEMO local est indisponible",
+        "ru": "Локальные ключевые данные OMEMO недоступны",
+        "zh-Hans": "本地 OMEMO 密钥材料不可用"
+      },
+      "value": "Local OMEMO key material is unavailable"
+    }
+  ]
+}

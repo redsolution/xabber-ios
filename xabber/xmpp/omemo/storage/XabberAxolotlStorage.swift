@@ -30,9 +30,9 @@ enum XabberAxolotlStorageError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .localIdentityKeyPairUnavailable:
-            return "Local OMEMO identity key pair is unavailable"
+            return L10n.text("xabber_axolotl_storage__localized_error_description__local_omemo_identity_key_pair_is_unavailable", fallback: "Local OMEMO identity key pair is unavailable")
         case .localKeyMaterialUnavailable:
-            return "Local OMEMO key material is unavailable"
+            return L10n.text("xabber_axolotl_storage__localized_error_description__local_omemo_key_material_is_unavailable", fallback: "Local OMEMO key material is unavailable")
         }
     }
 }

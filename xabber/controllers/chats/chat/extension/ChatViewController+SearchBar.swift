@@ -4051,7 +4051,7 @@ extension ChatViewController {
                 generation: self.searchPresentationState.generation
             )
         }
-        self.view.makeToast("Original message is no longer available")
+        self.view.makeToast(L10n.text("chat__search__original_message_is_no_longer_available", fallback: "Original message is no longer available"))
     }
 
     internal func cancelActiveAnchorExecutionForLifecycle() {

@@ -142,7 +142,7 @@ extension SettingsViewController: UITableViewDelegate {
                         SignatureManager.shared.delegate = self
                         FeedbackManager.shared.tap()
                         if YubiKitDeviceCapabilities.supportsISO7816NFCTags {
-                            YubiKitExternalLocalization.nfcScanAlertMessage = "Register Yubikey for account"
+                            YubiKitExternalLocalization.nfcScanAlertMessage = L10n.text("last_calls__nfc_scan_alert_message__register_yubikey_for_account", fallback: "Register Yubikey for account")
                             YubiKitManager.shared.startNFCConnection()
                             YubiKitManager.shared.delegate = SignatureManager.shared
                             SignatureManager.shared.currentAction = .certificate
@@ -172,7 +172,7 @@ extension SettingsViewController: UITableViewDelegate {
                         navigationController?.pushViewController(vc, animated: true)
                         return
                     case .disabledByConfig:
-                        self.view.makeToast("Passcode Lock is unavailable")
+                        self.view.makeToast(L10n.text("settings__toast__passcode_lock_is_unavailable", fallback: "Passcode Lock is unavailable"))
                         return
                     }
                     

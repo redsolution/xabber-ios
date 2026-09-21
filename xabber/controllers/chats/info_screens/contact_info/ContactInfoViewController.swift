@@ -545,7 +545,7 @@ class ContactInfoViewController: BaseViewController {
                         }
                         
                         if vcardSection.isNotEmpty {
-                            newDatasource.append(Datasource(.vcard, title: "About".localizeString(id: "about", arguments: []), subtitle: "View full vCard", key: "about_section", childs: vcardSection))
+                            newDatasource.append(Datasource(.vcard, title: "About".localizeString(id: "about", arguments: []), subtitle: L10n.text("contact_view_full_vcard", fallback: "View full vCard"), key: "about_section", childs: vcardSection))
                         }
                     }
                     
@@ -567,16 +567,16 @@ class ContactInfoViewController: BaseViewController {
                         .count
                     
                     newDatasource.append(
-                        Datasource(.text, title: "Circles", childs: [
+                        Datasource(.text, title: L10n.text("contact_circle", fallback: "Circles"), childs: [
                             Datasource(.button, icon: "xabber.circles", title: "Circles".localizeString(id: "contact_circle", arguments: []), key: "circles"),
                         ])
                     )
                     
                     newDatasource.append(Datasource(.text, title: "", childs: [
-                        Datasource(.button, title: "Images", subtitle: String(imagesCount), key: "images"),
-                        Datasource(.button, title: "Videos", subtitle: String(videosCount), key: "videos"),
-                        Datasource(.button, title: "Files", subtitle: String(filesCount), key: "files"),
-                        Datasource(.button, title: "Voice", subtitle: String(audiosCount), key: "voice")
+                        Datasource(.button, title: L10n.text("images", fallback: "Images"), subtitle: String(imagesCount), key: "images"),
+                        Datasource(.button, title: L10n.text("videos", fallback: "Videos"), subtitle: String(videosCount), key: "videos"),
+                        Datasource(.button, title: L10n.text("files", fallback: "Files"), subtitle: String(filesCount), key: "files"),
+                        Datasource(.button, title: L10n.text("voice", fallback: "Voice messages"), subtitle: String(audiosCount), key: "voice")
                     ]))
 
                     newDatasource.append(Datasource(.text, title: "Safety".localizeString(id: "report_safety_section", arguments: []), key: ContactInfoBlockedSectionPolicy.safetySectionKey, childs: [
@@ -712,28 +712,28 @@ class ContactInfoViewController: BaseViewController {
         
         self.headerView.configureButtons {
             let call = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            call.configure(icon: "phone", title: "Call")
+            call.configure(icon: "phone", title: L10n.text("contact_bar_call", fallback: "Call"))
             call.addTarget(self, action: #selector(onCallButtonTouchUpInside), for: .touchUpInside)
             call.isEnabled = true
             
             let write = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            write.configure(icon: "message", title: "Chat")
+            write.configure(icon: "message", title: L10n.text("contact_bar_chat", fallback: "Chat"))
             write.addTarget(self, action: #selector(onWriteButtonTouchUpInside), for: .touchUpInside)
                         
             let mute = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            mute.configure(icon: "bell", title: "Sound", forceStrong: false)
+            mute.configure(icon: "bell", title: L10n.text("events_sound", fallback: "Sound"), forceStrong: false)
             mute.addTarget(self, action: #selector(onNotifyButtonTouchUpInside), for: .touchUpInside)
             
             let more = InfoHeaderButton(frame: CGRect(width: 72, height: 40))
-            more.configure(icon: "ellipsis", title: "More", forceStrong: true)
+            more.configure(icon: "ellipsis", title: L10n.text("chat_more_actions", fallback: "More"), forceStrong: true)
             var childs: [UIMenuElement] = []
             if self.conversationType.isEncrypted {
                 childs = [
                     UIAction(
-                        title: "Edit",
+                        title: L10n.text("common__action__edit", fallback: "Edit"),
                         image: imageLiteral("xabber.pencil.cap"),
                         identifier: .none,
-                        discoverabilityTitle: "Edit",
+                        discoverabilityTitle: L10n.text("common__action__edit", fallback: "Edit"),
                         attributes: [],
                         state: .off,//filter.value == .all ? .on : .off,
                         handler: { action in
@@ -741,10 +741,10 @@ class ContactInfoViewController: BaseViewController {
                         }
                     ),
                     UIAction(
-                        title: "Block",
+                        title: L10n.text("contact_bar_block", fallback: "Block"),
                         image: imageLiteral("nosign"),
                         identifier: .none,
-                        discoverabilityTitle: "Block",
+                        discoverabilityTitle: L10n.text("contact_bar_block", fallback: "Block"),
                         attributes: [],
                         state: .off,//filter.value == .all ? .on : .off,
                         handler: { action in
@@ -766,10 +766,10 @@ class ContactInfoViewController: BaseViewController {
             } else {
                 childs = [
                     UIAction(
-                        title: "Edit",
+                        title: L10n.text("common__action__edit", fallback: "Edit"),
                         image: imageLiteral("xabber.pencil.cap"),
                         identifier: .none,
-                        discoverabilityTitle: "Edit",
+                        discoverabilityTitle: L10n.text("common__action__edit", fallback: "Edit"),
                         attributes: [],
                         state: .off,//filter.value == .all ? .on : .off,
                         handler: { action in
@@ -778,10 +778,10 @@ class ContactInfoViewController: BaseViewController {
                     ),
                     
                     UIAction(
-                        title: "Secret chat",
+                        title: L10n.text("contact_info__menu__secret_chat", fallback: "Secret chat"),
                         image: imageLiteral("lock"),
                         identifier: .none,
-                        discoverabilityTitle: "Secret chat",
+                        discoverabilityTitle: L10n.text("contact_info__menu__secret_chat", fallback: "Secret chat"),
                         attributes: [],
                         state: .off,//filter.value == .all ? .on : .off,
                         handler: { action in
@@ -790,10 +790,10 @@ class ContactInfoViewController: BaseViewController {
                     ),
                     
                     UIAction(
-                        title: "Block",
+                        title: L10n.text("contact_bar_block", fallback: "Block"),
                         image: imageLiteral("nosign"),
                         identifier: .none,
-                        discoverabilityTitle: "Block",
+                        discoverabilityTitle: L10n.text("contact_bar_block", fallback: "Block"),
                         attributes: [],
                         state: .off,//filter.value == .all ? .on : .off,
                         handler: { action in

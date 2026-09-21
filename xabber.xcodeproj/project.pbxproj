@@ -1034,8 +1034,11 @@
 		4EC002033D1000000ABC0001 /* LocalizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EC000033D1000000ABC0001 /* LocalizationService.swift */; };
 		4EC002043D1000000ABC0001 /* LocalizationRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EC000043D1000000ABC0001 /* LocalizationRuntime.swift */; };
 		4EC003013D1000000ABC0001 /* LocalizationCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EC000053D1000000ABC0001 /* LocalizationCoreTests.swift */; };
+		4EA900022F9A00000ABC0001 /* AKESystemMessageLocalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA900012F9A00000ABC0001 /* AKESystemMessageLocalizationTests.swift */; };
+		4EA910022F9A00000ABC0001 /* EphemeralSystemMessageLocalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA910012F9A00000ABC0001 /* EphemeralSystemMessageLocalizationTests.swift */; };
 		B7A100023D110000ABC00001 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B7A100013D110000ABC00001 /* Localizable.xcstrings */; };
 		B7A100033D110000ABC00001 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B7A100013D110000ABC00001 /* Localizable.xcstrings */; };
+		B7A200023D170000ABC00001 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = B7A200013D170000ABC00001 /* InfoPlist.xcstrings */; };
 		B7A100063D110000ABC00001 /* LanguageSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A100053D110000ABC00001 /* LanguageSettingsViewController.swift */; };
 		B7A100083D110000ABC00001 /* LocalizationUIKitDirection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A100073D110000ABC00001 /* LocalizationUIKitDirection.swift */; };
 		B7A1000A3D110000ABC00001 /* LocalizationApplicationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A100093D110000ABC00001 /* LocalizationApplicationCoordinator.swift */; };
@@ -2117,7 +2120,10 @@
 		4EC000033D1000000ABC0001 /* LocalizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationService.swift; sourceTree = "<group>"; };
 		4EC000043D1000000ABC0001 /* LocalizationRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationRuntime.swift; sourceTree = "<group>"; };
 		4EC000053D1000000ABC0001 /* LocalizationCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationCoreTests.swift; sourceTree = "<group>"; };
+		4EA900012F9A00000ABC0001 /* AKESystemMessageLocalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AKESystemMessageLocalizationTests.swift; sourceTree = "<group>"; };
+		4EA910012F9A00000ABC0001 /* EphemeralSystemMessageLocalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EphemeralSystemMessageLocalizationTests.swift; sourceTree = "<group>"; };
 		B7A100013D110000ABC00001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		B7A200013D170000ABC00001 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		B7A100053D110000ABC00001 /* LanguageSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageSettingsViewController.swift; sourceTree = "<group>"; };
 		B7A100073D110000ABC00001 /* LocalizationUIKitDirection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationUIKitDirection.swift; sourceTree = "<group>"; };
 		B7A100093D110000ABC00001 /* LocalizationApplicationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationApplicationCoordinator.swift; sourceTree = "<group>"; };
@@ -2238,6 +2244,7 @@
 		1A9347D02806FCD8001A6ABF /* translations */ = {
 			isa = PBXGroup;
 			children = (
+				B7A200013D170000ABC00001 /* InfoPlist.xcstrings */,
 				B7A100013D110000ABC00001 /* Localizable.xcstrings */,
 			);
 			path = translations;
@@ -4106,6 +4113,8 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				4EA900012F9A00000ABC0001 /* AKESystemMessageLocalizationTests.swift */,
+				4EA910012F9A00000ABC0001 /* EphemeralSystemMessageLocalizationTests.swift */,
 				4EC000053D1000000ABC0001 /* LocalizationCoreTests.swift */,
 				B7A1000B3D110000ABC00001 /* LanguageSettingsViewControllerTests.swift */,
 				B7A1000D3D110000ABC00001 /* LocalizationAdaptersTests.swift */,
@@ -5359,6 +5368,7 @@
 				66D2B54B253EC01300299578 /* icons.xcassets in Resources */,
 				66A349FE280D89DF008E5B9F /* translations.json in Resources */,
 				66159DFD201EDC7D00B1CF92 /* Assets.xcassets in Resources */,
+				B7A200023D170000ABC00001 /* InfoPlist.xcstrings in Resources */,
 				B7A100023D110000ABC00001 /* Localizable.xcstrings in Resources */,
 				6662AA93291BCC4E001A6D59 /* credential_store.plist in Resources */,
 				66159E28201EE44D00B1CF92 /* Podfile in Resources */,
@@ -6326,6 +6336,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4EA900022F9A00000ABC0001 /* AKESystemMessageLocalizationTests.swift in Sources */,
+				4EA910022F9A00000ABC0001 /* EphemeralSystemMessageLocalizationTests.swift in Sources */,
 				4EC003013D1000000ABC0001 /* LocalizationCoreTests.swift in Sources */,
 				B7A1000C3D110000ABC00001 /* LanguageSettingsViewControllerTests.swift in Sources */,
 				B7A1000E3D110000ABC00001 /* LocalizationAdaptersTests.swift in Sources */,

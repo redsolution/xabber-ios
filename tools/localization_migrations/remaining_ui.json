@@ -1,0 +1,943 @@
+{
+  "migrations": [
+    {
+      "path": "xabber/common/SubscribtionsManager/SubscribtionsManager.swift",
+      "sink": "errorMessage",
+      "value": "No subscriptions available right now.",
+      "key": "premium_subscribtion__message__no_subscriptions_available_right_now",
+      "comment": "Premium catalog error shown when neither the remote service nor the bundled fallback provides a subscription.",
+      "translations": {
+        "en": "No subscriptions available right now.",
+        "ru": "Сейчас нет доступных подписок.",
+        "fr": "Aucun abonnement disponible pour le moment.",
+        "es": "No hay suscripciones disponibles en este momento.",
+        "ar": "لا توجد اشتراكات متاحة حاليًا.",
+        "zh-Hans": "目前没有可用订阅。"
+      }
+    },
+    {
+      "path": "xabber/common/SubscribtionsManager/SubscribtionsManager.swift",
+      "sink": "errorMessage",
+      "value": "We couldn't load subscriptions. Please try again.",
+      "key": "premium__catalog__load_failed_message",
+      "comment": "Premium catalog error shown when subscriptions cannot be loaded and no fallback catalog is available.",
+      "translations": {
+        "en": "We couldn't load subscriptions. Please try again.",
+        "ru": "Не удалось загрузить подписки. Попробуйте ещё раз.",
+        "fr": "Impossible de charger les abonnements. Veuillez réessayer.",
+        "es": "No se pudieron cargar las suscripciones. Inténtalo de nuevo.",
+        "ar": "تعذّر تحميل الاشتراكات. يُرجى المحاولة مرة أخرى.",
+        "zh-Hans": "无法加载订阅。请重试。"
+      }
+    },
+    {
+      "path": "xabber/common/SubscribtionsManager/SubscribtionsManager.swift",
+      "sink": "warningMessage",
+      "value": "We couldn't refresh subscriptions. Showing fallback catalog.",
+      "key": "premium__catalog__fallback_warning",
+      "comment": "Premium catalog warning shown when refresh fails but a bundled fallback catalog can still be displayed.",
+      "translations": {
+        "en": "We couldn't refresh subscriptions. Showing fallback catalog.",
+        "ru": "Не удалось обновить подписки. Показан резервный каталог.",
+        "fr": "Impossible d’actualiser les abonnements. Le catalogue de secours est affiché.",
+        "es": "No se pudieron actualizar las suscripciones. Se muestra el catálogo alternativo.",
+        "ar": "تعذّر تحديث الاشتراكات. يتم عرض الكتالوج الاحتياطي.",
+        "zh-Hans": "无法刷新订阅。正在显示备用目录。"
+      }
+    },
+    {
+      "path": "xabber/xmpp/upload/cloud_storage/XabberUploadManager.swift",
+      "sink": "segmentTitle",
+      "value": "Hosted",
+      "key": "cloud_storage__gallery__hosted_segment",
+      "comment": "Cloud Storage gallery selector label for storage hosted by the account server.",
+      "translations": {
+        "en": "Hosted",
+        "ru": "На сервере",
+        "fr": "Hébergé",
+        "es": "Alojado",
+        "ar": "مستضاف",
+        "zh-Hans": "托管"
+      }
+    },
+    {
+      "path": "xabber/xmpp/upload/cloud_storage/XabberUploadManager.swift",
+      "sink": "segmentTitle",
+      "value": "Premium",
+      "key": "settings__title__premium",
+      "comment": "Cloud Storage gallery selector label for the Premium storage tier.",
+      "translations": {
+        "en": "Premium",
+        "ru": "Премиум",
+        "fr": "Premium",
+        "es": "Premium",
+        "ar": "بريميوم",
+        "zh-Hans": "高级版"
+      }
+    },
+    {
+      "path": "xabber/xmpp/upload/cloud_storage/XabberUploadManager.swift",
+      "sink": "displayTitle",
+      "value": "Basic Cloud Storage",
+      "key": "cloud_storage__gallery__basic_title",
+      "comment": "Visible title for the basic account-hosted Cloud Storage gallery.",
+      "translations": {
+        "en": "Basic Cloud Storage",
+        "ru": "Базовое облачное хранилище",
+        "fr": "Stockage cloud de base",
+        "es": "Almacenamiento en la nube básico",
+        "ar": "التخزين السحابي الأساسي",
+        "zh-Hans": "基础云存储"
+      }
+    },
+    {
+      "path": "xabber/xmpp/upload/cloud_storage/XabberUploadManager.swift",
+      "sink": "displayTitle",
+      "value": "Premium Cloud Storage",
+      "key": "cloud_storage__gallery__premium_title",
+      "comment": "Visible title for the Premium Cloud Storage gallery.",
+      "translations": {
+        "en": "Premium Cloud Storage",
+        "ru": "Премиум-облачное хранилище",
+        "fr": "Stockage cloud Premium",
+        "es": "Almacenamiento en la nube Premium",
+        "ar": "التخزين السحابي بريميوم",
+        "zh-Hans": "高级云存储"
+      }
+    },
+    {
+      "path": "xabber/xmpp/upload/cloud_storage/XabberUploadManager.swift",
+      "sink": "planDisplayText",
+      "value": "%@ GB plan",
+      "key": "cloud_storage__premium__gigabyte_plan_format",
+      "fallback": "%1$@ GB plan",
+      "api": "format",
+      "comment": "Premium Cloud Storage plan label. Argument 1 is the storage capacity expressed in gigabytes.",
+      "translations": {
+        "en": "%1$@ GB plan",
+        "ru": "Тариф на %1$@ ГБ",
+        "fr": "Forfait de %1$@ Go",
+        "es": "Plan de %1$@ GB",
+        "ar": "خطة بسعة %1$@ غيغابايت",
+        "zh-Hans": "%1$@ GB 套餐"
+      }
+    },
+    {
+      "path": "xabber/xmpp/upload/cloud_storage/XabberUploadManager.swift",
+      "sink": "planDisplayText",
+      "value": "%@ MB plan",
+      "key": "cloud_storage__premium__megabyte_plan_format",
+      "fallback": "%1$@ MB plan",
+      "api": "format",
+      "comment": "Premium Cloud Storage plan label. Argument 1 is the storage capacity expressed in megabytes.",
+      "translations": {
+        "en": "%1$@ MB plan",
+        "ru": "Тариф на %1$@ МБ",
+        "fr": "Forfait de %1$@ Mo",
+        "es": "Plan de %1$@ MB",
+        "ar": "خطة بسعة %1$@ ميغابايت",
+        "zh-Hans": "%1$@ MB 套餐"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "buildPeriodSubtitle",
+      "value": "Equivalent to %@/month, billed %@",
+      "key": "premium__period__equivalent_billing_format",
+      "fallback": "Equivalent to %1$@/month, billed %2$@",
+      "api": "format",
+      "comment": "Premium plan subtitle. Argument 1 is the localized monthly equivalent price; argument 2 is the localized billing cadence.",
+      "translations": {
+        "en": "Equivalent to %1$@/month, billed %2$@",
+        "ru": "Эквивалентно %1$@ в месяц, оплата %2$@",
+        "fr": "Équivaut à %1$@ par mois, facturé %2$@",
+        "es": "Equivale a %1$@ al mes, facturado %2$@",
+        "ar": "ما يعادل %1$@ شهريًا، وتتم الفوترة %2$@",
+        "zh-Hans": "相当于每月 %1$@，按%2$@计费"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "savingsText",
+      "value": "Save %@ (%@%)",
+      "key": "premium__period__savings_format",
+      "fallback": "Save %1$@ (%2$@%%)",
+      "api": "format",
+      "comment": "Premium plan savings badge. Argument 1 is a localized currency amount; argument 2 is the integer percentage without the percent sign.",
+      "translations": {
+        "en": "Save %1$@ (%2$@%%)",
+        "ru": "Экономия %1$@ (%2$@%%)",
+        "fr": "Économisez %1$@ (%2$@%%)",
+        "es": "Ahorra %1$@ (%2$@%%)",
+        "ar": "وفّر %1$@ (%2$@%%)",
+        "zh-Hans": "节省 %1$@（%2$@%%）"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "subscribeTitle",
+      "value": "Subscribe",
+      "key": "premium__cta__subscribe",
+      "comment": "Premium purchase button title when no price is available for display.",
+      "translations": {
+        "en": "Subscribe",
+        "ru": "Оформить подписку",
+        "fr": "S’abonner",
+        "es": "Suscribirse",
+        "ar": "اشترك",
+        "zh-Hans": "订阅"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "subscribeTitle",
+      "value": "Subscribe for %@",
+      "key": "premium__cta__subscribe_for_format",
+      "fallback": "Subscribe for %1$@",
+      "api": "format",
+      "comment": "Premium purchase button title. Argument 1 is the localized StoreKit price.",
+      "translations": {
+        "en": "Subscribe for %1$@",
+        "ru": "Оформить подписку за %1$@",
+        "fr": "S’abonner pour %1$@",
+        "es": "Suscribirse por %1$@",
+        "ar": "اشترك مقابل %1$@",
+        "zh-Hans": "以 %1$@ 订阅"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "title",
+      "value": "Xabber Premium",
+      "key": "premium__brand__title",
+      "comment": "Premium screen navigation title. Xabber Premium is a product name and remains unchanged across locales.",
+      "translations": {
+        "en": "Xabber Premium",
+        "ru": "Xabber Premium",
+        "fr": "Xabber Premium",
+        "es": "Xabber Premium",
+        "ar": "Xabber Premium",
+        "zh-Hans": "Xabber Premium"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/premium/PremiumSubscribtionViewController.swift",
+      "sink": "text",
+      "value": "Xabber Premium",
+      "key": "premium__brand__title",
+      "comment": "Premium marketing header. Xabber Premium is a product name and remains unchanged across locales.",
+      "translations": {
+        "en": "Xabber Premium",
+        "ru": "Xabber Premium",
+        "fr": "Xabber Premium",
+        "es": "Xabber Premium",
+        "ar": "Xabber Premium",
+        "zh-Hans": "Xabber Premium"
+      }
+    },
+    {
+      "path": "xabber/xmpp/abuse/XMPPAbuseManager.swift",
+      "sink": "bodyTitle",
+      "value": "Message",
+      "key": "abuse_report__target__message",
+      "comment": "Moderation report target type for a reported message.",
+      "translations": {
+        "en": "Message",
+        "ru": "Сообщение",
+        "fr": "Message",
+        "es": "Mensaje",
+        "ar": "رسالة",
+        "zh-Hans": "消息"
+      }
+    },
+    {
+      "path": "xabber/xmpp/abuse/XMPPAbuseManager.swift",
+      "sink": "bodyTitle",
+      "value": "Media",
+      "key": "abuse_report__target__media",
+      "comment": "Moderation report target type for reported media.",
+      "translations": {
+        "en": "Media",
+        "ru": "Медиафайл",
+        "fr": "Média",
+        "es": "Contenido multimedia",
+        "ar": "وسائط",
+        "zh-Hans": "媒体"
+      }
+    },
+    {
+      "path": "xabber/xmpp/abuse/XMPPAbuseManager.swift",
+      "sink": "bodyTitle",
+      "value": "User",
+      "key": "abuse_report__target__user",
+      "comment": "Moderation report target type for a reported user.",
+      "translations": {
+        "en": "User",
+        "ru": "Пользователь",
+        "fr": "Utilisateur",
+        "es": "Usuario",
+        "ar": "مستخدم",
+        "zh-Hans": "用户"
+      }
+    },
+    {
+      "path": "xabber/xmpp/abuse/XMPPAbuseManager.swift",
+      "sink": "bodyTitle",
+      "value": "Room",
+      "key": "abuse_report__target__room",
+      "comment": "Moderation report target type for a reported group-chat room.",
+      "translations": {
+        "en": "Room",
+        "ru": "Комната",
+        "fr": "Salon",
+        "es": "Sala",
+        "ar": "غرفة",
+        "zh-Hans": "聊天室"
+      }
+    },
+    {
+      "path": "xabber/xmpp/abuse/XMPPAbuseManager.swift",
+      "sink": "bodyTitle",
+      "value": "Harassment or bullying",
+      "key": "report_reason_harassment_or_bullying",
+      "comment": "Moderation report reason for harassment or bullying.",
+      "translations": {
+        "en": "Harassment or bullying",
+        "ru": "Домогательства или травля",
+        "fr": "Harcèlement ou intimidation",
+        "es": "Acoso o intimidación",
+        "ar": "مضايقة أو تنمّر",
+        "zh-Hans": "骚扰或欺凌"
+      }
+    },
+    {
+      "path": "xabber/xmpp/abuse/XMPPAbuseManager.swift",
+      "sink": "bodyTitle",
+      "value": "Hate speech",
+      "key": "report_reason_hate_speech",
+      "comment": "Moderation report reason for hate speech.",
+      "translations": {
+        "en": "Hate speech",
+        "ru": "Разжигание ненависти",
+        "fr": "Discours haineux",
+        "es": "Discurso de odio",
+        "ar": "خطاب كراهية",
+        "zh-Hans": "仇恨言论"
+      }
+    },
+    {
+      "path": "xabber/xmpp/abuse/XMPPAbuseManager.swift",
+      "sink": "bodyTitle",
+      "value": "Sexual content or nudity",
+      "key": "report_reason_sexual_content_or_nudity",
+      "comment": "Moderation report reason for sexual content or nudity.",
+      "translations": {
+        "en": "Sexual content or nudity",
+        "ru": "Контент сексуального характера или обнажённые изображения",
+        "fr": "Contenu sexuel ou nudité",
+        "es": "Contenido sexual o desnudez",
+        "ar": "محتوى جنسي أو عري",
+        "zh-Hans": "色情内容或裸露"
+      }
+    },
+    {
+      "path": "xabber/xmpp/abuse/XMPPAbuseManager.swift",
+      "sink": "bodyTitle",
+      "value": "Violence or threats",
+      "key": "report_reason_violence_or_threats",
+      "comment": "Moderation report reason for violence or threats.",
+      "translations": {
+        "en": "Violence or threats",
+        "ru": "Насилие или угрозы",
+        "fr": "Violence ou menaces",
+        "es": "Violencia o amenazas",
+        "ar": "عنف أو تهديدات",
+        "zh-Hans": "暴力或威胁"
+      }
+    },
+    {
+      "path": "xabber/xmpp/abuse/XMPPAbuseManager.swift",
+      "sink": "bodyTitle",
+      "value": "Spam, scam, or phishing",
+      "key": "report_reason_spam_scam_or_phishing",
+      "comment": "Moderation report reason for spam, scams, or phishing.",
+      "translations": {
+        "en": "Spam, scam, or phishing",
+        "ru": "Спам, мошенничество или фишинг",
+        "fr": "Spam, escroquerie ou hameçonnage",
+        "es": "Spam, estafa o phishing",
+        "ar": "رسائل مزعجة أو احتيال أو تصيّد",
+        "zh-Hans": "垃圾信息、诈骗或网络钓鱼"
+      }
+    },
+    {
+      "path": "xabber/xmpp/abuse/XMPPAbuseManager.swift",
+      "sink": "bodyTitle",
+      "value": "Illegal content",
+      "key": "report_reason_illegal_content",
+      "comment": "Moderation report reason for illegal content.",
+      "translations": {
+        "en": "Illegal content",
+        "ru": "Незаконный контент",
+        "fr": "Contenu illégal",
+        "es": "Contenido ilegal",
+        "ar": "محتوى غير قانوني",
+        "zh-Hans": "非法内容"
+      }
+    },
+    {
+      "path": "xabber/xmpp/abuse/XMPPAbuseManager.swift",
+      "sink": "bodyTitle",
+      "value": "Impersonation",
+      "key": "report_reason_impersonation",
+      "comment": "Moderation report reason for impersonation.",
+      "translations": {
+        "en": "Impersonation",
+        "ru": "Выдача себя за другого",
+        "fr": "Usurpation d’identité",
+        "es": "Suplantación de identidad",
+        "ar": "انتحال شخصية",
+        "zh-Hans": "冒充他人"
+      }
+    },
+    {
+      "path": "xabber/xmpp/abuse/XMPPAbuseManager.swift",
+      "sink": "bodyTitle",
+      "value": "Sharing private information",
+      "key": "report_reason_sharing_private_information",
+      "comment": "Moderation report reason for sharing private information.",
+      "translations": {
+        "en": "Sharing private information",
+        "ru": "Распространение личной информации",
+        "fr": "Partage d’informations privées",
+        "es": "Divulgación de información privada",
+        "ar": "مشاركة معلومات خاصة",
+        "zh-Hans": "泄露私人信息"
+      }
+    },
+    {
+      "path": "xabber/xmpp/abuse/XMPPAbuseManager.swift",
+      "sink": "bodyTitle",
+      "value": "Other",
+      "key": "report_reason_other",
+      "comment": "Moderation report reason used when none of the listed reasons applies.",
+      "translations": {
+        "en": "Other",
+        "ru": "Другое",
+        "fr": "Autre",
+        "es": "Otro",
+        "ar": "أخرى",
+        "zh-Hans": "其他"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Premium Features",
+      "key": "settings__section__premium_features",
+      "comment": "Settings section title grouping features that require Premium.",
+      "translations": {
+        "en": "Premium Features",
+        "ru": "Премиум-возможности",
+        "fr": "Fonctionnalités Premium",
+        "es": "Funciones Premium",
+        "ar": "ميزات بريميوم",
+        "zh-Hans": "高级功能"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Appearance",
+      "key": "settings__menu_item__appearance",
+      "comment": "Settings menu item and section title for app appearance.",
+      "translations": {
+        "en": "Appearance",
+        "ru": "Внешний вид",
+        "fr": "Apparence",
+        "es": "Apariencia",
+        "ar": "المظهر",
+        "zh-Hans": "外观"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Chat",
+      "key": "account_settings_chat",
+      "comment": "Account settings section title for single-chat options.",
+      "translations": {
+        "en": "Chat",
+        "ru": "Чат",
+        "fr": "Discussion",
+        "es": "Chat",
+        "ar": "الدردشة",
+        "zh-Hans": "聊天"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Contact list",
+      "key": "category_contact_list",
+      "comment": "Settings section title for contact-list options.",
+      "translations": {
+        "en": "Contact list",
+        "ru": "Список контактов",
+        "fr": "Liste de contacts",
+        "es": "Lista de contactos",
+        "ar": "قائمة جهات الاتصال",
+        "zh-Hans": "联系人列表"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Chats",
+      "key": "settings__section__chats",
+      "comment": "Settings section title for chat-list options.",
+      "translations": {
+        "en": "Chats",
+        "ru": "Чаты",
+        "fr": "Discussions",
+        "es": "Chats",
+        "ar": "الدردشات",
+        "zh-Hans": "聊天"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Calls",
+      "key": "settings__section__calls",
+      "comment": "Settings section title for calling options.",
+      "translations": {
+        "en": "Calls",
+        "ru": "Звонки",
+        "fr": "Appels",
+        "es": "Llamadas",
+        "ar": "المكالمات",
+        "zh-Hans": "通话"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Attention calls",
+      "key": "settings__section__attention_calls",
+      "comment": "Settings section title for attention-call notification options.",
+      "translations": {
+        "en": "Attention calls",
+        "ru": "Запросы внимания",
+        "fr": "Demandes d’attention",
+        "es": "Llamadas de atención",
+        "ar": "طلبات الانتباه",
+        "zh-Hans": "提醒请求"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Badge counter",
+      "key": "settings__section__badge_counter",
+      "comment": "Settings section title for the application-icon badge counter.",
+      "translations": {
+        "en": "Badge counter",
+        "ru": "Счётчик на значке",
+        "fr": "Compteur de pastille",
+        "es": "Contador de insignia",
+        "ar": "عداد الشارة",
+        "zh-Hans": "角标计数"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "In-app notifications",
+      "key": "account_settings_in_app_notifications",
+      "comment": "Settings section title for notifications shown while Xabber is open.",
+      "translations": {
+        "en": "In-app notifications",
+        "ru": "Уведомления в приложении",
+        "fr": "Notifications dans l’application",
+        "es": "Notificaciones en la aplicación",
+        "ar": "الإشعارات داخل التطبيق",
+        "zh-Hans": "应用内通知"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Exceptions",
+      "key": "settings__section__exceptions",
+      "comment": "Settings section title for notification exceptions.",
+      "translations": {
+        "en": "Exceptions",
+        "ru": "Исключения",
+        "fr": "Exceptions",
+        "es": "Excepciones",
+        "ar": "الاستثناءات",
+        "zh-Hans": "例外"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Security",
+      "key": "settings__section__security",
+      "comment": "Settings section title for security options.",
+      "translations": {
+        "en": "Security",
+        "ru": "Безопасность",
+        "fr": "Sécurité",
+        "es": "Seguridad",
+        "ar": "الأمان",
+        "zh-Hans": "安全"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Subscriptions",
+      "key": "settings__section__subscriptions",
+      "comment": "Settings section title for account subscriptions.",
+      "translations": {
+        "en": "Subscriptions",
+        "ru": "Подписки",
+        "fr": "Abonnements",
+        "es": "Suscripciones",
+        "ar": "الاشتراكات",
+        "zh-Hans": "订阅"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Account settings",
+      "key": "account_editor",
+      "comment": "Settings section title for account-specific configuration.",
+      "translations": {
+        "en": "Account settings",
+        "ru": "Настройки аккаунта",
+        "fr": "Paramètres du compte",
+        "es": "Ajustes de la cuenta",
+        "ar": "إعدادات الحساب",
+        "zh-Hans": "帐户设置"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Status",
+      "key": "settings_account__label_status",
+      "comment": "Account settings section title for presence status.",
+      "translations": {
+        "en": "Status",
+        "ru": "Статус",
+        "fr": "Statut",
+        "es": "Estado",
+        "ar": "الحالة",
+        "zh-Hans": "状态"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Profile",
+      "key": "settings__title__profile",
+      "comment": "Account settings section title for the user profile.",
+      "translations": {
+        "en": "Profile",
+        "ru": "Профиль",
+        "fr": "Profil",
+        "es": "Perfil",
+        "ar": "الملف الشخصي",
+        "zh-Hans": "个人资料"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Server",
+      "key": "account_server_name",
+      "comment": "Account settings section title for server information.",
+      "translations": {
+        "en": "Server",
+        "ru": "Сервер",
+        "fr": "Serveur",
+        "es": "Servidor",
+        "ar": "الخادم",
+        "zh-Hans": "服务器"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Auto-Lock",
+      "key": "settings__title__auto_lock",
+      "comment": "Settings section title for automatic application locking.",
+      "translations": {
+        "en": "Auto-Lock",
+        "ru": "Автоблокировка",
+        "fr": "Verrouillage automatique",
+        "es": "Bloqueo automático",
+        "ar": "القفل التلقائي",
+        "zh-Hans": "自动锁定"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "description",
+      "value": "Burning messages",
+      "key": "settings__section__burning_messages",
+      "comment": "Settings section title for messages that are removed after a configured delay.",
+      "translations": {
+        "en": "Burning messages",
+        "ru": "Исчезающие сообщения",
+        "fr": "Messages éphémères",
+        "es": "Mensajes temporales",
+        "ar": "الرسائل المؤقتة",
+        "zh-Hans": "定时销毁消息"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "secondaryDescription",
+      "value": "This action will delete the account from the server.",
+      "key": "settings__account_delete__server_warning",
+      "comment": "Destructive account-deletion warning explaining that the account is removed from the server, not only from this device.",
+      "translations": {
+        "en": "This action will delete the account from the server.",
+        "ru": "Это действие удалит аккаунт с сервера.",
+        "fr": "Cette action supprimera le compte du serveur.",
+        "es": "Esta acción eliminará la cuenta del servidor.",
+        "ar": "سيؤدي هذا الإجراء إلى حذف الحساب من الخادم.",
+        "zh-Hans": "此操作会从服务器中删除该帐户。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "maximumQuotaText",
+      "value": "Unlimited",
+      "key": "simple__text__unlimited",
+      "comment": "Cloud Storage quota value shown when the server reports no storage limit.",
+      "translations": {
+        "en": "Unlimited",
+        "ru": "Без ограничений",
+        "fr": "Illimité",
+        "es": "Ilimitado",
+        "ar": "غير محدود",
+        "zh-Hans": "无限"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/SettingsViewController.swift",
+      "sink": "maximumQuotaText",
+      "value": "0 MB",
+      "key": "settings__cloud_storage__zero_quota",
+      "comment": "Cloud Storage quota value shown when the configured capacity is zero megabytes.",
+      "translations": {
+        "en": "0 MB",
+        "ru": "0 МБ",
+        "fr": "0 Mo",
+        "es": "0 MB",
+        "ar": "0 م.ب",
+        "zh-Hans": "0 MB"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "sectionTitle",
+      "value": "Text size: system",
+      "key": "appearance__text_size__section_system",
+      "comment": "Interface text-size section header when the application follows the iOS system text size.",
+      "translations": {
+        "en": "Text size: system",
+        "ru": "Размер текста: системный",
+        "fr": "Taille du texte : système",
+        "es": "Tamaño del texto: sistema",
+        "ar": "حجم النص: النظام",
+        "zh-Hans": "文本大小：系统默认"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "sectionTitle",
+      "value": "Text size: %@",
+      "key": "appearance__text_size__section_points_format",
+      "fallback": "Text size: %1$@",
+      "api": "format",
+      "comment": "Interface text-size section header. Argument 1 is the selected point-size number.",
+      "translations": {
+        "en": "Text size: %1$@",
+        "ru": "Размер текста: %1$@",
+        "fr": "Taille du texte : %1$@",
+        "es": "Tamaño del texto: %1$@",
+        "ar": "حجم النص: %1$@",
+        "zh-Hans": "文本大小：%1$@"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "sampleText",
+      "value": "Can we meet after lunch today?",
+      "key": "appearance__bubble_preview__no_tail_message",
+      "comment": "Sample chat message used to preview the no-tail message-bubble style.",
+      "translations": {
+        "en": "Can we meet after lunch today?",
+        "ru": "Можем встретиться сегодня после обеда?",
+        "fr": "On peut se retrouver après le déjeuner aujourd’hui ?",
+        "es": "¿Podemos vernos hoy después de comer?",
+        "ar": "هل يمكننا أن نلتقي اليوم بعد الغداء؟",
+        "zh-Hans": "我们今天午饭后能见面吗？"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "sampleText",
+      "value": "The train leaves in twenty minutes.",
+      "key": "appearance__bubble_preview__smooth_message",
+      "comment": "Sample chat message used to preview the smooth message-bubble style.",
+      "translations": {
+        "en": "The train leaves in twenty minutes.",
+        "ru": "Поезд отправляется через двадцать минут.",
+        "fr": "Le train part dans vingt minutes.",
+        "es": "El tren sale dentro de veinte minutos.",
+        "ar": "يغادر القطار بعد عشرين دقيقة.",
+        "zh-Hans": "火车二十分钟后出发。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "sampleText",
+      "value": "I'll send the photo when I get home.",
+      "key": "appearance__bubble_preview__bubble_message",
+      "comment": "Sample chat message used to preview the bubble message style.",
+      "translations": {
+        "en": "I'll send the photo when I get home.",
+        "ru": "Я отправлю фотографию, когда вернусь домой.",
+        "fr": "J’enverrai la photo quand je rentrerai chez moi.",
+        "es": "Enviaré la foto cuando llegue a casa.",
+        "ar": "سأرسل الصورة عندما أصل إلى المنزل.",
+        "zh-Hans": "我到家后会把照片发给你。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "sampleText",
+      "value": "The coffee place opens at eight.",
+      "key": "appearance__bubble_preview__bubbles_message",
+      "comment": "Sample chat message used to preview the bubbles message style.",
+      "translations": {
+        "en": "The coffee place opens at eight.",
+        "ru": "Кофейня открывается в восемь.",
+        "fr": "Le café ouvre à huit heures.",
+        "es": "La cafetería abre a las ocho.",
+        "ar": "يفتح المقهى الساعة الثامنة.",
+        "zh-Hans": "咖啡店八点开门。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "sampleText",
+      "value": "We can talk again tomorrow morning.",
+      "key": "appearance__bubble_preview__curvy_message",
+      "comment": "Sample chat message used to preview the curvy message-bubble style.",
+      "translations": {
+        "en": "We can talk again tomorrow morning.",
+        "ru": "Мы можем снова поговорить завтра утром.",
+        "fr": "On pourra en reparler demain matin.",
+        "es": "Podemos volver a hablar mañana por la mañana.",
+        "ar": "يمكننا التحدث مجددًا صباح الغد.",
+        "zh-Hans": "我们明天早上可以再聊。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "sampleText",
+      "value": "I saved the address in the notes.",
+      "key": "appearance__bubble_preview__stripes_message",
+      "comment": "Sample chat message used to preview the striped message-bubble style.",
+      "translations": {
+        "en": "I saved the address in the notes.",
+        "ru": "Адрес сохранён в заметках.",
+        "fr": "J’ai enregistré l’adresse dans les notes.",
+        "es": "He guardado la dirección en las notas.",
+        "ar": "حفظتُ العنوان في الملاحظات.",
+        "zh-Hans": "我把地址保存在备忘录里了。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "sampleText",
+      "value": "Let me know when you arrive home.",
+      "key": "appearance__bubble_preview__transparent_message",
+      "comment": "Sample chat message used to preview the transparent message-bubble style.",
+      "translations": {
+        "en": "Let me know when you arrive home.",
+        "ru": "Дай знать, когда доберёшься домой.",
+        "fr": "Dis-moi quand tu arrives chez toi.",
+        "es": "Avísame cuando llegues a casa.",
+        "ar": "أخبرني عندما تصل إلى المنزل.",
+        "zh-Hans": "你到家后告诉我一声。"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "sampleText",
+      "value": "That works for me, thanks for checking.",
+      "key": "appearance__bubble_preview__wedge_message",
+      "comment": "Sample chat message used to preview the wedge message-bubble style.",
+      "translations": {
+        "en": "That works for me, thanks for checking.",
+        "ru": "Мне подходит, спасибо, что уточнили.",
+        "fr": "Ça me convient, merci d’avoir vérifié.",
+        "es": "Me parece bien, gracias por comprobarlo.",
+        "ar": "هذا مناسب لي، شكرًا على التحقق.",
+        "zh-Hans": "我没问题，谢谢你确认。"
+      }
+    },
+    {
+      "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
+      "sink": "fallbackText",
+      "value": "file: %@, %@",
+      "key": "push__attachment__file_with_size_format",
+      "fallback": "file: %1$@, %2$@",
+      "api": "format",
+      "comment": "Push notification attachment summary. Argument 1 is the safe file name; argument 2 is the formatted file size.",
+      "translations": {
+        "en": "file: %1$@, %2$@",
+        "ru": "файл: %1$@, %2$@",
+        "fr": "fichier : %1$@, %2$@",
+        "es": "archivo: %1$@, %2$@",
+        "ar": "ملف: %1$@، %2$@",
+        "zh-Hans": "文件：%1$@，%2$@"
+      }
+    },
+    {
+      "path": "xabber/common/notify_manager/PushNotificationRouting.swift",
+      "sink": "fallbackText",
+      "value": "file: %@",
+      "key": "push__attachment__file_format",
+      "fallback": "file: %1$@",
+      "api": "format",
+      "comment": "Push notification attachment summary. Argument 1 is the safe file name.",
+      "translations": {
+        "en": "file: %1$@",
+        "ru": "файл: %1$@",
+        "fr": "fichier : %1$@",
+        "es": "archivo: %1$@",
+        "ar": "ملف: %1$@",
+        "zh-Hans": "文件：%1$@"
+      }
+    }
+  ],
+  "exclusions": [
+    {
+      "path": "xabber/xmpp/upload/cloud_storage/XabberUploadManager.swift",
+      "sink": "body",
+      "value": "exclude_avatars",
+      "reason": "Cloud Storage JSON request field name; a stable wire-format token that must not be localized."
+    }
+  ]
+}

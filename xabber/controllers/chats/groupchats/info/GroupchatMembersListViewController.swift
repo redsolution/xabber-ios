@@ -84,9 +84,9 @@ final class GroupchatMembersListViewController: SimpleBaseViewController {
         tableView.delegate = self
         tableView.dataSource = self
         if isPromoteAdmin {
-            title = "Select user"
+            title = L10n.text("group_settings__members__select_user", fallback: "Select user")
         } else if permissionScope == "owner,admin" {
-            title = "Administrators"
+            title = L10n.text("group_settings__screen__administrators", fallback: "Administrators")
         } else if permissionScope == "member" {
             title = "Members".localizeString(id: "group_settings__members_list__header", arguments: [])
         } else {
@@ -282,7 +282,7 @@ extension GroupchatMembersListViewController: UITableViewDataSource {
                 withIdentifier: ButtonTableCell.cellName,
                 for: indexPath
             ) as? ButtonTableCell else { fatalError("ButtonTableCell is not registered") }
-            cell.configure(title: "Add Administrator")
+            cell.configure(title: L10n.text("group_members__action__add_administrator", fallback: "Add Administrator"))
             return cell
         }
         guard let cell = tableView.dequeueReusableCell(
@@ -343,7 +343,7 @@ extension GroupchatMembersListViewController: UITableViewDelegate {
         let item = datasource[indexPath.row]
         var actions: [UIContextualAction] = []
 
-        let info = UIContextualAction(style: .normal, title: "Information") { [weak self] _, _, completion in
+        let info = UIContextualAction(style: .normal, title: L10n.text("group_members__action__information", fallback: "Information")) { [weak self] _, _, completion in
             self?.openMember(item.member.id)
             completion(true)
         }
@@ -351,14 +351,14 @@ extension GroupchatMembersListViewController: UITableViewDelegate {
         actions.append(info)
 
         if item.canKick {
-            let kick = UIContextualAction(style: .destructive, title: "Kick") { [weak self] _, _, completion in
+            let kick = UIContextualAction(style: .destructive, title: L10n.text("groupchat_kick", fallback: "Kick")) { [weak self] _, _, completion in
                 self?.kick(item)
                 completion(true)
             }
             actions.append(kick)
         }
         if item.canRestrict {
-            let restrict = UIContextualAction(style: .normal, title: "Restrict") { [weak self] _, _, completion in
+            let restrict = UIContextualAction(style: .normal, title: L10n.text("group_members__action__restrict", fallback: "Restrict")) { [weak self] _, _, completion in
                 guard let self else { completion(false); return }
                 let controller = GroupchatSettingsRestrictUserViewController()
                 controller.userId = item.member.id
@@ -371,7 +371,7 @@ extension GroupchatMembersListViewController: UITableViewDelegate {
             actions.append(restrict)
         }
         if item.canPromote {
-            let promote = UIContextualAction(style: .normal, title: "Promote") { [weak self] _, _, completion in
+            let promote = UIContextualAction(style: .normal, title: L10n.text("group_members__action__promote", fallback: "Promote")) { [weak self] _, _, completion in
                 guard let self else { completion(false); return }
                 let controller = GroupchatSettingsPromoteAdminViewController()
                 controller.userId = item.member.id
@@ -394,7 +394,7 @@ extension GroupchatMembersListViewController: UITableViewDelegate {
         let item = datasource[indexPath.row]
         guard !item.isMe else { return nil }
         if let realJID = item.member.jid {
-            let direct = UIContextualAction(style: .normal, title: "Chat") { [weak self] _, _, completion in
+            let direct = UIContextualAction(style: .normal, title: L10n.text("contact_bar_chat", fallback: "Chat")) { [weak self] _, _, completion in
                 guard let self else { completion(false); return }
                 let chat = ChatViewController()
                 chat.owner = owner
@@ -408,7 +408,7 @@ extension GroupchatMembersListViewController: UITableViewDelegate {
             return UISwipeActionsConfiguration(actions: [direct])
         }
         guard item.member.allowsPeerToPeer else { return nil }
-        let privateChat = UIContextualAction(style: .normal, title: "Chat") { [weak self] _, _, completion in
+        let privateChat = UIContextualAction(style: .normal, title: L10n.text("contact_bar_chat", fallback: "Chat")) { [weak self] _, _, completion in
             self?.createPrivateChat(item.member.id)
             completion(true)
         }

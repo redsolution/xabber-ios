@@ -205,7 +205,7 @@ extension EditCirclesCell: UICollectionViewDataSource {
             fatalError()
         }
         if self.circles.isEmpty {
-            cell.configure(with: "No circles", color: MDCPalette.grey.tint500)
+            cell.configure(with: L10n.text("circles__empty_state__no_circles", fallback: "No circles"), color: MDCPalette.grey.tint500)
         } else {
             cell.configure(with: self.circles[indexPath.row], color: self.color)
         }

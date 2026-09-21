@@ -57,7 +57,7 @@ extension CreateNewGroupViewController: UITableViewDataSource {
             cell.delegate = self
             cell.configure("localpart",
                            localpart: localpart,
-                           placeholder: "XMPP ID",
+                           placeholder: L10n.text("hint_xmpp_id", fallback: "XMPP ID"),
                            server: self.selectedServer)
             
             return cell

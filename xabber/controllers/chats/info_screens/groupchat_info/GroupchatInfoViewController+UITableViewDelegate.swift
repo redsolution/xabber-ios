@@ -25,15 +25,10 @@ extension GroupchatInfoViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
         let title: String
         if datasource[section].kind == .contact {
-            var participantsStr = "member"
-            if self.membersCount > 1 {
-                participantsStr = "members"
-            }
-            if self.onlineContacts > 0 {
-                title = "\(self.membersCount) \(participantsStr), \(self.onlineContacts) online"
-            } else {
-                title = "\(self.membersCount) \(participantsStr)"
-            }
+            title = GroupchatInfoCountLocalization.sectionTitle(
+                members: membersCount,
+                online: onlineContacts
+            )
         } else {
             title = datasource[section].title
         }

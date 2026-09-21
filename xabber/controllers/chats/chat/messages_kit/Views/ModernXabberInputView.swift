@@ -534,9 +534,9 @@ class ModernXabberInputView: UIView {
         var conversationType: ClientSynchronizationManager.ConversationType = ClientSynchronizationManager.ConversationType(rawValue: CommonConfigManager.shared.config.locked_conversation_type) ?? .regular {
             didSet {
                 if self.conversationType == .omemo {
-                    self.changeChatButton.setTitle("Search non-encrypted messages", for: .normal)
+                    self.changeChatButton.setTitle(L10n.text("chat__input__search_non_encrypted_messages", fallback: "Search non-encrypted messages"), for: .normal)
                 } else {
-                    self.changeChatButton.setTitle("Search encrypted messages", for: .normal)
+                    self.changeChatButton.setTitle(L10n.text("chat__input__search_encrypted_messages", fallback: "Search encrypted messages"), for: .normal)
                 }
             }
         }
@@ -619,7 +619,7 @@ class ModernXabberInputView: UIView {
         let changeChatButton: UIButton = {
             let button = UIButton()
             
-            button.setTitle("Search encrypted messages", for: .normal)
+            button.setTitle(L10n.text("chat__input__search_encrypted_messages", fallback: "Search encrypted messages"), for: .normal)
             button.tintColor = .tintColor
             button.setTitleColor(.tintColor, for: .normal)
             
@@ -1363,7 +1363,7 @@ class ModernXabberInputView: UIView {
             label.textAlignment = .center
             label.textColor = .secondaryLabel
             label.font = UIFont.systemFont(ofSize: 14, weight: .medium)
-            label.text = "No users found"
+            label.text = L10n.text("chat__input__no_users_found", fallback: "No users found")
             label.isHidden = true
             return label
         }()
@@ -1537,23 +1537,23 @@ class ModernXabberInputView: UIView {
         }()
 
         let deleteButton: UIButton = {
-            SelectionPanel.makeButton(imageName: "trash", accessibilityLabel: "Delete")
+            SelectionPanel.makeButton(imageName: "trash", accessibilityLabel: L10n.text("common__action__delete", fallback: "Delete"))
         }()
 
         let shareButton: UIButton = {
-            SelectionPanel.makeButton(imageName: "square.and.arrow.up", accessibilityLabel: "Share")
+            SelectionPanel.makeButton(imageName: "square.and.arrow.up", accessibilityLabel: L10n.text("common__action__share", fallback: "Share"))
         }()
 
         let replyButton: UIButton = {
-            SelectionPanel.makeButton(imageName: "arrowshape.turn.up.left", accessibilityLabel: "Reply")
+            SelectionPanel.makeButton(imageName: "arrowshape.turn.up.left", accessibilityLabel: L10n.text("common__action__reply", fallback: "Reply"))
         }()
 
         let copyButton: UIButton = {
-            SelectionPanel.makeButton(imageName: "doc.on.doc", accessibilityLabel: "Copy")
+            SelectionPanel.makeButton(imageName: "doc.on.doc", accessibilityLabel: L10n.text("common__action__copy", fallback: "Copy"))
         }()
 
         let forwardButton: UIButton = {
-            SelectionPanel.makeButton(imageName: "arrowshape.turn.up.right", accessibilityLabel: "Forward")
+            SelectionPanel.makeButton(imageName: "arrowshape.turn.up.right", accessibilityLabel: L10n.text("common__action__forward", fallback: "Forward"))
         }()
 
         let stack:UIStackView = {
@@ -1962,7 +1962,7 @@ class ModernXabberInputView: UIView {
         let cancelButton: UIButton = {
             let button = UIButton()
             
-            button.setTitle("Cancel", for: .normal)
+            button.setTitle(L10n.text("common__action__cancel", fallback: "Cancel"), for: .normal)
             button.isHidden = true
             button.setTitleColor(.tintColor, for: .normal)
             
@@ -3249,7 +3249,7 @@ class ModernXabberInputView: UIView {
                 self.recordPanel.isHidden =     true
                 self.recordAndPlayPanel.isHidden = true
                 self.searchPanel.isHidden =     true
-                self.stateButton.setTitle("Update signature", for: .normal)
+                self.stateButton.setTitle(L10n.text("chat__input__update_signature", fallback: "Update signature"), for: .normal)
                 self.stateButton.setTitleColor(.systemBlue, for: .normal)
             case .identityVerification:
                 self.state = state
@@ -3264,7 +3264,7 @@ class ModernXabberInputView: UIView {
                 self.selectionPanel.isHidden =  true
                 self.recordPanel.isHidden =     true
                 self.recordAndPlayPanel.isHidden = true
-                self.stateButton.setTitle("Identity verification", for: .normal)
+                self.stateButton.setTitle(L10n.text("chat__input__identity_verification", fallback: "Identity verification"), for: .normal)
                 self.stateButton.setTitleColor(.systemBlue, for: .normal)
             case .checkDevices, .checkOwnDevices, .checkContactDevices:
                 self.state = state
@@ -3280,9 +3280,9 @@ class ModernXabberInputView: UIView {
                 self.recordAndPlayPanel.isHidden = true
                 switch state {
                 case .checkContactDevices:
-                    self.stateButton.setTitle("Check contact’s devices", for: .normal)
+                    self.stateButton.setTitle(L10n.text("chat__input__check_contacts_devices", fallback: "Check contact’s devices"), for: .normal)
                 default:
-                    self.stateButton.setTitle("Check my devices", for: .normal)
+                    self.stateButton.setTitle(L10n.text("chat__input__check_my_devices", fallback: "Check my devices"), for: .normal)
                 }
                 self.stateButton.setTitleColor(.systemBlue, for: .normal)
             case .skeleton:
@@ -4382,8 +4382,8 @@ class ModernXabberInputView: UIView {
         let previousMode = self.voiceRecordButtonMode
         self.voiceRecordButtonMode = mode
         self.recordButton.accessibilityLabel = (mode == .record
-            ? "Record voice message"
-            : "Send voice message").localizeString(
+            ? L10n.text("chat_composer_record_voice_message_accessibility", fallback: "Record voice message")
+            : L10n.text("chat_composer_send_voice_message_accessibility", fallback: "Send voice message")).localizeString(
                 id: mode == .record
                     ? "chat_composer_record_voice_message_accessibility"
                     : "chat_composer_send_voice_message_accessibility",

@@ -75,7 +75,7 @@ final class CloudStorageDeleteViewController: CloudStorageShowFilesViewControlle
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        navigationItem.title = "Delete files"
+        navigationItem.title = L10n.text("account_delete_files_message", fallback: "Delete files")
         navigationItem.largeTitleDisplayMode = CommonConfigManager.shared.config.use_large_title ? .automatic : .never
         navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
     }
@@ -151,11 +151,11 @@ final class CloudStorageDeleteViewController: CloudStorageShowFilesViewControlle
 
     private func presentDeletionError() {
         let alert = UIAlertController(
-            title: "Couldn't delete files",
-            message: "Cloud Storage was not changed. Check your connection and try again.",
+            title: L10n.text("cloud_storage__cleanup__couldn_t_delete_files", fallback: "Couldn't delete files"),
+            message: L10n.text("cloud_storage__cleanup__cleanup_failed_message", fallback: "Cloud Storage was not changed. Check your connection and try again."),
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default))
         present(alert, animated: true)
     }
 }

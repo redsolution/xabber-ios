@@ -53,16 +53,41 @@ class GroupchatSettingsPromoteAdminViewController: SimpleBaseViewController {
         }
 
         private static func durationTitle(_ seconds: UInt64?) -> String {
-            guard let seconds else { return "Forever" }
+            guard let seconds else { return L10n.text("date_time_picker__field__forever", fallback: "Forever") }
             let days = seconds / 86_400
             let hours = (seconds % 86_400) / 3_600
             let minutes = (seconds % 3_600) / 60
             let values = [
-                days > 0 ? "\(days)d" : nil,
-                hours > 0 ? "\(hours)h" : nil,
-                minutes > 0 ? "\(minutes)m" : nil
+                days > 0
+                    ? L10n.plural(
+                        "date_time_picker__duration__days_count",
+                        count: Int(days),
+                        fallback: "%lld days"
+                    )
+                    : nil,
+                hours > 0
+                    ? L10n.plural(
+                        "date_time_picker__duration__hours_count",
+                        count: Int(hours),
+                        fallback: "%lld hours"
+                    )
+                    : nil,
+                minutes > 0
+                    ? L10n.plural(
+                        "date_time_picker__duration__minutes_count",
+                        count: Int(minutes),
+                        fallback: "%lld minutes"
+                    )
+                    : nil
             ].compactMap { $0 }
-            return values.isEmpty ? "Forever" : values.joined(separator: " ")
+            guard values.isNotEmpty else {
+                return L10n.text(
+                    "date_time_picker__field__forever",
+                    fallback: "Forever"
+                )
+            }
+            return L10n.formatters.listFormatter().string(from: values)
+                ?? values.joined(separator: ", ")
         }
 
         @objc private func onSwitch(_ sender: UISwitch) {
@@ -116,14 +141,43 @@ class GroupchatSettingsPromoteAdminViewController: SimpleBaseViewController {
     private var resetBaseline: GroupPermissionSet?
     private let changesObserver = BehaviorRelay<Bool>(value: false)
 
-    private let durations: [(key: String, title: String, seconds: UInt64?)] = [
-        ("forever", "Forever", nil),
-        ("1_hour", "1 Hour", 3_600),
-        ("4_hours", "4 Hours", 14_400),
-        ("1_day", "1 Day", 86_400),
-        ("7_days", "7 Days", 604_800),
-        ("custom", "Custom", nil)
-    ]
+    private var durations: [(key: String, title: String, seconds: UInt64?)] {
+        [
+            (
+                "forever",
+                L10n.text("date_time_picker__field__forever", fallback: "Forever"),
+                nil
+            ),
+            (
+                "1_hour",
+                L10n.plural("date_time_picker__duration__hours_count", count: 1, fallback: "%lld hours"),
+                3_600
+            ),
+            (
+                "4_hours",
+                L10n.plural("date_time_picker__duration__hours_count", count: 4, fallback: "%lld hours"),
+                14_400
+            ),
+            (
+                "1_day",
+                L10n.plural("date_time_picker__duration__days_count", count: 1, fallback: "%lld days"),
+                86_400
+            ),
+            (
+                "7_days",
+                L10n.plural("date_time_picker__duration__days_count", count: 7, fallback: "%lld days"),
+                604_800
+            ),
+            (
+                "custom",
+                L10n.text(
+                    "group_settings__administrators__select_custom_duration",
+                    fallback: "Select custom duration"
+                ),
+                nil
+            )
+        ]
+    }
 
     private let tableView: UITableView = {
         let view = UITableView(frame: .zero, style: .insetGrouped)
@@ -163,8 +217,8 @@ class GroupchatSettingsPromoteAdminViewController: SimpleBaseViewController {
     override func configure() {
         super.configure()
         title = permissionsScope == GroupMemberRole.admin.rawValue
-            ? "Promote admin"
-            : "Restrict member"
+            ? L10n.text("group_settings__members__promote_admin", fallback: "Promote admin")
+            : L10n.text("group_settings__members__restrict_member", fallback: "Restrict member")
         tableView.dataSource = self
         tableView.delegate = self
         cancelBarButton.action = #selector(onCancel)
@@ -342,12 +396,12 @@ class GroupchatSettingsPromoteAdminViewController: SimpleBaseViewController {
                 self.repository = repository
                 try repository.replacePermissionSet(authoritative, owner: self.owner, groupJID: self.jid)
                 try repository.replaceMembers(members, owner: self.owner, groupJID: self.jid)
-                ToastPresenter().presentSuccess(message: "Changes saved")
+                ToastPresenter().presentSuccess(message: L10n.text("group_settings__administrators__changes_saved", fallback: "Changes saved"))
                 self.navigationController?.popViewController(animated: true)
             } catch is CancellationError {
                 return
             } catch {
-                ToastPresenter().presentError(message: "Error: \(error.localizedDescription)")
+                ToastPresenter().presentError(message: L10n.format("group_settings__administrators__error", fallback: "Error: %@", arguments: [String(describing: error.localizedDescription)]))
             }
         }
     }
@@ -437,7 +491,7 @@ class GroupchatSettingsPromoteAdminViewController: SimpleBaseViewController {
             } catch is CancellationError {
                 return
             } catch {
-                ToastPresenter().presentError(message: "Error: \(error.localizedDescription)")
+                ToastPresenter().presentError(message: L10n.format("group_settings__administrators__error", fallback: "Error: %@", arguments: [String(describing: error.localizedDescription)]))
             }
         }
     }
@@ -476,9 +530,9 @@ class GroupchatSettingsPromoteAdminViewController: SimpleBaseViewController {
         picker.delegate = self
         picker.present(
             in: self,
-            title: "Select custom duration",
+            title: L10n.text("group_settings__administrators__select_custom_duration", fallback: "Select custom duration"),
             message: "\n\n\n\n\n\n",
-            cancel: "Cancel",
+            cancel: L10n.text("common__action__cancel", fallback: "Cancel"),
             animated: true,
             key: key
         )

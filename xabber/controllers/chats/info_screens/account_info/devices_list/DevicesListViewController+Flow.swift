@@ -74,13 +74,13 @@ extension DevicesListViewController {
 
     private func presentAccountQuitCleanupFailure() {
         let alert = UIAlertController(
-            title: "Account data could not be deleted",
-            message: "Please try again.",
+            title: L10n.text("devices__list__account_data_could_not_be_deleted", fallback: "Account data could not be deleted"),
+            message: L10n.text("devices__list__please_try_again", fallback: "Please try again."),
             preferredStyle: .alert
         )
         alert.addAction(
             UIAlertAction(
-                title: "OK",
+                title: L10n.text("common__action__ok", fallback: "OK"),
                 style: .default
             )
         )
@@ -114,8 +114,8 @@ extension DevicesListViewController {
         guard hasConnection else {
             ActionSheetPresenter().present(
                 in: self,
-                title: "No connection",
-                message: "Please wait while connection established",
+                title: L10n.text("devices__list__no_connection", fallback: "No connection"),
+                message: L10n.text("devices__list__connection_pending_message", fallback: "Please wait while the connection is established."),
                 cancel: "Cancel".localizeString(id: "cancel", arguments: []),
                 values: [],
                 animated: true) { _ in

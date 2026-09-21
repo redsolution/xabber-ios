@@ -1145,7 +1145,7 @@ class SubscribtionsManager: NSObject {
         return APIProduct(
             id: 0,
             productId: premiumProductId,
-            displayName: "Premium",
+            displayName: L10n.text("settings__title__premium", fallback: "Premium"),
             group: "ios",
             weight: 0,
             description: nil,
@@ -1572,7 +1572,7 @@ class SubscribtionsManager: NSObject {
                     product: fallbackProduct,
                     source: fallbackProduct == nil ? .empty : .fallback,
                     warningMessage: nil,
-                    errorMessage: fallbackProduct == nil ? "No subscriptions available right now." : nil
+                    errorMessage: fallbackProduct == nil ? L10n.text("premium_subscribtion__message__no_subscriptions_available_right_now", fallback: "No subscriptions available right now.") : nil
                 )
             )
             return
@@ -1609,8 +1609,8 @@ class SubscribtionsManager: NSObject {
                         SubscriptionCatalogFetchResult(
                             product: fallbackProduct,
                             source: fallbackProduct == nil ? .empty : .fallback,
-                            warningMessage: fallbackProduct == nil ? nil : "We couldn't refresh subscriptions. Showing fallback catalog.",
-                            errorMessage: fallbackProduct == nil ? "We couldn't load subscriptions. Please try again." : nil
+                            warningMessage: fallbackProduct == nil ? nil : L10n.text("premium__catalog__fallback_warning", fallback: "We couldn't refresh subscriptions. Showing fallback catalog."),
+                            errorMessage: fallbackProduct == nil ? L10n.text("premium__catalog__load_failed_message", fallback: "We couldn't load subscriptions. Please try again.") : nil
                         )
                     )
                     return
@@ -1643,8 +1643,8 @@ class SubscribtionsManager: NSObject {
                     SubscriptionCatalogFetchResult(
                         product: fallbackProduct,
                         source: fallbackProduct == nil ? .empty : .fallback,
-                        warningMessage: fallbackProduct == nil ? nil : "We couldn't refresh subscriptions. Showing fallback catalog.",
-                        errorMessage: fallbackProduct == nil ? "We couldn't load subscriptions. Please try again." : nil
+                        warningMessage: fallbackProduct == nil ? nil : L10n.text("premium__catalog__fallback_warning", fallback: "We couldn't refresh subscriptions. Showing fallback catalog."),
+                        errorMessage: fallbackProduct == nil ? L10n.text("premium__catalog__load_failed_message", fallback: "We couldn't load subscriptions. Please try again.") : nil
                     )
                 )
             }

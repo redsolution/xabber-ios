@@ -27,7 +27,7 @@ class YubikeyApproveViewController: SimpleBaseViewController {
     private let button: UIButton = {
         let button = UIButton()
         
-        button.setTitle("Tap to unlock".uppercased(), for: .normal)
+        button.setTitle(L10n.text("yubikey_approval__action__tap_to_unlock", fallback: "Tap to unlock").uppercased(), for: .normal)
         button.backgroundColor = UIColor.black.withAlphaComponent(0.17)
         button.setTitleColor(.white, for: .normal)
         
@@ -111,7 +111,7 @@ extension YubikeyApproveViewController: SignatureManagerDelegate {
         DispatchQueue.main.async {
             if let error = error {
                 print(error)
-                self.view.makeToast("Internal error")
+                self.view.makeToast(L10n.text("common__error__internal", fallback: "Internal error"))
             } else {
                 self.navigationController?.dismiss(animated: true, completion: nil)
             }
@@ -123,7 +123,7 @@ extension YubikeyApproveViewController: SignatureManagerDelegate {
         DispatchQueue.main.async {
             if let error = error {
                 print(error)
-                self.view.makeToast("Internal error")
+                self.view.makeToast(L10n.text("common__error__internal", fallback: "Internal error"))
             } else {
                 self.navigationController?.dismiss(animated: true, completion: nil)
             }

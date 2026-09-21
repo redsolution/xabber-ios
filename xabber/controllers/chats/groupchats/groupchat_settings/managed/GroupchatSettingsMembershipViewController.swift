@@ -137,11 +137,11 @@ class GroupchatSettingsMembershipViewController: SimpleBaseViewController {
                     settings: GroupSettings(membership: membership)
                 )
                 try self.persist(settings)
-                ToastPresenter().presentSuccess(message: "Membership updated")
+                ToastPresenter().presentSuccess(message: L10n.text("group_settings__membership__membership_updated", fallback: "Membership setting updated"))
             } catch is CancellationError {
                 return
             } catch {
-                ToastPresenter().presentError(message: "Error: \(error.localizedDescription)")
+                ToastPresenter().presentError(message: L10n.format("group_settings__membership__error", fallback: "Error: %@", arguments: [String(describing: error.localizedDescription)]))
             }
         }
     }

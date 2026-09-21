@@ -89,7 +89,7 @@ final class FloatingBottomBarView: UIView {
 
     func updateLeftButton(imageName: String, isActive: Bool) {
         configure(button: leftButton, imageName: imageName)
-        leftButton.accessibilityValue = isActive ? "On" : "Off"
+        leftButton.accessibilityValue = isActive ? L10n.text("floating_bottom_bar_view__accessibility_value__on", fallback: "On") : L10n.text("floating_bottom_bar_view__accessibility_value__off", fallback: "Off")
     }
 
     func applyActionPresentation(_ presentation: ActionPresentation) {
@@ -247,7 +247,7 @@ final class BottomSearchHostView: UIView, UITextFieldDelegate {
             for: .normal
         )
         button.accessibilityIdentifier = "bottom_search_button"
-        button.accessibilityLabel = "Search"
+        button.accessibilityLabel = L10n.text("search", fallback: "Search")
         NativeGlassBarStyle.applyDetachedIconButtonStyle(
             to: button,
             tintColor: NativeGlassBarStyle.iconTintColor
@@ -289,7 +289,7 @@ final class BottomSearchHostView: UIView, UITextFieldDelegate {
             for: .normal
         )
         button.accessibilityIdentifier = "bottom_search_cancel_button"
-        button.accessibilityLabel = "Cancel search"
+        button.accessibilityLabel = L10n.text("search__floating_bar__cancel_search", fallback: "Cancel search")
         NativeGlassBarStyle.applyIconButtonStyle(
             to: button,
             tintColor: NativeGlassBarStyle.iconTintColor,

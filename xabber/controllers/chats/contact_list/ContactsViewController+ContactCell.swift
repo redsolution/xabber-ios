@@ -368,8 +368,8 @@ extension ContactsViewController {
             actionsStack.axis = .horizontal
             actionsStack.spacing = 12
             actionsStack.distribution = .fillEqually
-            acceptButton.setTitle("Accept", for: .normal)
-            declineButton.setTitle("Decline", for: .normal)
+            acceptButton.setTitle(L10n.text("contacts__request_cell__accept", fallback: "Accept"), for: .normal)
+            declineButton.setTitle(L10n.text("decline", fallback: "Decline"), for: .normal)
             acceptButton.addTarget(self, action: #selector(onAccept), for: .touchUpInside)
             declineButton.addTarget(self, action: #selector(onDecline), for: .touchUpInside)
             actionsStack.addArrangedSubview(acceptButton)
@@ -407,7 +407,7 @@ extension ContactsViewController {
 
         override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
             super.init(style: style, reuseIdentifier: reuseIdentifier)
-            cancelButton.setTitle("Cancel request", for: .normal)
+            cancelButton.setTitle(L10n.text("contacts__request_cell__cancel_request", fallback: "Cancel request"), for: .normal)
             cancelButton.contentHorizontalAlignment = .leading
             cancelButton.addTarget(self, action: #selector(onCancel), for: .touchUpInside)
             labelsStack.addArrangedSubview(cancelButton)
@@ -450,8 +450,8 @@ extension ContactsViewController {
             actionsStack.axis = .horizontal
             actionsStack.spacing = 12
             actionsStack.distribution = .fillEqually
-            acceptButton.setTitle("Accept", for: .normal)
-            declineButton.setTitle("Decline", for: .normal)
+            acceptButton.setTitle(L10n.text("contacts__request_cell__accept", fallback: "Accept"), for: .normal)
+            declineButton.setTitle(L10n.text("decline", fallback: "Decline"), for: .normal)
             acceptButton.addTarget(self, action: #selector(onAccept), for: .touchUpInside)
             declineButton.addTarget(self, action: #selector(onDecline), for: .touchUpInside)
             actionsStack.addArrangedSubview(acceptButton)

@@ -63,7 +63,7 @@ struct CloudStorageQuotaCategoryRow: Equatable {
     let bytes: Int
 
     var detailText: String {
-        return "\(max(0, count)) \u{00b7} \(AccountQuotaStorageItem.beautify(size: max(0, bytes)))"
+        return L10n.format("cloud_storage__category__count_and_size_format", fallback: "%@ · %@", arguments: [String(describing: max(0, count)), String(describing: AccountQuotaStorageItem.beautify(size: max(0, bytes)))])
     }
 
     var sizeText: String {
@@ -614,7 +614,7 @@ enum CloudStorageItemPresentation {
             audioDuration: string(metadata?["duration"]),
             meters: string(metadata?["meters"]),
             mimeType: mimeType,
-            fileName: string(payload["name"]) ?? "File",
+            fileName: string(payload["name"]) ?? L10n.text("cloud_storage__file__fallback_name", fallback: "File"),
             dateFormatted: createdAt,
             date: dateAndTime?.date ?? "",
             time: dateAndTime?.send_time ?? "",

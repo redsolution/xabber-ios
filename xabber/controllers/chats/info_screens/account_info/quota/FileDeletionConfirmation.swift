@@ -74,7 +74,7 @@ final class FileDeletionConfirmation: BaseViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        navigationItem.title = "Delete files"
+        navigationItem.title = L10n.text("account_delete_files_message", fallback: "Delete files")
         navigationItem.largeTitleDisplayMode = CommonConfigManager.shared.config.use_large_title ? .automatic : .never
         navigationController?.navigationBar.prefersLargeTitles = CommonConfigManager.shared.config.use_large_title
         navigationItem.backButtonDisplayMode = .minimal
@@ -169,9 +169,9 @@ final class FileDeletionConfirmation: BaseViewController {
         label.numberOfLines = 0
         switch state {
         case .empty:
-            label.text = "No eligible files need to be deleted for this target."
+            label.text = L10n.text("cloud_storage__cleanup__no_eligible_files_need_to_be_deleted_for_this_target", fallback: "No eligible files need to be deleted for this target.")
         case .failed:
-            label.text = "Couldn't prepare the cleanup preview. Tap Retry."
+            label.text = L10n.text("cloud_storage__cleanup__couldn_t_prepare_the_cleanup_preview_tap_retry", fallback: "Couldn't prepare the cleanup preview. Tap Retry.")
         default:
             label.text = nil
         }
@@ -198,10 +198,10 @@ final class FileDeletionConfirmation: BaseViewController {
         guard state == .ready, let plan else { return }
         ActionSheetPresenter().present(
             in: self,
-            title: "Delete files",
-            message: "Please confirm deleting files from Cloud Storage. This action cannot be undone.",
-            cancel: "Cancel",
-            values: [ActionSheetPresenter.Item(destructive: true, title: "Delete", value: "delete")],
+            title: L10n.text("account_delete_files_message", fallback: "Delete files"),
+            message: L10n.text("cloud_storage__cleanup__delete_files_confirmation", fallback: "Please confirm deleting files from Cloud Storage. This action cannot be undone."),
+            cancel: L10n.text("common__action__cancel", fallback: "Cancel"),
+            values: [ActionSheetPresenter.Item(destructive: true, title: L10n.text("common__action__delete", fallback: "Delete"), value: "delete")],
             animated: true
         ) { [weak self] _ in
             self?.performDeletion(using: plan)
@@ -242,11 +242,11 @@ final class FileDeletionConfirmation: BaseViewController {
 
     private func presentDeletionError() {
         let alert = UIAlertController(
-            title: "Couldn't delete files",
-            message: "Cloud Storage was not changed. Check your connection and try again.",
+            title: L10n.text("cloud_storage__cleanup__couldn_t_delete_files", fallback: "Couldn't delete files"),
+            message: L10n.text("cloud_storage__cleanup__cleanup_failed_message", fallback: "Cloud Storage was not changed. Check your connection and try again."),
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        alert.addAction(UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default))
         present(alert, animated: true)
     }
 }
@@ -263,10 +263,14 @@ extension FileDeletionConfirmation: UITableViewDataSource {
         var content = cell.defaultContentConfiguration()
 
         if isPreview, state == .failed {
-            content.text = "Retry"
+            content.text = L10n.text("common__action__retry", fallback: "Retry")
             content.textProperties.color = .systemBlue
         } else {
-            content.text = isPreview ? "View files to delete (\(items.count))" : "Delete files"
+            content.text = isPreview ? L10n.plural(
+                "file_deletion_confirmation__text__view_files_to_delete_value",
+                count: items.count,
+                fallback: "View files to delete (%lld)"
+            ) : L10n.text("account_delete_files_message", fallback: "Delete files")
             content.textProperties.color = state == .ready
                 ? (isPreview ? .systemBlue : .systemRed)
                 : .tertiaryLabel
@@ -284,7 +288,7 @@ extension FileDeletionConfirmation: UITableViewDataSource {
         let label = UILabel()
         label.font = .preferredFont(forTextStyle: .body)
         label.adjustsFontForContentSizeCategory = true
-        label.text = "Review the files selected to reach \(percent)% free space. The preview is advisory; the server validates the cleanup again when you confirm. Avatars are excluded."
+        label.text = L10n.format("cloud_storage__cleanup__cleanup_preview_advisory_compact", fallback: "Review the files selected to reach %@%% free space. The preview is advisory; the server validates the cleanup again when you confirm. Avatars are excluded.", arguments: [String(describing: percent)])
         label.numberOfLines = 0
         header.addSubview(label)
         label.fillSuperviewWithOffset(top: 0, bottom: 35, left: 16, right: 16)

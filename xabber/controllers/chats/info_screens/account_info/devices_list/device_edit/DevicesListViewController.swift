@@ -81,19 +81,19 @@ class DevicesListViewController: BaseViewController {
     
     internal func update() {
         datasource = [Datasource(.current,
-                                 title: "This device".localizeString(id: "settings_account__label_current_session", arguments: []),
-                                 value: "Logs out all devices except this one.".localizeString(id: "settings_account_label_log_out_all", arguments: []),
+                                 title: L10n.text("settings_account__label_current_session", fallback: "This device"),
+                                 value: L10n.text("settings_account_label_log_out_all", fallback: "Logs out all devices except this one"),
                                  editable: false,
                                  childs: [Datasource(.token,
                                                      title: " ",
                                                      value: account.resource?.resource ?? "",
                                                      editable: false),
-                                          Datasource(.button, title: "Terminate all other sessions".localizeString(id: "account_terminate_all_sessions", arguments: []), editable: false)])
+                                          Datasource(.button, title: L10n.text("account_terminate_all_sessions", fallback: "Terminate all other sessions"), editable: false)])
         ]
         if !(tokens?.isEmpty ?? true) {
             datasource.append(Datasource(.token,
-                                         title: "Active sessions".localizeString(id: "settings_account__label_active_sessions", arguments: []),
-                                         value: "You can terminate sessions you don`t need. Official Xabber clients wipe all user data from the device upon session termination.".localizeString(id: "account_settings_terminate_description", arguments: []), /* learn more - https://www.xabber.com/devicemanagement/   */
+                                         title: L10n.text("settings_account__label_active_sessions", fallback: "Active sessions"),
+                                         value: L10n.text("account_settings_terminate_description", fallback: "You can terminate sessions you don`t need. Official Xabber clients wipe all user data from the device upon session termination."), /* learn more - https://www.xabber.com/devicemanagement/   */
                        editable: false,
                        childs: []))
         }
@@ -147,7 +147,7 @@ class DevicesListViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         subscribe()
-        title = "Devices".localizeString(id: "account_settings_devices", arguments: [])
+        title = L10n.text("account_settings_devices", fallback: "Devices")
         //navigationController?.title = "Devices".localizeString(id: "account_settings_devices", arguments: [])
         XMPPUIActionManager.shared.open(owner: self.jid)
     }

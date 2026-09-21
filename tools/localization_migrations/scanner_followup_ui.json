@@ -1,0 +1,1101 @@
+{
+  "migrations": [
+    {
+      "path": "xabber/controllers/settings/ChangePasswordTableViewController.swift",
+      "sink": "sectionTitle",
+      "value": "Old password",
+      "key": "password_change__section__old_password",
+      "comment": "Change Password screen section header above the current-password field.",
+      "translations": {
+        "en": "Old password",
+        "ru": "Старый пароль",
+        "fr": "Ancien mot de passe",
+        "es": "Contraseña anterior",
+        "ar": "كلمة المرور القديمة",
+        "zh-Hans": "旧密码"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/ChangePasswordTableViewController.swift",
+      "sink": "sectionTitle",
+      "value": "New password",
+      "key": "password_change__section__new_password",
+      "comment": "Change Password screen section header above the new-password and confirmation fields.",
+      "translations": {
+        "en": "New password",
+        "ru": "Новый пароль",
+        "fr": "Nouveau mot de passe",
+        "es": "Nueva contraseña",
+        "ar": "كلمة المرور الجديدة",
+        "zh-Hans": "新密码"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/ChangePasswordTableViewController.swift",
+      "sink": "placeholder",
+      "value": "old password",
+      "key": "password_change__field__old_password_placeholder",
+      "comment": "Placeholder for the current password field on the Change Password screen.",
+      "translations": {
+        "en": "old password",
+        "ru": "старый пароль",
+        "fr": "ancien mot de passe",
+        "es": "contraseña anterior",
+        "ar": "كلمة المرور القديمة",
+        "zh-Hans": "旧密码"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/ChangePasswordTableViewController.swift",
+      "sink": "placeholder",
+      "value": "new password",
+      "key": "password_change__field__new_password_placeholder",
+      "comment": "Placeholder for the new password field on the Change Password screen.",
+      "translations": {
+        "en": "new password",
+        "ru": "новый пароль",
+        "fr": "nouveau mot de passe",
+        "es": "nueva contraseña",
+        "ar": "كلمة المرور الجديدة",
+        "zh-Hans": "新密码"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/ChangePasswordTableViewController.swift",
+      "sink": "placeholder",
+      "value": "repeat new password",
+      "key": "password_change__field__repeat_new_password_placeholder",
+      "comment": "Placeholder asking the user to repeat the new password on the Change Password screen.",
+      "translations": {
+        "en": "repeat new password",
+        "ru": "повторите новый пароль",
+        "fr": "répétez le nouveau mot de passe",
+        "es": "repite la nueva contraseña",
+        "ar": "أعد إدخال كلمة المرور الجديدة",
+        "zh-Hans": "再次输入新密码"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/cells/DeviceInfoTableCell.swift",
+      "sink": "accessibilityLabel",
+      "value": "Device session",
+      "key": "device__accessibility__session",
+      "comment": "VoiceOver prefix identifying a row as a device session.",
+      "translations": {
+        "en": "Device session",
+        "ru": "Сеанс устройства",
+        "fr": "Session de l’appareil",
+        "es": "Sesión del dispositivo",
+        "ar": "جلسة الجهاز",
+        "zh-Hans": "设备会话"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/cells/DeviceInfoTableCell.swift",
+      "sink": "accessibilityLabel",
+      "value": "Online",
+      "key": "device__accessibility__online",
+      "comment": "VoiceOver device-session connection status.",
+      "translations": {
+        "en": "Online",
+        "ru": "В сети",
+        "fr": "En ligne",
+        "es": "En línea",
+        "ar": "متصل",
+        "zh-Hans": "在线"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/cells/DeviceInfoTableCell.swift",
+      "sink": "accessibilityLabel",
+      "value": "Offline",
+      "key": "device__accessibility__offline",
+      "comment": "VoiceOver device-session connection status.",
+      "translations": {
+        "en": "Offline",
+        "ru": "Не в сети",
+        "fr": "Hors ligne",
+        "es": "Desconectado",
+        "ar": "غير متصل",
+        "zh-Hans": "离线"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/cells/DeviceInfoTableCell.swift",
+      "sink": "accessibilityLabel",
+      "value": "This device",
+      "key": "device__accessibility__this_device",
+      "comment": "VoiceOver marker for the current device session.",
+      "translations": {
+        "en": "This device",
+        "ru": "Это устройство",
+        "fr": "Cet appareil",
+        "es": "Este dispositivo",
+        "ar": "هذا الجهاز",
+        "zh-Hans": "此设备"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/cells/DeviceInfoTableCell.swift",
+      "sink": "accessibilityLabel",
+      "value": "Action required",
+      "key": "device__accessibility__action_required",
+      "comment": "VoiceOver trust-state warning that the device needs user action.",
+      "translations": {
+        "en": "Action required",
+        "ru": "Требуется действие",
+        "fr": "Action requise",
+        "es": "Acción requerida",
+        "ar": "إجراء مطلوب",
+        "zh-Hans": "需要操作"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/cells/DeviceInfoTableCell.swift",
+      "sink": "accessibilityLabel",
+      "value": "Ignored",
+      "key": "device__accessibility__ignored",
+      "comment": "VoiceOver trust-state label for an ignored device.",
+      "translations": {
+        "en": "Ignored",
+        "ru": "Проигнорировано",
+        "fr": "Ignoré",
+        "es": "Ignorado",
+        "ar": "تم التجاهل",
+        "zh-Hans": "已忽略"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/cells/DeviceInfoTableCell.swift",
+      "sink": "accessibilityLabel",
+      "value": "Signed",
+      "key": "device__accessibility__signed",
+      "comment": "VoiceOver trust-state label for a certificate-signed device.",
+      "translations": {
+        "en": "Signed",
+        "ru": "Подписано",
+        "fr": "Signé",
+        "es": "Firmado",
+        "ar": "موقّع",
+        "zh-Hans": "已签名"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/cells/DeviceInfoTableCell.swift",
+      "sink": "accessibilityLabel",
+      "value": "Trusted",
+      "key": "device__accessibility__trusted",
+      "comment": "VoiceOver trust-state label for a trusted device.",
+      "translations": {
+        "en": "Trusted",
+        "ru": "Доверенное",
+        "fr": "Approuvé",
+        "es": "De confianza",
+        "ar": "موثوق",
+        "zh-Hans": "已信任"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/cells/DeviceInfoTableCell.swift",
+      "sink": "accessibilityLabel",
+      "value": "Fingerprint changed",
+      "key": "device__accessibility__fingerprint_changed",
+      "comment": "VoiceOver security warning that a device fingerprint changed.",
+      "translations": {
+        "en": "Fingerprint changed",
+        "ru": "Отпечаток изменён",
+        "fr": "Empreinte modifiée",
+        "es": "Huella digital modificada",
+        "ar": "تم تغيير البصمة",
+        "zh-Hans": "指纹已更改"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/cells/DeviceInfoTableCell.swift",
+      "sink": "accessibilityLabel",
+      "value": "Revoked",
+      "key": "device__accessibility__revoked",
+      "comment": "VoiceOver security state for a revoked device.",
+      "translations": {
+        "en": "Revoked",
+        "ru": "Отозвано",
+        "fr": "Révoqué",
+        "es": "Revocado",
+        "ar": "تم الإلغاء",
+        "zh-Hans": "已撤销"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/cells/DeviceInfoTableCell.swift",
+      "sink": "accessibilityLabel",
+      "value": "Encryption not enabled",
+      "key": "device__accessibility__encryption_not_enabled",
+      "comment": "VoiceOver security state when encryption is not enabled for a device.",
+      "translations": {
+        "en": "Encryption not enabled",
+        "ru": "Шифрование не включено",
+        "fr": "Chiffrement non activé",
+        "es": "Cifrado no activado",
+        "ar": "التشفير غير مفعّل",
+        "zh-Hans": "未启用加密"
+      }
+    },
+    {
+      "path": "xabber/common/audio_manager/VoiceMessagePlaybackCoordinator.swift",
+      "sink": "error",
+      "value": "Audio file is unavailable",
+      "key": "voice_message__playback__file_unavailable",
+      "comment": "Voice-message playback error shown when neither a downloaded nor remote audio URL is available.",
+      "translations": {
+        "en": "Audio file is unavailable",
+        "ru": "Аудиофайл недоступен",
+        "fr": "Le fichier audio est indisponible",
+        "es": "El archivo de audio no está disponible",
+        "ar": "الملف الصوتي غير متاح",
+        "zh-Hans": "音频文件不可用"
+      }
+    },
+    {
+      "path": "xabber/common/register/XMPPRegisterManager.swift",
+      "sink": "error",
+      "value": "Internal error. Try again later.",
+      "key": "registration__error__internal_retry_later",
+      "comment": "Account-registration failure shown when the server returns an error without explanatory text.",
+      "translations": {
+        "en": "Internal error. Try again later.",
+        "ru": "Внутренняя ошибка. Повторите попытку позже.",
+        "fr": "Erreur interne. Réessayez plus tard.",
+        "es": "Error interno. Inténtalo de nuevo más tarde.",
+        "ar": "خطأ داخلي. حاول مرة أخرى لاحقًا.",
+        "zh-Hans": "内部错误。请稍后重试。"
+      }
+    },
+    {
+      "path": "xabber/common/register/XMPPRegisterManager.swift",
+      "sink": "error",
+      "value": "Account already exist",
+      "fallback": "Account already exists",
+      "key": "registration__error__account_already_exists",
+      "comment": "Account-registration failure shown when the requested account is already registered.",
+      "translations": {
+        "en": "Account already exists",
+        "ru": "Аккаунт уже существует",
+        "fr": "Ce compte existe déjà",
+        "es": "La cuenta ya existe",
+        "ar": "الحساب موجود بالفعل",
+        "zh-Hans": "账号已存在"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "displayName",
+      "value": "Me",
+      "key": "appearance__preview__sender_me",
+      "comment": "Sender name for the user's outgoing message in the Interface settings preview.",
+      "translations": {
+        "en": "Me",
+        "ru": "Я",
+        "fr": "Moi",
+        "es": "Yo",
+        "ar": "أنا",
+        "zh-Hans": "我"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "displayName",
+      "value": "Contact",
+      "key": "appearance__preview__sender_contact",
+      "comment": "Sender name for the contact's incoming message in the Interface settings preview.",
+      "translations": {
+        "en": "Contact",
+        "ru": "Контакт",
+        "fr": "Contact",
+        "es": "Contacto",
+        "ar": "جهة اتصال",
+        "zh-Hans": "联系人"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageDeleteViewController+UICollectionViewDataSource.swift",
+      "sink": "filename",
+      "value": "File",
+      "key": "cloud_storage__file__fallback_name",
+      "comment": "Fallback filename in the Cloud Storage cleanup preview when the server does not provide one.",
+      "translations": {
+        "en": "File",
+        "ru": "Файл",
+        "fr": "Fichier",
+        "es": "Archivo",
+        "ar": "ملف",
+        "zh-Hans": "文件"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageGalleryViewController.swift",
+      "sink": "filename",
+      "value": "File",
+      "key": "cloud_storage__file__fallback_name",
+      "comment": "Fallback filename in the Cloud Storage gallery when the server does not provide one.",
+      "translations": {
+        "en": "File",
+        "ru": "Файл",
+        "fr": "Fichier",
+        "es": "Archivo",
+        "ar": "ملف",
+        "zh-Hans": "文件"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageShowFilesViewController.swift",
+      "sink": "fileName",
+      "value": "File",
+      "key": "cloud_storage__file__fallback_name",
+      "comment": "Fallback filename decoded from a Cloud Storage response when the server does not provide one.",
+      "translations": {
+        "en": "File",
+        "ru": "Файл",
+        "fr": "Fichier",
+        "es": "Archivo",
+        "ar": "ملف",
+        "zh-Hans": "文件"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageDeleteViewController+UICollectionViewDataSource.swift",
+      "sink": "senderName",
+      "value": "Audio message",
+      "key": "cloud_storage__voice__fallback_name",
+      "comment": "Fallback display name for a voice-message file in the Cloud Storage cleanup preview.",
+      "translations": {
+        "en": "Audio message",
+        "ru": "Аудиосообщение",
+        "fr": "Message vocal",
+        "es": "Mensaje de voz",
+        "ar": "رسالة صوتية",
+        "zh-Hans": "语音消息"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/account_info/quota/CloudStorageGalleryViewController.swift",
+      "sink": "senderName",
+      "value": "Audio message",
+      "key": "cloud_storage__voice__fallback_name",
+      "comment": "Fallback display name for a voice-message file in the Cloud Storage gallery.",
+      "translations": {
+        "en": "Audio message",
+        "ru": "Аудиосообщение",
+        "fr": "Message vocal",
+        "es": "Mensaje de voz",
+        "ar": "رسالة صوتية",
+        "zh-Hans": "语音消息"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Light",
+      "key": "appearance__interface_style__light",
+      "comment": "Interface appearance mode that always uses the light color scheme.",
+      "translations": {
+        "en": "Light",
+        "ru": "Светлая",
+        "fr": "Clair",
+        "es": "Claro",
+        "ar": "فاتح",
+        "zh-Hans": "浅色"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Dark",
+      "key": "appearance__interface_style__dark",
+      "comment": "Interface appearance mode that always uses the dark color scheme.",
+      "translations": {
+        "en": "Dark",
+        "ru": "Тёмная",
+        "fr": "Sombre",
+        "es": "Oscuro",
+        "ar": "داكن",
+        "zh-Hans": "深色"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "No tail",
+      "key": "appearance__bubble_style__no_tail",
+      "comment": "Message-bubble shape option without a speech-bubble tail.",
+      "translations": {
+        "en": "No tail",
+        "ru": "Без хвостика",
+        "fr": "Sans pointe",
+        "es": "Sin cola",
+        "ar": "بلا ذيل",
+        "zh-Hans": "无尾角"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Smooth",
+      "key": "appearance__bubble_style__smooth",
+      "comment": "Smooth message-bubble shape option.",
+      "translations": {
+        "en": "Smooth",
+        "ru": "Сглаженный",
+        "fr": "Lisse",
+        "es": "Suave",
+        "ar": "ناعم",
+        "zh-Hans": "平滑"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Bubble",
+      "key": "appearance__bubble_style__bubble",
+      "comment": "Single-bubble message shape option.",
+      "translations": {
+        "en": "Bubble",
+        "ru": "Пузырь",
+        "fr": "Bulle",
+        "es": "Burbuja",
+        "ar": "فقاعة",
+        "zh-Hans": "气泡"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Bubbles",
+      "key": "appearance__bubble_style__bubbles",
+      "comment": "Multi-bubble message shape option.",
+      "translations": {
+        "en": "Bubbles",
+        "ru": "Пузыри",
+        "fr": "Bulles",
+        "es": "Burbujas",
+        "ar": "فقاعات",
+        "zh-Hans": "气泡组合"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Curvy",
+      "key": "appearance__bubble_style__curvy",
+      "comment": "Curved message-bubble shape option.",
+      "translations": {
+        "en": "Curvy",
+        "ru": "Фигурный",
+        "fr": "Arrondi",
+        "es": "Curvo",
+        "ar": "منحني",
+        "zh-Hans": "曲线"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Stripes",
+      "key": "appearance__bubble_style__stripes",
+      "comment": "Striped message-bubble shape option.",
+      "translations": {
+        "en": "Stripes",
+        "ru": "Полосы",
+        "fr": "Rayures",
+        "es": "Rayas",
+        "ar": "خطوط",
+        "zh-Hans": "条纹"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Transparent",
+      "key": "appearance__bubble_style__transparent",
+      "comment": "Transparent message-bubble shape option.",
+      "translations": {
+        "en": "Transparent",
+        "ru": "Прозрачный",
+        "fr": "Transparent",
+        "es": "Transparente",
+        "ar": "شفاف",
+        "zh-Hans": "透明"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Wedge",
+      "key": "appearance__bubble_style__wedge",
+      "comment": "Wedge-shaped message-bubble option.",
+      "translations": {
+        "en": "Wedge",
+        "ru": "Клин",
+        "fr": "Biseau",
+        "es": "Cuña",
+        "ar": "إسفين",
+        "zh-Hans": "楔形"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Circle",
+      "key": "appearance__avatar_mask__circle",
+      "comment": "Circular avatar-mask option.",
+      "translations": {
+        "en": "Circle",
+        "ru": "Круг",
+        "fr": "Cercle",
+        "es": "Círculo",
+        "ar": "دائرة",
+        "zh-Hans": "圆形"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Rounded",
+      "key": "appearance__avatar_mask__rounded",
+      "comment": "Rounded avatar-mask option.",
+      "translations": {
+        "en": "Rounded",
+        "ru": "Скруглённый",
+        "fr": "Arrondi",
+        "es": "Redondeado",
+        "ar": "مستدير",
+        "zh-Hans": "圆角"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Square",
+      "key": "appearance__avatar_mask__square",
+      "comment": "Square avatar-mask option.",
+      "translations": {
+        "en": "Square",
+        "ru": "Квадрат",
+        "fr": "Carré",
+        "es": "Cuadrado",
+        "ar": "مربع",
+        "zh-Hans": "方形"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Rounded Square",
+      "key": "appearance__avatar_mask__rounded_square",
+      "comment": "Rounded-square avatar-mask option.",
+      "translations": {
+        "en": "Rounded Square",
+        "ru": "Скруглённый квадрат",
+        "fr": "Carré arrondi",
+        "es": "Cuadrado redondeado",
+        "ar": "مربع مستدير",
+        "zh-Hans": "圆角方形"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Star",
+      "key": "appearance__avatar_mask__star",
+      "comment": "Star-shaped avatar-mask option.",
+      "translations": {
+        "en": "Star",
+        "ru": "Звезда",
+        "fr": "Étoile",
+        "es": "Estrella",
+        "ar": "نجمة",
+        "zh-Hans": "星形"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Pentagon",
+      "key": "appearance__avatar_mask__pentagon",
+      "comment": "Pentagonal avatar-mask option.",
+      "translations": {
+        "en": "Pentagon",
+        "ru": "Пятиугольник",
+        "fr": "Pentagone",
+        "es": "Pentágono",
+        "ar": "خماسي الأضلاع",
+        "zh-Hans": "五边形"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Octagon",
+      "key": "appearance__avatar_mask__octagon",
+      "comment": "Octagonal avatar-mask option.",
+      "translations": {
+        "en": "Octagon",
+        "ru": "Восьмиугольник",
+        "fr": "Octogone",
+        "es": "Octágono",
+        "ar": "مثمن",
+        "zh-Hans": "八边形"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Top",
+      "key": "appearance__avatar_position__top",
+      "comment": "Avatar position at the top of a message group.",
+      "translations": {
+        "en": "Top",
+        "ru": "Верх",
+        "fr": "Haut",
+        "es": "Arriba",
+        "ar": "أعلى",
+        "zh-Hans": "顶部"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Bottom",
+      "key": "appearance__avatar_position__bottom",
+      "comment": "Avatar position at the bottom of a message group.",
+      "translations": {
+        "en": "Bottom",
+        "ru": "Низ",
+        "fr": "Bas",
+        "es": "Abajo",
+        "ar": "أسفل",
+        "zh-Hans": "底部"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "None",
+      "key": "appearance__wallpaper__none",
+      "comment": "Display name for no built-in chat wallpaper.",
+      "translations": {
+        "en": "None",
+        "ru": "Нет",
+        "fr": "Aucun",
+        "es": "Ninguno",
+        "ar": "بدون",
+        "zh-Hans": "无"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Honeycomb",
+      "key": "appearance__wallpaper__honeycomb",
+      "comment": "Display name for the Honeycomb built-in wallpaper asset.",
+      "translations": {
+        "en": "Honeycomb",
+        "ru": "Соты",
+        "fr": "Nid d’abeille",
+        "es": "Panal",
+        "ar": "قرص العسل",
+        "zh-Hans": "蜂巢"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Aliens",
+      "key": "appearance__wallpaper__aliens",
+      "comment": "Display name for the Aliens built-in wallpaper asset.",
+      "translations": {
+        "en": "Aliens",
+        "ru": "Пришельцы",
+        "fr": "Extraterrestres",
+        "es": "Alienígenas",
+        "ar": "كائنات فضائية",
+        "zh-Hans": "外星人"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Summer",
+      "key": "appearance__wallpaper__summer",
+      "comment": "Display name for the Summer built-in wallpaper asset.",
+      "translations": {
+        "en": "Summer",
+        "ru": "Лето",
+        "fr": "Été",
+        "es": "Verano",
+        "ar": "الصيف",
+        "zh-Hans": "夏日"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Cats",
+      "key": "appearance__wallpaper__cats",
+      "comment": "Display name for the Cats built-in wallpaper asset.",
+      "translations": {
+        "en": "Cats",
+        "ru": "Кошки",
+        "fr": "Chats",
+        "es": "Gatos",
+        "ar": "قطط",
+        "zh-Hans": "猫咪"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Flowers",
+      "key": "appearance__wallpaper__flowers",
+      "comment": "Display name for the Flowers built-in wallpaper asset.",
+      "translations": {
+        "en": "Flowers",
+        "ru": "Цветы",
+        "fr": "Fleurs",
+        "es": "Flores",
+        "ar": "زهور",
+        "zh-Hans": "花朵"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Daisies",
+      "key": "appearance__wallpaper__daisies",
+      "comment": "Display name for the Flowers-daisy built-in wallpaper asset; the raw asset identifier remains unchanged.",
+      "translations": {
+        "en": "Daisies",
+        "ru": "Ромашки",
+        "fr": "Marguerites",
+        "es": "Margaritas",
+        "ar": "أقحوان",
+        "zh-Hans": "雏菊"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Hearts",
+      "key": "appearance__wallpaper__hearts",
+      "comment": "Display name for the Hearts built-in wallpaper asset.",
+      "translations": {
+        "en": "Hearts",
+        "ru": "Сердца",
+        "fr": "Cœurs",
+        "es": "Corazones",
+        "ar": "قلوب",
+        "zh-Hans": "爱心"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Classic",
+      "key": "appearance__theme__classic",
+      "comment": "Display name for the built-in Classic appearance theme.",
+      "translations": {
+        "en": "Classic",
+        "ru": "Классическая",
+        "fr": "Classique",
+        "es": "Clásico",
+        "ar": "كلاسيكي",
+        "zh-Hans": "经典"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Ember",
+      "key": "appearance__theme__ember",
+      "comment": "Display name for the built-in Ember appearance theme.",
+      "translations": {
+        "en": "Ember",
+        "ru": "Угли",
+        "fr": "Braise",
+        "es": "Brasa",
+        "ar": "جمر",
+        "zh-Hans": "余烬"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Rose",
+      "key": "appearance__theme__rose",
+      "comment": "Display name for the built-in Rose appearance theme.",
+      "translations": {
+        "en": "Rose",
+        "ru": "Роза",
+        "fr": "Rose",
+        "es": "Rosa",
+        "ar": "وردة",
+        "zh-Hans": "玫瑰"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Sunset",
+      "key": "appearance__theme__sunset",
+      "comment": "Display name for the built-in Sunset appearance theme.",
+      "translations": {
+        "en": "Sunset",
+        "ru": "Закат",
+        "fr": "Coucher de soleil",
+        "es": "Atardecer",
+        "ar": "غروب",
+        "zh-Hans": "日落"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Lagoon",
+      "key": "appearance__theme__lagoon",
+      "comment": "Display name for the built-in Lagoon appearance theme.",
+      "translations": {
+        "en": "Lagoon",
+        "ru": "Лагуна",
+        "fr": "Lagon",
+        "es": "Laguna",
+        "ar": "بحيرة شاطئية",
+        "zh-Hans": "潟湖"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Mint",
+      "key": "appearance__theme__mint",
+      "comment": "Display name for the built-in Mint appearance theme.",
+      "translations": {
+        "en": "Mint",
+        "ru": "Мята",
+        "fr": "Menthe",
+        "es": "Menta",
+        "ar": "نعناع",
+        "zh-Hans": "薄荷"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Ocean",
+      "key": "appearance__theme__ocean",
+      "comment": "Display name for the built-in Ocean appearance theme.",
+      "translations": {
+        "en": "Ocean",
+        "ru": "Океан",
+        "fr": "Océan",
+        "es": "Océano",
+        "ar": "محيط",
+        "zh-Hans": "海洋"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "Sky",
+      "key": "appearance__theme__sky",
+      "comment": "Display name for the built-in Sky appearance theme.",
+      "translations": {
+        "en": "Sky",
+        "ru": "Небо",
+        "fr": "Ciel",
+        "es": "Cielo",
+        "ar": "سماء",
+        "zh-Hans": "天空"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "rowValue",
+      "value": "None",
+      "key": "appearance__wallpaper__none",
+      "comment": "Interface settings row value when no chat wallpaper is selected.",
+      "translations": {
+        "en": "None",
+        "ru": "Нет",
+        "fr": "Aucun",
+        "es": "Ninguno",
+        "ar": "بدون",
+        "zh-Hans": "无"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "rowValue",
+      "value": "Custom Gradient",
+      "key": "appearance__wallpaper__custom_gradient",
+      "comment": "Interface settings row value for a user-created chat wallpaper gradient.",
+      "translations": {
+        "en": "Custom Gradient",
+        "ru": "Пользовательский градиент",
+        "fr": "Dégradé personnalisé",
+        "es": "Degradado personalizado",
+        "ar": "تدرّج مخصص",
+        "zh-Hans": "自定义渐变"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/interface/InterfaceSettingsViewController.swift",
+      "sink": "rowValue",
+      "value": "Photo",
+      "key": "appearance__wallpaper__photo",
+      "comment": "Interface settings row value for a photo chat wallpaper.",
+      "translations": {
+        "en": "Photo",
+        "ru": "Фото",
+        "fr": "Photo",
+        "es": "Foto",
+        "ar": "صورة",
+        "zh-Hans": "照片"
+      }
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
+      "sink": "groupchatDisplayedNickname",
+      "value": "You:",
+      "key": "groupchat__message_preview__sender_you",
+      "comment": "Outgoing group-message author prefix shown before a message preview; punctuation is part of the localized label.",
+      "translations": {
+        "en": "You:",
+        "ru": "Вы:",
+        "fr": "Vous :",
+        "es": "Tú:",
+        "ar": "أنت:",
+        "zh-Hans": "你："
+      }
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
+      "sink": "groupchatRoleLabel",
+      "value": "Owner",
+      "key": "groupchat__message_author_role__owner",
+      "comment": "Fallback group-message author badge for the protocol-defined owner role when the server supplies no custom badge.",
+      "translations": {
+        "en": "Owner",
+        "ru": "Владелец",
+        "fr": "Propriétaire",
+        "es": "Propietario",
+        "ar": "المالك",
+        "zh-Hans": "所有者"
+      }
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
+      "sink": "groupchatRoleLabel",
+      "value": "Admin",
+      "key": "groupchat__message_author_role__admin",
+      "comment": "Fallback group-message author badge for the protocol-defined administrator role when the server supplies no custom badge.",
+      "translations": {
+        "en": "Admin",
+        "ru": "Администратор",
+        "fr": "Administrateur",
+        "es": "Administrador",
+        "ar": "مشرف",
+        "zh-Hans": "管理员"
+      }
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
+      "sink": "groupchatRoleLabel",
+      "value": "None",
+      "key": "groupchat__message_author_role__none",
+      "comment": "Fallback group-message author badge for the protocol-defined empty role when the server supplies no custom badge.",
+      "translations": {
+        "en": "None",
+        "ru": "Нет",
+        "fr": "Aucun",
+        "es": "Ninguno",
+        "ar": "لا شيء",
+        "zh-Hans": "无"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/groupchats/blocked_list/GroupchatBlockAddViewController.swift",
+      "sink": "placeholder",
+      "value": "name@example.com or example.com",
+      "key": "groupchat_blocklist__placeholder__jid_or_domain",
+      "comment": "Placeholder for the XMPP address or domain field when adding a group block rule; example identifiers stay unchanged.",
+      "translations": {
+        "en": "name@example.com or example.com",
+        "ru": "name@example.com или example.com",
+        "fr": "name@example.com ou example.com",
+        "es": "name@example.com o example.com",
+        "ar": "name@example.com أو example.com",
+        "zh-Hans": "name@example.com 或 example.com"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/edit_circles/EditCirclesViewController.swift",
+      "sink": "placeholder",
+      "value": "Add new circle",
+      "key": "circles__placeholder__add_new_circle",
+      "comment": "Placeholder for the field used to create a new contact circle.",
+      "translations": {
+        "en": "Add new circle",
+        "ru": "Добавить новый круг",
+        "fr": "Ajouter un nouveau cercle",
+        "es": "Añadir un círculo nuevo",
+        "ar": "إضافة دائرة جديدة",
+        "zh-Hans": "添加新分组"
+      }
+    },
+    {
+      "path": "xabber/controllers/chats/info_screens/cells/EditCirclesCell.swift",
+      "sink": "cellText",
+      "value": "No circles",
+      "key": "circles__empty_state__no_circles",
+      "comment": "Empty-state text shown in the contact-circle editor when no circles exist.",
+      "translations": {
+        "en": "No circles",
+        "ru": "Нет кругов",
+        "fr": "Aucun cercle",
+        "es": "No hay círculos",
+        "ar": "لا توجد دوائر",
+        "zh-Hans": "没有分组"
+      }
+    },
+    {
+      "path": "xabber/common/settings_manager/AppearanceSettings.swift",
+      "sink": "displayName",
+      "value": "System",
+      "key": "appearance__text_size__system",
+      "comment": "Interface settings text-size option that follows the system Dynamic Type size.",
+      "translations": {
+        "en": "System",
+        "ru": "Системный",
+        "fr": "Système",
+        "es": "Sistema",
+        "ar": "النظام",
+        "zh-Hans": "系统"
+      }
+    },
+    {
+      "path": "xabber/controllers/settings/device_privacy/DevicePrivacyViewController.swift",
+      "sink": "title",
+      "value": "Share device info",
+      "key": "device_privacy__title__share_device_info",
+      "comment": "Device Privacy settings row controlling whether device information is shared.",
+      "translations": {
+        "en": "Share device info",
+        "ru": "Делиться информацией об устройстве",
+        "fr": "Partager les informations de l’appareil",
+        "es": "Compartir información del dispositivo",
+        "ar": "مشاركة معلومات الجهاز",
+        "zh-Hans": "共享设备信息"
+      }
+    }
+  ],
+  "exclusions": []
+}

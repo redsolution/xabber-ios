@@ -116,7 +116,15 @@ class AvatarPickerViewController: BaseViewController {
         }
         
         public final func markAsSelected(selected: Bool) {
-            accessibilityValue = selected ? "selected" : "not selected"
+            accessibilityValue = selected
+                ? L10n.text(
+                    "abuse_report__accessibility_value__selected",
+                    fallback: "Selected"
+                )
+                : L10n.text(
+                    "abuse_report__accessibility_value__not_selected",
+                    fallback: "Not selected"
+                )
             if selected {
                 accessibilityTraits.insert(.selected)
             } else {
@@ -330,7 +338,7 @@ class AvatarPickerViewController: BaseViewController {
         view.accessibilityIdentifier = AvatarPickerAccessibilityIdentifiers.screen
         avatarView.isAccessibilityElement = true
         avatarView.accessibilityIdentifier = AvatarPickerAccessibilityIdentifiers.preview
-        avatarView.accessibilityLabel = "Avatar preview"
+        avatarView.accessibilityLabel = L10n.text("avatar_picker__accessibility__avatar_preview", fallback: "Avatar preview")
         avatarView.accessibilityValue = avatarView.label.text
         
         view.addSubview(contentView)

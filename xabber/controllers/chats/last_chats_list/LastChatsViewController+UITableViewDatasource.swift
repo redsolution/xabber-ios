@@ -125,16 +125,16 @@ extension LastChatsViewController: UITableViewDataSource {
         switch item.specialMessageKind {
         case .contact:
             cell.configure(
-                title: "New contact request",
-                subtitle: item.unread > 1 ? "New contact requests from: \(item.username) and others" : "New contact request from \(item.username)",
+                title: L10n.text("last_chats__notification__new_contact_request", fallback: "New contact request"),
+                subtitle: item.unread > 1 ? L10n.format("last_chats__subtitle__new_contact_requests_from_value_and_others", fallback: "New contact requests from: %@ and others", arguments: [String(describing: item.username)]) : L10n.format("last_chats__subtitle__new_contact_request_from_value", fallback: "New contact request from %@", arguments: [String(describing: item.username)]),
                 avatars: item.avatars,
                 owner: item.owner,
                 key: "contact"
             )
         case .invite:
             cell.configure(
-                title: "New invitations",
-                subtitle: item.unread > 1 ? "Join new groups: \(item.username) and more" : "Join \(item.username)",
+                title: L10n.text("last_chats__notification__new_invitations", fallback: "New invitations"),
+                subtitle: item.unread > 1 ? L10n.format("last_chats__subtitle__join_new_groups_value_and_more", fallback: "Join new groups: %@ and more", arguments: [String(describing: item.username)]) : L10n.format("last_chats__subtitle__join_value", fallback: "Join %@", arguments: [String(describing: item.username)]),
                 avatars: item.avatars,
                 owner: item.owner,
                 key: "invite"

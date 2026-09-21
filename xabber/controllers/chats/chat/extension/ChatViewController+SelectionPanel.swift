@@ -79,7 +79,7 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
         if let text = formatSelectedMessagesBodyForCopy() {
             UIPasteboard.general.string = text
             
-            ToastPresenter().presentSuccess(message: "Text was copied to clipboard")
+            ToastPresenter().presentSuccess(message: L10n.text("chat__selection__text_copied", fallback: "Text was copied to clipboard"))
         } else {
             ToastPresenter().presentError(message: "Internal error".localizeString(id: "message_manager_error_internal", arguments: []))
         }
@@ -272,7 +272,7 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
         guard request.archivedIds.isNotEmpty else {
             let deletedCount = deletePendingOutgoingMessagesLocally(request.localPendingIds)
             if deletedCount > 0 {
-                ToastPresenter().presentSuccess(message: "Success")
+                ToastPresenter().presentSuccess(message: L10n.text("chat__selection__success", fallback: "Success"))
             }
             return
         }
@@ -378,7 +378,7 @@ extension ChatViewController: MessagesSelectionPanelActionDelegate {
                 } else {
                     messagesQueue.remove(primary)
                     if messagesQueue.isEmpty {
-                        ToastPresenter().presentSuccess(message: "Success")
+                        ToastPresenter().presentSuccess(message: L10n.text("chat__selection__success", fallback: "Success"))
                     }
                 }
             }

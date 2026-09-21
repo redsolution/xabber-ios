@@ -533,7 +533,17 @@ private final class SettingsAccountQRCodeThemeCell: UICollectionViewCell {
     }
 
     func apply(theme: SettingsAccountQRCodeTheme, appearance: SettingsAccountQRCodeAppearance) {
-        accessibilityLabel = "\(theme.backgroundName), \(theme.gradient.rawValue)"
+        let backgroundName = AppearanceWallpaper.displayName(
+            forAssetName: theme.backgroundName
+        )
+        let gradientName = AppearanceThemeCatalog.displayName(
+            forBuiltInID: "builtin.\(theme.gradient.rawValue)"
+        ) ?? theme.gradient.rawValue
+        accessibilityLabel = L10n.format(
+            "settings_account__qr_theme__accessibility_label_format",
+            fallback: "%1$@, %2$@",
+            arguments: [backgroundName, gradientName]
+        )
         var gradientColors = theme.gradientColors(dark: appearance == .dark)
         if case .some(.gradient(let stops, _, _)) = theme.wallpaper, !stops.isEmpty {
             gradientColors = stops.map { $0.uiColor.cgColor }

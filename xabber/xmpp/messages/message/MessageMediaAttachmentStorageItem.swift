@@ -244,14 +244,12 @@ class MessageMediaAttachmentStorageItem: Object {
     func subtitle() -> String {
         switch kind {
             case .file:
-                let formatter = ByteCountFormatter()
-                formatter.allowedUnits = [.useKB, .useMB]
-                formatter.countStyle = .binary
-                return formatter
+                return L10n.formatters
+                    .byteCountFormatter(
+                        countStyle: .binary,
+                        allowedUnits: [.useKB, .useMB]
+                    )
                     .string(fromByteCount: Int64(self.sizeBytes))
-                    .replacingOccurrences(of: ",", with: ".")
-                    .replacingOccurrences(of: "MB", with: "MiB")
-                    .replacingOccurrences(of: "KB", with: "KiB")
             case .video:
                 break
             default:

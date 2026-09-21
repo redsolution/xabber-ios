@@ -467,7 +467,7 @@ extension ChatViewController {
                     return
                     
                 } else if (XMPPJID(string: self.jid)?.isServer ?? false) {
-                    self.contactStatus = "Server"
+                    self.contactStatus = L10n.text("chat__contact_status__server", fallback: "Server")
                     self.updateStatusText()
                     return
                 }

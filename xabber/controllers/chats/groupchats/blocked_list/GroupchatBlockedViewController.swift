@@ -78,7 +78,7 @@ final class GroupchatBlockedViewController: SimpleBaseViewController {
                         Datasource(
                             target: target,
                             title: target,
-                            subtitle: target.contains("@") ? "XMPP ID" : "Domain",
+                            subtitle: target.contains("@") ? L10n.text("hint_xmpp_id", fallback: "XMPP ID") : L10n.text("groupchat_blocklist__subtitle__domain", fallback: "Domain"),
                             avatarURL: nil
                         )
                     }
@@ -107,7 +107,7 @@ final class GroupchatBlockedViewController: SimpleBaseViewController {
                     target: target
                 )
                 datasource = targets
-                    .map { Datasource(target: $0, title: $0, subtitle: $0.contains("@") ? "XMPP ID" : "Domain", avatarURL: nil) }
+                    .map { Datasource(target: $0, title: $0, subtitle: $0.contains("@") ? L10n.text("hint_xmpp_id", fallback: "XMPP ID") : L10n.text("groupchat_blocklist__subtitle__domain", fallback: "Domain"), avatarURL: nil) }
                     .sorted { $0.target.localizedCaseInsensitiveCompare($1.target) == .orderedAscending }
                 tableView.reloadData()
             } catch {

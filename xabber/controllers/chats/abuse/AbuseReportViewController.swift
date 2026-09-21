@@ -513,12 +513,12 @@ extension AbuseReportViewController: UITableViewDataSource {
                 config.text = "Include message excerpt in report".localizeString(id: "report_include_excerpt", arguments: [])
                 config.image = UIImage(systemName: includeMessageExcerpt ? "checkmark.square.fill" : "square")
                 cell.accessibilityIdentifier = "report.include_excerpt"
-                cell.accessibilityValue = includeMessageExcerpt ? "Selected" : "Not selected"
+                cell.accessibilityValue = includeMessageExcerpt ? L10n.text("abuse_report__accessibility_value__selected", fallback: "Selected") : L10n.text("abuse_report__accessibility_value__not_selected", fallback: "Not selected")
             case .hideLocally:
                 config.text = "Hide this content locally".localizeString(id: "report_hide_locally", arguments: [])
                 config.image = UIImage(systemName: hideLocally ? "checkmark.square.fill" : "square")
                 cell.accessibilityIdentifier = "report.hide_locally"
-                cell.accessibilityValue = hideLocally ? "Selected" : "Not selected"
+                cell.accessibilityValue = hideLocally ? L10n.text("abuse_report__accessibility_value__selected", fallback: "Selected") : L10n.text("abuse_report__accessibility_value__not_selected", fallback: "Not selected")
             }
             config.textProperties.font = UIFont.preferredFont(forTextStyle: .body)
             config.textProperties.adjustsFontForContentSizeCategory = true

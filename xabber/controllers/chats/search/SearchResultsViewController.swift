@@ -505,7 +505,7 @@ class SearchResultsViewController: SimpleBaseViewController {
             
             var isSystemMessage: Bool = [.system].contains(messageItem.displayAs)
             if item.isFreshNotEmptyEncryptedChat {
-                message = "Write your encrypted messages here"
+                message = L10n.text("chat__empty_conversation__encrypted_message_placeholder", fallback: "Write your encrypted messages here")
                 isSystemMessage = true
             }
             
@@ -635,7 +635,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                     }
                 } else if item.conversationType == .saved {
                     let usersCount = AccountManager.shared.users.count
-                    message = usersCount > 1 ? item.owner : "Save messages here"
+                    message = usersCount > 1 ? item.owner : L10n.text("saved_messages__placeholder__save_messages_here", fallback: "Save messages here")
                 } else {
                     message = blankMessageText
                 }
@@ -688,7 +688,7 @@ class SearchResultsViewController: SimpleBaseViewController {
                 
                 var isSystemMessage: Bool = [.system].contains(item.lastMessage?.displayAs ?? .text)
                 if item.isFreshNotEmptyEncryptedChat {
-                    message = "Write your encrypted messages here"
+                    message = L10n.text("chat__empty_conversation__encrypted_message_placeholder", fallback: "Write your encrypted messages here")
                     isSystemMessage = true
                 }
                 if item.lastMessage == nil {
@@ -1825,7 +1825,7 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating {
             var nickname: String? = nil
             var isSystemMessage: Bool = [.system].contains(messageItem.displayAs)
             if item.isFreshNotEmptyEncryptedChat {
-                message = "Write your encrypted messages here"
+                message = L10n.text("chat__empty_conversation__encrypted_message_placeholder", fallback: "Write your encrypted messages here")
                 isSystemMessage = true
             }
 
@@ -1974,7 +1974,7 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating {
                     }
                 } else if item.conversationType == .saved {
                     let usersCount = AccountManager.shared.users.count
-                    message = usersCount > 1 ? item.owner : "Save messages here"
+                    message = usersCount > 1 ? item.owner : L10n.text("saved_messages__placeholder__save_messages_here", fallback: "Save messages here")
                 } else {
                     message = blankMessageText
                 }
@@ -2003,7 +2003,7 @@ final class ChatSearchResultsController: NSObject, UISearchResultsUpdating {
                 let nickname: String? = item.lastMessage?.groupchatDisplayedNickname
                 var isSystemMessage: Bool = [.system].contains(item.lastMessage?.displayAs ?? .text)
                 if item.isFreshNotEmptyEncryptedChat {
-                    message = "Write your encrypted messages here"
+                    message = L10n.text("chat__empty_conversation__encrypted_message_placeholder", fallback: "Write your encrypted messages here")
                     isSystemMessage = true
                 }
                 if item.lastMessage == nil {

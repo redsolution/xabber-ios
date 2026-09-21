@@ -170,7 +170,7 @@ extension GroupchatBlockAddViewController: UITableViewDataSource {
                 field.autocorrectionType = .no
                 field.clearButtonMode = .always
             }
-            cell.configure("name@example.com or example.com", value: enteredTarget, key: "target")
+            cell.configure(L10n.text("groupchat_blocklist__placeholder__jid_or_domain", fallback: "name@example.com or example.com"), value: enteredTarget, key: "target")
             cell.callback = { [weak self] _, value in
                 self?.enteredTarget = value ?? ""
                 self?.updateBlockButton()

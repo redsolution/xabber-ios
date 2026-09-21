@@ -36,7 +36,7 @@ class DevicePrivacyViewController: SimpleBaseViewController {
     
     override func configure() {
         super.configure()
-        self.title = "Privacy"
+        self.title = L10n.text("device_privacy__title__privacy", fallback: "Privacy")
         self.tableView.dataSource = self
         self.tableView.delegate = self
         self.yetAnotherDeviceName = NickGenerator.shared.genRandomNick()
@@ -68,7 +68,7 @@ extension DevicePrivacyViewController: UITableViewDataSource {
                 fatalError()
             }
             
-            cell.configure(key: "enabled", for: "Share device info", active: false)
+            cell.configure(key: "enabled", for: L10n.text("device_privacy__title__share_device_info", fallback: "Share device info"), active: false)
             
             return cell
         } else {
@@ -78,9 +78,9 @@ extension DevicePrivacyViewController: UITableViewDataSource {
     
     func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         if section == 0 {
-            return "Your contacts can see this device name in identity section"
+            return L10n.text("device_privacy__table_section_title__your_contacts_can_see_this_device_name_in_identity_section", fallback: "Your contacts can see this device name in identity section")
         } else if section == 1 {
-            return "If this option enabled, your device info will be available for your contacts as \([[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " "))"
+            return L10n.format("device_privacy__table_section_title__if_this_option_enabled_your_device_info_will_be_available_for_your", fallback: "If this option enabled, your device info will be available for your contacts as %@", arguments: [String(describing: [[UIDevice.modelName, ","].joined(),  "iOS", UIDevice.current.systemVersion].joined(separator: " "))])
         } else {
             return nil
         }

@@ -51,7 +51,7 @@ class XCopyableLabel: UILabel {
     @objc
     func makeCopy(sender: Any?) {
         UIPasteboard.general.string = text
-        ToastPresenter().presentSuccess(message: "Text was copied to clipboard")
+        ToastPresenter().presentSuccess(message: L10n.text("common__toast__text_copied", fallback: "Text was copied to clipboard"))
     }
     
     @objc

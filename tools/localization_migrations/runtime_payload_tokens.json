@@ -1,0 +1,23 @@
+{
+  "migrations": [],
+  "exclusions": [
+    {
+      "path": "xabber-push-extension/NotificationService.swift",
+      "sink": "body",
+      "value": "body",
+      "reason": "Encrypted push-payload dictionary key; a stable wire-format token, not user-visible copy."
+    },
+    {
+      "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
+      "sink": "text",
+      "value": "text",
+      "reason": "MessageDisplayType persisted enum raw value; a storage/protocol token, not user-visible copy."
+    },
+    {
+      "path": "xabber/xmpp/voip/VoIPManager/VoIPManager.swift",
+      "sink": "body",
+      "value": "body",
+      "reason": "Encrypted VoIP push-payload dictionary key; a stable wire-format token, not user-visible copy."
+    }
+  ]
+}
