@@ -320,20 +320,20 @@ extension AccountInfoViewController: InfoScreenHeaderDelegate {
                 DispatchQueue.main.async {
                     if self.isModal {
                         self.dismiss(animated: true) {
-                            let vc = OnboardingViewController()
-                            
-                            let navigationController = UINavigationController(rootViewController: vc)
-                            
-                            navigationController.isNavigationBarHidden = true
-                            (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = navigationController
+                            let appDelegate = UIApplication.shared.delegate as? AppDelegate
+                            AppDelegate.setupRootViewController(
+                                instance: appDelegate,
+                                window: appDelegate?.window,
+                                userInfo: nil
+                            )
                         }
                     } else {
-                        let vc = OnboardingViewController()
-                        
-                        let navigationController = UINavigationController(rootViewController: vc)
-                        
-                        navigationController.isNavigationBarHidden = true
-                        (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = navigationController
+                        let appDelegate = UIApplication.shared.delegate as? AppDelegate
+                        AppDelegate.setupRootViewController(
+                            instance: appDelegate,
+                            window: appDelegate?.window,
+                            userInfo: nil
+                        )
                     }
                 }
             } else {

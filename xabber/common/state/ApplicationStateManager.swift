@@ -185,95 +185,323 @@ struct MediaUploadQuotaPolicy {
     }
 }
 
+struct PasscodeAutoLockPolicy {
+    static func shouldLockOnResume(
+        period: TimeInterval,
+        leftAt: Date?,
+        now: Date
+    ) -> Bool {
+        guard period > 0 else { return false }
+        guard let leftAt else { return true }
+        let elapsed = now.timeIntervalSince(leftAt)
+        return elapsed < 0 || elapsed >= period
+    }
+}
+
+struct PasscodeUnlockPresentationPolicy {
+    static func canComplete(
+        isLocked: Bool,
+        isPINWindow: Bool,
+        sceneState: UIScene.ActivationState?,
+        wipePending: Bool
+    ) -> Bool {
+        isLocked && isPINWindow && sceneState == .foregroundActive && !wipePending
+    }
+}
+
+struct PasscodeAccountStoreRecoveryPolicy {
+    static func requiresPIN(
+        hasEnrolledPIN: Bool,
+        period: TimeInterval,
+        wasDueWhenForegrounded: Bool,
+        pendingBackgroundAt: Date?,
+        now: Date
+    ) -> Bool {
+        guard hasEnrolledPIN, period > 0 else { return false }
+        if wasDueWhenForegrounded { return true }
+        guard let pendingBackgroundAt else { return false }
+        return PasscodeAutoLockPolicy.shouldLockOnResume(
+            period: period,
+            leftAt: pendingBackgroundAt,
+            now: now
+        )
+    }
+}
+
+final class PasscodeWipeBlockingViewController: UIViewController {
+    var onRetry: (() -> Void)?
+
+    private let messageLabel = UILabel()
+    private let retryButton = UIButton(type: .system)
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+        view.accessibilityIdentifier = "passcode.wipeBlockingScreen"
+
+        let stack = UIStackView(arrangedSubviews: [messageLabel, retryButton])
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 24
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24)
+        ])
+
+        messageLabel.text = L10n.text(
+            "passcode__content__deleting_local_data",
+            fallback: "Deleting local data"
+        )
+        messageLabel.font = .preferredFont(forTextStyle: .headline)
+        messageLabel.textAlignment = .center
+        messageLabel.numberOfLines = 0
+        messageLabel.accessibilityIdentifier = "passcode.wipeStatus"
+
+        retryButton.setTitle(
+            L10n.text("common__action__retry", fallback: "Retry"),
+            for: .normal
+        )
+        retryButton.accessibilityIdentifier = "passcode.wipeRetry"
+        retryButton.addTarget(self, action: #selector(retryTapped), for: .touchUpInside)
+        retryButton.isHidden = true
+    }
+
+    func showRetry() {
+        loadViewIfNeeded()
+        messageLabel.text = L10n.text(
+            "passcode__content__local_data_deletion_failed",
+            fallback: "Could not delete local data. Try again."
+        )
+        retryButton.isHidden = false
+    }
+
+    func showAccountStoreError() {
+        loadViewIfNeeded()
+        view.accessibilityIdentifier = "passcode.accountStoreBlockingScreen"
+        messageLabel.text = L10n.text(
+            "passcode__content__local_data_unavailable",
+            fallback: "Could not open local data. Try again."
+        )
+        retryButton.isHidden = false
+    }
+
+    @objc private func retryTapped() {
+        retryButton.isHidden = true
+        messageLabel.text = L10n.text(
+            "passcode__content__deleting_local_data",
+            fallback: "Deleting local data"
+        )
+        onRetry?()
+    }
+}
+
 final class PasscodeLockCoordinator {
     static let shared = PasscodeLockCoordinator()
 
     private var lockWindow: UIWindow?
+    private weak var mainWindow: UIWindow?
+    private var detachedRootViewController: UIViewController?
+    private var neutralRootViewController: UIViewController?
+    private var previousAccessibilityElementsHidden = false
+    private var accountStoreBlockerActive = false
 
-    private init() {}
+    init() {}
 
     var isShowing: Bool {
         lockWindow != nil
     }
 
-    @discardableResult
-    func show(animated: Bool, onUnlock: @escaping () -> Void) -> Bool {
-        guard lockWindow == nil else {
-            return true
-        }
+    var isProtected: Bool {
+        neutralRootViewController != nil
+    }
 
-        guard let window = makeWindow() else {
+    var visibleWindow: UIWindow? {
+        lockWindow
+    }
+
+    var isShowingAccountStoreBlocker: Bool {
+        accountStoreBlockerActive
+    }
+
+    var protectedMainWindow: UIWindow? {
+        mainWindow
+    }
+
+    @discardableResult
+    func protect(mainWindow requestedWindow: UIWindow? = nil) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard let window = requestedWindow ?? AppRootCoordinator.active?.window
+            ?? (UIApplication.shared.delegate as? AppDelegate)?.window,
+              window !== lockWindow else {
             return false
         }
+        if mainWindow === window, neutralRootViewController != nil {
+            return true
+        }
+        guard neutralRootViewController == nil else { return false }
 
-        let viewController = PasscodeOrBiometricViewController()
-        viewController.onUnlockSucceeded = onUnlock
-        viewController.modalPresentationStyle = .fullScreen
-        viewController.isModalInPresentation = true
+        let neutralRoot = UIViewController()
+        neutralRoot.view.backgroundColor = .systemBackground
+        neutralRoot.view.isOpaque = true
+        neutralRoot.view.accessibilityIdentifier = "passcode.neutralRoot"
 
-        window.rootViewController = viewController
+        detachedRootViewController = window.rootViewController
+        mainWindow = window
+        neutralRootViewController = neutralRoot
+        previousAccessibilityElementsHidden = window.accessibilityElementsHidden
+        window.accessibilityElementsHidden = true
         window.backgroundColor = .systemBackground
-        window.windowLevel = UIWindow.Level(rawValue: UIWindow.Level.alert.rawValue + 1)
-        window.accessibilityViewIsModal = true
-        window.alpha = animated ? 0 : 1
-        window.isHidden = false
-        window.makeKeyAndVisible()
-        lockWindow = window
-
-        if animated {
-            UIView.animate(withDuration: 0.2) {
-                window.alpha = 1
-            }
+        UIView.performWithoutAnimation {
+            window.rootViewController = neutralRoot
+        }
+        if AppRootCoordinator.active?.window === window {
+            AppRootCoordinator.active?.removeBlurredScreen()
         }
         return true
     }
 
-    func hide(animated: Bool) {
-        guard let window = lockWindow else {
-            restoreMainWindow()
-            return
+    @discardableResult
+    func show(
+        animated: Bool,
+        mainWindow requestedWindow: UIWindow? = nil,
+        onUnlock: @escaping () -> Void
+    ) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard protect(mainWindow: requestedWindow) else { return false }
+        if let window = lockWindow {
+            guard accountStoreBlockerActive else { return true }
+            let viewController = PasscodeOrBiometricViewController()
+            viewController.onUnlockSucceeded = onUnlock
+            accountStoreBlockerActive = false
+            window.rootViewController = viewController
+            window.alpha = 1
+            window.makeKeyAndVisible()
+            return true
         }
 
-        let cleanup = { [weak self] in
+        guard let scene = mainWindow?.windowScene else {
+            return false
+        }
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+
+        let viewController = PasscodeOrBiometricViewController()
+        viewController.onUnlockSucceeded = onUnlock
+        accountStoreBlockerActive = false
+
+        window.rootViewController = viewController
+        window.backgroundColor = .systemBackground
+        window.isOpaque = true
+        window.windowLevel = UIWindow.Level(rawValue: UIWindow.Level.alert.rawValue + 1)
+        window.accessibilityViewIsModal = true
+        window.alpha = 1
+        window.isHidden = false
+        lockWindow = window
+        window.makeKeyAndVisible()
+        return true
+    }
+
+    @discardableResult
+    func showWipeBlocker(
+        mainWindow requestedWindow: UIWindow? = nil,
+        onRetry: @escaping () -> Void
+    ) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard protect(mainWindow: requestedWindow),
+              let scene = mainWindow?.windowScene else { return false }
+
+        detachedRootViewController = nil
+        accountStoreBlockerActive = false
+        let blocker = PasscodeWipeBlockingViewController()
+        blocker.onRetry = onRetry
+        let window = lockWindow ?? UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = blocker
+        window.backgroundColor = .systemBackground
+        window.isOpaque = true
+        window.windowLevel = UIWindow.Level(rawValue: UIWindow.Level.alert.rawValue + 1)
+        window.accessibilityViewIsModal = true
+        window.alpha = 1
+        lockWindow = window
+        window.makeKeyAndVisible()
+        return true
+    }
+
+    func showWipeRetry() {
+        (lockWindow?.rootViewController as? PasscodeWipeBlockingViewController)?.showRetry()
+    }
+
+    @discardableResult
+    func showAccountStoreBlocker(
+        mainWindow requestedWindow: UIWindow? = nil,
+        onRetry: @escaping () -> Void
+    ) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard protect(mainWindow: requestedWindow),
+              let scene = mainWindow?.windowScene else { return false }
+        let blocker = PasscodeWipeBlockingViewController()
+        blocker.onRetry = onRetry
+        accountStoreBlockerActive = true
+        let window = lockWindow ?? UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = blocker
+        window.backgroundColor = .systemBackground
+        window.isOpaque = true
+        window.windowLevel = UIWindow.Level(rawValue: UIWindow.Level.alert.rawValue + 1)
+        window.accessibilityViewIsModal = true
+        window.alpha = 1
+        lockWindow = window
+        window.makeKeyAndVisible()
+        blocker.showAccountStoreError()
+        return true
+    }
+
+    /// Wipe has completed. The new onboarding root is installed while the
+    /// blocker still covers the scene, then `hide` reveals it in one step.
+    func allowRootReplacementAfterWipe() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        detachedRootViewController = nil
+        neutralRootViewController = nil
+    }
+
+    func hide(animated: Bool) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        if let mainWindow,
+           neutralRootViewController != nil {
+            UIView.performWithoutAnimation {
+                mainWindow.rootViewController = detachedRootViewController
+            }
+        }
+        mainWindow?.accessibilityElementsHidden = previousAccessibilityElementsHidden
+        detachedRootViewController = nil
+        neutralRootViewController = nil
+        accountStoreBlockerActive = false
+        if let window = lockWindow {
             window.isHidden = true
             window.rootViewController = nil
-            self?.lockWindow = nil
-            self?.restoreMainWindow()
+            lockWindow = nil
         }
-
-        if animated {
-            UIView.animate(withDuration: 0.2, animations: {
-                window.alpha = 0
-            }, completion: { _ in
-                cleanup()
-            })
-        } else {
-            cleanup()
-        }
+        mainWindow?.makeKeyAndVisible()
+        mainWindow = nil
     }
 
-    private func makeWindow() -> UIWindow? {
-        if #available(iOS 13.0, *) {
-            if let scene = SceneWindowProvider.activeWindow?.windowScene {
-                return UIWindow(windowScene: scene)
-            }
-
-            let scene = UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .first { scene in
-                    scene.activationState == .foregroundActive || scene.activationState == .foregroundInactive
-                }
-
-            if let scene = scene {
-                return UIWindow(windowScene: scene)
-            }
+    func sceneDidDisconnect(mainWindow disconnectedWindow: UIWindow) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard mainWindow === disconnectedWindow else { return }
+        if let window = lockWindow {
+            window.isHidden = true
+            window.rootViewController = nil
         }
-
-        return UIWindow(frame: UIScreen.main.bounds)
-    }
-
-    private func restoreMainWindow() {
-        SceneWindowProvider.activeWindow?.makeKeyAndVisible()
+        lockWindow = nil
+        detachedRootViewController = nil
+        neutralRootViewController = nil
+        accountStoreBlockerActive = false
+        disconnectedWindow.accessibilityElementsHidden = previousAccessibilityElementsHidden
+        mainWindow = nil
     }
 }
 
@@ -295,8 +523,12 @@ class ApplicationStateManager: NSObject {
         case locked
     }
     
-    fileprivate var pincodeTaskTimer: Timer? = nil
     fileprivate var appState: State = .unsecure
+    private var backgroundEnteredAt: Date?
+    private var didEnterBackgroundSinceActivation = false
+    private var accountStoreResumeRequiresPIN = false
+    private var wipeInProgress = false
+    private var didPrepare = false
     var isPincodeShowed: Bool = false
     var isSubscribtionsShowed: Bool = false
     
@@ -640,6 +872,8 @@ class ApplicationStateManager: NSObject {
     }
     
     public final func prepare() {
+        guard !didPrepare else { return }
+        didPrepare = true
         addObservers()
 //        VoIPManager.shared.prepare()
         SignatureManager.shared.prepare()
@@ -652,9 +886,6 @@ class ApplicationStateManager: NSObject {
             if let mask = AccountMasksManager.shared.masksList().first {
                 AccountMasksManager.shared.save(mask: mask)
             }
-        }
-        if PasscodeLockPolicy.canUsePasscodeLock {
-            self.runPincodeTask()
         }
         self.runAutoDeleteTask()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
@@ -732,89 +963,303 @@ class ApplicationStateManager: NSObject {
         
     }
     
-    private final func runPincodeTask() {
-        if self.period == 0 {
-            self.pincodeTaskTimer?.invalidate()
-            self.pincodeTaskTimer = nil
+    public final func sceneWillResignActive(mainWindow: UIWindow) {
+        (PasscodeLockCoordinator.shared.visibleWindow?.rootViewController
+            as? PasscodeOrBiometricViewController)?
+            .cancelAuthenticationForBackground()
+        guard shouldProtectContent else { return }
+        _ = PasscodeLockCoordinator.shared.protect(mainWindow: mainWindow)
+    }
+
+    public final func sceneDidEnterBackground(mainWindow: UIWindow) {
+        backgroundEnteredAt = Date()
+        didEnterBackgroundSinceActivation = true
+        sceneWillResignActive(mainWindow: mainWindow)
+    }
+
+    public final func sceneWillEnterForeground() {
+        guard didEnterBackgroundSinceActivation ||
+                PasscodeLockCoordinator.shared.isProtected else { return }
+        didEnterBackgroundSinceActivation = false
+        if PasscodeLockCoordinator.shared.isShowingAccountStoreBlocker {
+            if PasscodeAutoLockPolicy.shouldLockOnResume(
+                period: period,
+                leftAt: backgroundEnteredAt,
+                now: Date()
+            ) {
+                accountStoreResumeRequiresPIN = true
+            }
+            backgroundEnteredAt = nil
             return
         }
-        self.pincodeTaskTimer?.invalidate()
-        self.pincodeTaskTimer = nil
-        self.pincodeTaskTimer = Timer.scheduledTimer(
-            timeInterval: 5,
-            target: self,
-            selector: #selector(self.pincodeTask),
-            userInfo: nil,
-            repeats: true
+        runPincodeTask(animated: false)
+    }
+
+    public final func sceneDidBecomeActive() {
+        if PasscodeLockCoordinator.shared.isProtected,
+           !PasscodeLockCoordinator.shared.isShowing {
+            if PasscodeWipeCoordinator.shared.isPending {
+                showWipeScreen(shouldBegin: false)
+            } else if backgroundEnteredAt != nil {
+                runPincodeTask(animated: false)
+            } else {
+                // A short inactive interruption has no Auto-Lock timestamp.
+                // Check storage health without treating it as a background trip.
+                do {
+                    let enrollment = try PasscodeCredentialStore.shared.enrollmentState()
+                    if enrollment != .notEnrolled {
+                        let remaining = try PasscodeCredentialStore.shared.remainingAttempts()
+                        if remaining == 0 {
+                            showWipeScreen(shouldBegin: true)
+                        }
+                    }
+                } catch {
+                    appState = .locked
+                    showPincodeScreen(animated: false)
+                }
+            }
+        }
+        guard appState != .locked,
+              !PasscodeLockCoordinator.shared.isShowing,
+              !PasscodeWipeCoordinator.shared.isPending else { return }
+        backgroundEnteredAt = nil
+        if PasscodeLockCoordinator.shared.isProtected {
+            PasscodeLockCoordinator.shared.hide(animated: false)
+        }
+    }
+
+    public final func sceneDidDisconnect(mainWindow: UIWindow) {
+        PasscodeLockCoordinator.shared.sceneDidDisconnect(mainWindow: mainWindow)
+        isPincodeShowed = false
+        backgroundEnteredAt = nil
+        didEnterBackgroundSinceActivation = false
+        accountStoreResumeRequiresPIN = false
+        appState = .unsecure
+    }
+
+    private var shouldProtectContent: Bool {
+        if PasscodeWipeCoordinator.shared.isPending { return true }
+        do {
+            return try PasscodeCredentialStore.shared.enrollmentState() != .notEnrolled
+        } catch {
+            // A storage failure cannot be treated as an absent PIN.
+            return true
+        }
+    }
+
+    public final func runPincodeTask(animated: Bool, force: Bool = false) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.runPincodeTask(animated: animated, force: force)
+            }
+            return
+        }
+
+        if PasscodeWipeCoordinator.shared.isPending {
+            showWipeScreen(shouldBegin: false)
+            return
+        }
+
+        // A failed Realm read has its own blocker and retry path. In particular,
+        // an unenrolled app must not dismiss it on the next foreground event.
+        if PasscodeLockCoordinator.shared.isShowingAccountStoreBlocker {
+            return
+        }
+
+        do {
+            let enrollment = try PasscodeCredentialStore.shared.enrollmentState()
+            if enrollment != .notEnrolled,
+               try PasscodeCredentialStore.shared.remainingAttempts() == 0 {
+                showWipeScreen(shouldBegin: true)
+                return
+            }
+
+            if enrollment == .notEnrolled {
+                appState = .unlocked
+                hidePincodeScreen(animated: false)
+                return
+            }
+
+            if appState == .locked || force || shouldLockPasscode() {
+                appState = .locked
+                showPincodeScreen(animated: animated)
+            } else {
+                appState = .unlocked
+            }
+        } catch {
+            // A missing or inaccessible verifier keeps the screen protected.
+            appState = .locked
+            showPincodeScreen(animated: false)
+        }
+    }
+
+    private final func shouldLockPasscode() -> Bool {
+        PasscodeAutoLockPolicy.shouldLockOnResume(
+            period: period,
+            leftAt: backgroundEnteredAt,
+            now: Date()
         )
     }
     
-    @objc
-    private func pincodeTask(_ sender: AnyObject) {
-        runPincodeTask(animated: true)
+    fileprivate final func showPincodeScreen(animated: Bool) {
+        guard !isPincodeShowed else { return }
+        let didShow = PasscodeLockCoordinator.shared.show(animated: animated) { [weak self] in
+            self?.unlockPincode()
+        }
+        isPincodeShowed = didShow
     }
-    
-    public final func runPincodeTask(animated: Bool, force: Bool = false) {
-        if !CredentialsManager.shared.isPincodeSetted() {
-            self.appState = .unlocked
-            hidePincodeScreen(animated: animated)
-            return
+
+    private func showWipeScreen(shouldBegin: Bool) {
+        appState = .locked
+        let didShow = PasscodeLockCoordinator.shared.showWipeBlocker { [weak self] in
+            self?.resumeWipe()
         }
-        guard PasscodeLockPolicy.canUsePasscodeLock else {
-            self.appState = .unlocked
-            hidePincodeScreen(animated: animated)
-            return
-        }
-        switch self.state {
-        case .unsecure:
-            if AccountManager.shared.users.isNotEmpty {
-                if shouldLockPasscode(force: force) {
-                    self.appState = .locked
-                    self.showPincodeScreen(animated: animated)
+        isPincodeShowed = didShow
+        guard didShow, !wipeInProgress else { return }
+        AppRootCoordinator.active?.discardProtectedContentForWipe()
+        wipeInProgress = true
+        let completion: (Bool) -> Void = { [weak self] success in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.wipeInProgress = false
+                if success {
+                    self.appState = .unsecure
+                    self.isPincodeShowed = false
+                    self.accountStoreResumeRequiresPIN = false
+                    self.prepare()
+                    let rootCoordinator = AppRootCoordinator.active
+                        ?? PasscodeLockCoordinator.shared.protectedMainWindow.map {
+                            AppRootCoordinator(
+                                window: $0,
+                                appDelegate: UIApplication.shared.delegate as? AppDelegate
+                            )
+                        }
+                    guard let rootCoordinator else { return }
+                    PasscodeLockCoordinator.shared.allowRootReplacementAfterWipe()
+                    rootCoordinator.resumeAfterWipe()
+                    if !PasscodeLockCoordinator.shared.isProtected {
+                        PasscodeLockCoordinator.shared.hide(animated: false)
+                    }
                 } else {
-                    self.appState = .unlocked
+                    PasscodeLockCoordinator.shared.showWipeRetry()
                 }
             }
-            break
-        default:
-            if shouldLockPasscode(force: force) {
-                self.appState = .locked
-                self.showPincodeScreen(animated: animated)
+        }
+        if shouldBegin {
+            if !PasscodeWipeCoordinator.shared.beginWipe(completion: completion) {
+                wipeInProgress = false
+                PasscodeLockCoordinator.shared.showWipeRetry()
             }
-            break
+        } else {
+            PasscodeWipeCoordinator.shared.resumeIfNeeded(completion: completion)
         }
     }
 
-    private final func shouldLockPasscode(force: Bool) -> Bool {
-        force || Date().timeIntervalSince1970 - CredentialsManager.shared.getPincodeTimestamp() > self.period
-    }
-    
-    fileprivate final func showPincodeScreen(animated: Bool) {
-        if !self.isPincodeShowed {
-            self.isPincodeShowed = true
-            DispatchQueue.main.async {
-                let didShow = PasscodeLockCoordinator.shared.show(animated: animated) { [weak self] in
-                    self?.unlockPincode()
-                }
-                if !didShow {
-                    self.isPincodeShowed = false
-                }
-            }
+    public final func beginTerminalWipe() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in self?.beginTerminalWipe() }
+            return
         }
+        showWipeScreen(shouldBegin: true)
+    }
+
+    /// Called only after the account store can be read again. The blocker stays
+    /// in place until this returns false or a fresh PIN unlock succeeds.
+    public final func accountStoreDidRecover() -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard PasscodeLockCoordinator.shared.isShowingAccountStoreBlocker else {
+            return PasscodeLockCoordinator.shared.isProtected
+        }
+        if PasscodeWipeCoordinator.shared.isPending {
+            showWipeScreen(shouldBegin: false)
+            return true
+        }
+        do {
+            let enrollment = try PasscodeCredentialStore.shared.enrollmentState()
+            if enrollment == .notEnrolled {
+                accountStoreResumeRequiresPIN = false
+                backgroundEnteredAt = nil
+                return false
+            }
+            if try PasscodeCredentialStore.shared.remainingAttempts() == 0 {
+                showWipeScreen(shouldBegin: true)
+                return true
+            }
+            let requiresPIN = appState == .locked ||
+                PasscodeAccountStoreRecoveryPolicy.requiresPIN(
+                    hasEnrolledPIN: true,
+                    period: period,
+                    wasDueWhenForegrounded: accountStoreResumeRequiresPIN,
+                    pendingBackgroundAt: backgroundEnteredAt,
+                    now: Date()
+                )
+            if requiresPIN {
+                appState = .locked
+                showPincodeScreen(animated: false)
+                return true
+            }
+            accountStoreResumeRequiresPIN = false
+            backgroundEnteredAt = nil
+            return false
+        } catch {
+            appState = .locked
+            showPincodeScreen(animated: false)
+            return true
+        }
+    }
+
+    private func resumeWipe() {
+        guard !wipeInProgress else { return }
+        showWipeScreen(shouldBegin: !PasscodeWipeCoordinator.shared.isPending)
     }
 
     public final func unlockPincode() {
-        self.appState = .unlocked
-        DispatchQueue.main.async {
-            self.hidePincodeScreen(animated: true)
+        let finish = { [weak self] in
+            guard let self else { return }
+            let lockWindow = PasscodeLockCoordinator.shared.visibleWindow
+            guard PasscodeUnlockPresentationPolicy.canComplete(
+                isLocked: self.appState == .locked,
+                isPINWindow: lockWindow?.rootViewController is PasscodeOrBiometricViewController,
+                sceneState: lockWindow?.windowScene?.activationState,
+                wipePending: PasscodeWipeCoordinator.shared.isPending
+            ) else { return }
+            do {
+                guard try PasscodeCredentialStore.shared.enrollmentState() == .enrolled,
+                      try PasscodeCredentialStore.shared.remainingAttempts() != 0 else {
+                    return
+                }
+            } catch {
+                return
+            }
+            let accountPresence = AccountManager.shared.accountStorePresence()
+            guard accountPresence != .unavailable else {
+                return
+            }
+            self.appState = .unlocked
+            self.backgroundEnteredAt = nil
+            self.accountStoreResumeRequiresPIN = false
+            let appDelegate = UIApplication.shared.delegate as? AppDelegate
+            appDelegate?.loadAccountsAfterPasscodeStorageRecoversIfNeeded()
+            if accountPresence == .hasAccounts,
+               AccountManager.shared.users.isEmpty {
+                AccountManager.shared.load(
+                    AppLaunchEnvironmentPolicy.shouldAutoconnectAccounts(
+                        isPushKit: appDelegate?.isPushKit ?? false
+                    )
+                )
+            }
+            self.hidePincodeScreen(animated: false)
+            AppRootCoordinator.active?.resumeAfterUnlock()
             (UIApplication.shared.delegate as? AppDelegate)?.removeBlurredScreen()
         }
+        if Thread.isMainThread { finish() } else { DispatchQueue.main.async(execute: finish) }
     }
 
     public final func hidePincodeScreen(animated: Bool) {
-        self.isPincodeShowed = false
-        DispatchQueue.main.async {
+        let hide = { [weak self] in
+            self?.isPincodeShowed = false
             PasscodeLockCoordinator.shared.hide(animated: animated)
         }
+        if Thread.isMainThread { hide() } else { DispatchQueue.main.async(execute: hide) }
     }
 }

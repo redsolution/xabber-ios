@@ -1044,6 +1044,15 @@
 		B7A1000C3D110000ABC00001 /* LanguageSettingsViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A1000B3D110000ABC00001 /* LanguageSettingsViewControllerTests.swift */; };
 		B7A1000E3D110000ABC00001 /* LocalizationAdaptersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A1000D3D110000ABC00001 /* LocalizationAdaptersTests.swift */; };
 		B7A100103D110000ABC00001 /* LocalizationCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A1000F3D110000ABC00001 /* LocalizationCatalogTests.swift */; };
+		A66100012609000000000002 /* PasscodeCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66100012609000000000001 /* PasscodeCredentialStore.swift */; };
+		A66100012609000000000010 /* PasscodeCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66100012609000000000001 /* PasscodeCredentialStore.swift */; };
+		A66100012609000000000004 /* PasscodeWipeMarkerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66100012609000000000003 /* PasscodeWipeMarkerStore.swift */; };
+		A66100012609000000000005 /* PasscodeWipeMarkerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66100012609000000000003 /* PasscodeWipeMarkerStore.swift */; };
+		A66100012609000000000007 /* PasscodeWipeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66100012609000000000006 /* PasscodeWipeCoordinator.swift */; };
+		A66100012609000000000009 /* PasscodeCredentialStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66100012609000000000008 /* PasscodeCredentialStoreTests.swift */; };
+		A6610001260900000000000B /* PasscodeInputRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6610001260900000000000A /* PasscodeInputRegressionTests.swift */; };
+		A6610001260900000000000D /* PasscodeWindowLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6610001260900000000000C /* PasscodeWindowLifecycleTests.swift */; };
+		A6610001260900000000000F /* PasscodeWipeCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6610001260900000000000E /* PasscodeWipeCoordinatorTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2129,6 +2138,13 @@
 		B7A1000B3D110000ABC00001 /* LanguageSettingsViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageSettingsViewControllerTests.swift; sourceTree = "<group>"; };
 		B7A1000D3D110000ABC00001 /* LocalizationAdaptersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationAdaptersTests.swift; sourceTree = "<group>"; };
 		B7A1000F3D110000ABC00001 /* LocalizationCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationCatalogTests.swift; sourceTree = "<group>"; };
+		A66100012609000000000001 /* PasscodeCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasscodeCredentialStore.swift; sourceTree = "<group>"; };
+		A66100012609000000000003 /* PasscodeWipeMarkerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasscodeWipeMarkerStore.swift; sourceTree = "<group>"; };
+		A66100012609000000000006 /* PasscodeWipeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasscodeWipeCoordinator.swift; sourceTree = "<group>"; };
+		A66100012609000000000008 /* PasscodeCredentialStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasscodeCredentialStoreTests.swift; sourceTree = "<group>"; };
+		A6610001260900000000000A /* PasscodeInputRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasscodeInputRegressionTests.swift; sourceTree = "<group>"; };
+		A6610001260900000000000C /* PasscodeWindowLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasscodeWindowLifecycleTests.swift; sourceTree = "<group>"; };
+		A6610001260900000000000E /* PasscodeWipeCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasscodeWipeCoordinatorTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -2426,6 +2442,8 @@
 			isa = PBXGroup;
 			children = (
 				660951A62833B10700FDEAAF /* ApplicationStateManager.swift */,
+				A66100012609000000000003 /* PasscodeWipeMarkerStore.swift */,
+				A66100012609000000000006 /* PasscodeWipeCoordinator.swift */,
 			);
 			path = state;
 			sourceTree = "<group>";
@@ -4322,6 +4340,10 @@
 				4E5900442F89000000ABC001 /* ChatAttachmentErrorProgressStateTests.swift */,
 				4E5900482F8A000000ABC001 /* ChatAttachmentAccessibilityLocalizationTests.swift */,
 				66AE4E7724E12F7C00FF11DC /* xabberTests.swift */,
+				A66100012609000000000008 /* PasscodeCredentialStoreTests.swift */,
+				A6610001260900000000000A /* PasscodeInputRegressionTests.swift */,
+				A6610001260900000000000C /* PasscodeWindowLifecycleTests.swift */,
+				A6610001260900000000000E /* PasscodeWipeCoordinatorTests.swift */,
 				66AE4E7924E12F7C00FF11DC /* Info.plist */,
 				66AE4E7F24E189EF00FF11DC /* XabberXMPPTests.swift */,
 				66D2B584253EFED100299578 /* XabberAssetsTests.swift */,
@@ -4964,6 +4986,7 @@
 			isa = PBXGroup;
 			children = (
 				66F1F8082715903C00F67C08 /* CredentialsManager.swift */,
+				A66100012609000000000001 /* PasscodeCredentialStore.swift */,
 			);
 			path = CredentialsManager;
 			sourceTree = "<group>";
@@ -5634,6 +5657,7 @@
 				66232BB822AA7461008B272D /* AccountSecurityViewController+UITableViewDatasource.swift in Sources */,
 				1A999D8A27DF609C0093A011 /* CloudStorageViewController+TableViewDataSource.swift in Sources */,
 				66F1F8092715903C00F67C08 /* CredentialsManager.swift in Sources */,
+				A66100012609000000000002 /* PasscodeCredentialStore.swift in Sources */,
 				66DE588424BEDB77001FAFAB /* XMPPUIActionManager.swift in Sources */,
 				663989B32840F42200C839AE /* ContactFingerprintsViewController.swift.swift in Sources */,
 				66A15B4C281C085300FC1E65 /* SignalIdentityStorageItem.swift in Sources */,
@@ -6056,6 +6080,8 @@
 				6681C7832EFABAB000EF7170 /* VideoGalleryForChatViewController.swift in Sources */,
 				660AE35B23856EA200E7FC00 /* CreateNewGroupViewController+UITableViewDelegate.swift in Sources */,
 				660951A72833B10700FDEAAF /* ApplicationStateManager.swift in Sources */,
+				A66100012609000000000004 /* PasscodeWipeMarkerStore.swift in Sources */,
+				A66100012609000000000007 /* PasscodeWipeCoordinator.swift in Sources */,
 				66B7AE6B26D7C1130043969F /* BaseViewController.swift in Sources */,
 				662908D62ABDB9E60027535E /* NickGenerator.swift in Sources */,
 				6640E57026CD3F61000380E3 /* GroupchatMembersListViewController.swift in Sources */,
@@ -6333,6 +6359,8 @@
 				4EC002033D1000000ABC0001 /* LocalizationService.swift in Sources */,
 				4EC002043D1000000ABC0001 /* LocalizationRuntime.swift in Sources */,
 				66F339422F1FC73800EFB5B7 /* CredentialsManager.swift in Sources */,
+				A66100012609000000000010 /* PasscodeCredentialStore.swift in Sources */,
+				A66100012609000000000005 /* PasscodeWipeMarkerStore.swift in Sources */,
 				66F339432F1FC74800EFB5B7 /* CommonConfigManager.swift in Sources */,
 				4E4100032F6B000000ABC001 /* PushNotificationRouting.swift in Sources */,
 				4E8140033B2D000000ABC001 /* RichNotificationPresentation.swift in Sources */,
@@ -6377,6 +6405,10 @@
 				66AE4E8024E189EF00FF11DC /* XabberXMPPTests.swift in Sources */,
 				66B48FDA26F858EC0088D6A4 /* Base64Extras.swift in Sources */,
 				66AE4E7824E12F7C00FF11DC /* xabberTests.swift in Sources */,
+				A66100012609000000000009 /* PasscodeCredentialStoreTests.swift in Sources */,
+				A6610001260900000000000B /* PasscodeInputRegressionTests.swift in Sources */,
+				A6610001260900000000000D /* PasscodeWindowLifecycleTests.swift in Sources */,
+				A6610001260900000000000F /* PasscodeWipeCoordinatorTests.swift in Sources */,
 				B8A100023C20000000ABC001 /* SettingsProfileMenuTests.swift in Sources */,
 				B8A300023C22000000ABC001 /* AccountBlockListPresentationTests.swift in Sources */,
 				4E5A00023B4000000ABC001 /* SettingsAccountQRCodeTests.swift in Sources */,

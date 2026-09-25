@@ -621,6 +621,9 @@ final class AppRootCoordinator: NSObject {
 
     private var blurEffectView: UIVisualEffectView?
     private var pendingRoute: AppRoute?
+    private var pendingRebuildUserInfo: [AnyHashable: Any]?
+    private var needsRootRebuild = false
+    private var pendingSceneNotificationRequest: (request: UNNotificationRequest, actionIdentifier: String)?
     private var pendingNotificationRequestList: PushNotificationRequestListDestination?
     #if DEBUG || CHAT_PERFORMANCE_LAB
     private var performanceFixtureDescriptor: ChatPerformanceUITestLaunchDescriptor?
@@ -636,8 +639,14 @@ final class AppRootCoordinator: NSObject {
     }
 
     func start(connectionOptions: UIScene.ConnectionOptions, restorationActivity: NSUserActivity?) {
+        // This must run before debug fixtures, routes, or any account root is attached.
+        ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
+        if !PasscodeLockCoordinator.shared.isProtected {
+            appDelegate?.loadAccountsAfterPasscodeStorageRecoversIfNeeded()
+        }
         #if DEBUG || CHAT_PERFORMANCE_LAB
-        if AvatarPickerUITestLaunchPolicy.isEnabled() {
+        if !PasscodeLockCoordinator.shared.isProtected,
+           AvatarPickerUITestLaunchPolicy.isEnabled() {
             isDebugFixtureActive = true
             window.rootViewController = UINavigationController(
                 rootViewController: AvatarPickerViewController()
@@ -645,7 +654,8 @@ final class AppRootCoordinator: NSObject {
             applyCompatibilityReferences()
             return
         }
-        if let descriptor = ChatPerformanceUITestLaunchPolicy.descriptor() {
+        if !PasscodeLockCoordinator.shared.isProtected,
+           let descriptor = ChatPerformanceUITestLaunchPolicy.descriptor() {
             isDebugFixtureActive = true
             performanceFixtureDescriptor = descriptor
             if ChatPerformanceManualNativeBackLaunchPolicy.isEnabled() {
@@ -686,17 +696,44 @@ final class AppRootCoordinator: NSObject {
         } else if let pendingRoute {
             if case .chat = pendingRoute,
                CommonConfigManager.shared.interfaceType == .split,
-               launchUserInfo != nil {
+               launchUserInfo != nil,
+               !PasscodeLockCoordinator.shared.isProtected {
                 self.pendingRoute = nil
                 return
             }
-            route(pendingRoute)
-            self.pendingRoute = nil
+            if route(pendingRoute) {
+                self.pendingRoute = nil
+            }
         }
         retryPendingMessageNotificationChatRouteIfPossible()
     }
 
     func rebuildRoot(userInfo: [AnyHashable: Any]?) {
+        if PasscodeWipeCoordinator.shared.isPending {
+            _ = PasscodeLockCoordinator.shared.protect(mainWindow: window)
+            needsRootRebuild = true
+            pendingRebuildUserInfo = userInfo
+            ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
+            return
+        }
+        guard !PasscodeLockCoordinator.shared.isProtected else {
+            needsRootRebuild = true
+            pendingRebuildUserInfo = userInfo
+            return
+        }
+        let accountPresence = AccountManager.shared.accountStorePresence()
+        guard accountPresence != .unavailable else {
+            needsRootRebuild = true
+            pendingRebuildUserInfo = userInfo
+            _ = PasscodeLockCoordinator.shared.showAccountStoreBlocker(
+                mainWindow: window
+            ) { [weak self] in
+                self?.retryRootAfterAccountStoreError()
+            }
+            return
+        }
+        needsRootRebuild = false
+        pendingRebuildUserInfo = nil
         LocalizationUIKitDirection.apply(
             LocalizationRuntime.shared.context,
             to: window
@@ -707,10 +744,27 @@ final class AppRootCoordinator: NSObject {
         clearPresentedModalStateForRootRebuild()
 
         switch Self.rootKind(
-            hasAccounts: !AccountManager.shared.emptyAccountsList(),
+            hasAccounts: accountPresence == .hasAccounts,
             interfaceType: CommonConfigManager.shared.interfaceType
         ) {
         case .onboarding:
+            // A successful last-account Realm deletion can be interrupted before
+            // its post-cleanup callback removes the installation PIN. Reconcile
+            // that state only after Realm has conclusively reported no accounts.
+            do {
+                if try PasscodeCredentialStore.shared.enrollmentState() != .notEnrolled {
+                    try PasscodeCredentialStore.shared.clear()
+                }
+            } catch {
+                needsRootRebuild = true
+                pendingRebuildUserInfo = userInfo
+                _ = PasscodeLockCoordinator.shared.showAccountStoreBlocker(
+                    mainWindow: window
+                ) { [weak self] in
+                    self?.retryRootAfterAccountStoreError()
+                }
+                return
+            }
             CredentialsManager.shared.clearKeyachain()
             DispatchQueue.main.async {
                 AccountManager.shared.connectingUsers.accept(Set<String>())
@@ -729,15 +783,88 @@ final class AppRootCoordinator: NSObject {
             LocalizationRuntime.shared.context,
             to: window
         )
-        ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
         retryPendingMessageNotificationChatRouteIfPossible()
         retryPendingNotificationRequestListIfPossible()
+    }
+
+    func resumeAfterUnlock() {
+        guard !PasscodeLockCoordinator.shared.isProtected else { return }
+        if needsRootRebuild {
+            rebuildRoot(userInfo: pendingRebuildUserInfo)
+        }
+        if let pendingSceneNotificationRequest {
+            self.pendingSceneNotificationRequest = nil
+            _ = routeSceneNotificationRequest(
+                pendingSceneNotificationRequest.request,
+                actionIdentifier: pendingSceneNotificationRequest.actionIdentifier
+            )
+        }
+        if let pendingRoute, route(pendingRoute) {
+            self.pendingRoute = nil
+        }
+        retryPendingMessageNotificationChatRouteIfPossible()
+        retryPendingNotificationRequestListIfPossible()
+    }
+
+    func resumeAfterWipe() {
+        pendingRoute = nil
+        pendingSceneNotificationRequest = nil
+        pendingNotificationRequestList = nil
+        needsRootRebuild = false
+        pendingRebuildUserInfo = nil
+        rebuildRoot(userInfo: nil)
+    }
+
+    private func retryRootAfterAccountStoreError() {
+        if PasscodeWipeCoordinator.shared.isPending {
+            ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
+            return
+        }
+        let accountPresence = AccountManager.shared.accountStorePresence()
+        guard accountPresence != .unavailable else {
+            (PasscodeLockCoordinator.shared.visibleWindow?.rootViewController
+                as? PasscodeWipeBlockingViewController)?.showAccountStoreError()
+            return
+        }
+        guard !ApplicationStateManager.shared.accountStoreDidRecover() else {
+            return
+        }
+        if accountPresence == .hasAccounts,
+           AccountManager.shared.users.isEmpty {
+            AccountManager.shared.load(
+                AppLaunchEnvironmentPolicy.shouldAutoconnectAccounts(
+                    isPushKit: appDelegate?.isPushKit ?? false
+                )
+            )
+        }
+        let userInfo = pendingRebuildUserInfo
+        PasscodeLockCoordinator.shared.allowRootReplacementAfterWipe()
+        rebuildRoot(userInfo: userInfo)
+        if !PasscodeLockCoordinator.shared.isProtected {
+            PasscodeLockCoordinator.shared.hide(animated: false)
+            resumeAfterUnlock()
+        }
+    }
+
+    func discardProtectedContentForWipe() {
+        splitController = nil
+        tabController = nil
+        currentPresentedVc = nil
+        appDelegate?.splitController = nil
+        appDelegate?.tabController = nil
+        NotifyManager.shared.leftMenuDelegate = nil
+        pendingRoute = nil
+        pendingSceneNotificationRequest = nil
+        pendingNotificationRequestList = nil
+        pendingRebuildUserInfo = nil
+        needsRootRebuild = true
     }
 
     func sceneWillResignActive() {
         #if DEBUG || CHAT_PERFORMANCE_LAB
         guard !isDebugFixtureActive else { return }
         #endif
+        ApplicationStateManager.shared.sceneWillResignActive(mainWindow: window)
         let lifecycleActions = AppRootLifecyclePolicy.actions(for: .willResignActive)
         ConnectionDiagnosticsLogger.log(
             event: "scene_lifecycle_will_resign_active",
@@ -760,6 +887,7 @@ final class AppRootCoordinator: NSObject {
         #if DEBUG || CHAT_PERFORMANCE_LAB
         guard !isDebugFixtureActive else { return }
         #endif
+        ApplicationStateManager.shared.sceneDidEnterBackground(mainWindow: window)
         ConnectionDiagnosticsLogger.log(
             event: "scene_lifecycle_did_enter_background",
             stream: .primary,
@@ -774,12 +902,14 @@ final class AppRootCoordinator: NSObject {
             user.disconnect(hard: true, cause: .backgroundSuspension)
         }
 
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            splitController?.hide(.primary)
-        } else {
-            UIView.performWithoutAnimation {
-                splitController?.show(.supplementary)
+        if !PasscodeLockCoordinator.shared.isProtected {
+            if UIDevice.current.userInterfaceIdiom == .pad {
                 splitController?.hide(.primary)
+            } else {
+                UIView.performWithoutAnimation {
+                    splitController?.show(.supplementary)
+                    splitController?.hide(.primary)
+                }
             }
         }
     }
@@ -788,6 +918,10 @@ final class AppRootCoordinator: NSObject {
         #if DEBUG || CHAT_PERFORMANCE_LAB
         guard !isDebugFixtureActive else { return }
         #endif
+        if PasscodeWipeCoordinator.shared.isPending {
+            ApplicationStateManager.shared.sceneWillEnterForeground()
+            return
+        }
         if appDelegate?.refreshLocalizationContextIfNeeded() == true {
             Self.rebuildAllForLocalizationChange(sourceWindow: nil)
         }
@@ -800,7 +934,7 @@ final class AppRootCoordinator: NSObject {
         AccountManager.shared.prepare()
         CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .foreground)
         NotifyManager.shared.setLastChats(displayed: true)
-        ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
+        ApplicationStateManager.shared.sceneWillEnterForeground()
     }
 
     func sceneDidBecomeActive() {
@@ -813,12 +947,14 @@ final class AppRootCoordinator: NSObject {
             jid: nil,
             details: ["source": "appRootCoordinator"]
         )
+        ApplicationStateManager.shared.sceneDidBecomeActive()
         removeBlurredScreen()
         retryPendingMessageNotificationChatRouteIfPossible()
         retryPendingNotificationRequestListIfPossible()
     }
 
     func sceneDidDisconnect() {
+        ApplicationStateManager.shared.sceneDidDisconnect(mainWindow: window)
         blurEffectView?.removeFromSuperview()
         blurEffectView = nil
         if Self.active === self {
@@ -828,6 +964,10 @@ final class AppRootCoordinator: NSObject {
 
     @discardableResult
     func route(_ route: AppRoute, atStart: Bool = false) -> Bool {
+        guard !PasscodeLockCoordinator.shared.isProtected else {
+            pendingRoute = route
+            return false
+        }
         guard Self.canRoute(hasPresentedModal: currentPresentedVc != nil) else {
             return false
         }
@@ -903,7 +1043,11 @@ final class AppRootCoordinator: NSObject {
         actionIdentifier: String,
         atStart: Bool
     ) -> Bool {
-        NotifyManager.shared.onTouchNotificationRequest(
+        guard !PasscodeLockCoordinator.shared.isProtected else {
+            pendingSceneNotificationRequest = (request, actionIdentifier)
+            return false
+        }
+        return NotifyManager.shared.onTouchNotificationRequest(
             request,
             actionIdentifier: actionIdentifier,
             atStart: atStart,
@@ -930,6 +1074,7 @@ final class AppRootCoordinator: NSObject {
     @discardableResult
     internal func retryPendingMessageNotificationChatRouteIfPossible() -> Bool {
         guard Self.active === self,
+              !PasscodeLockCoordinator.shared.isProtected,
               currentPresentedVc == nil else {
             return false
         }
@@ -944,6 +1089,7 @@ final class AppRootCoordinator: NSObject {
         openMessageRequest: ChatOpenMessageRequest?,
         configure: ((ChatViewController?) -> Void)?
     ) -> Bool {
+        guard !PasscodeLockCoordinator.shared.isProtected else { return false }
         guard Self.canRoute(hasPresentedModal: currentPresentedVc != nil) else {
             return false
         }
@@ -961,6 +1107,10 @@ final class AppRootCoordinator: NSObject {
     internal func routeNotificationRequestList(
         _ destination: PushNotificationRequestListDestination
     ) -> Bool {
+        guard !PasscodeLockCoordinator.shared.isProtected else {
+            pendingNotificationRequestList = destination
+            return false
+        }
         guard Self.canRoute(hasPresentedModal: currentPresentedVc != nil) else {
             pendingNotificationRequestList = destination
             return false
@@ -988,6 +1138,7 @@ final class AppRootCoordinator: NSObject {
     @discardableResult
     private func retryPendingNotificationRequestListIfPossible() -> Bool {
         guard Self.active === self,
+              !PasscodeLockCoordinator.shared.isProtected,
               currentPresentedVc == nil,
               let destination = pendingNotificationRequestList else {
             return false
@@ -1017,6 +1168,7 @@ final class AppRootCoordinator: NSObject {
     func addBlurredScreen() {
         guard appDelegate?.excludeBlur != true else { return }
         guard blurEffectView == nil,
+              !PasscodeLockCoordinator.shared.isProtected,
               !ApplicationStateManager.shared.isPincodeShowed else {
             return
         }
@@ -1036,6 +1188,7 @@ final class AppRootCoordinator: NSObject {
     }
 
     var presentationRootViewController: UIViewController? {
+        guard !PasscodeLockCoordinator.shared.isProtected else { return nil }
         switch CommonConfigManager.shared.interfaceType {
         case .tabs:
             return tabController ?? window.rootViewController
@@ -1546,7 +1699,8 @@ enum SceneWindowProvider {
     }
 
     static var presentationRootViewController: UIViewController? {
-        AppRootCoordinator.active?.presentationRootViewController ?? activeWindow?.rootViewController
+        guard !PasscodeLockCoordinator.shared.isProtected else { return nil }
+        return AppRootCoordinator.active?.presentationRootViewController ?? activeWindow?.rootViewController
     }
 
     static func topMostViewController(base: UIViewController? = presentationRootViewController) -> UIViewController? {
@@ -1583,15 +1737,19 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             window: window,
             appDelegate: UIApplication.shared.delegate as? AppDelegate
         )
+        self.window = window
+        self.rootCoordinator = coordinator
         coordinator.start(
             connectionOptions: connectionOptions,
             restorationActivity: session.stateRestorationActivity
         )
 
-        self.window = window
-        self.rootCoordinator = coordinator
         AppearanceCoordinator.shared.apply(to: window)
-        window.makeKeyAndVisible()
+        if PasscodeLockCoordinator.shared.isShowing {
+            window.isHidden = false
+        } else {
+            window.makeKeyAndVisible()
+        }
     }
 
     func sceneWillResignActive(_ scene: UIScene) {

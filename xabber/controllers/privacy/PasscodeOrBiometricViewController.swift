@@ -1,554 +1,437 @@
 //
-//
+//  PasscodeOrBiometricViewController.swift
 //
 //  This program is free software; you can redistribute it and/or
 //  modify it under the terms of the GNU General Public License as
 //  published by the Free Software Foundation; either version 3 of the
 //  License.
 //
-//  This program is distributed in the hope that it will be useful,
-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-//  General Public License for more details.
-//
-//  You should have received a copy of the GNU General Public License along
-//  with this program; if not, write to the Free Software Foundation, Inc.,
-//  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-//
-//
-//
 
-import Foundation
 import UIKit
 import LocalAuthentication
 import RxCocoa
 import RxSwift
-import CocoaLumberjack
-import SwiftUI
-import XMPPFramework
 
+/// The root of the separate, opaque passcode window. It never presents a sheet.
+final class PasscodeOrBiometricViewController: SimpleBaseViewController {
+    final class KeyboardButton: UIButton {
+        let keyId: Int
 
-class PasscodeOrBiometricViewController: SimpleBaseViewController {
-    
-    class KeyboardButton: UIButton {
-        var keyId: Int
-        
-        init(for keyId: Int, frame: CGRect) {
+        init(keyId: Int) {
             self.keyId = keyId
-            super.init(frame: frame)
+            super.init(frame: .zero)
         }
-        
+
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
         }
     }
-    
-    internal var pin: BehaviorRelay<String> = BehaviorRelay<String>(value: "")
-    internal let padding: CGFloat = 24
+
+    private enum Flow {
+        case unlock
+        case verifyLegacy
+        case createReplacement
+        case confirmReplacement(String)
+        case blocked
+    }
+
+    internal let pin = BehaviorRelay<String>(value: "")
     var onUnlockSucceeded: (() -> Void)?
-    
-    private let titleLabel: UILabel = {
-        let label = UILabel()
-        
-        label.text = L10n.text("passcode__content__enter_passcode", fallback: "Enter passcode")
-        label.font = UIFont.systemFont(ofSize: 23, weight: .regular)
-        label.textColor = .label
-        label.textAlignment = .center
-        
-        return label
-    }()
-    
-    private let subtitleLabel: UILabel = {
-        let label = UILabel()
-        label.text = ""
-        label.font = UIFont.systemFont(ofSize: 16, weight: .regular)
-        label.textColor = .secondaryLabel
-        label.textAlignment = .center
-        
-        return label
-    }()
-    
-    private var dots: [UIView] = {
-        return (0..<6).compactMap {
-            (index) -> UIView in
-            let view = UIView(frame: CGRect(square: 24))
-            
-            view.backgroundColor = UIColor.white//.withAlphaComponent(0.8)
-            view.layer.cornerRadius = 12
-            view.alpha = 0.6
-            
-            return view
-        }
-    }()
-    
-    private var dotsView: UIView = {
-        let view = UIView()
-        
-        view.backgroundColor = .clear
-        
-        return view
-    }()
-    
-    private lazy var keyboardButtons: [KeyboardButton] = {
-        let biometricsSuport = SettingManager.shared.getKeyBool(for: "", scope: .security, key: "support_touch_id") ?? false
-        return (1...12).compactMap {
-            (index) -> KeyboardButton in
-            let button = KeyboardButton(for: index == 11 ? 0 : index, frame: CGRect(square: 80))
-            let title = index == 11 ? "0" : "\(index)"
-            if index == 10 {
-                if biometricsSuport {
-                    button.setImage(imageLiteral("touchid"), for: .normal)
-                    button.tintColor = .black.withAlphaComponent(0.4)
-                    button.backgroundColor = .clear
-                } else {
-                    button.backgroundColor = .clear
-                    button.isEnabled = false
-                }
-            } else if index == 12 {
-                button.setImage(imageLiteral( "delete.left.fill"), for: .normal)
-                button.tintColor = .black.withAlphaComponent(0.4)
-                button.backgroundColor = .clear
-            } else {
-                button.setTitle(title, for: .normal)
-                button.backgroundColor = UIColor.black.withAlphaComponent(0.17)
-            }
-            
-            
-            button.layer.cornerRadius = 40
-            button.titleLabel?.font = UIFont.systemFont(ofSize: 24, weight: .semibold)
-            button.setTitleColor(.white, for: .normal)
-            
-            return button
-        }
-    }()
-    
-    private let keyboardView: UIView = {
-        let view = UIView()
-        
-        view.backgroundColor = .clear
-        
-        return view
-    }()
-    //let biometricsSuport = SettingManager.shared.getKeyBool(for: "", scope: .security, key: "support_touch_id") ?? false
-//    private let touchIdButton : UIButton = {
-//        let button = UIButton()
-//
-//        button.setTitle("Touch Id".uppercased(), for: .normal)
-//        button.backgroundColor = UIColor.black.withAlphaComponent(0.17)
-//        button.setTitleColor(.white, for: .normal)
-//
-//        button.layer.cornerRadius = 27
-//        button.titleLabel?.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
-//
-//        return button
-//    }()
-    
-    var attempts: Int = 0
-    var fakeAttempts: Int = 0
-    var showAttempts: Bool = false
-    var isUnlimitedAttempts: Bool = false
-    
+
+    private var flow: Flow = .blocked
+    private var credentialIsFullyEnrolled = false
+    private var isProcessing = false
+    private var authenticationContext: LAContext?
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+    private let dotsView = UIStackView()
+    private let keyboardView = UIStackView()
+    private let retryButton = UIButton(type: .system)
+    private var dots: [UIView] = []
+    private var biometricsButton: UIButton?
+
     override func setupSubviews() {
         super.setupSubviews()
-        keyboardView.frame = CGRect(width: 240 + (padding * 4), height: 460 + (padding * 3))
-        keyboardView.center = self.view.center
-        
-        var x: CGFloat = padding
-        var y: CGFloat = 40
-        keyboardButtons.enumerated().forEach {
-            (offset, item) in
-            
-            if offset % 3 == 0 {
-                y += 80 + padding
-                x = padding
-            } else {
-                x += 80 + padding
-            }
-            
-            item.frame = CGRect(
-                x: x,
-                y: y,
-                width: 80,
-                height: 80
-            )
-            
-            keyboardView.addSubview(item)
-            if offset == 9 {
-                item.addTarget(self, action: #selector(self.onTouchIdButtonTouchUpInside), for: .touchDown)
-            } else if offset == 11 {
-                item.addTarget(self, action: #selector(self.onBackspaceButtonTouchUpInside), for: .touchDown)
-            } else {
-                item.addTarget(self, action: #selector(self.onKeyboardButtonTouchUpInside), for: .touchDown)
-            }
-            
+        view.backgroundColor = .systemBackground
+        view.isOpaque = true
+        view.accessibilityIdentifier = "passcode.lock.root"
+
+        titleLabel.font = .preferredFont(forTextStyle: .title2)
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 0
+        subtitleLabel.font = .preferredFont(forTextStyle: .subheadline)
+        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.textAlignment = .center
+        subtitleLabel.numberOfLines = 0
+
+        dotsView.axis = .horizontal
+        dotsView.spacing = 16
+        dotsView.alignment = .center
+        dotsView.distribution = .equalCentering
+        dotsView.isAccessibilityElement = true
+        dotsView.accessibilityIdentifier = "passcode.lock.indicators"
+        for _ in 0..<6 {
+            let dot = UIView()
+            dot.translatesAutoresizingMaskIntoConstraints = false
+            dot.backgroundColor = .tertiaryLabel
+            dot.layer.cornerRadius = 9
+            dot.widthAnchor.constraint(equalToConstant: 18).isActive = true
+            dot.heightAnchor.constraint(equalToConstant: 18).isActive = true
+            dotsView.addArrangedSubview(dot)
+            dots.append(dot)
         }
-        
-        dotsView.frame = CGRect(
-            x: 0,
-            y: 48,
-            width: keyboardView.frame.width,
-            height: 80
-        )
-        
-        keyboardView.addSubview(dotsView)
-        titleLabel.frame = CGRect(
-            x: 0,
-            y: keyboardView.frame.minY,
-            width: view.frame.width,
-            height: 24
-        )
-        
-        subtitleLabel.frame = CGRect(x: 0,
-                                     y: keyboardView.frame.minY + 28,
-                                     width: view.frame.width,
-                                     height: 24)
-        keyboardView.addSubview(titleLabel)
-        keyboardView.addSubview(subtitleLabel)
-        
-        x = padding + 12 + 4
-        dots.enumerated().forEach {
-            (offset, item) in
-            item.frame = CGRect(
-                x: x,
-                y: 20,
-                width: 24,
-                height: 24
-            )
-            x += 24 + padding - 4
-            dotsView.addSubview(item)
+
+        keyboardView.axis = .vertical
+        keyboardView.spacing = 12
+        for row in 0..<4 {
+            let rowView = UIStackView()
+            rowView.axis = .horizontal
+            rowView.spacing = 12
+            rowView.distribution = .fillEqually
+            for column in 0..<3 {
+                let index = row * 3 + column
+                let button = makeButton(at: index)
+                rowView.addArrangedSubview(button)
+            }
+            keyboardView.addArrangedSubview(rowView)
         }
-        
-        self.view.backgroundColor = .systemBackground
-        self.view.isOpaque = true
-        let blurEffect = UIBlurEffect(style: UIBlurEffect.Style.regular)
-        let vibrancyEffect = UIVibrancyEffect(blurEffect: blurEffect)
-        let blurEffectView = UIVisualEffectView(effect: blurEffect)
-        let vibrancyView = UIVisualEffectView(effect: vibrancyEffect)
-        blurEffectView.backgroundColor = .systemBackground
-        blurEffectView.frame = view.bounds
-        vibrancyView.frame = view.bounds
-        blurEffectView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        vibrancyView.translatesAutoresizingMaskIntoConstraints = false
-        blurEffectView.contentView.addSubview(vibrancyView)
-        vibrancyView.contentView.addSubview(keyboardView)
-        view.addSubview(blurEffectView)
-        view.addSubview(titleLabel)
-        view.addSubview(subtitleLabel)
+
+        retryButton.setTitle(L10n.text("common__action__retry", fallback: "Retry"), for: .normal)
+        retryButton.accessibilityIdentifier = "passcode.lock.retry"
+        retryButton.addTarget(self, action: #selector(retry), for: .touchUpInside)
+        retryButton.isHidden = true
+
+        let content = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, dotsView, keyboardView, retryButton])
+        content.axis = .vertical
+        content.alignment = .center
+        content.spacing = 18
+        content.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+            content.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
+            content.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            content.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            content.topAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            content.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
+            titleLabel.widthAnchor.constraint(equalTo: content.widthAnchor),
+            subtitleLabel.widthAnchor.constraint(equalTo: content.widthAnchor),
+            keyboardView.widthAnchor.constraint(equalToConstant: 252),
+            dotsView.widthAnchor.constraint(equalToConstant: 188)
+        ])
     }
-    
-    override func activateConstraints() {
-        super.activateConstraints()
+
+    private func makeButton(at index: Int) -> UIButton {
+        let button: UIButton
+        if index == 9 {
+            let biometric = UIButton(type: .system)
+            biometric.setImage(imageLiteral("touchid"), for: .normal)
+            biometric.addTarget(self, action: #selector(useBiometrics), for: .touchUpInside)
+            biometric.accessibilityLabel = L10n.text("settings__title__biometrics", fallback: "Biometrics")
+            biometric.accessibilityIdentifier = "passcode.lock.biometrics"
+            biometricsButton = biometric
+            button = biometric
+        } else if index == 11 {
+            let backspace = UIButton(type: .system)
+            backspace.setImage(imageLiteral("delete.left.fill"), for: .normal)
+            backspace.addTarget(self, action: #selector(deleteDigit), for: .touchUpInside)
+            backspace.accessibilityLabel = L10n.text("common__action__delete", fallback: "Delete")
+            backspace.accessibilityIdentifier = "passcode.lock.delete"
+            button = backspace
+        } else {
+            let digit = index == 10 ? 0 : index + 1
+            let key = KeyboardButton(keyId: digit)
+            key.setTitle(String(digit), for: .normal)
+            key.titleLabel?.font = .preferredFont(forTextStyle: .title2)
+            key.setTitleColor(.label, for: .normal)
+            key.backgroundColor = .secondarySystemBackground
+            key.layer.cornerRadius = 34
+            key.accessibilityIdentifier = "passcode.lock.digit.\(digit)"
+            key.addTarget(self, action: #selector(enterDigit(_:)), for: .touchUpInside)
+            button = key
+        }
+        button.heightAnchor.constraint(equalToConstant: 68).isActive = true
+        return button
     }
-    
+
     override func subscribe() {
         super.subscribe()
-        if !(self.isUnlimitedAttempts) {
-            AccountManager.shared.authenticatedUsers.asObservable().debounce(.milliseconds(250),
-                                                                          scheduler: MainScheduler.asyncInstance)
-            .subscribe(onNext: { (results) in
-                DispatchQueue.main.async {
-                    self.updateSubtitle()
-                    self.updateKeyboardView()
-                }
-            })
+        pin.asObservable()
+            .subscribe(onNext: { [weak self] value in self?.pinDidChange(value) })
             .disposed(by: bag)
-        }
-        
-        self.pin
-            .asObservable()
-            .subscribe { value in
-            if value.count == self.dots.count {
-                self.dots.last?.backgroundColor = UIColor.black
-                
-                guard self.canEnterPasscode() else {
-                    return
-                }
-                
-                if self.validatePasscode(value) {
-                    self.attempts = self.getSettingsPasscodeAttempts()
-                    self.setPasscodeAttemptsLeft(self.attempts)
-//                    DispatchQueue.main.async {
-//                        FeedbackManager.shared.errorFeedback()
-                        self.onPasscodeValid(value)
-//                    }
-                } else {
-                    if !(self.isUnlimitedAttempts) {
-                        if self.attempts > 1 {
-                            self.decrementAttemptsLeft()
-                        } else {
-                            if !CommonConfigManager.shared.config.supports_multiaccounts {
-                                guard let account = AccountManager.shared.users.first else {
-                                    return
-                                }
-//                                FeedbackManager.shared.errorFeedback()
-                                self.sendAlarmAndQuit(jid: account.jid)
-                            }
-                            return
-                        }
-                        self.updateSubtitle()
-                    }
-                    
-//                    FeedbackManager.shared.errorFeedback()
-                    let oldFrame = self.dotsView.frame
-                    UIView.animate(withDuration: 0.18) {
-                        self.dots.enumerated().forEach {
-                            (offset, item) in
-                            if offset < value.count {
-                                item.backgroundColor = UIColor.black//.withAlphaComponent(0.27)
-                            } else {
-                                item.backgroundColor = UIColor.white//.withAlphaComponent(0.8)
-                            }
-                        }
-                    }
-                    UIView.animate(
-                        withDuration: 0.18,
-                        delay: 0.18,
-                        options: []) {
-                            self.dots.forEach{
-                                item in
-                                item.backgroundColor = UIColor.white
-                            }
-                        } completion: { _ in
-                            UIView.animate(
-                                withDuration: 0.08,
-                                delay: 0.0,
-                                options: [.curveEaseInOut]) {
-                                    let newFrame = CGRect(
-                                        origin: CGPoint(
-                                            x: oldFrame.origin.x - 12,
-                                            y: oldFrame.origin.y
-                                        ),
-                                        size: oldFrame.size
-                                    )
-                                    self.dotsView.frame = newFrame
-                                } completion: { _ in
-                                    UIView.animate(
-                                        withDuration: 0.08,
-                                        delay: 0.0,
-                                        options: [.curveEaseInOut]) {
-                                            self.dotsView.frame = oldFrame
-                                        } completion: { _ in
-                                            self.pin.accept("")
-                                        }
-                                }
-                        }
-                    
-                    
-                }
-            } else if value.count < self.dots.count {
-                UIView.animate(withDuration: 0.18) {
-                    self.dots.enumerated().forEach {
-                        (offset, item) in
-                        if offset < value.count {
-                            item.backgroundColor = UIColor.black//.withAlphaComponent(0.27)
-                        } else {
-                            item.backgroundColor = UIColor.white//.withAlphaComponent(0.8)
-                        }
-                    }
-                }
-            }
-            
-        } onError: { error in
-            
-        } onCompleted: {
-            
-        } onDisposed: {
-            
-        }.disposed(by: bag)
-        
     }
-    
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        self.isUnlimitedAttempts = getSettingsPasscodeAttempts() == 0 ? true : false
-        self.fakeAttempts = getSettingsFakeAttempts()
-        self.showAttempts = getSettingsShowAttempts()
-        updateSubtitle()
+        configureFlow()
     }
-    
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        FeedbackManager.shared.tap()
+
+    deinit {
+        authenticationContext?.invalidate()
     }
-    
-    private final func canEnterPasscode() -> Bool {
-        guard AccountManager.shared.authenticatedUsers.value.isEmpty || self.isUnlimitedAttempts else {
-            return false
-        }
-        return true
+
+    func cancelAuthenticationForBackground() {
+        authenticationContext?.invalidate()
+        authenticationContext = nil
     }
-    
-    private final func updateKeyboardView() {
-        if self.canEnterPasscode() {
-            self.keyboardView.alpha = 1.0
-        } else {
-            self.keyboardView.alpha = 0.3
-        }
-    }
-    
-    private final func updateSubtitle() {
-        if self.isUnlimitedAttempts {
-            self.subtitleLabel.text = ""
-        } else {
-            self.attempts = getPasscodeAttemptsLeft()
-            if AccountManager.shared.authenticatedUsers.value.isNotEmpty {
-                self.subtitleLabel.text = "Connecting...".localizeString(id: "account_state_connecting", arguments: [])
-                self.keyboardButtons[9].isEnabled = false
-            } else {
-                self.subtitleLabel.text = self.showAttempts ? L10n.plural(
-                    "passcode_or_biometric__text__value_attempts_left",
-                    count: self.attempts + self.fakeAttempts,
-                    fallback: "%lld attempts left"
-                ) : ""
-                self.keyboardButtons[9].isEnabled = true
-            }
-        }
-    }
-    
-    @objc
-    internal func onButtonTouchUpInside(_ sender: UIButton) {
-        FeedbackManager.shared.tap()
-        
-    }
-    
-    @objc
-    internal func onKeyboardButtonTouchUpInside(_ sender: KeyboardButton) {
-        guard self.pin.value.count < 6 else {
-            return
-        }
-        guard self.canEnterPasscode() else {
-            FeedbackManager.shared.generate(feedback: .success)
-            return
-        }
-        if self.pin.value.count < 5 {
-            FeedbackManager.shared.generate(feedback: .success)
-        }
-        self.pin.accept("\(self.pin.value)\(sender.keyId)")
-    }
-    
-    @objc
-    internal func onBackspaceButtonTouchUpInside(_ sender: KeyboardButton) {
-        FeedbackManager.shared.tap()
-        var newVal = self.pin.value
-        if newVal.count == 0 { return }
-        newVal.removeLast()
-        self.pin.accept(newVal)
-    }
-    
-    
-    @objc
-    internal func onTouchIdButtonTouchUpInside(_ sender: KeyboardButton) {
-        if (SettingManager.shared.getKeyBool(for: "", scope: .security, key: "support_touch_id") ?? false) {
-            FeedbackManager.shared.tap()
-            let context = LAContext()
-            context.localizedCancelTitle = L10n.text("passcode__content__enter_passcode", fallback: "Enter passcode")
-            let reason = L10n.format("passcode__biometrics__unlock_app_format", fallback: "Unlock %@", arguments: [String(describing: CommonConfigManager.shared.config.app_name)])
-            context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason ) { success, error in
-                if success {
-                    CredentialsManager.shared.updateOnlyPincodeTimestamp()
-                    DispatchQueue.main.async {
-                        self.onUnlockSucceeded?()
-                    }
+
+    private func configureFlow() {
+        if PasscodeWipeCoordinator.shared.isPending {
+            blockForWipe()
+            PasscodeWipeCoordinator.shared.resumeIfNeeded { [weak self] success in
+                if !success {
+                    DispatchQueue.main.async { self?.showBlockedError() }
                 }
             }
-        } else {
-            FeedbackManager.shared.errorFeedback()
-            self.view.makeToast(L10n.text("passcode__biometrics__unsupported_toast", fallback: "Touch ID is not supported."))
-        }
-    }
-    
-    private final func validatePasscode(_ value: String) -> Bool {
-        return CredentialsManager.shared.validatePincode(value)
-    }
-    
-    private final func getSettingsPasscodeAttempts() -> Int {
-        return SettingManager.shared.getInt(for: "", scope: .security, key: SettingsViewController.Datasource.Keys.passcodeAttempts.rawValue)
-    }
-    
-    private final func getSettingsFakeAttempts() -> Int  {
-        return SettingManager.shared.getInt(for: "", scope: .security, key: SettingsViewController.Datasource.Keys.displayedAttempts.rawValue)
-    }
-    
-    private final func getSettingsShowAttempts() -> Bool {
-        return SettingManager.shared.get(bool: SettingsViewController.Datasource.Keys.showAttempts.rawValue)
-    }
-    
-    private final func getPasscodeAttemptsLeft() -> Int {
-        return CredentialsManager.shared.getPasscodeAttemptsLeft()
-    }
-    
-    private final func setPasscodeAttemptsLeft(_ value: Int) {
-        CredentialsManager.shared.setPasscodeAttemptsLeft(value)
-    }
-    
-    private final func decrementAttemptsLeft() {
-        self.attempts -= 1
-        setPasscodeAttemptsLeft(self.attempts)
-    }
-    
-    private final func onPasscodeValid(_ value: String) {
-        if CredentialsManager.shared.updatePincode(value) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                self.onUnlockSucceeded?()
-            }
-        } else {
-            self.view.makeToast(L10n.text("common__error__internal", fallback: "Internal error"))
-        }
-    }
-    
-    private final func blurViewFadeOut() {
-        guard let appDelegate = UIApplication.shared.delegate as? AppDelegate,
-              let blurEffectView = appDelegate.blurEffectView else {
             return
         }
-        UIView.animate(withDuration: 0.5, delay: 0, options: .curveLinear, animations: {
-            blurEffectView.layer.opacity = 0
-        }, completion: { _ in
-            blurEffectView.removeFromSuperview()
-            appDelegate.blurEffectView = nil
-        })
-    }
-    
-    private final func sendAlarmAndQuit(jid: String) {
-        
         do {
-            let realm = try WRealm.safe()
-    
-            guard let account = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: jid),
-                  let tokenInstance = realm.object(ofType: DeviceStorageItem.self, forPrimaryKey: [account.deviceUuid, jid].prp()) else {
+            switch try PasscodeCredentialStore.shared.enrollmentState() {
+            case .enrolled:
+                credentialIsFullyEnrolled = true
+                flow = .unlock
+            case .pendingFirstEnrollment:
+                credentialIsFullyEnrolled = false
+                flow = .unlock
+            case .legacyNeedsReenrollment:
+                credentialIsFullyEnrolled = false
+                flow = .verifyLegacy
+            case .notEnrolled:
+                credentialIsFullyEnrolled = false
+                flow = .blocked
+            }
+            updatePresentation()
+        } catch {
+            showBlockedError()
+        }
+    }
+
+    private func updatePresentation() {
+        retryButton.isHidden = true
+        keyboardView.isHidden = false
+        dotsView.isHidden = false
+        let allowBiometrics: Bool
+        switch flow {
+        case .unlock:
+            titleLabel.text = L10n.text("passcode__content__enter_passcode", fallback: "Enter passcode")
+            allowBiometrics = credentialIsFullyEnrolled &&
+                (SettingManager.shared.getKeyBool(for: "", scope: .security, key: "support_touch_id") ?? false)
+            updateRemainingSubtitle()
+        case .verifyLegacy:
+            titleLabel.text = L10n.text("settings__passcode__enter_current_to_change", fallback: "Enter your current passcode to change it")
+            allowBiometrics = false
+            updateRemainingSubtitle()
+        case .createReplacement:
+            titleLabel.text = L10n.text("settings__passcode__create_prompt", fallback: "Create a passcode to protect your data")
+            subtitleLabel.text = ""
+            allowBiometrics = false
+        case .confirmReplacement:
+            titleLabel.text = L10n.text("settings__passcode__confirm_prompt", fallback: "Confirm your new passcode")
+            subtitleLabel.text = ""
+            allowBiometrics = false
+        case .blocked:
+            showBlockedError()
+            return
+        }
+        biometricsButton?.isHidden = !allowBiometrics
+        updateDots(count: pin.value.count)
+    }
+
+    private func updateRemainingSubtitle() {
+        do {
+            guard let remaining = try PasscodeCredentialStore.shared.remainingAttempts() else {
+                subtitleLabel.text = ""
                 return
             }
-            
-            let deviceName = tokenInstance.device
-            let ip = tokenInstance.ip
-            let messageText =  "Token of device \(deviceName) (\(ip)) was revoked because too many unlock attempts. User data deleted."
-                .localizeString(id: "too_many_unlock_attempts", arguments: [deviceName, ip])
-            let elementId = UUID().uuidString
-            let messageStanza = XMPPMessage(messageType: .chat, to: XMPPJID(string: jid), elementID: elementId, child: nil)
-        
-            messageStanza.addOriginId(elementId)
-            messageStanza.addBody(messageText)
-            messageStanza.addAttribute(withName: "from", stringValue: jid)
-        
-            AccountManager.shared.find(for: jid)?.unsafeAction({ (user, stream) in
-                stream.send(messageStanza)
-                self.unsubscribe()
-                AccountManager.shared.deleteAccount(by: jid, hard: false)
-                
-                DispatchQueue.main.async {
-                    let vc = OnboardingViewController()
-                    let navigationController = UINavigationController(rootViewController: vc)
-                    navigationController.isNavigationBarHidden = true
-                    (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = navigationController
-                    
-                    let alert = UIAlertController(title: nil, message: messageText, preferredStyle: .alert)
-                    let action = UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default)
-                    alert.addAction(action)
-                    vc.present(alert, animated: true, completion: nil)
-                }
-            })
+            if remaining == 0 {
+                beginTerminalWipe()
+                return
+            }
+            let showAttempts = SettingManager.shared.get(bool: SettingsViewController.Datasource.Keys.showAttempts.rawValue)
+            subtitleLabel.text = showAttempts ? L10n.plural(
+                "passcode_or_biometric__text__value_attempts_left",
+                count: remaining,
+                fallback: "%lld attempts left"
+            ) : ""
         } catch {
-        DDLogDebug("PasscodeOrBiometricViewController: \(#function). \(error.localizedDescription)")
+            showBlockedError()
+        }
+    }
+
+    private func pinDidChange(_ value: String) {
+        updateDots(count: value.count)
+        guard value.count == 6, !isProcessing else { return }
+        switch flow {
+        case .unlock, .verifyLegacy:
+            verifyPIN(value)
+        case .createReplacement:
+            flow = .confirmReplacement(value)
+            pin.accept("")
+            updatePresentation()
+        case .confirmReplacement(let first):
+            guard first == value else {
+                pin.accept("")
+                flow = .createReplacement
+                updatePresentation()
+                subtitleLabel.text = L10n.text("passcode__presentation_call__passcodes_did_not_match_try_again", fallback: "Passcodes did not match. Try again.")
+                return
+            }
+            saveReplacement(value)
+        case .blocked:
+            break
+        }
+    }
+
+    private func verifyPIN(_ value: String) {
+        isProcessing = true
+        let wasLegacy: Bool
+        if case .verifyLegacy = flow { wasLegacy = true } else { wasLegacy = false }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result { try PasscodeCredentialStore.shared.verify(value) }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isProcessing = false
+                self.pin.accept("")
+                switch result {
+                case .success(.matched):
+                    if wasLegacy {
+                        self.flow = .createReplacement
+                        self.updatePresentation()
+                    } else if !PasscodeWipeCoordinator.shared.isPending {
+                        self.authenticationContext?.invalidate()
+                        self.onUnlockSucceeded?()
+                    }
+                case .success(.incorrect):
+                    self.updateRemainingSubtitle()
+                case .success(.exhausted):
+                    self.beginTerminalWipe()
+                case .failure:
+                    self.showBlockedError()
+                }
+            }
+        }
+    }
+
+    private func saveReplacement(_ value: String) {
+        isProcessing = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result {
+                let limit = try PasscodeCredentialStore.shared.attemptLimit()
+                try PasscodeCredentialStore.shared.enroll(value, attempts: limit)
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.pin.accept("")
+                self.isProcessing = false
+                switch result {
+                case .success:
+                    self.flow = .unlock
+                    self.onUnlockSucceeded?()
+                case .failure:
+                    self.showBlockedError()
+                }
+            }
+        }
+    }
+
+    private func beginTerminalWipe() {
+        blockForWipe()
+        ApplicationStateManager.shared.beginTerminalWipe()
+    }
+
+    private func blockForWipe() {
+        authenticationContext?.invalidate()
+        flow = .blocked
+        pin.accept("")
+        titleLabel.text = L10n.text("settings__title__passcode_lock", fallback: "Passcode Lock")
+        subtitleLabel.text = L10n.text("passcode__content__removing_data", fallback: "Removing local data…")
+        keyboardView.isHidden = true
+        dotsView.isHidden = true
+        retryButton.isHidden = true
+    }
+
+    private func showBlockedError() {
+        authenticationContext?.invalidate()
+        flow = .blocked
+        pin.accept("")
+        titleLabel.text = L10n.text("settings__title__passcode_lock", fallback: "Passcode Lock")
+        subtitleLabel.text = L10n.text("common__error__internal", fallback: "Internal error")
+        keyboardView.isHidden = true
+        dotsView.isHidden = true
+        retryButton.isHidden = false
+    }
+
+    private func updateDots(count: Int) {
+        for (index, dot) in dots.enumerated() {
+            dot.backgroundColor = index < count ? .label : .tertiaryLabel
+        }
+        dotsView.accessibilityLabel = L10n.format(
+            "passcode__accessibility__digits_entered_format",
+            fallback: "%@ digits entered",
+            arguments: [String(count)]
+        )
+    }
+
+    @objc private func enterDigit(_ sender: KeyboardButton) {
+        guard !isProcessing, pin.value.count < 6 else { return }
+        switch flow {
+        case .blocked: return
+        default: break
+        }
+        pin.accept(pin.value + String(sender.keyId))
+        FeedbackManager.shared.tap()
+    }
+
+    @objc private func deleteDigit() {
+        guard !isProcessing, !pin.value.isEmpty else { return }
+        pin.accept(String(pin.value.dropLast()))
+        FeedbackManager.shared.tap()
+    }
+
+    @objc private func useBiometrics() {
+        guard !isProcessing, !PasscodeWipeCoordinator.shared.isPending else { return }
+        guard case .unlock = flow else { return }
+        guard SettingManager.shared.getKeyBool(for: "", scope: .security, key: "support_touch_id") ?? false else { return }
+        do {
+            guard try PasscodeCredentialStore.shared.enrollmentState() == .enrolled,
+                  try PasscodeCredentialStore.shared.remainingAttempts() != 0 else { return }
+        } catch {
+            showBlockedError()
+            return
+        }
+        let context = LAContext()
+        authenticationContext = context
+        context.localizedCancelTitle = L10n.text("passcode__content__enter_passcode", fallback: "Enter passcode")
+        let reason = L10n.format(
+            "passcode__biometrics__unlock_app_format", fallback: "Unlock %@",
+            arguments: [String(describing: CommonConfigManager.shared.config.app_name)]
+        )
+        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { [weak self] success, _ in
+            DispatchQueue.main.async {
+                guard let self, success, self.authenticationContext === context,
+                      !PasscodeWipeCoordinator.shared.isPending else { return }
+                do {
+                    guard try PasscodeCredentialStore.shared.enrollmentState() == .enrolled,
+                          try PasscodeCredentialStore.shared.remainingAttempts() != 0 else { return }
+                    try PasscodeCredentialStore.shared.resetRemainingAttemptsAfterSuccessfulAuthentication()
+                    self.onUnlockSucceeded?()
+                } catch {
+                    self.showBlockedError()
+                }
+            }
+        }
+    }
+
+    @objc private func retry() {
+        if PasscodeWipeCoordinator.shared.isPending {
+            blockForWipe()
+            PasscodeWipeCoordinator.shared.resumeIfNeeded { [weak self] success in
+                if !success {
+                    DispatchQueue.main.async { self?.showBlockedError() }
+                }
+            }
+        } else {
+            configureFlow()
         }
     }
 }

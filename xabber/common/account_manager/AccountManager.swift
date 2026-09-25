@@ -26,6 +26,7 @@ import RxCocoa
 import CocoaLumberjack
 import SwiftKeychainWrapper
 import Kingfisher
+import XMPPFramework
 
 enum AccountDeletionDiagnosticsEventName: String, Equatable {
     case started = "account_deletion_started"
@@ -49,11 +50,22 @@ enum AccountDeletionCredentialCleanupPolicy {
     static func shouldClearSharedKeychain(supportsMultiaccounts: Bool) -> Bool {
         !supportsMultiaccounts
     }
+
+    static func shouldClearApplicationLock(remainingStoredAccountCount: Int) -> Bool {
+        remainingStoredAccountCount == 0
+    }
 }
 
 public enum AccountCreationResult: Equatable {
     case created
     case alreadyExists
+    case blockedByPasscodeWipe
+}
+
+enum AccountStorePresence: Equatable {
+    case empty
+    case hasAccounts
+    case unavailable
 }
 
 struct AccountDeletionCleanupResult: Equatable {
@@ -923,18 +935,21 @@ public class AccountManager: NSObject {
     }
     
     func emptyAccountsList() -> Bool {
-        
+        accountStorePresence() == .empty
+    }
+
+    func accountStorePresence() -> AccountStorePresence {
         do {
             let realm = try WRealm.safe()
-            return realm.objects(AccountStorageItem.self).isEmpty
+            return realm.objects(AccountStorageItem.self).isEmpty ? .empty : .hasAccounts
         } catch {
-            DDLogDebug("cant checked accounts count")
+            DDLogError("AccountManager: account store unavailable")
+            return .unavailable
         }
-        
-        return true
     }
     
     func load(_ autoConnect: Bool = true) {
+        guard !PasscodeWipeCoordinator.shared.isPending else { return }
         do {
             let realm = try WRealm.safe()
             let jids = realm
@@ -964,6 +979,9 @@ public class AccountManager: NSObject {
         nickname: String?,
         isFromRegister: Bool
     ) -> AccountCreationResult {
+        guard !PasscodeWipeCoordinator.shared.isPending else {
+            return .blockedByPasscodeWipe
+        }
         guard !users.contains(where: { $0.jid == jid }) else {
             return .alreadyExists
         }
@@ -1006,6 +1024,7 @@ public class AccountManager: NSObject {
     }
     
     func reloadAccount(withJid jid: String, autoConnect: Bool = true) {
+        guard !PasscodeWipeCoordinator.shared.isPending else { return }
         if let account = self.userStorage.removeFirst(where: { $0.jid == jid }) {
             account.disconnect(hard: true, cause: .intentionalShutdown)
         }
@@ -1013,6 +1032,7 @@ public class AccountManager: NSObject {
     }
     
     func add(withJid jid: String, autoConnect: Bool = true) {
+        guard !PasscodeWipeCoordinator.shared.isPending else { return }
         if find(for: jid) != nil {
             if autoConnect {
                 find(for: jid)?.restore()
@@ -1057,6 +1077,7 @@ public class AccountManager: NSObject {
     }
     
     func enable(jid: String) {
+        guard !PasscodeWipeCoordinator.shared.isPending else { return }
         add(withJid: jid)
         do {
             let realm = try WRealm.safe()
@@ -1141,7 +1162,7 @@ public class AccountManager: NSObject {
                 diagnosticsSession.markRealmWriteFinished(invokedOnMainThread: Thread.isMainThread)
             },
             postCleanup: {
-                self.performPostRealmAccountDeletionCleanup(jid: jid)
+                try self.performPostRealmAccountDeletionCleanup(jid: jid)
             }
         )
     }
@@ -1176,17 +1197,7 @@ public class AccountManager: NSObject {
         CredentialsManager.shared.removeXabberAccountUUID(for: jid)
         CredentialsManager.shared.removeXabberAccountToken(for: jid)
         CredentialsManager.shared.removeXabberAccountTokenExpire(for: jid)
-        CredentialsManager.shared.clearSignature()
-        CredentialsManager.shared.clearPincodes()
         CredentialsManager.shared.removeDeviceId(for: jid)
-        SignatureManager.shared.clear()
-        CredentialsManager.shared.clearSignature()
-        ApplicationStateManager.shared.clearApplicationBlockedState()
-        if AccountDeletionCredentialCleanupPolicy.shouldClearSharedKeychain(
-            supportsMultiaccounts: CommonConfigManager.shared.config.supports_multiaccounts
-        ) {
-            CredentialsManager.shared.clearKeyachain()
-        }
         
         self.updateConnectingUsers { value in
             value.remove(jid)
@@ -1206,11 +1217,73 @@ public class AccountManager: NSObject {
         }
     }
 
-    private func performPostRealmAccountDeletionCleanup(jid: String) {
+    private func performPostRealmAccountDeletionCleanup(jid: String) throws {
         removeAccountFromMemory(jid: jid)
         if let index = ApplicationStateManager.shared.expiredTokenAccountsList.firstIndex(where: { $0.jid == jid }) {
             ApplicationStateManager.shared.expiredTokenAccountsList.remove(at: index)
         }
+        // The application PIN belongs to the installation, not an individual
+        // account. Keep it while any account (including a disabled one) remains.
+        let realm = try WRealm.safe()
+        guard AccountDeletionCredentialCleanupPolicy.shouldClearApplicationLock(
+            remainingStoredAccountCount: realm.objects(AccountStorageItem.self).count
+        ) else { return }
+        try PasscodeCredentialStore.shared.clear()
+        CredentialsManager.shared.clearSignature()
+        SignatureManager.shared.clear()
+        ApplicationStateManager.shared.clearApplicationBlockedState()
+        if AccountDeletionCredentialCleanupPolicy.shouldClearSharedKeychain(
+            supportsMultiaccounts: CommonConfigManager.shared.config.supports_multiaccounts
+        ) {
+            CredentialsManager.shared.clearKeyachain()
+        }
+    }
+
+    /// The terminal PIN path has no network prerequisite and never calls the
+    /// normal per-account deletion pipeline, which may clear shared security
+    /// state before its Realm transaction succeeds.
+    func prepareForPasscodeWipe() {
+        precondition(Thread.isMainThread)
+        bag = DisposeBag()
+        NotifyManager.shared.clearPendingRoutesForPasscodeWipe()
+        let loadedAccounts = users
+        loadedAccounts.forEach { account in
+            // Preserve the previous self-alert behavior without making local
+            // deletion depend on Realm device rows or network completion.
+            if !account.xmppStream.isDisconnected,
+               let recipient = XMPPJID(string: account.jid) {
+                let elementID = UUID().uuidString
+                let message = XMPPMessage(
+                    messageType: .chat,
+                    to: recipient,
+                    elementID: elementID,
+                    child: nil
+                )
+                message.addOriginId(elementID)
+                message.addBody(L10n.text(
+                    "passcode__content__too_many_unlock_attempts_wipe_started",
+                    fallback: "Too many unlock attempts. A local data wipe was started."
+                ))
+                message.addAttribute(withName: "from", stringValue: account.jid)
+                account.unsafeAction { _, stream in stream.send(message) }
+            }
+            account.notifications.invalidatePendingNotificationPersistence()
+            account.presences.invalidatePendingPresencePersistence()
+            account.xmppStream.removeDelegate(account)
+            account.disconnect(hard: true, cause: .accountDeletion)
+        }
+        xmppBackgroundTasks.forEach {
+            $0.disconnect()
+            $0.endBackgroundUpdateTask()
+        }
+        xmppBackgroundTasks.removeAll()
+        userStorage.replace(with: [])
+        activeUsers.accept([])
+        authenticatedUsers.accept([])
+        connectingUsers.accept([])
+        newAccountJid = ""
+        XMPPUIActionManager.shared.close(disconnect: true)
+        XMPPUIActionManager.shared.currentJid = nil
     }
 
     private func removeAccountFromMemory(jid: String) {

@@ -430,7 +430,7 @@ extension SimpleTableViewController: UITableViewDelegate {
                 let context = LAContext()
                 context.localizedCancelTitle = L10n.text("settings__biometrics__use_passcode_only", fallback: "Use only passcode")
                 let reason = L10n.text("settings__biometrics__unlock_reason", fallback: "Unlock application with biometrics")
-                context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason ) { success, error in
+                context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason ) { success, error in
                     SettingManager.shared.saveItem(for: "", scope: .security, key: "support_touch_id", value: success)
                     if success {
                         DispatchQueue.main.async {
@@ -495,9 +495,13 @@ extension SimpleTableViewController: UITableViewDelegate {
                         localizer: localizer
                     )
                     let action = UIAlertAction(title: title, style: .default, handler: { _ in
-                        SettingManager.shared.saveItem(for: "", scope: .security, key: key.rawValue, value: attempts)
-                        CredentialsManager.shared.setPasscodeAttemptsLeft(attempts)
-                        self.tableView.reloadRows(at: [indexPath], with: .none)
+                        do {
+                            try PasscodeCredentialStore.shared.setAttemptLimit(attempts == 0 ? nil : attempts)
+                            SettingManager.shared.saveItem(for: "", scope: .security, key: key.rawValue, value: attempts)
+                            self.tableView.reloadRows(at: [indexPath], with: .none)
+                        } catch {
+                            self.view.makeToast(L10n.text("common__error__internal", fallback: "Internal error"))
+                        }
                     })
                     alert.addAction(action)
                 }
@@ -695,10 +699,12 @@ extension SimpleTableViewController: XMPPAccountDeleteManagerDelegate {
             let action = UIAlertAction(title: L10n.text("common__action__ok", fallback: "OK"), style: .default, handler: {_ in
                 if AccountManager.shared.emptyAccountsList() {
                     DispatchQueue.main.async {
-                        let vc = OnboardingViewController()
-                        let navigationController = UINavigationController(rootViewController: vc)
-                        navigationController.isNavigationBarHidden = true
-                        (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = navigationController
+                        guard let appDelegate = UIApplication.shared.delegate as? AppDelegate else { return }
+                        AppDelegate.setupRootViewController(
+                            instance: appDelegate,
+                            window: appDelegate.window,
+                            userInfo: nil
+                        )
                     }
                 }
             })

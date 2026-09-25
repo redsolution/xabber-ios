@@ -67,8 +67,16 @@ class PasscodeEdtitView: UIView, UITextInputTraits {
     
     var code: String = "" {
         didSet {
+            guard code.count <= maxLength,
+                  code.unicodeScalars.allSatisfy({ (48...57).contains($0.value) }) else {
+                code = oldValue
+                return
+            }
             updateStack(by: code)
-            if code.count == maxLength, let didFinishedEnterCode = didFinishedEnterCode {
+            if code.count < maxLength {
+                didCompleteCurrentEntry = false
+            } else if !didCompleteCurrentEntry, let didFinishedEnterCode = didFinishedEnterCode {
+                didCompleteCurrentEntry = true
                 self.resignFirstResponder()
                 didFinishedEnterCode(code)
             }
@@ -76,6 +84,7 @@ class PasscodeEdtitView: UIView, UITextInputTraits {
     }
     
     var didFinishedEnterCode: ((String) -> Void)?
+    private var didCompleteCurrentEntry = false
     
     
     var maxLength = 6
@@ -109,7 +118,7 @@ class PasscodeEdtitView: UIView, UITextInputTraits {
     
     func updateStack(by code: String) {
         var emptyPins: [UIView] = Array(0..<maxLength).map { _ in emptyPin() }
-        let userPinLength = code.count
+        let userPinLength = min(code.count, maxLength)
         let pins: [UIView] = Array(0..<userPinLength).map { _ in pin() }
         
         for (index, element) in pins.enumerated() {
@@ -157,19 +166,17 @@ extension PasscodeEdtitView: UIKeyInput {
     }
     
     func insertText(_ text: String) {
-        let characterSet = CharacterSet(charactersIn: text)
-        guard code.count < maxLength,
-              CharacterSet.decimalDigits.isSuperset(of: characterSet) else {
+        guard !text.isEmpty,
+              code.count + text.count <= maxLength,
+              text.unicodeScalars.allSatisfy({ (48...57).contains($0.value) }) else {
             return
         }
         code.append(contentsOf: text)
-        print(code)
     }
     
     func deleteBackward() {
         if hasText {
             code.removeLast()
         }
-        print(code)
     }
 }

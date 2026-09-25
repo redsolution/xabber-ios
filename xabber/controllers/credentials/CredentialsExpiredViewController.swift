@@ -279,12 +279,12 @@ class CredentialsExpiredViewController: SimpleBaseViewController {
             AccountManager.shared.deleteAccount(by: self.owner)
             if AccountManager.shared.emptyAccountsList() {
                 DispatchQueue.main.async {
-                    let vc = OnboardingViewController()
-                    
-                    let navigationController = UINavigationController(rootViewController: vc)
-                    
-                    navigationController.isNavigationBarHidden = true
-                    (UIApplication.shared.delegate as! AppDelegate).window?.rootViewController = navigationController
+                    let appDelegate = UIApplication.shared.delegate as? AppDelegate
+                    AppDelegate.setupRootViewController(
+                        instance: appDelegate,
+                        window: appDelegate?.window,
+                        userInfo: nil
+                    )
                 }
             } else {
                 DispatchQueue.main.async {

@@ -268,6 +268,8 @@ class NotificationService: UNNotificationServiceExtension {
     private let completionQueue = DispatchQueue(label: "com.xabber.notification-service.completion")
     private var didCompleteContent = false
     private var requestGeneration: UInt = 0
+    private var wipeStartGeneration: String?
+    private var wipeStartedPending = false
     private var credentialRetryWorkItem: DispatchWorkItem?
     private var renderingTask: Task<Void, Never>?
     private var archiveManager: NetworkManager?
@@ -302,17 +304,39 @@ class NotificationService: UNNotificationServiceExtension {
         }
     }
 
+    private func passcodeWipeNeutralContent() -> UNNotificationContent {
+        let neutral = UNMutableNotificationContent()
+        neutral.title = CommonConfigManager.shared.config.app_name
+        neutral.body = localizedNewMessage
+        neutral.userInfo = [:]
+        neutral.sound = nil
+        return neutral
+    }
+
     private func finishContent(_ makeSnapshot: () -> UNNotificationContent) {
         var handler: ((UNNotificationContent) -> Void)?
         var snapshot: UNNotificationContent?
         var retryWorkItem: DispatchWorkItem?
         var task: Task<Void, Never>?
         var manager: NetworkManager?
+        var startGeneration: String?
+        var startedPending = false
         completionQueue.sync {
             guard !didCompleteContent else {
                 return
             }
-            snapshot = makeSnapshot()
+            startGeneration = wipeStartGeneration
+            startedPending = wipeStartedPending
+            // A wipe can begin while a previously accepted push is being
+            // decrypted. Check again at delivery so no rich content escapes.
+            if PasscodeWipeMarkerStore.live().shouldNeutralizeRequest(
+                startGeneration: startGeneration,
+                startedPending: startedPending
+            ) {
+                snapshot = passcodeWipeNeutralContent()
+            } else {
+                snapshot = makeSnapshot()
+            }
             didCompleteContent = true
             handler = contentHandler
             contentHandler = nil
@@ -327,7 +351,14 @@ class NotificationService: UNNotificationServiceExtension {
         task?.cancel()
         manager?.cancel()
         if let snapshot {
-            handler?(snapshot)
+            handler?(
+                PasscodeWipeMarkerStore.live().shouldNeutralizeRequest(
+                    startGeneration: startGeneration,
+                    startedPending: startedPending
+                )
+                    ? passcodeWipeNeutralContent()
+                    : snapshot
+            )
         }
     }
 
@@ -525,6 +556,9 @@ class NotificationService: UNNotificationServiceExtension {
     }
     
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+        let wipeMarker = PasscodeWipeMarkerStore.live()
+        let initialWipeGeneration = try? wipeMarker.readGeneration()
+        let wipePendingAtStart = wipeMarker.isPendingOrUnavailable
         let appGroupSuiteName = CredentialsManager.uniqueAccessGroup()
         PushNotificationLocalization.prepareForIncomingRequest(
             appGroupSuiteName: appGroupSuiteName.isEmpty ? nil : appGroupSuiteName
@@ -533,6 +567,8 @@ class NotificationService: UNNotificationServiceExtension {
         cancelOutstandingWork()
         let generation: UInt = completionQueue.sync {
             requestGeneration &+= 1
+            wipeStartGeneration = initialWipeGeneration
+            wipeStartedPending = wipePendingAtStart
             self.contentHandler = contentHandler
             didCompleteContent = false
             let content = mutableContent ?? UNMutableNotificationContent()
@@ -544,6 +580,13 @@ class NotificationService: UNNotificationServiceExtension {
         }
         guard mutableContent != nil else {
             completeContent(request.content)
+            return
+        }
+        guard !wipeMarker.shouldNeutralizeRequest(
+            startGeneration: initialWipeGeneration,
+            startedPending: wipePendingAtStart
+        ) else {
+            completeBestAttemptContent()
             return
         }
         identifier = request.identifier

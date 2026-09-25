@@ -131,6 +131,19 @@ final class AccountDeletionCleanupTests: XCTestCase {
         )
     }
 
+    func testApplicationLockSurvivesDeletionWhileStoredAccountRemains() {
+        XCTAssertFalse(
+            AccountDeletionCredentialCleanupPolicy.shouldClearApplicationLock(
+                remainingStoredAccountCount: 1
+            )
+        )
+        XCTAssertTrue(
+            AccountDeletionCredentialCleanupPolicy.shouldClearApplicationLock(
+                remainingStoredAccountCount: 0
+            )
+        )
+    }
+
     func testDiagnosticLineDoesNotExposeSecretMaterial() {
         let event = AccountDeletionDiagnosticsEvent(
             name: .finished,

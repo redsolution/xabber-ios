@@ -436,6 +436,18 @@ class NotifyManager {
     
     var deliveredNotificationsIds: Set<String> = Set<String>()
     private var pendingMessageNotificationChatRouteState = MessageNotificationChatRoutePendingState()
+
+    /// A terminal local wipe must not replay a deferred notification route
+    /// when onboarding replaces the former account UI.
+    func clearPendingRoutesForPasscodeWipe() {
+        pendingMessageNotificationChatRouteState = MessageNotificationChatRoutePendingState()
+        deliveredNotificationsIds.removeAll()
+        currentDialog = nil
+        #if DEBUG || CHAT_PERFORMANCE_LAB
+        notificationRequestRoutingIngressForTests = nil
+        #endif
+    }
+
     #if DEBUG || CHAT_PERFORMANCE_LAB
     internal var performancePendingMessageNotificationChatRoute:
         MessageNotificationChatRoute? {

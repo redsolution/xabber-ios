@@ -45,6 +45,8 @@ class PasscodeViewController: UIViewController, PasscodeViewControllerDelegate {
     
     weak var delegate: PasscodeViewControllerDelegate?
     private let mode: Mode
+    private let isChangingExistingPIN: Bool
+    private var isProcessing = false
 
     let passcode: PasscodeEdtitView = {
         let view = PasscodeEdtitView()
@@ -76,9 +78,10 @@ class PasscodeViewController: UIViewController, PasscodeViewControllerDelegate {
         return button
     }()
     
-    init(mode: Mode = .createNew, delegate: PasscodeViewControllerDelegate? = nil) {
+    init(mode: Mode = .createNew, delegate: PasscodeViewControllerDelegate? = nil, isChangingExistingPIN: Bool = false) {
         self.mode = mode
         self.delegate = delegate
+        self.isChangingExistingPIN = isChangingExistingPIN
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -92,6 +95,7 @@ class PasscodeViewController: UIViewController, PasscodeViewControllerDelegate {
 
     override init(nibName: String?, bundle: Bundle?) {
         self.mode = .createNew
+        self.isChangingExistingPIN = false
         super.init(nibName: nibName, bundle: bundle)
     }
 
@@ -163,9 +167,18 @@ class PasscodeViewController: UIViewController, PasscodeViewControllerDelegate {
     }
 
     private func handleCompleted(code: String) {
+        guard !isProcessing else { return }
         switch mode {
         case .createNew:
-            let secondVC = PasscodeViewController(mode: .confirmNew(firstPasscode: code), delegate: self)
+            // The next controller is pushed after the keyboard settles. Treat
+            // this code as committed immediately so another input cannot queue
+            // a second confirmation screen during that short interval.
+            isProcessing = true
+            let secondVC = PasscodeViewController(
+                mode: .confirmNew(firstPasscode: code),
+                delegate: self,
+                isChangingExistingPIN: isChangingExistingPIN
+            )
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 self.navigationController?.pushViewController(secondVC, animated: true)
             }
@@ -177,43 +190,95 @@ class PasscodeViewController: UIViewController, PasscodeViewControllerDelegate {
                 return
             }
             saveNewPasscode(code)
-            DispatchQueue.main.async {
-                self.navigationController?.popToRootViewController(animated: true)
-            }
 
         case .verifyCurrent(let action):
-            guard CredentialsManager.shared.validatePincode(code) else {
-                showError(L10n.text("passcode__presentation_call__incorrect_passcode_try_again", fallback: "Incorrect passcode. Try again."))
-                return
+            verifyCurrentPasscode(code, action: action)
+        }
+    }
+
+    private func verifyCurrentPasscode(_ code: String, action: VerifiedAction) {
+        isProcessing = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result { try PasscodeCredentialStore.shared.verify(code) }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isProcessing = false
+                switch result {
+                case .success(.matched):
+                    self.handleVerifiedCurrentPasscode(action)
+                case .success(.incorrect):
+                    self.showError(L10n.text("passcode__presentation_call__incorrect_passcode_try_again", fallback: "Incorrect passcode. Try again."))
+                case .success(.exhausted):
+                    ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
+                case .failure:
+                    // A Keychain error during current-PIN verification must keep
+                    // the protected content behind the app lock.
+                    ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
+                    self.showError(L10n.text("common__error__internal", fallback: "Internal error"))
+                }
             }
-            handleVerifiedCurrentPasscode(action)
         }
     }
 
     private func handleVerifiedCurrentPasscode(_ action: VerifiedAction) {
         switch action {
         case .change:
-            let vc = PasscodeViewController(mode: .createNew)
+            let vc = PasscodeViewController(mode: .createNew, isChangingExistingPIN: true)
             DispatchQueue.main.async {
                 self.navigationController?.pushViewController(vc, animated: true)
             }
 
         case .remove:
-            CredentialsManager.shared.clearPincodes()
-            SettingManager.shared.saveItem(for: "", scope: .security, key: "support_touch_id", value: false)
-            DispatchQueue.main.async {
-                self.navigationController?.popToRootViewController(animated: true)
+            do {
+                try PasscodeCredentialStore.shared.clear()
+                SettingManager.shared.saveItem(for: "", scope: .security, key: "support_touch_id", value: false)
+                DispatchQueue.main.async {
+                    self.navigationController?.popToRootViewController(animated: true)
+                }
+            } catch {
+                showError(L10n.text("common__error__internal", fallback: "Internal error"))
             }
         }
     }
 
     private func saveNewPasscode(_ code: String) {
-        CredentialsManager.shared.setPincode(code)
-        CredentialsManager.shared.setPasscodeAttemptsLeft(5)
-        SettingManager.shared.saveItem(for: "", scope: .security, key: SettingsViewController.Datasource.Keys.passcodeAttempts.rawValue, value: 5)
-        SettingManager.shared.saveItem(for: "", scope: .security, key: SettingsViewController.Datasource.Keys.displayedAttempts.rawValue, value: 0)
-        SettingManager.shared.saveItem(for: "", scope: .security, key: "support_touch_id", value: false)
-        SettingManager.shared.saveItem(key: SettingsViewController.Datasource.Keys.showAttempts.rawValue, bool: true)
+        isProcessing = true
+        let isChange = isChangingExistingPIN
+        if !isChange {
+            // Persist the first-enrollment defaults before the verifier can
+            // commit. A crash or marker write failure can then be recovered by
+            // entering the staged PIN without silently inheriting Never.
+            SettingManager.shared.saveItem(for: "", scope: .security, key: SettingsViewController.Datasource.Keys.passcodeAttempts.rawValue, value: 5)
+            SettingManager.shared.saveItem(for: "", scope: .security, key: SettingsViewController.Datasource.Keys.passcodeTimer.rawValue, value: 300)
+            ApplicationStateManager.shared.period = 300
+            SettingManager.shared.saveItem(for: "", scope: .security, key: SettingsViewController.Datasource.Keys.displayedAttempts.rawValue, value: 0)
+            SettingManager.shared.saveItem(key: SettingsViewController.Datasource.Keys.showAttempts.rawValue, bool: true)
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Result {
+                let selectedLimit: Int?
+                if isChange {
+                    selectedLimit = try PasscodeCredentialStore.shared.attemptLimit()
+                } else {
+                    selectedLimit = 5
+                }
+                try PasscodeCredentialStore.shared.enroll(code, attempts: selectedLimit)
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isProcessing = false
+                switch result {
+                case .success:
+                    SettingManager.shared.saveItem(for: "", scope: .security, key: "support_touch_id", value: false)
+                    self.navigationController?.popToRootViewController(animated: true)
+                case .failure:
+                    // A verifier may have committed before the enrollment marker
+                    // failed. Protect that staged state immediately and require PIN.
+                    ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
+                    self.showError(L10n.text("common__error__internal", fallback: "Internal error"))
+                }
+            }
+        }
     }
 
     private func showError(_ message: String) {

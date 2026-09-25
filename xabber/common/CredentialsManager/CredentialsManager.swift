@@ -868,44 +868,42 @@ class CredentialsManager: NSObject {
     }
     
     public final func clearPincodes() {
-        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup())
-        keychain.remove(forKey: "pincode")
-        keychain.remove(forKey: "pincode_timestamp")
+        do {
+            try PasscodeCredentialStore.shared.clear()
+        } catch {
+            credentialsDebugLog("CredentialsManager: failed to clear passcode credentials")
+        }
     }
     
     public final func isPincodeSetted() -> Bool {
-        let keychain = KeychainWrapper(
-            serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
-        )
-        guard let pincode = keychain.string(forKey: "pincode")  else {
-                  return false
-              }
-        return true
+        // The old Bool API is still used by settings and launch paths. An unavailable
+        // Keychain must be interpreted as locked, never as an absent PIN.
+        guard let state = try? PasscodeCredentialStore.shared.enrollmentState() else {
+            return true
+        }
+        return state != .notEnrolled
     }
     
     public final func setPincode(_ value: String) {
-        let keychain = KeychainWrapper(
-            serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
-        )
-        _ = keychain.set(value, forKey: "pincode", withAccessibility: .always)
-        _ = keychain.set(Date().timeIntervalSince1970, forKey: "pincode_timestamp", withAccessibility: .always)
+        do {
+            let existingLimit = try? PasscodeCredentialStore.shared.attemptLimit()
+            try PasscodeCredentialStore.shared.enroll(value, attempts: existingLimit ?? 5)
+        } catch {
+            credentialsDebugLog("CredentialsManager: failed to enroll passcode")
+        }
     }
     
     public final func setPasscodeAttemptsLeft(_ value: Int) {
-        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
-        )
-        _ = keychain.set(value, forKey: "passcode_attempts_left", withAccessibility: .always)
+        do {
+            try PasscodeCredentialStore.shared.setAttemptLimit(value == 0 ? nil : value)
+        } catch {
+            credentialsDebugLog("CredentialsManager: failed to update passcode attempt limit")
+        }
     }
     
     public final func getPasscodeAttemptsLeft() -> Int {
-        let keychain = KeychainWrapper(serviceName: CredentialsManager.uniqueServiceName(),
-                                       accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
-        )
-        return keychain.integer(forKey: "passcode_attempts_left") ?? 0
+        // Zero also represents a fail-closed read error for legacy consumers.
+        return (try? PasscodeCredentialStore.shared.remainingAttempts()) ?? 0
     }
     
     public final func getPincodeTimestamp() -> TimeInterval {
@@ -918,41 +916,19 @@ class CredentialsManager: NSObject {
     }
     
     public final func validatePincode(_ value: String) -> Bool {
-        let keychain = KeychainWrapper(
-            serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
-        )
-        
-        guard let pincode = keychain.string(forKey: "pincode"),
-              value == pincode else {
-                  return false
-              }
+        guard (try? PasscodeCredentialStore.shared.enrollmentState()) == .enrolled,
+              (try? PasscodeCredentialStore.shared.verify(value)) == .matched else {
+            return false
+        }
         return true
     }
     
     public final func updatePincode(_ value: String) -> Bool {
-        let keychain = KeychainWrapper(
-            serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
-        )
-        
-        guard let pincode = keychain.string(forKey: "pincode"),
-              value == pincode else {
-                  return false
-              }
-        
-        keychain.set(Date().timeIntervalSince1970, forKey: "pincode_timestamp", withAccessibility: .always)
-        
-        return true
+        return validatePincode(value)
     }
     
     public final func updateOnlyPincodeTimestamp() {
-        let keychain = KeychainWrapper(
-            serviceName: CredentialsManager.uniqueServiceName(),
-            accessGroup: CredentialsManager.uniqueKeychainAccessGroup()
-        )
-        
-        keychain.set(Date().timeIntervalSince1970, forKey: "pincode_timestamp", withAccessibility: .always)
+        // Auto-Lock now records the scene's background time, not the last PIN entry.
     }
     
     struct PushSecretData {

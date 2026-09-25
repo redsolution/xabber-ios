@@ -108,6 +108,7 @@ enum AppLaunchEnvironmentPolicy {
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
+    private var deferredAccountLoadForPasscodeStorageError = false
     enum RemoteNotificationOutcome: Equatable {
         case voip
         case push(APNSManager.ReceiveResult)
@@ -211,6 +212,38 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
         #endif
                 
+        _ = try? PasscodeCredentialStore.shared.clearOrphanedCredentialsIfSafe(
+            hasLocalAccounts: {
+                let realm = try WRealm.safe()
+                realm.refresh()
+                return !realm.objects(AccountStorageItem.self).isEmpty
+            },
+            isWipePending: { PasscodeWipeCoordinator.shared.isPending }
+        )
+
+        if PasscodeWipeCoordinator.shared.isPending {
+            // The scene attaches only a neutral root and the wipe blocker.
+            getNotificationSettings()
+            return true
+        }
+
+        do {
+            let enrollment = try PasscodeCredentialStore.shared.enrollmentState()
+            if enrollment != .notEnrolled {
+                let remaining = try PasscodeCredentialStore.shared.remainingAttempts()
+                if remaining == 0 {
+                    // A previous terminal attempt may have failed to persist the wipe marker.
+                    getNotificationSettings()
+                    return true
+                }
+            }
+        } catch {
+            // No account data is loaded until this credential can be verified.
+            deferredAccountLoadForPasscodeStorageError = true
+            getNotificationSettings()
+            return true
+        }
+
         NotifyManager.shared.setLastChats(displayed: true)
         
         pushRegistry = PKPushRegistry(queue: nil)
@@ -236,8 +269,22 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             self.startUserInfo = userInfo
         }
         
-        ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
         return true
+    }
+
+    func loadAccountsAfterPasscodeStorageRecoversIfNeeded() {
+        guard deferredAccountLoadForPasscodeStorageError else { return }
+        deferredAccountLoadForPasscodeStorageError = false
+        NotifyManager.shared.setLastChats(displayed: true)
+        pushRegistry = PKPushRegistry(queue: nil)
+        pushRegistry.delegate = self
+        pushRegistry.desiredPushTypes = [.voIP]
+        let shouldAutoconnect = AppLaunchEnvironmentPolicy.shouldAutoconnectAccounts(
+            isPushKit: isPushKit
+        )
+        AccountManager.shared.load(shouldAutoconnect)
+        ApplicationStateManager.shared.prepare()
+        CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .appLaunch)
     }
     
     func applicationWillResignActive(_ application: UIApplication) {
@@ -254,6 +301,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         )
         guard AppRootCoordinator.active == nil else {
             return
+        }
+        if let window {
+            ApplicationStateManager.shared.sceneWillResignActive(mainWindow: window)
         }
         addBlurredScreen()
         AccountManager.shared.load()
@@ -279,17 +329,22 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         guard AppRootCoordinator.active == nil else {
             return
         }
+        if let window {
+            ApplicationStateManager.shared.sceneDidEnterBackground(mainWindow: window)
+        }
         AccountManager.shared.users.forEach {
             user in
             user.disconnect(hard: true, cause: .backgroundSuspension)
         }
-        if UIDevice.current.userInterfaceIdiom == .pad {
-//            self.splitViewController?.show(.supplementary)
-            self.splitController?.hide(.primary)
-        } else {
-            UIView.performWithoutAnimation {
-                self.splitController?.show(.supplementary)
+        if !PasscodeLockCoordinator.shared.isProtected {
+            if UIDevice.current.userInterfaceIdiom == .pad {
+//              self.splitViewController?.show(.supplementary)
                 self.splitController?.hide(.primary)
+            } else {
+                UIView.performWithoutAnimation {
+                    self.splitController?.show(.supplementary)
+                    self.splitController?.hide(.primary)
+                }
             }
         }
     }
@@ -308,6 +363,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         guard AppRootCoordinator.active == nil else {
             return
         }
+        if PasscodeWipeCoordinator.shared.isPending {
+            ApplicationStateManager.shared.sceneWillEnterForeground()
+            return
+        }
         if refreshLocalizationContextIfNeeded(), let window {
             Self.setupRootViewController(
                 instance: self,
@@ -318,7 +377,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         AccountManager.shared.prepare()
         CloudStorageQuotaRefreshCoordinator.shared.refreshAll(reason: .foreground)
         NotifyManager.shared.setLastChats(displayed: true)
-        ApplicationStateManager.shared.runPincodeTask(animated: false, force: true)
+        ApplicationStateManager.shared.sceneWillEnterForeground()
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
@@ -335,12 +394,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         guard AppRootCoordinator.active == nil else {
             return
         }
+        ApplicationStateManager.shared.sceneDidBecomeActive()
         removeBlurredScreen()
     }
      
      func presentPasscodeOrRemoveBlurredScreen() {
-         if CredentialsManager.shared.isPincodeSetted(),
-            PasscodeLockPolicy.canUsePasscodeLock {
+         if CredentialsManager.shared.isPincodeSetted() {
              ApplicationStateManager.shared.runPincodeTask(animated: true, force: true)
          } else {
              self.blurEffectView?.removeFromSuperview()
