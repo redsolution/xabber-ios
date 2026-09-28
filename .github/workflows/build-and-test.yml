@@ -43,6 +43,7 @@ jobs:
       --catalog xabber/translations/Localizable.xcstrings \
       --manifest docs/localization/active-keys.json \
       --output docs/localization/active-translations.csv
+     python3 -B tools/localization_length_audit.py check
 
   - name: Copy local swift-ogg package into workspace
     run: |

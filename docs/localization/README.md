@@ -28,7 +28,22 @@ python3 -B tools/localization_completion.py check-csv \
   --catalog xabber/translations/Localizable.xcstrings \
   --manifest docs/localization/active-keys.json \
   --output docs/localization/active-translations.csv
+python3 -B tools/localization_length_audit.py check
 ```
+
+`localization_length_audit.py` checks every manifest-owned translation leaf for
+material expansion relative to English. It ignores printf/substitution
+placeholders and markup, counts CJK/full-width characters as two display
+columns, applies stricter ratios to short UI labels, and audits native plural
+branches independently. Thresholds and editorially reviewed
+exceptions live in `tools/localization_length_config.json`; exceptions include
+the exact current translation, so a later wording change cannot silently inherit
+an earlier review. Use `report` while editing and `check` as the CI gate.
+
+Length is a layout-risk signal rather than a reason to weaken meaning. Security,
+privacy, destructive-action and accessibility copy may remain longer when a
+shorter natural translation would be ambiguous; each such case must be recorded
+with its review reason in the configuration.
 
 Non-English additions generated during completion are structured drafts. They
 preserve runtime, placeholder and plural contracts, but Arabic/RTL, Simplified

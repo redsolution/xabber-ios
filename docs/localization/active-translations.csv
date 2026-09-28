@@ -13,7 +13,7 @@ Encontrarás más información en nuestro sitio web oficial https://%2$@","%1$@ 
 about_xmpp_protocol,"Extensible Messaging and Presence Protocol (XMPP) is a communications protocol for message-oriented middleware based on XML (Extensible Markup Language). It enables the near-real-time exchange of structured yet extensible data between any two or more network entities. The protocol was originally named Jabber, and was developed by the Jabber open-source community in 1999 for near real-time instant messaging (IM),presence information, and contact list maintenance.","Расширенный протокол сообщений и присутствия (XMPP) - это коммуникационный протокол для обмена сообщениями на основе XML (расширяемого языка разметки). Это позволяет обмениваться структурированными, но расширяемыми данными между двумя или более сетевыми структурами в реальном времени. Этот протокол первоначально был назван Jabber, и был разработан открытым сообществом Jabber в 1999 году для мгновенного обмена сообщениями в реальном времени (IM), информации о присутствии в сети и обслуживания списка контактов.","Extensible Messaging and Presence Protocol (XMPP) est un protocole de communication pour les intergiciels orientés messages, basé sur XML (Extensible Markup Language). Il permet l’échange, presque en temps réel, de données structurées et extensibles entre au moins deux entités réseau. Initialement nommé Jabber, le protocole a été développé en 1999 par la communauté open source Jabber pour la messagerie instantanée, les informations de présence et la gestion des listes de contacts.","Extensible Messaging and Presence Protocol (XMPP) es un protocolo de comunicaciones para middleware orientado a mensajes basado en XML (Extensible Markup Language). Permite el intercambio casi en tiempo real de datos estructurados y extensibles entre dos o más entidades de red. El protocolo se llamó originalmente Jabber y fue desarrollado por la comunidad de código abierto de Jabber en 1999 para la mensajería instantánea (IM) casi en tiempo real, la información de presencia y el mantenimiento de listas de contactos.",بروتوكول المراسلة والتواجد القابل للتوسيع (XMPP) هو بروتوكول اتصالات للبرمجيات الوسيطة المعتمدة على الرسائل والمبنية على XML (لغة التوصيف القابلة للتوسيع). يتيح تبادل بيانات منظمة وقابلة للتوسعة في وقت قريب من الزمن الفعلي بين كيانين أو أكثر على الشبكة. كان اسم البروتوكول في الأصل Jabber، وقد طوّره مجتمع Jabber مفتوح المصدر عام 1999 للمراسلة الفورية في وقت قريب من الزمن الفعلي (IM)، ومعلومات التواجد، وإدارة قائمة جهات الاتصال.,可扩展消息与存在协议（XMPP）是一种基于 XML（可扩展标记语言）、面向消息中间件的通信协议。它支持两个或多个网络实体之间近乎实时地交换结构化且可扩展的数据。该协议最初名为 Jabber，由 Jabber 开源社区于 1999 年开发，用于近乎实时的即时消息（IM）、在线状态信息和联系人列表维护。
 abuse_report__accessibility_value__not_selected,Not selected,Не выбрано,Non sélectionné,No seleccionado,غير محدد,未选择
 abuse_report__accessibility_value__selected,Selected,Выбрано,Sélectionné,Seleccionado,محدد,已选择
-abuse_report__target__media,Media,Медиафайл,Média,Contenido multimedia,وسائط,媒体
+abuse_report__target__media,Media,Медиафайл,Média,Multimedia,وسائط,媒体
 abuse_report__target__message,Message,Сообщение,Message,Mensaje,رسالة,消息
 abuse_report__target__room,Room,Комната,Salon,Sala,غرفة,聊天室
 abuse_report__target__user,User,Пользователь,Utilisateur,Usuario,مستخدم,用户
@@ -60,7 +60,7 @@ account_deletes_all_devices_except_this,Deletes all devices except this one.,"Б
 account_devices__action__delete_key,Delete key,Удалить ключ,Supprimer la clé,Eliminar clave,حذف المفتاح,删除密钥
 account_edit_profile,Edit profile,Изменить профиль,Modifier le profil,Editar perfil,تحرير الملف الشخصي,编辑个人资料
 account_editor,Account settings,Настройки аккаунта,Paramètres du compte,Ajustes de la cuenta,إعدادات الحساب,帐户设置
-account_emoji_profile_image_button,Use Emoji,Использовать эмодзи,Utiliser un emoji,Usar emoji,استخدم الرموز التعبيرية,使用表情符号
+account_emoji_profile_image_button,Use Emoji,Использовать эмодзи,Utiliser un emoji,Usar emoji,استخدم إيموجي,使用表情
 account_emoji_profile_image_description,Choose an emoji and background color to use as your profile image.,Выберите эмодзи и цвет фона для использования в качестве изображения профиля.,Choisissez un emoji et une couleur d’arrière-plan pour votre image de profil.,Elige un emoji y un color de fondo para usarlos como imagen de perfil.,اختر رمزًا تعبيريًا ولون خلفية لاستخدامهما كصورة لملفك الشخصي.,选择一个表情符号和背景颜色作为头像。
 account_emoji_profile_image_header,Emoji Profile Image,Аватар-эмоджи,Image de profil avec emoji,Imagen de perfil con emoji,صورة ملف شخصي برمز تعبيري,表情符号头像
 account_encryption__other_devices__description,Review the devices connected to this account and manage their end-to-end encryption.,"Просмотрите устройства, подключённые к этому аккаунту, и управляйте их сквозным шифрованием.",Consultez les appareils connectés à ce compte et gérez leur chiffrement de bout en bout.,Revisa los dispositivos conectados a esta cuenta y gestiona su cifrado de extremo a extremo.,راجع الأجهزة المتصلة بهذا الحساب وأدِر التشفير التام بين الطرفين لها.,查看连接到此账号的设备并管理其端到端加密。
@@ -110,16 +110,15 @@ account_settings_notification_application_settings,Notification settings for app
 account_settings_offline_contacts,Show offline contacts,Показывать оффлайн контакты,Afficher les contacts hors-ligne,Mostrar contactos desconectados,إظهار جهات الاتصال غير المتصلة,显示离线联系人
 account_settings_privacy,Privacy,Приватность,Confidentialité,Privacidad,الخصوصية,隐私
 account_settings_privacy_settings,Privacy settings,Настройки приватности,Paramètres de confidentialité,Ajustes de privacidad,إعدادات الخصوصية,隐私设置
-account_settings_send_by_enter,Send by enter,Отправлять по нажатию Enter,Envoyer avec la touche Entrée,Enviar con Intro,الإرسال بمفتاح الإدخال,按回车键发送
+account_settings_send_by_enter,Send by enter,Отправлять по нажатию Enter,Entrée pour envoyer,Enviar con Intro,الإرسال بمفتاح الإدخال,按回车键发送
 account_settings_show_avatars,Show avatars,Показывать аватарки,Afficher les avatars,Mostrar avatares,إظهار الصور الرمزية,显示头像
 account_settings_show_background,Show background,Показывать фон,Afficher l’arrière-plan,Mostrar fondo,إظهار الخلفية,显示背景
 account_settings_show_circles,Show cirlces,Показывать круги,Afficher les cercles,Mostrar círculos,عرض الدوائر,显示圈子
 account_settings_swipe_left_to_unblock,Swipe left to unblock,"Смахните влево, чтобы разблокировать",Balayer vers la gauche pour débloquer,Desliza a la izquierda para desbloquear,اسحب لإلغاء الحظر,向左滑动以取消屏蔽
 account_settings_terminate_description,You can terminate sessions you don`t need. Official %1$@ clients wipe all user data from the device upon session termination.,"Вы можете завершить сеансы, которые вам не нужны. Официальные клиенты %1$@ стирают все пользовательские данные с устройства после завершения сеанса.",Vous pouvez mettre fin aux sessions dont vous n’avez pas besoin. Les clients %1$@ officiels effacent toutes les données utilisateur de l’appareil à la fin d’une session.,Puedes finalizar las sesiones que no necesites. Los clientes oficiales de %1$@ borran todos los datos del usuario del dispositivo al finalizar una sesión.,يمكنك إنهاء الجلسات التي لا تحتاج إليها. تمسح تطبيقات %1$@ الرسمية جميع بيانات المستخدم من الجهاز عند إنهاء الجلسة.,你可以终止不需要的会话。会话终止后，%1$@ 官方客户端会从设备中清除所有用户数据。
 account_settings_typing_notification,Send typing notification,Отправлять уведомления о наборе текста,Envoyer une notification de saisie,Enviar notificación de escritura,إرسال إشعار عند الكتابة,发送正在输入通知
-account_settings_write_log,Write log,Сохранять логи,Enregistrer le journal,Escribir registro,كتابة السجل,写入日志
+account_settings_write_log,Write log,Сохранять логи,Créer un journal,Escribir registro,كتابة السجل,写入日志
 account_state_connected,Online,В сети,En ligne,En línea,متصل,在线
-account_state_connecting,Connecting…,Подключение...,Connexion en cours…,Conectando...,جارٍ الاتصال…,连接中…
 account_state_offline,Offline,Не в сети,Hors-ligne,Desconectado,غير متصل,离线
 account_sync,Synchronization,Синхронизация,Synchronisation,Sincronización,مزامنة,同步
 account_terminate_all_other_sessions,Terminate all other sessions,Завершить все другие сеансы,Mettre fin à toutes les autres sessions,Finalizar todas las demás sesiones,إنهاء جميع الجلسات الأخرى,终止所有其他会话
@@ -187,7 +186,7 @@ appearance__chat_list_preview__message_veronica,"Table for four, 2PM. Be there."
 appearance__content__chats,Chats,Чаты,Discussions,Chats,الدردشات,聊天
 appearance__content__new_message,New message,Новое сообщение,Nouveau message,Mensaje nuevo,رسالة جديدة,新消息
 appearance__content__notifications,Notifications,Уведомления,Notifications,Notificaciones,الإشعارات,通知
-appearance__editor__choose_accent,Choose Accent,Выбрать акцентный цвет,Choisir la couleur d’accentuation,Elegir color de acento,اختيار لون التمييز,选择强调色
+appearance__editor__choose_accent,Choose Accent,Выбрать акцентный цвет,Couleur d’accent,Elegir color de acento,اختيار لون التمييز,选择强调色
 appearance__editor__choose_gradient,Choose Gradient,Выбрать градиент,Choisir un dégradé,Elegir degradado,اختيار تدرج لوني,选择渐变
 appearance__editor__choose_message_colors,Choose Message Colors,Выбрать цвета сообщений,Choisir les couleurs des messages,Elegir colores de mensajes,اختيار ألوان الرسائل,选择消息颜色
 appearance__editor__choose_wallpaper,Choose Wallpaper,Выбрать обои,Choisir un fond d’écran,Elegir fondo,اختيار خلفية,选择壁纸
@@ -207,7 +206,7 @@ appearance__interface_style__system,System,Системная,Système,Sistema,�
 appearance__mode__accessibility_hint,Applies this appearance to the app,Применяет это оформление ко всему приложению,Applique cette apparence à l’application,Aplica esta apariencia a la aplicación,يطبّق هذا المظهر على التطبيق,将此外观应用到整个应用
 appearance__mode__accessibility_label_format,%1$@ appearance,Оформление: %1$@,Apparence : %1$@,Apariencia: %1$@,المظهر: %1$@,%1$@外观
 appearance__navigation__cancel_accessibility_label,Cancel Interface changes,Отменить изменения интерфейса,Annuler les modifications de l’interface,Cancelar cambios de la interfaz,إلغاء تغييرات الواجهة,取消界面更改
-appearance__navigation__save_accessibility_label,Save Interface changes,Сохранить изменения интерфейса,Enregistrer les modifications de l’interface,Guardar cambios de la interfaz,حفظ تغييرات الواجهة,保存界面更改
+appearance__navigation__save_accessibility_label,Save Interface changes,Сохранить изменения интерфейса,Enregistrer l’interface,Guardar cambios de la interfaz,حفظ تغييرات الواجهة,保存界面更改
 appearance__overview_preview__message_incoming,I found a quiet coffee shop near the park.,Я нашёл тихую кофейню рядом с парком.,J’ai trouvé un café tranquille près du parc.,Encontré una cafetería tranquila cerca del parque.,وجدت مقهى هادئًا بالقرب من الحديقة.,我在公园附近找到了一家安静的咖啡馆。
 appearance__overview_preview__message_outgoing,"That sounds perfect, I will meet you there soon.","Звучит отлично, скоро увидимся там.","Parfait, je t’y retrouve bientôt.","Suena perfecto, nos vemos allí pronto.",يبدو رائعًا، سأقابلك هناك قريبًا.,听起来很棒，我很快就去那里见你。
 appearance__premium__unlock_style,Unlock premium style,Разблокировать премиум-стиль,Déverrouiller le style Premium,Desbloquear estilo Premium,فتح النمط المميز,解锁高级样式
@@ -245,7 +244,7 @@ appearance__theme__rename_action,Rename,Переименовать,Renommer,Reno
 appearance__theme__rename_title,Rename Theme,Переименовать тему,Renommer le thème,Cambiar nombre del tema,إعادة تسمية السمة,重命名主题
 appearance__theme__rose,Rose,Роза,Rose,Rosa,وردة,玫瑰
 appearance__theme__sky,Sky,Небо,Ciel,Cielo,سماء,天空
-appearance__theme__sunset,Sunset,Закат,Coucher de soleil,Atardecer,غروب,日落
+appearance__theme__sunset,Sunset,Закат,Crépuscule,Atardecer,غروب,日落
 appearance__theme__unique_name_message,Choose a unique name.,Выберите уникальное имя.,Choisissez un nom unique.,Elige un nombre único.,اختر اسمًا فريدًا.,请选择一个唯一名称。
 appearance__theme_preview__message_answer,"Turn toward the camera, please.","Повернитесь к камере, пожалуйста.","Tournez-vous vers l’objectif, s’il vous plaît.","Gira hacia la cámara, por favor.",استدر نحو الكاميرا، من فضلك.,请转向镜头。
 appearance__theme_preview__message_closing,Is that everything? It seemed like he said quite a bit more than that. 😮,"И это всё? Кажется, он сказал гораздо больше. 😮",C’est tout ? Il me semblait qu’il en avait dit bien plus. 😮,¿Eso es todo? Parecía que había dicho bastante más. 😮,هل هذا كل شيء؟ بدا لي أنه قال أكثر من ذلك بكثير. 😮,就这些吗？感觉他说的远不止这些。😮
@@ -254,7 +253,7 @@ appearance__theme_preview__message_opening,"For relaxing times, make it Suntory 
 appearance__theme_preview__message_question,That’s all?,И это всё?,C’est tout ?,¿Eso es todo?,هل هذا كل شيء؟,就这些吗？
 appearance__theme_preview__message_quote,"Right side. And, uh, with intensity.","Вправо. И, э-э, поэнергичнее.","Côté droit. Et, euh, avec intensité.","Hacia la derecha. Y, eh, con intensidad.",إلى اليمين. وبقوة، نوعًا ما.,右边。然后，呃，再有力度一点。
 appearance__theme_preview__message_reply,Does he want me to turn from the right or the left? 🤔,"Он хочет, чтобы я повернулась вправо или влево? 🤔",Veut-il que je me tourne vers la droite ou vers la gauche ? 🤔,¿Quiere que gire a la derecha o a la izquierda? 🤔,هل يريدني أن أستدير إلى اليمين أم اليسار؟ 🤔,他想让我向右转还是向左转？🤔
-appearance__wallpaper__aliens,Aliens,Пришельцы,Extraterrestres,Alienígenas,كائنات فضائية,外星人
+appearance__wallpaper__aliens,Aliens,Пришельцы,Aliens,Alienígenas,كائنات فضائية,外星人
 appearance__wallpaper__cats,Cats,Кошки,Chats,Gatos,قطط,猫咪
 appearance__wallpaper__color,Color,Цвет,Couleur,Color,اللون,颜色
 appearance__wallpaper__custom_gradient,Custom Gradient,Пользовательский градиент,Dégradé personnalisé,Degradado personalizado,تدرّج مخصص,自定义渐变
@@ -301,7 +300,7 @@ back,Back,Назад,Retour,Atrás,رجوع,返回
 block,Block,Заблокировать,Bloquer,Bloquear,حظر,屏蔽
 block_contact,Block contact,Заблокировать контакт,Bloquer le contact,Bloquear contacto,حظر جهة الاتصال,屏蔽联系人
 block_group,Block group,Заблокировать группу,Bloquer le groupe,Bloquear grupo,حظر المجموعة,屏蔽群组
-block_list,Block list,Черный список,Liste de blocage,Lista de contactos bloqueados,قائمة الحظر,屏蔽列表
+block_list,Block list,Черный список,Liste de blocage,Bloqueados,قائمة الحظر,屏蔽列表
 blocked_contact_message,Contact blocked,Контакт заблокирован,Contact bloqué,Contacto bloqueado,تم حظر جهة الاتصال,联系人已屏蔽
 blocked_contacts,Blocked contacts,Чёрный список,Contacts bloqués,Contactos bloqueados,جهات الاتصال المحظورة,屏蔽的联系人
 call,Call,Вызов,Appeler,Llamar,اتصال,呼叫
@@ -341,7 +340,7 @@ Los servidores de terceros pueden tener requisitos de complejidad diferentes.","
 قد تفرض خوادم الجهات الخارجية متطلبات مختلفة لتعقيد كلمة المرور.","建议密码至少包含 12–14 个字符。通常，密码越长，抵御暴力破解的能力越强。
 
 第三方服务器可能有不同的密码复杂度要求。"
-channel_group_chat_title,Groups,Группы,Groupes,Charlas de grupo,مجموعة الدردشة,群组聊天
+channel_group_chat_title,Groups,Группы,Groupes,Grupos,مجموعة الدردشة,群组聊天
 chat__accessibility__unread_mentions,Unread mentions,Непрочитанные упоминания,Mentions non lues,Menciones no leídas,الإشارات غير المقروءة,未读提及
 chat__attachment__fallback_file,file,файл,fichier,archivo,ملف,文件
 chat__body__forward_content_unavailable,[Forward content unavailable],[Содержимое пересылки недоступно],[Contenu transféré indisponible],[Contenido reenviado no disponible],[محتوى إعادة التوجيه غير متاح],[转发内容不可用]
@@ -363,7 +362,7 @@ chat__input__search_non_encrypted_messages,Search non-encrypted messages,Пои�
 chat__input__update_signature,Update signature,Обновить подпись,Mettre à jour la signature,Actualizar firma,تحديث التوقيع,更新签名
 chat__message_action__manage_cloud_storage,Manage Cloud Storage,Управление Cloud Storage,Gérer Cloud Storage,Gestionar Cloud Storage,إدارة Cloud Storage,管理 Cloud Storage
 chat__message_action__message_sending_error,Message sending error,Ошибка отправки сообщения,Erreur d’envoi du message,Error al enviar el mensaje,خطأ في إرسال الرسالة,消息发送失败
-chat__message_action__resend,Resend,Отправить повторно,Renvoyer,Reenviar,إعادة الإرسال,重新发送
+chat__message_action__resend,Resend,Переотправить,Renvoyer,Reenviar,إعادة الإرسال,重新发送
 chat__message_action__text_copied,Text was copied to clipboard,Текст скопирован в буфер обмена,Texte copié dans le presse-papiers,Texto copiado al portapapeles,تم نسخ النص إلى الحافظة,文本已复制到剪贴板
 chat__message_metadata__10m,10 min,10 мин,10 min,10 min,10 دقائق,10 分钟
 chat__message_metadata__10s,10 sec,10 с,10 s,10 s,10 ث,10 秒
@@ -374,7 +373,7 @@ chat__message_metadata__30s,30 sec,30 с,30 s,30 s,30 ث,30 秒
 chat__message_metadata__5m,5 min,5 мин,5 min,5 min,5 دقائق,5 分钟
 chat__message_metadata__5s,5 sec,5 с,5 s,5 s,5 ث,5 秒
 chat__nfc_scan_alert_message__generate_digital_signature_for_message,Generate digital signature for message,Создать цифровую подпись сообщения,Générer une signature numérique pour le message,Generar una firma digital para el mensaje,إنشاء توقيع رقمي للرسالة,为消息生成数字签名
-chat__reply__reply_to,Reply to %@,Ответить пользователю %@,Répondre à %@,Responder a %@,الرد على %@,回复 %@
+chat__reply__reply_to,Reply to %@,Ответить %@,Répondre à %@,Responder a %@,الرد على %@,回复 %@
 chat__search__original_message_is_no_longer_available,Original message is no longer available,Исходное сообщение больше недоступно,Le message d’origine n’est plus disponible,El mensaje original ya no está disponible,الرسالة الأصلية لم تعد متاحة,原消息已不可用
 chat__search_messages_panel__placeholder,Search messages,Поиск по сообщениям,Rechercher des messages,Buscar mensajes,البحث في الرسائل,搜索消息
 chat__selection__success,Success,Успешно,Succès,Éxito,تم بنجاح,成功
@@ -410,7 +409,7 @@ chat_attachment_action_edit,Edit,Изменить,Modifier,Editar,تعديل,编
 chat_attachment_action_ok,OK,OK,OK,Aceptar,حسناً,确定
 chat_attachment_action_remove,Remove,Удалить,Supprimer,Eliminar,إزالة,删除
 chat_attachment_action_reset_selection,Clear selection,Сбросить выбор,Effacer la sélection,Borrar selección,مسح التحديد,清除选择
-chat_attachment_action_retry,Retry,Повторить,Réessayer,Reintentar,إعادة المحاولة,重试
+chat_attachment_action_retry,Retry,Повторить,Réessayer,Reintentar,حاول مجددًا,重试
 chat_attachment_action_selected,Selected,Выбрано,Sélectionné,Seleccionado,محدد,已选择
 chat_attachment_action_send,Send,Отправить,Envoyer,Enviar,إرسال,发送
 chat_attachment_caption_accessibility_label,Caption,Подпись,Légende,Pie de foto,التعليق,说明文字
@@ -499,7 +498,7 @@ chat_cant_create_private_yourself,Can`t create private chat with yourself,Нел
 chat_composer_lock_recording_accessibility,Lock recording,Заблокировать запись,Verrouiller l’enregistrement,Bloquear grabación,قفل التسجيل,锁定录音
 chat_composer_record_voice_message_accessibility,Record voice message,Записать голосовое сообщение,Enregistrer un message vocal,Grabar mensaje de voz,تسجيل رسالة صوتية,录制语音消息
 chat_composer_record_voice_message_hint,"Hold to record, slide left to cancel, or slide up to lock","Удерживайте для записи, сдвиньте влево для отмены или вверх для блокировки","Maintenez pour enregistrer, balayez à gauche pour annuler ou vers le haut pour verrouiller","Mantén pulsado para grabar, desliza a la izquierda para cancelar o hacia arriba para bloquear",اضغط مطولًا للتسجيل، واسحب إلى اليسار للإلغاء، أو إلى الأعلى للقفل,按住以录音，向左滑动取消，或向上滑动锁定
-chat_composer_recording_lock_hint,Slide up to lock recording,"Сдвиньте вверх, чтобы заблокировать запись",Balayez vers le haut pour verrouiller l’enregistrement,Desliza hacia arriba para bloquear la grabación,اسحب إلى الأعلى لقفل التسجيل,向上滑动以锁定录音
+chat_composer_recording_lock_hint,Slide up to lock recording,"Сдвиньте вверх, чтобы заблокировать запись",Glissez vers le haut pour verrouiller,Desliza hacia arriba para bloquear la grabación,اسحب إلى الأعلى لقفل التسجيل,向上滑动以锁定录音
 chat_composer_recording_locked_accessibility,Recording locked,Запись заблокирована,Enregistrement verrouillé,Grabación bloqueada,تم قفل التسجيل,录音已锁定
 chat_composer_recording_locked_value,Locked,Заблокировано,Verrouillé,Bloqueada,مقفول,已锁定
 chat_composer_recording_stop_hint,Double-tap to stop recording,"Коснитесь дважды, чтобы остановить запись",Touchez deux fois pour arrêter l’enregistrement,Toca dos veces para detener la grabación,اضغط مرتين لإيقاف التسجيل,轻点两下停止录音
@@ -511,13 +510,13 @@ chat_froward,Forward,Переслать,Transférer,Reenviar,إعادة توجي
 chat_gallery__empty_state__no_voice_messages,No voice messages,Нет голосовых сообщений,Aucun message vocal,No hay mensajes de voz,لا توجد رسائل صوتية,没有语音消息
 chat_group_invitation,%@ invited you to join this group,%@ приглашает вас присоединиться к этой группе,%@ vous invite à rejoindre ce groupe,%@ te ha invitado a unirte a este grupo,تلقيت دعوة من %@ للانضمام إلى هذه المجموعة,%@ 邀请你加入此群组
 chat_incognito_chat_invitation,%@ invited you to join this incognito group,%@ приглашает вас присоединиться к этой инкогнито-группе,%@ vous invite à rejoindre ce groupe incognito,%@ te ha invitado a unirte a este grupo de incógnito,تلقيت دعوة من %@ للانضمام إلى هذه المجموعة المتخفية,%@ 邀请你加入此隐身群组
-chat_info,Chat info,Информация о чате,Informations sur la discussion,Información del chat,معلومات المحادثة,聊天信息
+chat_info,Chat info,Информация о чате,Infos du chat,Información del chat,معلومات المحادثة,聊天信息
 chat_list__attachment_preview__file,File,Файл,Fichier,Archivo,ملف,文件
 chat_list__attachment_preview__files_count,"{""one"":""%lld File"",""other"":""%lld Files""}","{""few"":""%lld файла"",""many"":""%lld файлов"",""one"":""%lld файл"",""other"":""%lld файлов""}","{""many"":""%lld fichiers"",""one"":""%lld fichier"",""other"":""%lld fichiers""}","{""many"":""%lld archivos"",""one"":""%lld archivo"",""other"":""%lld archivos""}","{""few"":""%lld ملفات"",""many"":""%lld ملفًا"",""one"":""ملف واحد"",""other"":""%lld ملف"",""two"":""ملفان"",""zero"":""لا ملفات""}","{""other"":""%lld 个文件""}"
 chat_list__attachment_preview__photo,Photo,Фото,Photo,Foto,صورة,照片
 chat_list__attachment_preview__photos_count,"{""one"":""%lld Photo"",""other"":""%lld Photos""}","{""few"":""%lld фото"",""many"":""%lld фото"",""one"":""%lld фото"",""other"":""%lld фото""}","{""many"":""%lld photos"",""one"":""%lld photo"",""other"":""%lld photos""}","{""many"":""%lld fotos"",""one"":""%lld foto"",""other"":""%lld fotos""}","{""few"":""%lld صور"",""many"":""%lld صورةً"",""one"":""صورة واحدة"",""other"":""%lld صورة"",""two"":""صورتان"",""zero"":""لا صور""}","{""other"":""%lld 张照片""}"
 chat_list__attachment_preview__video,Video,Видео,Vidéo,Vídeo,فيديو,视频
-chat_list__attachment_preview__videos_count,"{""one"":""%lld Video"",""other"":""%lld Videos""}","{""few"":""%lld видео"",""many"":""%lld видео"",""one"":""%lld видео"",""other"":""%lld видео""}","{""many"":""%lld vidéos"",""one"":""%lld vidéo"",""other"":""%lld vidéos""}","{""many"":""%lld vídeos"",""one"":""%lld vídeo"",""other"":""%lld vídeos""}","{""few"":""%lld مقاطع فيديو"",""many"":""%lld مقطع فيديو"",""one"":""مقطع فيديو واحد"",""other"":""%lld مقطع فيديو"",""two"":""مقطعا فيديو"",""zero"":""لا مقاطع فيديو""}","{""other"":""%lld 个视频""}"
+chat_list__attachment_preview__videos_count,"{""one"":""%lld Video"",""other"":""%lld Videos""}","{""few"":""%lld видео"",""many"":""%lld видео"",""one"":""%lld видео"",""other"":""%lld видео""}","{""many"":""%lld vidéos"",""one"":""%lld vidéo"",""other"":""%lld vidéos""}","{""many"":""%lld vídeos"",""one"":""%lld vídeo"",""other"":""%lld vídeos""}","{""few"":""%lld مقاطع فيديو"",""many"":""%lld مقطع فيديو"",""one"":""فيديو واحد"",""other"":""%lld مقطع فيديو"",""two"":""مقطعا فيديو"",""zero"":""لا مقاطع فيديو""}","{""other"":""%lld 个视频""}"
 chat_list__attachment_preview__voice_message,Voice message,Голосовое сообщение,Message vocal,Mensaje de voz,رسالة صوتية,语音消息
 chat_list__attachment_preview__voice_messages_count,"{""one"":""%lld Voice message"",""other"":""%lld Voice messages""}","{""few"":""%lld голосовых сообщения"",""many"":""%lld голосовых сообщений"",""one"":""%lld голосовое сообщение"",""other"":""%lld голосовых сообщений""}","{""many"":""%lld messages vocaux"",""one"":""%lld message vocal"",""other"":""%lld messages vocaux""}","{""many"":""%lld mensajes de voz"",""one"":""%lld mensaje de voz"",""other"":""%lld mensajes de voz""}","{""few"":""%lld رسائل صوتية"",""many"":""%lld رسالة صوتية"",""one"":""رسالة صوتية واحدة"",""other"":""%lld رسالة صوتية"",""two"":""رسالتان صوتيتان"",""zero"":""لا رسائل صوتية""}","{""other"":""%lld 条语音消息""}"
 chat_list__preview__message,Message,Сообщение,Message,Mensaje,رسالة,消息
@@ -560,7 +559,7 @@ chat_resource_bot,Bot,Бот,Bot,Bot,روبوت,机器人
 chat_resource_console,Console,Консоль,Console,Consola,وحدة التحكم,控制台
 chat_resource_game,Game,Игра,Jeu,Juego,لعبة,游戏
 chat_resource_groupchat,Groupchat,Групповой чат,Discussion de groupe,Chat grupal,محادثة جماعية,群聊
-chat_resource_handheld,Handheld,Мобильное устройство,Appareil mobile,Dispositivo portátil,جهاز محمول,手持设备
+chat_resource_handheld,Handheld,Мобильный,Appareil mobile,Móvil,جهاز محمول,手持设备
 chat_resource_pc,PC,ПК,PC,PC,كمبيوتر,PC
 chat_resource_phone,Phone,Телефон,Téléphone,Teléfono,هاتف,手机
 chat_resource_sms,SMS,СМС,SMS,SMS,SMS,短信
@@ -586,7 +585,7 @@ chat_search_cancel,Cancel,Отмена,Annuler,Cancelar,إلغاء,取消
 chat_search_choose_month_year,Choose month and year,Выбрать месяц и год,Choisir le mois et l’année,Elegir mes y año,اختيار الشهر والسنة,选择月份和年份
 chat_search_clear,Clear,Очистить,Effacer,Limpiar,مسح,清除
 chat_search_close,Close,Закрыть,Fermer,Cerrar,إغلاق,关闭
-chat_search_current_of_total,%@ of %@,%@ из %@,%@ sur %@,%@ de %@,%@ من %@,第 %@ 项，共 %@ 项
+chat_search_current_of_total,%@ of %@,%@ из %@,%@ sur %@,%@ de %@,%@ من %@,%@/%@
 chat_search_delivery_delivered,Delivered,Доставлено,Distribué,Entregado,تم التوصيل,已送达
 chat_search_delivery_failed,Failed,Не отправлено,Échec,Error,فشل,失败
 chat_search_delivery_pending,Pending,Ожидает отправки,En attente,Pendiente,قيد الانتظار,等待中
@@ -620,14 +619,14 @@ chat_seen_minutes_ago,'last seen %@ minutes ago','был(а) %1$@ минут(ы)
 chat_send,Send,Отправить,Envoyer,Enviar,أرسل,发送
 chat_settings__button_unblock_contact,Unblock contact,Разблокировать контакт,Débloquer le contact,Desbloquear contacto,إلغاء حظر جهة الاتصال,取消屏蔽联系人
 chat_slide_to_cancel_audio_record,Slide to cancel,"Смахните, чтобы отменить",Balayez pour annuler,Desliza para cancelar,اسحب للإلغاء,滑动以取消
-chat_state_composing,typing…,набирает сообщение…,En train d'écrire…,escribiendo…,يكتب…,正在输入…
+chat_state_composing,typing…,печатает…,écrit…,escribiendo…,يكتب…,正在输入…
 chat_state_composing_audio,sending an audio file...,отправляет аудио файл...,envoi d’un fichier audio…,enviando un archivo de audio...,يرسل ملفًا صوتيًا...,正在发送音频文件...
 chat_state_composing_image,sending an image...,отправляет изображение...,envoi d’une image…,enviando una imagen...,يرسل صورة...,正在发送图片...
 chat_state_composing_upload,sending a file…,отправляет файл…,Envoi de fichier en cours...,enviando un archivo…,يرسل ملفًا…,正在发送文件…
 chat_state_composing_video,recording a video message…,записывает видеосообщение…,Enregistrement vidéo en cours...,grabando un mensaje de vídeo…,يسجل رسالة فيديو…,正在录制视频消息…
 chat_state_composing_voice,recording a voice message…,записывает аудиосообщение…,enregistrement d'un message vocal…,grabando un mensaje de voz…,يسجل رسالة صوتية…,正在录制语音消息…
 chat_subscription_request_pending,Subscription request pending...,Запрос подписки ожидает обработки…,Demande d’abonnement en attente…,Solicitud de suscripción pendiente...,طلب الاشتراك قيد الانتظار...,订阅请求待处理...
-chat_viewer,Chat,Чат,Conversation,Conversación,محادثة,聊天
+chat_viewer,Chat,Чат,Chat,Chat,محادثة,聊天
 chat_xabber_call_hint,%1$@ call,Вызов %1$@,Appel %1$@,Llamada de %1$@,مكالمة %1$@,%1$@ 通话
 choose_account,Select account,Выберите аккаунт,Sélectionner un compte,Seleccionar cuenta,تحديد حساب,选择账户
 circle_mask_name,Circle,Круг,Cercle,Círculo,دائرة,圆形
@@ -691,13 +690,13 @@ common__action__copy,Copy,Копировать,Copier,Copiar,نسخ,复制
 common__action__create,Create,Создать,Créer,Crear,إنشاء,创建
 common__action__delete,Delete,Удалить,Supprimer,Eliminar,حذف,删除
 common__action__done,Done,Готово,Terminé,Listo,تم,完成
-common__action__edit,Edit,Редактировать,Modifier,Editar,تعديل,编辑
+common__action__edit,Edit,Изменить,Modifier,Editar,تعديل,编辑
 common__action__forward,Forward,Переслать,Transférer,Reenviar,إعادة توجيه,转发
 common__action__ok,OK,ОК,OK,Aceptar,حسناً,确定
 common__action__open,Open,Открыть,Ouvrir,Abrir,فتح,打开
 common__action__quit,Quit,Выход,Quitter,Salir,خروج,退出
 common__action__reply,Reply,Ответить,Répondre,Responder,الردّ,回复
-common__action__retry,Retry,Повторить,Réessayer,Reintentar,إعادة المحاولة,重试
+common__action__retry,Retry,Повторить,Réessayer,Reintentar,حاول مجددًا,重试
 common__action__save,Save,Сохранить,Enregistrer,Guardar,حفظ,保存
 common__action__select,Select,Выбрать,Sélectionner,Seleccionar,اختيار,选择
 common__action__share,Share,Поделиться,Partager,Compartir,مشاركة,分享
@@ -774,7 +773,7 @@ contact_subscription_allow_subscription,Allow subscription,Подписатьс�
 contact_subscription_request_subscription,Request subscription,Запросить подписку,Demander l’abonnement,Solicitar suscripción,طلب الاشتراك,请求订阅
 contact_unblock_confirmation,Do you really want to unblock contact %@?,Вы действительно хотите разблокировать контакт %@?,Voulez-vous vraiment débloquer le contact %@ ?,¿Realmente quieres desbloquear al contacto %@?,هل تريد حقًا إلغاء حظر جهة الاتصال %@؟,确实要取消屏蔽联系人 %@ 吗？
 contact_view_full_vcard,View full vCard,Открыть полную vCard,Afficher la vCard complète,Ver la vCard completa,عرض بطاقة vCard الكاملة,查看完整 vCard
-contact_viewer_client,Client,Клиент,Client ,Nombre del cliente,عميل,客户端
+contact_viewer_client,Client,Клиент,Client ,Cliente,عميل,客户端
 contact_viewer_this_device,This device,Это устройство,Cet appareil,Este dispositivo,هذا الجهاز,此设备
 contact_will_be_deleted,Contact will be deleted.,Контакт будет удалён.,Le contact sera supprimé.,Se eliminará el contacto.,سيتم حذف جهة الاتصال.,联系人将被删除。
 contacts,Contacts,Контакты,Contacts,Contactos,جهات الاتصال,联系人
@@ -782,7 +781,7 @@ contacts__accessibility_label__online_contacts_filter,Online contacts filter,Ф�
 contacts__accessibility_label__online_groups_filter,Online groups filter,Фильтр групп в сети,Filtre des groupes en ligne,Filtro de grupos en línea,عامل تصفية المجموعات المتصلة,在线群组筛选
 contacts__discoverability_title__show_all_contacts,Show all contacts,Показать все контакты,Afficher tous les contacts,Mostrar todos los contactos,إظهار جميع جهات الاتصال,显示所有联系人
 contacts__discoverability_title__show_contact_requests,Show contact requests,Показать запросы контактов,Afficher les demandes de contact,Mostrar solicitudes de contacto,إظهار طلبات جهات الاتصال,显示联系人请求
-contacts__discoverability_title__show_only_online,Show only online,"Показать только тех, кто в сети",Afficher uniquement les contacts en ligne,Mostrar solo conectados,إظهار المتصلين فقط,仅显示在线
+contacts__discoverability_title__show_only_online,Show only online,"Показать только тех, кто в сети",Contacts en ligne,Mostrar solo conectados,إظهار المتصلين فقط,仅显示在线
 contacts__discoverability_title__show_outgoing_requests,Show outgoing requests,Показать исходящие запросы,Afficher les demandes envoyées,Mostrar solicitudes salientes,إظهار الطلبات الصادرة,显示已发送的请求
 contacts__empty_state__no_contact_requests,No contact requests,Нет запросов в контакты,Aucune demande de contact,No hay solicitudes de contacto,لا توجد طلبات اتصال,没有联系人请求
 contacts__empty_state__no_contacts_found_for_groups_format,No contacts found for %1$@,Контакты не найдены для %1$@,Aucun contact trouvé pour %1$@,No se encontraron contactos para %1$@,لم يتم العثور على جهات اتصال لـ %1$@,未找到属于 %1$@ 的联系人
@@ -863,7 +862,7 @@ debug_settings__toast__please_restart_application_to_enable_logs,Please restart 
 decline,Decline,Отклонить,Refuser,Rechazar,رفض,拒绝
 decline_invite,Decline,Отклонить,Refuser,Rechazar,رفض,拒绝
 delete,Delete,Удалить,Supprimer,Eliminar,حذف,删除
-delete_chat,Delete chat,Удалить чат,Supprimer la conversation,Eliminar chat,حذف المحادثة,删除聊天
+delete_chat,Delete chat,Удалить чат,Supprimer le chat,Eliminar chat,حذف المحادثة,删除聊天
 delete_chat_button,Delete,Удалить,Supprimer,Eliminar,حذف,删除
 delete_contact__dialog__do_you_want_to_delete_from_your_roster,Do you want to delete %@ from your roster?,Удалить %@ из списка контактов?,Voulez-vous supprimer %@ de votre liste de contacts ?,¿Quieres eliminar a %@ de tu lista de contactos?,هل تريد حذف %@ من قائمة جهات الاتصال؟,要从联系人列表中删除 %@ 吗？
 delete_contact_and_clear_history,Delete contact and clear history,Удалить контакт и очистить историю,Supprimer le contact et effacer l’historique,Eliminar contacto y borrar historial,حذف جهة الاتصال ومسح السجل,删除联系人并清除历史记录
@@ -889,7 +888,7 @@ device__cell__fingerprint_changed,Fingerprint changed,Отпечаток изм�
 device__info__client__label,Client,Клиент,Client,Cliente,عميل,客户端
 device__info__expire__label,Expires at,Действительно до,Expire à,Caduca el,تنتهي الصلاحية في,到期时间
 device__info__rename__button,Rename,Переименовать,Renommer,Renombrar,إعادة التسمية,重命名
-device__info__status__label_last_seen,Last seen,Последняя активность,Vu pour la dernière fois,Visto por última vez,آخر ظهور,上次在线
+device__info__status__label_last_seen,Last seen,Последняя активность,Dernière activité,Visto por última vez,آخر ظهور,上次在线
 device__info__terminate_session__button,Terminate session,Завершить сеанс,Mettre fin à la session,Finalizar sesión,إنهاء الجلسة,终止会话
 device_detail__screen__action_required,Action required,Требуется действие,Action requise,Acción requerida,إجراء مطلوب,需要操作
 device_detail__screen__bundle_not_found,Key bundle not found,Набор ключей не найден,Paquet de clés introuvable,No se encontró el paquete de claves,لم يتم العثور على حزمة المفاتيح,未找到密钥包
@@ -906,8 +905,8 @@ device_detail__screen__name,Name,Название,Nom,Nombre,الاسم,名称
 device_detail__screen__revoked,Revoked,Отозвано,Révoqué,Revocado,تم الإلغاء,已撤销
 device_detail__screen__trust_this_device,Trust this device,Доверять этому устройству,Faire confiance à cet appareil,Confiar en este dispositivo,الوثوق بهذا الجهاز,信任此设备
 device_detail__screen__trusted_by,Trusted by,Кем подтверждено,Approuvé par,Verificado por,موثوق بواسطة,信任来源
-device_detail__screen__untrust,Untrust,Отозвать доверие,Ne plus faire confiance,Dejar de confiar,إلغاء الثقة,取消信任
-device_detail__screen__untrust_this_device,Untrust this device,Отозвать доверие к этому устройству,Ne plus faire confiance à cet appareil,Dejar de confiar en este dispositivo,إلغاء الثقة بهذا الجهاز,取消信任此设备
+device_detail__screen__untrust,Untrust,Отозвать доверие,Révoquer,Dejar de confiar,إلغاء الثقة,取消信任
+device_detail__screen__untrust_this_device,Untrust this device,Отозвать доверие к этому устройству,Révoquer cet appareil,Dejar de confiar en este dispositivo,إلغاء الثقة بهذا الجهاز,取消信任此设备
 device_detail__table_section_title__private_information,Private information,Личная информация,Informations privées,Información privada,معلومات خاصة,私密信息
 device_detail__table_section_title__public_information,Public information,Публичная информация,Informations publiques,Información pública,معلومات عامة,公开信息
 device_detail__title__device_signed,Device signed,Устройство подписано,Appareil signé,Dispositivo firmado,الجهاز موقّع,设备已签名
@@ -926,7 +925,7 @@ device_info_rename_device,Rename device,Переименовать устрой�
 device_privacy__table_section_title__if_this_option_enabled_your_device_info_will_be_available_for_your,"If this option enabled, your device info will be available for your contacts as %@","Если включить этот параметр, информация об устройстве будет доступна контактам как %@","Si cette option est activée, les informations de votre appareil seront visibles par vos contacts sous le nom %@","Si esta opción está activada, la información de tu dispositivo estará disponible para tus contactos como %@",إذا تم تفعيل هذا الخيار، فستظهر معلومات جهازك لجهات الاتصال باسم %@,启用此选项后，你的联系人会看到设备信息：%@
 device_privacy__table_section_title__your_contacts_can_see_this_device_name_in_identity_section,Your contacts can see this device name in identity section,Ваши контакты могут видеть имя этого устройства в разделе идентификации,Vos contacts peuvent voir le nom de cet appareil dans la section Identité,Tus contactos pueden ver el nombre de este dispositivo en la sección Identidad,يمكن لجهات اتصالك رؤية اسم هذا الجهاز في قسم الهوية,你的联系人可以在身份部分看到此设备名称
 device_privacy__title__privacy,Privacy,Приватность,Confidentialité,Privacidad,الخصوصية,隐私
-device_privacy__title__share_device_info,Share device info,Делиться информацией об устройстве,Partager les informations de l’appareil,Compartir información del dispositivo,مشاركة معلومات الجهاز,共享设备信息
+device_privacy__title__share_device_info,Share device info,Делиться информацией об устройстве,Partager les infos de l’appareil,Compartir datos del dispositivo,مشاركة معلومات الجهاز,共享设备信息
 device_verification__description__about_to_establish_contact_connection,You are about to establish a secure connection with this contact.,Вы собираетесь установить безопасное соединение с этим контактом.,Vous êtes sur le point d’établir une connexion sécurisée avec ce contact.,Estás a punto de establecer una conexión segura con este contacto.,أنت على وشك إنشاء اتصال آمن مع جهة الاتصال هذه.,你即将与此联系人建立安全连接。
 device_verification__description__establish_contact_connection,You are establishing a secure connection with this contact.,Вы устанавливаете безопасное соединение с этим контактом.,Vous établissez une connexion sécurisée avec ce contact.,Estás estableciendo una conexión segura con este contacto.,أنت تنشئ اتصالاً آمناً مع جهة الاتصال هذه.,你正在与此联系人建立安全连接。
 device_verification__description__receiving_device_verification_request,You are receiving a device verification request to ensure secure and encrypted communication.,Вы получили запрос на проверку устройства для обеспечения безопасного и зашифрованного общения.,Vous recevez une demande de vérification d’appareil afin de garantir des communications sécurisées et chiffrées.,Estás recibiendo una solicitud de verificación de dispositivo para garantizar una comunicación segura y cifrada.,أنت تتلقى طلب تحقق من جهاز لضمان اتصال آمن ومشفّر.,你正在接收设备验证请求，以确保通信安全且经过加密。
@@ -1478,7 +1477,7 @@ Al pulsar ""Acepto"", confirmas que has leído y aceptas este Contrato de licenc
 %1$@
 
 点按“我同意”，即表示你确认已阅读并同意本《最终用户许可协议》和《用户行为政策》。"
-events_sound,Sound,Звук оповещения,Son,Sonido,الصوت,声音
+events_sound,Sound,Звук,Son,Sonido,الصوت,声音
 exit,Exit,Выход,Quitter,Salir,خروج,退出
 feedback,Feedback,Обратная связь,Commentaires,Comentarios,الملاحظات,反馈
 file_deletion_confirmation__text__view_files_to_delete_value,"{""one"":""View file to delete (%lld)"",""other"":""View files to delete (%lld)""}","{""few"":""Просмотреть %lld файла для удаления"",""many"":""Просмотреть %lld файлов для удаления"",""one"":""Просмотреть %lld файл для удаления"",""other"":""Просмотреть %lld файлов для удаления""}","{""one"":""Afficher le fichier à supprimer (%lld)"",""other"":""Afficher les fichiers à supprimer (%lld)""}","{""one"":""Ver el archivo que se eliminará (%lld)"",""other"":""Ver los archivos que se eliminarán (%lld)""}","{""few"":""عرض %lld ملفات للحذف"",""many"":""عرض %lld ملفًا للحذف"",""one"":""عرض ملف واحد للحذف (%lld)"",""other"":""عرض %lld ملف للحذف"",""two"":""عرض ملفين للحذف (%lld)"",""zero"":""عرض %lld ملف للحذف""}","{""other"":""查看要删除的 %lld 个文件""}"
@@ -1506,9 +1505,9 @@ group_settings__administrators__error,Error: %@,Ошибка: %@,Erreur : %@,Err
 group_settings__administrators__select_custom_duration,Select custom duration,Выбрать другой срок,Choisir une durée personnalisée,Seleccionar duración personalizada,اختيار مدة مخصصة,选择自定义时长
 group_settings__block_list__header,Blocked,Чёрный список,Bloqués,Bloqueados,المحظورون,已屏蔽
 group_settings__button_delete_group,Delete group,Удалить группу,Supprimer le groupe,Eliminar grupo,حذف المجموعة,删除群组
-group_settings__members__promote_admin,Promote admin,Повысить до администратора,Promouvoir comme administrateur,Promover a administrador,ترقية إلى مشرف,提升为管理员
+group_settings__members__promote_admin,Promote admin,Повысить до администратора,Nommer admin,Promover a administrador,ترقية إلى مشرف,提升为管理员
 group_settings__members__restrict_member,Restrict member,Ограничить участника,Restreindre le membre,Restringir miembro,تقييد العضو,限制成员
-group_settings__members__select_user,Select user,Выберите пользователя,Sélectionner un utilisateur,Seleccionar usuario,اختر مستخدمًا,选择用户
+group_settings__members__select_user,Select user,Выберите пользователя,Choisir un membre,Seleccionar usuario,اختر مستخدمًا,选择用户
 group_settings__members_list__header,Members,Участники,Membres,Miembros,الأعضاء,成员
 group_settings__membership__error,Error: %@,Ошибка: %@,Erreur : %@,Error: %@,خطأ: %@,错误：%@
 group_settings__membership__membership_updated,Membership setting updated,Настройка участия обновлена,Paramètre d’adhésion mis à jour,Ajuste de participación actualizado,تم تحديث إعداد العضوية,成员资格设置已更新
@@ -1529,7 +1528,7 @@ group_settings__screen__name,Name,Название,Nom,Nombre,الاسم,名称
 group_settings__screen__set_new_photo,Set new photo,Установить новое фото,Définir une nouvelle photo,Establecer una foto nueva,تعيين صورة جديدة,设置新照片
 groupchat__invitation__join_chat,You are invited to join this chat,Вас пригласили присоединиться к этому чату,Vous êtes invité à rejoindre cette discussion,Te han invitado a unirte a este chat,تمت دعوتك للانضمام إلى هذه الدردشة,你受邀加入此聊天
 groupchat__invitation__join_group,You are invited to join this group,Вас пригласили присоединиться к этой группе,Vous êtes invité à rejoindre ce groupe,Te han invitado a unirte a este grupo,تمت دعوتك للانضمام إلى هذه المجموعة,你受邀加入此群组
-groupchat__message_author_role__admin,Admin,Администратор,Administrateur,Administrador,مشرف,管理员
+groupchat__message_author_role__admin,Admin,Администратор,Admin,Administrador,مشرف,管理员
 groupchat__message_author_role__none,None,Нет,Aucun,Ninguno,لا شيء,无
 groupchat__message_author_role__owner,Owner,Владелец,Propriétaire,Propietario,المالك,所有者
 groupchat__message_preview__sender_you,You:,Вы:,Vous :,Tú:,أنت:,你：
@@ -1539,7 +1538,7 @@ groupchat_bar_leave,Leave,Покинуть,Quitter,Salir,مغادرة,离开
 groupchat_blocked,Blocked,Заблокирован,Bloqué,Bloqueado,المحظورون,已屏蔽
 groupchat_blocklist__placeholder__jid_or_domain,name@example.com or example.com,name@example.com или example.com,name@example.com ou example.com,name@example.com o example.com,name@example.com أو example.com,name@example.com 或 example.com
 groupchat_blocklist__subtitle__domain,Domain,Домен,Domaine,Dominio,النطاق,域名
-groupchat_blocklist_empty,Blocklist is empty,Список блокировки пуст,La liste des personnes bloquées est vide,La lista de bloqueados está vacía,قائمة الحظر فارغة,屏蔽列表为空
+groupchat_blocklist_empty,Blocklist is empty,Список блокировки пуст,Aucun blocage,La lista de bloqueados está vacía,قائمة الحظر فارغة,屏蔽列表为空
 groupchat_delete_last_owner_confirm,You are the last owner. Leaving now will permanently delete %@.,Вы — последний владелец. Выход навсегда удалит группу %@.,"Vous êtes le dernier propriétaire. Si vous quittez maintenant, %@ sera définitivement supprimé.","Eres el último propietario. Si sales ahora, %@ se eliminará permanentemente.",أنت المالك الأخير. ستؤدي المغادرة الآن إلى حذف %@ نهائيًا.,你是最后一位所有者。现在离开将永久删除 %@。
 groupchat_delete_p2p_confirm,Leaving this private group will permanently delete %@.,Выход из этой приватной группы навсегда удалит %@.,Quitter ce groupe privé supprimera définitivement %@.,"Si sales de este grupo privado, %@ se eliminará permanentemente.",ستؤدي مغادرة هذه المجموعة الخاصة إلى حذف %@ نهائيًا.,离开此私密群组将永久删除 %@。
 groupchat_do_you_really_want_to_kick_membername,Do you really want to kick member %1$@?,Вы действительно хотите выгнать %1$@?,Voulez-vous vraiment exclure le membre %1$@ ?,¿Realmente quieres expulsar al miembro %1$@?,هل تريد حقًا طرد العضو %1$@؟,确实要将成员 %1$@ 移出群组吗？
@@ -1563,7 +1562,7 @@ groupchat_leave_confirm,Do you really want to leave group %@?,Вы действ�
 groupchat_leave_full,Leave group,Покинуть группу,Quitter le groupe,Salir del grupo,مغادرة المجموعة,离开群组
 groupchat_legacy_invitation_body,To join group add %@ to your contacts list,"Чтобы присоединиться к группе, добавьте %@ в ваш список контактов","Pour rejoindre le groupe, ajoutez %@ à votre liste de contacts","Para unirte al grupo, añade %@ a tus contactos",للانضمام إلى المجموعة، أضف %@ إلى قائمة جهات اتصالك,要加入群组，请将 %@ 添加到联系人列表
 groupchat_member_badge,Badge,Бейдж,Badge,Insignia,الشارة,徽章
-groupchat_member_edit,Edit,Редактировать,Modifier,Editar,تعديل,编辑
+groupchat_member_edit,Edit,Изменить,Modifier,Editar,تعديل,编辑
 groupchat_member_messages,Messages,Сообщения,Messages,Mensajes,الرسائل,消息
 groupchat_member_permissions,Permissions,Разрешения,Autorisations,Permisos,الأذونات,权限
 groupchat_membership,Membership,Участие,Adhésion,Membresía,العضوية,成员资格
@@ -1571,13 +1570,13 @@ groupchat_membership_type_none,None,Нет,Aucun,Ninguno,بلا,无
 groupchat_membership_type_open,Open,Свободное,Ouvert,Abrir,مفتوحة,打开
 groupchat_membership_type_private,Private,По приглашениям,Privé,Privado,خاصة,私密
 groupchat_name,Group name,Имя группы,Nom du groupe,Nombre del grupo,اسم المجموعة,分组名
-groupchat_not_roster,Not in roster,Не в списке,Absent de la liste de contacts,No está en la lista de contactos,غير موجود في قائمة جهات الاتصال,不在联系人列表中
+groupchat_not_roster,Not in roster,Не в списке,Hors contacts,Fuera de contactos,ليس ضمن جهات الاتصال,不在联系人中
 groupchat_permissions_reset_action,Reset,Сбросить,Réinitialiser,Restablecer,إعادة تعيين,重置
 groupchat_permissions_reset_defaults_confirmation,Restore the built-in default group permissions?,Восстановить встроенные разрешения группы по умолчанию?,Rétablir les autorisations de groupe par défaut intégrées ?,¿Restaurar los permisos predeterminados integrados del grupo?,استعادة أذونات المجموعة الافتراضية المضمّنة؟,恢复内置的默认群组权限？
 groupchat_permissions_reset_newbies_confirmation,Remove all temporary permissions for new members?,Удалить все временные разрешения для новых участников?,Supprimer toutes les autorisations temporaires des nouveaux membres ?,¿Eliminar todos los permisos temporales de los nuevos miembros?,إزالة جميع الأذونات المؤقتة للأعضاء الجدد؟,删除新成员的所有临时权限？
 groupchat_permissions_reset_personal_confirmation,Restore this member's permissions to the current baseline?,Восстановить разрешения этого участника до текущих базовых значений?,Rétablir les autorisations de ce membre selon la configuration de référence actuelle ?,¿Restaurar los permisos de este miembro al nivel de referencia actual?,استعادة أذونات هذا العضو إلى خط الأساس الحالي؟,将此成员的权限恢复为当前基准？
 groupchat_permissions_reset_success,Permissions reset,Разрешения сброшены,Autorisations réinitialisées,Permisos restablecidos,تمّت إعادة تعيين الأذونات,权限已重置
-groupchat_personal_status_administrator,Administrator,Администратор,Administrateur,Administrador,مسؤول,管理员
+groupchat_personal_status_administrator,Administrator,Администратор,Admin,Administrador,مسؤول,管理员
 groupchat_personal_status_member,Member,Участник,Membre,Miembro,عضو,成员
 groupchat_personal_status_owner,Owner,Владелец,Propriétaire,Propietario,المالك,所有者
 groupchat_privacy_type_incognito,Incognito,Инкогнито,Incognito,Incógnito,متخفية,隐身
@@ -1587,7 +1586,7 @@ groupchat_settings_permissions__table_section_title__default_permissions_apply_t
 groupchat_settings_permissions__table_section_title__new_member_permissions_replace_the_full_temporary_permission_set,New-member permissions replace the full temporary permission set.,Разрешения для новых участников полностью заменяют временный набор разрешений.,Les autorisations des nouveaux membres remplacent l’ensemble complet des autorisations temporaires.,Los permisos de nuevos miembros sustituyen todo el conjunto de permisos temporales.,تحل أذونات الأعضاء الجدد محل مجموعة الأذونات المؤقتة بالكامل.,新成员权限会替换整套临时权限。
 groupchat_settings_view_controller_t__error_message__unable_to_send_file_out_of_cloud_storage,Unable to send file: out of Cloud Storage,Не удалось отправить файл: в Облачном хранилище нет места,Impossible d’envoyer le fichier : espace du Stockage cloud épuisé,No se pudo enviar el archivo: sin espacio en Almacenamiento en la nube,تعذر إرسال الملف: نفدت مساحة التخزين السحابي,无法发送文件：云存储空间不足
 groupchat_status,Status,Статус,Statut,Estado,الحالة,状态
-groupchat_status_away,Away,Нет на месте,Absent,Ausente,غائب,离开
+groupchat_status_away,Away,Не на месте,Absent,Ausente,غائب,离开
 groupchat_status_away_long,Away for long time,Отсутствует длительное время,Absent depuis longtemps,Ausente durante mucho tiempo,غائب منذ وقت طويل,长时间离开
 groupchat_status_busy,Busy,Занят(а),Occupé,Ocupado,مشغول,忙碌
 groupchat_status_global,Global,Глобальный,Global,Global,عالمي,全局
@@ -1632,9 +1631,9 @@ image_link_in_pasteboard,Image link in your pasteboard,Ссылка на изо�
 images,Images,Картинки,Images,Imágenes,الصور,图片
 incognito_group_invitation,You are invited to join this incognito group,Вас пригласили присоединиться к этой инкогнито-группе,Vous êtes invité à rejoindre ce groupe incognito,Te han invitado a unirte a este grupo de incógnito,تمت دعوتك للانضمام إلى هذه المجموعة المتخفية,你受邀加入此隐身群组
 incoming_subscription_request,Incoming subscription request,Входящий запрос подписки,Demande d’abonnement entrante,Solicitud de suscripción entrante,طلب اشتراك وارد,收到订阅请求
-info,Info,Информация,Informations,Información,معلومات,信息
+info,Info,Информация,Infos,Información,معلومات,信息
 input_widget__button_rename,Rename,Переименовать,Renommer,Renombrar,إعادة التسمية,重命名
-interface__chat_theme__edit_title_format,Edit %@,Редактировать %@,Modifier %@,Editar %@,تعديل %@,编辑%@
+interface__chat_theme__edit_title_format,Edit %@,Изменить %@,Modifier %@,Editar %@,تعديل %@,编辑%@
 interface__chat_themes__title,Chat Themes,Темы чатов,Thèmes de discussion,Temas de chat,سمات الدردشة,聊天主题
 interface__colors__title,Colors,Цвета,Couleurs,Colores,الألوان,颜色
 interface__wallpaper__title,Wallpaper,Обои,Fond d’écran,Fondo de pantalla,خلفية الشاشة,壁纸
@@ -1662,8 +1661,8 @@ intro_saved_messages_link,https://%1$@/learn/saved/,https://%1$@/learn/saved/,ht
 intro_saved_messages_text,"Save notes, links, files, and forwarded messages here. Your saved messages are synchronized across your devices.","Сохраняйте здесь заметки, ссылки, файлы и пересланные сообщения. Избранное синхронизируется между вашими устройствами.","Enregistrez ici des notes, des liens, des fichiers et des messages transférés. Vos messages enregistrés sont synchronisés sur tous vos appareils.","Guarda aquí notas, enlaces, archivos y mensajes reenviados. Tus mensajes guardados se sincronizan entre tus dispositivos.",احفظ الملاحظات والروابط والملفات والرسائل المُعاد توجيهها هنا. تتزامن رسائلك المحفوظة عبر أجهزتك.,在这里保存笔记、链接、文件和转发的消息。已保存的消息会在你的设备间同步。
 invalid_circles_list,Invalid circles list,Недопустимый список кругов,Liste de cercles non valide,Lista de círculos no válida,قائمة الدوائر غير صالحة,圈子列表无效
 jid,XMPP ID,XMPP ID,ID XMPP,ID de XMPP,معرّف XMPP,XMPP ID
-join_chat,Join chat,Присоединиться к чату,Rejoindre la discussion,Unirse al chat,الانضمام إلى المحادثة,加入聊天
-join_group,Join group,Присоединиться к группе,Rejoindre le groupe,Unirse al grupo,الانضمام إلى المجموعة,加入群组
+join_chat,Join chat,Войти в чат,Rejoindre,Unirse al chat,انضم للدردشة,加入聊天
+join_group,Join group,Войти в группу,Rejoindre,Unirse al grupo,الانضمام إلى المجموعة,加入群组
 last_calls__nfc_scan_alert_message__register_yubikey_for_account,Register Yubikey for account,Зарегистрировать YubiKey для аккаунта,Enregistrer la YubiKey pour le compte,Registrar YubiKey para la cuenta,تسجيل YubiKey للحساب,为账号注册 YubiKey
 last_chats__accessibility__close_voice_player,Close voice player,Закрыть голосовой проигрыватель,Fermer le lecteur vocal,Cerrar reproductor de voz,إغلاق مشغّل الرسائل الصوتية,关闭语音播放器
 last_chats__accessibility__play_or_pause_voice_message,Play or pause voice message,Воспроизвести или приостановить голосовое сообщение,Lire ou mettre en pause le message vocal,Reproducir o pausar el mensaje de voz,تشغيل الرسالة الصوتية أو إيقافها مؤقتًا,播放或暂停语音消息
@@ -1672,7 +1671,7 @@ last_chats__delete__all_messages_will_be_deleted,All messages will be deleted,В
 last_chats__notification__new_contact_request,New contact request,Новый запрос контакта,Nouvelle demande de contact,Nueva solicitud de contacto,طلب جهة اتصال جديد,新的联系人请求
 last_chats__notification__new_invitations,New invitations,Новые приглашения,Nouvelles invitations,Nuevas invitaciones,دعوات جديدة,新邀请
 last_chats__subtitle__join_new_groups_value_and_more,Join new groups: %@ and more,Присоединиться к новым группам: %@ и другим,Rejoindre de nouveaux groupes : %@ et plus,Unirse a nuevos grupos: %@ y más,الانضمام إلى مجموعات جديدة: %@ والمزيد,加入新群组：%@ 等
-last_chats__subtitle__join_value,Join %@,Присоединиться к %@,Rejoindre %@,Unirse a %@,الانضمام إلى %@,加入 %@
+last_chats__subtitle__join_value,Join %@,Войти в %@,Rejoindre %@,Unirse a %@,انضم إلى %@,加入 %@
 last_chats__subtitle__new_contact_request_from_value,New contact request from %@,Новый запрос на добавление в контакты от %@,Nouvelle demande de contact de %@,Nueva solicitud de contacto de %@,طلب جهة اتصال جديد من %@,来自 %@ 的新联系人请求
 last_chats__subtitle__new_contact_requests_from_value_and_others,New contact requests from: %@ and others,Новые запросы на добавление в контакты от %@ и других,Nouvelles demandes de contact de %@ et d’autres personnes,Nuevas solicitudes de contacto de %@ y otros,طلبات جهات اتصال جديدة من %@ وآخرين,来自 %@ 等人的新联系人请求
 last_chats_empty_add_contact,Add Contact,Добавить контакт,Ajouter un contact,Añadir Contacto,إضافة جهة اتصال,添加联系人
@@ -1685,7 +1684,7 @@ last_seen_recently,last seen recently,недавно в сети,vu récemment,v
 localpart,Localpart,Локальная часть,Partie locale,Parte local,الجزء المحلي,本地部分
 location_fragment__address_error__title,Location,Геолокация,Localisation,Ubicación,الموقع,位置
 manual_verification_device__title__value_your_device,%@ ⦁ your device,%@ ⦁ ваше устройство,%@ ⦁ votre appareil,%@ ⦁ tu dispositivo,%@ ⦁ جهازك,%@ ⦁ 你的设备
-mark_all_as_read_button,Mark all as read,Отметить все сообщения как прочитанные,Tout marquer comme lu,Marcar todo como leído,تعليم الكل كمقروء,全部标记为已读
+mark_all_as_read_button,Mark all as read,Прочитать всё,Tout marquer comme lu,Marcar todo como leído,تعليم الكل كمقروء,全部标记为已读
 media_picker_cloud_storage_connecting,Cloud Storage is still connecting. Please try again shortly.,Облачное хранилище всё ещё подключается. Повторите попытку немного позже.,Le stockage cloud est encore en cours de connexion. Veuillez réessayer dans quelques instants.,El Almacenamiento en la nube aún se está conectando. Vuelve a intentarlo en unos instantes.,لا يزال التخزين السحابي قيد الاتصال. يرجى إعادة المحاولة بعد قليل.,云存储仍在连接，请稍后重试。
 media_picker_error_cloud_files_unavailable,Cloud files are unavailable.,Облачные файлы недоступны.,Les fichiers cloud sont indisponibles.,Los archivos en la nube no están disponibles.,الملفات السحابية غير متاحة.,云端文件不可用。
 media_picker_error_file_too_large,File is too large. Maximum size is %1$@.,Файл слишком большой. Максимальный размер: %1$@.,Le fichier est trop volumineux. Taille maximale : %1$@.,El archivo es demasiado grande. El tamaño máximo es %1$@.,الملف كبير جدًا. الحد الأقصى للحجم هو %1$@.,文件过大。最大大小为 %1$@。
@@ -1711,12 +1710,12 @@ message_manager_error_not_implemented,Feature not implemented,Функция е�
 message_manager_error_policy,Policy violation,Нарушение правил,Violation de la politique,Infracción de la política,انتهاك السياسة,违反政策
 message_manager_error_recipient,Recipient unavailable,Абонент недоступен,Destinataire indisponible,Destinatario no disponible,المستلم غير متاح,收件人不可用
 message_manager_error_redirect,Redirect,Перенаправление,Redirection,Redirección,إعادة توجيه,重定向
-message_manager_error_server_timeout,Remote server timeout,Таймаут удаленного сервера,Délai d’attente du serveur distant dépassé,Tiempo de espera agotado en el servidor remoto,انتهت مهلة الخادم البعيد,远程服务器超时
+message_manager_error_server_timeout,Remote server timeout,Таймаут удаленного сервера,Délai serveur dépassé,Servidor remoto sin respuesta,انتهت مهلة الخادم البعيد,远程服务器超时
 message_manager_error_unacceptable,Not acceptable,Недопустимо,Inacceptable,No aceptable,غير مقبول,不可接受
 message_manager_error_unallowed,Not allowed,Запрещено,Non autorisé,No permitido,غير مسموح,不允许
 message_manager_error_unauthorized,Not authorized,Вы не авторизованы,Autorisation refusée,No autorizado,غير مصرح به,未授权
 message_manager_error_unreachable_network,Network unreachable,Сеть недоступна,Réseau inaccessible,Red inaccesible,تعذر الوصول إلى الشبكة,网络不可达
-message_manager_errpr_request_timeout,Request timeout,Время ожидания запроса истекло,Délai d’attente de la requête dépassé,Tiempo de espera de la solicitud agotado,انتهت مهلة الطلب,请求超时
+message_manager_errpr_request_timeout,Request timeout,Время ожидания запроса истекло,Délai de requête dépassé,Tiempo agotado,انتهت مهلة الطلب,请求超时
 message_manager_internal_error_message,Internal error: %@,Внутренняя ошибка: %@,Erreur interne : %@,Error interno: %@,خطأ داخلي: %@,内部错误：%@
 message_not_found_error,message not found,сообщение не найдено,message introuvable,mensaje no encontrado,لم يتم العثور على الرسالة,未找到消息
 message_omemo_encryption,Message was encrypted by OMEMO,Сообщение было зашифровано с помощью OMEMO,Le message a été chiffré avec OMEMO,El mensaje estaba cifrado con OMEMO,شُفّرت الرسالة باستخدام OMEMO,消息已使用 OMEMO 加密
@@ -3735,12 +3734,12 @@ E.T. 打电话回家！
 把它扔出气闸
 
 我不需要运气，我有弹药。"
-mute_15_min,Mute for 15 minutes,Отключить уведомления на 15 минут,Mettre en sourdine pendant 15 minutes,Silenciar durante 15 minutos,كتم ل ١٥ دقيقة,静音15分钟
-mute_1_day,Mute for 1 day,Отключить уведомления на 1 день,Mettre en sourdine pendant 1 jour,Silenciar durante 1 día,كتم ليوم واحد,静音1天
-mute_1_hour,Mute for 1 hour,Отключить уведомления на 1 час,Mettre en sourdine pendant 1 heure,Silenciar durante 1 hora,كتم لساعه,静音1小时
-mute_2_hours,Mute for 2 hours,Отключить уведомления на 2 часа,Mettre en sourdine pendant 2 heures,Silenciar durante 2 horas,كتم لساعتين,静音2小时
-mute_chat,Mute,Выключить уведомления,Sourdine,Silenciar,كتم الصوت,静音
-mute_forever,Mute forever,Отключить уведомления навсегда,Mettre en sourdine indéfiniment,Silenciar para siempre,كتم إلى الأبد,永远静音
+mute_15_min,Mute for 15 minutes,Без звука: 15 минут,Sourdine : 15 min,Silenciar durante 15 minutos,كتم ل ١٥ دقيقة,静音15分钟
+mute_1_day,Mute for 1 day,Без звука: 1 день,Sourdine : 1 jour,Silenciar durante 1 día,كتم ليوم واحد,静音1天
+mute_1_hour,Mute for 1 hour,Без звука: 1 час,Sourdine : 1 h,Silenciar durante 1 hora,كتم لساعه,静音1小时
+mute_2_hours,Mute for 2 hours,Без звука: 2 часа,Sourdine : 2 h,Silenciar durante 2 horas,كتم لساعتين,静音2小时
+mute_chat,Mute,Без звука,Sourdine,Silenciar,كتم الصوت,静音
+mute_forever,Mute forever,Без звука всегда,Sourdine permanente,Silenciar para siempre,كتم إلى الأبد,永远静音
 navigation__destination__archive,Archive,Архив,Archives,Archivo,الأرشيف,归档
 navigation__destination__calls,Calls,Звонки,Appels,Llamadas,المكالمات,通话
 navigation__destination__chats,Chats,Чаты,Discussions,Chats,الدردشات,聊天
@@ -3766,7 +3765,7 @@ notification_settings__title__in_app_sounds,In-App Sounds,Звуки в прил
 notification_settings__title__invites,Invites,Приглашения,Invitations,Invitaciones,الدعوات,邀请
 notification_settings__title__messages,Messages,Сообщения,Messages,Mensajes,الرسائل,消息
 notification_settings__title__open_ios_notification_settings,Open iOS Notification Settings,Открыть настройки уведомлений iOS,Ouvrir les réglages de notifications iOS,Abrir los ajustes de notificaciones de iOS,فتح إعدادات إشعارات iOS,打开 iOS 通知设置
-notification_settings__title__show_banners_in_chats,Show Banners in Chats,Показывать баннеры в чатах,Afficher les bannières dans les discussions,Mostrar banners en los chats,إظهار اللافتات في الدردشات,在聊天中显示横幅
+notification_settings__title__show_banners_in_chats,Show Banners in Chats,Показывать баннеры в чатах,Bannières dans les chats,Mostrar banners en los chats,إظهار اللافتات في الدردشات,在聊天中显示横幅
 notification_settings__title__subscription_requests,Subscription Requests,Запросы на подписку,Demandes d’abonnement,Solicitudes de suscripción,طلبات الاشتراك,订阅请求
 notifications__category__information,Information,Информация,Informations,Información,المعلومات,信息
 notifications__category__information_description,"Updates, tips, and system messages from server operators and various contacts to keep you informed about features, maintenance, and app-related news.","Обновления, советы и системные сообщения от операторов серверов и контактов о функциях, обслуживании и новостях приложения.","Mises à jour, conseils et messages système des opérateurs de serveur et de différents contacts concernant les fonctionnalités, la maintenance et l’actualité de l’application.","Actualizaciones, consejos y mensajes del sistema de operadores del servidor y distintos contactos sobre funciones, mantenimiento y novedades de la app.",تحديثات ونصائح ورسائل نظام من مشغلي الخوادم وجهات اتصال مختلفة لإبقائك على اطلاع بالميزات والصيانة وأخبار التطبيق.,来自服务器运营方和各个联系人的更新、提示及系统消息，让你及时了解功能、维护和应用相关新闻。
@@ -3792,7 +3791,7 @@ notifications_empty_security_title,No security notifications yet,Уведомл�
 notifications_empty_subtitle,"Security alerts, mentions, and updates will appear here.","Здесь появятся предупреждения о безопасности, упоминания и обновления.","Les alertes de sécurité, les mentions et les mises à jour apparaîtront ici.","Las alertas de seguridad, las menciones y las actualizaciones aparecerán aquí.",ستظهر تنبيهات الأمان والإشارات والتحديثات هنا.,安全提醒、提及和更新将显示在这里。
 notifications_empty_title,No notifications yet,Уведомлений пока нет,Aucune notification,Aún no hay notificaciones,لا توجد إشعارات بعد,暂无通知
 notifications_list__discoverability_title__displays_all_notifications,Displays all notifications,Показывает все уведомления,Affiche toutes les notifications,Muestra todas las notificaciones,يعرض جميع الإشعارات,显示所有通知
-notifications_read_all_button,Read all,Прочитать все,Tout lire,Leer todo,قراءة الكل,全部标为已读
+notifications_read_all_button,Read all,Прочитать все,Tout lire,Leer todo,قراءة الكل,全部已读
 notifications_settings__accessibility_label__value_notification_sound,%@ Notification Sound,"%@, звук уведомлений","%@, son de notification","%@, sonido de notificación",%@، صوت الإشعارات,%@，通知声音
 notifications_settings__in_app__footer,Show banners and play enabled notification sounds while %1$@ is open.,"Показывать баннеры и воспроизводить включённые звуки уведомлений, пока %1$@ открыт.",Affichez des bannières et jouez les sons de notification activés lorsque %1$@ est ouvert.,Muestra banners y reproduce los sonidos de notificación activados mientras %1$@ está abierto.,اعرض اللافتات وشغّل أصوات الإشعارات المفعّلة أثناء فتح %1$@.,%1$@ 打开时显示横幅并播放已启用的通知声音。
 notifications_settings__in_app__title,In-App Notifications,Уведомления в приложении,Notifications dans l’application,Notificaciones en la aplicación,الإشعارات داخل التطبيق,应用内通知
@@ -3803,7 +3802,7 @@ octagon_mask_name,Octagon,Восьмиугольник,Octogone,Octágono,مثم
 of, of , из , de , de , من , / 
 ok,OK,ОК,OK,Aceptar,حسناً,确定
 omemo__dialog_delete_device__header,Delete device,Удалить устройство,Supprimer l’appareil,Eliminar dispositivo,حذف الجهاز,删除设备
-omemo__dialog_fingerprints__button_trust,Trust,Доверять,Faire confiance,Confiar,وثوق,信任
+omemo__dialog_fingerprints__button_trust,Trust,Доверять,Approuver,Confiar,وثوق,信任
 omemo__dialog_fingerprints__label_device_id,device ID,ID устройства,ID de l’appareil,ID del dispositivo,معرّف الجهاز,设备 ID
 omemo__localized_error_description__invalid_omemo_decrypted_payload,Invalid OMEMO decrypted payload,Некорректные расшифрованные данные OMEMO,Contenu déchiffré OMEMO non valide,Contenido descifrado OMEMO no válido,حمولة OMEMO مفكوكة التشفير غير صالحة,OMEMO 解密载荷无效
 omemo__localized_error_description__invalid_omemo_encrypted_payload,Invalid OMEMO encrypted payload,Некорректные зашифрованные данные OMEMO,Contenu chiffré OMEMO non valide,Contenido cifrado OMEMO no válido,حمولة OMEMO مشفّرة غير صالحة,OMEMO 加密载荷无效
@@ -3819,9 +3818,14 @@ online,Online,В сети,En ligne,En línea,متصل,在线
 open,Open,Открыть,Ouvrir,Abrir,فتح,打开
 open_file_message,Open this file,Открыть этот файл,Ouvrir ce fichier,Abrir este archivo,فتح هذا الملف,打开此文件
 open_this_link,Open this link?,Перейти по этой ссылке?,Ouvrir ce lien ?,¿Abrir este enlace?,فتح هذا الرابط؟,打开此链接？
+passcode__accessibility__digits_entered_format,Digits entered: %@,Введено цифр: %@,Chiffres saisis : %@,Dígitos introducidos: %@,عدد الأرقام: %@,已输入位数：%@
 passcode__biometrics__unlock_app_format,Unlock %@,Разблокировать %@,Déverrouiller %@,Desbloquear %@,فتح قفل %@,解锁%@
-passcode__biometrics__unsupported_toast,Touch ID is not supported.,Touch ID не поддерживается.,Touch ID n’est pas pris en charge.,Touch ID no es compatible.,Touch ID غير مدعوم.,不支持 Touch ID。
+passcode__content__deleting_local_data,Deleting local data,Удаление локальных данных,Suppression des données locales,Eliminando datos locales,جارٍ حذف البيانات المحلية,正在删除本地数据
 passcode__content__enter_passcode,Enter passcode,Введите код-пароль,Saisissez le code,Introduce el código,أدخل رمز الدخول,输入密码
+passcode__content__local_data_deletion_failed,Could not delete local data. Try again.,Не удалось удалить локальные данные. Повторите попытку.,Impossible de supprimer les données locales. Réessayez.,No se pudieron eliminar los datos locales. Inténtalo de nuevo.,تعذّر حذف البيانات المحلية. حاول مجددًا.,无法删除本地数据，请重试。
+passcode__content__local_data_unavailable,Could not open local data. Try again.,Не удалось открыть локальные данные. Повторите попытку.,Impossible d’ouvrir les données locales. Réessayez.,No se pudieron abrir los datos locales. Inténtalo de nuevo.,تعذّر فتح البيانات المحلية. حاول مجددًا.,无法打开本地数据，请重试。
+passcode__content__removing_data,Removing local data…,Удаление локальных данных…,Suppression des données locales…,Eliminando datos locales…,جارٍ مسح البيانات المحلية…,正在清除本地数据…
+passcode__content__too_many_unlock_attempts_wipe_started,Too many unlock attempts. A local data wipe was started.,Слишком много попыток разблокировки. Началось удаление локальных данных.,Trop de tentatives de déverrouillage. L’effacement des données locales a commencé.,Demasiados intentos de desbloqueo. Se inició el borrado de datos locales.,محاولات إلغاء القفل كثيرة جدًا. بدأ مسح البيانات المحلية.,解锁尝试次数过多，已开始清除本地数据。
 passcode__presentation_call__incorrect_passcode_try_again,Incorrect passcode. Try again.,Неверный код-пароль. Повторите попытку.,Code incorrect. Réessayez.,Código incorrecto. Inténtalo de nuevo.,رمز الدخول غير صحيح. حاول مرة أخرى.,密码错误。请重试。
 passcode__presentation_call__passcodes_did_not_match_try_again,Passcodes did not match. Try again.,Коды-пароли не совпадают. Повторите попытку.,Les codes ne correspondent pas. Réessayez.,Los códigos no coinciden. Inténtalo de nuevo.,رمزا الدخول غير متطابقين. حاول مرة أخرى.,两次输入的密码不一致。请重试。
 passcode_or_biometric__text__value_attempts_left,"{""one"":""%lld attempt left"",""other"":""%lld attempts left""}","{""few"":""Осталось %lld попытки"",""many"":""Осталось %lld попыток"",""one"":""Осталась %lld попытка"",""other"":""Осталось %lld попыток""}","{""one"":""Il reste %lld tentative"",""other"":""Il reste %lld tentatives""}","{""one"":""Queda %lld intento"",""other"":""Quedan %lld intentos""}","{""few"":""تبقت %lld محاولات"",""many"":""تبقت %lld محاولة"",""one"":""تبقت %lld محاولة"",""other"":""تبقت %lld محاولة"",""two"":""تبقت محاولتان (%lld)"",""zero"":""تبقت %lld محاولة""}","{""other"":""还剩 %lld 次尝试""}"
@@ -3834,7 +3838,7 @@ password_change__title__change,Change,Изменить,Modifier,Cambiar,تغيي
 password_change__title__change_password,Change password,Изменить пароль,Modifier le mot de passe,Cambiar contraseña,تغيير كلمة المرور,修改密码
 password_change__title__confirm_change_password,Confirm Password Change,Подтверждение смены пароля,Confirmer la modification du mot de passe,Confirmar el cambio de contraseña,تأكيد تغيير كلمة المرور,确认更改密码
 pentagon_mask_name,Pentagon,Пятиугольник,Pentagone,Pentágono,خماسي الأضلاع,五边形
-photo_gallery__page_count_format,%1$lld of %2$lld,%1$lld из %2$lld,%1$lld sur %2$lld,%1$lld de %2$lld,%1$lld من %2$lld,第 %1$lld 张，共 %2$lld 张
+photo_gallery__page_count_format,%1$lld of %2$lld,%1$lld из %2$lld,%1$lld sur %2$lld,%1$lld de %2$lld,%1$lld من %2$lld,%1$lld/%2$lld
 photo_library,Photo Library,Медиатека,Photothèque,Fototeca,مكتبة الصور,照片图库
 photo_sent_by,Sent by %@,Отправитель: %@,Envoyé par %@,Enviada por %@,أرسلها %@,由 %@ 发送
 plurals.new_chat_messages.item_0,New message,Новое сообщение,Nouveau message,Mensaje nuevo,رسالة جديدة,新消息
@@ -3859,14 +3863,14 @@ premium__brand__title,%1$@ Premium,%1$@ Premium,%1$@ Premium,%1$@ Premium,%1$@ P
 premium__catalog__fallback_warning,We couldn't refresh subscriptions. Showing fallback catalog.,Не удалось обновить подписки. Показан резервный каталог.,Impossible d’actualiser les abonnements. Le catalogue de secours est affiché.,No se pudieron actualizar las suscripciones. Se muestra el catálogo alternativo.,تعذّر تحديث الاشتراكات. يتم عرض الكتالوج الاحتياطي.,无法刷新订阅。正在显示备用目录。
 premium__catalog__load_failed_message,We couldn't load subscriptions. Please try again.,Не удалось загрузить подписки. Попробуйте ещё раз.,Impossible de charger les abonnements. Veuillez réessayer.,No se pudieron cargar las suscripciones. Inténtalo de nuevo.,تعذّر تحميل الاشتراكات. يُرجى المحاولة مرة أخرى.,无法加载订阅。请重试。
 premium__cta__checking,Checking Subscription…,Проверка подписки…,Vérification de l’abonnement…,Comprobando suscripción…,جارٍ التحقق من الاشتراك…,正在检查订阅…
-premium__cta__downgrade_format,Downgrade to %@,Понизить тариф до %@,Passer à l’offre inférieure %@,Cambiar al plan inferior %@,الخفض إلى %@,降级到%@
+premium__cta__downgrade_format,Downgrade to %@,Понизить тариф до %@,Passer à %@,Cambiar al plan inferior %@,الخفض إلى %@,降级到%@
 premium__cta__loading,Loading Plans…,Загрузка тарифов…,Chargement des offres…,Cargando planes…,جارٍ تحميل الخطط…,正在加载方案…
 premium__cta__loading_failed,Loading Failed,Не удалось загрузить,Échec du chargement,Error de carga,فشل التحميل,加载失败
 premium__cta__no_plans,No Plans Available,Нет доступных тарифов,Aucune offre disponible,No hay planes disponibles,لا توجد خطط متاحة,没有可用方案
 premium__cta__processing,Processing…,Обработка…,Traitement…,Procesando…,جارٍ المعالجة…,正在处理…
 premium__cta__subscribe,Subscribe,Оформить подписку,S’abonner,Suscribirse,اشترك,订阅
 premium__cta__subscribe_for_format,Subscribe for %1$@,Оформить подписку за %1$@,S’abonner pour %1$@,Suscribirse por %1$@,اشترك مقابل %1$@,以 %1$@ 订阅
-premium__cta__upgrade_format,Upgrade to %@,Повысить тариф до %@,Passer à l’offre supérieure %@,Mejorar a %@,الترقية إلى %@,升级到%@
+premium__cta__upgrade_format,Upgrade to %@,Повысить тариф до %@,Passer à %@,Mejorar a %@,الترقية إلى %@,升级到%@
 premium__dialog__error_title,Error,Ошибка,Erreur,Error,خطأ,错误
 premium__dialog__success_title,Success,Успешно,Succès,Éxito,تم بنجاح,成功
 premium__entitlement__active_title,You’re Premium,У вас Премиум,Vous êtes Premium,Tienes Premium,أنت مشترك في بريميوم,你已是高级版用户
@@ -3970,17 +3974,17 @@ report_hidden_media_placeholder,This media was hidden after your report.,Это�
 report_hidden_message_placeholder,This message was hidden after your report.,Это сообщение было скрыто после вашей жалобы.,Ce message a été masqué après votre signalement.,Este mensaje se ocultó después de tu informe.,تم إخفاء هذه الرسالة بعد بلاغك.,举报后，此消息已被隐藏。
 report_hide_locally,Hide this content locally,Скрыть этот контент на устройстве,Masquer ce contenu localement,Ocultar este contenido localmente,إخفاء هذا المحتوى محليًا,在本地隐藏此内容
 report_include_excerpt,Include message excerpt in report,Включить фрагмент сообщения в жалобу,Inclure un extrait du message dans le signalement,Incluir un extracto del mensaje en el informe,تضمين مقتطف الرسالة في البلاغ,在举报中包含消息摘录
-report_media_action,Report Media,Пожаловаться на медиафайл,Signaler le média,Denunciar contenido multimedia,الإبلاغ عن الوسائط,举报媒体
+report_media_action,Report Media,Пожаловаться на медиафайл,Signaler le média,Denunciar medio,الإبلاغ عن الوسائط,举报媒体
 report_message_action,Report Message,Пожаловаться на сообщение,Signaler le message,Denunciar mensaje,الإبلاغ عن الرسالة,举报消息
 report_metadata_attachment_id,Attachment ID,ID вложения,ID de la pièce jointe,ID del archivo adjunto,معرّف المرفق,附件 ID
 report_metadata_conversation,Conversation,Беседа,Conversation,Conversación,المحادثة,会话
 report_metadata_file_name,File name,Имя файла,Nom du fichier,Nombre del archivo,اسم الملف,文件名
-report_metadata_media_type,Media type,Тип медиафайла,Type de média,Tipo de contenido multimedia,نوع الوسائط,媒体类型
+report_metadata_media_type,Media type,Тип медиафайла,Type de média,Tipo de medio,نوع الوسائط,媒体类型
 report_metadata_message_id,Message ID,ID сообщения,ID du message,ID del mensaje,معرّف الرسالة,消息 ID
 report_metadata_message_preview,Message preview,Предпросмотр сообщения,Aperçu du message,Vista previa del mensaje,معاينة الرسالة,消息预览
 report_metadata_message_timestamp,Message timestamp,Дата и время сообщения,Horodatage du message,Marca de tiempo del mensaje,الطابع الزمني للرسالة,消息时间戳
 report_metadata_mime_type,MIME type,Тип MIME,Type MIME,Tipo MIME,نوع MIME,MIME 类型
-report_metadata_reported_user_jid,Reported user JID,"JID пользователя, на которого подана жалоба",JID de l’utilisateur signalé,JID del usuario denunciado,معرّف JID للمستخدم المُبلّغ عنه,被举报用户的 JID
+report_metadata_reported_user_jid,Reported user JID,JID пользователя,JID de l’utilisateur signalé,JID del usuario denunciado,معرّف JID للمستخدم المُبلّغ عنه,被举报用户的 JID
 report_metadata_reporter_account,Reporter account,Аккаунт отправителя жалобы,Compte du signalant,Cuenta del denunciante,حساب المُبلّغ,举报者账户
 report_metadata_room_jid,Room JID,JID комнаты,JID du salon,JID de la sala,معرّف JID للغرفة,房间 JID
 report_metadata_server_domain,Server domain,Домен сервера,Domaine du serveur,Dominio del servidor,نطاق الخادم,服务器域名
@@ -3990,7 +3994,7 @@ report_reason_hate_speech,Hate speech,Разжигание ненависти,Di
 report_reason_illegal_content,Illegal content,Незаконный контент,Contenu illégal,Contenido ilegal,محتوى غير قانوني,非法内容
 report_reason_impersonation,Impersonation,Выдача себя за другого,Usurpation d’identité,Suplantación de identidad,انتحال شخصية,冒充他人
 report_reason_other,Other,Другое,Autre,Otro,أخرى,其他
-report_reason_sexual_content_or_nudity,Sexual content or nudity,Контент сексуального характера или обнажённые изображения,Contenu sexuel ou nudité,Contenido sexual o desnudez,محتوى جنسي أو عري,色情内容或裸露
+report_reason_sexual_content_or_nudity,Sexual content or nudity,Сексуальный контент или нагота,Contenu sexuel ou nudité,Contenido sexual o desnudez,محتوى جنسي أو عري,色情内容或裸露
 report_reason_sharing_private_information,Sharing private information,Распространение личной информации,Partage d’informations privées,Divulgación de información privada,مشاركة معلومات خاصة,泄露私人信息
 report_reason_spam_scam_or_phishing,"Spam, scam, or phishing","Спам, мошенничество или фишинг","Spam, escroquerie ou hameçonnage","Spam, estafa o phishing",رسائل مزعجة أو احتيال أو تصيّد,垃圾信息、诈骗或网络钓鱼
 report_reason_violence_or_threats,Violence or threats,Насилие или угрозы,Violence ou menaces,Violencia o amenazas,عنف أو تهديدات,暴力或威胁
@@ -4004,7 +4008,7 @@ report_submit_button,Submit Report,Отправить жалобу,Envoyer le si
 report_success_developer_operated,Report submitted. Thank you for helping keep the service safe. Reports for developer-operated services are reviewed within 24 hours.,"Жалоба отправлена. Спасибо, что помогаете обеспечивать безопасность службы. Жалобы на службы под управлением разработчика рассматриваются в течение 24 часов.",Signalement envoyé. Merci de nous aider à assurer la sécurité du service. Les signalements concernant les services exploités par le développeur sont examinés sous 24 heures.,Informe enviado. Gracias por ayudar a mantener la seguridad del servicio. Los informes sobre servicios operados por el desarrollador se revisan en un plazo de 24 horas.,تم إرسال البلاغ. شكرًا لمساعدتك في الحفاظ على أمان الخدمة. تتم مراجعة البلاغات المتعلقة بالخدمات التي يشغّلها المطور خلال 24 ساعة.,举报已提交。感谢你帮助维护服务安全。针对开发者运营服务的举报会在 24 小时内得到审核。
 report_success_third_party,"Report submitted. Because this server may be operated by a third party, moderation actions may depend on the server operator.","Жалоба отправлена. Поскольку этим сервером может управлять третья сторона, действия модерации могут зависеть от оператора сервера.","Signalement envoyé. Ce serveur pouvant être exploité par un tiers, les mesures de modération peuvent dépendre de son opérateur.","Informe enviado. Como este servidor puede estar operado por un tercero, las medidas de moderación pueden depender del operador del servidor.",تم إرسال البلاغ. نظرًا إلى أن جهة خارجية قد تشغّل هذا الخادم، فقد تعتمد إجراءات الإشراف على مشغّل الخادم.,举报已提交。由于此服务器可能由第三方运营，审核措施可能取决于服务器运营方。
 report_title,Report,Жалоба,Signalement,Denunciar,الإبلاغ,举报
-report_user_action,Report User,Пожаловаться на пользователя,Signaler l’utilisateur,Denunciar usuario,الإبلاغ عن المستخدم,举报用户
+report_user_action,Report User,Пожаловаться,Signaler l’utilisateur,Denunciar usuario,الإبلاغ عن المستخدم,举报用户
 request_subscription,Request subscription,Запросить подписку,Demande de souscription,Solicitar suscripción,طلب الاشتراك,订阅请求
 rounded_mask_name,Rounded,Скруглённый,Arrondi,Redondeado,مستدير,圆角
 rounded_square_mask_name,Rounded square,Скруглённый квадрат,Carré arrondi,Cuadrado redondeado,مربع مستدير,圆角方形
@@ -4018,7 +4022,7 @@ schedule_encrypted_unavailable_error,Scheduled messages are unavailable in encry
 schedule_media_unavailable_error,Only text messages can be scheduled right now.,Сейчас можно запланировать только текстовое сообщение.,Seuls les messages texte peuvent être programmés pour le moment.,Por ahora solo se pueden programar mensajes de texto.,لا يمكن حاليًا جدولة سوى الرسائل النصية.,目前只能定时发送文本消息。
 schedule_message_action,Schedule Message,Запланировать сообщение,Programmer le message,Programar mensaje,جدولة الرسالة,定时发送消息
 schedule_send_failed_error,Could not schedule message.,Не удалось запланировать сообщение.,Impossible de programmer le message.,No se pudo programar el mensaje.,تعذرت جدولة الرسالة.,无法定时发送消息。
-schedule_send_on,Send on %@,Отправить %@,Envoyer le %@,Enviar el %@,الإرسال في %@,发送日期：%@
+schedule_send_on,Send on %@,Отправить %@,Envoyer le %@,Enviar el %@,الإرسال في %@,%@ 发送
 schedule_send_today_at,Send today at %@,Отправить сегодня в %@,Envoyer aujourd’hui à %@,Enviar hoy a las %@,الإرسال اليوم في %@,今天 %@ 发送
 schedule_send_tomorrow_at,Send tomorrow at %@,Отправить завтра в %@,Envoyer demain à %@,Enviar mañana a las %@,الإرسال غدًا في %@,明天 %@ 发送
 schedule_unavailable_error,Scheduled messages are unavailable on this server.,Отложенные сообщения недоступны на этом сервере.,Les messages programmés sont indisponibles sur ce serveur.,Los mensajes programados no están disponibles en este servidor.,الرسائل المجدولة غير متاحة على هذا الخادم.,此服务器不支持定时消息。
@@ -4035,11 +4039,11 @@ search__floating_bar__cancel_search,Cancel search,Отменить поиск,An
 search_contacts_and_messages,Search contacts and messages,Поиск контактов и сообщений,Rechercher des contacts et des messages,Buscar contactos y mensajes,البحث في جهات الاتصال والرسائل,搜索联系人和消息
 search_messages_contacts_groups,"Search messages, contacts and groups","Поиск сообщений, контактов и групп","Rechercher des messages, des contacts et des groupes","Buscar mensajes, contactos y grupos",البحث في الرسائل وجهات الاتصال والمجموعات,搜索消息、联系人和群组
 search_this_chat_hint,Search this chat,Поиск в чате,Rechercher dans cette discussion,Buscar en este chat,البحث في هذه المحادثة,搜索此聊天
-select_chat,Select chat,Выберите чат,Sélectionner une discussion,Seleccionar chat,تحديد محادثة,选择聊天
-select_groupchat_domain,Select groupchat domain,Выберите домен группового чата,Sélectionner le domaine de la discussion de groupe,Seleccionar dominio del chat grupal,تحديد نطاق المحادثة الجماعية,选择群聊域名
+select_chat,Select chat,Выберите чат,Choisir un chat,Seleccionar chat,تحديد محادثة,选择聊天
+select_groupchat_domain,Select groupchat domain,Выберите домен группового чата,Choisir le domaine du salon,Seleccionar dominio del chat grupal,تحديد نطاق المحادثة الجماعية,选择群聊域名
 select_xmpp_account,Select XMPP account,Выберите аккаунт XMPP,Sélectionner un compte XMPP,Seleccionar cuenta XMPP,تحديد حساب XMPP,选择 XMPP 账户
 selected,Selected,Выбрано,Sélectionné,Seleccionado,محدد,已选择
-send_all_log_files,Send all log files,Отправить все файлы журнала отладки,Envoyer tous les fichiers journaux,Enviar todos los archivos de registro,إرسال جميع ملفات السجل,发送所有日志文件
+send_all_log_files,Send all log files,Отправить все файлы журнала отладки,Envoyer tous les fichiers journaux,Enviar todos los registros,إرسال جميع ملفات السجل,发送所有日志文件
 send_without_sound_action,Send Without Sound,Отправить без звука,Envoyer sans son,Enviar sin sonido,إرسال دون صوت,静默发送
 sensitive_content__help__message_someone,Message someone,Написать кому-нибудь,Envoyer un message à quelqu’un,Enviar un mensaje a alguien,مراسلة شخص ما,给他人发消息
 sensitive_content__help__ways_to_get_help,Ways to Get Help,Как получить помощь,Comment obtenir de l’aide,Formas de obtener ayuda,طرق الحصول على المساعدة,获取帮助的方式
@@ -4094,7 +4098,7 @@ settings__section__security,Security,Безопасность,Sécurité,Segurid
 settings__section__subscriptions,Subscriptions,Подписки,Abonnements,Suscripciones,الاشتراكات,订阅
 settings__title__account_color,Account color,Цвет учётной записи,Couleur du compte,Color de la cuenta,لون الحساب,账户颜色
 settings__title__attempts,Attempts,Попытки,Tentatives,Intentos,المحاولات,尝试次数
-settings__title__auto_lock,Auto-Lock,Автоблокировка,Verrouillage automatique,Bloqueo automático,القفل التلقائي,自动锁定
+settings__title__auto_lock,Auto-Lock,Автоблокировка,Verrouillage auto,Bloqueo automático,القفل التلقائي,自动锁定
 settings__title__avatar_upload_error,Avatar upload error,Ошибка загрузки аватара,Erreur d’envoi de l’avatar,Error al subir el avatar,خطأ في رفع الصورة الرمزية,头像上传错误
 settings__title__biometrics,Biometrics,Биометрия,Données biométriques,Biometría,المصادقة الحيوية,生物识别
 settings__title__change_passcode,Change Passcode,Изменить код-пароль,Modifier le code,Cambiar código,تغيير رمز الدخول,更改密码
@@ -4141,11 +4145,11 @@ settings_circles_error_empty_name,Circle name cannot be empty.,Название 
 settings_circles_error_no_members,Select at least one contact.,Выберите хотя бы один контакт.,Sélectionnez au moins un contact.,Selecciona al menos un contacto.,حدد جهة اتصال واحدة على الأقل.,请至少选择一个联系人。
 settings_circles_error_not_found,The circle no longer exists.,Круг больше не существует.,Le cercle n’existe plus.,El círculo ya no existe.,لم تعد الدائرة موجودة.,该圈子已不存在。
 settings_circles_no_contacts,No contacts,Нет контактов,Aucun contact,No hay contactos,لا توجد جهات اتصال,没有联系人
-settings_circles_partial_message,%@ roster updates failed. Retry sends only the remaining difference.,Не удалось сохранить %@ изменений ростера. Повторная попытка отправит только оставшуюся разницу.,%@ mises à jour de la liste ont échoué. Une nouvelle tentative n’enverra que les modifications restantes.,"Se produjeron errores en %@ actualizaciones de la lista de contactos. Al reintentar, solo se enviará la diferencia restante.",فشل %@ من تحديثات قائمة جهات الاتصال. تعيد المحاولة إرسال الفرق المتبقي فقط.,%@ 次联系人列表更新失败。重试时只会发送剩余差异。
+settings_circles_partial_message,%@ roster updates failed. Retry sends only the remaining difference.,Не удалось сохранить %@ изменений ростера. Повторная попытка отправит только оставшуюся разницу.,%@ mises à jour de la liste ont échoué. Une nouvelle tentative n’enverra que les modifications restantes.,Fallaron %@ cambios en contactos. Reintentar envía solo lo pendiente.,فشل %@ من تحديثات قائمة جهات الاتصال. تعيد المحاولة إرسال الفرق المتبقي فقط.,%@ 次联系人列表更新失败。重试时只会发送剩余差异。
 settings_circles_partial_title,Some changes were not saved,Часть изменений не сохранена,Certaines modifications n’ont pas été enregistrées,Algunos cambios no se guardaron,لم يتم حفظ بعض التغييرات,部分更改未保存
 settings_circles_remove_failed_message,The server did not confirm this roster update.,Сервер не подтвердил изменение ростера.,Le serveur n’a pas confirmé cette mise à jour de la liste de contacts.,El servidor no confirmó esta actualización de la lista de contactos.,لم يؤكد الخادم تحديث قائمة جهات الاتصال هذا.,服务器未确认此次联系人列表更新。
 settings_circles_remove_failed_title,Contact was not removed,Не удалось удалить контакт,Le contact n’a pas été supprimé,No se eliminó el contacto,لم تتم إزالة جهة الاتصال,未删除联系人
-settings_circles_retry,Retry,Повторить,Réessayer,Reintentar,إعادة المحاولة,重试
+settings_circles_retry,Retry,Повторить,Réessayer,Reintentar,حاول مجددًا,重试
 settings_circles_saving,Saving,Сохранение,Enregistrement,Guardando,جارٍ الحفظ,正在保存
 settings_group_member__placeholder_not_a_member,Not a member,Не участник,Pas membre,No es miembro,ليس عضوًا,不是成员
 settings_language_system,System,Системный,Système,Sistema,النظام,跟随系统
@@ -4335,7 +4339,6 @@ title_register_nickname,nickname,псевдоним,surnom,apodo,الاسم ال
 title_register_xabber_account,Sign Up,Регистрация,S'inscrire,Registrarse,إنشاء حساب,注册
 title_registration_last_thing,Last thing! Enable notifications so you never miss a message!,"И последнее! Включите уведомления, чтобы никогда не пропустить сообщение!",Une dernière chose ! Activez les notifications pour ne manquer aucun message !,¡Una última cosa! Activa las notificaciones para no perderte ningún mensaje.,أمر أخير! فعّل الإشعارات حتى لا تفوّت أي رسالة!,最后一步！启用通知，以免错过任何消息！
 today,Today,Сегодня,Aujourd’hui,Hoy,اليوم,今天
-too_many_unlock_attempts,Token of device %1$@ (%2$@) was revoked because too many unlock attempts. User data deleted.,Токен устройства %1$@ (%2$@) был отозван из-за слишком большого количества попыток подбора кода безопасности,Le jeton de l’appareil %1$@ (%2$@) a été révoqué en raison d’un trop grand nombre de tentatives de déverrouillage. Les données utilisateur ont été supprimées.,El token del dispositivo %1$@ (%2$@) se revocó debido a demasiados intentos de desbloqueo. Se eliminaron los datos del usuario.,تم إبطال رمز الجهاز %1$@ (%2$@) بسبب كثرة محاولات إلغاء القفل. تم حذف بيانات المستخدم.,设备 %1$@（%2$@）因解锁尝试次数过多而被撤销令牌。用户数据已删除。
 toolbar__menu_item__chats,Chats,Чаты,Discussions,Chats,الدردشات,聊天
 trusted_device__cell__signed,Signed,Подписано,Signé,Firmado,موقّع,已签名
 trusted_device__cell__trusted_by,Trusted by: %@,Подтверждено: %@,Approuvé par : %@,Verificado por: %@,موثوق بواسطة: %@,信任来源：%@
@@ -4370,8 +4373,8 @@ trusted_devices__table_section_title__contact_s_devices,Contact's devices,Уст
 unarchive_chat,Unarchive,Разархивировать,Désarchiver,Desarchivar,إلغاء الأرشفة,取消存档
 unavailable,Offline,Не в сети,Hors-ligne,Desconectado,غير متاح,离线
 unexpected_error,unexpected error,непредвиденная ошибка,erreur inattendue,error inesperado,خطأ غير متوقع,意外错误
-unmute_chat,Unmute,Включить уведомления,Activer le son,Habilitar sonido,الغاء كتم الصوت,取消静音
-unreaded_chats_list_empty,No unread chats,Нет непрочитанных чатов,Aucune conversation non lue,No hay chats sin leer,لا توجد دردشات غير مقروءة,没有未读的聊天记录
+unmute_chat,Unmute,Включить звук,Activer le son,Activar sonido,إلغاء الكتم,取消静音
+unreaded_chats_list_empty,No unread chats,Нет непрочитанных чатов,Aucune conversation non lue,No hay chats sin leer,لا توجد دردشات غير مقروءة,暂无未读聊天
 upload_error_bad_gateway,Bad gateway: server error (502),Bad gateway: ошибка сервера (502),Passerelle incorrecte : erreur du serveur (502),Puerta de enlace incorrecta: error del servidor (502),بوابة غير صالحة: خطأ في الخادم (502),网关错误：服务器错误（502）
 upload_error_encryption_failed,Selected file could not be encrypted. Please try again.,Не удалось зашифровать выбранный файл. Повторите попытку.,Le fichier sélectionné n’a pas pu être chiffré. Veuillez réessayer.,No se pudo cifrar el archivo seleccionado. Inténtalo de nuevo.,تعذر تشفير الملف المحدد. يرجى المحاولة مرة أخرى.,无法加密所选文件。请重试。
 upload_error_failed,File upload failed. Please try again.,Не удалось загрузить файл. Повторите попытку.,Le téléversement du fichier a échoué. Veuillez réessayer.,Error al cargar el archivo. Inténtalo de nuevo.,فشل رفع الملف. يرجى المحاولة مرة أخرى.,文件上传失败。请重试。
@@ -4389,16 +4392,16 @@ vcard_address_ctry,Country Name,Страна,Pays,País,البلد,国家
 vcard_address_extadr,Extended Address,Дополнительный адрес,Adresse étendue,Dirección completa,العنوان,扩展地址
 vcard_address_locality,Locality,Город,Ville,Localidad,المجاورة,地点
 vcard_address_pcode,Postal Code,Почтовый индекс,Code Postal,Código postal,الرمز البريدي,邮编
-vcard_address_pobox,PO Box,Почтовый ящик,Boîte postale,Apartado de correos,صندوق بريد,信箱
+vcard_address_pobox,PO Box,Почтовый ящик,Boîte postale,Apartado postal,صندوق بريد,信箱
 vcard_address_region,Region,Регион,Région,Región,المنطقة,区域
 vcard_address_street,Street,Улица,Rue,Calle,شارع,街道
 vcard_basic_info,Your name and an optional profile picture,Ваше имя и изображение профиля,Votre nom et une photo de profil facultative,Tu nombre y una foto de perfil opcional,اسمك وصورة ملف شخصي اختيارية,你的姓名和可选头像
-vcard_bio,Bio,О себе,Bio,Biografía,نبذة,个人简介
+vcard_bio,Bio,О себе,Bio,Biografía,نبذة,简介
 vcard_birth_date,Birthday,Дата рождения,Date de naissance ,Fecha de nacimiento,تاريخ الميلاد,生日
 vcard_birth_date_placeholder,YYYY-MM-DD,ГГГГ-ММ-ДД,AAAA-MM-JJ,YYYY-MM-DD,YYYY-MM-DD,YYYY-MM-DD
 vcard_company,Company,Компания,Entreprise,Empresa,الشركة,公司
 vcard_decsription,Description,Описание,Description,Descripción,وصف,描述
-vcard_email,Email,Эл. почта,Courriel,Correo electrónico,بريد الكتروني,电子邮箱
+vcard_email,Email,Эл. почта,Courriel,Correo,بريد الكتروني,邮箱
 vcard_family_name,Family name,Фамилия,Nom de famille,Apellido,اللقب,姓
 vcard_full_name,Full name,Полное имя,Nom complet,Nombre completo,الاسم الكامل,全名
 vcard_given_name,Given name,Имя,Prénom,Nombre,الاسم,名
@@ -4407,7 +4410,7 @@ vcard_job,Job,Работа,Travail,Profesión,الوظيفة,职业
 vcard_middle_name,Middle name,Отчество,Deuxième prénom,Segundo nombre,الاسم الأوسط,中间名
 vcard_nick_name,Nickname,Псевдоним,Pseudo,Apodo,الاسم المستعار,昵称
 vcard_organization_unit,Organization unit,Отдел,Unité organisationnelle,Tipo de empleo,الوحدة التنظيمية,组织单位
-vcard_role,Role,Должностные функции,Rôle,Rol,الدور,角色
+vcard_role,Role,Должность,Rôle,Rol,الدور,角色
 vcard_telephone,Telephone,Телефон,Téléphone,Teléfono,هاتف,电话
 vcard_title,"Job title, function",Должность,"Titre de l'emploi, fonction","Puesto de trabajo, función",الوظيفة,职衔
 vcard_type_home,Home,Домашний,Domicile,Casa,البيت,家庭
@@ -4423,7 +4426,7 @@ verification__title_text__verification_successful,Verification Successful,Про
 verification_request_description,%1$@ asks you to verify yourself,%1$@ просит вас подтвердить свою личность,%1$@ vous demande de vérifier votre identité,%1$@ te pide que verifiques tu identidad,يطلب منك %1$@ التحقق من هويتك,%1$@ 请求你验证自己的身份
 videos,Videos,Видео,Vidéos,Vídeos,مقاطع الفيديو,视频
 voice,Voice messages,Голосовые сообщения,Messages vocaux,Mensajes de voz,الرسائل الصوتية,语音消息
-voice_call_message,%1$@ voice call,Голосовой вызов %1$@,Appel vocal %1$@,Llamada de voz de %1$@,مكالمة صوتية من %1$@,来自 %1$@ 的语音通话
+voice_call_message,%1$@ voice call,Голосовой вызов %1$@,Appel vocal %1$@,Llamada de voz de %1$@,مكالمة صوتية من %1$@,%1$@ 语音通话
 voice_gallery_for_chat__control_accessibility_label__cancel_voice_message_download,Cancel voice message download,Отменить загрузку голосового сообщения,Annuler le téléchargement du message vocal,Cancelar la descarga del mensaje de voz,إلغاء تنزيل الرسالة الصوتية,取消下载语音消息
 voice_gallery_for_chat__control_accessibility_label__download_voice_message,Download voice message,Скачать голосовое сообщение,Télécharger le message vocal,Descargar el mensaje de voz,تنزيل الرسالة الصوتية,下载语音消息
 voice_gallery_for_chat__control_accessibility_label__pause_voice_message,Pause voice message,Приостановить голосовое сообщение,Mettre le message vocal en pause,Pausar el mensaje de voz,إيقاف الرسالة الصوتية مؤقتًا,暂停语音消息
@@ -4486,7 +4489,7 @@ xmppauthentication_failure__user_message__sign_in_again_to_restore_account_acces
 xmppchange_password__description__password_changed,Password changed,Пароль изменён,Mot de passe modifié,Contraseña cambiada,تم تغيير كلمة المرور,密码已更改
 you,You:,Вы:,Vous :,Tú:,أنت:,你：
 you_dont_have_any_contacts_message,You don't have any contacts,У вас нет контактов,Vous n’avez aucun contact,No tienes contactos,ليست لديك أي جهات اتصال,你没有任何联系人
-yubikey_approval__action__tap_to_unlock,Tap to unlock,"Нажмите, чтобы разблокировать",Touchez pour déverrouiller,Toca para desbloquear,اضغط لفتح القفل,轻点以解锁
+yubikey_approval__action__tap_to_unlock,Tap to unlock,Нажмите для разблокировки,Touchez pour déverrouiller,Toca para desbloquear,اضغط لفتح القفل,轻点以解锁
 yubikey_setup__content__expired,Expired,Срок истёк,Expirée,Caducada,منتهية,已过期
 yubikey_setup__nfc_scan_alert_message__generate_digital_signature,Generate digital signature,Создать цифровую подпись,Générer une signature numérique,Generar firma digital,إنشاء توقيع رقمي,生成数字签名
 yubikey_setup__title__issued_by,Issued by,Кем выдан,Émis par,Emitido por,صادرة عن,颁发者

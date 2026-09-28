@@ -1,0 +1,65 @@
+{
+  "locales": [
+    "ru",
+    "fr",
+    "es",
+    "ar",
+    "zh-Hans"
+  ],
+  "thresholds": [
+    {
+      "maxEnglishLength": 4,
+      "minimumRatio": 3.0,
+      "minimumExtra": 8
+    },
+    {
+      "maxEnglishLength": 8,
+      "minimumRatio": 2.5,
+      "minimumExtra": 9
+    },
+    {
+      "maxEnglishLength": 16,
+      "minimumRatio": 2.2,
+      "minimumExtra": 12
+    },
+    {
+      "maxEnglishLength": 30,
+      "minimumRatio": 2.0,
+      "minimumExtra": 18
+    },
+    {
+      "minimumRatio": 1.75,
+      "minimumExtra": 35
+    }
+  ],
+  "reviewedExceptions": [
+    {
+      "key": "chat__self_destruct_timer__off",
+      "locale": "es",
+      "branch": "stringUnit",
+      "translation": "Desactivado",
+      "reason": "Standard unambiguous Spanish state label; shortening it would weaken the timer setting meaning."
+    },
+    {
+      "key": "floating_bottom_bar_view__accessibility_value__off",
+      "locale": "es",
+      "branch": "stringUnit",
+      "translation": "Desactivado",
+      "reason": "VoiceOver value is not visually truncated and clarity takes priority over character ratio."
+    },
+    {
+      "key": "vcard_address_pobox",
+      "locale": "es",
+      "branch": "stringUnit",
+      "translation": "Apartado postal",
+      "reason": "This is the concise standard Spanish term for a post-office box."
+    },
+    {
+      "key": "abuse_report__target__user",
+      "locale": "ru",
+      "branch": "stringUnit",
+      "translation": "Пользователь",
+      "reason": "This is the shortest neutral standard Russian noun for a user."
+    }
+  ]
+}

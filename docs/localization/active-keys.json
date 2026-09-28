@@ -996,7 +996,7 @@
           "argumentCount": 0,
           "fallback": "Access revoked",
           "formatSignature": [],
-          "line": 447,
+          "line": 679,
           "origin": "sourceLiteral",
           "path": "xabber/common/state/ApplicationStateManager.swift",
           "surfaces": [
@@ -1010,7 +1010,7 @@
           "argumentCount": 0,
           "fallback": "Access revoked",
           "formatSignature": [],
-          "line": 466,
+          "line": 698,
           "origin": "sourceLiteral",
           "path": "xabber/common/state/ApplicationStateManager.swift",
           "surfaces": [
@@ -2349,7 +2349,7 @@
           "argumentCount": 0,
           "fallback": "Delete account",
           "formatSignature": [],
-          "line": 549,
+          "line": 553,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -5257,42 +5257,6 @@
     },
     {
       "apis": [
-        "legacy"
-      ],
-      "callsites": [
-        {
-          "api": "legacy",
-          "argumentCount": 0,
-          "fallback": "Connecting...",
-          "formatSignature": [],
-          "line": 395,
-          "origin": "sourceLiteral",
-          "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
-          "surfaces": [
-            "app"
-          ],
-          "symbol": "updateSubtitle",
-          "typeSafety": "typeUnchecked"
-        }
-      ],
-      "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "Connecting…"
-      },
-      "fallbacks": [
-        "Connecting..."
-      ],
-      "formatSignature": [],
-      "key": "account_state_connecting",
-      "origins": [
-        "sourceLiteral"
-      ],
-      "surfaces": [
-        "app"
-      ]
-    },
-    {
-      "apis": [
         "legacy",
         "text"
       ],
@@ -5746,7 +5710,7 @@
           "argumentCount": 0,
           "fallback": "Mark as read",
           "formatSignature": [],
-          "line": 386,
+          "line": 445,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppDelegate.swift",
           "surfaces": [
@@ -5797,7 +5761,7 @@
           "argumentCount": 0,
           "fallback": "Incoming contact request",
           "formatSignature": [],
-          "line": 620,
+          "line": 663,
           "origin": "sourceLiteral",
           "path": "xabber-push-extension/NotificationService.swift",
           "surfaces": [
@@ -5811,7 +5775,7 @@
           "argumentCount": 0,
           "fallback": "Incoming contact request",
           "formatSignature": [],
-          "line": 680,
+          "line": 723,
           "origin": "sourceLiteral",
           "path": "xabber-push-extension/NotificationService.swift",
           "surfaces": [
@@ -5825,7 +5789,7 @@
           "argumentCount": 0,
           "fallback": "Incoming contact request",
           "formatSignature": [],
-          "line": 696,
+          "line": 739,
           "origin": "sourceLiteral",
           "path": "xabber-push-extension/NotificationService.swift",
           "surfaces": [
@@ -13871,7 +13835,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 119,
+          "line": 121,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController+Flow.swift",
           "surfaces": [
@@ -23706,7 +23670,7 @@
           "argumentCount": 0,
           "fallback": "Message text",
           "formatSignature": [],
-          "line": 378,
+          "line": 437,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppDelegate.swift",
           "surfaces": [
@@ -24365,7 +24329,7 @@
           "argumentCount": 0,
           "fallback": "Reply",
           "formatSignature": [],
-          "line": 375,
+          "line": 434,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppDelegate.swift",
           "surfaces": [
@@ -26726,7 +26690,7 @@
           "argumentCount": 0,
           "fallback": "Send",
           "formatSignature": [],
-          "line": 377,
+          "line": 436,
           "origin": "sourceLiteral",
           "path": "xabber/application/AppDelegate.swift",
           "surfaces": [
@@ -30155,7 +30119,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 504,
+          "line": 508,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -30169,7 +30133,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 524,
+          "line": 528,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -30183,7 +30147,7 @@
           "argumentCount": 0,
           "fallback": "Cancel",
           "formatSignature": [],
-          "line": 551,
+          "line": 555,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -30791,7 +30755,21 @@
           "argumentCount": 0,
           "fallback": "Delete",
           "formatSignature": [],
-          "line": 553,
+          "line": 138,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "makeButton",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Delete",
+          "formatSignature": [],
+          "line": 557,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -30805,7 +30783,7 @@
           "argumentCount": 0,
           "fallback": "Delete",
           "formatSignature": [],
-          "line": 737,
+          "line": 743,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -31145,20 +31123,6 @@
           "argumentCount": 0,
           "fallback": "OK",
           "formatSignature": [],
-          "line": 545,
-          "origin": "sourceLiteral",
-          "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
-          "surfaces": [
-            "app"
-          ],
-          "symbol": "sendAlarmAndQuit",
-          "typeSafety": "typed"
-        },
-        {
-          "api": "text",
-          "argumentCount": 0,
-          "fallback": "OK",
-          "formatSignature": [],
           "line": 182,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/ChangePasswordTableViewController.swift",
@@ -31173,7 +31137,7 @@
           "argumentCount": 0,
           "fallback": "OK",
           "formatSignature": [],
-          "line": 695,
+          "line": 699,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -31499,6 +31463,20 @@
           "argumentCount": 0,
           "fallback": "Retry",
           "formatSignature": [],
+          "line": 265,
+          "origin": "sourceLiteral",
+          "path": "xabber/common/state/ApplicationStateManager.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "viewDidLoad",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Retry",
+          "formatSignature": [],
           "line": 329,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/delegate/action/ChatViewController+CellDelegate.swift",
@@ -31520,6 +31498,20 @@
             "app"
           ],
           "symbol": "tableView",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Retry",
+          "formatSignature": [],
+          "line": 99,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "setupSubviews",
           "typeSafety": "typed"
         },
         {
@@ -31769,13 +31761,13 @@
           "argumentCount": 0,
           "fallback": "Internal error",
           "formatSignature": [],
-          "line": 495,
+          "line": 358,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "onPasscodeValid",
+          "symbol": "showBlockedError",
           "typeSafety": "typed"
         },
         {
@@ -31811,6 +31803,48 @@
           "argumentCount": 0,
           "fallback": "Internal error",
           "formatSignature": [],
+          "line": 217,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "verifyCurrentPasscode",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Internal error",
+          "formatSignature": [],
+          "line": 239,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "handleVerifiedCurrentPasscode",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Internal error",
+          "formatSignature": [],
+          "line": 278,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "saveNewPasscode",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Internal error",
+          "formatSignature": [],
           "line": 35,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SettingsViewController+SignatureManagerDelegate.swift",
@@ -31818,6 +31852,20 @@
             "app"
           ],
           "symbol": "retrieveCertificate",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Internal error",
+          "formatSignature": [],
+          "line": 503,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "tableView",
           "typeSafety": "typed"
         }
       ],
@@ -40397,7 +40445,7 @@
               "width": null
             }
           ],
-          "line": 935,
+          "line": 947,
           "origin": "sourceLiteral",
           "path": "xabber/common/notify_manager/NotifyManager.swift",
           "surfaces": [
@@ -43680,7 +43728,7 @@
           "argumentCount": 0,
           "fallback": "Please wait while the connection is established.",
           "formatSignature": [],
-          "line": 118,
+          "line": 120,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController+Flow.swift",
           "surfaces": [
@@ -43816,7 +43864,7 @@
           "argumentCount": 0,
           "fallback": "No connection",
           "formatSignature": [],
-          "line": 117,
+          "line": 119,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/info_screens/account_info/devices_list/DevicesListViewController+Flow.swift",
           "surfaces": [
@@ -56875,7 +56923,7 @@
           "argumentCount": 0,
           "fallback": "Internal error",
           "formatSignature": [],
-          "line": 338,
+          "line": 340,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SettingsViewController+InfoScreenHeaderButtonDelegate.swift",
           "surfaces": [
@@ -59566,7 +59614,7 @@
           "argumentCount": 0,
           "fallback": "New activity",
           "formatSignature": [],
-          "line": 752,
+          "line": 795,
           "origin": "sourceLiteral",
           "path": "xabber-push-extension/NotificationService.swift",
           "surfaces": [
@@ -62054,6 +62102,58 @@
         {
           "api": "format",
           "argumentCount": 1,
+          "fallback": "Digits entered: %@",
+          "formatSignature": [
+            {
+              "argument": 1,
+              "conversion": "@",
+              "flags": "",
+              "precision": null,
+              "width": null
+            }
+          ],
+          "line": 368,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "updateDots",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Digits entered: %@"
+      },
+      "fallbacks": [
+        "Digits entered: %@"
+      ],
+      "formatSignature": [
+        {
+          "argument": 1,
+          "conversion": "@",
+          "flags": "",
+          "precision": null,
+          "width": null
+        }
+      ],
+      "key": "passcode__accessibility__digits_entered_format",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "format"
+      ],
+      "callsites": [
+        {
+          "api": "format",
+          "argumentCount": 1,
           "fallback": "Unlock %@",
           "formatSignature": [
             {
@@ -62064,13 +62164,13 @@
               "width": null
             }
           ],
-          "line": 445,
+          "line": 405,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "onTouchIdButtonTouchUpInside",
+          "symbol": "updateDots",
           "typeSafety": "typed"
         }
       ],
@@ -62106,27 +62206,41 @@
         {
           "api": "text",
           "argumentCount": 0,
-          "fallback": "Touch ID is not supported.",
+          "fallback": "Deleting local data",
           "formatSignature": [],
-          "line": 456,
+          "line": 255,
           "origin": "sourceLiteral",
-          "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+          "path": "xabber/common/state/ApplicationStateManager.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "onTouchIdButtonTouchUpInside",
+          "symbol": "viewDidLoad",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Deleting local data",
+          "formatSignature": [],
+          "line": 294,
+          "origin": "sourceLiteral",
+          "path": "xabber/common/state/ApplicationStateManager.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "showAccountStoreError",
           "typeSafety": "typed"
         }
       ],
       "english": {
         "fallbackStatus": "consistent",
-        "value": "Touch ID is not supported."
+        "value": "Deleting local data"
       },
       "fallbacks": [
-        "Touch ID is not supported."
+        "Deleting local data"
       ],
       "formatSignature": [],
-      "key": "passcode__biometrics__unsupported_toast",
+      "key": "passcode__content__deleting_local_data",
       "origins": [
         "sourceLiteral"
       ],
@@ -62144,13 +62258,13 @@
           "argumentCount": 0,
           "fallback": "Enter passcode",
           "formatSignature": [],
-          "line": 53,
+          "line": 216,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "init",
+          "symbol": "updatePresentation",
           "typeSafety": "typed"
         },
         {
@@ -62158,13 +62272,13 @@
           "argumentCount": 0,
           "fallback": "Enter passcode",
           "formatSignature": [],
-          "line": 444,
+          "line": 404,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "onTouchIdButtonTouchUpInside",
+          "symbol": "updateDots",
           "typeSafety": "typed"
         }
       ],
@@ -62192,15 +62306,159 @@
         {
           "api": "text",
           "argumentCount": 0,
+          "fallback": "Could not delete local data. Try again.",
+          "formatSignature": [],
+          "line": 275,
+          "origin": "sourceLiteral",
+          "path": "xabber/common/state/ApplicationStateManager.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "showRetry",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Could not delete local data. Try again."
+      },
+      "fallbacks": [
+        "Could not delete local data. Try again."
+      ],
+      "formatSignature": [],
+      "key": "passcode__content__local_data_deletion_failed",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Could not open local data. Try again.",
+          "formatSignature": [],
+          "line": 285,
+          "origin": "sourceLiteral",
+          "path": "xabber/common/state/ApplicationStateManager.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "showAccountStoreError",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Could not open local data. Try again."
+      },
+      "fallbacks": [
+        "Could not open local data. Try again."
+      ],
+      "formatSignature": [],
+      "key": "passcode__content__local_data_unavailable",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Removing local data…",
+          "formatSignature": [],
+          "line": 347,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "blockForWipe",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Removing local data…"
+      },
+      "fallbacks": [
+        "Removing local data…"
+      ],
+      "formatSignature": [],
+      "key": "passcode__content__removing_data",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Too many unlock attempts. A local data wipe was started.",
+          "formatSignature": [],
+          "line": 1263,
+          "origin": "sourceLiteral",
+          "path": "xabber/common/account_manager/AccountManager.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "prepareForPasscodeWipe",
+          "typeSafety": "typed"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "Too many unlock attempts. A local data wipe was started."
+      },
+      "fallbacks": [
+        "Too many unlock attempts. A local data wipe was started."
+      ],
+      "formatSignature": [],
+      "key": "passcode__content__too_many_unlock_attempts_wipe_started",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "text"
+      ],
+      "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
           "fallback": "Incorrect passcode. Try again.",
           "formatSignature": [],
-          "line": 186,
+          "line": 210,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
           "surfaces": [
             "app"
           ],
-          "symbol": "handleCompleted",
+          "symbol": "verifyCurrentPasscode",
           "typeSafety": "typed"
         }
       ],
@@ -62225,6 +62483,20 @@
         "text"
       ],
       "callsites": [
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Passcodes did not match. Try again.",
+          "formatSignature": [],
+          "line": 276,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "pinDidChange",
+          "typeSafety": "typed"
+        },
         {
           "api": "text",
           "argumentCount": 0,
@@ -62274,14 +62546,14 @@
               "width": null
             }
           ],
-          "line": 398,
+          "line": 251,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
           "pluralCountArgument": true,
           "surfaces": [
             "app"
           ],
-          "symbol": "updateSubtitle",
+          "symbol": "updateRemainingSubtitle",
           "typeSafety": "typed"
         }
       ],
@@ -71965,7 +72237,21 @@
           "argumentCount": 0,
           "fallback": "Confirm your new passcode",
           "formatSignature": [],
-          "line": 157,
+          "line": 229,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "updatePresentation",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Confirm your new passcode",
+          "formatSignature": [],
+          "line": 161,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
           "surfaces": [
@@ -72001,7 +72287,21 @@
           "argumentCount": 0,
           "fallback": "Create a passcode to protect your data",
           "formatSignature": [],
-          "line": 155,
+          "line": 225,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "updatePresentation",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Create a passcode to protect your data",
+          "formatSignature": [],
+          "line": 159,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
           "surfaces": [
@@ -72037,7 +72337,21 @@
           "argumentCount": 0,
           "fallback": "Enter your current passcode to change it",
           "formatSignature": [],
-          "line": 159,
+          "line": 221,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "updatePresentation",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Enter your current passcode to change it",
+          "formatSignature": [],
+          "line": 163,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
           "surfaces": [
@@ -72073,7 +72387,7 @@
           "argumentCount": 0,
           "fallback": "Enter your current passcode to turn Passcode Lock off",
           "formatSignature": [],
-          "line": 161,
+          "line": 165,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
           "surfaces": [
@@ -72705,6 +73019,20 @@
           "argumentCount": 0,
           "fallback": "Biometrics",
           "formatSignature": [],
+          "line": 130,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "makeButton",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Biometrics",
+          "formatSignature": [],
           "line": 1116,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SettingsViewController.swift",
@@ -72741,7 +73069,7 @@
           "argumentCount": 0,
           "fallback": "Change Passcode",
           "formatSignature": [],
-          "line": 146,
+          "line": 150,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
           "surfaces": [
@@ -72913,7 +73241,35 @@
           "argumentCount": 0,
           "fallback": "Passcode Lock",
           "formatSignature": [],
-          "line": 144,
+          "line": 346,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "blockForWipe",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Passcode Lock",
+          "formatSignature": [],
+          "line": 357,
+          "origin": "sourceLiteral",
+          "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "showBlockedError",
+          "typeSafety": "typed"
+        },
+        {
+          "api": "text",
+          "argumentCount": 0,
+          "fallback": "Passcode Lock",
+          "formatSignature": [],
+          "line": 148,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
           "surfaces": [
@@ -73205,7 +73561,7 @@
           "argumentCount": 0,
           "fallback": "Turn Passcode Off",
           "formatSignature": [],
-          "line": 148,
+          "line": 152,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/Passcode/PasscodeViewController.swift",
           "surfaces": [
@@ -75213,7 +75569,7 @@
           "argumentCount": 0,
           "fallback": "password",
           "formatSignature": [],
-          "line": 572,
+          "line": 576,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -75371,7 +75727,7 @@
           "argumentCount": 0,
           "fallback": "Passcode Lock is unavailable",
           "formatSignature": [],
-          "line": 680,
+          "line": 684,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -76769,7 +77125,7 @@
               "width": null
             }
           ],
-          "line": 534,
+          "line": 538,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -76828,7 +77184,7 @@
               "width": null
             }
           ],
-          "line": 546,
+          "line": 550,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -76887,7 +77243,7 @@
               "width": null
             }
           ],
-          "line": 544,
+          "line": 548,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/settings/SimpleTableViewController/SimpleTableViewController.swift",
           "surfaces": [
@@ -78613,72 +78969,6 @@
       "key": "today",
       "origins": [
         "typedCallsite"
-      ],
-      "surfaces": [
-        "app"
-      ]
-    },
-    {
-      "apis": [
-        "legacy"
-      ],
-      "callsites": [
-        {
-          "api": "legacy",
-          "argumentCount": 2,
-          "fallback": "Token of device %@ (%@) was revoked because too many unlock attempts. User data deleted.",
-          "formatSignature": [
-            {
-              "argument": 1,
-              "conversion": "@",
-              "flags": "",
-              "precision": null,
-              "width": null
-            },
-            {
-              "argument": 2,
-              "conversion": "@",
-              "flags": "",
-              "precision": null,
-              "width": null
-            }
-          ],
-          "line": 525,
-          "origin": "sourceLiteral",
-          "path": "xabber/controllers/privacy/PasscodeOrBiometricViewController.swift",
-          "surfaces": [
-            "app"
-          ],
-          "symbol": "sendAlarmAndQuit",
-          "typeSafety": "typeUnchecked"
-        }
-      ],
-      "english": {
-        "fallbackStatus": "catalogWins",
-        "value": "Token of device %1$@ (%2$@) was revoked because too many unlock attempts. User data deleted."
-      },
-      "fallbacks": [
-        "Token of device %@ (%@) was revoked because too many unlock attempts. User data deleted."
-      ],
-      "formatSignature": [
-        {
-          "argument": 1,
-          "conversion": "@",
-          "flags": "",
-          "precision": null,
-          "width": null
-        },
-        {
-          "argument": 2,
-          "conversion": "@",
-          "flags": "",
-          "precision": null,
-          "width": null
-        }
-      ],
-      "key": "too_many_unlock_attempts",
-      "origins": [
-        "sourceLiteral"
       ],
       "surfaces": [
         "app"
@@ -85012,6 +85302,10 @@
     },
     {
       "classification": "reviewCandidate",
+      "key": "account_state_connecting"
+    },
+    {
+      "classification": "reviewCandidate",
       "key": "account_state_disconnecting"
     },
     {
@@ -88616,6 +88910,10 @@
     },
     {
       "classification": "reviewCandidate",
+      "key": "passcode__biometrics__unsupported_toast"
+    },
+    {
+      "classification": "reviewCandidate",
       "key": "password_changed_fail"
     },
     {
@@ -90009,6 +90307,10 @@
     {
       "classification": "reviewCandidate",
       "key": "too_many_files_at_once"
+    },
+    {
+      "classification": "reviewCandidate",
+      "key": "too_many_unlock_attempts"
     },
     {
       "classification": "reviewCandidate",
@@ -93301,10 +93603,10 @@
   "schemaVersion": 1,
   "sourceLanguage": "en",
   "summary": {
-    "activeKeys": 1809,
+    "activeKeys": 1812,
     "activeWithoutEnglish": 0,
-    "catalogKeys": 3331,
-    "catalogOnlyKeys": 1522,
+    "catalogKeys": 3337,
+    "catalogOnlyKeys": 1525,
     "computedFallbacks": 12,
     "directLookups": 0,
     "domainReservedKeys": 9,

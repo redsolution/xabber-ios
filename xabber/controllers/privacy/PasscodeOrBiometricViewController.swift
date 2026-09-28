@@ -367,7 +367,7 @@ final class PasscodeOrBiometricViewController: SimpleBaseViewController {
         }
         dotsView.accessibilityLabel = L10n.format(
             "passcode__accessibility__digits_entered_format",
-            fallback: "%@ digits entered",
+            fallback: "Digits entered: %@",
             arguments: [String(count)]
         )
     }

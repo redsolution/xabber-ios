@@ -860,7 +860,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contenido multimedia"
+            "value": "Multimedia"
           }
         },
         "fr": {
@@ -4413,7 +4413,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استخدم الرموز التعبيرية"
+            "value": "استخدم إيموجي"
           }
         },
         "en": {
@@ -4443,7 +4443,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用表情符号"
+            "value": "使用表情"
           }
         }
       }
@@ -8066,7 +8066,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Envoyer avec la touche Entrée"
+            "value": "Entrée pour envoyer"
           }
         },
         "ru": {
@@ -8354,7 +8354,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enregistrer le journal"
+            "value": "Créer un journal"
           }
         },
         "ru": {
@@ -14216,7 +14216,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choisir la couleur d’accentuation"
+            "value": "Couleur d’accent"
           }
         },
         "ru": {
@@ -15056,7 +15056,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enregistrer les modifications de l’interface"
+            "value": "Enregistrer l’interface"
           }
         },
         "ru": {
@@ -16652,7 +16652,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Coucher de soleil"
+            "value": "Crépuscule"
           }
         },
         "ru": {
@@ -17030,7 +17030,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Extraterrestres"
+            "value": "Aliens"
           }
         },
         "ru": {
@@ -20221,7 +20221,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lista de contactos bloqueados"
+            "value": "Bloqueados"
           }
         },
         "fr": {
@@ -23389,7 +23389,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Charlas de grupo"
+            "value": "Grupos"
           }
         },
         "fr": {
@@ -24583,7 +24583,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отправить повторно"
+            "value": "Переотправить"
           }
         },
         "zh-Hans": {
@@ -25068,7 +25068,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ответить пользователю %@"
+            "value": "Ответить %@"
           }
         },
         "zh-Hans": {
@@ -26467,7 +26467,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Включить уведомления"
+            "value": "Включить звук"
           }
         }
       }
@@ -27211,7 +27211,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعادة المحاولة"
+            "value": "حاول مجددًا"
           }
         },
         "en": {
@@ -31034,7 +31034,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Balayez vers le haut pour verrouiller l’enregistrement"
+            "value": "Glissez vers le haut pour verrouiller"
           }
         },
         "ru": {
@@ -31726,7 +31726,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Informations sur la discussion"
+            "value": "Infos du chat"
           }
         },
         "ru": {
@@ -32244,7 +32244,7 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "مقطع فيديو واحد"
+                  "value": "فيديو واحد"
                 }
               },
               "other": {
@@ -34443,7 +34443,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dispositivo portátil"
+            "value": "Móvil"
           }
         },
         "fr": {
@@ -34455,7 +34455,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Мобильное устройство"
+            "value": "Мобильный"
           }
         },
         "zh-Hans": {
@@ -35570,7 +35570,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "第 %@ 项，共 %@ 项"
+            "value": "%@/%@"
           }
         }
       }
@@ -37255,13 +37255,13 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "En train d'écrire…"
+            "value": "écrit…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "набирает сообщение…"
+            "value": "печатает…"
           }
         },
         "zh-Hans": {
@@ -37766,13 +37766,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversación"
+            "value": "Chat"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conversation"
+            "value": "Chat"
           }
         },
         "ru": {
@@ -41786,7 +41786,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Редактировать"
+            "value": "Изменить"
           }
         },
         "zh-Hans": {
@@ -42014,7 +42014,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعادة المحاولة"
+            "value": "حاول مجددًا"
           }
         },
         "en": {
@@ -46497,7 +46497,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nombre del cliente"
+            "value": "Cliente"
           }
         },
         "fr": {
@@ -46849,7 +46849,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher uniquement les contacts en ligne"
+            "value": "Contacts en ligne"
           }
         },
         "ru": {
@@ -53417,7 +53417,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Supprimer la conversation"
+            "value": "Supprimer le chat"
           }
         },
         "ru": {
@@ -55026,7 +55026,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vu pour la dernière fois"
+            "value": "Dernière activité"
           }
         },
         "ru": {
@@ -55739,7 +55739,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ne plus faire confiance"
+            "value": "Révoquer"
           }
         },
         "ru": {
@@ -55781,7 +55781,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ne plus faire confiance à cet appareil"
+            "value": "Révoquer cet appareil"
           }
         },
         "ru": {
@@ -56614,13 +56614,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compartir información del dispositivo"
+            "value": "Compartir datos del dispositivo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Partager les informations de l’appareil"
+            "value": "Partager les infos de l’appareil"
           }
         },
         "ru": {
@@ -60652,7 +60652,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Редактировать"
+            "value": "Изменить"
           }
         }
       }
@@ -60954,7 +60954,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Редактировать"
+            "value": "Изменить"
           }
         },
         "zh-Hans": {
@@ -61047,7 +61047,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Correo electrónico"
+            "value": "Correo"
           }
         },
         "fr": {
@@ -63862,7 +63862,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Звук оповещения"
+            "value": "Звук"
           }
         },
         "zh-Hans": {
@@ -66207,7 +66207,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Promouvoir comme administrateur"
+            "value": "Nommer admin"
           }
         },
         "ru": {
@@ -66291,7 +66291,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sélectionner un utilisateur"
+            "value": "Choisir un membre"
           }
         },
         "ru": {
@@ -67409,7 +67409,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Administrateur"
+            "value": "Admin"
           }
         },
         "ru": {
@@ -68113,7 +68113,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La liste des personnes bloquées est vide"
+            "value": "Aucun blocage"
           }
         },
         "ru": {
@@ -70125,7 +70125,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Редактировать"
+            "value": "Изменить"
           }
         },
         "zh-Hans": {
@@ -70572,7 +70572,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "غير موجود في قائمة جهات الاتصال"
+            "value": "ليس ضمن جهات الاتصال"
           }
         },
         "en": {
@@ -70584,13 +70584,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No está en la lista de contactos"
+            "value": "Fuera de contactos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Absent de la liste de contacts"
+            "value": "Hors contacts"
           }
         },
         "ru": {
@@ -70602,7 +70602,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "不在联系人列表中"
+            "value": "不在联系人中"
           }
         }
       }
@@ -70853,7 +70853,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Administrateur"
+            "value": "Admin"
           }
         },
         "ru": {
@@ -71585,7 +71585,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нет на месте"
+            "value": "Не на месте"
           }
         },
         "zh-Hans": {
@@ -74337,7 +74337,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Informations"
+            "value": "Infos"
           }
         },
         "ru": {
@@ -74467,7 +74467,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Редактировать %@"
+            "value": "Изменить %@"
           }
         },
         "zh-Hans": {
@@ -76096,7 +76096,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الانضمام إلى المحادثة"
+            "value": "انضم للدردشة"
           }
         },
         "en": {
@@ -76114,13 +76114,13 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rejoindre la discussion"
+            "value": "Rejoindre"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Присоединиться к чату"
+            "value": "Войти в чат"
           }
         },
         "zh-Hans": {
@@ -76155,13 +76155,13 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rejoindre le groupe"
+            "value": "Rejoindre"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Присоединиться к группе"
+            "value": "Войти в группу"
           }
         },
         "zh-Hans": {
@@ -76556,7 +76556,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الانضمام إلى %@"
+            "value": "انضم إلى %@"
           }
         },
         "en": {
@@ -76580,7 +76580,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Присоединиться к %@"
+            "value": "Войти в %@"
           }
         },
         "zh-Hans": {
@@ -77665,7 +77665,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отметить все сообщения как прочитанные"
+            "value": "Прочитать всё"
           }
         },
         "zh-Hans": {
@@ -78382,7 +78382,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Редактировать"
+            "value": "Изменить"
           }
         }
       }
@@ -79136,13 +79136,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tiempo de espera agotado en el servidor remoto"
+            "value": "Servidor remoto sin respuesta"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Délai d’attente du serveur distant dépassé"
+            "value": "Délai serveur dépassé"
           }
         },
         "ru": {
@@ -79341,13 +79341,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tiempo de espera de la solicitud agotado"
+            "value": "Tiempo agotado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Délai d’attente de la requête dépassé"
+            "value": "Délai de requête dépassé"
           }
         },
         "ru": {
@@ -80677,13 +80677,13 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mettre en sourdine pendant 15 minutes"
+            "value": "Sourdine : 15 min"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отключить уведомления на 15 минут"
+            "value": "Без звука: 15 минут"
           }
         },
         "zh-Hans": {
@@ -80718,13 +80718,13 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mettre en sourdine pendant 1 jour"
+            "value": "Sourdine : 1 jour"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отключить уведомления на 1 день"
+            "value": "Без звука: 1 день"
           }
         },
         "zh-Hans": {
@@ -80759,13 +80759,13 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mettre en sourdine pendant 1 heure"
+            "value": "Sourdine : 1 h"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отключить уведомления на 1 час"
+            "value": "Без звука: 1 час"
           }
         },
         "zh-Hans": {
@@ -80800,13 +80800,13 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mettre en sourdine pendant 2 heures"
+            "value": "Sourdine : 2 h"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отключить уведомления на 2 часа"
+            "value": "Без звука: 2 часа"
           }
         },
         "zh-Hans": {
@@ -80847,7 +80847,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Выключить уведомления"
+            "value": "Без звука"
           }
         },
         "zh-Hans": {
@@ -80882,13 +80882,13 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mettre en sourdine indéfiniment"
+            "value": "Sourdine permanente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отключить уведомления навсегда"
+            "value": "Без звука всегда"
           }
         },
         "zh-Hans": {
@@ -82481,7 +82481,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher les bannières dans les discussions"
+            "value": "Bannières dans les chats"
           }
         },
         "ru": {
@@ -83610,7 +83610,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "全部标为已读"
+            "value": "全部已读"
           }
         }
       }
@@ -84432,7 +84432,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Faire confiance"
+            "value": "Approuver"
           }
         },
         "ru": {
@@ -86832,6 +86832,48 @@
         }
       }
     },
+    "passcode__accessibility__digits_entered_format": {
+      "comment": "Passcode entry VoiceOver value; %@ is the number of digits entered.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد الأرقام: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digits entered: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dígitos introducidos: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiffres saisis : %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введено цифр: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已输入位数：%@"
+          }
+        }
+      }
+    },
     "passcode__biometrics__unlock_app_format": {
       "comment": "LocalAuthentication prompt text shown during biometric application unlock; %@ is the application name.",
       "extractionState": "manual",
@@ -86916,6 +86958,48 @@
         }
       }
     },
+    "passcode__content__deleting_local_data": {
+      "comment": "Blocking account-store screen shown while local account data is being deleted.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ حذف البيانات المحلية"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleting local data"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminando datos locales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suppression des données locales"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удаление локальных данных"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在删除本地数据"
+          }
+        }
+      }
+    },
     "passcode__content__enter_passcode": {
       "comment": "Passcode and biometrics: visible label.",
       "extractionState": "manual",
@@ -86954,6 +87038,174 @@
           "stringUnit": {
             "state": "translated",
             "value": "输入密码"
+          }
+        }
+      }
+    },
+    "passcode__content__local_data_deletion_failed": {
+      "comment": "Blocking account-store error shown when deleting local account data fails and retry is available.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر حذف البيانات المحلية. حاول مجددًا."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not delete local data. Try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron eliminar los datos locales. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de supprimer les données locales. Réessayez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось удалить локальные данные. Повторите попытку."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法删除本地数据，请重试。"
+          }
+        }
+      }
+    },
+    "passcode__content__local_data_unavailable": {
+      "comment": "Blocking account-store error shown when local account data cannot be opened and retry is available.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر فتح البيانات المحلية. حاول مجددًا."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not open local data. Try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron abrir los datos locales. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’ouvrir les données locales. Réessayez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось открыть локальные данные. Повторите попытку."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开本地数据，请重试。"
+          }
+        }
+      }
+    },
+    "passcode__content__removing_data": {
+      "comment": "Passcode lock screen shown while a local data wipe is in progress.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ مسح البيانات المحلية…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removing local data…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminando datos locales…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suppression des données locales…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удаление локальных данных…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在清除本地数据…"
+          }
+        }
+      }
+    },
+    "passcode__content__too_many_unlock_attempts_wipe_started": {
+      "comment": "Security message sent to the user's account after excessive unlock attempts start a local data wipe.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محاولات إلغاء القفل كثيرة جدًا. بدأ مسح البيانات المحلية."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many unlock attempts. A local data wipe was started."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demasiados intentos de desbloqueo. Se inició el borrado de datos locales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de tentatives de déverrouillage. L’effacement des données locales a commencé."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Слишком много попыток разблокировки. Началось удаление локальных данных."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解锁尝试次数过多，已开始清除本地数据。"
           }
         }
       }
@@ -87914,7 +88166,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "第 %1$lld 张，共 %2$lld 张"
+            "value": "%1$lld/%2$lld"
           }
         }
       }
@@ -88522,7 +88774,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有未读的聊天记录"
+            "value": "暂无未读聊天"
           }
         }
       }
@@ -90870,7 +91122,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Passer à l’offre inférieure %@"
+            "value": "Passer à %@"
           }
         },
         "ru": {
@@ -91164,7 +91416,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Passer à l’offre supérieure %@"
+            "value": "Passer à %@"
           }
         },
         "ru": {
@@ -95676,7 +95928,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denunciar contenido multimedia"
+            "value": "Denunciar medio"
           }
         },
         "fr": {
@@ -95881,7 +96133,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tipo de contenido multimedia"
+            "value": "Tipo de medio"
           }
         },
         "fr": {
@@ -96098,7 +96350,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "JID пользователя, на которого подана жалоба"
+            "value": "JID пользователя"
           }
         },
         "zh-Hans": {
@@ -96514,7 +96766,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Контент сексуального характера или обнажённые изображения"
+            "value": "Сексуальный контент или нагота"
           }
         },
         "zh-Hans": {
@@ -97091,7 +97343,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Пожаловаться на пользователя"
+            "value": "Пожаловаться"
           }
         },
         "zh-Hans": {
@@ -97897,7 +98149,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "发送日期：%@"
+            "value": "%@ 发送"
           }
         }
       }
@@ -98797,7 +99049,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sélectionner une discussion"
+            "value": "Choisir un chat"
           }
         },
         "ru": {
@@ -98879,7 +99131,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sélectionner le domaine de la discussion de groupe"
+            "value": "Choisir le domaine du salon"
           }
         },
         "ru": {
@@ -98996,7 +99248,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enviar todos los archivos de registro"
+            "value": "Enviar todos los registros"
           }
         },
         "fr": {
@@ -102577,7 +102829,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verrouillage automatique"
+            "value": "Verrouillage auto"
           }
         },
         "ru": {
@@ -104849,7 +105101,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se produjeron errores en %@ actualizaciones de la lista de contactos. Al reintentar, solo se enviará la diferencia restante."
+            "value": "Fallaron %@ cambios en contactos. Reintentar envía solo lo pendiente."
           }
         },
         "fr": {
@@ -105001,7 +105253,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعادة المحاولة"
+            "value": "حاول مجددًا"
           }
         },
         "en": {
@@ -111470,7 +111722,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le jeton de l’appareil %1$@ (%2$@) a été révoqué en raison d’un trop grand nombre de tentatives de déverrouillage. Les données utilisateur ont été supprimées."
+            "value": "Le jeton de l’appareil %1$@ (%2$@) a été révoqué après trop de tentatives de déverrouillage. Données utilisateur supprimées."
           }
         },
         "ru": {
@@ -113401,7 +113653,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الغاء كتم الصوت"
+            "value": "إلغاء الكتم"
           }
         },
         "en": {
@@ -113413,7 +113665,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Habilitar sonido"
+            "value": "Activar sonido"
           }
         },
         "fr": {
@@ -113425,7 +113677,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Включить уведомления"
+            "value": "Включить звук"
           }
         },
         "zh-Hans": {
@@ -113554,7 +113806,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有未读的聊天记录"
+            "value": "暂无未读聊天"
           }
         }
       }
@@ -114564,7 +114816,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apartado de correos"
+            "value": "Apartado postal"
           }
         },
         "fr": {
@@ -114746,7 +114998,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "个人简介"
+            "value": "简介"
           }
         }
       }
@@ -115001,7 +115253,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Correo electrónico"
+            "value": "Correo"
           }
         },
         "fr": {
@@ -115019,7 +115271,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "电子邮箱"
+            "value": "邮箱"
           }
         }
       }
@@ -115569,7 +115821,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Должностные функции"
+            "value": "Должность"
           }
         },
         "zh-Hans": {
@@ -115902,7 +116154,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Correo electrónico"
+            "value": "Correo"
           }
         },
         "fr": {
@@ -117010,7 +117262,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "来自 %1$@ 的语音通话"
+            "value": "%1$@ 语音通话"
           }
         }
       }
@@ -120110,7 +120362,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нажмите, чтобы разблокировать"
+            "value": "Нажмите для разблокировки"
           }
         },
         "zh-Hans": {
