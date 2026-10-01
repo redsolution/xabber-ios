@@ -20,6 +20,26 @@
 source 'https://cdn.cocoapods.org'
 source 'https://github.com/webrtc-sdk/Specs.git'
 
+require 'json'
+
+OMEMO_DEPENDENCIES = JSON.parse(File.read(File.join(__dir__, 'tools', 'local-dependencies.json'))).freeze
+OMEMO_DEPENDENCIES_ROOT = File.expand_path(
+    ENV.fetch('XABBER_DEPS_ROOT', OMEMO_DEPENDENCIES.fetch('default_root_relative_to_project')),
+    __dir__
+).freeze
+
+def local_omemo_pod(name)
+    dependency = OMEMO_DEPENDENCIES.fetch('pods').fetch(name)
+    path = File.join(OMEMO_DEPENDENCIES_ROOT, dependency.fetch('directory'))
+    spec_path = Dir.glob(File.join(path, "#{name}.podspec{,.json}")).first
+    raise "Missing local OMEMO podspec #{name}: #{path}" unless spec_path
+    specification = Pod::Specification.from_file(spec_path)
+    unless specification.version.to_s == dependency.fetch('version')
+        raise "Local #{name} version differs from OMEMO manifest"
+    end
+    pod name, :path => path
+end
+
 platform :ios, '15.0'
 
 use_frameworks!
@@ -40,14 +60,15 @@ def main_pods
     pod 'LetterAvatarKit', '=1.2.3'
     pod 'DeepDiff'
     pod 'Punycode'
-    pod 'XMPPFramework/Swift', :git => 'https://github.com/redsolution/XMPPFramework.git', :branch => 'light'
-#    pod 'XMPPFramework/Swift', :path => '/Users/igor.boldin/projects/xabber/deps/XMPPFramework/'
+    # Preserve the local XMPPFramework source already active in the original lock/install.
+    pod 'XMPPFramework/Swift', :path => File.join(OMEMO_DEPENDENCIES_ROOT, 'XMPPFramework')
     pod 'CocoaAsyncSocket', :git => 'https://github.com/robbiehanson/CocoaAsyncSocket', :branch => 'master'
     pod 'OpenSSL-Universal'
     pod 'Curve25519Kit', :git => 'https://github.com/redsolution/Curve25519Kit.git', :branch => 'mkirk/framework-friendly'
-    pod 'SignalProtocolObjC', :git => 'https://github.com/redsolution/SignalProtocol-ObjC.git', :branch => 'master'
+    local_omemo_pod 'SignalProtocolC'
+    local_omemo_pod 'SignalProtocolObjC'
     pod 'YubiKit', :git => 'https://github.com/Yubico/yubikit-ios.git'
-    
+
 end
 
 

@@ -1,0 +1,76 @@
+diff --git a/LOCAL_DEPENDENCY.md b/LOCAL_DEPENDENCY.md
+new file mode 100644
+index 0000000..a3df946
+--- /dev/null
++++ b/LOCAL_DEPENDENCY.md
+@@ -0,0 +1,12 @@
++# Local CocoaPods dependency
++
++- Upstream: https://github.com/WhisperSystems/libsignal-protocol-c.git
++- Baseline: `4a137eaf4eb4421949e2e1dde9f11ec7bc07b88f` (`v2.3.2`).
++- Local branch: `codex/ios-local-dependencies`.
++- The upstream revision does not contain a root CocoaPods spec. `SignalProtocolC.podspec.json` was copied from the installed CocoaPods trunk spec for 2.3.2.
++- Original spec checksum from the application's Podfile.lock: `051512e9f3abfeb4120c5e9673af9ae0ee370070`.
++- Original spec SHA-256: `e59ec2d23a59490dc703122b7b2d053262bc57ac2f745e7e7894677c72a6dfd4`.
++- Setup change: header search paths use `$(PODS_TARGET_SRCROOT)/src` instead of `$(PODS_ROOT)/SignalProtocolC/src`, preserving all four search directories. This supports a development pod outside Pods/.
++- No cryptographic source, wire format, or library version changes.
++
++Point `SignalProtocolC` at this directory with CocoaPods `:path`.
+diff --git a/SignalProtocolC.podspec.json b/SignalProtocolC.podspec.json
+new file mode 100644
+index 0000000..d3ddca0
+--- /dev/null
++++ b/SignalProtocolC.podspec.json
+@@ -0,0 +1,52 @@
++{
++  "name": "SignalProtocolC",
++  "version": "2.3.2",
++  "summary": "Signal Protocol C Library",
++  "platforms": {
++    "osx": "10.9",
++    "ios": "8.0",
++    "tvos": "9.0",
++    "watchos": "2.0"
++  },
++  "description": "This is a ratcheting forward secrecy protocol that works in synchronous and asynchronous messaging environments.\nhttps://github.com/WhisperSystems/libsignal-protocol-c",
++  "homepage": "https://github.com/ChatSecure/SignalProtocolC",
++  "license": {
++    "type": "GPLv3",
++    "text": "                Copyright 2015-2016 Open Whisper Systems\n\n\t\t\t\t\t\t\t\tLicensed under the GPLv3: http://www.gnu.org/licenses/gpl-3.0.html\n\n\t\t\t\t\t\t\t\tAdditional Permissions For Submission to Apple App Store: Provided that you are otherwise in compliance with the GPLv3 for each covered work you convey (including without limitation making the Corresponding Source available in compliance with Section 6 of the GPLv3), Open Whisper Systems also grants you the additional permission to convey through the Apple App Store non-source executable versions of the Program as incorporated into each applicable covered work as Executable Versions only under the Mozilla Public License version 2.0 (https://www.mozilla.org/en-US/MPL/2.0/).\n\n"
++  },
++  "authors": {
++    "Open Whisper Systems": "support@whispersystems.org"
++  },
++  "social_media_url": "https://twitter.com/whispersystems/",
++  "source": {
++    "git": "https://github.com/WhisperSystems/libsignal-protocol-c.git",
++    "tag": "v2.3.2"
++  },
++  "source_files": [
++    "src/**/*.{h,c}"
++  ],
++  "exclude_files": "src/curve25519/ed25519/main",
++  "public_header_files": [
++    "src/signal_protocol.h",
++    "src/signal_protocol_types.h",
++    "src/curve.h",
++    "src/hkdf.h",
++    "src/ratchet.h",
++    "src/protocol.h",
++    "src/session_state.h",
++    "src/session_record.h",
++    "src/session_pre_key.h",
++    "src/session_builder.h",
++    "src/session_cipher.h",
++    "src/key_helper.h",
++    "src/sender_key.h",
++    "src/sender_key_state.h",
++    "src/sender_key_record.h",
++    "src/group_session_builder.h",
++    "src/group_cipher.h",
++    "src/fingerprint.h"
++  ],
++  "pod_target_xcconfig": {
++    "HEADER_SEARCH_PATHS": "\"$(PODS_TARGET_SRCROOT)/src\" \"$(PODS_TARGET_SRCROOT)/src/curve25519\" \"$(PODS_TARGET_SRCROOT)/src/curve25519/ed25519\" \"$(PODS_TARGET_SRCROOT)/src/protobuf-c\""
++  }
++}
