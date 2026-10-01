@@ -1,3 +1,4 @@
 docs/localization/active-translations.csv -whitespace
 # Preparation patch preserves upstream context whitespace verbatim.
 tools/local-dependencies/patches/SignalProtocolC.patch -whitespace
+tools/local-dependencies/patches/SignalProtocolObjC.patch -whitespace

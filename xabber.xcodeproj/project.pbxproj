@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AB038401260A000000000002 /* OMEMO2CryptoKitConformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB038401260A000000000001 /* OMEMO2CryptoKitConformanceTests.swift */; };
+		317030DD0C0A7D8A75EE828B /* OMEMO2Tests.m in Sources */ = {isa = PBXBuildFile; fileRef = 6693FDAC0446B598B6B05C02 /* OMEMO2Tests.m */; };
 		A6D200023D05000000ABC001 /* NotificationsSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D200013D05000000ABC001 /* NotificationsSettingsViewController.swift */; };
 		A6D200043D05000000ABC001 /* NotificationsSettingsViewControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D200033D05000000ABC001 /* NotificationsSettingsViewControllerTests.swift */; };
 		DAA100083D04000000ABC001 /* InterfaceSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAA100073D04000000ABC001 /* InterfaceSettingsViewController.swift */; };
@@ -1101,6 +1103,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AB038401260A000000000001 /* OMEMO2CryptoKitConformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OMEMO2CryptoKitConformanceTests.swift; path = OMEMO2CryptoKitConformanceTests.swift; sourceTree = "<group>"; };
+		6693FDAC0446B598B6B05C02 /* OMEMO2Tests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = OMEMO2Tests.m; path = ../../../../../deps/SignalProtocolObjC/Testing/SignalProtocolTests/OMEMO2Tests.m; sourceTree = SOURCE_ROOT; };
 		A6D200013D05000000ABC001 /* NotificationsSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsSettingsViewController.swift; sourceTree = "<group>"; };
 		A6D200033D05000000ABC001 /* NotificationsSettingsViewControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsSettingsViewControllerTests.swift; sourceTree = "<group>"; };
 		DAA100073D04000000ABC001 /* InterfaceSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterfaceSettingsViewController.swift; sourceTree = "<group>"; };
@@ -4130,6 +4134,8 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				AB038401260A000000000001 /* OMEMO2CryptoKitConformanceTests.swift */,
+				6693FDAC0446B598B6B05C02 /* OMEMO2Tests.m */,
 				4EA900012F9A00000ABC0001 /* AKESystemMessageLocalizationTests.swift */,
 				4EA910012F9A00000ABC0001 /* EphemeralSystemMessageLocalizationTests.swift */,
 				4EC000053D1000000ABC0001 /* LocalizationCoreTests.swift */,
@@ -6376,6 +6382,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				317030DD0C0A7D8A75EE828B /* OMEMO2Tests.m in Sources */,
+				AB038401260A000000000002 /* OMEMO2CryptoKitConformanceTests.swift in Sources */,
 				4EA900022F9A00000ABC0001 /* AKESystemMessageLocalizationTests.swift in Sources */,
 				4EA910022F9A00000ABC0001 /* EphemeralSystemMessageLocalizationTests.swift in Sources */,
 				4EC003013D1000000ABC0001 /* LocalizationCoreTests.swift in Sources */,

@@ -7,13 +7,13 @@
 | SignalProtocolC | 2.3.2 | `projects/xabber/deps/SignalProtocolC` | `codex/ios-local-dependencies` | [WhisperSystems/libsignal-protocol-c](https://github.com/WhisperSystems/libsignal-protocol-c) |
 | SignalProtocolObjC | 1.1.0 | `projects/xabber/deps/SignalProtocolObjC` | `codex/ios-local-dependencies` | [redsolution/SignalProtocol-ObjC](https://github.com/redsolution/SignalProtocol-ObjC) |
 
-SignalProtocolC содержит криптографическое ядро, HKDF, Double Ratchet, protobuf и MAC. SignalProtocolObjC содержит Objective-C API, модели сообщений/ключей и связь с ядром. Криптографическая реализация пока не менялась.
+SignalProtocolC содержит криптографическое ядро, HKDF, Double Ratchet, protobuf и MAC. SignalProtocolObjC содержит Objective-C API, модели сообщений/ключей и связь с ядром. Добавлен явный OMEMO2 API согласно [описанию профиля](omemo2-dependency-profile.md). Приложение пока использует прежний Signal API; подключение нового профиля и миграция storage остаются отдельным этапом.
 
 ## Подключение
 
 Podfile подключает оба пакета через `:path`; локальный podspec должен иметь версию из [manifest](../tools/local-dependencies.json). Базовые commits сохранены: C — `4a137eaf4eb4421949e2e1dde9f11ec7bc07b88f`, ObjC — `597bb713d9cadda855f150f6066c50521481213f`. Подготовительный commit C — `c84fa08be27d1898fd607c4f568f4d6ceb897147`.
 
-В C добавлен отсутствующий upstream root podspec из resolved спецификации 2.3.2; внутренние header paths настроены в `pod_target_xcconfig` через `PODS_TARGET_SRCROOT`. [Patch](../tools/local-dependencies/patches/SignalProtocolC.patch) позволяет восстановить подготовку на новом checkout. Исходники шифрования и wrapper не изменены.
+В C добавлен отсутствующий upstream root podspec из resolved спецификации 2.3.2; внутренние header paths настроены в `pod_target_xcconfig` через `PODS_TARGET_SRCROOT`. [Patch](../tools/local-dependencies/patches/SignalProtocolC.patch) позволяет восстановить подготовку на новом checkout. Оба восстановительных patches теперь содержат полный проверенный OMEMO2 профиль и тесты. Точные commits C/ObjC сохранены в manifest; bootstrap воспроизводит изменения поверх прежних pinned bases.
 
 ```bash
 python3 tools/local_dependencies.py check
@@ -42,4 +42,4 @@ Curve25519Kit в плане имеет условные изменения; се
 - `XABBER_DESTINATION='platform=iOS Simulator,id=91E09D3E-4BBC-4431-9EAF-14D2410E7B98' tools/xcodebuild_cached.sh build CODE_SIGNING_ALLOWED=NO` — `BUILD SUCCEEDED`, exit0; Debug, Xcode26.0, iOS26.0 Simulator. Собраны приложение и push extension; output проверен без compiler/linker errors.
 - `py_compile` и `git diff --check` — прошли. Сохранённые Git/preparation routines ранее проверены на отказе неподготовленного baseline/чужой ветки, сохранении dirty work и принятии replay patch с будущими edits.
 
-XCTest и межклиентный OMEMO обмен не запускались для настройки подключения. Disposable logs/result bundles удалены; стабильные Xcode caches сохранены. Ветки не отправлены на сервер.
+Для нового профиля проверены 3 C-suite и 17 XCTest на Simulator, включая независимый CryptoKit backend и прежний lifecycle (см. [отчёт](omemo2-dependency-profile.md)). Межклиентный обмен остаётся непроверенным. Disposable logs/result bundles удалены; стабильные Xcode caches сохранены. Ветки не отправлены на сервер.

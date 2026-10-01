@@ -20,7 +20,7 @@
       "url": "https://github.com/WhisperSystems/libsignal-protocol-c.git",
       "origin": "https://github.com/WhisperSystems/libsignal-protocol-c.git",
       "base_revision": "4a137eaf4eb4421949e2e1dde9f11ec7bc07b88f",
-      "prepared_revision": "c84fa08be27d1898fd607c4f568f4d6ceb897147",
+      "prepared_revision": "7552b1be9685524c6a8a16e228554e879f11f3be",
       "branch": "codex/ios-local-dependencies",
       "pods": [
         "SignalProtocolC"
@@ -35,12 +35,13 @@
       "url": "https://github.com/redsolution/SignalProtocol-ObjC.git",
       "origin": "https://github.com/redsolution/SignalProtocol-ObjC.git",
       "base_revision": "597bb713d9cadda855f150f6066c50521481213f",
-      "prepared_revision": "597bb713d9cadda855f150f6066c50521481213f",
+      "prepared_revision": "d142b4db2aab57d2686bce7f4c1298ca1a9322b9",
       "branch": "codex/ios-local-dependencies",
       "pods": [
         "SignalProtocolObjC"
       ],
-      "version": "1.1.0"
+      "version": "1.1.0",
+      "preparation_patch": "tools/local-dependencies/patches/SignalProtocolObjC.patch"
     }
   ],
   "scope": "Only required OMEMO migration libraries: SignalProtocolC and SignalProtocolObjC"
