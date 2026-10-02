@@ -547,9 +547,6 @@ class ChatMarkersManager: AbstractXMPPManager {
                 let response = XMPPMessage(messageType: .chat, to: XMPPJID(string: instance.opponent), elementID: elementId, child: displayed)
                 let conversationType = instance.conversationType
                 if conversationType.isEncrypted {
-                    let encryptionElement = DDXMLElement(name: "encryption", xmlns: "urn:xmpp:eme:0")
-                    encryptionElement.addAttribute(withName: "namespace", stringValue: conversationType.rawValue)
-                    response.addChild(encryptionElement)
                     response.addStorageHint(.store)
                 }
                 let conversation = DDXMLElement(name: "conversation", xmlns: "https://xabber.com/protocol/synchronization")

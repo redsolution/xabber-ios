@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A0F9CA178D3F40FB95F321EF /* OMEMO2OutgoingMetadataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A67624C4269446D9CC8250B /* OMEMO2OutgoingMetadataTests.swift */; };
 		DF96FD49CDF54508B318199E /* OMEMO2ReceiveRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A14979AC489461BBA0C0A3D /* OMEMO2ReceiveRoutingTests.swift */; };
 		5BBB21AD8A314ABAB197798B /* OMEMO2SCEReceiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8EC5E0B3A01432EA78F1ED0 /* OMEMO2SCEReceiveTests.swift */; };
 		F99DAB1A137A4868BAAEB4EF /* OMEMOReceive.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C8701F8F024394995ACC9A /* OMEMOReceive.swift */; };
@@ -1117,6 +1118,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		1A67624C4269446D9CC8250B /* OMEMO2OutgoingMetadataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2OutgoingMetadataTests.swift; sourceTree = "<group>"; };
 		6A14979AC489461BBA0C0A3D /* OMEMO2ReceiveRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2ReceiveRoutingTests.swift; sourceTree = "<group>"; };
 		B8EC5E0B3A01432EA78F1ED0 /* OMEMO2SCEReceiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2SCEReceiveTests.swift; sourceTree = "<group>"; };
 		E2C8701F8F024394995ACC9A /* OMEMOReceive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOReceive.swift; sourceTree = "<group>"; };
@@ -4167,6 +4169,7 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				1A67624C4269446D9CC8250B /* OMEMO2OutgoingMetadataTests.swift */,
 				B8EC5E0B3A01432EA78F1ED0 /* OMEMO2SCEReceiveTests.swift */,
 				6A14979AC489461BBA0C0A3D /* OMEMO2ReceiveRoutingTests.swift */,
 				68C3EC34A0D24588B504B518 /* OMEMO2AppIntegrationTests.swift */,
@@ -6429,6 +6432,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A0F9CA178D3F40FB95F321EF /* OMEMO2OutgoingMetadataTests.swift in Sources */,
 				5BBB21AD8A314ABAB197798B /* OMEMO2SCEReceiveTests.swift in Sources */,
 				DF96FD49CDF54508B318199E /* OMEMO2ReceiveRoutingTests.swift in Sources */,
 				E9D67D72E3EE4A9EB49310CA /* OMEMO2AppIntegrationTests.swift in Sources */,

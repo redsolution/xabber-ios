@@ -557,9 +557,7 @@ class TrustSharingManager: AbstractXMPPManager {
 
         let omemoMessage = XMPPMessage(messageType: .chat, to: XMPPJID(string: owner), elementID: UUID().uuidString, child: encrypted)
         omemoMessage.addBody("Message was encrypted by OMEMO".localizeString(id: "message_omemo_encryption", arguments: []))
-        let encryptionElement = DDXMLElement(name: "encryption", xmlns: "urn:xmpp:eme:0")
-        encryptionElement.addAttribute(withName: "namespace", stringValue: "urn:xmpp:omemo:2")
-        omemoMessage.addChild(encryptionElement)
+        OmemoManager.synchronizeOutgoingEncryptionMetadata(omemoMessage)
         omemoMessage.addOriginId(UUID().uuidString)
         if let myFullJid = account.xmppStream.myJID?.full {
             omemoMessage.addAttribute(withName: "from", stringValue: myFullJid)

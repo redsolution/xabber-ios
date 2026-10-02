@@ -42,7 +42,7 @@
 
 **Уровень:** MUST. **Владелец:** xmpp. **Зависимости:** нет.
 
-**Реализация:** [контракт проверенного приёма](omemo2-sce-receive.md), 2026-10-02. Подготовка live/MAM/carbon/sync/push, внутренний provenance и QName consumers реализованы; результаты финального Simulator gate находятся в завершённой задаче vault. Следующая задача — OM2-02.
+**Реализация:** [контракт проверенного приёма](omemo2-sce-receive.md), 2026-10-02. Подготовка live/MAM/carbon/sync/push, внутренний provenance и QName consumers реализованы; результаты финального Simulator gate находятся в завершённой задаче vault. Следующая задача — OM2-03; OM2-02 выполнена в уточнённом объёме.
 
 **Компоненты:** `Omemo2PayloadCodec.swift`, `OmemoManager.swift`, `AccountStreamDelegate.swift`, `MessageManager+CommonReceiver.swift`, `MessageReferenceParser.swift`.
 
@@ -55,34 +55,40 @@
 - Подлинный ciphertext с внешними reference/ephemeral/markers/internal success marker не меняет содержимое, TTL и статус decrypt.
 - Foreign/prefixed content/body, attachment-only payload и malformed XML; реальные forwarded wrappers; controls/replays не создают bubbles.
 
-### OM2-02 — Правильная окончательная отправляемая stanza
+### OM2-02 — EME по фактическому профилю отправки
 
-**Уровень:** MUST. **Владелец:** xmpp. **Зависимости:** OM2-01.
+**Уровень:** MUST для EME. **Владелец:** xmpp. **Зависимости:** OM2-01.
 
-**Компоненты:** `MessageManager+CommonSender.swift`, `OmemoManager+Encryption.swift`, `ReliableMessageDelivery.swift`.
+**Реализовано:** [EME contract и проверка](omemo2-outgoing-eme.md), 2026-10-02. 126 focused XCTest прошли; app и push extension собраны.
 
-- Ввести общий финальный OMEMO serializer: encrypted, корректный EME фактического provider и store; убрать fallback body.
-- В основном sender перенести markable из позднего plaintext hook в content до encryption; проверять окончательный XML после hooks; согласовать .omemo/.omemo1/.axolotl conversation kinds с фактическим OMEMO2 sender, сохранив legacy history reader.
-- Существующее encrypted содержимое custom protocols считать непрозрачным: нормализовать только общий внешний OMEMO transport. Закрепить форму payloadless ACK/heartbeat и EME policy отдельно.
+**Уточнение пользователя, 2026-10-02:** выполнить согласование EME. Fallback `body` сохраняется; новые `store` hints не добавляются, существующие hints остаются. Маркеры доставки, квитанции и маркеры прочтения не шифруются по явному контракту пользователя; существующий markable hook сохраняется. Типы чатов и процесс обмена доверием не меняются.
+
+**Компоненты:** `MessageManager+CommonSender.swift`, `OmemoManager+Encryption.swift`, `ChatMarkers.swift`, `TrustSharingManager.swift`.
+
+- Формировать EME из QName фактического direct `encrypted`, независимо от исторического conversation kind. Для известных OMEMO URI optional `name` отсутствует.
+- Нормализовать EME основного sender после delivery hooks перед отправкой; повторная отправка использует то же правило.
+- Согласовать EME шифрованного непрозрачного TrustSharing payload и payloadless ratchet controls; не менять payload/доверие.
+- Открытый displayed marker не заявляет шифрование через EME. Его существующие hints и conversation metadata сохраняются. Маркеры прочтения остаются открытыми по контракту проекта.
 
 **Приёмка:**
 
-- Capture конечной stanza для текста, вложений, forward, retry и всех encrypted conversation kinds: body отсутствует, store есть, EME соответствует ciphertext.
-- На путях основного sender чувствительные поля не появляются снаружи после hooks; серверные исключения совпадают по имени и namespace. Полнота самостоятельных auxiliary senders принимается в OM2-03.
+- Все три encrypted conversation kinds отправляют EME с `urn:xmpp:omemo:2`, как текущий provider; plaintext сообщения без ciphertext не получают EME.
+- Fallback body, hints, ID и ciphertext остаются неизменными при нормализации; повторная нормализация не дублирует EME.
+- Реальный control остаётся bodyless/decryptable; prefixed QName работает, foreign/nested encrypted не помечает наружную stanza.
 
 ### OM2-03 — SCE для вспомогательных сообщений
 
 **Уровень:** MUST при использовании расширений. **Владелец:** xmpp. **Зависимости:** OM2-01, OM2-02.
 
-**Компоненты:** `ChatMarkers.swift`, `MessageManager+CommonSender.swift`, `OMEMO senders correction/retraction/receipts/ephemeral`.
+**Компоненты:** `MessageManager+CommonSender.swift`, `OMEMO senders correction/retraction/ephemeral/references`.
 
-- Составить и реализовать таблицу всех OMEMO send paths: markable, received/displayed markers, receipts, correction, retraction, ephemeral, references/mentions.
+- Составить и реализовать таблицу OMEMO send paths: correction, retraction, ephemeral, references/mentions. Маркеры доставки, квитанции и маркеры прочтения остаются открытыми по контракту проекта (уточнение пользователя, 2026-10-02); не переносить chat-markers/receipts в SCE.
 - Передавать sensitive client extensions через encrypted content общего builder и маршрутизировать только из проверенного результата.
-- Оставлять снаружи лишь документированные server-processed элементы; custom retry разрешать по подтверждённой серверной спецификации. Не путать encrypted extension-only payload с payloadless ratchet ACK.
+- Сохранить открытый транспорт маркеров доставки, квитанций и маркеров прочтения, включая взаимодействие с XEP-SYNC. Для остальных расширений оставлять снаружи документированные server-processed элементы; custom retry разрешать по подтверждённой серверной спецификации. Не путать encrypted extension-only payload с payloadless ratchet ACK.
 
 **Приёмка:**
 
-- Проверка final wire и receiver effects для каждого расширения; plaintext injection не вызывает действий.
+- Проверка final wire и receiver effects для защищаемых расширений; plaintext injection в их внешние копии не вызывает действий. Маркеры доставки, квитанции и маркеры прочтения продолжают работать открыто через существующие обработчики.
 - Encrypted extension-only сообщения работают без пустого пользовательского bubble; retry сохраняет ID и ciphertext.
 
 ### OM2-04 — SCE affixes: время и padding

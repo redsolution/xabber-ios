@@ -122,6 +122,22 @@ struct OmemoSendAvailabilityPolicy {
 }
 
 extension OmemoManager {
+    internal static func synchronizeOutgoingEncryptionMetadata(_ message: XMPPMessage) {
+        // Conversation/history labels do not identify the provider used on the wire.
+        // Only a direct, unambiguous locally prepared OMEMO element selects EME.
+        let namespaces: Set<String> = [Self.xmlns, "urn:xmpp:omemo:1", "eu.siacs.conversations.axolotl"]
+        let encrypted = (message.children?.compactMap { $0 as? DDXMLElement } ?? []).filter {
+            $0.localName == "encrypted" && namespaces.contains($0.uri ?? "")
+        }
+        guard encrypted.count == 1, let namespace = encrypted.first?.uri else { return }
+
+        SCEReceivePolicy.children(of: message, named: "encryption", xmlns: "urn:xmpp:eme:0")
+            .forEach { $0.detach() }
+        let metadata = DDXMLElement(name: "encryption", xmlns: "urn:xmpp:eme:0")
+        metadata.addAttribute(withName: "namespace", stringValue: namespace)
+        message.addChild(metadata)
+    }
+
     private static let sessionQueue = DispatchQueue(label: "com.xabber.omemo.session.queue")
 
     /// The protected profile owns the device ID after migration. Missing or
@@ -308,6 +324,7 @@ extension OmemoManager {
         keys.addChild(try doubleRatchet(hmac: Data(repeating: 0, count: 32), jid: jid, deviceId: deviceID))
         header.addChild(keys); encrypted.addChild(header); message.addChild(encrypted)
         message.addChild(DDXMLElement(name: "store", xmlns: "urn:xmpp:hints"))
+        Self.synchronizeOutgoingEncryptionMetadata(message)
         return message
     }
 

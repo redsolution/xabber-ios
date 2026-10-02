@@ -367,9 +367,6 @@ extension MessageManager {
                         failEncryptedSend(error)
                         return
                     }
-                    let encryptionElement = DDXMLElement(name: "encryption", xmlns: "urn:xmpp:eme:0")
-                    encryptionElement.addAttribute(withName: "namespace", stringValue: conversationType.rawValue)
-                    stanza.addChild(encryptionElement)
                     stanza.addBody("Message was encrypted by OMEMO".localizeString(id: "message_omemo_encryption", arguments: []))
                     stanzaToSave.addBody(item.legacyBody)
                 default:
@@ -504,6 +501,9 @@ extension MessageManager {
             AccountManager.shared.find(for: owner)?.unsafeAction({ (user, stream) in
                 stanza.addChild(user.chatMarkers.child)
                 let stanzaToSend = user.deliveryManager.apply(to: stanza, retry: retry, missRetryElement: missRetryElementOnResend)
+                if conversationType.isEncrypted {
+                    OmemoManager.synchronizeOutgoingEncryptionMetadata(stanzaToSend)
+                }
                 guard user.sendReadiness.snapshot.canFlushApplicationStanzas else {
                     user.logConnectionDiagnostics(
                         event: "application_message_send_deferred_no_replay_policy",
