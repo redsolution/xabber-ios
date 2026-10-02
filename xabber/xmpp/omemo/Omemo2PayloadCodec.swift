@@ -12,6 +12,11 @@ enum Omemo2PayloadCodec {
         let keyAndMAC: Data
     }
 
+    struct OpenedPayload {
+        let envelope: DDXMLElement
+        let content: DDXMLElement
+    }
+
     static func secureRandom(_ count: Int) throws -> Data {
         guard count > 0 else { throw OmemoManagerError.encryptionFailed }
         var data = Data(count: count)
@@ -31,6 +36,10 @@ enum Omemo2PayloadCodec {
     }
 
     static func open(_ payload: Data?, keyAndMAC: Data, expectedFrom: String?, expectedTo: String?, requireTo: Bool = false) throws -> DDXMLElement? {
+        try openVerified(payload, keyAndMAC: keyAndMAC, expectedFrom: expectedFrom, expectedTo: expectedTo, requireTo: requireTo)?.envelope
+    }
+
+    static func openVerified(_ payload: Data?, keyAndMAC: Data, expectedFrom: String?, expectedTo: String?, requireTo: Bool = false) throws -> OpenedPayload? {
         if payload == nil {
             guard keyAndMAC == Data(repeating: 0, count: 32) else { throw OmemoManagerError.invalidDecryptedPayload }
             return nil
@@ -74,10 +83,12 @@ enum Omemo2PayloadCodec {
                 throw OmemoManagerError.invalidDecryptedPayload
             }
         }
-        let forbidden = Set(["urn:xmpp:hints", "urn:xmpp:sid:0", "http://jabber.org/protocol/address"])
-        children("content")[0].children?.compactMap { $0 as? DDXMLElement }.filter { forbidden.contains($0.uri ?? "") }.forEach { $0.detach() }
+        let content = children("content")[0]
+        for child in content.children?.compactMap({ $0 as? DDXMLElement }) ?? [] {
+            if !SCEReceivePolicy.isClientContentElement(child) { child.detach() }
+        }
         root.detach()
-        return root
+        return OpenedPayload(envelope: root, content: content)
     }
 
     static func decodeBase64(_ value: String) throws -> Data {

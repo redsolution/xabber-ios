@@ -86,14 +86,17 @@ class MessageForwardsInlineStorageItem: Object {
             owner: owner,
             depth: forwardDepth
         ))
-        let bodyReferences = messageContainer.elements(forName: "reference")
+        let bodyReferences = SCEReceivePolicy.children(of: messageContainer, named: "reference", xmlns: "https://xabber.com/protocol/references")
         let removableBodyReferences = forwardDepth >= inlineForwardMaximumDepth
             ? bodyReferences.filter { getReferenceType($0) != "forward" }
             : bodyReferences
-        self.body = messageContainer
-            .body?
-            .xmlEscaping(reverse: false)
-            .excludeFromBody(removableBodyReferences, groupchat: nil) ?? ""
+        if SCEReceivePolicy.hasOMEMO2(messageContainer) {
+            self.body = L10n.text("chat_list__preview__encrypted_message", fallback: "Encrypted message")
+        } else {
+            self.body = SCEReceivePolicy.children(of: messageContainer, named: "body", xmlns: "jabber:client")
+                .first?.stringValue?.xmlEscaping(reverse: false)
+                .excludeFromBody(removableBodyReferences, groupchat: nil) ?? ""
+        }
         self.isOutgoing = outgoing
         self.originalDate = date
         self.forwardJid = forwardJid ?? ""

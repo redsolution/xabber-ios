@@ -451,30 +451,45 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         return true
     }
     
-    public func receiveSaved(message messageContainer: XMPPMessage) {
+    public func receiveSaved(message messageContainer: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext) {
         do {
             let realm = try WRealm.safe()
-            try receiveSaved(message: messageContainer, realm: realm, commitTransaction: true)
+            try receiveSaved(message: messageContainer, realm: realm, commitTransaction: true, encryption: encryption)
         } catch {
             DDLogDebug("XMPPFavoritesManager: \(#function). \(error.localizedDescription)")
         }
     }
 
+    @discardableResult
     func receiveSaved(
         message messageContainer: XMPPMessage,
         realm: Realm,
         commitTransaction: Bool,
-        favoritesNodeOverride: String? = nil
-    ) throws {
+        favoritesNodeOverride: String? = nil,
+        encryption: MessageEncryptionProvenance = .plaintext
+    ) throws -> MessageStorageItem? {
+        let prepared: OMEMOReceiveResult = encryption.isAuthenticated
+            ? .verified(XMPPMessage(from: SCEReceivePolicy.droppingUnprotectedSCE(messageContainer)), encryption)
+            : OmemoManager.prepareUnverifiedIncoming(messageContainer)
+        guard let messageContainer = prepared.message else { return nil }
+        var incomingEncryption = encryption.isEncrypted ? encryption : prepared.provenance
         guard let envelope = SavedMessageParser.parse(
             messageContainer: messageContainer,
             owner: self.owner,
             favoritesNode: favoritesNodeOverride ?? self.node
         ) else {
-            return
+            return nil
         }
         
         let message = envelope.storageMessage
+        if SCEReceivePolicy.hasOMEMO2(message), !incomingEncryption.isAuthenticated {
+            // A plaintext saved-forward can contain an encrypted inner stanza.
+            // Its outer reference is not evidence that the inner was decrypted.
+            let sanitized = SCEReceivePolicy.sanitized(message)
+            for child in message.children ?? [] { child.detach() }
+            for child in sanitized.children ?? [] { message.addChild(child.copy() as! DDXMLNode) }
+            if !incomingEncryption.isEncrypted { incomingEncryption = .unverifiedOMEMO }
+        }
         let savedServiceJid = envelope.serviceJid
         let messageId = envelope.messageId
 
@@ -501,7 +516,12 @@ class XMPPFavoritesManager: AbstractXMPPManager {
                     }
                     storeSavedForwardingStanza(for: existedInstance, envelope: envelope, in: realm)
                 }
-                return
+                // Do not apply a fresh proof to unrelated cached plaintext
+                // with the same identifier. The existing saved row is retained.
+                if existedInstance.originalStanza?.xmlString == message.xmlString {
+                    existedInstance.incomingEncryption = incomingEncryption
+                }
+                return existedInstance
             }
 
             isExist = true
@@ -515,6 +535,10 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         instance.date = envelope.date
         instance.body = message.body ?? ""
         instance.conversationType = .saved
+        instance.incomingEncryption = incomingEncryption
+        if incomingEncryption.isEncrypted && !incomingEncryption.isAuthenticated {
+            instance.messageError = "omemo"
+        }
         instance.messageId = messageId
         instance.legacyBody = message.body ?? ""
         instance.sentDate = envelope.sentDate
@@ -548,6 +572,7 @@ class XMPPFavoritesManager: AbstractXMPPManager {
                 instance: instance
             )
         }
+        return instance
     }
 
     private func storeSavedForwardingStanza(

@@ -1007,6 +1007,7 @@ class MessageStorageItem: Object {
     override static func ignoredProperties() -> [String] {
         return [
             "originalStanza",
+            "incomingEncryption",
             "forceUnreadState",
             "isInvite",
             "shouldPersistArchiveQueryId",
@@ -1018,6 +1019,7 @@ class MessageStorageItem: Object {
     }
     
     var originalStanza: XMPPMessage? = nil
+    var incomingEncryption: MessageEncryptionProvenance = .plaintext
 
     var unreadCounterBucket: UnreadCounterBucket {
         get {
@@ -1695,8 +1697,8 @@ class MessageStorageItem: Object {
         self.previousId = getPreviousId(messageContainer)
         self.updatePrimary()
         self.references.append(objectsIn: parseReferences(messageContainer, primary: self.primary, jid: opponent, owner: owner))
-        self.legacyBody = messageContainer.body ?? ""
-        self.body = messageContainer.body ?? ""
+        self.legacyBody = SCEReceivePolicy.children(of: messageContainer, named: "body", xmlns: "jabber:client").first?.stringValue ?? ""
+        self.body = self.legacyBody
         self.systemMetadata = parseSystemMessageMetadata(messageContainer, source: source)
         self.date = date
         self.sentDate = date
@@ -1732,6 +1734,7 @@ class MessageStorageItem: Object {
         self.references.append(objectsIn: parsedReferences)
         self.groupMentionIntent = GroupMessageMentionsCodec.decode(from: messageContainer)
         self.body = normalizedIncomingTextBody(from: messageContainer)
+        self.legacyBody = SCEReceivePolicy.children(of: messageContainer, named: "body", xmlns: "jabber:client").first?.stringValue ?? ""
         if messageContainer.from == nil {
             messageContainer.addAttribute(withName: "from", stringValue: outgoing ? owner : opponent)
         }
@@ -1760,11 +1763,11 @@ class MessageStorageItem: Object {
         if messageContainer.from == nil {
             messageContainer.addAttribute(withName: "from", stringValue: outgoing ? owner : opponent)
         }
-        if let editDate = messageContainer.element(forName: "replaced")?.attributeStringValue(forName: "stamp")?.xmppDate {
+        if let editDate = SCEReceivePolicy.children(of: messageContainer, named: "replaced", xmlns: "https://xabber.com/protocol/rewrite").first?.attributeStringValue(forName: "stamp")?.xmppDate {
             self.editDate = editDate
             self.messageError = "Edit"
         }
-        self.legacyBody = messageContainer.body ?? ""
+        self.legacyBody = SCEReceivePolicy.children(of: messageContainer, named: "body", xmlns: "jabber:client").first?.stringValue ?? ""
         self.outgoing = outgoing
         self.isRead = isRead
         self.date = date
@@ -2301,7 +2304,9 @@ class MessageStorageItem: Object {
                     : nil,
                 senderUserId: self.conversationType == .group
                     ? self.groupchatAuthorId
-                    : nil
+                    : nil,
+                encryption: incomingEncryption,
+                verifiedStanza: incomingEncryption.isAuthenticated ? self.originalStanza : nil
             )
             notification = SaveNotificationPayload(
                 message: preview.body,
@@ -2330,11 +2335,11 @@ class MessageStorageItem: Object {
     }
 
     private func normalizedIncomingTextBody(from messageContainer: XMPPMessage) -> String {
-        let strippedBody = messageContainer
-            .body?
-            .xmlEscaping(reverse: false)
+        let strippedBody = SCEReceivePolicy.children(of: messageContainer, named: "body", xmlns: "jabber:client")
+            .first?.stringValue?.xmlEscaping(reverse: false)
             .excludeFromBody(
-                messageContainer.elements(forName: "reference"),
+                SCEReceivePolicy.children(of: messageContainer, named: "reference", xmlns: "https://xabber.com/protocol/references") +
+                    SCEReceivePolicy.children(of: messageContainer, named: "reference", xmlns: "urn:xmpp:reference:0"),
                 groupchat: nil
             ) ?? ""
 

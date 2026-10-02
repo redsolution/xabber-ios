@@ -316,7 +316,8 @@ enum LastChatListSyncPreviewParser {
         owner: String,
         conversationPrimary: String,
         lastMessageID: String,
-        messageElement: DDXMLElement
+        messageElement: DDXMLElement,
+        encryption: MessageEncryptionProvenance = .plaintext
     ) -> LastChatListSyncPreviewProjection? {
         guard owner.isNotEmpty,
               conversationPrimary.isNotEmpty,
@@ -324,18 +325,38 @@ enum LastChatListSyncPreviewParser {
             return nil
         }
 
-        let referenceElements = messageElement.elements(forName: "reference")
+        if encryption == .failedOMEMO || encryption == .unverifiedOMEMO ||
+            (SCEReceivePolicy.hasOMEMO2(messageElement) && !encryption.isAuthenticated) {
+            return LastChatListSyncPreviewProjection(
+                owner: owner,
+                conversationPrimary: conversationPrimary,
+                lastMessageID: lastMessageID,
+                text: encryption == .failedOMEMO
+                    ? L10n.text("chat_list__preview__decrypt_failed", fallback: "Failed to decrypt")
+                    : L10n.text("chat_list__preview__encrypted_message", fallback: "Encrypted message"),
+                isSystemMessage: false,
+                isAttachment: false,
+                groupchatNickname: nil,
+                groupchatAuthorColorKey: nil
+            )
+        }
+
+        let referenceElements = (messageElement.children ?? [])
+            .compactMap { $0 as? DDXMLElement }
+            .filter { isReference($0) }
         let directForwardReferences = referenceElements.filter {
             isDirectForwardReference($0)
         }
         let presentationReferenceElements = referenceElements.filter {
             !isDirectForwardReference($0)
         }
-        let presentationRoots = messageElement.children?
+        let directPayloads = messageElement.children?
             .compactMap { $0 as? DDXMLElement }
-            .filter {
-                !isDirectForwardReference($0)
-            } ?? []
+            .filter { isPresentationPayload($0) } ?? []
+        let presentationRoots = directPayloads + presentationReferenceElements.flatMap {
+            ($0.children ?? []).compactMap { $0 as? DDXMLElement }
+                .filter { isPresentationPayload($0) }
+        }
         let attachmentKinds = presentationReferenceElements.compactMap {
             attachmentKind(in: $0)
         }
@@ -344,41 +365,32 @@ enum LastChatListSyncPreviewParser {
         })
 
         let hasLocation = presentationRoots.containsElement {
-            $0.name == "geoloc" &&
-                $0.xmlns() == "http://jabber.org/protocol/geoloc"
+            SCEReceivePolicy.matches($0, name: "geoloc", namespace: "http://jabber.org/protocol/geoloc")
         }
         let hasContact = presentationRoots.containsElement {
-            $0.name == "contact"
+            SCEReceivePolicy.matches($0, name: "contact", namespace: "https://xabber.com/protocol/contact-sharing")
         }
         let hasSticker = presentationRoots.containsElement {
-            $0.name == "sticker"
+            SCEReceivePolicy.matches($0, name: "media-type", namespace: "https://xabber.com/protocol/files") &&
+                $0.stringValue?.lowercased() == "image/sticker"
         }
         let hasAttachment = hasLocation || hasContact || hasSticker ||
             attachmentKinds.isNotEmpty ||
             presentationRoots.containsElement {
-                let name = $0.name?.lowercased() ?? ""
-                let namespace = $0.xmlns() ?? ""
-                return [
-                    "file-sharing", "media-sharing", "file", "media",
-                    "voice"
-                ].contains(name) || [
-                    "urn:xmpp:sfs:0", "urn:xmpp:sims:1"
-                ].contains(namespace)
+                isFilePayload($0) || SCEReceivePolicy.matches(
+                    $0, name: "voice-message", namespace: "https://xabber.com/protocol/voice-messages"
+                )
             }
         let isSystemMessage = presentationRoots.containsElement {
-            let name = $0.name?.lowercased() ?? ""
-            let namespace = $0.xmlns() ?? ""
-            return [
-                "event", "invite", "retract", "replace", "apply-to"
-            ].contains(name) ||
-                namespace == "https://xabber.com/protocol/groups#system-message" ||
-                namespace == "https://xabber.com/protocol/system-message"
+            isSystemPayload($0)
         }
         let groupAuthor = isSystemMessage
             ? nil
             : groupAuthorProjection(in: messageElement)
 
-        let wireBody = messageElement.element(forName: "body")?.stringValue
+        let wireBody = SCEReceivePolicy.children(
+            of: messageElement, named: "body", xmlns: "jabber:client"
+        ).first?.stringValue
         let bodyWithoutReferenceFallbacks = wireBody.map {
             $0.xmlEscaping(reverse: false).excludeFromBody(
                 referenceElements,
@@ -452,11 +464,48 @@ enum LastChatListSyncPreviewParser {
     private static func isDirectForwardReference(
         _ reference: DDXMLElement
     ) -> Bool {
-        reference.xmlns() == "https://xabber.com/protocol/references" &&
-            reference.attributeStringValue(forName: "type") == "mutable" &&
-            reference
-                .element(forName: "forwarded", xmlns: "urn:xmpp:forward:0")?
-                .element(forName: "message") != nil
+        guard SCEReceivePolicy.matches(reference, name: "reference", namespace: "https://xabber.com/protocol/references"),
+              reference.attributeStringValue(forName: "type") == "mutable",
+              let forwarded = SCEReceivePolicy.children(
+                of: reference, named: "forwarded", xmlns: "urn:xmpp:forward:0"
+              ).first else { return false }
+        return !SCEReceivePolicy.children(of: forwarded, named: "message", xmlns: "jabber:client").isEmpty
+    }
+
+    private static func isReference(_ element: DDXMLElement) -> Bool {
+        ["https://xabber.com/protocol/references", "urn:xmpp:reference:0"].contains {
+            SCEReceivePolicy.matches(element, name: "reference", namespace: $0)
+        }
+    }
+
+    private static func isFilePayload(_ element: DDXMLElement) -> Bool {
+        SCEReceivePolicy.matches(element, name: "file-sharing", namespace: "https://xabber.com/protocol/files") ||
+            SCEReceivePolicy.matches(element, name: "file-sharing", namespace: "urn:xmpp:sfs:0") ||
+            SCEReceivePolicy.matches(element, name: "media-sharing", namespace: "urn:xmpp:sims:1")
+    }
+
+    private static func isSystemPayload(_ element: DDXMLElement) -> Bool {
+        let pairs = [
+            ("event", "https://xabber.com/protocol/groups"),
+            ("invite", "https://xabber.com/protocol/groups"),
+            ("system-message", "https://xabber.com/protocol/groups"),
+            ("system-message", "https://xabber.com/protocol/groups#system-message"),
+            ("system-message", "https://xabber.com/protocol/system-message"),
+            ("retract", "https://xabber.com/protocol/rewrite"),
+            ("replace", "https://xabber.com/protocol/rewrite"),
+            ("apply-to", "urn:xmpp:fasten:0")
+        ]
+        return pairs.contains { name, namespace in
+            SCEReceivePolicy.matches(element, name: name, namespace: namespace)
+        }
+    }
+
+    private static func isPresentationPayload(_ element: DDXMLElement) -> Bool {
+        isFilePayload(element) || isSystemPayload(element) ||
+            SCEReceivePolicy.matches(element, name: "x", namespace: "https://xabber.com/protocol/groups") ||
+            SCEReceivePolicy.matches(element, name: "voice-message", namespace: "https://xabber.com/protocol/voice-messages") ||
+            SCEReceivePolicy.matches(element, name: "geoloc", namespace: "http://jabber.org/protocol/geoloc") ||
+            SCEReceivePolicy.matches(element, name: "contact", namespace: "https://xabber.com/protocol/contact-sharing")
     }
 
     private struct GroupAuthorProjection {
@@ -493,28 +542,17 @@ enum LastChatListSyncPreviewParser {
     private static func attachmentKind(
         in reference: DDXMLElement
     ) -> LastChatAttachmentPreviewKind? {
-        if containsElement(in: reference, matching: { element in
-            let name = element.name?.lowercased() ?? ""
-            let namespace = element.xmlns() ?? ""
-            return name == "voice-message" || name == "voice" ||
-                namespace == "https://xabber.com/protocol/voice-messages"
+        let payloads = (reference.children ?? []).compactMap { $0 as? DDXMLElement }
+        if payloads.contains(where: { element in
+            SCEReceivePolicy.matches(element, name: "voice-message", namespace: "https://xabber.com/protocol/voice-messages")
         }) {
             return .voice
         }
 
-        let hasFileSharing = containsElement(in: reference) { element in
-            let name = element.name?.lowercased() ?? ""
-            let namespace = element.xmlns() ?? ""
-            return ["file-sharing", "media-sharing"].contains(name) ||
-                [
-                    "https://xabber.com/protocol/files",
-                    "urn:xmpp:sfs:0",
-                    "urn:xmpp:sims:1"
-                ].contains(namespace)
-        }
-        guard hasFileSharing else { return nil }
-        let mediaType = firstElement(in: reference) {
-            $0.name?.lowercased() == "media-type"
+        guard let fileSharing = payloads.first(where: isFilePayload) else { return nil }
+        let mediaType = firstElement(in: fileSharing) {
+            SCEReceivePolicy.matches($0, name: "media-type", namespace: "https://xabber.com/protocol/files") ||
+                SCEReceivePolicy.matches($0, name: "media-type", namespace: "urn:xmpp:file:metadata:0")
         }?.stringValue
         return LastChatAttachmentPreviewFormatter.kind(
             referenceKindRaw: "media",
@@ -524,17 +562,18 @@ enum LastChatListSyncPreviewParser {
     }
 
     private static func sourceURIs(in root: DDXMLElement) -> [String] {
-        var values: [String] = []
-        if root.name?.lowercased() == "uri",
-           let value = root.stringValue?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           value.isNotEmpty {
-            values.append(value)
+        if isReference(root) {
+            return (root.children ?? []).compactMap { $0 as? DDXMLElement }
+                .flatMap { sourceURIs(in: $0) }
         }
-        root.children?.compactMap { $0 as? DDXMLElement }.forEach {
-            values.append(contentsOf: sourceURIs(in: $0))
+        if SCEReceivePolicy.matches(root, name: "voice-message", namespace: "https://xabber.com/protocol/voice-messages") {
+            return SCEReceivePolicy.children(of: root, named: "file-sharing", xmlns: "https://xabber.com/protocol/files")
+                .flatMap { sourceURIs(in: $0) }
         }
-        return values
+        guard isFilePayload(root), let namespace = root.uri else { return [] }
+        return SCEReceivePolicy.children(of: root, named: "sources", xmlns: namespace)
+            .flatMap { SCEReceivePolicy.children(of: $0, named: "uri", xmlns: namespace) }
+            .compactMap { normalizedText($0.stringValue) }
     }
 
     private static func firstElement(

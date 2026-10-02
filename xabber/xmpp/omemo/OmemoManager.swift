@@ -898,297 +898,221 @@ extension OmemoManager {
         return true
     }
 
+    func prepareSyncConversations(_ query: DDXMLElement) -> [ClientSyncConversationValue] {
+        query.elements(forName: "conversation").map { prepareSyncConversation($0) }
+    }
+
+    func prepareSyncConversation(
+        _ conversation: DDXMLElement,
+        prepareMessage: ((XMPPMessage) -> OMEMOReceiveResult)? = nil
+    ) -> ClientSyncConversationValue {
+        let copy = conversation.copy() as! DDXMLElement
+        guard let metadata = copy.elements(forName: "metadata").first(where: {
+            $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/synchronization"
+        }), let last = metadata.element(forName: "last-message") else {
+            return ClientSyncConversationValue(copy)
+        }
+        let messages = SCEReceivePolicy.children(of: last, named: "message", xmlns: "jabber:client")
+        guard messages.count == 1 else {
+            last.detach()
+            return ClientSyncConversationValue(copy, consumed: true)
+        }
+        let message = messages[0]
+        let result = (prepareMessage ?? { self.prepareIncoming($0, context: .syncPreview) })(XMPPMessage(from: message))
+        if let reconstructed = result.message {
+            message.detach()
+            last.addChild(reconstructed.copy() as! DDXMLElement)
+        } else {
+            // Controls/replays cannot replace a previously visible last message.
+            last.detach()
+        }
+        return ClientSyncConversationValue(copy, encryption: result.provenance, consumed: result.message == nil)
+    }
+
+    /// Compatibility XML adapter. Authentication is intentionally not serialized.
     func modifySyncQuery(_ query: DDXMLElement) -> DDXMLElement {
-        modifySyncQuery(query, decryptMessage: self.decryptMessage(_:))
+        let copy = query.copy() as! DDXMLElement
+        let conversations = prepareSyncConversations(query)
+        copy.elements(forName: "conversation").forEach { $0.detach() }
+        conversations.compactMap { $0.materializedElement() }.forEach { copy.addChild($0.copy() as! DDXMLElement) }
+        return copy
     }
 
     internal func modifySyncQuery(
         _ query: DDXMLElement,
-        decryptMessage: (XMPPMessage) throws -> DDXMLElement?
+        decryptMessage: @escaping (XMPPMessage) throws -> DDXMLElement?
     ) -> DDXMLElement {
-        query.elements(forName: "conversation").forEach {
-            item in
-            guard (ClientSynchronizationManager.ConversationType(rawValue: item.attributeStringValue(forName: "type") ?? "none") ?? .regular) == .omemo else {
-                return
-            }
-            guard let messageElement = item
-                .elements(forName: "metadata")
-                .first(where: { $0.attributeStringValue(forName: "node") == "https://xabber.com/protocol/synchronization" })?
-                .element(forName: "last-message")?.element(forName: "message") else {
-                return
-            }
-            // XEP-SYNC may already contain a safe plaintext list preview for
-            // an OMEMO conversation. Only run the decrypt/replace path when
-            // the embedded message actually carries an OMEMO payload;
-            // otherwise a valid preview was being overwritten with
-            // "Failed to decrypt".
-            guard messageElement.element(
-                forName: "encrypted",
-                xmlns: getPrimaryNamespace()
-            ) != nil else {
-                return
-            }
-            
-            do {
-                guard let decryptedEnvelope = try decryptMessage(
-                    XMPPMessage(from: messageElement)
-                ),
-                let decryptedContent = decryptedEnvelope.element(
-                    forName: "content"
-                ) else {
-                    return
+        let copy = query.copy() as! DDXMLElement
+        let conversations = query.elements(forName: "conversation").map { conversation in
+            prepareSyncConversation(conversation, prepareMessage: { message in
+                guard SCEReceivePolicy.hasOMEMO2(message) else {
+                    return .notEncrypted(XMPPMessage(from: SCEReceivePolicy.droppingUnprotectedSCE(message)))
                 }
-                // A successfully decrypted attachment-only envelope has no
-                // body. Keep any safe server preview in that case; without
-                // one, the copied reference lets the list parser choose its
-                // neutral attachment fallback.
-                if let decryptedBody = decryptedContent
-                    .element(forName: "body")?
-                    .stringValue,
-                   decryptedBody.isNotEmpty {
-                    messageElement.remove(forName: "body")
-                    messageElement.addChild(
-                        DDXMLElement(
-                            name: "body",
-                            stringValue: decryptedBody
-                        )
-                    )
-                }
+                do {
+                    guard let envelope = try decryptMessage(message) else { return .consumed(.control) }
+                    guard let content = SCEReceivePolicy.children(of: envelope, named: "content", xmlns: SCEReceivePolicy.sce).first else {
+                        throw OmemoManagerError.invalidDecryptedPayload
+                    }
+                    return .verified(XMPPMessage(from: SCEReceivePolicy.sanitized(message, content: content)), .authenticatedSCE(profile: .omemo2))
+                } catch { return .failed(XMPPMessage(from: SCEReceivePolicy.sanitized(message)), error) }
+            })
+        }
+        copy.elements(forName: "conversation").forEach { $0.detach() }
+        conversations.compactMap { $0.materializedElement() }.forEach { copy.addChild($0.copy() as! DDXMLElement) }
+        return copy
+    }
 
-                decryptedContent.children?.forEach {
-                    if $0.name != "body" {
-                        messageElement.addChild($0.copy() as! DDXMLNode)
-                    }
-                }
-                let resultElement = DDXMLElement(
-                    name: "omemo-result__system"
-                )
-                resultElement.addAttribute(
-                    withName: "result",
-                    boolValue: true
-                )
-                messageElement.addChild(resultElement)
-            } catch {
-                DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
-                return
-            }
-            
-        }
-        
-        
-        return query
+    func modifyOmemoStanza(message: XMPPMessage) -> OMEMOReceiveResult {
+        prepareIncoming(message, context: .modify)
     }
-    
-    func modifyOmemoStanza(message: XMPPMessage) -> XMPPMessage {
-        guard message.element(forName: "encrypted", xmlns: getPrimaryNamespace()) != nil else {
-            return message
-        }
-        do {
-            guard let content = try self.decryptMessage(message) else { return message }
-            let body = content.element(forName: "content")?.element(forName: "body", xmlns: "jabber:client")?.stringValue
-            message.remove(forName: "body")
-            message.addBody(body ?? "")
-            if let content = content.element(forName: "content") {
-                content.children?.forEach {
-                    if $0.name != "body" {
-                        message.addChild($0.copy() as! DDXMLNode)
-                    }
-                }
-                let resultElement = DDXMLElement(name: "omemo-result__system")
-                resultElement.addAttribute(withName: "result", boolValue: true)
-                message.addChild(resultElement)
-            }
-        } catch {
-            DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
-        }
-        return message
+
+    func didReceiveOmemoMessageFromPush(_ message: XMPPMessage) -> OMEMOReceiveResult {
+        prepareIncoming(message, context: .push)
     }
-    
-    func didReceiveOmemoMessageFromPush(_ message: XMPPMessage) -> XMPPMessage? {
-        if isArchivedMessage(message) {
-            do {
-                guard let bareMessage = getArchivedMessageContainer(message),
-                      bareMessage.element(forName: "encrypted", xmlns: getPrimaryNamespace()) != nil else {
-                          return nil
-                      }
-                guard let content = try self.decryptMessage(bareMessage) else { return nil }
-                let body = content.element(forName: "content")?.element(forName: "body", xmlns: "jabber:client")?.stringValue
-                
-                message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.remove(forName: "body")
-                message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? ""))
-                if let content = content.element(forName: "content") {
-                    content.children?.forEach {
-                        if $0.name != "body" {
-                            message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild($0.copy() as! DDXMLNode)
-                        }
-                    }
-                    let resultElement = DDXMLElement(name: "omemo-result__system")
-                    resultElement.addAttribute(withName: "result", boolValue: true)
-                    message.addChild(resultElement)
-                }
-                return message
-            } catch {
-                DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
-            }
-        } else {
-            guard message.element(forName: "encrypted", xmlns: getPrimaryNamespace()) != nil else {
-                return nil
-            }
-            do {
-                guard let content = try self.decryptMessage(message) else { return nil }
-                let body = content.element(forName: "content")?.element(forName: "body", xmlns: "jabber:client")?.stringValue
-                message.remove(forName: "body")
-                message.addBody(body ?? "")
-                if let content = content.element(forName: "content") {
-                    content.children?.forEach {
-                        if $0.name != "body" {
-                            message.addChild($0.copy() as! DDXMLNode)
-                        }
-                    }
-                    let resultElement = DDXMLElement(name: "omemo-result__system")
-                    resultElement.addAttribute(withName: "result", boolValue: true)
-                    message.addChild(resultElement)
-                }
-                return message
-            } catch {
-                DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
-            }
-        }
-        return nil
-    }
-    
+
     internal static func persistDecryptedArchivedMessage(
         _ message: XMPPMessage,
         preferredReceiver: MessageManager?,
-        fallbackReceiver: MessageManager?
+        fallbackReceiver: MessageManager?,
+        encryption: MessageEncryptionProvenance = .plaintext
     ) {
-        (preferredReceiver ?? fallbackReceiver)?.receiveArchived(message)
+        (preferredReceiver ?? fallbackReceiver)?.receiveArchived(message, encryption: encryption)
     }
 
+    /// Compatibility receiver; stream delegates use preparation before dispatch.
     func didReceiveOmemoMessage(
         _ message: XMPPMessage,
         fromCCC: Bool = false,
         archivedMessageReceiver: MessageManager? = nil
     ) -> Bool {
+        let result = prepareIncoming(message)
+        if case .notEncrypted = result { return false }
+        guard let message = result.message else { return true }
+        let receiver = archivedMessageReceiver ?? AccountManager.shared.find(for: owner)?.messages
         if isArchivedMessage(message) {
-            do {
-                guard let bareMessage = getArchivedMessageContainer(message),
-                      bareMessage.element(forName: "encrypted", xmlns: getPrimaryNamespace()) != nil else {
-                          return false
-                      }
-                guard let content = try self.decryptMessage(bareMessage) else { return true }
-                let body = content.element(forName: "content")?.element(forName: "body", xmlns: "jabber:client")?.stringValue
-
-                message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.remove(forName: "body")
-                message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? ""))
-                if let content = content.element(forName: "content") {
-                    content.children?.forEach {
-                        if $0.name != "body" {
-                            message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild($0.copy() as! DDXMLNode)
-                        }
-                    }
-                    let resultElement = DDXMLElement(name: "omemo-result__system")
-                    resultElement.addAttribute(withName: "result", boolValue: true)
-                    message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(resultElement)
-                }
-                Self.persistDecryptedArchivedMessage(
-                    message,
-                    preferredReceiver: archivedMessageReceiver,
-                    fallbackReceiver: AccountManager.shared.find(for: self.owner)?.messages
-                )
-            } catch {
-                DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
-                return false
-            }
+            receiver?.receiveArchived(message, encryption: result.provenance)
         } else if isCarbonCopy(message) {
-            do {
-                guard let bareMessage = getCarbonCopyMessageContainer(message),
-                      bareMessage.element(forName: "encrypted", xmlns: getPrimaryNamespace()) != nil else {
-                          return false
-                      }
-                guard let content = try self.decryptMessage(bareMessage) else { return true }
-                let body = content.element(forName: "content")?.element(forName: "body", xmlns: "jabber:client")?.stringValue
-                message.element(forName: "sent")?.element(forName: "forwarded")?.element(forName: "message")?.remove(forName: "body")
-                message.element(forName: "sent")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? ""))
-                if let content = content.element(forName: "content") {
-                    content.children?.forEach {
-                        if $0.name != "body" {
-                            message.element(forName: "sent")?.element(forName: "forwarded")?.element(forName: "message")?.addChild($0.copy() as! DDXMLNode)
-                        }
-                    }
-                    let resultElement = DDXMLElement(name: "omemo-result__system")
-                    resultElement.addAttribute(withName: "result", boolValue: true)
-                    message.element(forName: "sent")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(resultElement)
-                }
-                AccountManager.shared.find(for: self.owner)?.messages.receiveCarbon(message)
-            } catch {
-//                fatalError(error.localizedDescription)
-                DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
-                return false
-            }
+            receiver?.receiveCarbon(message, encryption: result.provenance)
         } else if isCarbonForwarded(message) {
-            do {
-                guard let bareMessage = getCarbonForwardedMessageContainer(message),
-                      bareMessage.element(forName: "encrypted", xmlns: getPrimaryNamespace()) != nil else {
-                          return false
-                      }
-                guard let content = try self.decryptMessage(bareMessage) else { return true }
-                let body = content.element(forName: "content")?.element(forName: "body", xmlns: "jabber:client")?.stringValue
-                
-                
-                message.element(forName: "received")?.element(forName: "forwarded")?.element(forName: "message")?.remove(forName: "body")
-                message.element(forName: "received")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? ""))
-                if let content = content.element(forName: "content") {
-                    content.children?.forEach {
-                        if $0.name != "body" {
-                            message.element(forName: "received")?.element(forName: "forwarded")?.element(forName: "message")?.addChild($0.copy() as! DDXMLNode)
-                        }
-                    }
-                    let resultElement = DDXMLElement(name: "omemo-result__system")
-                    resultElement.addAttribute(withName: "result", boolValue: true)
-                    message.element(forName: "received")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(resultElement)
-                }
-                AccountManager.shared.find(for: self.owner)?.messages.receiveCarbonForwarded(message)
-            } catch {
-//                fatalError(error.localizedDescription)
-                DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
-                return false
-            }
+            receiver?.receiveCarbonForwarded(message, encryption: result.provenance)
         } else {
-            guard message.element(forName: "encrypted", xmlns: getPrimaryNamespace()) != nil else {
-                return false
-            }
-            do {
-                guard let content = try self.decryptMessage(message) else { return true }
-                let body = content.element(forName: "content")?.element(forName: "body", xmlns: "jabber:client")?.stringValue
-                message.remove(forName: "body")
-                message.addBody(body ?? "")
-//                if let content = content {
-//                    message.addChild(content)
-//                }
-                if let content = content.element(forName: "content") {
-                    content.children?.forEach {
-                        if $0.name != "body" {
-                            message.addChild($0.copy() as! DDXMLNode)
-                        }
-                    }
-                    let resultElement = DDXMLElement(name: "omemo-result__system")
-                    resultElement.addAttribute(withName: "result", boolValue: true)
-                    message.addChild(resultElement)
-                }
-                AccountManager.shared.find(for: self.owner)?.messages.receiveRuntime(message)
-            } catch {
-//                fatalError(error.localizedDescription)
-                DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
-                return false
-            }
+            receiver?.receiveRuntime(message, encryption: result.provenance)
         }
-        
-        
         return true
     }
-    
+
+    private enum DecryptedIncoming {
+        case content(Omemo2PayloadCodec.OpenedPayload, OMEMOReceiveProfile)
+        case control
+        case duplicate
+    }
+
+    func prepareIncoming(_ message: XMPPMessage, context: OMEMOReceiveContext = .live) -> OMEMOReceiveResult {
+        do {
+            let copy = XMPPMessage(from: SCEReceivePolicy.droppingUnprotectedSCE(message))
+            let path = try Self.incomingPath(copy, owner: owner)
+            guard let bare = path.last, SCEReceivePolicy.hasOMEMO2(bare) else { return .notEncrypted(copy) }
+            do {
+                switch try decryptIncoming(XMPPMessage(from: bare)) {
+                case .content(let opened, let profile):
+                    Self.reconstruct(path, content: opened.content)
+                    return .verified(XMPPMessage(from: SCEReceivePolicy.canonicalElementCopy(copy)), .authenticatedSCE(profile: profile))
+                case .control: return .consumed(.control)
+                case .duplicate: return .consumed(.duplicate)
+                }
+            } catch {
+                Self.reconstruct(path, content: nil)
+                return .failed(XMPPMessage(from: SCEReceivePolicy.canonicalElementCopy(copy)), error)
+            }
+        } catch {
+            return SCEReceivePolicy.containsOMEMO2(message) ? .consumed(.invalidTransport) : .notEncrypted(XMPPMessage(from: SCEReceivePolicy.droppingUnprotectedSCE(message)))
+        }
+    }
+
+    /// Auxiliary ingress can fail closed without creating/loading secret state.
+    static func prepareUnverifiedIncoming(_ message: XMPPMessage, owner: String? = nil) -> OMEMOReceiveResult {
+        let copy = XMPPMessage(from: SCEReceivePolicy.droppingUnprotectedSCE(message))
+        do {
+            let path = try incomingPath(copy, owner: owner)
+            guard let bare = path.last, SCEReceivePolicy.hasOMEMO2(bare) else { return .notEncrypted(copy) }
+            reconstruct(path, content: nil)
+        } catch {
+            return SCEReceivePolicy.containsOMEMO2(message) ? .consumed(.invalidTransport) : .notEncrypted(copy)
+        }
+        return .failed(XMPPMessage(from: SCEReceivePolicy.canonicalElementCopy(copy)), OmemoManagerError.invalidEncryptedPayload)
+    }
+
+    /// Only recognized transport wrappers may supply an inner encrypted stanza.
+    private static func incomingPath(_ root: DDXMLElement, owner: String?) throws -> [DDXMLElement] {
+        var path = [root]
+        var current = root
+        for _ in 0..<3 {
+            let children = current.children?.compactMap { $0 as? DDXMLElement } ?? []
+            let wrappers = children.filter {
+                ($0.localName == "result" && SCEReceivePolicy.mamNamespaces.contains($0.uri ?? "")) ||
+                (["sent", "received"].contains($0.localName ?? "") && SCEReceivePolicy.carbonNamespaces.contains($0.uri ?? "")) ||
+                SCEReceivePolicy.matches($0, name: "forwarded", namespace: "urn:xmpp:forward:0") ||
+                SCEReceivePolicy.matches($0, name: "priority-message", namespace: "https://xabber.com/protocol/priority") ||
+                SCEReceivePolicy.matches($0, name: "replace", namespace: "https://xabber.com/protocol/rewrite#notify")
+            }
+            guard wrappers.count <= 1 else { throw OmemoManagerError.invalidEncryptedPayload }
+            guard let wrapper = wrappers.first else { return path }
+            // Ciphertext may only occur at the leaf, and receivers unwrap a
+            // single transport layer. Reject ambiguity before ratchet commit.
+            guard path.count == 1, !SCEReceivePolicy.hasOMEMO2(current) else {
+                throw OmemoManagerError.invalidEncryptedPayload
+            }
+            if SCEReceivePolicy.carbonNamespaces.contains(wrapper.uri ?? "") {
+                let from = current.attributeStringValue(forName: "from").flatMap { XMPPJID(string: $0)?.bare }
+                let to = current.attributeStringValue(forName: "to").flatMap { XMPPJID(string: $0)?.bare }
+                guard let from, let to, from == to, owner == nil || from == owner else {
+                    throw OmemoManagerError.invalidEncryptedPayload
+                }
+            }
+            if SCEReceivePolicy.matches(wrapper, name: "replace", namespace: "https://xabber.com/protocol/rewrite#notify") {
+                let messages = SCEReceivePolicy.children(of: wrapper, named: "message", xmlns: "jabber:client")
+                guard messages.count == 1, !SCEReceivePolicy.hasOMEMO2(wrapper) else { throw OmemoManagerError.invalidEncryptedPayload }
+                path += [wrapper, messages[0]]
+                current = messages[0]
+                continue
+            }
+            let isDirectForward = SCEReceivePolicy.matches(wrapper, name: "forwarded", namespace: "urn:xmpp:forward:0")
+            let forwarded = isDirectForward ? [wrapper] : SCEReceivePolicy.children(of: wrapper, named: "forwarded", xmlns: "urn:xmpp:forward:0")
+            guard forwarded.count == 1, !SCEReceivePolicy.hasOMEMO2(wrapper), !SCEReceivePolicy.hasOMEMO2(forwarded[0]) else { throw OmemoManagerError.invalidEncryptedPayload }
+            let messages = SCEReceivePolicy.children(of: forwarded[0], named: "message", xmlns: "jabber:client")
+            guard messages.count == 1 else { throw OmemoManagerError.invalidEncryptedPayload }
+            path += isDirectForward ? [wrapper, messages[0]] : [wrapper, forwarded[0], messages[0]]
+            current = messages[0]
+        }
+        throw OmemoManagerError.invalidEncryptedPayload
+    }
+
+    private static func reconstruct(_ path: [DDXMLElement], content: DDXMLElement?) {
+        guard let target = path.last else { return }
+        let reconstructed = SCEReceivePolicy.sanitized(target, content: content)
+        for child in target.children ?? [] { child.detach() }
+        for child in reconstructed.children ?? [] { target.addChild(child.copy() as! DDXMLNode) }
+        for index in 0..<(path.count - 1) {
+            let parent = path[index]
+            let retained = path[index + 1]
+            for child in parent.children?.compactMap({ $0 as? DDXMLElement }) ?? [] {
+                // KissXML can expose different wrappers for the same XML node.
+                // incomingPath already checked uniqueness of this expanded QName.
+                let isRetained = child.localName == retained.localName && child.uri == retained.uri
+                if !isRetained && !SCEReceivePolicy.isServerProcessed(child) { child.detach() }
+            }
+        }
+    }
+
+    /// Existing TrustSharing/history callers retain the validated envelope API.
     func decryptMessage(_ message: XMPPMessage) throws -> DDXMLElement? {
+        switch try decryptIncoming(message) {
+        case .content(let opened, _): return opened.envelope
+        case .control, .duplicate: return nil
+        }
+    }
+
+    private func decryptIncoming(_ message: XMPPMessage) throws -> DecryptedIncoming {
         guard let from = message.from?.bare else { throw OmemoManagerError.invalidEncryptedPayload }
         let encryptedElements = message.children?.compactMap { $0 as? DDXMLElement }.filter { $0.localName == "encrypted" && $0.uri == Self.xmlns } ?? []
         guard encryptedElements.count == 1 else { throw OmemoManagerError.invalidEncryptedPayload }
@@ -1220,20 +1144,28 @@ extension OmemoManager {
             let address = SignalAddress(name: from, deviceId: Int32(sid))
             guard localStore.sessionRecordExists(for: address) else { throw OmemoManagerError.sessionCreationFailed }
             let cipher = SignalSessionCipher(address: address, context: signalContext)
-            let plaintext = try cipher.decryptCiphertext(SignalCiphertext(data: data, type: keyExchange ? .preKeyMessage : .message))
-            return try Omemo2PayloadCodec.open(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat")
+            let plaintext: Data
+            do {
+                plaintext = try cipher.decryptCiphertext(SignalCiphertext(data: data, type: keyExchange ? .preKeyMessage : .message))
+            } catch let error as NSError where error.domain == SignalErrorDomain && error.code == SignalError.duplicateMessage.rawValue {
+                return .duplicate
+            }
+            if let opened = try Omemo2PayloadCodec.openVerified(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat") {
+                return .content(opened, .legacySignal)
+            }
+            return .control
         }
         let ciphertext = try OMEMO2Ciphertext(data: data, keyExchange: keyExchange)
         let previousSessionIdentity = try storage.sessionMetadata(jid: from, deviceID: sid)?.remoteIdentityKey
-        var envelope: DDXMLElement?
+        var opened: Omemo2PayloadCodec.OpenedPayload?
         do {
             _ = try storage.decrypt(ciphertext, jid: from, deviceID: sid, updatingIdentity: { identity in
                 try self.updateAuthenticatedOMEMO2Identity(identity, jid: from, deviceID: sid, previousSessionIdentity: previousSessionIdentity)
             }) { plaintext in
-                envelope = try Omemo2PayloadCodec.open(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat")
+                opened = try Omemo2PayloadCodec.openVerified(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat")
             }
         } catch let error as NSError where error.domain == SignalErrorDomain && error.code == SignalError.duplicateMessage.rawValue {
-            return nil
+            return .duplicate
         }
         // Public identity projection has also succeeded before committing the
         // secret state. Receiving an identity never grants device trust.
@@ -1246,7 +1178,7 @@ extension OmemoManager {
             }
         }
         flushOMEMO2Controls()
-        return envelope
+        return opened.map { .content($0, .omemo2) } ?? .control
     }
 
     private func updateAuthenticatedOMEMO2Identity(_ identity: Data, jid: String, deviceID: Int, previousSessionIdentity: Data?) throws {

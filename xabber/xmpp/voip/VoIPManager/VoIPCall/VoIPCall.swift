@@ -81,26 +81,40 @@ final class VoIPCall: NSObject {
         let isCarbon: Bool
     }
 
-    internal static func unwrapIncomingMessage(_ message: XMPPMessage) -> IncomingMessagePayload? {
+    internal static func unwrapIncomingMessage(_ message: XMPPMessage, owner: String? = nil) -> IncomingMessagePayload? {
+        // The call has its own XMPP stream and cannot reuse another delegate's
+        // decrypt result. Unverified ciphertext must not supply call control.
+        guard let message = OmemoManager.prepareUnverifiedIncoming(message, owner: owner).message else {
+            return nil
+        }
+        let leaf: XMPPMessage
+        let isCarbon: Bool
         if isCarbonCopy(message) {
             guard let innerMessage = getCarbonCopyMessageContainer(message) else {
                 return nil
             }
-            return IncomingMessagePayload(message: innerMessage, isCarbon: true)
-        }
-        if isCarbonForwarded(message) {
+            leaf = innerMessage
+            isCarbon = true
+        } else if isCarbonForwarded(message) {
             guard let innerMessage = getCarbonForwardedMessageContainer(message) else {
                 return nil
             }
-            return IncomingMessagePayload(message: innerMessage, isCarbon: false)
-        }
-        if isForwardedMessage(message) {
-            guard let innerMessage = getForwardedMessage(message) else {
-                return nil
+            leaf = innerMessage
+            isCarbon = false
+        } else {
+            let forwarded = SCEReceivePolicy.children(of: message, named: "forwarded", xmlns: "urn:xmpp:forward:0")
+            if !forwarded.isEmpty {
+                guard forwarded.count == 1 else { return nil }
+                let messages = SCEReceivePolicy.children(of: forwarded[0], named: "message", xmlns: "jabber:client")
+                guard messages.count == 1 else { return nil }
+                leaf = XMPPMessage(from: messages[0])
+            } else {
+                leaf = message
             }
-            return IncomingMessagePayload(message: innerMessage, isCarbon: false)
+            isCarbon = false
         }
-        return IncomingMessagePayload(message: message, isCarbon: false)
+        guard let safeLeaf = OmemoManager.prepareUnverifiedIncoming(leaf, owner: owner).message else { return nil }
+        return IncomingMessagePayload(message: safeLeaf, isCarbon: isCarbon)
     }
 
     internal static func incomingIQRoute(for iq: XMPPIQ) -> IncomingIQRoute {
@@ -1467,7 +1481,7 @@ extension VoIPCall: XMPPStreamDelegate {
             ],
             rawXML: message.xmlString
         )
-        guard let payload = Self.unwrapIncomingMessage(message) else {
+        guard let payload = Self.unwrapIncomingMessage(message, owner: owner) else {
             DDLogWarn(
                 "VoIPCall: ignore malformed forwarded message " +
                 "owner=\(owner) callId=\(callId) id=\(message.elementID ?? "none")"

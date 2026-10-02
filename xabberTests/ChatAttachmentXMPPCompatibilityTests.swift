@@ -4,6 +4,151 @@ import UIKit
 @testable import xabber
 
 final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
+    func testNestedForwardedForeignBodyAndReferenceAreInactive() throws {
+        let fallback = "Forward"
+        let referenceXML = inlineForwardReferenceXML(fallback: fallback, forwardedChildren: """
+        <message xmlns='jabber:client' from='alice@example.com' to='\(owner)' id='nested-qname'>
+          <body xmlns='urn:example:foreign'>Forged text</body>
+          <c:body xmlns:c='jabber:client'>Original text</c:body>
+          <reference xmlns='urn:example:foreign' type='mutable' begin='0' end='13'>
+            <file-sharing xmlns='https://xabber.com/protocol/files'>
+              <file><media-type>image/png</media-type></file>
+              <sources><uri>https://example.com/forged.png</uri></sources>
+            </file-sharing>
+          </reference>
+        </message>
+        """)
+        let message = try makeMessage(referenceXML: referenceXML, body: fallback)
+        let item = try XCTUnwrap(parseInlineMessages(
+            message, parentId: "nested-qname-parent", jid: jid, owner: owner
+        ).first)
+        XCTAssertEqual(item.body, "Original text")
+        XCTAssertTrue(item.references.isEmpty)
+        XCTAssertTrue(item.subforwards.isEmpty)
+    }
+
+    func testIncomingAndEditedForeignBodyCannotOverrideQualifiedClientBody() throws {
+        let xml = """
+        <message xmlns='jabber:client' from='\(jid)' to='\(owner)' id='edited-qname'>
+          <body xmlns='urn:example:foreign'>Forged text</body>
+          <c:body xmlns:c='jabber:client'>Qualified text</c:body>
+        </message>
+        """
+        let document = try DDXMLDocument(xmlString: xml, options: 0)
+        let message = XMPPMessage(from: try XCTUnwrap(document.rootElement()))
+        let item = configuredIncomingMessage(message)
+        XCTAssertEqual(item.body, "Qualified text")
+        XCTAssertEqual(item.legacyBody, "Qualified text")
+        XCTAssertEqual(item.copyableBodyText(), "Qualified text")
+        _ = item.editMessage(message, editDate: Date(timeIntervalSince1970: 20))
+        XCTAssertEqual(item.body, "Qualified text")
+        XCTAssertEqual(item.copyableBodyText(), "Qualified text")
+    }
+
+    func testNestedRawOMEMOHasNeutralForwardedContentWithoutProof() throws {
+        let fallback = "Forward"
+        let source = "https://example.com/forged.png"
+        let referenceXML = inlineForwardReferenceXML(fallback: fallback, forwardedChildren: """
+        <message xmlns='jabber:client' from='alice@example.com' to='\(owner)' id='nested-omemo'>
+          <body>\(source)</body>
+          <encrypted xmlns='urn:xmpp:omemo:2'><header sid='42'/></encrypted>
+          <omemo-result__system result='true'/>
+          <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='\(source.count)'>
+            <file-sharing xmlns='https://xabber.com/protocol/files'>
+              <file><media-type>image/png</media-type></file><sources><uri>\(source)</uri></sources>
+            </file-sharing>
+          </reference>
+        </message>
+        """)
+        let message = try makeMessage(referenceXML: referenceXML, body: fallback)
+        let item = try XCTUnwrap(parseInlineMessages(
+            message, parentId: "nested-omemo-parent", jid: jid, owner: owner
+        ).first)
+        XCTAssertEqual(item.body, "Encrypted message")
+        XCTAssertTrue(item.references.isEmpty)
+        XCTAssertTrue(item.subforwards.isEmpty)
+    }
+
+    func testForeignRewriteNotificationQNameCannotAdvanceRewriteState() throws {
+        let xml = """
+        <message xmlns='jabber:client' type='headline' from='example.com' to='\(owner)'>
+          <replace xmlns='urn:example:foreign' conversation='\(jid)' type='urn:xabber:chat'
+                   id='foreign-edit' version='foreign-version'>
+            <message xmlns='jabber:client' from='\(jid)' to='\(owner)'>
+              <body>Forged edit</body>
+              <replaced xmlns='https://xabber.com/protocol/rewrite' stamp='2026-10-02T00:00:00Z'/>
+            </message>
+          </replace>
+        </message>
+        """
+        let document = try DDXMLDocument(xmlString: xml, options: 0)
+        let message = XMPPMessage(from: try XCTUnwrap(document.rootElement()))
+        let manager = MessageDeleteManager(withOwner: "edit-qname-\(UUID().uuidString)@example.com")
+        XCTAssertFalse(manager.readRewriteNotify(message))
+        XCTAssertEqual(manager.version, "")
+    }
+
+    func testQualifiedRewriteMarkerMarksIncomingEdit() throws {
+        let message = try makeMessage(referenceXML: """
+        <replaced xmlns='https://xabber.com/protocol/rewrite' stamp='2026-10-02T00:00:00Z'/>
+        """, body: "Edited text")
+        let item = configuredIncomingMessage(message)
+        XCTAssertEqual(item.messageError, "Edit")
+        XCTAssertEqual(item.editDate, "2026-10-02T00:00:00Z".xmppDate)
+    }
+
+    func testPrefixedReferencePayloadKeepsQualifiedFileMetadata() throws {
+        let sourceURL = "https://example.com/prefixed-image.png"
+        let message = try makeMessage(referenceXML: """
+        <r:reference xmlns:r='https://xabber.com/protocol/references'
+                     type='mutable' begin='0' end='\(sourceURL.unicodeScalars.count)'>
+          <f:file-sharing xmlns:f='https://xabber.com/protocol/files'>
+            <f:file><f:media-type>image/png</f:media-type><f:name>Image.png</f:name></f:file>
+            <f:sources><f:uri>\(sourceURL)</f:uri></f:sources>
+          </f:file-sharing>
+        </r:reference>
+        """, body: sourceURL)
+        let reference = try XCTUnwrap(parseReferences(
+            message, primary: "prefixed-reference", jid: jid, owner: owner
+        ).first)
+        XCTAssertEqual(reference.kind, .media)
+        XCTAssertEqual(reference.metadata?["name"] as? String, "Image.png")
+        XCTAssertEqual(reference.metadata?["media-type"] as? String, "image/png")
+        XCTAssertEqual(reference.url, sourceURL)
+        XCTAssertEqual(sourceURL.excludeFromBody(
+            SCEReceivePolicy.children(of: message, named: "reference", xmlns: "https://xabber.com/protocol/references"),
+            groupchat: nil
+        ), "")
+    }
+
+    func testForeignFileAndSourceQNameCannotCreateDownloadReference() throws {
+        let sourceURL = "https://example.com/forged-image.png"
+        for payload in [
+            """
+            <file-sharing xmlns='https://xabber.com/protocol/files'>
+              <file xmlns='urn:example:foreign'><media-type>image/png</media-type></file>
+              <sources><uri>\(sourceURL)</uri></sources>
+            </file-sharing>
+            """,
+            """
+            <file-sharing xmlns='https://xabber.com/protocol/files'>
+              <file><media-type>image/png</media-type></file>
+              <sources><uri xmlns='urn:example:foreign'>\(sourceURL)</uri></sources>
+            </file-sharing>
+            """
+        ] {
+            let message = try makeMessage(referenceXML: """
+            <reference xmlns='https://xabber.com/protocol/references' type='mutable'
+                       begin='0' end='\(sourceURL.unicodeScalars.count)'>\(payload)</reference>
+            """, body: sourceURL)
+            XCTAssertTrue(parseReferences(message, primary: "foreign-file", jid: jid, owner: owner).isEmpty)
+            XCTAssertEqual(sourceURL.excludeFromBody(
+                SCEReceivePolicy.children(of: message, named: "reference", xmlns: "https://xabber.com/protocol/references"),
+                groupchat: nil
+            ), sourceURL)
+        }
+    }
+
     private let owner = "romeo@example.com"
     private let jid = "juliet@example.com"
 
@@ -1324,7 +1469,7 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
 
     func testPushPreviewKeepsCaptionedMediaBodyAndItemsStable() throws {
         let archiveXML = """
-        <message from='juliet@example.com/mobile' to='romeo@example.com'>
+        <message xmlns='jabber:client' from='juliet@example.com/mobile' to='romeo@example.com'>
           <body>Trip caption</body>
           <reference xmlns='https://xabber.com/protocol/references' type='mutable' begin='0' end='0'>
             <file-sharing xmlns='https://xabber.com/protocol/files'>
@@ -1368,7 +1513,7 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
             .joined(separator: "\n")
         let bodyXML = body.isEmpty ? "" : "<body>\(body)</body>"
         let xml = """
-        <message from='\(jid)/mobile' to='\(owner)'>
+        <message xmlns='jabber:client' from='\(jid)/mobile' to='\(owner)'>
           \(bodyXML)
           \(referencesXML)
         </message>
@@ -1379,7 +1524,7 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
 
     private func makeMessage(referenceXML: String, body: String) throws -> XMPPMessage {
         let xml = """
-        <message from='\(jid)/mobile' to='\(owner)'>
+        <message xmlns='jabber:client' from='\(jid)/mobile' to='\(owner)'>
           <body>\(body)</body>
           \(referenceXML)
         </message>
@@ -1513,7 +1658,7 @@ final class ChatAttachmentXMPPCompatibilityTests: XCTestCase {
 
     private func makeArchivedMessage(referenceXML: String, body: String, archiveId: String) throws -> XMPPMessage {
         let xml = """
-        <message from='\(jid)/mobile' to='\(owner)'>
+        <message xmlns='jabber:client' from='\(jid)/mobile' to='\(owner)'>
           <body>\(body)</body>
           <archived xmlns='urn:xmpp:mam:tmp' by='\(owner)' id='\(archiveId)'/>
           <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='\(archiveId)'/>

@@ -702,6 +702,36 @@ extension Account: XMPPStreamDelegate {
                 }
             }
         }
+        let context: OMEMOReceiveContext = isArchivedMessage(message) ? .archive :
+            ((isCarbonCopy(message) || isCarbonForwarded(message)) ? .carbon : .live)
+        let prepared = self.omemo.prepareIncoming(message, context: context)
+        guard let message = prepared.message else {
+            didIntentionallyConsumeArchiveResult = true
+            return
+        }
+        let encryption = prepared.provenance
+        if case .failed = prepared {
+            // Only verified content may reach semantic routers. A failed
+            // encrypted stanza still has a safe history/error projection.
+            if self.mam.readMessage(message, encryption: encryption) {
+                didIntentionallyConsumeArchiveResult = true
+            } else if isArchivedMessage(message) {
+                didRouteArchiveResultToPersistence = true
+                self.messages.receiveArchived(message, encryption: encryption)
+            } else if isCarbonCopy(message) {
+                self.messages.receiveCarbon(message, encryption: encryption)
+            } else if isCarbonForwarded(message) {
+                self.messages.receiveCarbonForwarded(message, encryption: encryption)
+            } else {
+                self.messages.receiveRuntime(message, encryption: encryption)
+            }
+            return
+        }
+        if encryption.isAuthenticated,
+           self.trustSharingManager.didReceivedListOfContactsDevices(message: message, encryption: encryption) {
+            didIntentionallyConsumeArchiveResult = true
+            return
+        }
         let canonicalGroupRouting = self.routeCanonicalGroupMessage(message)
         if canonicalGroupRouting == .consumed {
             didIntentionallyConsumeArchiveResult = true
@@ -711,7 +741,7 @@ extension Account: XMPPStreamDelegate {
         switch message.messageType ?? .chat {
             case .chat, .normal:
 
-            if self.mam.readMessage(message) {
+            if self.mam.readMessage(message, encryption: encryption) {
                 didIntentionallyConsumeArchiveResult = true
                 return
             }
@@ -729,7 +759,7 @@ extension Account: XMPPStreamDelegate {
                     if let favoritesNode = AccountManager.shared.find(for: self.jid)?.favorites.node,
                        [bareMessage.to?.bare, bareMessage.from?.bare].contains(favoritesNode) {
                         AccountManager.shared.find(for: self.jid)?.action({ user, stream in
-                            user.favorites.receiveSaved(message: message)
+                            user.favorites.receiveSaved(message: message, encryption: encryption)
                         })
                         
                         didIntentionallyConsumeArchiveResult = true
@@ -740,7 +770,7 @@ extension Account: XMPPStreamDelegate {
                         return
                     }
                     
-                    if self.trustSharingManager.didReceivedListOfContactsDevices(message: bareMessage) {
+                    if self.trustSharingManager.didReceivedListOfContactsDevices(message: bareMessage, encryption: encryption) {
                         didIntentionallyConsumeArchiveResult = true
                         return
                     }
@@ -756,12 +786,9 @@ extension Account: XMPPStreamDelegate {
                 if self.chatMarkers.read(withMessage: message) {
                     didIntentionallyConsumeArchiveResult = true
                     return
-                } else if self.omemo.didReceiveOmemoMessage(message) {
-                    didRouteArchiveResultToPersistence = true
-                    return
                 } else {
                     didRouteArchiveResultToPersistence = true
-                    self.messages.receiveArchived(message)
+                    self.messages.receiveArchived(message, encryption: encryption)
                 }
             } else if isPriorityMessage(message) {
                 if let bareMessage = getPriorityMessageContainer(message) {
@@ -774,7 +801,7 @@ extension Account: XMPPStreamDelegate {
                     if let favoritesNode = AccountManager.shared.find(for: self.jid)?.favorites.node,
                        [bareMessage.to?.bare, bareMessage.from?.bare].contains(favoritesNode) {
                         AccountManager.shared.find(for: self.jid)?.action({ user, stream in
-                            user.favorites.receiveSaved(message: message)
+                            user.favorites.receiveSaved(message: message, encryption: encryption)
                         })
                         
                         return
@@ -790,10 +817,8 @@ extension Account: XMPPStreamDelegate {
                 }
                 if self.chatMarkers.read(withMessage: message) {
                     return
-                } else if self.omemo.didReceiveOmemoMessage(message) {
-                    return
                 } else {
-                    self.messages.receiveCarbon(message)
+                    self.messages.receiveCarbon(message, encryption: encryption)
                 }
                 
             } else if isCarbonForwarded(message) {
@@ -801,7 +826,7 @@ extension Account: XMPPStreamDelegate {
                     if let favoritesNode = AccountManager.shared.find(for: self.jid)?.favorites.node,
                        [bareMessage.to?.bare, bareMessage.from?.bare].contains(favoritesNode) {
                         AccountManager.shared.find(for: self.jid)?.action({ user, stream in
-                            user.favorites.receiveSaved(message: message)
+                            user.favorites.receiveSaved(message: message, encryption: encryption)
                         })
                         
                         return
@@ -817,18 +842,16 @@ extension Account: XMPPStreamDelegate {
                         return
                     }
                 }
-                if self.omemo.didReceiveOmemoMessage(message) {
-                    return
-                } else if self.chatMarkers.read(withMessage: message) {
+                if self.chatMarkers.read(withMessage: message) {
                     return
                 } else {
-                    self.messages.receiveCarbonForwarded(message)
+                    self.messages.receiveCarbonForwarded(message, encryption: encryption)
                 }
             } else {
                 if let favoritesNode = AccountManager.shared.find(for: self.jid)?.favorites.node,
                    [message.to?.bare, message.from?.bare].contains(favoritesNode) {
                     AccountManager.shared.find(for: self.jid)?.action({ user, stream in
-                        user.favorites.receiveSaved(message: message)
+                        user.favorites.receiveSaved(message: message, encryption: encryption)
                     })
                     
                     return
@@ -849,14 +872,12 @@ extension Account: XMPPStreamDelegate {
                 if self.xTokens.receive(sender, withMessage: message) {
                     
                 }
-                if self.omemo.didReceiveOmemoMessage(message) {
+                if self.akeManager.didReceivedVerificationMessage(message: message) {
                     return
-                } else if self.akeManager.didReceivedVerificationMessage(message: message) {
-                    return
-                } else if self.trustSharingManager.didReceivedListOfContactsDevices(message: message) {
+                } else if self.trustSharingManager.didReceivedListOfContactsDevices(message: message, encryption: encryption) {
                     return
                 } else {
-                    self.messages.receiveRuntime(message)
+                    self.messages.receiveRuntime(message, encryption: encryption)
                 }
             }
         case .groupchat:
@@ -893,7 +914,7 @@ extension Account: XMPPStreamDelegate {
             if self.avatarManager.readMessage(message) {
                 return
             }
-            if self.msgDeleteManager.read(headline: message) {
+            if self.msgDeleteManager.read(headline: message, encryption: encryption) {
                 return
             }
             if self.messageSchedule.read(headline: message) {

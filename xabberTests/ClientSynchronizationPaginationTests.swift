@@ -186,7 +186,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
           <metadata node='https://xabber.com/protocol/synchronization'>
             <unread count='0'/>
             <last-message>
-              <message from='\(jid)' to='\(owner)' id='\(messageId)'>
+              <message xmlns='jabber:client' from='\(jid)' to='\(owner)' id='\(messageId)'>
                 <stanza-id xmlns='urn:xmpp:sid:0' by='\(owner)' id='\(archiveId)'/>
                 <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>
                 <body>\(body)</body>
@@ -262,7 +262,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
             <displayed id='\(archiveID - 2)'/>
             <delivered id='\(archiveID - 3)'/>
             <last-message>
-              <message from='\(jid)' to='\(owner)' id='list-message-\(index)'>
+              <message xmlns='jabber:client' from='\(jid)' to='\(owner)' id='list-message-\(index)'>
                 <stanza-id xmlns='urn:xmpp:sid:0' by='\(archiveOwner)' id='\(archiveID)'/>
                 <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:34:56Z'/>
                 <body>Preview \(index)</body>
@@ -1206,9 +1206,357 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         XCTAssertEqual(XabberRealmSchema.current, 22)
     }
 
+    func testSCEPreviewIgnoresForeignBodyAndClientExtensions() throws {
+        let message = try makeElement("""
+        <message xmlns='jabber:client' id='foreign-preview'>
+          <body xmlns='urn:example:foreign'>Forged text</body>
+          <reference xmlns='urn:example:foreign' type='mutable'>
+            <file-sharing xmlns='https://xabber.com/protocol/files'/>
+          </reference>
+          <contact xmlns='urn:example:foreign'/>
+          <sticker xmlns='urn:example:foreign'/>
+          <event xmlns='urn:example:foreign'/>
+        </message>
+        """)
+        let projection = try XCTUnwrap(LastChatListSyncPreviewParser.projection(
+            owner: owner,
+            conversationPrimary: "foreign-preview-primary",
+            lastMessageID: "foreign-preview",
+            messageElement: message
+        ))
+        XCTAssertEqual(projection.text, "Message")
+        XCTAssertFalse(projection.isAttachment)
+        XCTAssertFalse(projection.isSystemMessage)
+    }
+
+    func testSCEPreviewIgnoresForeignFilePayloadInsideValidReference() throws {
+        let message = try makeElement("""
+        <message xmlns='jabber:client' id='foreign-file'>
+          <reference xmlns='https://xabber.com/protocol/references' type='mutable'>
+            <file-sharing xmlns='urn:example:foreign'>
+              <media-type>image/png</media-type>
+            </file-sharing>
+          </reference>
+        </message>
+        """)
+        let projection = try XCTUnwrap(LastChatListSyncPreviewParser.projection(
+            owner: owner,
+            conversationPrimary: "foreign-file-primary",
+            lastMessageID: "foreign-file",
+            messageElement: message
+        ))
+        XCTAssertEqual(projection.text, "Message")
+        XCTAssertFalse(projection.isAttachment)
+    }
+
+    func testSCEPreviewUnknownWrapperCannotHideBodyThroughNestedURI() throws {
+        let message = try makeElement("""
+        <message xmlns='jabber:client' id='opaque-wrapper'>
+          <body>Original caption</body>
+          <reference xmlns='https://xabber.com/protocol/references' type='data'>
+            <unknown xmlns='urn:example:foreign'>
+              <uri xmlns='https://xabber.com/protocol/files'>Original caption</uri>
+            </unknown>
+          </reference>
+        </message>
+        """)
+        let projection = try XCTUnwrap(LastChatListSyncPreviewParser.projection(
+            owner: owner, conversationPrimary: "opaque-wrapper-primary",
+            lastMessageID: "opaque-wrapper", messageElement: message
+        ))
+        XCTAssertEqual(projection.text, "Original caption")
+        XCTAssertFalse(projection.isAttachment)
+    }
+
+    func testSCEReferenceExclusionRequiresReferenceLocalName() throws {
+        let unknown = try makeElement("""
+        <unknown xmlns='https://xabber.com/protocol/references'
+                 type='mutable' begin='0' end='5'/>
+        """)
+        XCTAssertEqual("Hello".excludeFromBody([unknown], groupchat: nil), "Hello")
+        XCTAssertNil(getReferenceType(unknown))
+    }
+
+    func testSCEPreviewRecognizesPrefixedClientBodyAndReferences() throws {
+        let message = try makeElement("""
+        <c:message xmlns:c='jabber:client' id='prefixed-preview'>
+          <c:body>Verified text</c:body>
+          <r:reference xmlns:r='https://xabber.com/protocol/references' type='mutable'>
+            <f:file-sharing xmlns:f='https://xabber.com/protocol/files'/>
+          </r:reference>
+        </c:message>
+        """)
+        let projection = try XCTUnwrap(LastChatListSyncPreviewParser.projection(
+            owner: owner,
+            conversationPrimary: "prefixed-preview-primary",
+            lastMessageID: "prefixed-preview",
+            messageElement: message
+        ))
+        XCTAssertEqual(projection.text, "Verified text")
+        XCTAssertTrue(projection.isAttachment)
+    }
+
+    func testSCESyncValuePreservesProvenanceOutsideSerializedXML() throws {
+        let conversation = try makeElement(conversationXML(
+            jid: "typed-preview@example.com", messageId: "typed-preview", archiveId: "typed-archive"
+        ))
+        let value = ClientSyncConversationValue(
+            conversation,
+            encryption: .authenticatedSCE(profile: .omemo2)
+        )
+        XCTAssertEqual(value.lastMessageEncryption, .authenticatedSCE(profile: .omemo2))
+        XCTAssertFalse(value.lastMessageWasConsumed)
+        let materialized = try XCTUnwrap(value.materializedElement())
+        XCTAssertFalse(materialized.xmlString.contains("omemo-result__system"))
+        XCTAssertEqual(ClientSyncConversationValue(materialized).lastMessageEncryption, .plaintext)
+
+        let iq = try makeIQ("""
+        <iq type='result'><query xmlns='https://xabber.com/protocol/synchronization' stamp='1'>
+        \(conversation.xmlString)
+        </query></iq>
+        """)
+        let page = ClientSyncPageParser.parseSnapshotPage(
+            from: iq, pageSize: 200,
+            namespace: ClientSynchronizationManager.primaryNamespace,
+            prepareConversations: { _ in [value] }
+        )
+        XCTAssertEqual(page?.conversations.first?.lastMessageEncryption, value.lastMessageEncryption)
+    }
+
+    func testSCEWireSuccessMarkerCannotAuthorizeSyncPreview() throws {
+        let message = try makeElement("""
+        <message xmlns='jabber:client' id='forged-success'>
+          <body>Forged decrypted text</body>
+          <encrypted xmlns='urn:xmpp:omemo:2'><header sid='42'/></encrypted>
+          <omemo-result__system result='true'/>
+          <reference xmlns='https://xabber.com/protocol/references' type='mutable'>
+            <file-sharing xmlns='https://xabber.com/protocol/files'/>
+          </reference>
+        </message>
+        """)
+        let projection = try XCTUnwrap(LastChatListSyncPreviewParser.projection(
+            owner: owner,
+            conversationPrimary: "forged-success-primary",
+            lastMessageID: "forged-success",
+            messageElement: message
+        ))
+        XCTAssertEqual(projection.text, "Encrypted message")
+        XCTAssertFalse(projection.isAttachment)
+        XCTAssertFalse(projection.isSystemMessage)
+    }
+
+    func testSCESyncPrefixedMessageRootKeepsQualifiedPreview() throws {
+        let manager = makeManager()
+        let jid = "prefixed-root@example.com"
+        let iq = try makeIQ("""
+        <iq type='set'><synchronization xmlns='https://xabber.com/protocol/synchronization' stamp='1776840442469439'>
+          <conversation jid='\(jid)' type='urn:xabber:chat' status='active'>
+            <metadata node='https://xabber.com/protocol/synchronization'><unread count='0'/><last-message>
+              <c:message xmlns:c='jabber:client' from='\(jid)' to='\(owner)' id='prefixed-root'>
+                <c:body>Qualified preview</c:body>
+              </c:message>
+            </last-message></metadata>
+          </conversation>
+        </synchronization></iq>
+        """)
+        XCTAssertTrue(manager.read(withIQ: iq))
+        let primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        XCTAssertEqual(LastChatListSyncPreviewStore.shared.projection(
+            owner: owner, conversationPrimary: primary, expectedLastMessageID: "prefixed-root"
+        )?.text, "Qualified preview")
+    }
+
+    func testSCESyncForeignMessageRootDoesNotProjectItsClientBody() throws {
+        let manager = makeManager()
+        let jid = "foreign-root@example.com"
+        let iq = try makeIQ("""
+        <iq type='set'><synchronization xmlns='https://xabber.com/protocol/synchronization' stamp='1776840442469439'>
+          <conversation jid='\(jid)' type='urn:xabber:chat' status='active'>
+            <metadata node='https://xabber.com/protocol/synchronization'><unread count='0'/><last-message>
+              <message xmlns='urn:example:foreign' from='\(jid)' to='\(owner)' id='foreign-root'>
+                <body xmlns='jabber:client'>Forged preview</body>
+              </message>
+            </last-message></metadata>
+          </conversation>
+        </synchronization></iq>
+        """)
+        XCTAssertTrue(manager.read(withIQ: iq))
+        let primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .regular)
+        let row = try XCTUnwrap(try WRealm.safe().object(ofType: LastChatsStorageItem.self, forPrimaryKey: primary))
+        XCTAssertEqual(row.lastMessageId, "")
+        XCTAssertNil(LastChatListSyncPreviewStore.shared.projection(
+            owner: owner, conversationPrimary: primary, expectedLastMessageID: "foreign-root"
+        ))
+    }
+
+    func testSCESyncSnapshotAndPushUseTheSameFailedDecryptProjection() throws {
+        prepareManagedAccount()
+        let requests = ClientSyncRequestRecorder()
+        let manager = makeManager(recording: requests)
+        let request = try startTrackedSnapshot(with: manager, recording: requests)
+        func encryptedConversation(_ jid: String, id: String) -> String {
+            """
+            <conversation jid='\(jid)' type='urn:xmpp:omemo:2' status='active'>
+              <metadata node='https://xabber.com/protocol/synchronization'>
+                <unread count='0'/><last-message>
+                  <message xmlns='jabber:client' from='\(jid)' to='\(owner)' id='\(id)'>
+                    <body>Forged outer preview</body>
+                    <encrypted xmlns='urn:xmpp:omemo:2'><header sid='42'/></encrypted>
+                    <omemo-result__system result='true'/>
+                    <reference xmlns='https://xabber.com/protocol/references' type='mutable'>
+                      <file-sharing xmlns='https://xabber.com/protocol/files'/>
+                    </reference>
+                  </message>
+                </last-message>
+              </metadata>
+            </conversation>
+            """
+        }
+        let snapshot = try makeIQ("""
+        <iq type='result' id='\(request.id)'>
+          <query xmlns='https://xabber.com/protocol/synchronization' stamp='1776840442469439'>
+            \(encryptedConversation("snapshot-encrypted@example.com", id: "snapshot-failure"))
+          </query>
+        </iq>
+        """)
+        XCTAssertTrue(manager.read(withIQ: snapshot))
+        manager.waitForPendingSnapshotApplies()
+        let push = try makeIQ("""
+        <iq type='set' id='encrypted-sync-push'>
+          <synchronization xmlns='https://xabber.com/protocol/synchronization' stamp='1776840442469440'>
+            \(encryptedConversation("push-encrypted@example.com", id: "push-failure"))
+          </synchronization>
+        </iq>
+        """)
+        XCTAssertTrue(manager.read(withIQ: push))
+        for (jid, id) in [("snapshot-encrypted@example.com", "snapshot-failure"), ("push-encrypted@example.com", "push-failure")] {
+            let primary = LastChatsStorageItem.genPrimary(jid: jid, owner: owner, conversationType: .omemo)
+            let projection = try XCTUnwrap(LastChatListSyncPreviewStore.shared.projection(
+                owner: owner, conversationPrimary: primary, expectedLastMessageID: id
+            ))
+            XCTAssertEqual(projection.text, "Failed to decrypt")
+            XCTAssertFalse(projection.isAttachment)
+            XCTAssertFalse(projection.isSystemMessage)
+        }
+    }
+
+    func testSCESyncControlAndDuplicateKeepThePreviousPreviewIdentity() throws {
+        let omemo = OmemoManager(withOwner: owner)
+        let conversation = try makeElement("""
+        <conversation jid='encrypted@example.com' type='urn:xmpp:omemo:2'>
+          <metadata node='https://xabber.com/protocol/synchronization'>
+            <unread count='0'/><last-message>
+              <message xmlns='jabber:client' from='encrypted@example.com' to='\(owner)' id='control'>
+                <body>Forged outer preview</body>
+                <encrypted xmlns='urn:xmpp:omemo:2'><header sid='42'/></encrypted>
+              </message>
+            </last-message>
+          </metadata>
+        </conversation>
+        """)
+        let results: [OMEMOReceiveResult] = [.consumed(.control), .consumed(.duplicate)]
+        for result in results {
+            let prepared = omemo.prepareSyncConversation(conversation, prepareMessage: { _ in result })
+            XCTAssertTrue(prepared.lastMessageWasConsumed)
+            let materialized = try XCTUnwrap(prepared.materializedElement())
+            XCTAssertNil(materialized.element(forName: "metadata")?.element(forName: "last-message"))
+            XCTAssertNotNil(materialized.element(forName: "metadata")?.element(forName: "unread"))
+        }
+    }
+
+    func testSCERewriteRequiresInternalProvenanceForRetainedCiphertext() throws {
+        let jid = "edited-peer@example.com"
+        let realm = try WRealm.safe()
+        let stored = MessageStorageItem()
+        stored.owner = owner
+        stored.opponent = jid
+        stored.messageId = "edited-provenance"
+        stored.archivedId = "edited-archive"
+        stored.primary = MessageStorageItem.genPrimary(messageId: stored.messageId, owner: owner)
+        stored.body = "Original text"
+        stored.legacyBody = "Original text"
+        stored.conversationType = .omemo
+        try realm.write { realm.add(stored, update: .modified) }
+        let message = XMPPMessage(from: try makeElement("""
+        <message xmlns='jabber:client' type='headline' from='example.com' to='\(owner)'>
+          <replace xmlns='https://xabber.com/protocol/rewrite#notify' conversation='\(jid)'
+                   type='urn:xmpp:omemo:2' id='edited-archive' version='2'>
+            <message xmlns='jabber:client' from='\(jid)' to='\(owner)' id='edited-provenance'>
+              <encrypted xmlns='urn:xmpp:omemo:2'><header sid='42'/></encrypted>
+              <body>Checked new text</body>
+              <replaced xmlns='https://xabber.com/protocol/rewrite' stamp='2026-10-02T00:00:00Z'/>
+              <omemo-result__system result='true'/>
+            </message>
+          </replace>
+        </message>
+        """))
+        let manager = MessageDeleteManager(withOwner: owner)
+        XCTAssertTrue(manager.readRewriteNotify(message))
+        XCTAssertEqual(stored.body, "Original text")
+        XCTAssertEqual(manager.version, "")
+        XCTAssertEqual(stored.incomingEncryption, .plaintext)
+
+        XCTAssertTrue(manager.readRewriteNotify(message, encryption: .authenticatedSCE(profile: .omemo2)))
+        XCTAssertEqual(stored.body, "Checked new text")
+        XCTAssertEqual(manager.version, "2")
+        let reloaded = try XCTUnwrap(realm.object(ofType: MessageStorageItem.self, forPrimaryKey: stored.primary))
+        XCTAssertEqual(reloaded.body, "Checked new text")
+        XCTAssertEqual(reloaded.editDate, "2026-10-02T00:00:00Z".xmppDate)
+        XCTAssertTrue(reloaded.references.isEmpty)
+        // Realm re-materialization must not restore the in-process proof or XML
+        // object: durable message fields are separate from decrypt authority.
+        XCTAssertEqual(reloaded.incomingEncryption, .plaintext)
+        XCTAssertNil(reloaded.originalStanza)
+    }
+
+    func testSCEForeignRetractQNameCannotDeleteMessageOrAdvanceVersion() throws {
+        let jid = "retract-peer@example.com"
+        let realm = try WRealm.safe()
+        let stored = MessageStorageItem()
+        stored.owner = owner
+        stored.opponent = jid
+        stored.messageId = "retract-qname"
+        stored.archivedId = "retract-archive"
+        stored.primary = MessageStorageItem.genPrimary(messageId: stored.messageId, owner: owner)
+        stored.body = "Preserved text"
+        stored.conversationType = .regular
+        try realm.write { realm.add(stored, update: .modified) }
+        let message = XMPPMessage(from: try makeElement("""
+        <message xmlns='jabber:client' type='headline' from='example.com' to='\(owner)'>
+          <retract-message xmlns='urn:example:foreign' conversation='\(jid)' type='urn:xabber:chat'
+                           id='retract-archive' version='foreign-version'/>
+        </message>
+        """))
+        let manager = MessageDeleteManager(withOwner: owner)
+        XCTAssertFalse(manager.readRetractMessageNotify(message))
+        XCTAssertEqual(manager.version, "")
+        XCTAssertFalse(stored.isInvalidated)
+        XCTAssertEqual(realm.objects(MessageStorageItem.self).filter("owner == %@", owner).count, 1)
+    }
+
+    func testSCEPrefixedRetractUserAndAllUseExpandedQName() throws {
+        let manager = MessageDeleteManager(withOwner: owner)
+        let user = XMPPMessage(from: try makeElement("""
+        <message xmlns='jabber:client' type='headline' from='example.com' to='\(owner)'>
+          <r:retract-user xmlns:r='https://xabber.com/protocol/rewrite#notify'
+                          conversation='retract-peer@example.com' version='user-version'/>
+        </message>
+        """))
+        XCTAssertTrue(manager.readRetractUserNotify(user))
+        XCTAssertEqual(manager.version, "user-version")
+        let all = XMPPMessage(from: try makeElement("""
+        <message xmlns='jabber:client' type='headline' from='example.com' to='\(owner)'>
+          <r:retract-all xmlns:r='https://xabber.com/protocol/rewrite#notify'
+                        conversation='retract-peer@example.com' type='urn:xabber:chat' version='all-version'/>
+        </message>
+        """))
+        _ = manager.readRetractAllNotify(all)
+        XCTAssertEqual(manager.version, "all-version")
+    }
+
     func testListOnlyPreviewParserUsesSafeAttachmentAndSystemFallbacks() throws {
         let attachmentMessage = try makeElement("""
-        <message id='sync-file'>
+        <message xmlns='jabber:client' id='sync-file'>
           <reference xmlns='urn:xmpp:reference:0' type='data'>
             <file-sharing xmlns='urn:xmpp:sfs:0'/>
           </reference>
@@ -1230,7 +1578,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         XCTAssertFalse(attachment.isSystemMessage)
 
         let systemMessage = try makeElement("""
-        <message id='sync-system'>
+        <message xmlns='jabber:client' id='sync-system'>
           <event xmlns='https://xabber.com/protocol/groups'/>
         </message>
         """)
@@ -1247,14 +1595,14 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         XCTAssertTrue(system.isSystemMessage)
     }
 
-    func testOMEMOSyncPreviewKeepsServerFallbackWhenDecryptedPayloadContainsOnlyAttachment() throws {
+    func testOMEMOSyncPreviewDiscardsServerBodyWhenDecryptedPayloadContainsOnlyAttachment() throws {
         let manager = OmemoManager(withOwner: owner)
         let query = try makeElement("""
         <query xmlns='https://xabber.com/protocol/synchronization'>
           <conversation jid='encrypted@example.com' type='urn:xmpp:omemo:2'>
             <metadata node='https://xabber.com/protocol/synchronization'>
               <last-message>
-                <message from='encrypted@example.com' to='\(owner)' id='encrypted-file'>
+                <message xmlns='jabber:client' from='encrypted@example.com' to='\(owner)' id='encrypted-file'>
                   <body>Encrypted attachment</body>
                   <encrypted xmlns='urn:xmpp:omemo:2'>
                     <header sid='42'/>
@@ -1286,7 +1634,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
                 .element(forName: "last-message")?
                 .element(forName: "message")
         )
-        XCTAssertEqual(message.element(forName: "body")?.stringValue, "Encrypted attachment")
+        XCTAssertNil(message.element(forName: "body"))
         XCTAssertNil(
             message.elements(forName: "body").first {
                 $0.stringValue == "Failed to decrypt"
@@ -1295,11 +1643,14 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         XCTAssertNotNil(
             message.element(forName: "reference", xmlns: "urn:xmpp:reference:0")
         )
-        XCTAssertEqual(
-            message.element(forName: "omemo-result__system")?
-                .attributeBoolValue(forName: "result"),
-            true
-        )
+        XCTAssertNil(message.element(forName: "omemo-result__system"))
+        XCTAssertEqual(LastChatListSyncPreviewParser.projection(
+            owner: owner,
+            conversationPrimary: "encrypted-file-primary",
+            lastMessageID: "encrypted-file",
+            messageElement: message,
+            encryption: .authenticatedSCE(profile: .omemo2)
+        )?.text, "File".localizeString(id: "chat_message_file", arguments: []))
         XCTAssertEqual(
             try WRealm.safe().objects(MessageStorageItem.self)
                 .filter("owner == %@", owner).count,
@@ -1319,7 +1670,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
           <conversation jid='encrypted@example.com' type='urn:xmpp:omemo:2'>
             <metadata node='https://xabber.com/protocol/synchronization'>
               <last-message>
-                <message from='encrypted@example.com' to='\(owner)' id='encrypted-file'>
+                <message xmlns='jabber:client' from='encrypted@example.com' to='\(owner)' id='encrypted-file'>
                   <encrypted xmlns='urn:xmpp:omemo:2'>
                     <header sid='42'/>
                   </encrypted>
@@ -1356,20 +1707,21 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
                 owner: owner,
                 conversationPrimary: "encrypted-file-primary",
                 lastMessageID: "encrypted-file",
-                messageElement: message
+                messageElement: message,
+                encryption: .authenticatedSCE(profile: .omemo2)
             )?.text,
             "File".localizeString(id: "chat_message_file", arguments: [])
         )
     }
 
-    func testOMEMOSyncPreviewKeepsServerFallbackOnActualDecryptFailure() throws {
+    func testOMEMOSyncPreviewDiscardsServerBodyOnActualDecryptFailure() throws {
         let manager = OmemoManager(withOwner: owner)
         let query = try makeElement("""
         <query xmlns='https://xabber.com/protocol/synchronization'>
           <conversation jid='encrypted@example.com' type='urn:xmpp:omemo:2'>
             <metadata node='https://xabber.com/protocol/synchronization'>
               <last-message>
-                <message from='encrypted@example.com' to='\(owner)' id='encrypted-failure'>
+                <message xmlns='jabber:client' from='encrypted@example.com' to='\(owner)' id='encrypted-failure'>
                   <body>Safe encrypted preview</body>
                   <encrypted xmlns='urn:xmpp:omemo:2'>
                     <header sid='42'/>
@@ -1389,8 +1741,15 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
                 .element(forName: "last-message")?
                 .element(forName: "message")
         )
-        XCTAssertEqual(message.element(forName: "body")?.stringValue, "Safe encrypted preview")
+        XCTAssertNil(message.element(forName: "body"))
         XCTAssertNil(message.element(forName: "omemo-result__system"))
+        XCTAssertEqual(LastChatListSyncPreviewParser.projection(
+            owner: owner,
+            conversationPrimary: "encrypted-failure-primary",
+            lastMessageID: "encrypted-failure",
+            messageElement: message,
+            encryption: .failedOMEMO
+        )?.text, "Failed to decrypt")
         XCTAssertEqual(
             try WRealm.safe().objects(MessageStorageItem.self)
                 .filter("owner == %@", owner).count,
@@ -2029,7 +2388,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
               <metadata node='https://xabber.com/protocol/synchronization'>
                 <unread count='0'/>
                 <last-message>
-                  <message type='chat'
+                  <message xmlns='jabber:client' type='chat'
                            from='\(groupJID)'
                            to='\(owner)'
                            id='group-list-message-1'>
@@ -2322,7 +2681,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         <conversation jid='\(groupchat)' type='https://xabber.com/protocol/groups' stamp='1776840442469439' status='active'>
           <metadata node='https://xabber.com/protocol/synchronization'>
             <last-message>
-              <message type='chat' from='\(groupchat)/Group' to='\(owner)' id='sync-invite'>
+              <message xmlns='jabber:client' type='chat' from='\(groupchat)/Group' to='\(owner)' id='sync-invite'>
                 <body>You have been invited to the group chat.</body>
                 <invite xmlns='https://xabber.com/protocol/groups' jid='\(groupchat)'/>
               </message>
@@ -2375,7 +2734,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
                       status='active'>
           <metadata node='https://xabber.com/protocol/synchronization'>
             <last-message>
-              <message type='chat' from='stage@groups.example.com/Group' to='\(owner)'>
+              <message xmlns='jabber:client' type='chat' from='stage@groups.example.com/Group' to='\(owner)'>
                 <body>You have been invited to the group chat.</body>
                 <invite xmlns='https://xabber.com/protocol/groups'
                         jid='stage@groups.example.com'/>

@@ -42,6 +42,8 @@
 
 **Уровень:** MUST. **Владелец:** xmpp. **Зависимости:** нет.
 
+**Реализация:** [контракт проверенного приёма](omemo2-sce-receive.md), 2026-10-02. Подготовка live/MAM/carbon/sync/push, внутренний provenance и QName consumers реализованы; результаты финального Simulator gate находятся в завершённой задаче vault. Следующая задача — OM2-02.
+
 **Компоненты:** `Omemo2PayloadCodec.swift`, `OmemoManager.swift`, `AccountStreamDelegate.swift`, `MessageManager+CommonReceiver.swift`, `MessageReferenceParser.swift`.
 
 - Возвращать типизированный результат: проверенное содержимое, control, duplicate или ошибка; provenance передавать вне сетевого XML.

@@ -7,6 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DF96FD49CDF54508B318199E /* OMEMO2ReceiveRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A14979AC489461BBA0C0A3D /* OMEMO2ReceiveRoutingTests.swift */; };
+		5BBB21AD8A314ABAB197798B /* OMEMO2SCEReceiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8EC5E0B3A01432EA78F1ED0 /* OMEMO2SCEReceiveTests.swift */; };
+		F99DAB1A137A4868BAAEB4EF /* OMEMOReceive.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C8701F8F024394995ACC9A /* OMEMOReceive.swift */; };
+		E559F0789C094B8DBB9F15C0 /* SCEReceivePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E82A86E5A1B41CE88667737 /* SCEReceivePolicy.swift */; };
+		442F9FD4E8634914BFDF324A /* SCEReceivePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E82A86E5A1B41CE88667737 /* SCEReceivePolicy.swift */; };
 		AB038401260A000000000002 /* OMEMO2CryptoKitConformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB038401260A000000000001 /* OMEMO2CryptoKitConformanceTests.swift */; };
 		317030DD0C0A7D8A75EE828B /* OMEMO2Tests.m in Sources */ = {isa = PBXBuildFile; fileRef = 6693FDAC0446B598B6B05C02 /* OMEMO2Tests.m */; };
 		A6D200023D05000000ABC001 /* NotificationsSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D200013D05000000ABC001 /* NotificationsSettingsViewController.swift */; };
@@ -1112,6 +1117,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		6A14979AC489461BBA0C0A3D /* OMEMO2ReceiveRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2ReceiveRoutingTests.swift; sourceTree = "<group>"; };
+		B8EC5E0B3A01432EA78F1ED0 /* OMEMO2SCEReceiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2SCEReceiveTests.swift; sourceTree = "<group>"; };
+		E2C8701F8F024394995ACC9A /* OMEMOReceive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMOReceive.swift; sourceTree = "<group>"; };
+		2E82A86E5A1B41CE88667737 /* SCEReceivePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SCEReceivePolicy.swift; sourceTree = "<group>"; };
 		AB038401260A000000000001 /* OMEMO2CryptoKitConformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OMEMO2CryptoKitConformanceTests.swift; path = OMEMO2CryptoKitConformanceTests.swift; sourceTree = "<group>"; };
 		6693FDAC0446B598B6B05C02 /* OMEMO2Tests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = OMEMO2Tests.m; path = ../../../../../deps/SignalProtocolObjC/Testing/SignalProtocolTests/OMEMO2Tests.m; sourceTree = SOURCE_ROOT; };
 		A6D200013D05000000ABC001 /* NotificationsSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsSettingsViewController.swift; sourceTree = "<group>"; };
@@ -3702,6 +3711,7 @@
 		6695786227A1317A00A6C4AB /* omemo */ = {
 			isa = PBXGroup;
 			children = (
+				E2C8701F8F024394995ACC9A /* OMEMOReceive.swift */,
 				728A81A08FDA4B1EB95ED16B /* Omemo2PayloadCodec.swift */,
 				03CAD40C9C9B41A0B1C77A54 /* Omemo2IdentityRepresentation.swift */,
 				7267462FA257447D9AA4AADB /* OMEMO2BundleCodec.swift */,
@@ -3768,6 +3778,7 @@
 			isa = PBXGroup;
 			children = (
 				163457817B9EDAF9D7FB6FF8 /* NotifyManager.swift */,
+				2E82A86E5A1B41CE88667737 /* SCEReceivePolicy.swift */,
 				4E4100012F6B000000ABC001 /* PushNotificationRouting.swift */,
 				4E8140013B2D000000ABC001 /* RichNotificationPresentation.swift */,
 				4E8150013B2E000000ABC001 /* RichNotificationAttachmentLoader.swift */,
@@ -4156,6 +4167,8 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				B8EC5E0B3A01432EA78F1ED0 /* OMEMO2SCEReceiveTests.swift */,
+				6A14979AC489461BBA0C0A3D /* OMEMO2ReceiveRoutingTests.swift */,
 				68C3EC34A0D24588B504B518 /* OMEMO2AppIntegrationTests.swift */,
 				B597BB160FA0428D81662281 /* OMEMO2BundleCodecTests.swift */,
 				DAD3F678997C42BE9858BE9D /* OMEMO2StateStorageTests.swift */,
@@ -5610,6 +5623,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				191531E8B9D041C59110EF5F /* XabberOMEMO2Storage.swift in Sources */,
+				F99DAB1A137A4868BAAEB4EF /* OMEMOReceive.swift in Sources */,
 				F03B93D75F2A40899C4A990F /* Omemo2PayloadCodec.swift in Sources */,
 				0D6AA888A363441881F0F3E5 /* Omemo2IdentityRepresentation.swift in Sources */,
 				6C2CD0F0B8454412BB1A517E /* OMEMO2BundleCodec.swift in Sources */,
@@ -6364,6 +6378,7 @@
 				6643F32D21C2650E00333229 /* LocationItem.swift in Sources */,
 				66E564312DF19F430028D13B /* ContextMenuCell.swift in Sources */,
 				1634567A60A2EE60EC34BE0D /* NotifyManager.swift in Sources */,
+				E559F0789C094B8DBB9F15C0 /* SCEReceivePolicy.swift in Sources */,
 				4E4100022F6B000000ABC001 /* PushNotificationRouting.swift in Sources */,
 				4E8140023B2D000000ABC001 /* RichNotificationPresentation.swift in Sources */,
 				4E8150023B2E000000ABC001 /* RichNotificationAttachmentLoader.swift in Sources */,
@@ -6399,6 +6414,7 @@
 				A66100012609000000000010 /* PasscodeCredentialStore.swift in Sources */,
 				A66100012609000000000005 /* PasscodeWipeMarkerStore.swift in Sources */,
 				66F339432F1FC74800EFB5B7 /* CommonConfigManager.swift in Sources */,
+				442F9FD4E8634914BFDF324A /* SCEReceivePolicy.swift in Sources */,
 				4E4100032F6B000000ABC001 /* PushNotificationRouting.swift in Sources */,
 				4E8140033B2D000000ABC001 /* RichNotificationPresentation.swift in Sources */,
 				4E8150033B2E000000ABC001 /* RichNotificationAttachmentLoader.swift in Sources */,
@@ -6413,6 +6429,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5BBB21AD8A314ABAB197798B /* OMEMO2SCEReceiveTests.swift in Sources */,
+				DF96FD49CDF54508B318199E /* OMEMO2ReceiveRoutingTests.swift in Sources */,
 				E9D67D72E3EE4A9EB49310CA /* OMEMO2AppIntegrationTests.swift in Sources */,
 				BC6F3DCEAB2247C8B846AD0B /* OMEMO2BundleCodecTests.swift in Sources */,
 				221554EE690D4A6EAF6A8681 /* OMEMO2StateStorageTests.swift in Sources */,

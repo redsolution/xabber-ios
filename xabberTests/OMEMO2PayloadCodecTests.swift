@@ -6,6 +6,25 @@ import XMPPFramework
 final class OMEMO2PayloadCodecTests: XCTestCase {
     private let xml = "<envelope xmlns='urn:xmpp:sce:1'><content><body xmlns='jabber:client'>hello</body></content><rpad>pad</rpad><from jid='alice@example.com'/><to jid='bob@example.com'/></envelope>"
 
+    func testPeerEncryptedContentCannotImpersonateServerRewriteNotifications() throws {
+        let packet = try Omemo2PayloadCodec.seal("""
+          <envelope xmlns='urn:xmpp:sce:1'><content>
+            <body xmlns='jabber:client'>hello</body>
+            <replaced xmlns='https://xabber.com/protocol/rewrite' stamp='2026-10-02T00:00:00Z'/>
+            <retract-all xmlns='https://xabber.com/protocol/rewrite#notify' conversation='bob@example.com' version='9'/>
+            <retract-message xmlns='https://xabber.com/protocol/rewrite#notify' id='victim' version='9'/>
+            <retract-user xmlns='https://xabber.com/protocol/rewrite#notify' version='9'/>
+          </content><rpad>pad</rpad></envelope>
+        """)
+        let opened = try XCTUnwrap(Omemo2PayloadCodec.openVerified(packet.ciphertext,
+            keyAndMAC: packet.keyAndMAC, expectedFrom: nil, expectedTo: nil))
+        XCTAssertNotNil(opened.content.element(forName: "body"))
+        XCTAssertNotNil(opened.content.element(forName: "replaced"))
+        for name in ["retract-all", "retract-message", "retract-user"] {
+            XCTAssertNil(opened.content.element(forName: name))
+        }
+    }
+
     // Independent fixture: Python RFC5869 HMAC/HKDF + OpenSSL AES-CBC.
     func testPayloadMatchesIndependentHKDFCBCMAC16Fixture() throws {
         let expected = Data(base64Encoded: "6dSO/ouvpV4xQv+FlKj3IJr7pGv2i1KYlfKFPgf3Bx+EId8KrZdSvpJ1K0lK52P5CVZ59FL+4WUsmYvmWo+JUSA3QtSZUUy4BzkllY48EO5NE99RFfz4DaQS34n46DEFH6TYnPf5nPBg0dUOdLccJDXEHTCGp5LIK9wYPw3Tyok35Q8ow72yDneFeAnF9YRIzUXV8h0x5/d2Ro2XI/d7Df5XKbSb6GRPWWtHud6YO8l0MZ/Dy3i/kbD9KIFmIQUe")!

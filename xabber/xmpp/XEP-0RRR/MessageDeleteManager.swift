@@ -103,12 +103,12 @@ class MessageDeleteManager: AbstractXMPPManager {
         }
     }
     
-    func read(headline message: XMPPMessage) -> Bool {
+    func read(headline message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext) -> Bool {
         switch true {
         case readRetractAllNotify(message): return true
         case readRetractUserNotify(message): return true
         case readRetractMessageNotify(message): return true
-        case readRewriteNotify(message): return true
+        case readRewriteNotify(message, encryption: encryption): return true
         default: return false
         }
     }
@@ -128,7 +128,7 @@ class MessageDeleteManager: AbstractXMPPManager {
     }
     
     internal func readRetractAllNotify(_ message: XMPPMessage) -> Bool {
-        guard let retract = message.element(forName: "retract-all", xmlns: [getPrimaryNamespace(), "notify"].joined(separator: "#")),
+        guard let retract = SCEReceivePolicy.children(of: message, named: "retract-all", xmlns: [getPrimaryNamespace(), "notify"].joined(separator: "#")).first,
               let jid = retract.attributeStringValue(forName: "conversation"),
               let conversationTypeRaw = retract.attributeStringValue(forName: "type"),
               let conversationType = notificationConversationType(
@@ -187,8 +187,7 @@ class MessageDeleteManager: AbstractXMPPManager {
     }
     
     internal func readRetractUserNotify(_ message: XMPPMessage) -> Bool {
-        guard let retract = message.element(forName: "retract-user"),
-            retract.xmlns() == [getPrimaryNamespace(), "notify"].joined(separator: "#"),
+        guard let retract = SCEReceivePolicy.children(of: message, named: "retract-user", xmlns: [getPrimaryNamespace(), "notify"].joined(separator: "#")).first,
             retract.attributeStringValue(forName: "conversation") != nil,
             let version = retract.attributeStringValue(forName: "version") else {
                 return false
@@ -199,7 +198,7 @@ class MessageDeleteManager: AbstractXMPPManager {
     }
     
     internal func readRetractMessageNotify(_ message: XMPPMessage) -> Bool {
-        guard let retract = message.element(forName: "retract-message"),
+        guard let retract = SCEReceivePolicy.children(of: message, named: "retract-message", xmlns: [getPrimaryNamespace(), "notify"].joined(separator: "#")).first,
               let conversation = retract.attributeStringValue(forName: "conversation"),
               let conversationTypeRaw = retract.attributeStringValue(forName: "type"),
               let conversationType = notificationConversationType(
@@ -271,17 +270,24 @@ class MessageDeleteManager: AbstractXMPPManager {
         return true
     }
     
-    internal func readRewriteNotify(_ message: XMPPMessage) -> Bool {
-        guard let replace = message.element(forName: "replace"),
-              let version = replace.attributeStringValue(forName: "version"),
+    internal func readRewriteNotify(_ message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext) -> Bool {
+        let replacements = SCEReceivePolicy.children(of: message, named: "replace", xmlns: "https://xabber.com/protocol/rewrite#notify")
+        guard replacements.count == 1 else { return false }
+        let replace = replacements[0]
+        let messages = SCEReceivePolicy.children(of: replace, named: "message", xmlns: "jabber:client")
+        guard messages.count == 1 else { return false }
+        let messageContainer = messages[0]
+        // Ciphertext never grants permission to apply its plaintext siblings.
+        // Only the receive pipeline can provide evidence for reconstructed edits.
+        if SCEReceivePolicy.hasOMEMO2(messageContainer) && !encryption.isAuthenticated { return true }
+        guard let version = replace.attributeStringValue(forName: "version"),
               let conversation = replace.attributeStringValue(forName: "conversation"),
               let conversationTypeRaw = replace.attributeStringValue(forName: "type"),
               let conversationType = notificationConversationType(
                   rawValue: conversationTypeRaw
               ),
-              let messageContainer = replace.element(forName: "message"),
               let stanzaId = replace.attributeStringValue(forName: "id"),
-              let editDate = messageContainer.element(forName: "replaced")?.attributeStringValue(forName: "stamp")?.xmppDate else {
+              let editDate = SCEReceivePolicy.children(of: messageContainer, named: "replaced", xmlns: MessageDeleteManager.namespace).first?.attributeStringValue(forName: "stamp")?.xmppDate else {
                 return false
         }
         do {
@@ -295,6 +301,7 @@ class MessageDeleteManager: AbstractXMPPManager {
                         XMPPMessage(from: messageContainer),
                         editDate: editDate
                     )
+                    instance.incomingEncryption = encryption
                     MessageStorageItem.persistPendingMediaAttachments(
                         pendingMediaAttachments,
                         forMessagePrimary: instance.primary,
@@ -314,7 +321,7 @@ class MessageDeleteManager: AbstractXMPPManager {
                 if deferMutationUntilQueuedMessageIsPersisted(
                     stanzaId: stanzaId,
                     retry: { [weak self] in
-                        _ = self?.readRewriteNotify(message)
+                        _ = self?.readRewriteNotify(message, encryption: encryption)
                     }
                 ) {
                     return true

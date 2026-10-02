@@ -548,6 +548,39 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 }
             }
         }
+        let context: OMEMOReceiveContext = isArchivedMessage(message) ? .archive :
+            ((isCarbonCopy(message) || isCarbonForwarded(message)) ? .carbon : .live)
+        let prepared = AccountManager.shared.find(for: sender.myJID?.bare ?? currentJid ?? "")?
+            .omemo.prepareIncoming(message, context: context)
+            ?? OmemoManager.prepareUnverifiedIncoming(message)
+        guard let message = prepared.message else {
+            didIntentionallyConsumeArchiveResult = true
+            return
+        }
+        let encryption = prepared.provenance
+        if case .failed = prepared {
+            if self.mam?.readMessage(message, encryption: encryption) ?? false {
+                didIntentionallyConsumeArchiveResult = true
+            } else if isArchivedMessage(message) {
+                if let messages = self.messages {
+                    didRouteArchiveResultToPersistence = true
+                    messages.receiveArchived(message, encryption: encryption)
+                }
+            } else if isCarbonCopy(message) {
+                self.messages?.receiveCarbon(message, encryption: encryption)
+            } else if isCarbonForwarded(message) {
+                self.messages?.receiveCarbonForwarded(message, encryption: encryption)
+            } else {
+                self.messages?.receiveRuntime(message, encryption: encryption)
+            }
+            return
+        }
+        if encryption.isAuthenticated,
+           AccountManager.shared.find(for: sender.myJID?.bare ?? currentJid ?? "")?
+            .trustSharingManager.didReceivedListOfContactsDevices(message: message, encryption: encryption) == true {
+            didIntentionallyConsumeArchiveResult = true
+            return
+        }
         let canonicalGroupRouting = CanonicalAuxiliaryGroupMessageRouter.route(
             message,
             owner: sender.myJID?.bare ?? currentJid ?? ""
@@ -559,7 +592,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         
         switch message.messageType ?? .chat {
         case .chat, .normal:
-            if self.mam?.readMessage(message) ?? false {
+            if self.mam?.readMessage(message, encryption: encryption) ?? false {
                 didIntentionallyConsumeArchiveResult = true
                 return
             }
@@ -572,7 +605,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                     if let favoritesNode = AccountManager.shared.find(for: currentJid ?? "")?.favorites.node,
                        [bareMessage.to?.bare, bareMessage.from?.bare].contains(favoritesNode) {
                         AccountManager.shared.find(for: currentJid ?? "")?.action({ user, stream in
-                            user.favorites.receiveSaved(message: message)
+                            user.favorites.receiveSaved(message: message, encryption: encryption)
                         })
                         
                         didIntentionallyConsumeArchiveResult = true
@@ -584,31 +617,29 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                         return
                     }
                 }
-                if (AccountManager.shared.find(for: sender.myJID!.bare)?.omemo.didReceiveOmemoMessage(
-                    message,
-                    archivedMessageReceiver: self.messages
-                ) ?? false) {
+                if let messages = self.messages {
                     didRouteArchiveResultToPersistence = true
-                    return
-                } else {
-                    if let messages = self.messages {
-                        didRouteArchiveResultToPersistence = true
-                        messages.receiveArchived(message)
-                    }
+                    messages.receiveArchived(message, encryption: encryption)
                 }
             } else {
                 if VoIPManager.shared.onReceiveMessage(message, owner: sender.myJID!.bare, archivedDate: nil, runtime: true) {
                     return
                 }
-                if message.body?.isNotEmpty ?? false {
-                    self.messages?.receiveRuntime(message)
+                if encryption.isAuthenticated || (message.body?.isNotEmpty ?? false) {
+                    if isCarbonCopy(message) {
+                        self.messages?.receiveCarbon(message, encryption: encryption)
+                    } else if isCarbonForwarded(message) {
+                        self.messages?.receiveCarbonForwarded(message, encryption: encryption)
+                    } else {
+                        self.messages?.receiveRuntime(message, encryption: encryption)
+                    }
                 }
             }
         case .groupchat:
             break
         case .headline:
             _ = self.deliveryManager?.read(headline: message)
-            _ = self.retract?.read(headline: message)
+            _ = self.retract?.read(headline: message, encryption: encryption)
         case .error:
             _ = self.deliveryManager?.read(error: message)
         }

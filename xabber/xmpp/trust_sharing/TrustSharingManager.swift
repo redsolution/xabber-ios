@@ -91,15 +91,38 @@ class TrustSharingManager: AbstractXMPPManager {
         return TrustSharingSignature.xmlns
     }
 
-    func didReceivedListOfContactsDevices(message: XMPPMessage) -> Bool {
-        guard let forwardedMessage = forwardedPayloadMessage(from: message),
-              let omemoManager = AccountManager.shared.find(for: owner)?.omemo else {
+    func didReceivedListOfContactsDevices(message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext) -> Bool {
+        receiveListOfContactsDevices(message: message, encryption: encryption,
+            decryptMessage: { message in
+                try AccountManager.shared.find(for: self.owner)?.omemo.decryptMessage(message)
+            },
+            applyShare: { share, publisher in
+                self.applyShare(share, publisherBareJid: publisher, shouldRequestTrustedDevices: true)
+            })
+    }
+
+    /// Reuses a prepared payload without advancing the ratchet a second time.
+    /// Opaque XEN payloads retain the existing decrypt and signature checks.
+    func receiveListOfContactsDevices(
+        message: XMPPMessage,
+        encryption: MessageEncryptionProvenance,
+        decryptMessage: (XMPPMessage) throws -> DDXMLElement?,
+        applyShare: (DDXMLElement, String) -> Bool
+    ) -> Bool {
+        guard let forwardedMessage = forwardedPayloadMessage(from: message) else {
             return false
         }
 
+        if encryption.isAuthenticated {
+            let shares = SCEReceivePolicy.children(of: forwardedMessage, named: "share", xmlns: getPrimaryNamespace())
+            guard shares.count == 1, let author = forwardedMessage.from?.bare else { return false }
+            return applyShare(shares[0], author)
+        }
+        guard !encryption.isEncrypted else { return false }
+
         let decrypted: DDXMLElement
         do {
-            guard let messageContainer = try omemoManager.decryptMessage(forwardedMessage) else {
+            guard let messageContainer = try decryptMessage(forwardedMessage) else {
                 return false
             }
             decrypted = messageContainer
@@ -121,7 +144,7 @@ class TrustSharingManager: AbstractXMPPManager {
             return false
         }
 
-        return applyShare(share, publisherBareJid: author, shouldRequestTrustedDevices: true)
+        return applyShare(share, author)
     }
 
     func didReceivedTrustedSharingEvent(message: XMPPMessage) -> Bool {

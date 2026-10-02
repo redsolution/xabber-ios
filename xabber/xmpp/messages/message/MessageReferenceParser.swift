@@ -29,6 +29,7 @@ private let contactSharingXMLNS = "https://xabber.com/protocol/contact-sharing"
 private let avatarMetadataXMLNS = "urn:xmpp:avatar:metadata"
 private let inlineForwardXMLNS = "urn:xmpp:forward:0"
 private let delayedDeliveryXMLNS = "urn:xmpp:delay"
+private let markupXMLNS = "https://xabber.com/protocol/markup"
 
 let inlineForwardMaximumDepth = 8
 
@@ -104,20 +105,18 @@ private func referenceRequiresWireRange(_ reference: DDXMLElement, kind: String)
 
 private func isAnonymousMutableReference(_ reference: DDXMLElement) -> Bool {
     let elementChildren = reference.children?.compactMap { $0 as? DDXMLElement } ?? []
-    return reference.xmlns() == referencesXMLNS &&
+    return SCEReceivePolicy.matches(reference, name: "reference", namespace: referencesXMLNS) &&
     reference.attributeStringValue(forName: "type") == "mutable" &&
     elementChildren.isEmpty &&
     getReferenceType(reference) == nil
 }
 
 private func geolocElement(from reference: DDXMLElement) -> DDXMLElement? {
-    guard reference.xmlns() == referencesXMLNS,
+    guard SCEReceivePolicy.matches(reference, name: "reference", namespace: referencesXMLNS),
           reference.attributeStringValue(forName: "type") == "mutable" else {
         return nil
     }
-    let geolocElements = reference
-        .elements(forName: "geoloc")
-        .filter { $0.xmlns() == geolocXMLNS }
+    let geolocElements = SCEReceivePolicy.children(of: reference, named: "geoloc", xmlns: geolocXMLNS)
     guard geolocElements.count == 1 else { return nil }
     return geolocElements[0]
 }
@@ -132,13 +131,11 @@ private func validGeolocElement(from reference: DDXMLElement) -> DDXMLElement? {
 }
 
 private func contactElement(from reference: DDXMLElement) -> DDXMLElement? {
-    guard reference.xmlns() == referencesXMLNS,
+    guard SCEReceivePolicy.matches(reference, name: "reference", namespace: referencesXMLNS),
           reference.attributeStringValue(forName: "type") == "mutable" else {
         return nil
     }
-    let contactElements = reference
-        .elements(forName: "contact")
-        .filter { $0.xmlns() == contactSharingXMLNS }
+    let contactElements = SCEReceivePolicy.children(of: reference, named: "contact", xmlns: contactSharingXMLNS)
     guard contactElements.count == 1 else { return nil }
     return contactElements[0]
 }
@@ -172,7 +169,7 @@ private func validContactElement(from reference: DDXMLElement) -> DDXMLElement? 
 }
 
 private func childText(_ element: DDXMLElement, name: String) -> String? {
-    guard let value = element.element(forName: name)?
+    guard let value = referenceChild(element, named: name)?
         .stringValue?
         .trimmingCharacters(in: .whitespacesAndNewlines),
           value.isNotEmpty else {
@@ -221,6 +218,7 @@ private func directElementChildren(of element: DDXMLElement) -> [DDXMLElement] {
 }
 
 private func effectiveNamespace(of element: DDXMLElement) -> String? {
+    if let namespace = element.uri { return namespace }
     var current: DDXMLElement? = element
     while let candidate = current {
         if let namespace = candidate.xmlns() {
@@ -229,6 +227,28 @@ private func effectiveNamespace(of element: DDXMLElement) -> String? {
         current = candidate.parent as? DDXMLElement
     }
     return nil
+}
+
+private func referenceChild(_ parent: DDXMLElement, named name: String, xmlns namespace: String? = nil) -> DDXMLElement? {
+    guard let namespace = namespace ?? effectiveNamespace(of: parent) else { return nil }
+    return SCEReceivePolicy.children(of: parent, named: name, xmlns: namespace).first
+}
+
+private func referenceMessageBody(_ message: XMPPMessage) -> String {
+    SCEReceivePolicy.children(of: message, named: "body", xmlns: "jabber:client").first?.stringValue ?? ""
+}
+
+/// Classifying a reference also grants it permission to hide its fallback body.
+/// Require the same qualified file/source shape used by materialization.
+private func fileSharingPayload(_ fileSharing: DDXMLElement) -> (file: DDXMLElement, uri: String)? {
+    guard SCEReceivePolicy.matches(fileSharing, name: "file-sharing", namespace: "https://xabber.com/protocol/files"),
+          let file = referenceChild(fileSharing, named: "file"),
+          let sources = referenceChild(fileSharing, named: "sources"),
+          let uri = SCEReceivePolicy.children(of: sources, named: "uri", xmlns: "https://xabber.com/protocol/files")
+            .compactMap({ $0.stringValue }).first(where: {
+                URL(string: $0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0) != nil
+            }) else { return nil }
+    return (file, uri)
 }
 
 private func groupchatMetadata(from user: DDXMLElement) -> [String: Any] {
@@ -309,31 +329,36 @@ private struct InlineForwardPayload {
 private func inlineForwardPayload(
     from reference: DDXMLElement
 ) -> InlineForwardPayload? {
-    guard reference.xmlns() == referencesXMLNS,
+    guard SCEReceivePolicy.matches(reference, name: "reference", namespace: referencesXMLNS),
           reference.attributeStringValue(forName: "type") == "mutable" else {
         return nil
     }
 
     let forwardedElements = directElementChildren(of: reference).filter {
-        $0.name == "forwarded" && effectiveNamespace(of: $0) == inlineForwardXMLNS
+        SCEReceivePolicy.matches($0, name: "forwarded", namespace: inlineForwardXMLNS)
     }
     guard forwardedElements.count == 1 else { return nil }
 
     let forwardedChildren = directElementChildren(of: forwardedElements[0])
     let delayElements = forwardedChildren.filter {
-        $0.name == "delay" && effectiveNamespace(of: $0) == delayedDeliveryXMLNS
+        SCEReceivePolicy.matches($0, name: "delay", namespace: delayedDeliveryXMLNS)
     }
     guard delayElements.count <= 1 else { return nil }
 
     let stanzaElements = forwardedChildren.filter { child in
-        !(child.name == "delay" && effectiveNamespace(of: child) == delayedDeliveryXMLNS)
+        !SCEReceivePolicy.matches(child, name: "delay", namespace: delayedDeliveryXMLNS)
     }
     guard stanzaElements.count == 1,
-          stanzaElements[0].name == "message" else {
+          SCEReceivePolicy.matches(stanzaElements[0], name: "message", namespace: "jabber:client") else {
         return nil
     }
 
-    let message = XMPPMessage(from: stanzaElements[0])
+    let original = XMPPMessage(from: stanzaElements[0])
+    // The outer authenticated reference does not authenticate a nested OMEMO
+    // stanza's plaintext siblings. This parser has no nested decrypt authority.
+    let message = SCEReceivePolicy.hasOMEMO2(original)
+        ? XMPPMessage(from: SCEReceivePolicy.sanitized(original))
+        : original
     guard let from = message.from?.bare,
           from.isNotEmpty,
           let to = message.to?.bare,
@@ -371,9 +396,9 @@ func parseInlineMessages(
 ) -> [MessageForwardsInlineStorageItem] {
     guard depth < inlineForwardMaximumDepth else { return [] }
 
-    let escapedBody = (message.body ?? "").xmlEscaping(reverse: false)
+    let escapedBody = referenceMessageBody(message).xmlEscaping(reverse: false)
 
-    return message.elements(forName: "reference").compactMap { reference in
+    return SCEReceivePolicy.children(of: message, named: "reference", xmlns: referencesXMLNS).compactMap { reference in
         guard messageReferenceWireRange(reference, in: escapedBody) != nil,
               let payload = inlineForwardPayload(from: reference) else {
             return nil
@@ -408,27 +433,28 @@ func parseInlineMessages(
 }
 
 func getReferenceType(_ ref: DDXMLElement) -> String? {
-    if ref.element(forName: "voice-message",
-                   xmlns: "https://xabber.com/protocol/voice-messages") != nil {
+    guard SCEReceivePolicy.matches(ref, name: "reference", namespace: referencesXMLNS) else { return nil }
+    if let voice = referenceChild(ref, named: "voice-message", xmlns: "https://xabber.com/protocol/voice-messages"),
+       let fileSharing = referenceChild(voice, named: "file-sharing", xmlns: "https://xabber.com/protocol/files"),
+       fileSharingPayload(fileSharing) != nil {
         return "voice"
-    } else if ref.element(forName: "system-message",
-                          xmlns: "https://xabber.com/protocol/system-message") != nil {
+    } else if referenceChild(ref, named: "system-message", xmlns: "https://xabber.com/protocol/system-message") != nil {
         return "system-message"
-    } else if ref.element(forName: "file-sharing",
-                          xmlns: "https://xabber.com/protocol/files") != nil {
+    } else if let fileSharing = referenceChild(ref, named: "file-sharing", xmlns: "https://xabber.com/protocol/files"),
+              fileSharingPayload(fileSharing) != nil {
         return "media"
     } else if validGeolocElement(from: ref) != nil {
         return "geoloc"
     } else if validContactElement(from: ref) != nil {
         return "contact"
     } else if ref.attributeStringValue(forName: "type") == "decoration" {
-        if ref.element(forName: "quote", xmlns: "https://xabber.com/protocol/markup") != nil {
+        if referenceChild(ref, named: "quote", xmlns: "https://xabber.com/protocol/markup") != nil {
             return "quote"
         }
-        if ref.element(forName: "mention", xmlns: "https://xabber.com/protocol/markup") != nil {
+        if referenceChild(ref, named: "mention", xmlns: "https://xabber.com/protocol/markup") != nil {
             return "mention"
         }
-        if let uri = ref.element(forName: "link", xmlns: "https://xabber.com/protocol/markup")?.stringValue,
+        if let uri = referenceChild(ref, named: "link", xmlns: "https://xabber.com/protocol/markup")?.stringValue,
            uri.starts(with: "xmpp:") {
             return "mention"
         }
@@ -441,8 +467,8 @@ func getReferenceType(_ ref: DDXMLElement) -> String? {
 
 func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner: String, echo: Bool = false) -> [MessageReferenceStorageItem] {
     var out: [MessageReferenceStorageItem] = []
-    let escapingBody = (message.body ?? "").xmlEscaping(reverse: false)
-    let references = message.elements(forName: "reference")
+    let escapingBody = referenceMessageBody(message).xmlEscaping(reverse: false)
+    let references = SCEReceivePolicy.children(of: message, named: "reference", xmlns: referencesXMLNS)
     
     let messageDate = getDelayedDate(message) ?? Date()
     
@@ -458,7 +484,7 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
     }
     
     func parse(_ ref: DDXMLElement) -> MessageReferenceStorageItem? {
-        guard ref.xmlns() == "https://xabber.com/protocol/references",
+        guard SCEReceivePolicy.matches(ref, name: "reference", namespace: referencesXMLNS),
             let kind = getReferenceType(ref) else {
                 return nil
             }
@@ -488,65 +514,62 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
         var metadata: [String: Any] = [:]
         switch reference.kind {
             case .voice:
-                guard let voice = ref.element(forName: "voice-message",
-                                              xmlns: "https://xabber.com/protocol/voice-messages"),
-                    let fileSharing = voice.element(forName: "file-sharing",
-                                                  xmlns: "https://xabber.com/protocol/files"),
-                    let file = fileSharing.element(forName: "file"),
-                    let sources = fileSharing.element(forName: "sources"),
-                      let uri = sources.elements(forName: "uri").compactMap({ return $0.stringValue }).first(where: { URL(string: $0.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? $0) != nil }) else {
+                guard let voice = referenceChild(ref, named: "voice-message", xmlns: "https://xabber.com/protocol/voice-messages"),
+                    let fileSharing = referenceChild(voice, named: "file-sharing", xmlns: "https://xabber.com/protocol/files"),
+                    let payload = fileSharingPayload(fileSharing) else {
                         return nil
                     }
-                if let encryptedElement = file.element(forName: "encrypted", xmlns: "urn:xmpp:esfs:0"),
-                   let encryptionKey = encryptedElement.element(forName: "key")?.stringValue,
-                   let iv = encryptedElement.element(forName: "iv")?.stringValue {
+                let file = payload.file
+                let uri = payload.uri
+                if let encryptedElement = referenceChild(file, named: "encrypted", xmlns: "urn:xmpp:esfs:0"),
+                   let encryptionKey = referenceChild(encryptedElement, named: "key")?.stringValue,
+                   let iv = referenceChild(encryptedElement, named: "iv")?.stringValue {
                     metadata["encryption-key"] = encryptionKey
                     metadata["iv"] = iv
                 }
-                let mediaType = file.element(forName: "media-type")?.stringValue ?? ""
+                let mediaType = referenceChild(file, named: "media-type")?.stringValue ?? ""
                 metadata["media-type"] = mediaType
                 reference.mimeType = "audio"//MimeIcon(mediaType).value.rawValue
-                metadata["name"] = file.element(forName: "name")?.stringValue ?? ""
-                metadata["duration"] = file.element(forName: "duration")?.stringValueAsNSInteger() ?? 0
-                metadata["size"] = file.element(forName: "size")?.stringValueAsNSInteger() ?? 0
-                metadata["hash"] = file.element(forName: "hash")?.stringValue ?? ""
-                let pcmRaw = file.element(forName: "meters")?.stringValue ?? ""
+                metadata["name"] = referenceChild(file, named: "name")?.stringValue ?? ""
+                metadata["duration"] = referenceChild(file, named: "duration")?.stringValueAsNSInteger() ?? 0
+                metadata["size"] = referenceChild(file, named: "size")?.stringValueAsNSInteger() ?? 0
+                metadata["hash"] = referenceChild(file, named: "hash")?.stringValue ?? ""
+                let pcmRaw = referenceChild(file, named: "meters")?.stringValue ?? ""
                 if pcmRaw.isNotEmpty {
                     metadata["pcm"] = pcmRaw
                 }
                 metadata["uri"] = uri
                 reference.url = uri
             case .media:
-                guard let fileSharing = ref.element(forName: "file-sharing",
-                                                    xmlns: "https://xabber.com/protocol/files"),
-                    let file = fileSharing.element(forName: "file"),
-                    let sources = fileSharing.element(forName: "sources"),
-                      let uri = sources.elements(forName: "uri").compactMap({ return $0.stringValue }).first(where: { URL(string: $0.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) ?? "") != nil }) else {
+                guard let fileSharing = referenceChild(ref, named: "file-sharing", xmlns: "https://xabber.com/protocol/files"),
+                    let payload = fileSharingPayload(fileSharing) else {
                         return nil
                     }
+                let file = payload.file
+                let uri = payload.uri
                 
                 var isEncrypted: Bool = false
                 
-                if let encryptedElement = file.element(forName: "encrypted", xmlns: "urn:xmpp:esfs:0"),
-                   let encryptionKey = encryptedElement.element(forName: "key")?.stringValue,
-                   let iv = encryptedElement.element(forName: "iv")?.stringValue {
+                if let encryptedElement = referenceChild(file, named: "encrypted", xmlns: "urn:xmpp:esfs:0"),
+                   let encryptionKey = referenceChild(encryptedElement, named: "key")?.stringValue,
+                   let iv = referenceChild(encryptedElement, named: "iv")?.stringValue {
                     metadata["encryption-key"] = encryptionKey
                     metadata["iv"] = iv
                     isEncrypted = true
                 }
                 
-                let mediaType = file.element(forName: "media-type")?.stringValue ?? ""
+                let mediaType = referenceChild(file, named: "media-type")?.stringValue ?? ""
                 metadata["media-type"] = mediaType
                 reference.mimeType = MimeIcon(mediaType).value.rawValue
-                metadata["name"] = file.element(forName: "name")?.stringValue ?? ""
-                metadata["height"] = file.element(forName: "height")?.stringValueAsNSInteger() ?? 0
-                metadata["width"] = file.element(forName: "width")?.stringValueAsNSInteger() ?? 0
-                metadata["size"] = file.element(forName: "size")?.stringValueAsNSInteger() ?? 0
-                metadata["desc"] = file.element(forName: "desc")?.stringValue ?? ""
-                metadata["duration"] = file.element(forName: "duration")?.stringValueAsNSInteger() ?? 0
-                metadata["hash"] = file.element(forName: "hash")?.stringValue ?? ""
-                metadata["orientation"] = file.element(forName: "orientation")?.stringValue ?? ""
-                metadata["video_duration"] = file.element(forName: "video_duration")?.stringValue ?? ""
+                metadata["name"] = referenceChild(file, named: "name")?.stringValue ?? ""
+                metadata["height"] = referenceChild(file, named: "height")?.stringValueAsNSInteger() ?? 0
+                metadata["width"] = referenceChild(file, named: "width")?.stringValueAsNSInteger() ?? 0
+                metadata["size"] = referenceChild(file, named: "size")?.stringValueAsNSInteger() ?? 0
+                metadata["desc"] = referenceChild(file, named: "desc")?.stringValue ?? ""
+                metadata["duration"] = referenceChild(file, named: "duration")?.stringValueAsNSInteger() ?? 0
+                metadata["hash"] = referenceChild(file, named: "hash")?.stringValue ?? ""
+                metadata["orientation"] = referenceChild(file, named: "orientation")?.stringValue ?? ""
+                metadata["video_duration"] = referenceChild(file, named: "video_duration")?.stringValue ?? ""
                 metadata["uri"] = uri
                 reference.url = uri
                 
@@ -572,13 +595,14 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 }
                 attachment.date = messageDate
                 attachment.outgoing = message.from?.bare == owner
-                attachment.filename = file.element(forName: "name")?.stringValue ?? ""
+                attachment.filename = referenceChild(file, named: "name")?.stringValue ?? ""
                 attachment.isDownloaded = false
                 attachment.isEncrypted = isEncrypted
-                attachment.sizeBytes = file.element(forName: "size")?.stringValueAsNSInteger() ?? 0
+                attachment.sizeBytes = referenceChild(file, named: "size")?.stringValueAsNSInteger() ?? 0
                 attachment.metadata = metadata
                 
-                if let thumb = file.element(forName: "thumbnail"),
+                if let thumb = referenceChild(file, named: "thumbnail", xmlns: "urn:xmpp:thumbs:1")
+                    ?? referenceChild(file, named: "thumbnail"),
                    let thumbnailURI = thumb.attributeStringValue(forName: "uri") {
                     if let commaIndex = thumbnailURI.firstIndex(of: ","),
                        thumbnailURI.hasPrefix("data:image/") {
@@ -644,7 +668,7 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 if let nickname = childText(contact, name: "nickname") {
                     metadata["nickname"] = nickname
                 }
-                if let name = contact.element(forName: "name") {
+                if let name = referenceChild(contact, named: "name") {
                     if let given = childText(name, name: "given") {
                         metadata["given"] = given
                     }
@@ -652,9 +676,8 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                         metadata["family"] = family
                     }
                 }
-                if let avatarInfo = contact
-                    .element(forName: "avatar")?
-                    .element(forName: "info", xmlns: avatarMetadataXMLNS) {
+                if let avatar = referenceChild(contact, named: "avatar"),
+                   let avatarInfo = referenceChild(avatar, named: "info", xmlns: avatarMetadataXMLNS) {
                     [
                         ("id", "avatar_id"),
                         ("type", "avatar_type"),
@@ -677,11 +700,11 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                 reference.isUploaded = true
             case .markup:
                 var styles: [String] = []
-                if ref.element(forName: "bold") != nil { styles.append("bold") }
-                if ref.element(forName: "underline") != nil { styles.append("underline") }
-                if ref.element(forName: "strike") != nil { styles.append("strike") }
-                if ref.element(forName: "italic") != nil { styles.append("italic") }
-                if let uri = ref.element(forName: "link")?.stringValue {
+                if referenceChild(ref, named: "bold", xmlns: markupXMLNS) != nil { styles.append("bold") }
+                if referenceChild(ref, named: "underline", xmlns: markupXMLNS) != nil { styles.append("underline") }
+                if referenceChild(ref, named: "strike", xmlns: markupXMLNS) != nil { styles.append("strike") }
+                if referenceChild(ref, named: "italic", xmlns: markupXMLNS) != nil { styles.append("italic") }
+                if let uri = referenceChild(ref, named: "link", xmlns: markupXMLNS)?.stringValue {
                     styles.append("uri")
                     metadata["uri"] = uri
                     reference.url = uri
@@ -692,8 +715,8 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
                     return nil
                 }
             case .mention:
-                let mentionElement = ref.element(forName: "mention", xmlns: "https://xabber.com/protocol/markup")
-                let legacyLink = ref.element(forName: "link", xmlns: "https://xabber.com/protocol/markup")
+                let mentionElement = referenceChild(ref, named: "mention", xmlns: "https://xabber.com/protocol/markup")
+                let legacyLink = referenceChild(ref, named: "link", xmlns: "https://xabber.com/protocol/markup")
                 guard let uri = mentionElement?.stringValue ?? legacyLink?.stringValue, uri.starts(with: "xmpp:") else {
                     return nil
                 }
@@ -716,7 +739,8 @@ func parseReferences(_ message: XMPPMessage, primary: String, jid: String, owner
             case .quote:
                 metadata["marker"] = ">".xmlEscaping(reverse: false)
             case .systemMessage:
-                if let timer = ref.element(forName: "system-message", xmlns: "https://xabber.com/protocol/system-message")?.element(forName: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")?.attributeIntegerValue(forName: "timer") {
+                if let system = referenceChild(ref, named: "system-message", xmlns: "https://xabber.com/protocol/system-message"),
+                   let timer = referenceChild(system, named: "ephemeral", xmlns: "urn:xmpp:ephemeral:0")?.attributeIntegerValue(forName: "timer") {
                     metadata["ephemeral-timer"] = timer
                 }
             case .groupchat:
@@ -808,7 +832,7 @@ extension String {
         }
 
         let candidates = mutatedReferences.compactMap { reference -> Candidate? in
-            guard reference.xmlns() == referencesXMLNS,
+            guard SCEReceivePolicy.matches(reference, name: "reference", namespace: referencesXMLNS),
                   let range = messageReferenceWireRange(reference, in: self) else {
                 return nil
             }

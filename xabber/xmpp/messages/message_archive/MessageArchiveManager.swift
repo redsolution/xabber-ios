@@ -2703,7 +2703,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     internal func recordDeferredArchiveResultDelivery(
         _ message: XMPPMessage
     ) -> Bool {
-        guard let result = message.element(forName: "result"),
+        guard let result = getMAMResultElement(message),
               let queryId = result.attributeStringValue(forName: "queryid"),
               queryId.isNotEmpty,
               self.callbackQueueContains(where: { item in
@@ -2729,7 +2729,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     internal func recordDeferredArchiveControlConsumption(
         _ message: XMPPMessage
     ) -> Bool {
-        guard let result = message.element(forName: "result"),
+        guard let result = getMAMResultElement(message),
               let queryId = result.attributeStringValue(forName: "queryid"),
               queryId.isNotEmpty else {
             return false
@@ -2755,7 +2755,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     internal func recordDeferredArchivePersistenceRouting(
         _ message: XMPPMessage
     ) -> Bool {
-        guard let result = message.element(forName: "result"),
+        guard let result = getMAMResultElement(message),
               let queryId = result.attributeStringValue(forName: "queryid"),
               queryId.isNotEmpty else {
             return false
@@ -3149,8 +3149,8 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
 
 
-    public func readMessage(_ message: XMPPMessage) -> Bool {
-        guard let queryId = message.element(forName: "result")?.attributeStringValue(forName: "queryid") else {
+    public func readMessage(_ message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext) -> Bool {
+        guard let queryId = getMAMResultElement(message)?.attributeStringValue(forName: "queryid") else {
             return false
         }
         if !self.isSearchResultQuery(queryId) {
@@ -3177,7 +3177,8 @@ class MessageArchiveManager: AbstractXMPPManager {
                                      date: getDeliveryTime(messageBare, owner: owner) ?? date,
                                      state: .deliver,
                                      queryId: getMAMQueryId(message),
-                                     mamResultID: mamResultID)
+                                     mamResultID: mamResultID,
+                                     encryption: encryption)
 
 
 
@@ -3195,11 +3196,10 @@ class MessageArchiveManager: AbstractXMPPManager {
             }
             let opponent = to != owner ? to : from
 
-            var omemoError: Bool = !(item.message.element(forName: "omemo-result__system")?.attributeBoolValue(forName: "result") ?? false)
+            let omemoError = !item.encryption.isAuthenticated
             var errorMetadata: [String: Any] = [:]
-            var isEncryptedMessage: Bool = false
-            if item.message.element(forName: "encrypted") != nil {
-                isEncryptedMessage = true
+            let isEncryptedMessage = item.encryption.isEncrypted
+            if isEncryptedMessage {
                 errorMetadata = SignatureManager.MessageError().errorMetadata
             }
 
@@ -3209,7 +3209,6 @@ class MessageArchiveManager: AbstractXMPPManager {
             var envelopeContainer: String? = nil
 //            print("RECEIVER", #function, item.message.prettyXMLString!)
             if let sign = item.message.element(forName: "time-signature", xmlns: SignatureManager.xmlns){
-                omemoError = false
                 hasSignElement = true
                 envelopeContainer = sign.xmlString
                 do {
@@ -3271,6 +3270,7 @@ class MessageArchiveManager: AbstractXMPPManager {
                 instance.state = item.state
 
             }
+            instance.incomingEncryption = item.encryption
             instance.envelopeContainer = envelopeContainer
             if let mamResultID = item.mamResultID,
                mamResultID.isNotEmpty {

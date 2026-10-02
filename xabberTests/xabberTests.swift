@@ -5842,7 +5842,7 @@ final class VoIPCallIQRoutingTests: XCTestCase {
         <message from='owner@example.com/phone' to='owner@example.com/tablet'>
           <sent xmlns='urn:xmpp:carbons:2'>
             <forwarded xmlns='urn:xmpp:forward:0'>
-              <message from='owner@example.com/phone' to='peer@example.com/phone' id='sent-inner'/>
+              <message xmlns='jabber:client' from='owner@example.com/phone' to='peer@example.com/phone' id='sent-inner'/>
             </forwarded>
           </sent>
         </message>
@@ -5859,7 +5859,7 @@ final class VoIPCallIQRoutingTests: XCTestCase {
         <message from='owner@example.com/phone' to='owner@example.com/tablet'>
           <received xmlns='urn:xmpp:carbons:2'>
             <forwarded xmlns='urn:xmpp:forward:0'>
-              <message from='peer@example.com/phone' to='owner@example.com/phone' id='received-inner'/>
+              <message xmlns='jabber:client' from='peer@example.com/phone' to='owner@example.com/phone' id='received-inner'/>
             </forwarded>
           </received>
         </message>
@@ -5875,7 +5875,7 @@ final class VoIPCallIQRoutingTests: XCTestCase {
         let message = try makeMessage("""
         <message from='peer@example.com/phone' to='owner@example.com/phone'>
           <forwarded xmlns='urn:xmpp:forward:0'>
-            <message from='peer@example.com/phone' to='owner@example.com/phone' id='forwarded-inner'/>
+            <message xmlns='jabber:client' from='peer@example.com/phone' to='owner@example.com/phone' id='forwarded-inner'/>
           </forwarded>
         </message>
         """)
@@ -21849,7 +21849,7 @@ final class MessageManagerQueueSynchronizationTests: XCTestCase {
                          by='\(owner)'
                          id='archive-10002'/>
               <origin-id xmlns='urn:xmpp:sid:0' id='message-10002'/>
-              <replaced xmlns='urn:xmpp:message-correct:0'
+              <replaced xmlns='https://xabber.com/protocol/rewrite'
                         stamp='2026-06-04T10:01:00Z'/>
               <body>edited-target</body>
             </message>
@@ -29435,7 +29435,7 @@ final class MessageDeleteManagerRegressionTests: XCTestCase {
                      to='\(owner)'
                      type='chat'
                      id='rewrite-media-message-1'>
-              <replaced xmlns='urn:xmpp:message-correct:0'
+              <replaced xmlns='https://xabber.com/protocol/rewrite'
                         stamp='2026-06-04T10:01:00Z'/>
               <body>\(sourceURL)</body>
               <reference xmlns='https://xabber.com/protocol/references'
@@ -29887,8 +29887,8 @@ final class FavoritesFeatureTests: XCTestCase {
         children: String = ""
     ) throws -> XMPPMessage {
         try makeMessage(xml: """
-        <message from='\(from ?? ownerResource)' to='\(to ?? favoritesJid)' type='chat' id='\(id)'>
-          <time stamp='\(stamp)'/>
+        <message xmlns='jabber:client' from='\(from ?? ownerResource)' to='\(to ?? favoritesJid)' type='chat' id='\(id)'>
+          <time xmlns='https://xabber.com/protocol/delivery' stamp='\(stamp)'/>
           \(children)
           <body>\(body)</body>
         </message>
@@ -29910,16 +29910,16 @@ final class FavoritesFeatureTests: XCTestCase {
         innerChildren: String = ""
     ) throws -> XMPPMessage {
         let forwardedDelay = forwardedDelayStamp.map { "<delay xmlns='urn:xmpp:delay' stamp='\($0)'/>" } ?? ""
-        let innerTime = innerStamp.map { "<time stamp='\($0)'/>" } ?? ""
+        let innerTime = innerStamp.map { "<time xmlns='https://xabber.com/protocol/delivery' stamp='\($0)'/>" } ?? ""
         return try makeMessage(xml: """
-        <message from='\(outerFrom ?? ownerResource)' to='\(outerTo ?? favoritesJid)' type='chat' id='\(id)'>
-          <time stamp='\(outerStamp)'/>
+        <message xmlns='jabber:client' from='\(outerFrom ?? ownerResource)' to='\(outerTo ?? favoritesJid)' type='chat' id='\(id)'>
+          <time xmlns='https://xabber.com/protocol/delivery' stamp='\(outerStamp)'/>
           \(outerChildren)
           <body>&gt; \(body)</body>
           <reference xmlns='https://xabber.com/protocol/references' begin='0' end='\(body.count + 2)' type='mutable'>
             <forwarded xmlns='urn:xmpp:forward:0'>
               \(forwardedDelay)
-              <message from='\(innerFrom ?? contactJid)' to='\(innerTo ?? owner)' type='chat' id='\(innerId)'>
+              <message xmlns='jabber:client' from='\(innerFrom ?? contactJid)' to='\(innerTo ?? owner)' type='chat' id='\(innerId)'>
                 \(innerTime)
                 \(innerChildren)
                 <body>\(body)</body>
@@ -29940,8 +29940,8 @@ final class FavoritesFeatureTests: XCTestCase {
             <reference xmlns='https://xabber.com/protocol/references' begin='0' end='\(nestedBody.count)' type='mutable'>
               <forwarded xmlns='urn:xmpp:forward:0'>
                 <delay xmlns='urn:xmpp:delay' stamp='2026-03-24T12:30:00+0000'/>
-                <message from='juliet@xmppdev01.xabber.com/balcony' to='\(contactJid)' type='chat' id='nested-original-1'>
-                  <time stamp='2026-03-24T12:30:00+0000'/>
+                <message xmlns='jabber:client' from='juliet@xmppdev01.xabber.com/balcony' to='\(contactJid)' type='chat' id='nested-original-1'>
+                  <time xmlns='https://xabber.com/protocol/delivery' stamp='2026-03-24T12:30:00+0000'/>
                   <body>\(nestedBody)</body>
                 </message>
               </forwarded>
@@ -29983,7 +29983,7 @@ final class FavoritesFeatureTests: XCTestCase {
 
     private func makeMamResult(message: XMPPMessage, archiveId: String, queryId: String) throws -> DDXMLElement {
         try makeElement(xml: """
-        <message from='xmppdev01.xabber.com' to='\(ownerResource)' type='chat' id='mam-wrapper-\(archiveId)'>
+        <message xmlns='jabber:client' from='xmppdev01.xabber.com' to='\(ownerResource)' type='chat' id='mam-wrapper-\(archiveId)'>
           <result xmlns='urn:xmpp:mam:2' id='\(archiveId)' queryid='\(queryId)'>
             <forwarded xmlns='urn:xmpp:forward:0'>
               \(message.xmlString)
@@ -29995,7 +29995,7 @@ final class FavoritesFeatureTests: XCTestCase {
 
     private func makeCarbonSent(message: XMPPMessage) throws -> DDXMLElement {
         try makeElement(xml: """
-        <message from='\(owner)' to='\(ownerResource)' type='chat' id='carbon-sent-wrapper'>
+        <message xmlns='jabber:client' from='\(owner)' to='\(ownerResource)' type='chat' id='carbon-sent-wrapper'>
           <sent xmlns='urn:xmpp:carbons:2'>
             <forwarded xmlns='urn:xmpp:forward:0'>
               \(message.xmlString)
@@ -30007,7 +30007,7 @@ final class FavoritesFeatureTests: XCTestCase {
 
     private func makeCarbonReceived(message: XMPPMessage) throws -> DDXMLElement {
         try makeElement(xml: """
-        <message from='\(owner)' to='\(ownerResource)' type='chat' id='carbon-received-wrapper'>
+        <message xmlns='jabber:client' from='\(owner)' to='\(ownerResource)' type='chat' id='carbon-received-wrapper'>
           <received xmlns='urn:xmpp:carbons:2'>
             <forwarded xmlns='urn:xmpp:forward:0'>
               \(message.xmlString)
@@ -30193,7 +30193,7 @@ final class FavoritesFeatureTests: XCTestCase {
         stanza.messageId = "message-\(primary)"
         stanza.timestamp = timestamp
         stanza.stanza = """
-        <message from='\(contactJid)' to='\(owner)' type='chat' id='message-\(primary)'>
+        <message xmlns='jabber:client' from='\(contactJid)' to='\(owner)' type='chat' id='message-\(primary)'>
           <body>\(body)</body>
         </message>
         """
@@ -30560,7 +30560,7 @@ final class FavoritesFeatureTests: XCTestCase {
             stanza.primary = stanzaPrimary
             stanza.timestamp = ISO8601DateFormatter().date(from: "2026-03-24T12:34:56Z")!
             stanza.stanza = """
-            <message from='romeo@xmppdev01.xabber.com/orchard' to='juliet@xmppdev01.xabber.com/balcony' type='chat' id='msg-1'>
+            <message xmlns='jabber:client' from='romeo@xmppdev01.xabber.com/orchard' to='juliet@xmppdev01.xabber.com/balcony' type='chat' id='msg-1'>
               <body>Hello Juliet</body>
             </message>
             """

@@ -583,13 +583,24 @@ enum LocalMessageNotificationPreviewFactory {
         fallbackBody: String,
         senderJid: String?,
         senderNickname: String?,
-        senderUserId: String?
+        senderUserId: String?,
+        encryption: MessageEncryptionProvenance = .plaintext,
+        verifiedStanza: DDXMLElement? = nil
     ) -> PushNotificationPreview {
-        let parsed = originalStanzaXML.flatMap {
-            PushNotificationArchiveParser.parseArchivedMessage(
-                xmlString: $0,
-                owner: owner
-            )
+        let parsed: PushNotificationPreview?
+        if encryption.isAuthenticated {
+            // Only the in-process projection produced by the authenticated
+            // receiver may supply decrypted content. Serialized XML never
+            // reconstitutes that proof, even when it contains a local marker.
+            parsed = verifiedStanza.flatMap {
+                PushNotificationArchiveParser.parseVerifiedProjection($0, owner: owner)
+            }
+        } else if encryption.isEncrypted {
+            parsed = nil
+        } else {
+            parsed = originalStanzaXML.flatMap {
+                PushNotificationArchiveParser.parseArchivedMessage(xmlString: $0, owner: owner)
+            }
         }
         let canonicalType = canonicalConversationType(
             conversationType,
@@ -612,7 +623,9 @@ enum LocalMessageNotificationPreviewFactory {
                 : nil,
             timestamp: sentAt.timeIntervalSinceReferenceDate
         )
-        let fallback = trimmed(fallbackBody) ?? PushNotificationLocalization.newMessage()
+        let fallback = encryption.isEncrypted
+            ? PushNotificationLocalization.newMessage()
+            : (trimmed(fallbackBody) ?? PushNotificationLocalization.newMessage())
         return PushNotificationPreview(
             route: route,
             body: parsed?.body ?? fallback,
@@ -717,7 +730,6 @@ enum PushNotificationArchiveParser {
         static let groups = "https://xabber.com/protocol/groups"
         static let forward = "urn:xmpp:forward:0"
         static let delay = "urn:xmpp:delay"
-        static let carbons = "urn:xmpp:carbons:2"
         static let trust = "urn:xmpp:trust:0"
         static let xen = "urn:xabber:xen:0"
         static let addresses = "http://jabber.org/protocol/address"
@@ -739,10 +751,37 @@ enum PushNotificationArchiveParser {
     }
 
     static func parseArchivedMessage(_ archiveMessage: DDXMLElement, owner: String) -> PushNotificationPreview? {
+        // A transport wrapper cannot hide ciphertext carried by its parent.
+        // Only an authenticated app projection may expose such content.
+        if SCEReceivePolicy.hasOMEMO2(archiveMessage) {
+            return parseVisibleMessage(archiveMessage, archiveMessage: archiveMessage, owner: owner,
+                                       timestamp: nil, unverifiedOMEMO: true)
+        }
         guard let envelope = messageEnvelope(in: archiveMessage) else {
             return nil
         }
         let message = envelope.message
+        if SCEReceivePolicy.hasOMEMO2(message) {
+            return parseVisibleMessage(message, archiveMessage: archiveMessage, owner: owner,
+                                       timestamp: envelope.timestamp, unverifiedOMEMO: true)
+        }
+        let xenNotifications = message.children(named: "notification", xmlns: XMLNS.xen)
+        let hasXenTransport = xenNotifications.contains {
+            SCEReceivePolicy.hasOMEMO2($0) || !$0.children(named: "forwarded").isEmpty
+        }
+        if hasXenTransport {
+            guard xenNotifications.count == 1, let nested = xenForwardedEnvelope(in: message) else { return nil }
+            if SCEReceivePolicy.hasOMEMO2(nested.message) {
+                let originalFrom = originalFromAddress(in: message)
+                let innerFrom = nested.message.attributeString("from")
+                let bindingMatches = originalFrom.map { original in
+                    innerFrom.map { jidMatches(original, $0) } == true
+                } ?? true
+                return parseVisibleMessage(bindingMatches ? nested.message : message,
+                                           archiveMessage: archiveMessage, owner: owner,
+                                           timestamp: nested.timestamp ?? envelope.timestamp, unverifiedOMEMO: true)
+            }
+        }
         if let verification = verificationRequestMessage(from: message) {
             return parseVerificationRequest(verification, owner: owner)
         }
@@ -757,44 +796,78 @@ enum PushNotificationArchiveParser {
         )
     }
 
+    fileprivate static func parseVerifiedProjection(_ projection: DDXMLElement, owner: String) -> PushNotificationPreview? {
+        guard let envelope = messageEnvelope(in: projection) else { return nil }
+        return parseVisibleMessage(envelope.message, archiveMessage: projection, owner: owner,
+                                   timestamp: envelope.timestamp)
+    }
+
+    private static func xenForwardedEnvelope(in message: DDXMLElement, depth: Int = 0) -> MessageEnvelope? {
+        let notifications = message.children(named: "notification", xmlns: XMLNS.xen)
+        guard depth < 3, notifications.count == 1, let notification = notifications.first,
+              let forwarded = forwardedElement(in: notification),
+              let innerMessage = forwardedMessage(in: forwarded),
+              let innerEnvelope = messageEnvelope(in: innerMessage) else { return nil }
+        let hasNestedTransport = innerEnvelope.message.children(named: "notification", xmlns: XMLNS.xen).contains {
+            SCEReceivePolicy.hasOMEMO2($0) || !$0.children(named: "forwarded").isEmpty
+        }
+        if !SCEReceivePolicy.hasOMEMO2(innerEnvelope.message), hasNestedTransport {
+            guard let nested = xenForwardedEnvelope(in: innerEnvelope.message, depth: depth + 1) else { return nil }
+            return MessageEnvelope(message: nested.message,
+                                   timestamp: nested.timestamp ?? innerEnvelope.timestamp ?? forwardedTimestamp(in: forwarded))
+        }
+        return MessageEnvelope(message: innerEnvelope.message,
+                               timestamp: innerEnvelope.timestamp ?? forwardedTimestamp(in: forwarded))
+    }
+
     private static func messageEnvelope(in archiveMessage: DDXMLElement) -> MessageEnvelope? {
         var message = archiveMessage
         var timestamp: TimeInterval?
 
-        if let result = archiveMessage.firstChild(named: "result"),
-           let forwarded = forwardedElement(in: result) {
-            guard let innerMessage = forwarded.firstChild(named: "message") else {
-                return nil
+        // Keep the same transport shape at every nesting level. In particular,
+        // never select a plaintext sibling and overlook an encrypted message.
+        for _ in 0..<4 {
+            if SCEReceivePolicy.hasOMEMO2(message) {
+                return MessageEnvelope(message: message, timestamp: timestamp)
             }
-            message = innerMessage
-            timestamp = forwardedTimestamp(in: forwarded)
-        }
-
-        let carbonWrappers = message.children(named: "sent", xmlns: XMLNS.carbons)
-            + message.children(named: "received", xmlns: XMLNS.carbons)
-        guard carbonWrappers.count <= 1 else {
-            return nil
-        }
-        if let carbon = carbonWrappers.first {
-            guard let forwarded = forwardedElement(in: carbon),
-                  let innerMessage = forwarded.firstChild(named: "message") else {
-                return nil
+            let results = message.children(named: "result").filter {
+                $0.uri == nil || SCEReceivePolicy.mamNamespaces.contains($0.uri ?? "")
             }
+            let carbons = (message.children(named: "sent") + message.children(named: "received")).filter {
+                SCEReceivePolicy.carbonNamespaces.contains($0.uri ?? "")
+            }
+            let wrappers = results + carbons
+            guard wrappers.count <= 1 else { return nil }
+            guard let wrapper = wrappers.first else {
+                return MessageEnvelope(message: message, timestamp: timestamp)
+            }
+            guard let forwarded = forwardedElement(in: wrapper),
+                  let innerMessage = forwardedMessage(in: forwarded) else { return nil }
             message = innerMessage
             timestamp = forwardedTimestamp(in: forwarded) ?? timestamp
         }
-
-        return MessageEnvelope(message: message, timestamp: timestamp)
+        return nil
     }
 
     private static func forwardedElement(in parent: DDXMLElement) -> DDXMLElement? {
-        parent.firstChild(named: "forwarded", xmlns: XMLNS.forward)
-            ?? parent.children(named: "forwarded").first(where: { trimmed($0.xmlns()) == nil })
+        guard !SCEReceivePolicy.hasOMEMO2(parent) else { return nil }
+        let matches = parent.children(named: "forwarded").filter { $0.uri == XMLNS.forward || $0.uri == nil }
+        guard matches.count == 1, !SCEReceivePolicy.hasOMEMO2(matches[0]) else { return nil }
+        return matches[0]
+    }
+
+    private static func forwardedMessage(in forwarded: DDXMLElement) -> DDXMLElement? {
+        let messages = forwarded.children(named: "message").filter {
+            // Retain existing bare archive fixtures while requiring exact
+            // expanded names for real client stanzas and rejecting foreign XML.
+            [nil, "jabber:client", XMLNS.forward].contains($0.uri)
+        }
+        return messages.count == 1 ? messages[0] : nil
     }
 
     private static func forwardedTimestamp(in forwarded: DDXMLElement) -> TimeInterval? {
         let delay = forwarded.firstChild(named: "delay", xmlns: XMLNS.delay)
-            ?? forwarded.children(named: "delay").first(where: { trimmed($0.xmlns()) == nil })
+            ?? forwarded.children(named: "delay").first(where: { $0.uri == nil })
         guard let stamp = trimmed(delay?.attributeString("stamp")),
               let date = xmppDate(from: stamp) else {
             return nil
@@ -834,21 +907,29 @@ enum PushNotificationArchiveParser {
         _ message: DDXMLElement,
         archiveMessage: DDXMLElement,
         owner: String,
-        timestamp: TimeInterval?
+        timestamp: TimeInterval?,
+        unverifiedOMEMO: Bool = false
     ) -> PushNotificationPreview? {
         let fromBare = bareJid(message.attributeString("from") ?? "")
         let toBare = bareJid(message.attributeString("to") ?? "")
-        let groupUser = groupchatUserElement(from: message)
-        let groupReference = groupchatReferenceElement(from: message)
+        let groupUser = unverifiedOMEMO ? nil : groupchatUserElement(from: message)
+        let groupReference = unverifiedOMEMO ? nil : groupchatReferenceElement(from: message)
         let isGroupMessage = message.attributeString("type") == "chat" && groupUser != nil
         let routeJid = isGroupMessage ? fromBare : (fromBare == owner ? toBare : fromBare)
         guard !routeJid.isEmpty else {
             return nil
         }
 
-        let references = message.children(named: "reference")
+        let references = unverifiedOMEMO ? [] : message.children(named: "reference", xmlns: XMLNS.references)
         let mediaItems = mediaItems(from: references)
-        let rawBody = message.firstChild(named: "body")?.stringValue ?? ""
+        let bodies = directChildren(of: message).filter {
+            guard $0.localName == "body" else { return false }
+            // Bare legacy archive representations inherit the forwarding
+            // namespace. Explicit foreign namespaces never become content.
+            return $0.uri == "jabber:client"
+                || ($0.uri == message.uri && [nil, "urn:xmpp:forward:0"].contains(message.uri))
+        }
+        let rawBody = !unverifiedOMEMO && bodies.count == 1 ? (bodies[0].stringValue ?? "") : ""
         let displayBody = displayBody(from: rawBody, references: references, groupchatReference: groupReference)
         let body = displayBody.isEmpty
             ? (PushNotificationMediaFormatter.fallbackText(for: mediaItems)
@@ -883,7 +964,7 @@ enum PushNotificationArchiveParser {
         let route = PushNotificationRoutePayload.message(
             owner: owner,
             routeJid: routeJid,
-            conversationType: isGroupMessage ? "group" : "regular",
+            conversationType: unverifiedOMEMO ? "omemo" : (isGroupMessage ? "group" : "regular"),
             stanzaId: stanzaId,
             messageId: trimmed(message.attributeString("id")),
             stanza: archiveMessage.xmlString,
@@ -986,10 +1067,10 @@ enum PushNotificationArchiveParser {
         in message: DDXMLElement
     ) -> CanonicalGroupInvitePayload? {
         let inviteElements = directChildren(of: message).filter {
-            $0.name == "invite" && effectiveNamespace(of: $0) == XMLNS.groups
+            $0.localName == "invite" && effectiveNamespace(of: $0) == XMLNS.groups
         }
         let groupElements = directChildren(of: message).filter {
-            $0.name == "group" && effectiveNamespace(of: $0) == XMLNS.groups
+            $0.localName == "group" && effectiveNamespace(of: $0) == XMLNS.groups
         }
         guard inviteElements.count == 1,
               groupElements.count <= 1,
@@ -1165,7 +1246,7 @@ enum PushNotificationArchiveParser {
         let children = directChildren(of: avatar)
         guard children.count <= 1 else { return false }
         guard let info = children.first else { return true }
-        guard info.name == "info",
+        guard info.localName == "info",
               effectiveNamespace(of: info) == "urn:xmpp:avatar:metadata",
               directChildren(of: info).isEmpty,
               trimmed(info.attributeString("id")) != nil,
@@ -1183,7 +1264,7 @@ enum PushNotificationArchiveParser {
 
     private static func avatarMetadataInfo(in avatar: DDXMLElement) -> DDXMLElement? {
         let children = directChildren(of: avatar).filter {
-            $0.name == "info" && effectiveNamespace(of: $0) == "urn:xmpp:avatar:metadata"
+            $0.localName == "info" && effectiveNamespace(of: $0) == "urn:xmpp:avatar:metadata"
         }
         return children.count == 1 ? children[0] : nil
     }
@@ -1194,13 +1275,13 @@ enum PushNotificationArchiveParser {
         uniqueNames: Set<String>
     ) -> Bool {
         guard children.allSatisfy({ child in
-            guard let name = child.name else { return false }
+            guard let name = child.localName else { return false }
             return allowedNames.contains(name) && effectiveNamespace(of: child) == XMLNS.groups
         }) else {
             return false
         }
         return uniqueNames.allSatisfy { name in
-            children.filter { $0.name == name }.count <= 1
+            children.filter { $0.localName == name }.count <= 1
         }
     }
 
@@ -1209,7 +1290,7 @@ enum PushNotificationArchiveParser {
         in parent: DDXMLElement
     ) -> DDXMLElement? {
         let matches = directChildren(of: parent).filter {
-            $0.name == name && effectiveNamespace(of: $0) == XMLNS.groups
+            $0.localName == name && effectiveNamespace(of: $0) == XMLNS.groups
         }
         return matches.count == 1 ? matches[0] : nil
     }
@@ -1246,7 +1327,7 @@ enum PushNotificationArchiveParser {
         owner: String
     ) -> PushNotificationPreview? {
         guard let trust = message.firstChild(named: "trust", xmlns: XMLNS.trust),
-              trust.firstChild(named: "request") != nil else {
+              trust.firstChild(named: "request", xmlns: XMLNS.trust) != nil else {
             return nil
         }
 
@@ -1273,9 +1354,8 @@ enum PushNotificationArchiveParser {
         }
 
         guard let notification = message.firstChild(named: "notification", xmlns: XMLNS.xen),
-              let forwarded = notification.firstChild(named: "forwarded", xmlns: XMLNS.forward)
-                ?? notification.firstChild(named: "forwarded"),
-              let innerMessage = forwarded.firstChild(named: "message"),
+              let forwarded = forwardedElement(in: notification),
+              let innerMessage = forwardedMessage(in: forwarded),
               containsTrustRequest(innerMessage) else {
             return nil
         }
@@ -1293,13 +1373,13 @@ enum PushNotificationArchiveParser {
         guard let trust = message.firstChild(named: "trust", xmlns: XMLNS.trust) else {
             return false
         }
-        return trust.firstChild(named: "request") != nil
+        return trust.firstChild(named: "request", xmlns: XMLNS.trust) != nil
     }
 
     private static func originalFromAddress(in message: DDXMLElement) -> String? {
         message
             .firstChild(named: "addresses", xmlns: XMLNS.addresses)?
-            .children(named: "address")
+            .children(named: "address", xmlns: XMLNS.addresses)
             .first(where: { $0.attributeString("type") == "ofrom" })?
             .attributeString("jid")
     }
@@ -1309,7 +1389,7 @@ enum PushNotificationArchiveParser {
     }
 
     private static func preferredStanzaId(in message: DDXMLElement, owner: String, routeJid: String) -> String? {
-        let stanzaIds = message.children(named: "stanza-id")
+        let stanzaIds = message.children(named: "stanza-id", xmlns: "urn:xmpp:sid:0")
         return stanzaIds.first(where: { $0.attributeString("by") == owner })?.attributeString("id")
             ?? stanzaIds.first(where: { $0.attributeString("by") == routeJid })?.attributeString("id")
             ?? stanzaIds.first?.attributeString("id")
@@ -1317,18 +1397,18 @@ enum PushNotificationArchiveParser {
 
     private static func groupchatReferenceElement(from message: DDXMLElement) -> DDXMLElement? {
         guard let groupDecoration = directChildren(of: message).first(where: {
-            $0.name == "x" && effectiveNamespace(of: $0) == XMLNS.groups
+            $0.localName == "x" && effectiveNamespace(of: $0) == XMLNS.groups
         }) else {
             return nil
         }
         return directChildren(of: groupDecoration).first {
-            $0.name == "reference" && effectiveNamespace(of: $0) == XMLNS.references
+            $0.localName == "reference" && effectiveNamespace(of: $0) == XMLNS.references
         }
     }
 
     private static func groupchatUserElement(from message: DDXMLElement) -> DDXMLElement? {
         let groupDecorations = directChildren(of: message).filter {
-            $0.name == "x" && effectiveNamespace(of: $0) == XMLNS.groups
+            $0.localName == "x" && effectiveNamespace(of: $0) == XMLNS.groups
         }
         guard message.attributeString("type") == "chat",
               groupDecorations.count == 1,
@@ -1339,7 +1419,7 @@ enum PushNotificationArchiveParser {
         let children = directChildren(of: groupDecoration)
         guard children.count == 1,
               let user = children.first,
-              user.name == "user",
+              user.localName == "user",
               effectiveNamespace(of: user) == XMLNS.groups,
               isCanonicalGroupMember(user) else {
             return nil
@@ -1352,19 +1432,12 @@ enum PushNotificationArchiveParser {
     }
 
     private static func effectiveNamespace(of element: DDXMLElement) -> String? {
-        var current: DDXMLElement? = element
-        while let candidate = current {
-            if let namespace = candidate.xmlns() {
-                return namespace
-            }
-            current = candidate.parent as? DDXMLElement
-        }
-        return nil
+        element.uri
     }
 
     private static func mediaItems(from references: [DDXMLElement]) -> [PushNotificationMediaItem] {
         references.compactMap { reference -> PushNotificationMediaItem? in
-            guard reference.xmlns() == XMLNS.references else {
+            guard reference.uri == XMLNS.references else {
                 return nil
             }
             switch referenceKind(reference) {
@@ -1399,7 +1472,7 @@ enum PushNotificationArchiveParser {
         from fileSharing: DDXMLElement,
         forcedKind: PushNotificationMediaItem.Kind?
     ) -> PushNotificationMediaItem? {
-        guard let file = fileSharing.firstChild(named: "file") else {
+        guard let file = fileSharing.firstChild(named: "file", xmlns: XMLNS.files) else {
             return nil
         }
         let isEncrypted = file.firstChild(
@@ -1408,17 +1481,17 @@ enum PushNotificationArchiveParser {
         ) != nil
         let uri = isEncrypted
             ? nil
-            : fileSharing.firstChild(named: "sources")?
-                .children(named: "uri")
+            : fileSharing.firstChild(named: "sources", xmlns: XMLNS.files)?
+                .children(named: "uri", xmlns: XMLNS.files)
                 .compactMap({ trimmed($0.stringValue) })
                 .compactMap({ PushNotificationMediaURLPolicy.remoteURLString($0) })
                 .first
-        let mediaType = trimmed(file.firstChild(named: "media-type")?.stringValue)
-        let filename = trimmed(file.firstChild(named: "name")?.stringValue)
+        let mediaType = trimmed(file.firstChild(named: "media-type", xmlns: XMLNS.files)?.stringValue)
+        let filename = trimmed(file.firstChild(named: "name", xmlns: XMLNS.files)?.stringValue)
             ?? uri.flatMap { URL(string: $0)?.lastPathComponent }
-        let size = trimmed(file.firstChild(named: "size")?.stringValue).flatMap(Int64.init)
-        let duration = trimmed(file.firstChild(named: "duration")?.stringValue).flatMap(Int.init)
-        let thumbnailURL = trimmed(file.firstChild(named: "thumbnail")?.attributeString("uri"))
+        let size = trimmed(file.firstChild(named: "size", xmlns: XMLNS.files)?.stringValue).flatMap(Int64.init)
+        let duration = trimmed(file.firstChild(named: "duration", xmlns: XMLNS.files)?.stringValue).flatMap(Int.init)
+        let thumbnailURL = trimmed(file.firstChild(named: "thumbnail", xmlns: XMLNS.files)?.attributeString("uri"))
             .flatMap { PushNotificationMediaURLPolicy.previewURLString($0) }
         let kind: PushNotificationMediaItem.Kind
         if let forcedKind {
@@ -1509,7 +1582,7 @@ enum PushNotificationArchiveParser {
         }
 
         for reference in mutatedReferences.sorted(by: { $0.integerAttribute("begin") < $1.integerAttribute("begin") }) {
-            guard reference.xmlns() == XMLNS.references else {
+            guard reference.uri == XMLNS.references else {
                 continue
             }
             let kind = referenceKind(reference)
@@ -1688,11 +1761,12 @@ private extension DDXMLElement {
     }
 
     func children(named name: String, xmlns namespace: String? = nil) -> [DDXMLElement] {
-        elements(forName: name).filter { element in
+        (children?.compactMap { $0 as? DDXMLElement } ?? []).filter { element in
+            guard element.localName == name else { return false }
             guard let namespace else {
                 return true
             }
-            return element.xmlns() == namespace
+            return element.uri == namespace
         }
     }
 

@@ -100,8 +100,7 @@ func getStanzaId(_ message: XMPPMessage, owner: String) -> String {
 }
 
 func getOriginId(_ message: XMPPMessage) -> String? {
-    return message
-        .element(forName: "origin-id")?
+    return SCEReceivePolicy.children(of: message, named: "origin-id", xmlns: "urn:xmpp:sid:0").first?
         .attributeStringValue(forName: "id") ?? message.elementID
 }
 
@@ -115,9 +114,7 @@ func getMAMQueryId(_ message: XMPPMessage) -> String? {
     guard isArchivedMessage(message) else {
         return nil
     }
-    return message
-        .element(forName: "result")?
-        .attributeStringValue(forName: "queryid")
+    return getMAMResultElement(message)?.attributeStringValue(forName: "queryid")
 }
 
 /// The outer XEP-0313 result ID is the archive/RSM cursor. It must not be
@@ -127,8 +124,7 @@ func getMAMResultID(_ message: XMPPMessage) -> String? {
     guard isArchivedMessage(message) else {
         return nil
     }
-    let resultID = message
-        .element(forName: "result")?
+    let resultID = getMAMResultElement(message)?
         .attributeStringValue(forName: "id")?
         .trimmingCharacters(in: .whitespacesAndNewlines)
     return resultID?.isNotEmpty == true ? resultID : nil
@@ -163,11 +159,23 @@ func getOriginOrMessageId(_ message: XMPPMessage) -> String {
     return Id
 }
 
-func getArchivedMessageContainer(_ message: XMPPMessage) -> XMPPMessage? {
-    if let container = message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message") {
-        return XMPPMessage(from: container)
+func getMAMResultElement(_ message: XMPPMessage) -> DDXMLElement? {
+    let results = (message.children?.compactMap { $0 as? DDXMLElement } ?? []).filter {
+        $0.localName == "result" && SCEReceivePolicy.mamNamespaces.contains($0.uri ?? "")
     }
-    return nil
+    return results.count == 1 ? results[0] : nil
+}
+
+private func transportForwardedMessage(_ wrapper: DDXMLElement) -> XMPPMessage? {
+    let forwarded = SCEReceivePolicy.children(of: wrapper, named: "forwarded", xmlns: "urn:xmpp:forward:0")
+    guard forwarded.count == 1 else { return nil }
+    let messages = SCEReceivePolicy.children(of: forwarded[0], named: "message", xmlns: "jabber:client")
+    guard messages.count == 1 else { return nil }
+    return XMPPMessage(from: messages[0])
+}
+
+func getArchivedMessageContainer(_ message: XMPPMessage) -> XMPPMessage? {
+    getMAMResultElement(message).flatMap { transportForwardedMessage($0) }
 }
 
 func getPriorityMessageContainer(_ message: XMPPMessage) -> XMPPMessage? {
@@ -177,30 +185,21 @@ func getPriorityMessageContainer(_ message: XMPPMessage) -> XMPPMessage? {
     return nil
 }
 
-func getCarbonCopyMessageContainer(_ message: XMPPMessage) -> XMPPMessage? {
-    guard let from = message.from?.bare,
-          let to = message.to?.bare,
-          from == to,
-          let container = message
-            .element(forName: "sent")?
-            .element(forName: "forwarded")?
-            .element(forName: "message") else {
-        return nil
+private func carbonMessageContainer(_ message: XMPPMessage, name: String) -> XMPPMessage? {
+    guard let from = message.from?.bare, let to = message.to?.bare, from == to else { return nil }
+    let wrappers = (message.children?.compactMap { $0 as? DDXMLElement } ?? []).filter {
+        ["sent", "received"].contains($0.localName ?? "") && SCEReceivePolicy.carbonNamespaces.contains($0.uri ?? "")
     }
-    return XMPPMessage(from: container)
+    guard wrappers.count == 1, wrappers[0].localName == name else { return nil }
+    return transportForwardedMessage(wrappers[0])
+}
+
+func getCarbonCopyMessageContainer(_ message: XMPPMessage) -> XMPPMessage? {
+    carbonMessageContainer(message, name: "sent")
 }
 
 func getCarbonForwardedMessageContainer(_ message: XMPPMessage) -> XMPPMessage? {
-    guard let from = message.from?.bare,
-          let to = message.to?.bare,
-          from == to,
-          let container = message
-            .element(forName: "received")?
-            .element(forName: "forwarded")?
-            .element(forName: "message") else {
-        return nil
-    }
-    return XMPPMessage(from: container)
+    carbonMessageContainer(message, name: "received")
 }
 
 func getForwardedMessage(_ message: XMPPMessage) -> XMPPMessage? {
@@ -220,13 +219,13 @@ func getGroupchatHeadlineForwardedMessageContainer(_ message: XMPPMessage) -> XM
     return XMPPMessage(from: container)
 }
 
-func isArchivedMessage(_ message: XMPPMessage) -> Bool {
-    if let namespace = message.element(forName: "result")?.xmlns() {
-        return ["urn:xmpp:mam:0", "urn:xmpp:mam:1", "urn:xmpp:mam:2", "urn:xmpp:mam:3"].contains(namespace)
+func isArchivedMessage(_ message: DDXMLElement) -> Bool {
+    let results = (message.children?.compactMap { $0 as? DDXMLElement } ?? []).filter {
+        $0.localName == "result" && SCEReceivePolicy.mamNamespaces.contains($0.uri ?? "")
     }
-    return false
+    return results.count == 1
 }
- 
+
 func isPriorityMessage(_ message: XMPPMessage) -> Bool {
     if let namespace = message.element(forName: "priority-message")?.xmlns() {
         return "https://xabber.com/protocol/priority" == namespace
@@ -235,17 +234,15 @@ func isPriorityMessage(_ message: XMPPMessage) -> Bool {
 }
 
 func isCarbonCopy(_ message: XMPPMessage) -> Bool {
-    if let namespace = message.element(forName: "sent")?.xmlns() {
-        return ["urn:xmpp:carbons:0", "urn:xmpp:carbons:1", "urn:xmpp:carbons:2"].contains(namespace)
+    (message.children?.compactMap { $0 as? DDXMLElement } ?? []).contains {
+        $0.localName == "sent" && SCEReceivePolicy.carbonNamespaces.contains($0.uri ?? "")
     }
-    return false
 }
 
 func isCarbonForwarded(_ message: XMPPMessage) -> Bool {
-    if let namespace = message.element(forName: "received")?.xmlns() {
-        return ["urn:xmpp:carbons:0", "urn:xmpp:carbons:1", "urn:xmpp:carbons:2"].contains(namespace)
+    (message.children?.compactMap { $0 as? DDXMLElement } ?? []).contains {
+        $0.localName == "received" && SCEReceivePolicy.carbonNamespaces.contains($0.uri ?? "")
     }
-    return false
 }
 
 func isVoIPMessage(_ message: XMPPMessage) -> Bool {
@@ -283,7 +280,7 @@ func isModernForwardedMessage(_ message: XMPPMessage) -> Bool {
 }
 
 func getQueryId(_ message: XMPPMessage) -> String? {
-    return message.element(forName: "result")?.attributeStringValue(forName: "queryid")
+    return getMAMResultElement(message)?.attributeStringValue(forName: "queryid")
 }
 
 func getDeliveryTime(_ message: XMPPMessage, owner: String) -> Date? {

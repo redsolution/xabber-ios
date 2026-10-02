@@ -31,11 +31,19 @@ struct ClientSyncConversationValue: Sendable {
     let xmlString: String
     let jid: String?
     let rawConversationType: String?
+    let lastMessageEncryption: MessageEncryptionProvenance
+    let lastMessageWasConsumed: Bool
 
-    init(_ element: DDXMLElement) {
+    init(
+        _ element: DDXMLElement,
+        encryption: MessageEncryptionProvenance = .plaintext,
+        consumed: Bool = false
+    ) {
         xmlString = element.xmlString
         jid = element.attributeStringValue(forName: "jid")
         rawConversationType = element.attributeStringValue(forName: "type")
+        lastMessageEncryption = encryption
+        lastMessageWasConsumed = consumed
     }
 
     func materializedElement() -> DDXMLElement? {
@@ -144,17 +152,22 @@ struct ClientSyncPageParser {
         let rsm: RSMPage
     }
 
+    /// Compatibility for callers that only normalize ordinary XML. Production
+    /// encrypted ingress uses the typed overload so provenance survives queues.
     static func parseSnapshotPage(from iq: XMPPIQ, pageSize: Int, namespace: String, updateOmemo: (DDXMLElement) -> DDXMLElement) -> SnapshotPage? {
+        parseSnapshotPage(from: iq, pageSize: pageSize, namespace: namespace) { query in
+            updateOmemo(query).elements(forName: "conversation")
+                .map { ClientSyncConversationValue($0) }
+        }
+    }
+
+    static func parseSnapshotPage(from iq: XMPPIQ, pageSize: Int, namespace: String, prepareConversations: (DDXMLElement) -> [ClientSyncConversationValue]) -> SnapshotPage? {
         guard let query = iq.element(forName: "query", xmlns: namespace),
               let stamp = query.attributeStringValue(forName: "stamp") else {
             return nil
         }
-        let normalizedQuery = updateOmemo(query)
-        let conversations = normalizedQuery
-            .elements(forName: "conversation")
-            .compactMap { $0.copy() as? DDXMLElement }
-            .map(ClientSyncConversationValue.init)
-        let set = normalizedQuery.element(forName: "set")
+        let conversations = prepareConversations(query)
+        let set = query.element(forName: "set")
         let firstElement = set?.element(forName: "first")
         let first = firstElement?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
         let firstIndex = firstElement
@@ -930,7 +943,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         guard isCurrentSyncSessionGeneration(expectedGeneration) else {
             throw SyncSessionApplyError.invalidated
         }
-        let previewMutations = materializedConversations.compactMap { conversation -> LastChatListSyncPreviewMutation? in
+        let previewMutations = zip(materializedConversations, conversations).compactMap { conversation, value -> LastChatListSyncPreviewMutation? in
             guard let jid = conversation.attributeStringValue(forName: "jid"),
                   jid.isNotEmpty else {
                 return nil
@@ -952,19 +965,19 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             if isDeleted {
                 return .remove(conversationPrimary: primary)
             }
+            guard !value.lastMessageWasConsumed else { return nil }
             guard result.appliedConversationPrimaries.contains(primary),
                   let lastChat = realm.object(
                     ofType: LastChatsStorageItem.self,
                     forPrimaryKey: primary
                   ),
-                  let messageElement = Self.syncMetadata(from: conversation)?
-                    .element(forName: "last-message")?
-                    .element(forName: "message"),
+                  let messageElement = Self.syncLastMessage(from: Self.syncMetadata(from: conversation)),
                   let projection = LastChatListSyncPreviewParser.projection(
                     owner: owner,
                     conversationPrimary: primary,
                     lastMessageID: lastChat.lastMessageId,
-                    messageElement: messageElement
+                    messageElement: messageElement,
+                    encryption: value.lastMessageEncryption
                   ) else {
                 return nil
             }
@@ -1143,7 +1156,9 @@ class ClientSynchronizationManager: AbstractXMPPManager {
     }
 
     static func syncStamp(from messageElement: DDXMLElement?, fallback: Double) -> Double {
-        if let date = messageElement?.element(forName: "time")?.attributeStringValue(forName: "stamp")?.xmppDate {
+        if let messageElement,
+           let date = SCEReceivePolicy.children(of: messageElement, named: "time", xmlns: "https://xabber.com/protocol/delivery")
+            .first?.attributeStringValue(forName: "stamp")?.xmppDate {
             return date.timeIntervalSince1970 * 1_000_000
         }
         return fallback
@@ -1162,6 +1177,12 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             .first(where: { $0.attributeStringValue(forName: "node") == ClientSynchronizationManager.primaryNamespace })
     }
 
+    private static func syncLastMessage(from metadata: DDXMLElement?) -> DDXMLElement? {
+        guard let last = metadata?.element(forName: "last-message") else { return nil }
+        let messages = SCEReceivePolicy.children(of: last, named: "message", xmlns: "jabber:client")
+        return messages.count == 1 ? messages[0] : nil
+    }
+
     private static func normalizedArchiveId(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               value.isNotEmpty else {
@@ -1176,9 +1197,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             return nil
         }
 
-        let lastMessageArchiveId = metadata
-            .element(forName: "last-message")?
-            .element(forName: "message")
+        let lastMessageArchiveId = Self.syncLastMessage(from: metadata)
             .flatMap { messageElement in
                 let message = XMPPMessage(from: messageElement)
                 let conversationJID = conversation
@@ -1520,10 +1539,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
 
         let expectedGeneration = currentSyncSessionGeneration()
-        let conversations = query
-            .elements(forName: "conversation")
-            .compactMap { $0.copy() as? DDXMLElement }
-            .map(ClientSyncConversationValue.init)
+        let conversations = prepareSyncConversations(query)
         do {
             let applyResult = try applySyncPayload(
                 conversations: conversations,
@@ -1683,9 +1699,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             .element(forName: "delivered")?
             .attributeStringValue(forName: "id")
 
-        let messageElement = metadata?
-            .element(forName: "last-message")?
-            .element(forName: "message")
+        let messageElement = Self.syncLastMessage(from: metadata)
         let syncStamp = conversation.attributeDoubleValue(forName: "stamp")
         if let messageElement {
             let message = XMPPMessage(from: messageElement)
@@ -1827,7 +1841,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
             from: iq,
             pageSize: trackedRequest.diagnostics.max,
             namespace: ClientSynchronizationManager.primaryNamespace,
-            updateOmemo: updateOmemoMessages(_:)
+            prepareConversations: prepareSyncConversations(_:)
         ) else {
             guard isCurrentSyncSessionGeneration(expectedGeneration) else {
                 logSyncTrace("staleSnapshotParseFailureIgnored", [("id", elementId)])
@@ -2074,13 +2088,14 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         return true
     }
     
-    internal func updateOmemoMessages(_ query: DDXMLElement) -> DDXMLElement {
-        
-        if let modifiedQuery = AccountManager.shared.find(for: self.owner)?.omemo.modifySyncQuery(query) {
-            return modifiedQuery
+    internal func prepareSyncConversations(_ query: DDXMLElement) -> [ClientSyncConversationValue] {
+        if let omemo = AccountManager.shared.find(for: owner)?.omemo {
+            return omemo.prepareSyncConversations(query)
         }
-        return query
-        
+        // Before the account is available the preview parser treats retained
+        // OMEMO ciphertext as unresolved, regardless of any wire marker.
+        return query.elements(forName: "conversation")
+            .map { ClientSyncConversationValue($0) }
     }
     
     internal func readError(_ iq: XMPPIQ) -> Bool {

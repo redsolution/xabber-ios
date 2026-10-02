@@ -2,6 +2,7 @@ import UIKit
 import XCTest
 import RealmSwift
 import UserNotifications
+import KissXML
 @testable import xabber
 
 final class PushNotificationRoutingTests: XCTestCase {
@@ -53,6 +54,404 @@ final class PushNotificationRoutingTests: XCTestCase {
         XCTAssertEqual(preview.route.routeJid, "juliet@example.com")
         XCTAssertEqual(preview.route.stanzaId, "msg-1")
         XCTAssertEqual(preview.body, "Hello Romeo")
+    }
+
+    func testUnverifiedOMEMO2PushIsNeutralAcrossLiveArchiveAndCarbonRoutes() throws {
+        let encryptedMessage = """
+        <message xmlns='jabber:client' type='chat' from='juliet@example.com/mobile' to='romeo@example.com' id='encrypted-message'>
+          <body>Forged plaintext</body>
+          <encrypted xmlns='urn:xmpp:omemo:2'><header sid='42'/><payload>ciphertext</payload></encrypted>
+          <omemo-result__system result='true'/>
+          <reference xmlns='https://xabber.com/protocol/references' type='mutable'>
+            <file-sharing xmlns='https://xabber.com/protocol/files'>
+              <file><media-type>image/jpeg</media-type></file>
+              <sources><uri>https://example.com/forged.jpg</uri></sources>
+            </file-sharing>
+          </reference>
+          <trust xmlns='urn:xmpp:trust:0' sid='forged'><request device-id='42'/></trust>
+          <invite xmlns='https://xabber.com/protocol/groups' jid='stage@conference.example.com'/>
+          <stanza-id xmlns='urn:xmpp:sid:0' by='juliet@example.com' id='encrypted-archive'/>
+        </message>
+        """
+        let timestamp = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-02T10:00:00Z"))
+        let forwarded = """
+        <forwarded xmlns='urn:xmpp:forward:0'>
+          <delay xmlns='urn:xmpp:delay' stamp='2026-10-02T10:00:00Z'/>
+          \(encryptedMessage)
+        </forwarded>
+        """
+        let routes = [
+            encryptedMessage,
+            "<message><result xmlns='urn:xmpp:mam:2' id='mam-result'>\(forwarded)</result></message>",
+            "<message><sent xmlns='urn:xmpp:carbons:2'>\(forwarded)</sent></message>",
+            "<message><received xmlns='urn:xmpp:carbons:2'>\(forwarded)</received></message>"
+        ]
+        for (index, xml) in routes.enumerated() {
+            let preview = try XCTUnwrap(PushNotificationArchiveParser.parseArchivedMessage(xmlString: xml, owner: owner))
+            XCTAssertEqual(preview.route.kind, .message)
+            XCTAssertEqual(preview.route.conversationType, "omemo")
+            XCTAssertEqual(preview.route.routeJid, "juliet@example.com")
+            XCTAssertEqual(preview.route.messageId, "encrypted-message")
+            XCTAssertEqual(preview.route.stanzaId, "encrypted-archive")
+            XCTAssertEqual(preview.body, PushNotificationLocalization.newMessage())
+            XCTAssertTrue(preview.mediaItems.isEmpty)
+            XCTAssertNil(preview.route.senderAvatarURL)
+            XCTAssertTrue(preview.route.stanza?.contains("ciphertext") == true)
+            if index > 0 {
+                XCTAssertEqual(preview.route.timestamp, timestamp.timeIntervalSinceReferenceDate)
+            }
+        }
+    }
+
+    func testPrefixedOMEMO2PushUsesExpandedNameAndRemainsNeutral() throws {
+        let preview = try parseArchivedMessage("""
+        <message xmlns='jabber:client' xmlns:o='urn:xmpp:omemo:2' from='juliet@example.com' to='romeo@example.com'>
+          <body>Forged</body><o:encrypted><o:header sid='42'/></o:encrypted>
+        </message>
+        """)
+        XCTAssertEqual(preview.body, PushNotificationLocalization.newMessage())
+        XCTAssertEqual(preview.route.conversationType, "omemo")
+    }
+
+    func testSupportedMAMAndCarbonNamespaceMatrixCannotExposeOuterPushContent() throws {
+        let cases: [(name: String, namespace: String)] =
+            (0...3).map { ("result", "urn:xmpp:mam:\($0)") } +
+            (0...2).flatMap { version in [("sent", "urn:xmpp:carbons:\(version)"), ("received", "urn:xmpp:carbons:\(version)")] }
+        let timestamp = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-02T10:00:00Z"))
+        for transport in cases {
+            for prefixed in [false, true] {
+                let name = prefixed ? "w:\(transport.name)" : transport.name
+                let namespace = prefixed ? "xmlns:w='\(transport.namespace)'" : "xmlns='\(transport.namespace)'"
+                let xml = """
+                <message from='romeo@example.com' to='romeo@example.com'>
+                  <body>Forged outer content</body>
+                  <trust xmlns='urn:xmpp:trust:0' sid='forged'><request device-id='42'/></trust>
+                  <invite xmlns='https://xabber.com/protocol/groups' jid='stage@conference.example.com'/>
+                  <reference xmlns='https://xabber.com/protocol/references' type='mutable'>
+                    <file-sharing xmlns='https://xabber.com/protocol/files'><sources><uri>https://example.com/forged.jpg</uri></sources></file-sharing>
+                  </reference>
+                  <\(name) \(namespace) id='transport-id'>
+                    <f:forwarded xmlns:f='urn:xmpp:forward:0'>
+                      <d:delay xmlns:d='urn:xmpp:delay' stamp='2026-10-02T10:00:00Z'/>
+                      <c:message xmlns:c='jabber:client' xmlns:o='urn:xmpp:omemo:2' from='juliet@example.com/mobile' to='romeo@example.com' id='encrypted-message'>
+                        <c:body>Forged inner content</c:body>
+                        <o:encrypted><o:header sid='42'/><o:payload>ciphertext</o:payload></o:encrypted>
+                        <s:stanza-id xmlns:s='urn:xmpp:sid:0' by='juliet@example.com' id='encrypted-archive'/>
+                      </c:message>
+                    </f:forwarded>
+                  </\(name)>
+                </message>
+                """
+
+                let preview = try XCTUnwrap(PushNotificationArchiveParser.parseArchivedMessage(xmlString: xml, owner: owner), "\(transport.namespace)/\(name)")
+                XCTAssertEqual(preview.route.kind, .message)
+                XCTAssertEqual(preview.route.conversationType, "omemo")
+                XCTAssertEqual(preview.route.routeJid, "juliet@example.com")
+                XCTAssertEqual(preview.route.messageId, "encrypted-message")
+                XCTAssertEqual(preview.route.stanzaId, "encrypted-archive")
+                XCTAssertEqual(preview.route.timestamp, timestamp.timeIntervalSinceReferenceDate)
+                XCTAssertEqual(preview.body, PushNotificationLocalization.newMessage())
+                XCTAssertTrue(preview.mediaItems.isEmpty)
+                XCTAssertTrue(preview.route.stanza?.contains("ciphertext") == true)
+            }
+        }
+    }
+
+    func testMixedOMEMO2RootAndPlaintextCarbonCannotHideEncryption() throws {
+        let preview = try XCTUnwrap(PushNotificationArchiveParser.parseArchivedMessage(xmlString: """
+        <message xmlns='jabber:client' from='juliet@example.com' to='romeo@example.com' id='mixed-root'>
+          <encrypted xmlns='urn:xmpp:omemo:2'><payload>root-ciphertext</payload></encrypted>
+          <sent xmlns='urn:xmpp:carbons:2'><forwarded xmlns='urn:xmpp:forward:0'>
+            <message xmlns='jabber:client' from='attacker@example.com' to='romeo@example.com'>
+              <body>Forged carbon text</body>
+              <trust xmlns='urn:xmpp:trust:0'><request/></trust>
+            </message>
+          </forwarded></sent>
+        </message>
+        """, owner: owner))
+        XCTAssertEqual(preview.route.kind, .message)
+        XCTAssertEqual(preview.route.routeJid, "juliet@example.com")
+        XCTAssertEqual(preview.route.messageId, "mixed-root")
+        XCTAssertEqual(preview.route.conversationType, "omemo")
+        XCTAssertEqual(preview.body, PushNotificationLocalization.newMessage())
+        XCTAssertTrue(preview.mediaItems.isEmpty)
+        XCTAssertTrue(preview.route.stanza?.contains("root-ciphertext") == true)
+    }
+
+    func testMixedOMEMO2AtEitherMAMLayerCannotExposeNestedPlaintext() throws {
+        let plain = """
+        <message xmlns='jabber:client' from='attacker@example.com' to='romeo@example.com'>
+          <body>Forged nested text</body>
+          <trust xmlns='urn:xmpp:trust:0'><request/></trust>
+        </message>
+        """
+        let mixedInner = """
+        <message xmlns='jabber:client' from='juliet@example.com' to='romeo@example.com' id='mixed-inner'>
+          <encrypted xmlns='urn:xmpp:omemo:2'><payload>inner-ciphertext</payload></encrypted>
+          <received xmlns='urn:xmpp:carbons:2'><forwarded xmlns='urn:xmpp:forward:0'>\(plain)</forwarded></received>
+        </message>
+        """
+        let cases = [
+            """
+            <message xmlns='jabber:client' from='juliet@example.com' to='romeo@example.com' id='mixed-outer'>
+              <encrypted xmlns='urn:xmpp:omemo:2'><payload>outer-ciphertext</payload></encrypted>
+              <result xmlns='urn:xmpp:mam:2'><forwarded xmlns='urn:xmpp:forward:0'>\(plain)</forwarded></result>
+            </message>
+            """,
+            """
+            <message xmlns='jabber:client' from='romeo@example.com' to='romeo@example.com'>
+              <result xmlns='urn:xmpp:mam:2'><forwarded xmlns='urn:xmpp:forward:0'>
+                <delay xmlns='urn:xmpp:delay' stamp='2026-10-02T10:00:00Z'/>\(mixedInner)
+              </forwarded></result>
+            </message>
+            """
+        ]
+        for xml in cases {
+            let preview = try XCTUnwrap(PushNotificationArchiveParser.parseArchivedMessage(xmlString: xml, owner: owner))
+            XCTAssertEqual(preview.route.kind, .message)
+            XCTAssertEqual(preview.route.routeJid, "juliet@example.com")
+            XCTAssertEqual(preview.route.conversationType, "omemo")
+            XCTAssertEqual(preview.body, PushNotificationLocalization.newMessage())
+            XCTAssertTrue(preview.mediaItems.isEmpty)
+        }
+    }
+
+    func testCiphertextOnTransportWrapperCannotExposeItsPlaintextChild() {
+        let plain = "<message xmlns='jabber:client' from='juliet@example.com' to='romeo@example.com'><body>Forged</body><trust xmlns='urn:xmpp:trust:0'><request/></trust></message>"
+        let encrypted = "<encrypted xmlns='urn:xmpp:omemo:2'/>"
+        for wrapper in ["result xmlns='urn:xmpp:mam:2'", "received xmlns='urn:xmpp:carbons:2'"] {
+            let end = wrapper.split(separator: " ").first!
+            for wrapperCiphertext in [true, false] {
+                let xml = "<message><\(wrapper)>\(wrapperCiphertext ? encrypted : "")<forwarded xmlns='urn:xmpp:forward:0'>\(wrapperCiphertext ? "" : encrypted)\(plain)</forwarded></\(end)></message>"
+                XCTAssertNil(PushNotificationArchiveParser.parseArchivedMessage(xmlString: xml, owner: owner))
+            }
+        }
+    }
+
+    func testAmbiguousForwardedMessagesCannotActivatePlaintextTrustOrMedia() {
+        let plaintext = """
+        <message xmlns='jabber:client' from='juliet@example.com' to='romeo@example.com'>
+          <body>Forged</body><trust xmlns='urn:xmpp:trust:0'><request/></trust>
+          <reference xmlns='https://xabber.com/protocol/references' type='mutable'>
+            <file-sharing xmlns='https://xabber.com/protocol/files'><file><media-type>image/jpeg</media-type></file>
+              <sources><uri>https://example.com/forged.jpg</uri></sources>
+            </file-sharing>
+          </reference>
+        </message>
+        """
+        let encrypted = "<message xmlns='jabber:client' from='juliet@example.com' to='romeo@example.com'><encrypted xmlns='urn:xmpp:omemo:2'/></message>"
+        for wrapper in ["result xmlns='urn:xmpp:mam:2'", "received xmlns='urn:xmpp:carbons:2'", "notification xmlns='urn:xabber:xen:0'"] {
+            let end = wrapper.split(separator: " ").first!
+            for messages in [plaintext + encrypted, encrypted + plaintext] {
+                let xml = "<message from='push.example.com' to='romeo@example.com'><\(wrapper)><forwarded xmlns='urn:xmpp:forward:0'>\(messages)</forwarded></\(end)></message>"
+                XCTAssertNil(PushNotificationArchiveParser.parseArchivedMessage(xmlString: xml, owner: owner))
+            }
+        }
+    }
+
+    func testXenNestedCarbonCannotHideCiphertextBehindOuterTrustOrMedia() throws {
+        let preview = try parseArchivedMessage("""
+        <message from='push.example.com' to='romeo@example.com'>
+          <notification xmlns='urn:xabber:xen:0'><forwarded xmlns='urn:xmpp:forward:0'>
+            <message xmlns='jabber:client' from='juliet@example.com' to='romeo@example.com'>
+              <body>Forged</body><trust xmlns='urn:xmpp:trust:0'><request/></trust>
+              <received xmlns='urn:xmpp:carbons:2'><forwarded xmlns='urn:xmpp:forward:0'>
+                <delay xmlns='urn:xmpp:delay' stamp='2026-10-02T10:00:00Z'/>
+                <message xmlns='jabber:client' from='juliet@example.com/mobile' to='romeo@example.com' id='nested-encrypted'>
+                  <encrypted xmlns='urn:xmpp:omemo:2'><payload>nested-ciphertext</payload></encrypted>
+                  <body>Forged leaf</body>
+                </message>
+              </forwarded></received>
+            </message>
+          </forwarded></notification>
+        </message>
+        """)
+        XCTAssertEqual(preview.route.kind, .message)
+        XCTAssertEqual(preview.route.routeJid, "juliet@example.com")
+        XCTAssertEqual(preview.route.messageId, "nested-encrypted")
+        XCTAssertEqual(preview.route.conversationType, "omemo")
+        XCTAssertEqual(preview.body, PushNotificationLocalization.newMessage())
+        XCTAssertTrue(preview.mediaItems.isEmpty)
+        XCTAssertTrue(preview.route.stanza?.contains("nested-ciphertext") == true)
+        let timestamp = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-02T10:00:00Z"))
+        XCTAssertEqual(preview.route.timestamp, timestamp.timeIntervalSinceReferenceDate)
+    }
+
+    func testForeignForwardedMessageQNameCannotProducePushContent() {
+        let xml = """
+        <message from='push.example.com' to='romeo@example.com'><result xmlns='urn:xmpp:mam:2'>
+          <forwarded xmlns='urn:xmpp:forward:0'>
+            <message xmlns='urn:example:foreign' from='juliet@example.com' to='romeo@example.com'>
+              <body xmlns='jabber:client'>Forged</body><trust xmlns='urn:xmpp:trust:0'><request/></trust>
+            </message>
+          </forwarded>
+        </result></message>
+        """
+        XCTAssertNil(PushNotificationArchiveParser.parseArchivedMessage(xmlString: xml, owner: owner))
+    }
+
+    func testNestedXenCannotHideCiphertextBehindAnOuterVerificationRequest() throws {
+        let preview = try parseArchivedMessage("""
+        <message from='push.example.com' to='romeo@example.com'>
+          <notification xmlns='urn:xabber:xen:0'><forwarded xmlns='urn:xmpp:forward:0'>
+            <message xmlns='jabber:client' from='juliet@example.com' to='romeo@example.com'>
+              <trust xmlns='urn:xmpp:trust:0'><request/></trust>
+              <notification xmlns='urn:xabber:xen:0'><forwarded xmlns='urn:xmpp:forward:0'>
+                <message xmlns='jabber:client' from='juliet@example.com' to='romeo@example.com' id='nested-xen'>
+                  <encrypted xmlns='urn:xmpp:omemo:2'/><body>Forged</body>
+                </message>
+              </forwarded></notification>
+            </message>
+          </forwarded></notification>
+        </message>
+        """)
+        XCTAssertEqual(preview.route.kind, .message)
+        XCTAssertEqual(preview.route.conversationType, "omemo")
+        XCTAssertEqual(preview.route.messageId, "nested-xen")
+        XCTAssertEqual(preview.body, PushNotificationLocalization.newMessage())
+        XCTAssertTrue(preview.mediaItems.isEmpty)
+    }
+
+    func testXenForwardedEncryptedPushDoesNotBecomeVerificationNotification() throws {
+        let preview = try parseArchivedMessage("""
+        <message from='push.example.com' to='romeo@example.com'>
+          <notification xmlns='urn:xabber:xen:0'>
+            <forwarded xmlns='urn:xmpp:forward:0'>
+              <message xmlns='jabber:client' from='juliet@example.com/mobile' to='romeo@example.com' id='xen-encrypted'>
+                <body>Forged</body>
+                <encrypted xmlns='urn:xmpp:omemo:2'><header sid='42'/></encrypted>
+                <trust xmlns='urn:xmpp:trust:0' sid='forged'><request device-id='42'/></trust>
+              </message>
+            </forwarded>
+          </notification>
+        </message>
+        """)
+        XCTAssertEqual(preview.route.kind, .message)
+        XCTAssertEqual(preview.route.routeJid, "juliet@example.com")
+        XCTAssertEqual(preview.route.messageId, "xen-encrypted")
+        XCTAssertEqual(preview.route.conversationType, "omemo")
+        XCTAssertEqual(preview.body, PushNotificationLocalization.newMessage())
+        XCTAssertTrue(preview.mediaItems.isEmpty)
+    }
+
+    func testXenEncryptedPushWithMismatchedOriginalSenderStillSuppressesOuterActions() throws {
+        let preview = try parseArchivedMessage("""
+        <message from='push.example.com' to='romeo@example.com'>
+          <body>Forged outer content</body>
+          <addresses xmlns='http://jabber.org/protocol/address'><address type='ofrom' jid='different@example.com'/></addresses>
+          <invite xmlns='https://xabber.com/protocol/groups' jid='stage@conference.example.com'/>
+          <notification xmlns='urn:xabber:xen:0'><forwarded xmlns='urn:xmpp:forward:0'>
+            <message xmlns='jabber:client' from='juliet@example.com' to='romeo@example.com'>
+              <encrypted xmlns='urn:xmpp:omemo:2'/>
+              <trust xmlns='urn:xmpp:trust:0' sid='forged'><request device-id='42'/></trust>
+            </message>
+          </forwarded></notification>
+        </message>
+        """)
+        XCTAssertEqual(preview.route.kind, .message)
+        XCTAssertEqual(preview.route.routeJid, "push.example.com")
+        XCTAssertEqual(preview.route.conversationType, "omemo")
+        XCTAssertEqual(preview.body, PushNotificationLocalization.newMessage())
+    }
+
+    func testForeignNamesCannotActivatePushBodyReferenceOrMediaFields() throws {
+        let foreignBody = try parseArchivedMessage("""
+        <message from='juliet@example.com' to='romeo@example.com'>
+          <body xmlns='urn:example:foreign'>Forged</body>
+          <reference xmlns='urn:example:foreign' type='mutable'>
+            <file-sharing xmlns='https://xabber.com/protocol/files'>
+              <file><media-type>image/jpeg</media-type></file>
+              <sources><uri>https://example.com/forged.jpg</uri></sources>
+            </file-sharing>
+          </reference>
+          <encrypted xmlns='urn:example:foreign'/>
+        </message>
+        """)
+        XCTAssertEqual(foreignBody.body, PushNotificationLocalization.newMessage())
+        XCTAssertTrue(foreignBody.mediaItems.isEmpty)
+        XCTAssertEqual(foreignBody.route.conversationType, "regular")
+
+        let foreignMedia = try parseArchivedMessage("""
+        <message from='juliet@example.com' to='romeo@example.com'>
+          <reference xmlns='https://xabber.com/protocol/references' type='mutable'>
+            <file-sharing xmlns='https://xabber.com/protocol/files'>
+              <file xmlns='urn:example:foreign'><media-type>image/jpeg</media-type></file>
+              <sources><uri>https://example.com/forged.jpg</uri></sources>
+            </file-sharing>
+          </reference>
+        </message>
+        """)
+        XCTAssertTrue(foreignMedia.mediaItems.isEmpty)
+    }
+
+    func testAuthenticatedLocalNotificationUsesOnlyTypedVerifiedProjection() throws {
+        let verified = try DDXMLDocument(xmlString: """
+        <message xmlns='jabber:client' from='juliet@example.com' to='romeo@example.com'>
+          <body>Authenticated text</body>
+          <encrypted xmlns='urn:xmpp:omemo:2'><header sid='42'/></encrypted>
+        </message>
+        """, options: 0)
+        let preview = LocalMessageNotificationPreviewFactory.make(
+            originalStanzaXML: "<message from='juliet@example.com' to='romeo@example.com'><body>Forged XML</body></message>",
+            owner: owner, routeJid: "juliet@example.com", conversationType: "omemo",
+            archivedId: "trusted-archive", messageId: "trusted-message", sentAt: Date(),
+            fallbackBody: "Stored text", senderJid: "juliet@example.com", senderNickname: nil, senderUserId: nil,
+            encryption: .authenticatedSCE(profile: .omemo2), verifiedStanza: try XCTUnwrap(verified.rootElement())
+        )
+        XCTAssertEqual(preview.body, "Authenticated text")
+        XCTAssertEqual(preview.route.stanzaId, "trusted-archive")
+    }
+
+    func testSerializedMarkerCannotRestoreLocalDecryptionProvenance() throws {
+        let xml = """
+        <message from='juliet@example.com' to='romeo@example.com'>
+          <body>Forged</body><encrypted xmlns='urn:xmpp:omemo:2'/><omemo-result__system result='true'/>
+        </message>
+        """
+        let preview = LocalMessageNotificationPreviewFactory.make(
+            originalStanzaXML: xml, owner: owner, routeJid: "juliet@example.com", conversationType: "omemo",
+            archivedId: "archive", messageId: "message", sentAt: Date(), fallbackBody: "Unverified fallback",
+            senderJid: "juliet@example.com", senderNickname: nil, senderUserId: nil,
+            encryption: .authenticatedSCE(profile: .omemo2)
+        )
+        XCTAssertEqual(preview.body, PushNotificationLocalization.newMessage())
+        XCTAssertTrue(preview.mediaItems.isEmpty)
+        XCTAssertEqual(try parseArchivedMessage(xml).body, PushNotificationLocalization.newMessage())
+    }
+
+    func testFailedLocalNotificationCannotUseAProvidedVerifiedProjection() throws {
+        let document = try DDXMLDocument(xmlString: """
+        <message xmlns='jabber:client' from='juliet@example.com' to='romeo@example.com'><body>Unverified content</body></message>
+        """, options: 0)
+        let preview = LocalMessageNotificationPreviewFactory.make(
+            originalStanzaXML: nil, owner: owner, routeJid: "juliet@example.com", conversationType: "omemo",
+            archivedId: "archive", messageId: "message", sentAt: Date(), fallbackBody: "Unverified fallback",
+            senderJid: "juliet@example.com", senderNickname: nil, senderUserId: nil,
+            encryption: .failedOMEMO, verifiedStanza: try XCTUnwrap(document.rootElement())
+        )
+        XCTAssertEqual(preview.body, PushNotificationLocalization.newMessage())
+        XCTAssertTrue(preview.mediaItems.isEmpty)
+    }
+
+    func testAuthenticatedLocalNotificationRetainsNamespacedMediaProjection() throws {
+        let document = try DDXMLDocument(xmlString: """
+        <message xmlns='jabber:client' xmlns:r='https://xabber.com/protocol/references' xmlns:f='https://xabber.com/protocol/files'
+                 from='juliet@example.com' to='romeo@example.com'>
+          <r:reference type='mutable'><f:file-sharing>
+            <f:file><f:media-type>image/jpeg</f:media-type><f:name>verified.jpg</f:name></f:file>
+            <f:sources><f:uri>https://example.com/verified.jpg</f:uri></f:sources>
+          </f:file-sharing></r:reference>
+          <encrypted xmlns='urn:xmpp:omemo:2'/>
+        </message>
+        """, options: 0)
+        let preview = LocalMessageNotificationPreviewFactory.make(
+            originalStanzaXML: nil, owner: owner, routeJid: "juliet@example.com", conversationType: "omemo",
+            archivedId: "archive", messageId: "message", sentAt: Date(), fallbackBody: "Stored fallback",
+            senderJid: "juliet@example.com", senderNickname: nil, senderUserId: nil,
+            encryption: .authenticatedSCE(profile: .omemo2), verifiedStanza: try XCTUnwrap(document.rootElement())
+        )
+        XCTAssertEqual(preview.body, "Image")
+        XCTAssertEqual(preview.mediaItems.first?.url, "https://example.com/verified.jpg")
     }
 
     func testImageAttachmentParsesMediaAndImageFallback() throws {

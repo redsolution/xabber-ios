@@ -338,6 +338,37 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 }
             }
         }
+        let context: OMEMOReceiveContext = isArchivedMessage(message) ? .archive :
+            ((isCarbonCopy(message) || isCarbonForwarded(message)) ? .carbon : .live)
+        let prepared = AccountManager.shared.find(for: sender.myJID?.bare ?? jid)?
+            .omemo.prepareIncoming(message, context: context)
+            ?? OmemoManager.prepareUnverifiedIncoming(message)
+        guard let message = prepared.message else {
+            didIntentionallyConsumeArchiveResult = true
+            return
+        }
+        let encryption = prepared.provenance
+        if case .failed = prepared {
+            if self.mam.readMessage(message, encryption: encryption) {
+                didIntentionallyConsumeArchiveResult = true
+            } else if isArchivedMessage(message) {
+                didRouteArchiveResultToPersistence = true
+                self.messages.receiveArchived(message, encryption: encryption)
+            } else if isCarbonCopy(message) {
+                self.messages.receiveCarbon(message, encryption: encryption)
+            } else if isCarbonForwarded(message) {
+                self.messages.receiveCarbonForwarded(message, encryption: encryption)
+            } else {
+                self.messages.receiveRuntime(message, encryption: encryption)
+            }
+            return
+        }
+        if encryption.isAuthenticated,
+           AccountManager.shared.find(for: sender.myJID?.bare ?? jid)?
+            .trustSharingManager.didReceivedListOfContactsDevices(message: message, encryption: encryption) == true {
+            didIntentionallyConsumeArchiveResult = true
+            return
+        }
         let canonicalGroupRouting = CanonicalAuxiliaryGroupMessageRouter.route(
             message,
             owner: sender.myJID?.bare ?? jid
@@ -349,7 +380,7 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
         
         switch message.messageType ?? .chat {
         case .chat, .normal:
-            if self.mam.readMessage(message) {
+            if self.mam.readMessage(message, encryption: encryption) {
                 didIntentionallyConsumeArchiveResult = true
                 return
             }
@@ -366,22 +397,21 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                         return
                     }
                 }
-                if AccountManager.shared.find(for: sender.myJID!.bare)?.omemo.didReceiveOmemoMessage(
-                    message,
-                    archivedMessageReceiver: self.messages
-                ) ?? false {
-                    didRouteArchiveResultToPersistence = true
-                } else {
-                    didRouteArchiveResultToPersistence = true
-                    self.messages.receiveArchived(message)
-                }
+                didRouteArchiveResultToPersistence = true
+                self.messages.receiveArchived(message, encryption: encryption)
                 
             } else {
                 if VoIPManager.shared.onReceiveMessage(message, owner: sender.myJID!.bare, archivedDate: nil, runtime: true) {
                     return
                 }
-                if message.body?.isNotEmpty ?? false {
-                    self.messages.receiveRuntime(message)
+                if encryption.isAuthenticated || (message.body?.isNotEmpty ?? false) {
+                    if isCarbonCopy(message) {
+                        self.messages.receiveCarbon(message, encryption: encryption)
+                    } else if isCarbonForwarded(message) {
+                        self.messages.receiveCarbonForwarded(message, encryption: encryption)
+                    } else {
+                        self.messages.receiveRuntime(message, encryption: encryption)
+                    }
                 }
             }
         default:

@@ -230,14 +230,13 @@ final class OMEMO2AppIntegrationTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(live.compactXMLString).contains("Failed to decrypt"))
 
         let push = try controlMessage(fixture: fixture)
-        XCTAssertNil(fixture.bob.didReceiveOmemoMessageFromPush(push))
-        XCTAssertNil(fixture.bob.didReceiveOmemoMessageFromPush(push))
+        XCTAssertNil(fixture.bob.didReceiveOmemoMessageFromPush(push).message)
+        XCTAssertNil(fixture.bob.didReceiveOmemoMessageFromPush(push).message)
         XCTAssertNil(push.element(forName: "body"))
 
         let stanza = try controlMessage(fixture: fixture)
-        let before = try XCTUnwrap(stanza.compactXMLString)
-        XCTAssertEqual(try XCTUnwrap(fixture.bob.modifyOmemoStanza(message: stanza).compactXMLString), before)
-        XCTAssertEqual(try XCTUnwrap(fixture.bob.modifyOmemoStanza(message: stanza).compactXMLString), before)
+        XCTAssertNil(fixture.bob.modifyOmemoStanza(message: stanza).message)
+        XCTAssertNil(fixture.bob.modifyOmemoStanza(message: stanza).message)
         XCTAssertNil(stanza.element(forName: "body"))
     }
 
