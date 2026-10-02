@@ -53,6 +53,12 @@ open class OmemoManager: AbstractXMPPManager {
     
     internal var isOmemoPrepared: Bool
     
+    internal var omemo2Storage: XabberOMEMO2Storage?
+    internal var omemo2ControlSender: ((XMPPMessage) -> Void)?
+    internal var omemo2BundlePublications: [String: Data] = [:]
+    internal var omemo2PublicationReconfigured = false
+    internal var omemo2BundleConfigurationRequestID: String?
+
     internal var localStore: XabberAxolotlStorage
     internal var signalStorage: SignalStorage
     internal var signalContext: SignalContext
@@ -70,6 +76,7 @@ open class OmemoManager: AbstractXMPPManager {
     }
     
     override init(withOwner owner: String) {
+        self.omemo2Storage = try? XabberOMEMO2Storage(owner: owner)
         guard CredentialsManager.shared.getDeviceId(for: owner) != nil else {
             self.isOmemoPrepared = false
             self.localStore = XabberAxolotlStorage(withOwner: owner)
@@ -91,25 +98,45 @@ open class OmemoManager: AbstractXMPPManager {
         if stream.isDisconnected {
             return
         }
-        let deviceId = CredentialsManager.shared.getDeviceId(for: self.owner) ?? Int(arc4random_uniform(XabberAxolotlStorage.deviceIdLimit - 1) + 1)
-        self.configureLocal(stream, for: deviceId)
+        do {
+            self.configureLocal(stream, for: try self.deviceIDForOMEMO2Preparation())
+        } catch {
+            self.isOmemoPrepared = false
+            DDLogDebug("OMEMO2 state could not be prepared")
+        }
     }
     
     public final func configureLocal(_ stream: XMPPStream, for deviceId: Int) {
         do {
             let realm = try WRealm.safe()
-            let collection = realm.objects(SignalDeviceStorageItem.self)
+            let collection = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@", self.owner)
             try realm.write {
                 collection.forEach {
                     $0.freshlyUpdated = false
                 }
             }
-            try self.localStore.create(for: deviceId, context: self.signalContext)
-            
-            if (realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: deviceId))?.isPublicated ?? false) {
-                return
+            guard let storage = self.omemo2Storage else { throw OMEMO2StorageError.stateUnavailable }
+            do {
+                let bundle = try storage.localBundle()
+                guard bundle.deviceID == deviceId else { throw OMEMO2StorageError.invalidDeviceID }
+                // Existing aggregate is authoritative even if its Realm public
+                // projection has been removed. Do not regenerate legacy keys.
+                try self.localStore.bindExistingDevice(deviceID: bundle.deviceID)
+                _ = try storage.prepare(deviceID: bundle.deviceID)
+            } catch OMEMO2StorageError.stateUnavailable {
+                guard realm.objects(SignalIdentityStorageItem.self)
+                    .filter("owner == %@ AND jid == %@ AND protocolProfile == %@", self.owner, self.owner, Self.xmlns).isEmpty else {
+                    throw OMEMO2StorageError.stateUnavailable
+                }
+                try self.localStore.create(for: deviceId, context: self.signalContext)
             }
+            _ = try self.ensureOMEMO2Prepared()
+            self.isOmemoPrepared = true
+            self.omemo2PublicationReconfigured = false
+            self.omemo2BundlePublications.removeAll()
+            self.shouldPublicate = true
             self.updateMyDevice(stream)
+            self.flushOMEMO2Controls()
             AccountManager.shared.find(for: self.owner)?.trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceId))
         } catch {
             DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
@@ -165,6 +192,7 @@ open class OmemoManager: AbstractXMPPManager {
     
     override func read(withIQ iq: XMPPIQ) -> Bool {
         switch true {
+        case onOMEMO2PublicationResult(iq): return true
         case onContactDeviceListErrorReceive(iq): return true
         case onContactDeviceListReceive(iq): return true
         case onContactBundleErrorReceive(iq): return true
@@ -212,6 +240,7 @@ open class OmemoManager: AbstractXMPPManager {
             let sessions = realm.objects(SessionRecordStorageItem.self).filter("owner == %@", owner)
             let trustedIdentity = realm.objects(SignalTrustedIdentityStoreageItem.self).filter("owner == %@", owner)
             let senderKeys = realm.objects(SignalSenderKeyStoreageItem.self).filter("owner == %@", owner)
+            try CredentialsManager.shared.removeOMEMO2State(for: owner)
             CredentialsManager.shared.removeIdentityKey(for: owner)
             CredentialsManager.shared.removeDeviceId(for: owner)
             preKeys.forEach {
@@ -325,7 +354,10 @@ extension OmemoManager {
         if !force {
             do {
                 let realm = try WRealm.safe()
-                if realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: jid, deviceId: Int(deviceId) )) != nil{
+                if let cached = realm.object(ofType: SignalIdentityStorageItem.self,
+                                             forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: jid, deviceId: deviceId)),
+                   cached.protocolProfile == OMEMO2BundleCodec.namespace,
+                   cached.identityKey.flatMap({ Data(base64Encoded: $0) })?.count == 32 {
                     return
                 }
             } catch {
@@ -517,12 +549,13 @@ extension OmemoManager {
         
         do {
             let realm = try WRealm.safe()
-            let devicesList = devices.compactMap { return  $0.attributeIntegerValue(forName: "id") }
+            let devicesList = try devices.map { try OMEMO2BundleCodec.keyID($0.attributeStringValue(forName: "id")) }.map(Int.init)
+            guard Set(devicesList).count == devicesList.count else { return true }
             
             let deviceCollection = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, jid).toArray()
             let toDeleteItems: [String] = deviceCollection.compactMap {
                 device in
-                if device.deviceId == self.localStore.localDeviceId() { return nil }
+                if jid == self.owner && device.deviceId == self.localStore.localDeviceId() { return nil }
                 if !devicesList.contains(device.deviceId) {
                     return device.primary
                 }
@@ -544,8 +577,20 @@ extension OmemoManager {
                 devices.forEach {
                     device in
                     let id = device.attributeIntegerValue(forName: "id")
-                    if id == self.localStore.localDeviceId() { return }
-                    let label = device.attributeStringValue(forName: "label")
+                    if jid == self.owner && id == self.localStore.localDeviceId() { return }
+                    // Unsigned peer labels are not authenticated identity metadata.
+                    var label: String?
+                    if let value = device.attributeStringValue(forName: "label"),
+                       let encoded = device.attributeStringValue(forName: "labelsig"),
+                       let signature = try? Omemo2PayloadCodec.decodeBase64(encoded),
+                       let identity = realm.object(ofType: SignalIdentityStorageItem.self,
+                            forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: jid, deviceId: id)),
+                       identity.protocolProfile == Self.xmlns,
+                       let encodedIdentity = identity.identityKey,
+                       let key = try? Omemo2PayloadCodec.decodeBase64(encodedIdentity),
+                       Omemo2IdentityRepresentation.verify(signature, data: Data(value.utf8), storedIdentity: key) {
+                        label = value
+                    }
                     let primary = SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid, deviceId: id)
                     if let instance = xabberDeviceCollection.first(where: { $0.uid.contains("\(id)") }) {
                         instance.isEncryptionEnabled = true
@@ -698,15 +743,10 @@ extension OmemoManager {
         }
 
         RunLoop.main.perform {
-            let itemId = item.attributeIntegerValue(forName: "id")
             do {
                 try _ = self.onContactBundleReceive(items: items, jid: from)
             } catch {
-                if from == self.owner {
-                    AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
-                        user.omemo.deleteDeviceOrBundle(stream, jid: iq.from, itemId: itemId, node: .bundle)
-                    })
-                }
+                DDLogDebug("OmemoManager: rejected OMEMO2 bundle publication")
             }
         }
         
@@ -724,117 +764,84 @@ extension OmemoManager {
             return false
         }
         RunLoop.main.perform {
-            let itemId = item.attributeIntegerValue(forName: "id")
             do {
                 try _ = self.onContactBundleReceive(items: items, jid: from)
             } catch {
-                if from != self.owner { return }
-                AccountManager.shared.find(for: self.owner)?.unsafeAction({ user, stream in
-                    user.omemo.deleteDeviceOrBundle(stream, jid: message.from, itemId: itemId, node: .bundle)
-                })
+                DDLogDebug("OmemoManager: rejected OMEMO2 bundle publication")
             }
         }
         
         return true
     }
     
-    private final func onContactBundleReceive(items: DDXMLElement, jid: String) throws -> Bool {
-        func clearDevice(deviceId: Int) {
-            do {
-                let realm = try Realm()
-                if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid, deviceId: deviceId)) {
-                    realm.writeAsync {
-                        realm.delete(instance)
-                    }
-                }
-            } catch {
-                DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
-            }
-        }
-        
-        guard items.attributeStringValue(forName: "node") == "\(getPrimaryNamespace()):bundles",
-              let item = items.element(forName: "item"),
-              let bundle = item.element(forName: "bundle", xmlns: getPrimaryNamespace()) else {
-                throw OmemoManagerError.bundleNotFound
-              }
-        let cDeviceId = item.attributeIntegerValue(forName: "id")
-        guard let spkId = bundle.element(forName: "spk")?.attributeIntValue(forName: "id"),
-              let spk_b64 = bundle.element(forName: "spk")?.stringValue,
-              spk_b64.isNotEmpty,
-              let spks_b64 = bundle.element(forName: "spks")?.stringValue,
-              spks_b64.isNotEmpty,
-              let ik_b64 = bundle.element(forName: "ik")?.stringValue,
-              ik_b64.isNotEmpty,
-              let preKeys = bundle.element(forName: "prekeys")?.elements(forName: "pk") else {
-            clearDevice(deviceId: cDeviceId)
+    internal final func onContactBundleReceive(items: DDXMLElement, jid: String) throws -> Bool {
+        guard items.attributeStringValue(forName: "node") == OMEMO2BundleCodec.namespace + ":bundles",
+              let item = items.element(forName: "item") else { throw OmemoManagerError.bundleNotFound }
+        // The codec authenticates the SPK and validates all public fields before
+        // a malformed PEP publication is allowed to affect cached keys or trust.
+        let published = try OMEMO2BundleCodec.decode(item: item)
+        guard let bundle = item.element(forName: "bundle", xmlns: getPrimaryNamespace()) else {
             throw OmemoManagerError.bundleNotFound
-          }
-                
-//        let signed: Bool = bundle.element(forName: "time-signature", xmlns: SignatureManager.xmlns) != nil
-        var signedInfo: SignatureManager.BundleSignedInfo? = nil
-        if let signature = bundle.element(forName: "time-signature", xmlns: SignatureManager.xmlns) {
-            signedInfo = try SignatureManager.shared.checkBundleSignature(
-                owner: self.owner,
-                for: jid,
-                signature: signature
-            )
         }
-        
+        let cDeviceId = published.deviceID
+        var signedInfo: SignatureManager.BundleSignedInfo?
+        if let signature = bundle.element(forName: "time-signature", xmlns: SignatureManager.xmlns) {
+            signedInfo = try SignatureManager.shared.checkBundleSignature(owner: self.owner, for: jid, signature: signature)
+        }
         let realm = try WRealm.safe()
         let identityPrimary = SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: jid, deviceId: cDeviceId)
         let devicePrimary = SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: jid, deviceId: cDeviceId)
         let sessionPrimary = SessionRecordStorageItem.genPrimary(owner: self.owner, jid: jid, deviceId: cDeviceId)
         let trustedIdentityPrimary = SignalTrustedIdentityStoreageItem.genPrimary(owner: self.owner, jid: jid, deviceId: cDeviceId)
-        let signatureXML = bundle.element(forName: "time-signature", xmlns: SignatureManager.xmlns)?.xmlString
-        let ikData = Data(base64Encoded: ik_b64, options: .ignoreUnknownCharacters)
-        let oldIdentityData = realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: identityPrimary)?.identityKey.flatMap {
-            Data(base64Encoded: $0, options: .ignoreUnknownCharacters)
-        }
-        let identityChanged = oldIdentityData != nil && ikData != nil && oldIdentityData != ikData
-        
-        let pkcollection = preKeys.compactMap {
-            (pkElement) -> SignalPreKeysStorageItem? in
-            
-            let pk_id = pkElement.attributeIntegerValue(forName: "id")
-            
-            guard let pk = pkElement.stringValue,
-                  pk.isNotEmpty else {
-                return nil
+        let previousIdentity = realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: identityPrimary)
+        let oldIdentityData = previousIdentity?.identityKey.flatMap { Data(base64Encoded: $0) }
+        let oldCurveKey = oldIdentityData.flatMap { try? OMEMO2BundleCodec.fingerprintPublicKey(storedIdentityKey: $0) }
+        let trustedIdentity = realm.object(ofType: SignalTrustedIdentityStoreageItem.self, forPrimaryKey: trustedIdentityPrimary)
+        let trustedCurveKey = trustedIdentity?.identity.flatMap { try? OMEMO2BundleCodec.fingerprintPublicKey(storedIdentityKey: $0) }
+        let identityChanged = (oldIdentityData != nil && oldCurveKey != published.fingerprintPublicKey)
+            || (trustedIdentity?.identity != nil && trustedCurveKey != published.fingerprintPublicKey)
+        if identityChanged, let storage = self.omemo2Storage {
+            do {
+                _ = try storage.localBundle()
+                // Invalidate the affected OMEMO2 peer before changing the
+                // public identity/trust cache. Storage failures cannot leave a
+                // trusted replacement pointing at an old outgoing session.
+                try storage.deleteSessions(jid: jid, deviceID: cDeviceId)
+            } catch OMEMO2StorageError.stateUnavailable {
+                // An account whose OMEMO2 migration has not prepared local
+                // state has no new-profile session to invalidate.
             }
-            
+        }
+        let signatureXML = bundle.element(forName: "time-signature", xmlns: SignatureManager.xmlns)?.xmlString
+        let pkcollection = published.preKeys.map { preKey -> SignalPreKeysStorageItem in
             let instance = SignalPreKeysStorageItem()
             instance.owner = self.owner
             instance.jid = jid
-            instance.pkId = pk_id
-            instance.preKey = pk
+            instance.pkId = Int(preKey.id)
+            instance.preKey = preKey.publicKey.base64EncodedString()
             instance.deviceId = cDeviceId
-            instance.primary = SignalPreKeysStorageItem.genPrimary(keyUUID: UUID().uuidString)
-            
+            instance.keyUUID = UUID().uuidString
+            instance.primary = SignalPreKeysStorageItem.genPrimary(keyUUID: instance.keyUUID)
             return instance
         }
-        
         try realm.write {
-            let identity = realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: identityPrimary) ?? SignalIdentityStorageItem()
+            let identity = previousIdentity ?? SignalIdentityStorageItem()
             if identity.primary.isEmpty {
                 identity.primary = identityPrimary
                 identity.owner = self.owner
                 identity.jid = jid
                 identity.deviceId = cDeviceId
             }
-            identity.signedPreKey = spk_b64
-            identity.signedPreKeySignature = spks_b64
-            identity.identityKey = ik_b64
-            identity.signedPreKeyId = Int(spkId)
+            identity.protocolProfile = OMEMO2BundleCodec.namespace
+            identity.signedPreKey = published.signedPreKey.base64EncodedString()
+            identity.signedPreKeySignature = published.signature.base64EncodedString()
+            identity.identityKey = published.identityKey.base64EncodedString()
+            identity.signedPreKeyId = Int(published.signedPreKeyID)
             identity.signedPreKeyTimestamp = Date().timeIntervalSince1970
             realm.add(identity, update: .modified)
-            
-            realm.delete(
-                realm
-                    .objects(SignalPreKeysStorageItem.self)
-                    .filter("owner == %@ AND jid == %@ AND deviceId == %@", self.owner, jid, cDeviceId)
-            )
+            realm.delete(realm.objects(SignalPreKeysStorageItem.self)
+                .filter("owner == %@ AND jid == %@ AND deviceId == %@", self.owner, jid, cDeviceId))
             realm.add(pkcollection, update: .modified)
-            
             let device = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: devicePrimary) ?? SignalDeviceStorageItem()
             if device.primary.isEmpty {
                 device.owner = self.owner
@@ -845,9 +852,8 @@ extension OmemoManager {
             }
             device.freshlyUpdated = true
             device.updateDate = Date()
-            device.fingerprint = ikData?.formattedFingerprint() ?? ""
+            device.fingerprint = try Omemo2IdentityRepresentation.fingerprint(for: published.identityKey)
             device.signature = signatureXML
-            
             if identityChanged {
                 device.state = .fingerprintChanged
                 device.isTrustedByCertificate = false
@@ -855,39 +861,43 @@ extension OmemoManager {
                 device.signedBy = nil
                 device.trustedByDeviceId = nil
                 device.trustDate = Date(timeIntervalSince1970: -1)
-                
-                if let session = realm.object(ofType: SessionRecordStorageItem.self, forPrimaryKey: sessionPrimary), !session.isInvalidated {
-                    realm.delete(session)
-                }
-                if let trustedIdentity = realm.object(ofType: SignalTrustedIdentityStoreageItem.self, forPrimaryKey: trustedIdentityPrimary), !trustedIdentity.isInvalidated {
-                    realm.delete(trustedIdentity)
-                }
-            } else if let signedInfo = signedInfo,
-                      signedInfo.signedBy == jid {
-                device.state = .trusted
-                device.isTrustedByCertificate = true
-                device.signedAt = signedInfo.signedAt
-                device.signedBy = signedInfo.signedBy
+                if let trustedIdentity = trustedIdentity, !trustedIdentity.isInvalidated { realm.delete(trustedIdentity) }
             } else {
-                device.isTrustedByCertificate = false
-                device.signedAt = -1
-                device.signedBy = nil
+                // Equivalent Curve25519 identity keeps the user's trust while
+                // moving from a prefixed legacy key to raw Ed25519 wire data.
+                if device.state == .trusted, device.isTrustedByCertificate,
+                   device.trustedByDeviceId == nil {
+                    // Cached timestamp-only certificate trust is not a manual
+                    // identity decision and cannot survive the profile change.
+                    device.state = .unknown
+                    device.trustDate = Date(timeIntervalSince1970: -1)
+                }
+                if let trustedIdentity = trustedIdentity { trustedIdentity.identity = published.identityKey }
+                if let signedInfo = signedInfo, signedInfo.signedBy == jid {
+                    // The legacy certificate signature authenticates a timestamp,
+                    // not this identity key. It is metadata, never a trust proof.
+                    device.isTrustedByCertificate = false
+                    device.signedAt = signedInfo.signedAt
+                    device.signedBy = signedInfo.signedBy
+                } else {
+                    device.isTrustedByCertificate = false
+                    device.signedAt = -1
+                    device.signedBy = nil
+                }
             }
+            if identityChanged,
+               let legacySession = realm.object(ofType: SessionRecordStorageItem.self, forPrimaryKey: sessionPrimary),
+               !legacySession.isInvalidated { realm.delete(legacySession) }
             realm.add(device, update: .modified)
-            
-            realm.object(
-                ofType: LastChatsStorageItem.self,
-                forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: .omemo)
-            )?.updateTS = Date().timeIntervalSince1970
+            realm.object(ofType: LastChatsStorageItem.self,
+                         forPrimaryKey: LastChatsStorageItem.genPrimary(jid: jid, owner: self.owner, conversationType: .omemo))?.updateTS = Date().timeIntervalSince1970
         }
         if jid == self.owner {
-            AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                user.devices.requestList(stream)
-            })
+            AccountManager.shared.find(for: self.owner)?.action { user, stream in user.devices.requestList(stream) }
         }
         return true
     }
-    
+
     func modifySyncQuery(_ query: DDXMLElement) -> DDXMLElement {
         modifySyncQuery(query, decryptMessage: self.decryptMessage(_:))
     }
@@ -974,11 +984,11 @@ extension OmemoManager {
             return message
         }
         do {
-            let content = try self.decryptMessage(message)
-            let body = content?.element(forName: "content")?.element(forName: "body")?.stringValue
+            guard let content = try self.decryptMessage(message) else { return message }
+            let body = content.element(forName: "content")?.element(forName: "body", xmlns: "jabber:client")?.stringValue
             message.remove(forName: "body")
-            message.addBody(body ?? "Failed to decrypt")
-            if let content = content?.element(forName: "content") {
+            message.addBody(body ?? "")
+            if let content = content.element(forName: "content") {
                 content.children?.forEach {
                     if $0.name != "body" {
                         message.addChild($0.copy() as! DDXMLNode)
@@ -1001,12 +1011,12 @@ extension OmemoManager {
                       bareMessage.element(forName: "encrypted", xmlns: getPrimaryNamespace()) != nil else {
                           return nil
                       }
-                let content = try self.decryptMessage(bareMessage)
-                let body = content?.element(forName: "content")?.element(forName: "body")?.stringValue
+                guard let content = try self.decryptMessage(bareMessage) else { return nil }
+                let body = content.element(forName: "content")?.element(forName: "body", xmlns: "jabber:client")?.stringValue
                 
                 message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.remove(forName: "body")
-                message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt"))
-                if let content = content?.element(forName: "content") {
+                message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? ""))
+                if let content = content.element(forName: "content") {
                     content.children?.forEach {
                         if $0.name != "body" {
                             message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild($0.copy() as! DDXMLNode)
@@ -1025,11 +1035,11 @@ extension OmemoManager {
                 return nil
             }
             do {
-                let content = try self.decryptMessage(message)
-                let body = content?.element(forName: "content")?.element(forName: "body")?.stringValue
+                guard let content = try self.decryptMessage(message) else { return nil }
+                let body = content.element(forName: "content")?.element(forName: "body", xmlns: "jabber:client")?.stringValue
                 message.remove(forName: "body")
-                message.addBody(body ?? "Failed to decrypt")
-                if let content = content?.element(forName: "content") {
+                message.addBody(body ?? "")
+                if let content = content.element(forName: "content") {
                     content.children?.forEach {
                         if $0.name != "body" {
                             message.addChild($0.copy() as! DDXMLNode)
@@ -1066,12 +1076,12 @@ extension OmemoManager {
                       bareMessage.element(forName: "encrypted", xmlns: getPrimaryNamespace()) != nil else {
                           return false
                       }
-                let content = try self.decryptMessage(bareMessage)
-                let body = content?.element(forName: "content")?.element(forName: "body")?.stringValue
+                guard let content = try self.decryptMessage(bareMessage) else { return true }
+                let body = content.element(forName: "content")?.element(forName: "body", xmlns: "jabber:client")?.stringValue
 
                 message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.remove(forName: "body")
-                message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt"))
-                if let content = content?.element(forName: "content") {
+                message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? ""))
+                if let content = content.element(forName: "content") {
                     content.children?.forEach {
                         if $0.name != "body" {
                             message.element(forName: "result")?.element(forName: "forwarded")?.element(forName: "message")?.addChild($0.copy() as! DDXMLNode)
@@ -1096,12 +1106,11 @@ extension OmemoManager {
                       bareMessage.element(forName: "encrypted", xmlns: getPrimaryNamespace()) != nil else {
                           return false
                       }
-                let content = try self.decryptMessage(bareMessage)
-                let body = content?.element(forName: "content")?.element(forName: "body")?.stringValue
-                if body == nil { return true }
+                guard let content = try self.decryptMessage(bareMessage) else { return true }
+                let body = content.element(forName: "content")?.element(forName: "body", xmlns: "jabber:client")?.stringValue
                 message.element(forName: "sent")?.element(forName: "forwarded")?.element(forName: "message")?.remove(forName: "body")
-                message.element(forName: "sent")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt"))
-                if let content = content?.element(forName: "content") {
+                message.element(forName: "sent")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? ""))
+                if let content = content.element(forName: "content") {
                     content.children?.forEach {
                         if $0.name != "body" {
                             message.element(forName: "sent")?.element(forName: "forwarded")?.element(forName: "message")?.addChild($0.copy() as! DDXMLNode)
@@ -1123,13 +1132,13 @@ extension OmemoManager {
                       bareMessage.element(forName: "encrypted", xmlns: getPrimaryNamespace()) != nil else {
                           return false
                       }
-                let content = try self.decryptMessage(bareMessage)
-                let body = content?.element(forName: "content")?.element(forName: "body")?.stringValue
+                guard let content = try self.decryptMessage(bareMessage) else { return true }
+                let body = content.element(forName: "content")?.element(forName: "body", xmlns: "jabber:client")?.stringValue
                 
                 
                 message.element(forName: "received")?.element(forName: "forwarded")?.element(forName: "message")?.remove(forName: "body")
-                message.element(forName: "received")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? "Failed to decrypt"))
-                if let content = content?.element(forName: "content") {
+                message.element(forName: "received")?.element(forName: "forwarded")?.element(forName: "message")?.addChild(DDXMLElement(name: "body", stringValue: body ?? ""))
+                if let content = content.element(forName: "content") {
                     content.children?.forEach {
                         if $0.name != "body" {
                             message.element(forName: "received")?.element(forName: "forwarded")?.element(forName: "message")?.addChild($0.copy() as! DDXMLNode)
@@ -1150,14 +1159,14 @@ extension OmemoManager {
                 return false
             }
             do {
-                let content = try self.decryptMessage(message)
-                let body = content?.element(forName: "content")?.element(forName: "body")?.stringValue
+                guard let content = try self.decryptMessage(message) else { return true }
+                let body = content.element(forName: "content")?.element(forName: "body", xmlns: "jabber:client")?.stringValue
                 message.remove(forName: "body")
-                message.addBody(body ?? "Failed to decrypt")
+                message.addBody(body ?? "")
 //                if let content = content {
 //                    message.addChild(content)
 //                }
-                if let content = content?.element(forName: "content") {
+                if let content = content.element(forName: "content") {
                     content.children?.forEach {
                         if $0.name != "body" {
                             message.addChild($0.copy() as! DDXMLNode)
@@ -1180,82 +1189,83 @@ extension OmemoManager {
     }
     
     func decryptMessage(_ message: XMPPMessage) throws -> DDXMLElement? {
-        guard let from = message.from?.bare,
-              let encryptedElement = message.element(forName: "encrypted", xmlns: getPrimaryNamespace()),
-              let headerElement = encryptedElement.element(forName: "header") else {
-                  return nil
-              }
-        
-        let senderDeviceId = headerElement.attributeIntegerValue(forName: "sid")
-        
-        let keyElement = headerElement
-            .elements(forName: "keys")
-            .first(where: { $0.attributeStringValue(forName: "jid") == self.owner })?
-            .elements(forName: "key")
-            .first(where: { $0.attributeIntegerValue(forName: "rid") == self.localStore.localDeviceId() })
-        
-        
-        let keyExchange = keyElement?.attributeBoolValue(forName: "kex") ?? false
-        guard let ratchetInfo = keyElement?.stringValue else {
-            throw OmemoManagerError.missingRecipientKey
+        guard let from = message.from?.bare else { throw OmemoManagerError.invalidEncryptedPayload }
+        let encryptedElements = message.children?.compactMap { $0 as? DDXMLElement }.filter { $0.localName == "encrypted" && $0.uri == Self.xmlns } ?? []
+        guard encryptedElements.count == 1 else { throw OmemoManagerError.invalidEncryptedPayload }
+        let encrypted = encryptedElements[0]
+        func children(_ parent: DDXMLElement, _ name: String) -> [DDXMLElement] {
+            parent.children?.compactMap { $0 as? DDXMLElement }.filter { $0.localName == name && $0.uri == Self.xmlns } ?? []
         }
-        
-        let unratchedData = try self.doubleUnratched(ratchetInfo, jid: from, deviceId: senderDeviceId, keyExchange: keyExchange)
-        guard unratchedData.count >= 32 else {
-            throw OmemoManagerError.invalidEncryptedPayload
+        let headers = children(encrypted, "header")
+        guard headers.count == 1 else { throw OmemoManagerError.invalidEncryptedPayload }
+        let header = headers[0]
+        let sid = Int(try OMEMO2BundleCodec.keyID(header.attributeStringValue(forName: "sid")))
+        let storage = try ensureOMEMO2Prepared()
+        let localID = try storage.localBundle().deviceID
+        let keyGroups = children(header, "keys").filter { $0.attributeStringValue(forName: "jid") == owner }
+        guard keyGroups.count <= 1 else { throw OmemoManagerError.invalidEncryptedPayload }
+        let matches = keyGroups.first.map { children($0, "key").filter { $0.attributeStringValue(forName: "rid") == String(localID) } } ?? []
+        guard !matches.isEmpty else { throw OmemoManagerError.missingRecipientKey }
+        guard matches.count == 1, let encoded = matches[0].stringValue else { throw OmemoManagerError.invalidEncryptedPayload }
+        let kex = matches[0].attributeStringValue(forName: "kex")
+        guard kex == nil || ["true", "false", "1", "0"].contains(kex!) else { throw OmemoManagerError.invalidEncryptedPayload }
+        let keyExchange = kex == "true" || kex == "1"
+        let data = try Omemo2PayloadCodec.decodeBase64(encoded)
+        let payloads = children(encrypted, "payload")
+        guard payloads.count <= 1 else { throw OmemoManagerError.invalidEncryptedPayload }
+        let payload = try payloads.first.map { try Omemo2PayloadCodec.decodeBase64($0.stringValue ?? "") }
+        if data.first == 0x33 {
+            // The old Signal v3 frame is unambiguous. Never try this path after
+            // an OMEMO2 authentication error, or create an outgoing legacy session.
+            let address = SignalAddress(name: from, deviceId: Int32(sid))
+            guard localStore.sessionRecordExists(for: address) else { throw OmemoManagerError.sessionCreationFailed }
+            let cipher = SignalSessionCipher(address: address, context: signalContext)
+            let plaintext = try cipher.decryptCiphertext(SignalCiphertext(data: data, type: keyExchange ? .preKeyMessage : .message))
+            return try Omemo2PayloadCodec.open(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat")
         }
-        
-        guard let payload = encryptedElement.element(forName: "payload")?.stringValue,
-              let payloadData = Data(base64Encoded: payload, options: .ignoreUnknownCharacters) else {
-            guard unratchedData == Data(repeating: 0, count: 32) else {
-                throw OmemoManagerError.invalidEncryptedPayload
+        let ciphertext = try OMEMO2Ciphertext(data: data, keyExchange: keyExchange)
+        let previousSessionIdentity = try storage.sessionMetadata(jid: from, deviceID: sid)?.remoteIdentityKey
+        var envelope: DDXMLElement?
+        do {
+            _ = try storage.decrypt(ciphertext, jid: from, deviceID: sid, updatingIdentity: { identity in
+                try self.updateAuthenticatedOMEMO2Identity(identity, jid: from, deviceID: sid, previousSessionIdentity: previousSessionIdentity)
+            }) { plaintext in
+                envelope = try Omemo2PayloadCodec.open(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat")
             }
-            let envelope = DDXMLElement(name: "envelope", xmlns: "urn:xmpp:sce:1")
-            envelope.addChild(DDXMLElement(name: "content"))
-            return envelope
+        } catch let error as NSError where error.domain == SignalErrorDomain && error.code == SignalError.duplicateMessage.rawValue {
+            return nil
         }
-        
-        guard unratchedData.count >= 48 else {
-            throw OmemoManagerError.invalidEncryptedPayload
+        // Public identity projection has also succeeded before committing the
+        // secret state. Receiving an identity never grants device trust.
+        if keyExchange {
+            _ = try? storage.replenishPreKeys()
+            shouldPublicate = true
+            AccountManager.shared.find(for: owner)?.action { _, stream in
+                do { try self.sendOwnDeviceBundle(stream, createNode: false) }
+                catch { self.shouldPublicate = true }
+            }
         }
-        
-        let key = Data(unratchedData.prefix(32))
-        let hmac = Data(unratchedData.suffix(16))
-        
-        let salt = Array<UInt8>(repeating: 0, count: 32)
-        
-        let hkdf = try HKDF(
-            password: key.bytes,
-            salt: salt,
-            info: Array("OMEMO Payload".data(using: .utf8)!),
-            keyLength: 80,
-            variant: .sha2(.sha256)
-        ).calculate()
-        
-        
-        let encryptionKey: Array<UInt8> = Array(hkdf.prefix(32))
-        let authKey: Array<UInt8> = Array(hkdf.suffix(from: 32).prefix(32))
-        let iv: Array<UInt8> = Array(hkdf.suffix(16))
-        
-        let symKey = SymmetricKey(data: Data(authKey))
-        let hmacCalculated = CryptoKit.HMAC<SHA256>.authenticationCode(for: Data(payloadData), using: symKey)
-        guard Array<UInt8>(hmac) == Array<UInt8>(hmacCalculated.prefix(16)) else {
-            throw OmemoManagerError.payloadAuthenticationFailed
-        }
-        
-        let gcm = CBC(iv: iv)
-        let aes = try AES(key: encryptionKey, blockMode: gcm, padding: .pkcs7)
-        let decrypted = try aes.decrypt(payloadData.bytes)
-
-        guard let decryptedXML = String(data: Data(decrypted), encoding: .utf8) else {
-            throw OmemoManagerError.invalidDecryptedPayload
-        }
-        let doceument = try DDXMLDocument(xmlString: decryptedXML, options: 0)
-        let element = doceument.rootElement()
-        element?.detach()
-        
-        return element
+        flushOMEMO2Controls()
+        return envelope
     }
-    
-         
+
+    private func updateAuthenticatedOMEMO2Identity(_ identity: Data, jid: String, deviceID: Int, previousSessionIdentity: Data?) throws {
+        let realm = try WRealm.safe()
+        let primary = SignalDeviceStorageItem.genPrimary(owner: owner, jid: jid, deviceId: deviceID)
+        let device = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: primary) ?? SignalDeviceStorageItem()
+        let trustedPrimary = SignalTrustedIdentityStoreageItem.genPrimary(owner, for: SignalAddress(name: jid, deviceId: Int32(deviceID)))
+        let trusted = realm.object(ofType: SignalTrustedIdentityStoreageItem.self, forPrimaryKey: trustedPrimary)
+        let old = trusted?.identity ?? realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: primary)?.identityKey.flatMap { Data(base64Encoded: $0) } ?? previousSessionIdentity
+        let same = old.flatMap { try? Omemo2IdentityRepresentation.canonicalRawX25519(storedIdentityKey: $0) } == (try Omemo2IdentityRepresentation.rawX25519(identityKey: identity))
+        try realm.write {
+            if device.realm == nil { device.owner = owner; device.jid = jid; device.deviceId = deviceID; device.primary = primary }
+            if !same && (old != nil || device.state == .trusted) {
+                device.state = .fingerprintChanged; device.trustedByDeviceId = nil; device.isTrustedByCertificate = false
+                if let trusted { realm.delete(trusted) }
+            }
+            device.fingerprint = try Omemo2IdentityRepresentation.fingerprint(for: identity)
+            realm.add(device, update: .modified)
+            if same, let trusted { trusted.identity = identity }
+        }
+    }
 }

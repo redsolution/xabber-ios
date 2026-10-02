@@ -35,7 +35,8 @@ extension OmemoManager {
         self.queryIds.insert(elementId)
     }
     
-    internal final func configureNode(_ xmppStream: XMPPStream, node: OmemoManager.NodeType) {
+    @discardableResult
+    internal final func configureNode(_ xmppStream: XMPPStream, node: OmemoManager.NodeType) -> String {
         let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub#owner")
         let configure = DDXMLElement(name: "configure")
         configure.addAttribute(withName: "node", stringValue: node.rawValue)
@@ -53,7 +54,7 @@ extension OmemoManager {
             ],
             [
                 "var": "pubsub#max_items",
-                "value": node == .bundle ? "max" : (node == .update ? "1" : "32")
+                "value": node == .bundle ? "max" : ((node == .update || node == .device) ? "1" : "32")
             ]
         ]
         
@@ -81,91 +82,87 @@ extension OmemoManager {
         let elementId = xmppStream.generateUUID
         xmppStream.send(XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: pubsub))
         self.queryIds.insert(elementId)
-        
+        return elementId
     }
     
     internal final func sendOwnDeviceBundle(_ xmppStream: XMPPStream, createNode: Bool) throws {
-        self.shouldPublicate = false
-        let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
-        let realm = try WRealm.safe()
-        let publish = DDXMLElement(name: "publish")
-        publish.addAttribute(withName: "node", stringValue: "\(getPrimaryNamespace()):bundles")
-        let item = DDXMLElement(name: "item")
-        guard let bundleRecord = realm.object(
-            ofType: SignalIdentityStorageItem.self,
-            forPrimaryKey: SignalIdentityStorageItem.genRpimary(
-                owner: self.owner,
-                jid: self.owner,
-                deviceId: Int(self.localStore.localDeviceId())
-            )
-        ) else {
-            return
+        guard let storage = self.omemo2Storage else { throw OmemoManagerError.sessionCreationFailed }
+        let value = OMEMO2PublishedBundle(try storage.replenishPreKeys(minimumCount: 100))
+        let pubsub = try OMEMO2BundleCodec.publication(value)
+        if let signature = SignatureManager.shared.signatureElement,
+           let certificate = SignatureManager.shared.certificate {
+            var commonName: CFString?
+            SecCertificateCopyCommonName(certificate, &commonName)
+            if (commonName as String?) == self.owner,
+               let bundle = pubsub.element(forName: "publish")?.element(forName: "item")?.element(forName: "bundle", xmlns: getPrimaryNamespace()),
+               let detachedSignature = signature.copy() as? DDXMLElement {
+                bundle.addChild(detachedSignature)
+            }
         }
-        
-        item.addAttribute(withName: "id", integerValue: Int(self.localStore.localDeviceId()))
-        let bundle = DDXMLElement(name: "bundle", xmlns: getPrimaryNamespace())
-        let spk = DDXMLElement(name: "spk", stringValue: bundleRecord.signedPreKey)
-        spk.addAttribute(withName: "id", integerValue: bundleRecord.signedPreKeyId)
-        bundle.addChild(spk)
-        let spks = DDXMLElement(name: "spks", stringValue: bundleRecord.signedPreKeySignature)
-        bundle.addChild(spks)
-        
-        let ik = DDXMLElement(name: "ik", stringValue: bundleRecord.identityKey)
-        bundle.addChild(ik)
-        
-        if let sign = SignatureManager.shared.signatureElement {
-            if let secCert = SignatureManager.shared.certificate {
-                let certData = SecCertificateCopyData(secCert) as CFData
-                
-                if let cert = SecCertificateCreateWithData(nil, certData) {
-                    var cfName: CFString?
-                    SecCertificateCopyCommonName(cert, &cfName)
-                    if let cn = cfName as String?, cn == self.owner {
-                        bundle.addChild(sign)
-                    }
+        guard let publicationXML = try OMEMO2BundleCodec.encode(value).compactXMLString else {
+            throw OMEMO2BundleCodec.Error.invalidBundle
+        }
+        let publicationHash = Data(publicationXML.utf8).sha256Data
+        let elementID = xmppStream.generateUUID
+        self.omemo2BundlePublications[elementID] = publicationHash
+        self.shouldPublicate = false
+        self.queryIds.insert(elementID)
+        xmppStream.send(XMPPIQ(iqType: .set, to: nil, elementID: elementID, child: pubsub))
+    }
+
+    /// PEP acceptance is the publication proof. A queued write alone cannot
+    /// mark a bundle as public or suppress a later OPK replenishment.
+    internal func onOMEMO2PublicationResult(_ iq: XMPPIQ) -> Bool {
+        guard let elementID = iq.elementID, iq.iqType == .result || iq.iqType == .error else { return false }
+        if elementID == self.omemo2BundleConfigurationRequestID {
+            self.omemo2BundleConfigurationRequestID = nil
+            if iq.iqType == .result {
+                AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                    do { try user.omemo.sendOwnDeviceBundle(stream, createNode: false) }
+                    catch { user.omemo.shouldPublicate = true }
+                }
+            } else {
+                self.shouldPublicate = true
+            }
+            return true
+        }
+        guard let expectedHash = self.omemo2BundlePublications.removeValue(forKey: elementID) else { return false }
+        guard iq.iqType == .result else {
+            self.shouldPublicate = true
+            if !self.omemo2PublicationReconfigured,
+               iq.element(forName: "error")?.element(forName: "precondition-not-met", xmlns: "http://jabber.org/protocol/pubsub#errors") != nil {
+                self.omemo2PublicationReconfigured = true
+                AccountManager.shared.find(for: self.owner)?.action { user, stream in
+                    user.omemo.omemo2BundleConfigurationRequestID = user.omemo.configureNode(stream, node: .bundle)
                 }
             }
-        } else {
-            if bundleRecord.isPublicated {
-                return
-            }
+            return true
         }
-        
-        let prekeys = DDXMLElement(name: "prekeys")
-        
-        realm
-            .objects(SignalPreKeysStorageItem.self)
-            .filter("owner == %@ AND jid == %@ AND deviceId == %@", self.owner, self.owner, self.localStore.localDeviceId())
-            .toArray()
-            .forEach {
-                pk in
-                let item = DDXMLElement(name: "pk", stringValue: pk.preKey)
-                item.addAttribute(withName: "id", integerValue: pk.pkId)
-                prekeys.addChild(item)
+        do {
+            guard let storage = self.omemo2Storage else { throw OmemoManagerError.sessionCreationFailed }
+            let value = OMEMO2PublishedBundle(try storage.localBundle())
+            guard let publicationXML = try OMEMO2BundleCodec.encode(value).compactXMLString else {
+                throw OMEMO2BundleCodec.Error.invalidBundle
             }
-        
-        bundle.addChild(prekeys)
-        
-        if (bundle.children?.isEmpty ?? false) {
-            return
-        }
-        item.addChild(bundle)
-        publish.addChild(item)
-        pubsub.addChild(publish)
-        let elementId = xmppStream.generateUUID
-//        self.sendRetractOwnDevice(xmppStream)
-        xmppStream.send(XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: pubsub))
-        try realm.write {
-            if bundleRecord.isInvalidated {
-                return
+            let currentHash = Data(publicationXML.utf8).sha256Data
+            guard expectedHash == currentHash else {
+                self.shouldPublicate = true
+                return true
             }
-            bundleRecord.isPublicated = true
-            realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: localStore.localDeviceId()))?.isPublicated = true
+            let realm = try WRealm.safe()
+            try realm.write {
+                realm.object(ofType: SignalIdentityStorageItem.self,
+                             forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: owner, jid: owner, deviceId: value.deviceID))?.isPublicated = true
+                realm.object(ofType: SignalDeviceStorageItem.self,
+                             forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: owner, jid: owner, deviceId: value.deviceID))?.isPublicated = true
+            }
+            self.omemo2PublicationReconfigured = false
+        } catch {
+            self.shouldPublicate = true
         }
-        self.queryIds.insert(elementId)
-//        self.sendEncryptionInfoPubsubUpdate(xmppStream)
+        return true
     }
-    
+
     internal final func sendOwnDevice(_ xmppStream: XMPPStream, createNode: Bool) throws {
         let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
         let realm = try WRealm.safe()
@@ -187,17 +184,18 @@ extension OmemoManager {
                         return nil
                     }
                 }
+                guard deviceItem.deviceId > 0, deviceItem.deviceId <= Int(Int32.max) else { return nil }
                 let deviceElement = DDXMLElement(name: "device")
                 deviceElement.addAttribute(withName: "id", integerValue: deviceItem.deviceId)
-                if let name = deviceItem.name {
-                    deviceElement.addAttribute(withName: "label", stringValue: name)
-                }
+                // Cached labels of other devices do not carry an authenticated
+                // label signature here, so this publication omits them.
                 return deviceElement
             }.forEach { devices.addChild($0) }
         
         item.addChild(devices)
         publish.addChild(item)
         pubsub.addChild(publish)
+        pubsub.addChild(OMEMO2BundleCodec.publishOptions(maxItems: "1"))
         let elementId = xmppStream.generateUUID
         xmppStream.send(XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: pubsub))
         self.queryIds.insert(elementId)
@@ -233,9 +231,7 @@ extension OmemoManager {
             self.configureNode(xmppStream, node: .bundle)
         }
         try self.sendOwnDeviceBundle(xmppStream, createNode: createNode)
-        if !(AccountManager.shared.find(for: self.owner)?.devices.isAvailable ?? true) {
-            try self.sendOwnDevice(xmppStream, createNode: createNode)
-        }
+        try self.sendOwnDevice(xmppStream, createNode: createNode)
     }
     
     public final func getOwnDevices(_ xmppStream: XMPPStream) {

@@ -42133,13 +42133,20 @@ final class OmemoSessionLifecycleTests: XCTestCase {
             trustState: .trusted
         )
 
-        let first = try XCTUnwrap(try manager.encryptMessage(message: envelope("one"), to: recipient))
+        let first = try XCTUnwrap(try manager.encryptMessage(message: envelope("one", from: owner, to: recipient), to: recipient))
         try deleteCachedBundle(owner: owner, jid: recipient, deviceId: recipientDeviceId)
-        let second = try XCTUnwrap(try manager.encryptMessage(message: envelope("two"), to: recipient))
+        let second = try XCTUnwrap(try manager.encryptMessage(message: envelope("two", from: owner, to: recipient), to: recipient))
 
         XCTAssertEqual(keyExchangeFlag(in: first, jid: recipient, deviceId: recipientDeviceId), true)
-        XCTAssertNotNil(keyExchangeFlag(in: second, jid: recipient, deviceId: recipientDeviceId))
-        XCTAssertEqual(try storedSessionCount(owner: owner, jid: recipient), 1)
+        XCTAssertEqual(keyExchangeFlag(in: second, jid: recipient, deviceId: recipientDeviceId), true)
+        let firstCiphertext = try ciphertext(in: first, jid: recipient, deviceId: recipientDeviceId)
+        let secondCiphertext = try ciphertext(in: second, jid: recipient, deviceId: recipientDeviceId)
+        XCTAssertEqual(firstCiphertext.counter, 0)
+        XCTAssertEqual(secondCiphertext.counter, 1)
+        XCTAssertEqual(firstCiphertext.ephemeralKey, secondCiphertext.ephemeralKey)
+        let storage = try XCTUnwrap(manager.omemo2Storage)
+        XCTAssertTrue(try storage.sessionExists(jid: recipient, deviceID: recipientDeviceId))
+        XCTAssertEqual(try storage.sessionMetadata(jid: recipient, deviceID: recipientDeviceId)?.sendCounter, 2)
     }
 
     func testUnknownRecipientDevicesAreNotEncryptedTo() throws {
@@ -42153,10 +42160,10 @@ final class OmemoSessionLifecycleTests: XCTestCase {
             trustState: .unknown
         )
 
-        XCTAssertThrowsError(try manager.encryptMessage(message: envelope("blocked"), to: recipient)) { error in
+        XCTAssertThrowsError(try manager.encryptMessage(message: envelope("blocked", from: owner, to: recipient), to: recipient)) { error in
             XCTAssertEqual(error as? OmemoManagerError, .noTrustedRecipientDevices)
         }
-        XCTAssertEqual(try storedSessionCount(owner: owner, jid: recipient), 0)
+        XCTAssertFalse(try XCTUnwrap(manager.omemo2Storage).sessionExists(jid: recipient, deviceID: 2202))
     }
 
     func testMixedRecipientDevicesOnlyEncryptsToTrustedDevices() throws {
@@ -42178,7 +42185,7 @@ final class OmemoSessionLifecycleTests: XCTestCase {
             trustState: .unknown
         )
 
-        let encrypted = try XCTUnwrap(try manager.encryptMessage(message: envelope("mixed"), to: recipient))
+        let encrypted = try XCTUnwrap(try manager.encryptMessage(message: envelope("mixed", from: owner, to: recipient), to: recipient))
 
         XCTAssertNotNil(keyExchangeFlag(in: encrypted, jid: recipient, deviceId: trustedDeviceId))
         XCTAssertNil(keyExchangeFlag(in: encrypted, jid: recipient, deviceId: untrustedDeviceId))
@@ -42265,6 +42272,8 @@ final class OmemoSessionLifecycleTests: XCTestCase {
     private func makeManager(owner: String, deviceId: Int) throws -> OmemoManager {
         let manager = OmemoManager(withOwner: owner)
         try manager.localStore.create(for: deviceId, context: manager.signalContext)
+        _ = try XCTUnwrap(manager.omemo2Storage).prepare(deviceID: deviceId)
+        manager.isOmemoPrepared = true
         return manager
     }
 
@@ -42274,10 +42283,13 @@ final class OmemoSessionLifecycleTests: XCTestCase {
         deviceId: Int,
         trustState: SignalDeviceStorageItem.TrustState
     ) throws {
-        let keyHelper = try XCTUnwrap(SignalKeyHelper(context: manager.signalContext))
-        let identity = try XCTUnwrap(keyHelper.generateIdentityKeyPair())
-        let signedPreKey = try XCTUnwrap(keyHelper.generateSignedPreKey(withIdentity: identity, signedPreKeyId: UInt32(deviceId + 100)))
-        let preKeys = keyHelper.generatePreKeys(withStartingPreKeyId: UInt(deviceId + 1), count: 3)
+        let context = try OMEMO2Context(error: ())
+        let identity = try context.generateIdentity()
+        let signedPreKey = try context.generateKeyPair()
+        let signature = try context.sign(signedPreKey.publicKey, identity: identity)
+        let preKeys = try (1...3).map { offset in
+            OMEMO2PublicPreKey(id: UInt32(deviceId + offset), publicKey: try context.generateKeyPair().publicKey)
+        }
         let realm = try WRealm.safe()
 
         try realm.write {
@@ -42286,10 +42298,11 @@ final class OmemoSessionLifecycleTests: XCTestCase {
             identityItem.jid = jid
             identityItem.deviceId = deviceId
             identityItem.primary = SignalIdentityStorageItem.genRpimary(owner: manager.owner, jid: jid, deviceId: deviceId)
+            identityItem.protocolProfile = OMEMO2BundleCodec.namespace
             identityItem.identityKey = identity.publicKey.base64EncodedString()
-            identityItem.signedPreKey = signedPreKey.keyPair!.publicKey.base64EncodedString()
-            identityItem.signedPreKeySignature = signedPreKey.signature.base64EncodedString()
-            identityItem.signedPreKeyId = Int(signedPreKey.preKeyId)
+            identityItem.signedPreKey = signedPreKey.publicKey.base64EncodedString()
+            identityItem.signedPreKeySignature = signature.base64EncodedString()
+            identityItem.signedPreKeyId = deviceId + 100
             realm.add(identityItem, update: .modified)
 
             let device = SignalDeviceStorageItem()
@@ -42298,7 +42311,7 @@ final class OmemoSessionLifecycleTests: XCTestCase {
             device.deviceId = deviceId
             device.primary = SignalDeviceStorageItem.genPrimary(owner: manager.owner, jid: jid, deviceId: deviceId)
             device.state = trustState
-            device.fingerprint = identity.publicKey.formattedFingerprint()
+            device.fingerprint = try Omemo2IdentityRepresentation.fingerprint(for: identity.publicKey)
             realm.add(device, update: .modified)
 
             preKeys.forEach { preKey in
@@ -42306,8 +42319,8 @@ final class OmemoSessionLifecycleTests: XCTestCase {
                 preKeyItem.owner = manager.owner
                 preKeyItem.jid = jid
                 preKeyItem.deviceId = deviceId
-                preKeyItem.pkId = Int(preKey.preKeyId)
-                preKeyItem.preKey = preKey.keyPair!.publicKey.base64EncodedString()
+                preKeyItem.pkId = Int(preKey.id)
+                preKeyItem.preKey = preKey.publicKey.base64EncodedString()
                 preKeyItem.keyUUID = UUID().uuidString
                 preKeyItem.primary = SignalPreKeysStorageItem.genPrimary(keyUUID: preKeyItem.keyUUID)
                 realm.add(preKeyItem, update: .modified)
@@ -42315,12 +42328,14 @@ final class OmemoSessionLifecycleTests: XCTestCase {
         }
     }
 
-    private func envelope(_ body: String) -> String {
+    private func envelope(_ body: String, from owner: String, to recipient: String) -> String {
         """
         <envelope xmlns='urn:xmpp:sce:1'>
           <content>
             <body xmlns='jabber:client'>\(body)</body>
           </content>
+          <from jid='\(owner)'/>
+          <to jid='\(recipient)'/>
           <rpad>padding</rpad>
         </envelope>
         """
@@ -42350,11 +42365,12 @@ final class OmemoSessionLifecycleTests: XCTestCase {
         }
     }
 
-    private func storedSessionCount(owner: String, jid: String) throws -> Int {
-        try WRealm.safe()
-            .objects(SessionRecordStorageItem.self)
-            .filter("owner == %@ AND jid == %@", owner, jid)
-            .count
+    private func ciphertext(in encrypted: DDXMLElement, jid: String, deviceId: Int) throws -> OMEMO2Ciphertext {
+        let key = try XCTUnwrap(encrypted.element(forName: "header")?.elements(forName: "keys")
+            .first(where: { $0.attributeStringValue(forName: "jid") == jid })?.elements(forName: "key")
+            .first(where: { $0.attributeIntegerValue(forName: "rid") == deviceId }))
+        let data = try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(key.stringValue)))
+        return try OMEMO2Ciphertext(data: data, keyExchange: key.attributeBoolValue(forName: "kex"))
     }
 
     private func makeMessage(xml: String) throws -> XMPPMessage {

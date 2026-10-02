@@ -9,7 +9,6 @@
 import Foundation
 import SignalProtocolObjC
 import XMPPFramework
-import Curve25519Kit
 import CryptoKit
 import CryptoSwift
 import RealmSwift
@@ -613,19 +612,28 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
     }
 
     func getUsersPublicKey(jid: String, deviceId: Int) -> [UInt8] {
+        guard let storedIdentity = getUsersIdentityKey(jid: jid, deviceId: deviceId),
+              let curveKey = try? Omemo2IdentityRepresentation.canonicalCurvePublicKey(fromLegacyOrOMEMO2Identity: storedIdentity) else {
+            return []
+        }
+        return Array(curveKey)
+    }
+
+    /// Returns the stored transport representation. Callers which verify an
+    /// identity signature must keep Ed25519 bytes instead of using the ECDH key.
+    func getUsersIdentityKey(jid: String, deviceId: Int) -> Data? {
         do {
             let realm = try WRealm.safe()
             guard let storedBundle = realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: owner, jid: jid, deviceId: deviceId)),
-                  var publicKey = try storedBundle.identityKey?.base64decoded() else {
-                return []
+                  let encodedIdentity = storedBundle.identityKey,
+                  let identity = Data(base64Encoded: encodedIdentity) else {
+                return nil
             }
-            if publicKey.count == 33 {
-                publicKey = Array(publicKey.dropFirst())
-            }
-            return publicKey
+            _ = try Omemo2IdentityRepresentation.canonicalCurvePublicKey(fromLegacyOrOMEMO2Identity: identity)
+            return identity
         } catch {
             DDLogDebug("AuthenticatedKeyExchangeManager: \(#function). \(error.localizedDescription)")
-            return []
+            return nil
         }
     }
 
@@ -1222,15 +1230,12 @@ class AuthenticatedKeyExchangeManager: AbstractXMPPManager {
     }
 
     private func calculateSharedKey(jid: String, deviceId: Int) -> [UInt8]? {
-        guard let keyPair = AccountManager.shared.find(for: owner)?.omemo.localStore.getIdentityKeyPair() else {
+        guard let privateKey = try? Omemo2IdentityRepresentation.localIdentityPrivateKey(owner: owner),
+              let peerIdentity = getUsersIdentityKey(jid: jid, deviceId: deviceId),
+              let shared = try? Omemo2IdentityRepresentation.sharedSecret(privateKey: privateKey, peerIdentity: peerIdentity) else {
             return nil
         }
-        let keyPairCurve25519 = Curve25519.load(fromPublicKey: keyPair.publicKey, andPrivateKey: keyPair.privateKey)
-        let opponentPublicKey = getUsersPublicKey(jid: jid, deviceId: deviceId)
-        guard !opponentPublicKey.isEmpty else {
-            return nil
-        }
-        return Array(Curve25519.generateSharedSecret(fromPublicKey: Data(opponentPublicKey), andKeyPair: keyPairCurve25519))
+        return Array(shared)
     }
 
     private func calculateEncryptionKey(sharedKey: [UInt8], code: String, sid: String) -> [UInt8] {

@@ -9,7 +9,6 @@
 import Foundation
 import XMPPFramework
 import CryptoKit
-import Curve25519Kit
 import CryptoSwift
 import RealmSwift
 
@@ -347,12 +346,11 @@ class TrustSharingManager: AbstractXMPPManager {
     }
 
     private func verifySignature(_ signature: Data, canonicalString: String, publisherBareJid: String, publisherDeviceId: Int) -> Bool {
-        let publicKey = AccountManager.shared.find(for: owner)?.akeManager.getUsersPublicKey(jid: publisherBareJid, deviceId: publisherDeviceId) ?? []
-        guard publicKey.isNotEmpty else {
+        guard let wireIdentity = AccountManager.shared.find(for: owner)?.akeManager.getUsersIdentityKey(jid: publisherBareJid, deviceId: publisherDeviceId) else {
             return false
         }
         let signedHash = TrustSharingSignature.hashCanonicalString(canonicalString)
-        return Ed25519.verifySignature(signature, publicKey: Data(publicKey), data: signedHash)
+        return Omemo2IdentityRepresentation.verify(signature, data: signedHash, storedIdentity: wireIdentity)
     }
 
     private func fingerprintMatches(jid: String, deviceId: Int, fingerprint: String) -> Bool {
@@ -663,11 +661,10 @@ class TrustSharingManager: AbstractXMPPManager {
     }
 
     private func signCanonicalString(_ canonical: String) -> Data? {
-        guard let keyPair = AccountManager.shared.find(for: owner)?.omemo.localStore.getIdentityKeyPair() else {
+        guard let privateKey = try? Omemo2IdentityRepresentation.localIdentityPrivateKey(owner: owner) else {
             return nil
         }
-        let curveKeyPair = Curve25519.load(fromPublicKey: keyPair.publicKey, andPrivateKey: keyPair.privateKey)
-        return Ed25519.sign(TrustSharingSignature.hashCanonicalString(canonical), with: curveKeyPair)
+        return try? Omemo2IdentityRepresentation.sign(TrustSharingSignature.hashCanonicalString(canonical), privateKey: privateKey)
     }
 
     static func remove(for owner: String, commitTransaction: Bool) {

@@ -1,0 +1,517 @@
+import Foundation
+import SignalProtocolObjC
+
+enum OMEMO2StorageError: Error {
+    case stateUnavailable
+    case invalidState
+    case identityMismatch
+    case invalidDeviceID
+    case invalidKeyID
+    case missingPreKey
+    case missingSession
+    case receiveOnlySession
+    case persistenceFailed
+}
+
+struct OMEMO2PublicPreKey: Equatable {
+    let id: UInt32
+    let publicKey: Data
+}
+
+struct OMEMO2LocalBundle {
+    let deviceID: Int
+    let identityKey: Data
+    let fingerprintPublicKey: Data
+    let signedPreKey: Data
+    let signedPreKeyID: UInt32
+    let signature: Data
+    let preKeys: [OMEMO2PublicPreKey]
+}
+
+struct OMEMO2PeerAddress: Hashable, Codable {
+    let jid: String
+    let deviceID: Int
+}
+
+struct OMEMO2SessionMetadata {
+    let remoteIdentityKey: Data
+    let ephemeralKey: Data
+    let sendCounter: UInt32
+    let receiveCounter: UInt32
+    let receiveOnly: Bool
+    let keyExchangePending: Bool
+}
+
+/// Each save replaces one protected account item atomically. Implementations
+/// must throw on a failed write and must distinguish unavailable from absent.
+protocol OMEMO2StatePersistence {
+    func load(owner: String) throws -> Data?
+    func save(_ data: Data, owner: String) throws
+    func remove(owner: String) throws
+    func legacyIdentity(owner: String) throws -> (publicKey: Data, privateKey: Data)?
+    func legacyDeviceID(owner: String) -> Int?
+}
+
+private struct CredentialsOMEMO2StatePersistence: OMEMO2StatePersistence {
+    func load(owner: String) throws -> Data? { try CredentialsManager.shared.getOMEMO2State(for: owner) }
+    func save(_ data: Data, owner: String) throws { try CredentialsManager.shared.setOMEMO2State(data, for: owner) }
+    func remove(owner: String) throws { try CredentialsManager.shared.removeOMEMO2State(for: owner) }
+    func legacyIdentity(owner: String) throws -> (publicKey: Data, privateKey: Data)? {
+        let publicKey = CredentialsManager.shared.getIdentityKeyPublicKey(for: owner)
+        let privateKey = CredentialsManager.shared.getIdentityKeyPrivateKey(for: owner)
+        if publicKey == nil && privateKey == nil { return nil }
+        guard let publicKey, let privateKey else { throw OMEMO2StorageError.identityMismatch }
+        return (publicKey, privateKey)
+    }
+    func legacyDeviceID(owner: String) -> Int? { CredentialsManager.shared.getDeviceId(for: owner) }
+}
+
+/// OMEMO2 secrets and sessions never enter legacy Signal credential/record keys.
+/// Restoring a fresh session for each transaction makes authentication, payload
+/// validation and storage failure leave the persisted ratchet unchanged.
+final class XabberOMEMO2Storage {
+    static let profile = "urn:xmpp:omemo:2"
+    static let stateVersion = 1
+    static let signedPreKeyRotationInterval: TimeInterval = 7 * 24 * 60 * 60
+    static let maximumSessionsPerPeer = 64
+    private static var ownerLocks: [String: NSRecursiveLock] = [:]
+    private static let locksLock = NSLock()
+
+    private struct PreKey: Codable {
+        let id: UInt32
+        let privateKey: Data
+        var consumed: Bool
+    }
+
+    private struct StoredSession: Codable {
+        let address: OMEMO2PeerAddress
+        let ephemeralKey: Data
+        var snapshot: Data
+        let receiveOnly: Bool
+        let createdAt: Date
+        var seenIncomingRatchets: [Data]
+    }
+
+    private struct RetiredSignedPreKey: Codable {
+        let id: UInt32
+        let privateKey: Data
+        let retiredAt: Date
+    }
+
+    private struct State: Codable {
+        var version: Int
+        var profile: String
+        let owner: String
+        let deviceID: Int
+        let identityPrivateKey: Data
+        let fingerprintPublicKey: Data
+        var signedPreKeyPrivateKey: Data
+        var signedPreKeyID: UInt32
+        var signature: Data
+        var signedPreKeyCreatedAt: Date
+        var retiredSignedPreKeys: [RetiredSignedPreKey]
+        var nextPreKeyID: UInt32
+        var preKeys: [PreKey]
+        var sessions: [String: StoredSession]
+        var currentSessions: [String: String]
+        var controlsNeeded: Set<OMEMO2PeerAddress>
+    }
+
+    let owner: String
+    private let context: OMEMO2Context
+    private let persistence: OMEMO2StatePersistence
+    private let lock: NSRecursiveLock
+    private let now: () -> Date
+
+    init(owner: String, persistence: OMEMO2StatePersistence? = nil, now: @escaping () -> Date = Date.init) throws {
+        self.owner = owner
+        self.persistence = persistence ?? CredentialsOMEMO2StatePersistence()
+        self.now = now
+        context = try OMEMO2Context(error: ())
+        Self.locksLock.lock()
+        if let existing = Self.ownerLocks[owner] {
+            lock = existing
+        } else {
+            let created = NSRecursiveLock()
+            Self.ownerLocks[owner] = created
+            lock = created
+        }
+        Self.locksLock.unlock()
+    }
+
+    @discardableResult
+    func prepare(deviceID: Int, preKeyCount: Int = 100) throws -> OMEMO2LocalBundle {
+        try synchronized {
+            guard deviceID > 0, deviceID <= Int(Int32.max), (1...1000).contains(preKeyCount) else {
+                throw OMEMO2StorageError.invalidDeviceID
+            }
+            if var state = try loadState() {
+                guard state.deviceID == deviceID else { throw OMEMO2StorageError.invalidDeviceID }
+                if try rotateSignedPreKeyIfDue(&state) { try save(state) }
+                return try bundle(state)
+            }
+            if let oldDeviceID = persistence.legacyDeviceID(owner: owner), oldDeviceID != deviceID {
+                throw OMEMO2StorageError.invalidDeviceID
+            }
+            let identity: OMEMO2IdentityKeyPair
+            if let legacy = try persistence.legacyIdentity(owner: owner) {
+                guard legacy.privateKey.count == 32,
+                      legacy.publicKey.count == 33, legacy.publicKey.first == 5 else {
+                    throw OMEMO2StorageError.identityMismatch
+                }
+                identity = try context.identity(withPrivateKey: legacy.privateKey)
+                guard identity.fingerprintPublicKey == Data(legacy.publicKey.dropFirst()) else {
+                    throw OMEMO2StorageError.identityMismatch
+                }
+            } else {
+                guard persistence.legacyDeviceID(owner: owner) == nil else {
+                    throw OMEMO2StorageError.identityMismatch
+                }
+                identity = try context.generateIdentity()
+            }
+            let signedPreKey = try context.generateKeyPair()
+            let signature = try context.sign(signedPreKey.publicKey, identity: identity)
+            var state = State(version: Self.stateVersion, profile: Self.profile, owner: owner,
+                              deviceID: deviceID, identityPrivateKey: identity.privateKey,
+                              fingerprintPublicKey: identity.fingerprintPublicKey,
+                              signedPreKeyPrivateKey: signedPreKey.privateKey, signedPreKeyID: 1,
+                              signature: signature, signedPreKeyCreatedAt: now(), retiredSignedPreKeys: [],
+                              nextPreKeyID: 1, preKeys: [], sessions: [:],
+                              currentSessions: [:], controlsNeeded: [])
+            try addPreKeys(to: &state, count: preKeyCount)
+            let result = try bundle(state)
+            try save(state)
+            return result
+        }
+    }
+
+    func localBundle() throws -> OMEMO2LocalBundle {
+        try synchronized { try bundle(requireState()) }
+    }
+
+    func identity() throws -> OMEMO2IdentityKeyPair {
+        try synchronized { try context.identity(withPrivateKey: requireState().identityPrivateKey) }
+    }
+
+    @discardableResult
+    func replenishPreKeys(minimumCount: Int = 100) throws -> OMEMO2LocalBundle {
+        try synchronized {
+            guard (1...1000).contains(minimumCount) else { throw OMEMO2StorageError.invalidKeyID }
+            var state = try requireState()
+            let needed = minimumCount - state.preKeys.filter { !$0.consumed }.count
+            if needed > 0 {
+                try addPreKeys(to: &state, count: needed)
+                try save(state)
+            }
+            return try bundle(state)
+        }
+    }
+
+    /// Always creates an outbound-capable session from a freshly selected peer
+    /// bundle; already stored sessions remain available for delayed ciphertexts.
+    func initiateSession(jid: String, deviceID: Int, bundle: OMEMO2Bundle) throws {
+        try synchronized {
+            var state = try requireState()
+            let address = try checkedAddress(jid: jid, deviceID: deviceID)
+            let identity = try context.identity(withPrivateKey: state.identityPrivateKey)
+            let session = try context.initiateSession(withIdentity: identity, bundle: bundle)
+            let key = sessionKey(address, ephemeralKey: session.ephemeralKey)
+            state.sessions[key] = StoredSession(address: address, ephemeralKey: session.ephemeralKey,
+                                                snapshot: try session.serializedData(), receiveOnly: false,
+                                                createdAt: now(), seenIncomingRatchets: [])
+            state.currentSessions[addressKey(address)] = key
+            pruneSessions(&state, address: address)
+            try save(state)
+        }
+    }
+
+    /// The ciphertext is returned only after the advanced ratchet was stored.
+    func encrypt(_ data: Data, jid: String, deviceID: Int) throws -> OMEMO2Ciphertext {
+        try synchronized {
+            var state = try requireState()
+            let address = try checkedAddress(jid: jid, deviceID: deviceID)
+            guard let key = state.currentSessions[addressKey(address)], var stored = state.sessions[key] else {
+                throw OMEMO2StorageError.missingSession
+            }
+            guard !stored.receiveOnly else { throw OMEMO2StorageError.receiveOnlySession }
+            let session = try context.restoreSession(with: stored.snapshot)
+            let ciphertext = try session.encryptData(data)
+            stored.snapshot = try session.serializedData()
+            state.sessions[key] = stored
+            state.controlsNeeded.remove(address)
+            try save(state)
+            return ciphertext
+        }
+    }
+
+    /// `validating` authenticates the outer payload and SCE envelope before
+    /// committing either ratchet state or OPK consumption. Only an active,
+    /// outbound-capable KEX updates the current identity projection; delayed
+    /// archived and receive-only sessions cannot change current device trust.
+    func decrypt(_ ciphertext: OMEMO2Ciphertext, jid: String, deviceID: Int,
+                 updatingIdentity: (Data) throws -> Void = { _ in },
+                 validating: (Data) throws -> Void = { _ in }) throws -> Data {
+        try synchronized {
+            var state = try requireState()
+            let address = try checkedAddress(jid: jid, deviceID: deviceID)
+            if ciphertext.isKeyExchange {
+                guard let ephemeralKey = ciphertext.ephemeralKey else { throw OMEMO2StorageError.invalidState }
+                let key = sessionKey(address, ephemeralKey: ephemeralKey)
+                if var stored = state.sessions[key] {
+                    let session = try context.restoreSession(with: stored.snapshot)
+                    let plaintext = try session.decryptCiphertext(ciphertext)
+                    try validating(plaintext)
+                    if !stored.receiveOnly, state.currentSessions[addressKey(address)] == key {
+                        try updatingIdentity(session.remoteIdentityKey)
+                    }
+                    stored.snapshot = try session.serializedData()
+                    observeIncoming(ciphertext, stored: &stored, state: &state)
+                    state.sessions[key] = stored
+                    if !stored.receiveOnly, state.currentSessions[addressKey(address)] == key {
+                        state.controlsNeeded.insert(address)
+                    }
+                    try save(state)
+                    return plaintext
+                }
+                guard let preKeyIndex = state.preKeys.firstIndex(where: { $0.id == ciphertext.preKeyID }) else {
+                    throw OMEMO2StorageError.missingPreKey
+                }
+                let signedPreKeyPrivate: Data
+                if ciphertext.signedPreKeyID == state.signedPreKeyID {
+                    signedPreKeyPrivate = state.signedPreKeyPrivateKey
+                } else if let old = state.retiredSignedPreKeys.first(where: {
+                    $0.id == ciphertext.signedPreKeyID && now().timeIntervalSince($0.retiredAt) < Self.signedPreKeyRotationInterval
+                }) {
+                    signedPreKeyPrivate = old.privateKey
+                } else { throw OMEMO2StorageError.missingPreKey }
+                let preKeyRecord = state.preKeys[preKeyIndex]
+                let identity = try context.identity(withPrivateKey: state.identityPrivateKey)
+                let signedPreKey = try context.keyPair(withPrivateKey: signedPreKeyPrivate)
+                let preKey = try context.keyPair(withPrivateKey: preKeyRecord.privateKey)
+                var output: NSData?
+                let session = try context.acceptKeyExchange(ciphertext, identity: identity,
+                                                             signedPreKey: signedPreKey, signedPreKeyID: ciphertext.signedPreKeyID,
+                                                             preKey: preKey, preKeyID: preKeyRecord.id, plaintext: &output)
+                guard let output else { throw OMEMO2StorageError.invalidState }
+                let plaintext = output as Data
+                try validating(plaintext)
+                if !preKeyRecord.consumed { try updatingIdentity(session.remoteIdentityKey) }
+                state.sessions[key] = StoredSession(address: address, ephemeralKey: ephemeralKey,
+                                                    snapshot: try session.serializedData(), receiveOnly: preKeyRecord.consumed,
+                                                    createdAt: now(), seenIncomingRatchets: [ciphertext.ratchetKey])
+                state.preKeys[preKeyIndex].consumed = true
+                if !preKeyRecord.consumed {
+                    state.currentSessions[addressKey(address)] = key
+                    state.controlsNeeded.insert(address)
+                }
+                pruneSessions(&state, address: address)
+                try save(state)
+                return plaintext
+            }
+            // Regular envelopes do not carry EK. Try authenticated snapshots
+            // without committing any candidate until both layers validate.
+            let current = state.currentSessions[addressKey(address)]
+            let keys = state.sessions.keys.filter { state.sessions[$0]?.address == address }.sorted {
+                if $0 == current { return true }
+                if $1 == current { return false }
+                return (state.sessions[$0]?.createdAt ?? .distantPast) > (state.sessions[$1]?.createdAt ?? .distantPast)
+            }
+            var lastError: Error = OMEMO2StorageError.missingSession
+            for key in keys {
+                guard var stored = state.sessions[key] else { continue }
+                let session = try context.restoreSession(with: stored.snapshot)
+                let plaintext: Data
+                do { plaintext = try session.decryptCiphertext(ciphertext) }
+                catch { lastError = error; continue }
+                try validating(plaintext)
+                stored.snapshot = try session.serializedData()
+                observeIncoming(ciphertext, stored: &stored, state: &state)
+                state.sessions[key] = stored
+                try save(state)
+                return plaintext
+            }
+            throw lastError
+        }
+    }
+
+    func sessionExists(jid: String, deviceID: Int) throws -> Bool {
+        try sessionMetadata(jid: jid, deviceID: deviceID) != nil
+    }
+
+    func sessionMetadata(jid: String, deviceID: Int, ephemeralKey: Data? = nil) throws -> OMEMO2SessionMetadata? {
+        try synchronized {
+            let state = try requireState()
+            let address = try checkedAddress(jid: jid, deviceID: deviceID)
+            let key = ephemeralKey.map { sessionKey(address, ephemeralKey: $0) } ?? state.currentSessions[addressKey(address)]
+            guard let key, let stored = state.sessions[key] else { return nil }
+            let session = try context.restoreSession(with: stored.snapshot)
+            return OMEMO2SessionMetadata(remoteIdentityKey: session.remoteIdentityKey, ephemeralKey: session.ephemeralKey,
+                                         sendCounter: session.sendCounter, receiveCounter: session.receiveCounter,
+                                         receiveOnly: stored.receiveOnly, keyExchangePending: session.isKeyExchangePending)
+        }
+    }
+
+    func deleteSessions(jid: String, deviceID: Int? = nil) throws {
+        try synchronized {
+            var state = try requireState()
+            let addresses = Set(state.sessions.values.filter {
+                $0.address.jid == jid && (deviceID == nil || $0.address.deviceID == deviceID)
+            }.map(\.address))
+            state.sessions = state.sessions.filter { !addresses.contains($0.value.address) }
+            for address in addresses { state.currentSessions.removeValue(forKey: addressKey(address)) }
+            state.controlsNeeded.subtract(addresses)
+            try save(state)
+        }
+    }
+
+    func pendingControlAddresses() throws -> [OMEMO2PeerAddress] {
+        try synchronized { Array(try requireState().controlsNeeded) }
+    }
+
+    func markControlNeeded(jid: String, deviceID: Int, needed: Bool) throws {
+        try synchronized {
+            var state = try requireState()
+            let address = try checkedAddress(jid: jid, deviceID: deviceID)
+            if needed { state.controlsNeeded.insert(address) }
+            else { state.controlsNeeded.remove(address) }
+            try save(state)
+        }
+    }
+
+    func removeAllState() throws { try synchronized { try persistence.remove(owner: owner) } }
+
+    /// Invoke only after archive catch-up completed. Session snapshots keep
+    /// delayed packets with an already known EK decryptable without OPK reuse.
+    func finishCatchUp() throws {
+        try synchronized {
+            var state = try requireState()
+            guard state.preKeys.contains(where: \.consumed) else { return }
+            state.preKeys.removeAll(where: \.consumed)
+            try save(state)
+        }
+    }
+
+    private func rotateSignedPreKeyIfDue(_ state: inout State) throws -> Bool {
+        let time = now()
+        let oldCount = state.retiredSignedPreKeys.count
+        state.retiredSignedPreKeys.removeAll { time.timeIntervalSince($0.retiredAt) >= Self.signedPreKeyRotationInterval }
+        guard time.timeIntervalSince(state.signedPreKeyCreatedAt) >= Self.signedPreKeyRotationInterval else {
+            return oldCount != state.retiredSignedPreKeys.count
+        }
+        guard state.signedPreKeyID < UInt32(Int32.max) else { throw OMEMO2StorageError.invalidKeyID }
+        let identity = try context.identity(withPrivateKey: state.identityPrivateKey)
+        let new = try context.generateKeyPair()
+        state.retiredSignedPreKeys.append(RetiredSignedPreKey(id: state.signedPreKeyID,
+                                                            privateKey: state.signedPreKeyPrivateKey, retiredAt: time))
+        state.signedPreKeyPrivateKey = new.privateKey
+        state.signedPreKeyID += 1
+        state.signature = try context.sign(new.publicKey, identity: identity)
+        state.signedPreKeyCreatedAt = time
+        return true
+    }
+
+    private func observeIncoming(_ ciphertext: OMEMO2Ciphertext, stored: inout StoredSession, state: inout State) {
+        guard !stored.seenIncomingRatchets.contains(ciphertext.ratchetKey) else { return }
+        stored.seenIncomingRatchets.append(ciphertext.ratchetKey)
+        if stored.seenIncomingRatchets.count > 1000 { stored.seenIncomingRatchets.removeFirst() }
+        if ciphertext.counter >= 53, !stored.receiveOnly,
+           state.currentSessions[addressKey(stored.address)] == sessionKey(stored.address, ephemeralKey: stored.ephemeralKey) {
+            state.controlsNeeded.insert(stored.address)
+        }
+    }
+
+    private func pruneSessions(_ state: inout State, address: OMEMO2PeerAddress) {
+        let current = state.currentSessions[addressKey(address)]
+        let obsolete = state.sessions.keys.filter { state.sessions[$0]?.address == address && $0 != current }.sorted {
+            (state.sessions[$0]?.createdAt ?? .distantPast) < (state.sessions[$1]?.createdAt ?? .distantPast)
+        }
+        let count = state.sessions.values.filter { $0.address == address }.count
+        if count > Self.maximumSessionsPerPeer {
+            for key in obsolete.prefix(count - Self.maximumSessionsPerPeer) { state.sessions.removeValue(forKey: key) }
+        }
+    }
+
+    private func bundle(_ state: State) throws -> OMEMO2LocalBundle {
+        let identity = try context.identity(withPrivateKey: state.identityPrivateKey)
+        let signedPreKey = try context.keyPair(withPrivateKey: state.signedPreKeyPrivateKey)
+        let preKeys = try state.preKeys.filter { !$0.consumed }.map {
+            OMEMO2PublicPreKey(id: $0.id, publicKey: try context.keyPair(withPrivateKey: $0.privateKey).publicKey)
+        }
+        return OMEMO2LocalBundle(deviceID: state.deviceID, identityKey: identity.publicKey,
+                                 fingerprintPublicKey: identity.fingerprintPublicKey, signedPreKey: signedPreKey.publicKey,
+                                 signedPreKeyID: state.signedPreKeyID, signature: state.signature, preKeys: preKeys)
+    }
+
+    private func addPreKeys(to state: inout State, count: Int) throws {
+        for _ in 0..<count {
+            guard state.nextPreKeyID > 0, state.nextPreKeyID <= UInt32(Int32.max) else {
+                throw OMEMO2StorageError.invalidKeyID
+            }
+            let key = try context.generateKeyPair()
+            state.preKeys.append(PreKey(id: state.nextPreKeyID, privateKey: key.privateKey, consumed: false))
+            state.nextPreKeyID += 1
+        }
+    }
+
+    private func requireState() throws -> State {
+        guard let state = try loadState() else { throw OMEMO2StorageError.stateUnavailable }
+        return state
+    }
+
+    private func loadState() throws -> State? {
+        guard let data = try persistence.load(owner: owner) else { return nil }
+        let state: State
+        do { state = try PropertyListDecoder().decode(State.self, from: data) }
+        catch { throw OMEMO2StorageError.invalidState }
+        guard state.version == Self.stateVersion, state.profile == Self.profile, state.owner == owner,
+              state.deviceID > 0, state.deviceID <= Int(Int32.max), state.identityPrivateKey.count == 32,
+              state.fingerprintPublicKey.count == 32, state.signedPreKeyPrivateKey.count == 32,
+              state.signedPreKeyID > 0, state.signedPreKeyID <= UInt32(Int32.max), state.signature.count == 64,
+              state.nextPreKeyID > (state.preKeys.map(\.id).max() ?? 0), state.nextPreKeyID <= UInt32(Int32.max) + 1,
+              Set(state.preKeys.map(\.id)).count == state.preKeys.count,
+              state.preKeys.allSatisfy({ $0.id > 0 && $0.id <= UInt32(Int32.max) && $0.privateKey.count == 32 }),
+              state.retiredSignedPreKeys.allSatisfy({ $0.id > 0 && $0.id < state.signedPreKeyID && $0.privateKey.count == 32 }),
+              state.sessions.allSatisfy({ key, value in
+                  value.ephemeralKey.count == 32 && value.seenIncomingRatchets.count <= 1000
+                      && value.seenIncomingRatchets.allSatisfy { $0.count == 32 }
+                      && value.address.deviceID > 0 && value.address.deviceID <= Int(Int32.max)
+                      && !value.address.jid.isEmpty && sessionKey(value.address, ephemeralKey: value.ephemeralKey) == key
+              }),
+              state.currentSessions.allSatisfy({ address, session in
+                  state.sessions[session].map { addressKey($0.address) == address && !$0.receiveOnly } ?? false
+              }) else {
+            throw OMEMO2StorageError.invalidState
+        }
+        let identity = try context.identity(withPrivateKey: state.identityPrivateKey)
+        guard identity.fingerprintPublicKey == state.fingerprintPublicKey else { throw OMEMO2StorageError.identityMismatch }
+        let signedPreKey = try context.keyPair(withPrivateKey: state.signedPreKeyPrivateKey)
+        try OMEMO2Context.verifySignature(state.signature, data: signedPreKey.publicKey, identityKey: identity.publicKey)
+        return state
+    }
+
+    private func save(_ state: State) throws {
+        let encoder = PropertyListEncoder()
+        encoder.outputFormat = .binary
+        try persistence.save(try encoder.encode(state), owner: owner)
+    }
+
+    private func checkedAddress(jid: String, deviceID: Int) throws -> OMEMO2PeerAddress {
+        guard !jid.isEmpty, deviceID > 0, deviceID <= Int(Int32.max) else { throw OMEMO2StorageError.invalidDeviceID }
+        return OMEMO2PeerAddress(jid: jid, deviceID: deviceID)
+    }
+
+    private func addressKey(_ address: OMEMO2PeerAddress) -> String {
+        // Length framing avoids JID/device delimiter collisions.
+        "\(address.jid.utf8.count):\(address.jid):\(address.deviceID)"
+    }
+
+    private func sessionKey(_ address: OMEMO2PeerAddress, ephemeralKey: Data) -> String {
+        addressKey(address) + ":" + ephemeralKey.base64EncodedString()
+    }
+
+    private func synchronized<T>(_ operation: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try operation()
+    }
+}

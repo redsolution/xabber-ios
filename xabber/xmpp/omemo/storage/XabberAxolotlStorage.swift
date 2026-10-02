@@ -26,6 +26,7 @@ import CocoaLumberjack
 enum XabberAxolotlStorageError: LocalizedError {
     case localIdentityKeyPairUnavailable
     case localKeyMaterialUnavailable
+    case activeOMEMO2Profile
     
     var errorDescription: String? {
         switch self {
@@ -33,6 +34,8 @@ enum XabberAxolotlStorageError: LocalizedError {
             return L10n.text("xabber_axolotl_storage__localized_error_description__local_omemo_identity_key_pair_is_unavailable", fallback: "Local OMEMO identity key pair is unavailable")
         case .localKeyMaterialUnavailable:
             return L10n.text("xabber_axolotl_storage__localized_error_description__local_omemo_key_material_is_unavailable", fallback: "Local OMEMO key material is unavailable")
+        case .activeOMEMO2Profile:
+            return L10n.text("xabber_axolotl_storage__localized_error_description__omemo2_state_requires_profile_storage", fallback: "Existing OMEMO2 state must be prepared without replacing legacy key material")
         }
     }
 }
@@ -66,13 +69,44 @@ class XabberAxolotlStorage: NSObject, SignalStore {
     }
     
     public func create(for deviceId: Int, context: SignalContext) throws {
+        guard deviceId > 0, deviceId <= Int(Int32.max) else {
+            throw XabberAxolotlStorageError.localKeyMaterialUnavailable
+        }
+        // A missing Realm device row must not cause identity replacement when
+        // an independent OMEMO2 state exists. Read errors also abort before any
+        // legacy credential mutation; profile decoding belongs to its store.
+        guard try CredentialsManager.shared.getOMEMO2State(for: owner) == nil else {
+            throw XabberAxolotlStorageError.activeOMEMO2Profile
+        }
         let realm = try WRealm.safe()
+        if realm.objects(SignalIdentityStorageItem.self).filter("owner == %@ AND jid == %@ AND protocolProfile == %@", owner, owner, XabberOMEMO2Storage.profile).first != nil {
+            throw XabberAxolotlStorageError.activeOMEMO2Profile
+        }
         if let instance = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: self.owner, jid: self.owner, deviceId: deviceId)) {
-            self.deviceId = instance.deviceId
             guard hasLocalIdentityKeyPair(), getLocalRegistrationId() != 0 else {
                 throw XabberAxolotlStorageError.localIdentityKeyPairUnavailable
             }
+            try validateExistingIdentity()
+            try bindExistingDevice(deviceID: instance.deviceId)
             return
+        }
+        let existingPublic = CredentialsManager.shared.getIdentityKeyPublicKey(for: owner)
+        let existingPrivate = CredentialsManager.shared.getIdentityKeyPrivateKey(for: owner)
+        if existingPublic != nil || existingPrivate != nil {
+            try validateExistingIdentity()
+            if let existingDeviceID = CredentialsManager.shared.getDeviceId(for: owner), existingDeviceID != deviceId {
+                throw XabberAxolotlStorageError.localKeyMaterialUnavailable
+            }
+            // Existing credential pairs and their old SPK/OPKs remain the
+            // authority for legacy archives. Public profile metadata is rebuilt
+            // by OMEMO2 preparation, not by regenerating keys with old IDs.
+            try bindExistingDevice(deviceID: deviceId)
+            return
+        }
+        guard CredentialsManager.shared.getDeviceId(for: owner) == nil,
+              realm.objects(SignalIdentityStorageItem.self).filter("owner == %@ AND jid == %@", owner, owner).isEmpty,
+              realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", owner, owner).isEmpty else {
+            throw XabberAxolotlStorageError.localIdentityKeyPairUnavailable
         }
         self.deviceId = deviceId
         CredentialsManager.shared.setRegistrationId(Int(arc4random_uniform(XabberAxolotlStorage.deviceIdLimit - 1) + 1), for: self.owner)
@@ -161,6 +195,25 @@ class XabberAxolotlStorage: NSObject, SignalStore {
     func localDeviceId() -> Int {
         return self.deviceId
     }
+
+    /// Bind the existing profile device without creating or rewriting keys.
+    func bindExistingDevice(deviceID: Int) throws {
+        guard deviceID > 0, deviceID <= Int(Int32.max) else {
+            throw XabberAxolotlStorageError.localKeyMaterialUnavailable
+        }
+        self.deviceId = deviceID
+    }
+
+    private func validateExistingIdentity() throws {
+        guard let publicKey = CredentialsManager.shared.getIdentityKeyPublicKey(for: owner),
+              let privateKey = CredentialsManager.shared.getIdentityKeyPrivateKey(for: owner),
+              publicKey.count == 33, publicKey.first == 5, privateKey.count == 32,
+              let context = try? OMEMO2Context(error: ()),
+              let identity = try? context.identity(withPrivateKey: privateKey),
+              identity.fingerprintPublicKey == Data(publicKey.dropFirst()) else {
+            throw XabberAxolotlStorageError.localIdentityKeyPairUnavailable
+        }
+    }
     
     func hasLocalIdentityKeyPair() -> Bool {
         return localIdentityKeyPair() != nil
@@ -182,6 +235,7 @@ extension XabberAxolotlStorage: SignalSessionStore {
             if let instance = realm.object(
                 ofType: SessionRecordStorageItem.self,
                 forPrimaryKey: SessionRecordStorageItem.genPrimary(self.owner, for: address)) {
+                guard instance.profile_ == SessionRecordStorageItem.legacyProfile else { return nil }
                 return instance.record
             }
         } catch {
@@ -202,6 +256,7 @@ extension XabberAxolotlStorage: SignalSessionStore {
             instance.record = recordData
             instance.primary = SessionRecordStorageItem.genPrimary(self.owner, for: address)
             if let storedInstnace = realm.object(ofType: SessionRecordStorageItem.self, forPrimaryKey: instance.primary)  {
+                guard storedInstnace.profile_ == SessionRecordStorageItem.legacyProfile else { return false }
                 try realm.write {
                     storedInstnace.record = recordData
                 }
@@ -220,7 +275,7 @@ extension XabberAxolotlStorage: SignalSessionStore {
     func sessionRecordExists(for address: SignalAddress) -> Bool {
         do {
             let realm = try WRealm.safe()
-            return realm.object(ofType: SessionRecordStorageItem.self, forPrimaryKey: SessionRecordStorageItem.genPrimary(self.owner, for: address)) != nil
+            return realm.object(ofType: SessionRecordStorageItem.self, forPrimaryKey: SessionRecordStorageItem.genPrimary(self.owner, for: address))?.profile_ == SessionRecordStorageItem.legacyProfile
         } catch {
             DDLogDebug("XabberAxolotlStorage: \(#function). \(error.localizedDescription)")
         }
@@ -248,7 +303,7 @@ extension XabberAxolotlStorage: SignalSessionStore {
             let realm = try WRealm.safe()
             return realm
                 .objects(SessionRecordStorageItem.self)
-                .filter("owner == %@ AND jid == %@", self.owner, addressName)
+                .filter("owner == %@ AND jid == %@ AND profile_ == %@", self.owner, addressName, SessionRecordStorageItem.legacyProfile)
                 .toArray()
                 .compactMap { return NSNumber(value: $0.deviceId) }
             
@@ -279,6 +334,7 @@ extension XabberAxolotlStorage: SignalSessionStore {
 
 
 class SessionRecordStorageItem: Object {
+    static let legacyProfile = "legacy-signal"
     override static func primaryKey() -> String? {
         return "primary"
     }
@@ -290,6 +346,7 @@ class SessionRecordStorageItem: Object {
     @objc dynamic var primary: String = ""
     
     @objc dynamic var record: Data? = nil
+    @objc dynamic var profile_: String = SessionRecordStorageItem.legacyProfile
     
     static func genPrimary(owner: String, jid: String, deviceId: Int) -> String {
         return [owner, jid, "\(deviceId)"].prp()
@@ -361,27 +418,34 @@ extension XabberAxolotlStorage: SignalIdentityKeyStore {
     }
     
     func getLocalRegistrationId() -> UInt32 {
-        return UInt32(CredentialsManager.shared.getRegistrationId(for: self.owner) ?? 0)
+        guard let value = CredentialsManager.shared.getRegistrationId(for: self.owner),
+              value > 0, value <= Int(UInt32.max) else { return 0 }
+        return UInt32(value)
     }
     
     func saveIdentity(_ address: SignalAddress, identityKey: Data?) -> Bool {
         do {
             let realm = try WRealm.safe()
+            var identityToStore = identityKey
             if let identityKey = identityKey,
-               let storedIdentity = storedIdentity(for: address, in: realm),
-               storedIdentity != identityKey {
-                markIdentityChanged(address: address, newIdentityKey: identityKey, in: realm)
-                return false
+               let storedIdentity = storedIdentity(for: address, in: realm) {
+                guard identitiesEquivalent(storedIdentity, identityKey) else {
+                    markIdentityChanged(address: address, newIdentityKey: identityKey, in: realm)
+                    return false
+                }
+                // Archive Signal callbacks use 33-byte X keys. Preserve an
+                // already migrated Ed key instead of downgrading its encoding.
+                identityToStore = storedIdentity
             }
             let instance = SignalTrustedIdentityStoreageItem()
             instance.owner = self.owner
             instance.jid = address.name
             instance.deviceId = Int(address.deviceId)
-            instance.identity = identityKey
+            instance.identity = identityToStore
             instance.primary = SignalTrustedIdentityStoreageItem.genPrimary(self.owner, for: address)
             if let storedInstance = realm.object(ofType: SignalTrustedIdentityStoreageItem.self, forPrimaryKey: instance.primary) {
                 try realm.write {
-                    storedInstance.identity = identityKey
+                    storedInstance.identity = identityToStore
                 }
             } else {
                 try realm.write {
@@ -401,7 +465,7 @@ extension XabberAxolotlStorage: SignalIdentityKeyStore {
             guard let storedIdentity = storedIdentity(for: address, in: realm) else {
                 return true
             }
-            if storedIdentity == identityKey {
+            if identitiesEquivalent(storedIdentity, identityKey) {
                 return true
             }
             markIdentityChanged(address: address, newIdentityKey: identityKey, in: realm)
@@ -409,6 +473,15 @@ extension XabberAxolotlStorage: SignalIdentityKeyStore {
             DDLogDebug("XabberAxolotlStorage: \(#function). \(error.localizedDescription)")
         }
         return false
+    }
+
+    private func identitiesEquivalent(_ lhs: Data, _ rhs: Data) -> Bool {
+        if lhs == rhs { return true }
+        guard let left = try? Omemo2IdentityRepresentation.canonicalCurvePublicKey(fromLegacyOrOMEMO2Identity: lhs),
+              let right = try? Omemo2IdentityRepresentation.canonicalCurvePublicKey(fromLegacyOrOMEMO2Identity: rhs) else {
+            return false
+        }
+        return left == right
     }
     
     private func storedIdentity(for address: SignalAddress, in realm: Realm) -> Data? {
@@ -447,7 +520,8 @@ extension XabberAxolotlStorage: SignalIdentityKeyStore {
                 if let device = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: devicePrimary),
                    !device.isInvalidated {
                     device.state = .fingerprintChanged
-                    device.fingerprint = newIdentityKey.formattedFingerprint()
+                    device.fingerprint = (try? Omemo2IdentityRepresentation.fingerprint(for: newIdentityKey))
+                        ?? newIdentityKey.formattedFingerprint()
                     device.trustDate = Date(timeIntervalSince1970: -1)
                     device.trustedByDeviceId = nil
                     device.isTrustedByCertificate = false

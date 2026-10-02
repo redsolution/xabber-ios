@@ -30,6 +30,7 @@ class SignalIdentityStorageItem: Object {
     @objc dynamic var deviceId: Int = 0
     
     @objc dynamic var primary: String = ""
+    @objc dynamic var protocolProfile: String = "legacy-signal"
     @objc dynamic var identityKey: String? = nil
     @objc dynamic var signedPreKey: String? = nil
     @objc dynamic var signedPreKeyId: Int = 0

@@ -1055,6 +1055,15 @@
 		A6610001260900000000000B /* PasscodeInputRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6610001260900000000000A /* PasscodeInputRegressionTests.swift */; };
 		A6610001260900000000000D /* PasscodeWindowLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6610001260900000000000C /* PasscodeWindowLifecycleTests.swift */; };
 		A6610001260900000000000F /* PasscodeWipeCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6610001260900000000000E /* PasscodeWipeCoordinatorTests.swift */; };
+		6C2CD0F0B8454412BB1A517E /* OMEMO2BundleCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7267462FA257447D9AA4AADB /* OMEMO2BundleCodec.swift */; };
+		0D6AA888A363441881F0F3E5 /* Omemo2IdentityRepresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03CAD40C9C9B41A0B1C77A54 /* Omemo2IdentityRepresentation.swift */; };
+		F03B93D75F2A40899C4A990F /* Omemo2PayloadCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 728A81A08FDA4B1EB95ED16B /* Omemo2PayloadCodec.swift */; };
+		191531E8B9D041C59110EF5F /* XabberOMEMO2Storage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4C3DAFC353B424496B30FBF /* XabberOMEMO2Storage.swift */; };
+		D8A212F3C4144E709236D75F /* OMEMO2PayloadCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1575C1787324E4D8560B326 /* OMEMO2PayloadCodecTests.swift */; };
+		C7ED6D3C7FCF482081EEB12C /* OMEMO2IdentityBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8F69A088424A24BEC5B734 /* OMEMO2IdentityBindingTests.swift */; };
+		221554EE690D4A6EAF6A8681 /* OMEMO2StateStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAD3F678997C42BE9858BE9D /* OMEMO2StateStorageTests.swift */; };
+		BC6F3DCEAB2247C8B846AD0B /* OMEMO2BundleCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B597BB160FA0428D81662281 /* OMEMO2BundleCodecTests.swift */; };
+		E9D67D72E3EE4A9EB49310CA /* OMEMO2AppIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68C3EC34A0D24588B504B518 /* OMEMO2AppIntegrationTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2149,6 +2158,15 @@
 		A6610001260900000000000A /* PasscodeInputRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasscodeInputRegressionTests.swift; sourceTree = "<group>"; };
 		A6610001260900000000000C /* PasscodeWindowLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasscodeWindowLifecycleTests.swift; sourceTree = "<group>"; };
 		A6610001260900000000000E /* PasscodeWipeCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasscodeWipeCoordinatorTests.swift; sourceTree = "<group>"; };
+		7267462FA257447D9AA4AADB /* OMEMO2BundleCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2BundleCodec.swift; sourceTree = "<group>"; };
+		03CAD40C9C9B41A0B1C77A54 /* Omemo2IdentityRepresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Omemo2IdentityRepresentation.swift; sourceTree = "<group>"; };
+		728A81A08FDA4B1EB95ED16B /* Omemo2PayloadCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Omemo2PayloadCodec.swift; sourceTree = "<group>"; };
+		C4C3DAFC353B424496B30FBF /* XabberOMEMO2Storage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XabberOMEMO2Storage.swift; sourceTree = "<group>"; };
+		E1575C1787324E4D8560B326 /* OMEMO2PayloadCodecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2PayloadCodecTests.swift; sourceTree = "<group>"; };
+		AC8F69A088424A24BEC5B734 /* OMEMO2IdentityBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2IdentityBindingTests.swift; sourceTree = "<group>"; };
+		DAD3F678997C42BE9858BE9D /* OMEMO2StateStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2StateStorageTests.swift; sourceTree = "<group>"; };
+		B597BB160FA0428D81662281 /* OMEMO2BundleCodecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2BundleCodecTests.swift; sourceTree = "<group>"; };
+		68C3EC34A0D24588B504B518 /* OMEMO2AppIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2AppIntegrationTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -3684,6 +3702,9 @@
 		6695786227A1317A00A6C4AB /* omemo */ = {
 			isa = PBXGroup;
 			children = (
+				728A81A08FDA4B1EB95ED16B /* Omemo2PayloadCodec.swift */,
+				03CAD40C9C9B41A0B1C77A54 /* Omemo2IdentityRepresentation.swift */,
+				7267462FA257447D9AA4AADB /* OMEMO2BundleCodec.swift */,
 				66A15B4A281C084200FC1E65 /* storage */,
 				6695786327A1317A00A6C4AB /* OmemoManager.swift */,
 				66A15B48281C002700FC1E65 /* OmemoManager+Encryption.swift */,
@@ -4026,6 +4047,7 @@
 		66A15B4A281C084200FC1E65 /* storage */ = {
 			isa = PBXGroup;
 			children = (
+				C4C3DAFC353B424496B30FBF /* XabberOMEMO2Storage.swift */,
 				66A15B4B281C085300FC1E65 /* SignalIdentityStorageItem.swift */,
 				66A15B4F281C087200FC1E65 /* SignalDeviceStorageItem.swift */,
 				66A15B4D281C086100FC1E65 /* SignalPreKeyStorageItem.swift */,
@@ -4134,6 +4156,11 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				68C3EC34A0D24588B504B518 /* OMEMO2AppIntegrationTests.swift */,
+				B597BB160FA0428D81662281 /* OMEMO2BundleCodecTests.swift */,
+				DAD3F678997C42BE9858BE9D /* OMEMO2StateStorageTests.swift */,
+				AC8F69A088424A24BEC5B734 /* OMEMO2IdentityBindingTests.swift */,
+				E1575C1787324E4D8560B326 /* OMEMO2PayloadCodecTests.swift */,
 				AB038401260A000000000001 /* OMEMO2CryptoKitConformanceTests.swift */,
 				6693FDAC0446B598B6B05C02 /* OMEMO2Tests.m */,
 				4EA900012F9A00000ABC0001 /* AKESystemMessageLocalizationTests.swift */,
@@ -5582,6 +5609,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				191531E8B9D041C59110EF5F /* XabberOMEMO2Storage.swift in Sources */,
+				F03B93D75F2A40899C4A990F /* Omemo2PayloadCodec.swift in Sources */,
+				0D6AA888A363441881F0F3E5 /* Omemo2IdentityRepresentation.swift in Sources */,
+				6C2CD0F0B8454412BB1A517E /* OMEMO2BundleCodec.swift in Sources */,
 				4EC001013D1000000ABC0001 /* LocalizationModels.swift in Sources */,
 				4EC001023D1000000ABC0001 /* LanguagePreferenceStore.swift in Sources */,
 				4EC001033D1000000ABC0001 /* LocalizationService.swift in Sources */,
@@ -6382,6 +6413,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E9D67D72E3EE4A9EB49310CA /* OMEMO2AppIntegrationTests.swift in Sources */,
+				BC6F3DCEAB2247C8B846AD0B /* OMEMO2BundleCodecTests.swift in Sources */,
+				221554EE690D4A6EAF6A8681 /* OMEMO2StateStorageTests.swift in Sources */,
+				C7ED6D3C7FCF482081EEB12C /* OMEMO2IdentityBindingTests.swift in Sources */,
+				D8A212F3C4144E709236D75F /* OMEMO2PayloadCodecTests.swift in Sources */,
 				317030DD0C0A7D8A75EE828B /* OMEMO2Tests.m in Sources */,
 				AB038401260A000000000002 /* OMEMO2CryptoKitConformanceTests.swift in Sources */,
 				4EA900022F9A00000ABC0001 /* AKESystemMessageLocalizationTests.swift in Sources */,

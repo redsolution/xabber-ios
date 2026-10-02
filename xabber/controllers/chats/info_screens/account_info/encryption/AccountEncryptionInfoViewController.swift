@@ -198,7 +198,7 @@ extension AccountEncryptionInfoViewController: UITableViewDataSource {
                     return UITableViewCell(frame: .zero)
             }
             cell.configure(
-                fingerprint: device.fingerprint.split(by: 8).filter ({ $0.count == 8 }).joined(separator: " "),
+                fingerprint: device.fingerprint,
                 client: "",
                 device: "",
                 description: device.name ?? "\(device.deviceId)",

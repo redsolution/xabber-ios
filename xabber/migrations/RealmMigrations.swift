@@ -25,8 +25,9 @@ enum XabberRealmSchema {
     /// Schema 20 stores the outer XEP-0313 result ID separately from the
     /// protocol stanza ID. Schema 21 adds a signed numeric projection of the
     /// raw stanza ID for XEP-SYNC unread-boundary lookups; only current-session
-    /// MAM persistence proof can authorize UI.
-    static let current: UInt64 = 21
+    /// MAM persistence proof can authorize UI. Schema 22 marks legacy Signal
+    /// bundles and sessions before the separate OMEMO2 state is activated.
+    static let current: UInt64 = 22
 }
 
 
@@ -424,6 +425,21 @@ func makeRealmMigrationConfiguration(
                         MessageStorageItem.rawProtocolStanzaIDNumericValue(
                             from: archivedID
                         )
+                }
+            }
+            if oldSchemaVersion < 22 {
+                // Existing bytes remain legacy Signal records. The OMEMO2
+                // ratchets and pre-key consumption live in a separate atomic
+                // protected account item; no root/chain keys are converted.
+                if migration.newSchema.objectSchema.contains(where: { $0.className == SessionRecordStorageItem.className() }) {
+                    migration.enumerateObjects(ofType: SessionRecordStorageItem.className()) { _, newObject in
+                        newObject?["profile_"] = SessionRecordStorageItem.legacyProfile
+                    }
+                }
+                if migration.newSchema.objectSchema.contains(where: { $0.className == SignalIdentityStorageItem.className() }) {
+                    migration.enumerateObjects(ofType: SignalIdentityStorageItem.className()) { _, newObject in
+                        newObject?["protocolProfile"] = SessionRecordStorageItem.legacyProfile
+                    }
                 }
             }
         },

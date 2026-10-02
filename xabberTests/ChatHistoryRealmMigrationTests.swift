@@ -22,7 +22,7 @@ final class ChatHistoryRealmMigrationTests: XCTestCase {
     }
 
     func testCurrentSchemaIsNonDestructiveAndIndexesActualHistoryPredicates() {
-        XCTAssertEqual(XabberRealmSchema.current, 21)
+        XCTAssertEqual(XabberRealmSchema.current, 22)
         let configuration = makeRealmMigrationConfiguration(
             scheme: XabberRealmSchema.current
         )

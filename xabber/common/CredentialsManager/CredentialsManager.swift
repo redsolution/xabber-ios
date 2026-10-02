@@ -25,6 +25,7 @@
 import Foundation
 import SwiftKeychainWrapper
 import Curve25519Kit
+import Security
 //import Realm
 
 private func credentialsDebugLog(_ message: String) {
@@ -721,6 +722,68 @@ class CredentialsManager: NSObject {
 //        return value
 //    }
     //OMEMO
+    enum OMEMO2KeychainError: Error {
+        case operationFailed(OSStatus)
+        case invalidValue
+    }
+
+    /// A separate account item contains the complete OMEMO2 secret state.
+    /// Updating one item commits ratchet advancement and OPK consumption
+    /// together. Errors are propagated; no stale fallback or process cache is
+    /// allowed to masquerade as a successful durable write.
+    static func omemo2KeychainUsesAccessGroup(environment: [String: String]) -> Bool {
+        !HostedXCTestIsolationPolicy.isEnabled(environment: environment)
+    }
+
+    private func omemo2StateQuery(for jid: String) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: CredentialsManager.uniqueServiceName(),
+            kSecAttrAccount as String: [jid, "urn:xmpp:omemo:2", "state-v1"].prp(),
+            kSecAttrSynchronizable as String: false
+        ]
+        // Unsigned hosted tests use the isolated test service and the default
+        // application group. Production always uses the configured group.
+        if Self.omemo2KeychainUsesAccessGroup(environment: ProcessInfo.processInfo.environment) {
+            query[kSecAttrAccessGroup as String] = CredentialsManager.uniqueKeychainAccessGroup()
+        }
+        return query
+    }
+
+    public final func getOMEMO2State(for jid: String) throws -> Data? {
+        var query = omemo2StateQuery(for: jid)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess else { throw OMEMO2KeychainError.operationFailed(status) }
+        guard let data = result as? Data else { throw OMEMO2KeychainError.invalidValue }
+        return data
+    }
+
+    public final func setOMEMO2State(_ data: Data, for jid: String) throws {
+        let query = omemo2StateQuery(for: jid)
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
+        var status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var item = query
+            attributes.forEach { item[$0.key] = $0.value }
+            status = SecItemAdd(item as CFDictionary, nil)
+        }
+        guard status == errSecSuccess else { throw OMEMO2KeychainError.operationFailed(status) }
+    }
+
+    public final func removeOMEMO2State(for jid: String) throws {
+        let status = SecItemDelete(omemo2StateQuery(for: jid) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw OMEMO2KeychainError.operationFailed(status)
+        }
+    }
+
     public final func setPreKey(for jid: String, id preKeyId: Int, key: Data) {
         self.storeData(value: key, for: [jid, "\(preKeyId)", StoredKeyType.preKey.rawValue].prp())
     }

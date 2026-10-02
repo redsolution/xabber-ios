@@ -1203,7 +1203,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
                 .count,
             0
         )
-        XCTAssertEqual(XabberRealmSchema.current, 21)
+        XCTAssertEqual(XabberRealmSchema.current, 22)
     }
 
     func testListOnlyPreviewParserUsesSafeAttachmentAndSystemFallbacks() throws {
