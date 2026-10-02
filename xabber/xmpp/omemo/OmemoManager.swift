@@ -204,7 +204,7 @@ open class OmemoManager: AbstractXMPPManager {
     public final func prepareStanzaContent(message: String, date: Date, jid: String, additionalContent: [DDXMLElement], ignoreTimeSignature: Bool) -> String? {
         
         let envelope = DDXMLElement(name: "envelope", xmlns: "urn:xmpp:sce:1")
-        let content = DDXMLElement(name: "content")
+        let content = DDXMLElement(name: "content", xmlns: "urn:xmpp:sce:1")
         let body = DDXMLElement(name: "body", xmlns: "jabber:client")
         body.stringValue = message
         envelope.addChild(content)
@@ -215,19 +215,24 @@ open class OmemoManager: AbstractXMPPManager {
             }
         }
         content.addChild(body)
-        let from = DDXMLElement(name: "from")
+        let from = DDXMLElement(name: "from", xmlns: "urn:xmpp:sce:1")
         from.addAttribute(withName: "jid", stringValue: self.owner)
-        let to = DDXMLElement(name: "to")
+        let to = DDXMLElement(name: "to", xmlns: "urn:xmpp:sce:1")
         to.addAttribute(withName: "jid", stringValue: jid)
-        let time = DDXMLElement(name: "time")
-        time.addAttribute(withName: "stamp", stringValue: date.XMPPFormattedDate)
+        let time = DDXMLElement(name: "time", xmlns: "urn:xmpp:sce:1")
+        // Queue creation time is not encryption time. The final writer refreshes
+        // this again immediately before producing new ciphertext.
+        time.addAttribute(withName: "stamp", stringValue: Date().XMPPFormattedDate)
         envelope.addChild(from)
         envelope.addChild(to)
         envelope.addChild(time)
-        let randomString = String.randomLenString(max: 200, includeNumber: true)
-        let rpad = DDXMLElement(name: "rpad", stringValue: randomString)
+        let rpad = DDXMLElement(name: "rpad", xmlns: "urn:xmpp:sce:1")
         envelope.addChild(rpad)
-        
+        do {
+            try Omemo2PayloadCodec.applyPadding(to: envelope)
+        } catch {
+            return nil
+        }
         return envelope.compactXMLString
     }
     
@@ -1007,13 +1012,18 @@ extension OmemoManager {
         case duplicate
     }
 
-    func prepareIncoming(_ message: XMPPMessage, context: OMEMOReceiveContext = .live) -> OMEMOReceiveResult {
+    func prepareIncoming(
+        _ message: XMPPMessage,
+        context: OMEMOReceiveContext = .live,
+        originalSendingTime suppliedTime: OMEMOOriginalSendingTime? = nil
+    ) -> OMEMOReceiveResult {
         do {
             let copy = XMPPMessage(from: SCEReceivePolicy.droppingUnprotectedSCE(message))
             let path = try Self.incomingPath(copy, owner: owner)
             guard let bare = path.last, SCEReceivePolicy.hasOMEMO2(bare) else { return .notEncrypted(copy) }
             do {
-                switch try decryptIncoming(XMPPMessage(from: bare)) {
+                let originalSendingTime = try Self.originalSendingTime(in: path, supplied: suppliedTime)
+                switch try decryptIncoming(XMPPMessage(from: bare), originalSendingTime: originalSendingTime) {
                 case .content(let opened, let profile):
                     Self.reconstruct(path, content: opened.content)
                     return .verified(XMPPMessage(from: SCEReceivePolicy.canonicalElementCopy(copy)), .authenticatedSCE(profile: profile))
@@ -1087,6 +1097,59 @@ extension OmemoManager {
         throw OmemoManagerError.invalidEncryptedPayload
     }
 
+    /// Only metadata attached to the validated original stanza can bind SCE
+    /// time. A wrapper's receipt time or conversation/query stamp is unrelated.
+    internal static func originalSendingTime(
+        for message: XMPPMessage,
+        owner: String? = nil,
+        supplied: OMEMOOriginalSendingTime? = nil
+    ) throws -> OMEMOOriginalSendingTime? {
+        try originalSendingTime(in: incomingPath(message, owner: owner), supplied: supplied)
+    }
+
+    private static func originalSendingTime(
+        in path: [DDXMLElement],
+        supplied: OMEMOOriginalSendingTime?
+    ) throws -> OMEMOOriginalSendingTime? {
+        guard let original = path.last else { throw OmemoManagerError.invalidEncryptedPayload }
+        var times: [OMEMOOriginalSendingTime] = []
+        func appendTime(
+            from element: DDXMLElement,
+            name: String,
+            namespace: String,
+            source: OMEMOOriginalSendingTime.Source
+        ) throws {
+            let elements = SCEReceivePolicy.children(of: element, named: name, xmlns: namespace)
+            guard elements.count <= 1 else { throw OmemoManagerError.invalidDecryptedPayload }
+            guard let metadata = elements.first else { return }
+            let stamps = metadata.attributes?.filter {
+                $0.name == "stamp" && ($0.uri ?? "").isEmpty
+            } ?? []
+            guard stamps.count == 1, let stamp = stamps[0].stringValue,
+                  !(metadata.children ?? []).contains(where: { $0 is DDXMLElement }) else {
+                throw OmemoManagerError.invalidDecryptedPayload
+            }
+            times.append(OMEMOOriginalSendingTime(date: try Omemo2PayloadCodec.timestamp(stamp), source: source))
+        }
+
+        try appendTime(from: original, name: "time", namespace: "https://xabber.com/protocol/delivery", source: .xabberDelivery)
+        if let forwarded = path.dropLast().last(where: {
+            SCEReceivePolicy.matches($0, name: "forwarded", namespace: "urn:xmpp:forward:0")
+        }) {
+            try appendTime(from: forwarded, name: "delay", namespace: "urn:xmpp:delay", source: .forwardedDelay)
+        }
+        try appendTime(from: original, name: "delay", namespace: "urn:xmpp:delay", source: .stanzaDelay)
+        if let supplied {
+            guard supplied.date.timeIntervalSince1970.isFinite else { throw OmemoManagerError.invalidDecryptedPayload }
+            times.append(supplied)
+        }
+        guard let selected = times.first else { return nil }
+        // Xabber Delivery requires its timestamp to equal the archive delay.
+        // The SCE clock margin is checked separately against this one value.
+        guard times.allSatisfy({ $0.date == selected.date }) else { throw OmemoManagerError.invalidDecryptedPayload }
+        return selected
+    }
+
     private static func reconstruct(_ path: [DDXMLElement], content: DDXMLElement?) {
         guard let target = path.last else { return }
         let reconstructed = SCEReceivePolicy.sanitized(target, content: content)
@@ -1105,14 +1168,23 @@ extension OmemoManager {
     }
 
     /// Existing TrustSharing/history callers retain the validated envelope API.
-    func decryptMessage(_ message: XMPPMessage) throws -> DDXMLElement? {
-        switch try decryptIncoming(message) {
+    func decryptMessage(
+        _ message: XMPPMessage,
+        originalSendingTime suppliedTime: OMEMOOriginalSendingTime? = nil
+    ) throws -> DDXMLElement? {
+        let path = try Self.incomingPath(message, owner: owner)
+        guard let original = path.last else { throw OmemoManagerError.invalidEncryptedPayload }
+        let originalSendingTime = try Self.originalSendingTime(in: path, supplied: suppliedTime)
+        switch try decryptIncoming(XMPPMessage(from: original), originalSendingTime: originalSendingTime) {
         case .content(let opened, _): return opened.envelope
         case .control, .duplicate: return nil
         }
     }
 
-    private func decryptIncoming(_ message: XMPPMessage) throws -> DecryptedIncoming {
+    private func decryptIncoming(
+        _ message: XMPPMessage,
+        originalSendingTime: OMEMOOriginalSendingTime?
+    ) throws -> DecryptedIncoming {
         guard let from = message.from?.bare else { throw OmemoManagerError.invalidEncryptedPayload }
         let encryptedElements = message.children?.compactMap { $0 as? DDXMLElement }.filter { $0.localName == "encrypted" && $0.uri == Self.xmlns } ?? []
         guard encryptedElements.count == 1 else { throw OmemoManagerError.invalidEncryptedPayload }
@@ -1150,7 +1222,7 @@ extension OmemoManager {
             } catch let error as NSError where error.domain == SignalErrorDomain && error.code == SignalError.duplicateMessage.rawValue {
                 return .duplicate
             }
-            if let opened = try Omemo2PayloadCodec.openVerified(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat") {
+            if let opened = try Omemo2PayloadCodec.openVerified(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat", originalSendingTime: originalSendingTime) {
                 return .content(opened, .legacySignal)
             }
             return .control
@@ -1162,7 +1234,7 @@ extension OmemoManager {
             _ = try storage.decrypt(ciphertext, jid: from, deviceID: sid, updatingIdentity: { identity in
                 try self.updateAuthenticatedOMEMO2Identity(identity, jid: from, deviceID: sid, previousSessionIdentity: previousSessionIdentity)
             }) { plaintext in
-                opened = try Omemo2PayloadCodec.openVerified(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat")
+                opened = try Omemo2PayloadCodec.openVerified(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat", originalSendingTime: originalSendingTime)
             }
         } catch let error as NSError where error.domain == SignalErrorDomain && error.code == SignalError.duplicateMessage.rawValue {
             return .duplicate

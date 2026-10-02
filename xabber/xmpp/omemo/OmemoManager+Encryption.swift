@@ -282,7 +282,8 @@ extension OmemoManager {
             .filter("owner == %@ AND jid == %@ AND state_ == %@", owner, jid, SignalDeviceStorageItem.TrustState.trusted.rawValue)
             .toArray().filter { !(jid == owner && $0.deviceId == localID) }
         guard !recipients.isEmpty else { throw OmemoManagerError.noTrustedRecipientDevices }
-        let sealed = try Omemo2PayloadCodec.seal(message)
+        let prepared = try Omemo2PayloadCodec.prepareOutgoingXML(message)
+        let sealed = try Omemo2PayloadCodec.seal(prepared)
         let encrypted = DDXMLElement(name: "encrypted", xmlns: Self.xmlns)
         let header = DDXMLElement(name: "header", xmlns: Self.xmlns)
         header.addAttribute(withName: "sid", integerValue: localID)

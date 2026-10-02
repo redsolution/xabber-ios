@@ -5,6 +5,17 @@ enum OMEMOReceiveContext {
     case live, archive, carbon, syncPreview, push, modify
 }
 
+/// The original stanza's transport timestamp, distinct from the time at which
+/// an archive page, carbon, notification or sync event reaches this client.
+struct OMEMOOriginalSendingTime: Equatable {
+    enum Source: Equatable {
+        case xabberDelivery, forwardedDelay, stanzaDelay, caller
+    }
+
+    let date: Date
+    let source: Source
+}
+
 enum OMEMOConsumptionReason: Equatable {
     case control, duplicate
     case invalidTransport

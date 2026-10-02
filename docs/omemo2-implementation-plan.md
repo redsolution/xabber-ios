@@ -93,6 +93,8 @@
 
 ### OM2-04 — SCE affixes: время и padding
 
+**Статус:** выполнено 2026-10-02; [контракт времени и padding](omemo2-sce-affixes.md). Focused XCTest: 256/256, затем 83/83 на final source; приложение и dependency push extension собраны в cached Simulator test action.
+
 **Уровень:** MUST / профиль реализации. **Владелец:** xmpp. **Зависимости:** OM2-01, OM2-02.
 
 **Компоненты:** `Omemo2PayloadCodec.swift`, `OmemoManager.prepareStanzaContent`, `MAM/carbon/live receive context`.
@@ -259,7 +261,7 @@
 
 ## Решения, которые фиксируются внутри соответствующих задач
 
-1. **Padding/time (OM2-04):** выбрать concrete minimum и clock margin после fixtures; это параметры клиента, чисел в стандарте нет. Time policy должна учитывать отсутствие надёжного sending-time context и требовать reject/alert при установленном mismatch. Удаление time для обхода проверки не считается исправлением.
+1. **Padding/time (OM2-04):** выбраны 512 serialized UTF-8 bytes + random0…200 ASCII и ±300 секунд включительно; это параметры клиента. Original sending time извлекается из оригинальной stanza/forwarded delay; отсутствие отмечается typed unavailable, установленный mismatch отклоняется до OM2 ratchet commit. Удаление time для обхода проверки не считается исправлением. [Реализованный контракт](omemo2-sce-affixes.md).
 2. **Replay/expiry (OM2-07):** event/window bounds и чтение old snapshots. C cache не должен быть единственным основанием replay guarantee: durable inbox/history receipts дополняют его после eviction. Старый v1 не содержит полной истории authenticated packets; доступные history receipts можно backfill, неизвестный MAC failure нельзя объявлять duplicate. Уточнить receipt retention/tombstones и доказать обязательное duplicate поведение до final gate.
 3. **Journal (OM2-08/09):** рекомендуемый первый вариант — bounded inbox/outbox в существующем protected aggregate, чтобы state+record сохранялись одним replacement. Задать лимит bytes/records, backpressure и recovery; не удалять незавершённый plaintext/ciphertext ради места. Проверить размер и latency. Если aggregate не выдерживает ожидаемую нагрузку, отдельным решением перейти к единой encrypted transaction store с key в Keychain и полной миграцией, без split-write псевдоатомарности.
 4. **Delivery (OM2-09):** использовать существующий XEP0198 ack hook; для no-SM server определить проверяемый fallback completion/retry. Server acceptance отличается от recipient decrypt ACK; оба состояния различаются. Для длительно отложенного prepared packet определить policy совместно с OM2-04: не обновлять защищённый time в старом ciphertext. При необходимости cancel/reprepare создаёт новый packet с новым encryption time и тем же logical message key, сохраняет исходный content и не откатывает использованные counters.

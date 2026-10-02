@@ -336,6 +336,282 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
         }
     }
 
+    func testHistoricalProtectedTimeUsesOriginalDeliveryTimeAcrossReceiveContexts() throws {
+        let original = historicalSendingTime
+        let contexts: [OMEMOReceiveContext] = [.live, .archive, .carbon, .syncPreview, .push, .modify]
+        for context in contexts {
+            let f = try fixture()
+            let message = try timedPacket(f, encryptedAt: original)
+            message.addChild(try deliveryTime(original))
+            addInjection(message)
+
+            let result = f.bob.prepareIncoming(message, context: context)
+
+            guard case let .verified(clean, proof) = result else {
+                return XCTFail("Historical time must use the original message time in \(context)")
+            }
+            XCTAssertTrue(proof.isAuthenticated)
+            XCTAssertEqual(clean.body, "historical authenticated content")
+            XCTAssertEqual(getDeliveryDate(clean), original)
+            XCTAssertNil(clean.element(forName: "reference"))
+        }
+    }
+
+    func testProtectedTimeMismatchRollsBackAndUnchangedCiphertextCanRetryAcrossContexts() throws {
+        let original = historicalSendingTime
+        let contexts: [OMEMOReceiveContext] = [.live, .archive, .carbon, .syncPreview, .push, .modify]
+        for context in contexts {
+            let f = try fixture()
+            let packet = try timedPacket(f, encryptedAt: original)
+            let wrong = XMPPMessage(from: packet.copy() as! DDXMLElement)
+            wrong.addChild(try deliveryTime(original.addingTimeInterval(301)))
+            addInjection(wrong)
+            let before = f.memory.records[f.bob.owner]
+
+            let failed = f.bob.prepareIncoming(wrong, context: context)
+
+            guard case let .failed(clean, _) = failed else { return XCTFail("Expected time mismatch in \(context)") }
+            XCTAssertEqual(f.memory.records[f.bob.owner], before, "Time validation must precede secret commit")
+            XCTAssertNil(clean.element(forName: "body"))
+            XCTAssertNil(clean.element(forName: "reference"))
+            XCTAssertFalse(failed.provenance.isAuthenticated)
+
+            packet.addChild(try deliveryTime(original))
+            guard case let .verified(retry, _) = f.bob.prepareIncoming(packet, context: context) else {
+                return XCTFail("A rejected packet must remain decryptable after correcting only transport time")
+            }
+            XCTAssertEqual(retry.body, "historical authenticated content")
+            XCTAssertEqual(packet.element(forName: "encrypted")?.xmlString, wrong.element(forName: "encrypted")?.xmlString)
+        }
+    }
+
+    func testExplicitOriginalTimeAllowsInclusiveClockMarginAndRejectsBeyondIt() throws {
+        let original = historicalSendingTime
+        for delta in [-300.001, -300, 300, 300.001] {
+            let f = try fixture()
+            let message = try timedPacket(f, encryptedAt: original)
+            let before = f.memory.records[f.bob.owner]
+            let supplied = OMEMOOriginalSendingTime(date: original.addingTimeInterval(delta), source: .caller)
+
+            let result = f.bob.prepareIncoming(message, context: .archive, originalSendingTime: supplied)
+
+            if abs(delta) <= 300 {
+                guard case .verified = result else { return XCTFail("The margin boundary is inclusive: \(delta)") }
+            } else {
+                guard case .failed = result else { return XCTFail("Expected clock mismatch: \(delta)") }
+                XCTAssertEqual(f.memory.records[f.bob.owner], before)
+            }
+        }
+    }
+
+    func testHistoricalTimeWithoutOriginalSourceNeverUsesArrivalClockOrForeignMetadata() throws {
+        let contexts: [OMEMOReceiveContext] = [.live, .archive, .carbon, .syncPreview, .push, .modify]
+        for context in contexts {
+            let f = try fixture()
+            let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+            message.addChild(try DDXMLElement(xmlString: "<time xmlns='urn:foreign' stamp='2030-01-01T00:00:00Z'/>"))
+            message.addChild(try DDXMLElement(xmlString: "<delay xmlns='urn:foreign' stamp='2030-01-01T00:00:00Z'/>"))
+
+            guard case let .verified(clean, _) = f.bob.prepareIncoming(message, context: context) else {
+                return XCTFail("Unavailable original time must not become the receive clock in \(context)")
+            }
+            XCTAssertEqual(clean.body, "historical authenticated content")
+            XCTAssertTrue(SCEReceivePolicy.children(of: clean, named: "time", xmlns: "urn:foreign").isEmpty)
+            XCTAssertTrue(SCEReceivePolicy.children(of: clean, named: "delay", xmlns: "urn:foreign").isEmpty)
+        }
+    }
+
+    func testRealMAMAndBothCarbonsBindHistoricalForwardedDelayAndPreserveRouting() throws {
+        for kind in ["mam", "sent", "received"] {
+            let f = try fixture()
+            let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+            message.addChild(try deliveryTime(historicalSendingTime))
+            let wire = try timedTransport(f, kind: kind, message: message, forwardedAt: historicalSendingTime)
+            // Outer delivery time belongs to the wrapper rather than the original encrypted leaf.
+            wire.addChild(try deliveryTime(historicalSendingTime.addingTimeInterval(86_400)))
+
+            let result = f.bob.prepareIncoming(wire, context: kind == "mam" ? .archive : .carbon)
+
+            guard case let .verified(clean, _) = result else { return XCTFail("Expected historical \(kind)") }
+            let leaf = try XCTUnwrap(kind == "mam" ? getArchivedMessageContainer(clean) :
+                (kind == "sent" ? getCarbonCopyMessageContainer(clean) : getCarbonForwardedMessageContainer(clean)))
+            XCTAssertEqual(leaf.body, "historical authenticated content")
+            XCTAssertEqual(leaf.from?.bare, f.alice.owner)
+            XCTAssertEqual(leaf.to?.bare, f.bob.owner)
+            XCTAssertTrue(clean.xmlString.contains(historicalSendingTime.XMPPFormattedDate))
+            if kind == "mam" {
+                XCTAssertEqual(getMAMQueryId(clean), "historical-query")
+                XCTAssertEqual(getMAMResultID(clean), "historical-archive")
+            }
+        }
+    }
+
+    func testMAMAndCarbonTimeMismatchAndConflictingSourcesFailBeforeRatchetCommit() throws {
+        for kind in ["mam", "sent", "received"] {
+            for isConflict in [false, true] {
+                let f = try fixture()
+                let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+                let delay = historicalSendingTime.addingTimeInterval(isConflict ? 20 : 301)
+                if isConflict { message.addChild(try deliveryTime(historicalSendingTime.addingTimeInterval(10))) }
+                let wire = try timedTransport(f, kind: kind, message: message, forwardedAt: delay)
+                let before = f.memory.records[f.bob.owner]
+
+                guard case let .failed(clean, _) = f.bob.prepareIncoming(wire, context: kind == "mam" ? .archive : .carbon) else {
+                    return XCTFail("Expected \(isConflict ? "source conflict" : "protected time mismatch") in \(kind)")
+                }
+                XCTAssertEqual(f.memory.records[f.bob.owner], before)
+                let leaf = kind == "mam" ? getArchivedMessageContainer(clean) :
+                    (kind == "sent" ? getCarbonCopyMessageContainer(clean) : getCarbonForwardedMessageContainer(clean))
+                XCTAssertNil(leaf?.body)
+                if kind == "mam" { XCTAssertEqual(getMAMQueryId(clean), "historical-query") }
+            }
+        }
+    }
+
+    func testMalformedAndDuplicateOriginalTimeMetadataFailBeforeRatchetCommit() throws {
+        for source in ["delivery", "delay"] {
+            for stamp in ["not-a-date", "2020-01-02T03:04:05", "2020-02-30T03:04:05Z"] {
+                let f = try fixture()
+                let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+                let element = source == "delivery" ? "time" : "delay"
+                let namespace = source == "delivery" ? "https://xabber.com/protocol/delivery" : "urn:xmpp:delay"
+                message.addChild(try DDXMLElement(xmlString: "<\(element) xmlns='\(namespace)' stamp='\(stamp)'/>"))
+                let before = f.memory.records[f.bob.owner]
+
+                guard case .failed = f.bob.prepareIncoming(message) else { return XCTFail("Expected malformed \(source): \(stamp)") }
+                XCTAssertEqual(f.memory.records[f.bob.owner], before)
+            }
+            let f = try fixture()
+            let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+            for _ in 0..<2 {
+                message.addChild(source == "delivery" ? try deliveryTime(historicalSendingTime) :
+                    try DDXMLElement(xmlString: "<delay xmlns='urn:xmpp:delay' stamp='\(historicalSendingTime.XMPPFormattedDate)'/>"))
+            }
+            let before = f.memory.records[f.bob.owner]
+            guard case .failed = f.bob.prepareIncoming(message) else { return XCTFail("Duplicate original \(source) is ambiguous") }
+            XCTAssertEqual(f.memory.records[f.bob.owner], before)
+        }
+    }
+
+    func testQualifiedDirectDelayAndPrefixedForwardedDelayCarryOriginalSendingTime() throws {
+        for isForwarded in [false, true] {
+            let f = try fixture()
+            let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+            let delay = "<d:delay xmlns:d='urn:xmpp:delay' stamp='\(historicalSendingTime.XMPPFormattedDate)'/>"
+            let wire: XMPPMessage
+            if isForwarded {
+                wire = XMPPMessage(from: try DDXMLElement(xmlString: "<message xmlns='jabber:client' from='relay.example.test' to='\(f.bob.owner)'><f:forwarded xmlns:f='urn:xmpp:forward:0'>\(delay)\(message.xmlString)</f:forwarded></message>"))
+            } else {
+                message.addChild(try DDXMLElement(xmlString: delay))
+                wire = message
+            }
+
+            guard case let .verified(clean, _) = f.bob.prepareIncoming(wire) else { return XCTFail("Expected qualified original delay") }
+            XCTAssertEqual((isForwarded ? getForwardedMessage(clean) : clean)?.body, "historical authenticated content")
+        }
+    }
+
+    func testSyncSnapshotAndSyncPushUseOriginalLeafTimeRatherThanEventStamp() throws {
+        for isSnapshot in [false, true] {
+            let f = try fixture()
+            let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+            message.addChild(try deliveryTime(historicalSendingTime))
+            let conversation = try timedConversation(f, message: message)
+
+            let prepared: ClientSyncConversationValue
+            if isSnapshot {
+                let query = try DDXMLElement(xmlString: "<query xmlns='https://xabber.com/protocol/synchronization' stamp='1893456000000000'>\(conversation.xmlString)</query>")
+                prepared = try XCTUnwrap(f.bob.prepareSyncConversations(query).first)
+            } else {
+                prepared = f.bob.prepareSyncConversation(conversation)
+            }
+
+            XCTAssertEqual(prepared.lastMessageEncryption, .authenticatedSCE(profile: .omemo2))
+            let leaf = try XCTUnwrap(prepared.materializedElement()?.element(forName: "metadata")?.element(forName: "last-message")?.element(forName: "message"))
+            XCTAssertEqual(leaf.element(forName: "body")?.stringValue, "historical authenticated content")
+            XCTAssertEqual(leaf.element(forName: "time")?.attributeStringValue(forName: "stamp"), historicalSendingTime.XMPPFormattedDate)
+        }
+    }
+
+    func testSyncTimeMismatchFailsWithoutUsingPreviewFallbackOrCommittingRatchet() throws {
+        for isSnapshot in [false, true] {
+            let f = try fixture()
+            let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+            message.addChild(try deliveryTime(historicalSendingTime.addingTimeInterval(301)))
+            addInjection(message)
+            let conversation = try timedConversation(f, message: message)
+            let before = f.memory.records[f.bob.owner]
+            let prepared: ClientSyncConversationValue
+            if isSnapshot {
+                let query = try DDXMLElement(xmlString: "<query xmlns='https://xabber.com/protocol/synchronization' stamp='1893456000000000'>\(conversation.xmlString)</query>")
+                prepared = try XCTUnwrap(f.bob.prepareSyncConversations(query).first)
+            } else {
+                prepared = f.bob.prepareSyncConversation(conversation)
+            }
+
+            XCTAssertEqual(prepared.lastMessageEncryption, .failedOMEMO)
+            XCTAssertFalse(prepared.lastMessageWasConsumed, "A real time-binding failure remains an error projection")
+            XCTAssertEqual(f.memory.records[f.bob.owner], before)
+            let leaf = prepared.materializedElement()?.element(forName: "metadata")?.element(forName: "last-message")?.element(forName: "message")
+            XCTAssertNil(leaf?.element(forName: "body"))
+            XCTAssertNil(leaf?.element(forName: "reference"))
+        }
+    }
+
+    func testSyncEventStampIsNotAnOriginalTimeFallbackWhenMessageTimeIsUnavailable() throws {
+        let f = try fixture()
+        let message = try timedPacket(f, encryptedAt: historicalSendingTime)
+        let conversation = try timedConversation(f, message: message)
+
+        let prepared = f.bob.prepareSyncConversation(conversation)
+
+        XCTAssertEqual(prepared.lastMessageEncryption, .authenticatedSCE(profile: .omemo2))
+        XCTAssertFalse(prepared.lastMessageWasConsumed)
+        XCTAssertEqual(prepared.materializedElement()?.element(forName: "metadata")?.element(forName: "last-message")?.element(forName: "message")?.element(forName: "body")?.stringValue,
+                       "historical authenticated content")
+    }
+
+    func testOriginalRoutingAffixMismatchRollsBackBeforeSuccessfulRetry() throws {
+        for attribute in ["from", "to"] {
+            let f = try fixture()
+            let packet = try timedPacket(f, encryptedAt: historicalSendingTime)
+            packet.addChild(try deliveryTime(historicalSendingTime))
+            let changed = XMPPMessage(from: packet.copy() as! DDXMLElement)
+            changed.removeAttribute(forName: attribute)
+            changed.addAttribute(withName: attribute, stringValue: "attacker@example.test")
+            let before = f.memory.records[f.bob.owner]
+
+            guard case .failed = f.bob.prepareIncoming(changed) else { return XCTFail("Expected authenticated \(attribute) mismatch") }
+            XCTAssertEqual(f.memory.records[f.bob.owner], before)
+            guard case let .verified(clean, _) = f.bob.prepareIncoming(packet) else {
+                return XCTFail("Original packet must remain decryptable after routing mismatch")
+            }
+            XCTAssertEqual(clean.body, "historical authenticated content")
+        }
+    }
+
+    private var historicalSendingTime: Date { Date(timeIntervalSince1970: 1_577_934_245) }
+
+    /// A historical peer packet is sealed directly, rather than invoking the
+    /// outgoing writer that intentionally refreshes encryption time on new sends.
+    private func timedPacket(_ f: Fixture, encryptedAt: Date) throws -> XMPPMessage {
+        try packet(f, xml: "<envelope xmlns='urn:xmpp:sce:1'><content><body xmlns='jabber:client'>historical authenticated content</body></content><rpad>historical short padding</rpad><from jid='\(f.alice.owner)'/><to jid='\(f.bob.owner)'/><time stamp='\(encryptedAt.XMPPFormattedDate)'/></envelope>")
+    }
+
+    private func deliveryTime(_ date: Date) throws -> DDXMLElement {
+        try DDXMLElement(xmlString: "<d:time xmlns:d='https://xabber.com/protocol/delivery' stamp='\(date.XMPPFormattedDate)'/>")
+    }
+
+    private func timedTransport(_ f: Fixture, kind: String, message: XMPPMessage, forwardedAt: Date) throws -> XMPPMessage {
+        let namespace = kind == "mam" ? "urn:xmpp:mam:2" : "urn:xmpp:carbons:2"
+        let name = kind == "mam" ? "result" : kind
+        return XMPPMessage(from: try DDXMLElement(xmlString: "<message xmlns='jabber:client' from='\(f.bob.owner)' to='\(f.bob.owner)'><w:\(name) xmlns:w='\(namespace)' id='historical-archive' queryid='historical-query'><f:forwarded xmlns:f='urn:xmpp:forward:0'><d:delay xmlns:d='urn:xmpp:delay' stamp='\(forwardedAt.XMPPFormattedDate)'/>\(message.xmlString)</f:forwarded></w:\(name)></message>"))
+    }
+
+    private func timedConversation(_ f: Fixture, message: XMPPMessage) throws -> DDXMLElement {
+        try DDXMLElement(xmlString: "<conversation xmlns='https://xabber.com/protocol/synchronization' jid='\(f.alice.owner)' type='urn:xmpp:omemo:2' stamp='1893456000000000'><metadata node='https://xabber.com/protocol/synchronization'><last-message>\(message.xmlString)</last-message></metadata></conversation>")
+    }
+
     private struct Fixture {
         let alice: XabberOMEMO2Storage
         let bob: OmemoManager

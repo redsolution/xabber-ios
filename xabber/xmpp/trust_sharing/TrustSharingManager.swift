@@ -93,8 +93,10 @@ class TrustSharingManager: AbstractXMPPManager {
 
     func didReceivedListOfContactsDevices(message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext) -> Bool {
         receiveListOfContactsDevices(message: message, encryption: encryption,
-            decryptMessage: { message in
-                try AccountManager.shared.find(for: self.owner)?.omemo.decryptMessage(message)
+            decryptMessage: { forwardedMessage in
+                let originalTime = try self.originalSendingTime(for: message)
+                return try AccountManager.shared.find(for: self.owner)?.omemo.decryptMessage(
+                    forwardedMessage, originalSendingTime: originalTime)
             },
             applyShare: { share, publisher in
                 self.applyShare(share, publisherBareJid: publisher, shouldRequestTrustedDevices: true)
@@ -263,6 +265,27 @@ class TrustSharingManager: AbstractXMPPManager {
         }
     }
 
+    /// Keep the original forwarding timestamp when the opaque XEN adapter
+    /// extracts a leaf. XEN notification/outer archive time is not its time.
+    internal func originalSendingTime(for message: XMPPMessage) throws -> OMEMOOriginalSendingTime? {
+        let bareMessage = recursivelyUnwrapped(message)
+        if SCEReceivePolicy.hasOMEMO2(bareMessage) ||
+            !SCEReceivePolicy.children(of: bareMessage, named: "share", xmlns: getPrimaryNamespace()).isEmpty {
+            return try OmemoManager.originalSendingTime(for: message, owner: owner)
+        }
+        let notifications = SCEReceivePolicy.children(of: bareMessage, named: "notification", xmlns: XMPPNotificationsManager.xmlns)
+        let nested = SCEReceivePolicy.children(of: bareMessage, named: "notify", xmlns: XMPPNotificationsManager.xmlns)
+            .flatMap { SCEReceivePolicy.children(of: $0, named: "notification", xmlns: XMPPNotificationsManager.xmlns) }
+        guard notifications.count + nested.count <= 1 else { throw OmemoManagerError.invalidEncryptedPayload }
+        guard let notification = (notifications + nested).first else { return nil }
+        let forwarded = SCEReceivePolicy.children(of: notification, named: "forwarded", xmlns: "urn:xmpp:forward:0")
+        guard forwarded.count <= 1 else { throw OmemoManagerError.invalidEncryptedPayload }
+        guard let forwarded = forwarded.first else { return nil }
+        let container = XMPPMessage(from: DDXMLElement(name: "message", xmlns: "jabber:client"))
+        container.addChild(SCEReceivePolicy.canonicalElementCopy(forwarded))
+        return try OmemoManager.originalSendingTime(for: container, owner: owner)
+    }
+
     private func forwardedPayloadMessage(from message: XMPPMessage) -> XMPPMessage? {
         if message.element(forName: "encrypted", xmlns: "urn:xmpp:omemo:2") != nil || message.element(forName: "share", xmlns: getPrimaryNamespace()) != nil {
             return message
@@ -277,12 +300,14 @@ class TrustSharingManager: AbstractXMPPManager {
                 ?? bareMessage.element(forName: "notification")
                 ?? bareMessage.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns)?.element(forName: "notification", xmlns: XMPPNotificationsManager.xmlns)
                 ?? bareMessage.element(forName: "notify", xmlns: XMPPNotificationsManager.xmlns)?.element(forName: "notification"),
-              notification.xmlns() == XMPPNotificationsManager.xmlns,
-              let forwarded = notification.element(forName: "forwarded", xmlns: "urn:xmpp:forward:0")
-                ?? notification.element(forName: "forwarded"),
-              let inner = forwarded.element(forName: "message") else {
+              SCEReceivePolicy.matches(notification, name: "notification", namespace: XMPPNotificationsManager.xmlns) else {
             return nil
         }
+        let forwarded = SCEReceivePolicy.children(of: notification, named: "forwarded", xmlns: "urn:xmpp:forward:0")
+        guard forwarded.count == 1 else { return nil }
+        let messages = SCEReceivePolicy.children(of: forwarded[0], named: "message", xmlns: "jabber:client")
+        guard messages.count == 1 else { return nil }
+        let inner = messages[0]
 
         let innerMessage = XMPPMessage(from: inner)
         if let originalFrom = originalFromAddress(in: bareMessage),

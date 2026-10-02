@@ -30,7 +30,7 @@ Dedicated XCTest covers state migration, checked Keychain persistence, profile s
 
 The current archive subsystem exposes persistence-confirmed per-page completion, but no account-wide catch-up barrier. `finishCatchUp()` is deliberately not called from raw MAM `<fin>`, per-page completion or chat-list synchronization. Used OPK cleanup needs a proven archive-completion coordinator; retaining keys is the safe migration policy for this stage.
 
-SCE time is syntactically validated; comparison with the reliable original stanza send time remains a follow-up integration requirement. Live server and web/iOS interoperability has not been exercised here. A peer still publishing legacy Signal bundles under `urn:xmpp:omemo:2` cannot establish a new OMEMO2 sending session. This stage does not assert complete client conformance beyond the covered paths. The inherited C curve arithmetic UBSan limitation from the dependency stage remains recorded separately.
+OM2-04 adds comparison with reliable original stanza/forwarded send time, with typed unavailable when that context is absent, strict routing/time affixes and minimum outgoing padding; see [the contract](omemo2-sce-affixes.md). Legacy Signal decrypt still has its inherited non-transactional state behavior. Live server and web/iOS interoperability has not been exercised here. A peer still publishing legacy Signal bundles under `urn:xmpp:omemo:2` cannot establish a new OMEMO2 sending session. This stage does not assert complete client conformance beyond the covered paths. The inherited C curve arithmetic UBSan limitation from the dependency stage remains recorded separately.
 
 ## Final verification — 2026-10-02
 

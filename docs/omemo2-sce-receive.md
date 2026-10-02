@@ -1,6 +1,6 @@
 # OM2-01 — Authenticated SCE receive
 
-Implemented 2026-10-02. References: [XEP-0420 0.5.0](https://xmpp.org/extensions/xep-0420.html), [implementation plan](omemo2-implementation-plan.md). This is the receive task; outgoing wire, padding/time policy, durable inbox/replay recovery and independent peer interoperability remain separate tasks.
+Implemented 2026-10-02. References: [XEP-0420 0.5.0](https://xmpp.org/extensions/xep-0420.html), [implementation plan](omemo2-implementation-plan.md). Follow-up [OM2-04](omemo2-sce-affixes.md) supplies original-time context and completes affix/padding policy. Outgoing wire, durable inbox/replay recovery and independent peer interoperability remain separately scoped tasks.
 
 ## Receive contract
 
