@@ -44,6 +44,8 @@ N05/N09 — недоработки рекомендаций, а не наруш�
 
 ## OM2-N02
 
+**Статус:** выполнено; [реализация и проверка](omemo2-n02-registration.md), 16/16 focused XCTest.
+
 **Регистрация собственного устройства и reannounce.** Старый OM2-06. Владелец: xmpp. Зависимость: N01.
 
 **Пробел:** fresh ID выбирается до own-list (`Encryption:145–165`); own headline без local ID не вызывает reannounce (`OmemoManager:638`). Disable вызывает публикацию bundle (`BundlePublication:233–234`); retract method `:204` не подключён.

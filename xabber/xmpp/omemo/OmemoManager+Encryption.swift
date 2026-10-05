@@ -149,7 +149,7 @@ extension OmemoManager {
     /// inaccessible state must not silently select a new device identity.
     internal func deviceIDForOMEMO2Preparation(
         legacyDeviceID: (() -> Int?)? = nil,
-        freshDeviceID: () -> Int = { Int(arc4random_uniform(XabberAxolotlStorage.deviceIdLimit - 1) + 1) }
+        freshDeviceID: () -> Int = { Int(arc4random_uniform(UInt32(Int32.max)) + 1) }
     ) throws -> Int {
         guard let storage = omemo2Storage, storage.owner == owner else {
             throw OMEMO2StorageError.stateUnavailable

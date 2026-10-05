@@ -1075,6 +1075,7 @@
 		9007FE73EB5B4C4E9F9070A5 /* OMEMO2DeviceList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47C1B37D1696469D9682B438 /* OMEMO2DeviceList.swift */; };
 		4ED33DAF96BE4D2BB9DAD399 /* OmemoManager+Devices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA3C223F509485ABDE1BF64 /* OmemoManager+Devices.swift */; };
 		BEEB34C4FD874580BF449E2A /* OMEMO2NormativeDeviceProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33C1ACC2FA4546C49C2018B8 /* OMEMO2NormativeDeviceProjectionTests.swift */; };
+		3691B324C9C54D31BA11A260 /* OMEMO2NormativeRegistrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AA42ED5B44A4843B31C90C8 /* OMEMO2NormativeRegistrationTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -2188,6 +2189,7 @@
 		47C1B37D1696469D9682B438 /* OMEMO2DeviceList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2DeviceList.swift; sourceTree = "<group>"; };
 		7DA3C223F509485ABDE1BF64 /* OmemoManager+Devices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OmemoManager+Devices.swift"; sourceTree = "<group>"; };
 		33C1ACC2FA4546C49C2018B8 /* OMEMO2NormativeDeviceProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeDeviceProjectionTests.swift; sourceTree = "<group>"; };
+		0AA42ED5B44A4843B31C90C8 /* OMEMO2NormativeRegistrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2NormativeRegistrationTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -4183,6 +4185,7 @@
 			children = (
 				2FEF2FD659F74533ABDAC250 /* OMEMO2NormativeDevicesTests.swift */,
 				33C1ACC2FA4546C49C2018B8 /* OMEMO2NormativeDeviceProjectionTests.swift */,
+				0AA42ED5B44A4843B31C90C8 /* OMEMO2NormativeRegistrationTests.swift */,
 				1A67624C4269446D9CC8250B /* OMEMO2OutgoingMetadataTests.swift */,
 				7A81B1C24E4B409AAD990042 /* OMEMO2SCEAffixTests.swift */,
 				B8EC5E0B3A01432EA78F1ED0 /* OMEMO2SCEReceiveTests.swift */,
@@ -6451,6 +6454,7 @@
 			files = (
 				46C13EE7989D47BD9A666E8B /* OMEMO2NormativeDevicesTests.swift in Sources */,
 				BEEB34C4FD874580BF449E2A /* OMEMO2NormativeDeviceProjectionTests.swift in Sources */,
+				3691B324C9C54D31BA11A260 /* OMEMO2NormativeRegistrationTests.swift in Sources */,
 				A0F9CA178D3F40FB95F321EF /* OMEMO2OutgoingMetadataTests.swift in Sources */,
 				7A81B1C24E4B409AAD990041 /* OMEMO2SCEAffixTests.swift in Sources */,
 				5BBB21AD8A314ABAB197798B /* OMEMO2SCEReceiveTests.swift in Sources */,

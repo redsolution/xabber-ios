@@ -24,6 +24,14 @@ import RealmSwift
 import Network
 
 extension OmemoManager {
+
+    internal var isOwnOMEMOEnabled: Bool {
+        (try? WRealm.safe()).flatMap { $0.object(ofType: AccountStorageItem.self, forPrimaryKey: owner)?.isEncryptionEnabled } ?? false
+    }
+
+    private var isOwnOMEMOExplicitlyDisabled: Bool {
+        (try? WRealm.safe()).flatMap { $0.object(ofType: AccountStorageItem.self, forPrimaryKey: owner)?.isEncryptionEnabled } == false
+    }
     
     internal final func createNode(_ xmppStream: XMPPStream, node: OmemoManager.NodeType) {
         let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
@@ -86,6 +94,12 @@ extension OmemoManager {
     }
     
     internal final func sendOwnDeviceBundle(_ xmppStream: XMPPStream, createNode: Bool) throws {
+        guard isOwnOMEMOEnabled else { return }
+        let realm = try WRealm.safe()
+        guard OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: owner)?.isKnown == true else {
+            getContactDevices(xmppStream, jid: owner, force: true)
+            throw OMEMO2StorageError.stateUnavailable
+        }
         guard let storage = self.omemo2Storage else { throw OmemoManagerError.sessionCreationFailed }
         let value = OMEMO2PublishedBundle(try storage.replenishPreKeys(minimumCount: 100))
         let pubsub = try OMEMO2BundleCodec.publication(value)
@@ -116,6 +130,7 @@ extension OmemoManager {
         guard let elementID = iq.elementID, iq.iqType == .result || iq.iqType == .error else { return false }
         if elementID == self.omemo2BundleConfigurationRequestID {
             self.omemo2BundleConfigurationRequestID = nil
+            guard !isOwnOMEMOExplicitlyDisabled else { self.shouldPublicate = false; return true }
             if iq.iqType == .result {
                 AccountManager.shared.find(for: self.owner)?.action { user, stream in
                     do { try user.omemo.sendOwnDeviceBundle(stream, createNode: false) }
@@ -127,6 +142,7 @@ extension OmemoManager {
             return true
         }
         guard let expectedHash = self.omemo2BundlePublications.removeValue(forKey: elementID) else { return false }
+        guard !isOwnOMEMOExplicitlyDisabled else { self.shouldPublicate = false; return true }
         guard iq.iqType == .result else {
             self.shouldPublicate = true
             if !self.omemo2PublicationReconfigured,
@@ -163,34 +179,38 @@ extension OmemoManager {
         return true
     }
 
-    internal final func sendOwnDevice(_ xmppStream: XMPPStream, createNode: Bool) throws {
+    internal final func sendOwnDevice(_ xmppStream: XMPPStream, createNode: Bool, excludingIDs: Set<Int> = []) throws {
         let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
         let realm = try WRealm.safe()
-        
-        let isOmemoEnabled = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner)?.isEncryptionEnabled ?? false
+        guard let snapshot = OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: owner), snapshot.isKnown else {
+            getContactDevices(xmppStream, jid: owner, force: true)
+            throw OMEMO2StorageError.stateUnavailable
+        }
+        let received = try DDXMLElement(xmlString: snapshot.devicesXML)
+        let receivedItem = DDXMLElement(name: "item", xmlns: OMEMO2DeviceListCodec.pubsub)
+        receivedItem.addChild(received)
+        let decoded = try OMEMO2DeviceListCodec.decode(receivedItem)
+        guard Set(decoded.ids) == Set(snapshot.deviceIDs) else { throw OmemoManagerError.invalidEncryptedPayload }
+        let isOmemoEnabled = isOwnOMEMOEnabled
+        let localID = localStore.localDeviceId()
         let publish = DDXMLElement(name: "publish")
         publish.addAttribute(withName: "node", stringValue: "\(getPrimaryNamespace()):devices")
         let item = DDXMLElement(name: "item")
         item.addAttribute(withName: "id", stringValue: "current")
         let devices = DDXMLElement(name: "devices", xmlns: getPrimaryNamespace())
         
-        realm
-            .objects(SignalDeviceStorageItem.self)
-            .filter("owner == %@ AND jid == %@", owner, owner)
-            .compactMap {
-                deviceItem -> DDXMLElement? in
-                if !isOmemoEnabled {
-                    if deviceItem.deviceId == Int(self.localStore.localDeviceId()) {
-                        return nil
-                    }
-                }
-                guard deviceItem.deviceId > 0, deviceItem.deviceId <= Int(Int32.max) else { return nil }
-                let deviceElement = DDXMLElement(name: "device")
-                deviceElement.addAttribute(withName: "id", integerValue: deviceItem.deviceId)
-                // Cached labels of other devices do not carry an authenticated
-                // label signature here, so this publication omits them.
-                return deviceElement
-            }.forEach { devices.addChild($0) }
+        for device in decoded.devices {
+            let id = device.attributeIntegerValue(forName: "id")
+            guard !excludingIDs.contains(id), isOmemoEnabled || id != localID else { continue }
+            // Copy received signed labels as well as IDs. Retained local identity
+            // rows neither add members nor replace a neighbour's server metadata.
+            devices.addChild(SCEReceivePolicy.canonicalElementCopy(device))
+        }
+        if isOmemoEnabled && localID > 0 && localID <= Int(Int32.max) && !excludingIDs.contains(localID) && !decoded.ids.contains(localID) {
+            let local = DDXMLElement(name: "device", xmlns: getPrimaryNamespace())
+            local.addAttribute(withName: "id", integerValue: localID)
+            devices.addChild(local)
+        }
         
         item.addChild(devices)
         publish.addChild(item)
@@ -202,6 +222,7 @@ extension OmemoManager {
     }
     
     public final func sendRetractOwnDevice(_ xmppStream: XMPPStream) {
+        guard localStore.localDeviceId() > 0 else { return }
         let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
         let retract = DDXMLElement(name: "retract")
         retract.addAttribute(withName: "node", stringValue: NodeType.bundle.rawValue)
@@ -215,23 +236,46 @@ extension OmemoManager {
     }
     
     public final func updateMyDevice(_ stream: XMPPStream) {
+        omemo2RegistrationStream = stream
         self.shouldPublicate = true
-        if !(AccountManager.shared.find(for: self.owner)?.devices.isAvailable ?? true) {
-            self.getOwnDevices(stream)
+        if localStore.localDeviceId() <= 0 {
+            beginOMEMO2Registration(stream)
+        } else if (try? WRealm.safe()).flatMap({ OMEMO2DeviceListStorageItem.get(in: $0, owner: owner, jid: owner)?.isKnown }) != true {
+            getContactDevices(stream, jid: owner, force: true)
         } else {
             try? self.publicateOwnDevice(stream, createNode: true)
         }
     }
     
     public final func publicateOwnDevice(_ xmppStream: XMPPStream, createNode: Bool) throws {
+        guard localStore.localDeviceId() > 0 else { return }
+        let realm = try WRealm.safe()
+        guard OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: owner)?.isKnown == true else {
+            getContactDevices(xmppStream, jid: owner, force: true)
+            return
+        }
+        let enabled = isOwnOMEMOEnabled
         if createNode {
             self.createNode(xmppStream, node: .device)
-            self.createNode(xmppStream, node: .bundle)
             self.configureNode(xmppStream, node: .device)
-            self.configureNode(xmppStream, node: .bundle)
+            if enabled {
+                self.createNode(xmppStream, node: .bundle)
+                self.configureNode(xmppStream, node: .bundle)
+            }
         }
-        try self.sendOwnDeviceBundle(xmppStream, createNode: createNode)
-        try self.sendOwnDevice(xmppStream, createNode: createNode)
+        if enabled {
+            try self.sendOwnDeviceBundle(xmppStream, createNode: createNode)
+            try self.sendOwnDevice(xmppStream, createNode: createNode)
+        } else {
+            try self.sendOwnDevice(xmppStream, createNode: createNode)
+            self.sendRetractOwnDevice(xmppStream)
+            self.shouldPublicate = false
+            try realm.write {
+                let id = localStore.localDeviceId()
+                realm.object(ofType: SignalIdentityStorageItem.self, forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: owner, jid: owner, deviceId: id))?.isPublicated = false
+                realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: SignalDeviceStorageItem.genPrimary(owner: owner, jid: owner, deviceId: id))?.isPublicated = false
+            }
+        }
     }
     
     public final func getOwnDevices(_ xmppStream: XMPPStream) {

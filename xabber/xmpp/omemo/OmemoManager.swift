@@ -57,6 +57,9 @@ open class OmemoManager: AbstractXMPPManager {
     internal var omemo2ControlSender: ((XMPPMessage) -> Void)?
     internal var omemo2DeviceListRequests: [String: OMEMO2DeviceListRequest] = [:]
     internal var omemo2DeviceListRequester: ((String) -> Void)?
+    internal var omemo2FreshDeviceIDGenerator: (() -> Int)?
+    internal weak var omemo2RegistrationStream: XMPPStream?
+    internal var omemo2FreshRegistrationPending = false
     internal var omemo2BundlePublications: [String: Data] = [:]
     internal var omemo2PublicationReconfigured = false
     internal var omemo2BundleConfigurationRequestID: String?
@@ -100,8 +103,23 @@ open class OmemoManager: AbstractXMPPManager {
         if stream.isDisconnected {
             return
         }
+        beginOMEMO2Registration(stream)
+    }
+
+    internal func beginOMEMO2Registration(_ stream: XMPPStream) {
+        omemo2RegistrationStream = stream
         do {
-            self.configureLocal(stream, for: try self.deviceIDForOMEMO2Preparation())
+            if let existingID = try existingOMEMO2DeviceID() {
+                omemo2FreshRegistrationPending = false
+                configureLocal(stream, for: existingID)
+            } else {
+                isOmemoPrepared = false
+                guard isOwnOMEMOEnabled else { return }
+                // Even a known persisted snapshot can predate a fresh installation.
+                // No SID, identity or prekey is committed before this current fetch.
+                omemo2FreshRegistrationPending = true
+                getContactDevices(stream, jid: owner, force: true)
+            }
         } catch {
             self.isOmemoPrepared = false
             DDLogDebug("OMEMO2 state could not be prepared")
@@ -110,6 +128,11 @@ open class OmemoManager: AbstractXMPPManager {
     
     public final func configureLocal(_ stream: XMPPStream, for deviceId: Int) {
         do {
+            guard try existingOMEMO2DeviceID() != nil else {
+                beginOMEMO2Registration(stream)
+                return
+            }
+            omemo2RegistrationStream = stream
             let realm = try WRealm.safe()
             let collection = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@", self.owner)
             try realm.write {
@@ -133,6 +156,11 @@ open class OmemoManager: AbstractXMPPManager {
                 try self.localStore.create(for: deviceId, context: self.signalContext)
             }
             _ = try self.ensureOMEMO2Prepared()
+            // Rebuild a missing shared SID mirror from the committed profile,
+            // including restart after fresh preparation. Existing values remain.
+            if CredentialsManager.shared.getDeviceId(for: owner) == nil {
+                CredentialsManager.shared.setDeviceId(deviceId, for: owner)
+            }
             self.isOmemoPrepared = true
             self.omemo2PublicationReconfigured = false
             self.omemo2BundlePublications.removeAll()
@@ -141,8 +169,26 @@ open class OmemoManager: AbstractXMPPManager {
             self.flushOMEMO2Controls()
             AccountManager.shared.find(for: self.owner)?.trustSharingManager.publicOwnTrustedDevices(publisherDeviceId: String(deviceId))
         } catch {
+            self.isOmemoPrepared = false
             DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
         }
+    }
+
+    /// A stored protected SID or an existing migration credential is never
+    /// regenerated as part of registration or a PEP collision check.
+    private func existingOMEMO2DeviceID() throws -> Int? {
+        guard let storage = omemo2Storage, storage.owner == owner else { throw OMEMO2StorageError.stateUnavailable }
+        do { return try storage.localBundle().deviceID }
+        catch OMEMO2StorageError.stateUnavailable {
+            let realm = try WRealm.safe()
+            guard realm.objects(SignalIdentityStorageItem.self)
+                .filter("owner == %@ AND jid == %@ AND protocolProfile == %@", owner, owner, Self.xmlns).isEmpty else {
+                throw OMEMO2StorageError.stateUnavailable
+            }
+        }
+        guard let id = CredentialsManager.shared.getDeviceId(for: owner) else { return nil }
+        guard id > 0, id <= Int(Int32.max) else { throw OMEMO2StorageError.invalidDeviceID }
+        return id
     }
     
     internal func checkInfo() {
@@ -437,7 +483,7 @@ extension OmemoManager {
                 }
             }
             AccountManager.shared.find(for: self.owner)?.action({ user, stream in
-                try? user.omemo.sendOwnDevice(stream, createNode: false)
+                try? user.omemo.sendOwnDevice(stream, createNode: false, excludingIDs: [deviceId])
                 user.omemo.deleteDeviceOrBundle(stream, jid: nil, itemId: deviceId, node: .bundle)
             })
         } catch {
@@ -456,7 +502,7 @@ extension OmemoManager {
                             .filter("owner == %@ AND deviceId == %@", self.owner, itemId)
                     )
                 }
-                try self.sendOwnDevice(xmppStream, createNode: false)
+                try self.sendOwnDevice(xmppStream, createNode: false, excludingIDs: [itemId])
             } catch {
                 DDLogDebug("OmemoManager: \(#function). \(error.localizedDescription)")
             }

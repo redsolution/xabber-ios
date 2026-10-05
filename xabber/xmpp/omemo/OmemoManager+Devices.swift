@@ -158,11 +158,48 @@ extension OmemoManager {
                 AccountManager.shared.find(for: owner)?.action { user, stream in user.omemo.getContactBundle(stream, jid: jid, deviceId: id, force: self.isRefreshRequest) }
             }
             isRefreshRequest = false
-            if jid == owner && shouldPublicate && !fromMessage {
-                AccountManager.shared.find(for: owner)?.action { user, stream in try? user.omemo.publicateOwnDevice(stream, createNode: createNode) }
+            if jid == owner {
+                onOwnDeviceListUpdated(stream, createNode: createNode)
             }
             return true
         } catch { DDLogDebug("OMEMO2 devices snapshot could not be stored"); return true }
+    }
+
+    internal func onOwnDeviceListUpdated(_ stream: XMPPStream?, createNode: Bool = false) {
+        guard let stream = stream ?? omemo2RegistrationStream else {
+            AccountManager.shared.find(for: owner)?.action { user, stream in user.omemo.onOwnDeviceListUpdated(stream, createNode: createNode) }
+            return
+        }
+        do {
+            let realm = try WRealm.safe()
+            guard let snapshot = OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: owner), snapshot.isKnown else { return }
+            if omemo2FreshRegistrationPending {
+                guard isOwnOMEMOEnabled, let storage = omemo2Storage else { return }
+                let existing = Set(snapshot.deviceIDs)
+                var freeID: Int?
+                for _ in 0..<256 {
+                    let candidate = omemo2FreshDeviceIDGenerator?() ?? Int(arc4random_uniform(UInt32(Int32.max)) + 1)
+                    guard candidate > 0, candidate <= Int(Int32.max) else { throw OMEMO2StorageError.invalidDeviceID }
+                    if !existing.contains(candidate) { freeID = candidate; break }
+                }
+                guard let id = freeID else { throw OMEMO2StorageError.invalidDeviceID }
+                // The protected aggregate is the first local identity write.
+                // Its existence after restart proves this collision check completed.
+                _ = try storage.prepare(deviceID: id)
+                omemo2FreshRegistrationPending = false
+                configureLocal(stream, for: id)
+                return
+            }
+            let localID = localStore.localDeviceId()
+            guard localID > 0 else { return }
+            if shouldPublicate {
+                try publicateOwnDevice(stream, createNode: createNode)
+            } else if isOwnOMEMOEnabled && !snapshot.deviceIDs.contains(localID) {
+                try sendOwnDevice(stream, createNode: false)
+            } else if !isOwnOMEMOEnabled && snapshot.deviceIDs.contains(localID) {
+                try publicateOwnDevice(stream, createNode: createNode)
+            }
+        } catch { DDLogDebug("OMEMO2 own device registration could not be completed") }
     }
 
     internal func requestMissingDeviceLists(jid: String) {
