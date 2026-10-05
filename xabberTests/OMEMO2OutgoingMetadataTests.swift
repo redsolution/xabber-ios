@@ -384,7 +384,25 @@ final class OMEMO2OutgoingMetadataTests: XCTestCase {
         device.state = .trusted
         let realm = try WRealm.safe()
         try realm.write { realm.add(device, update: .modified) }
+        try advertiseDevices(to: alice, jid: alice.owner, ids: [41])
+        try advertiseDevices(to: alice, jid: bob.owner, ids: [42])
+        try advertiseDevices(to: bob, jid: bob.owner, ids: [42])
+        try advertiseDevices(to: bob, jid: alice.owner, ids: [41])
         return Fixture(alice: alice, bob: bob, memory: memory)
+    }
+
+    private func advertiseDevices(to manager: OmemoManager, jid: String, ids: [Int]) throws {
+        let devices = ids.map { "<device id='\($0)'/>" }.joined()
+        let headline = try XMPPMessage(xmlString: """
+        <message xmlns='jabber:client' from='\(jid)' type='headline'>
+          <event xmlns='http://jabber.org/protocol/pubsub#event'>
+            <items node='urn:xmpp:omemo:2:devices'><item id='current'>
+              <devices xmlns='urn:xmpp:omemo:2'>\(devices)</devices>
+            </item></items>
+          </event>
+        </message>
+        """)
+        XCTAssertTrue(manager.onContactDeviceListReceiveHeadline(headline))
     }
 
     private func envelope(_ fixture: Fixture, body: String) -> String {

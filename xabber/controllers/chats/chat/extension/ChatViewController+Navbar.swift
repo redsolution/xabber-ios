@@ -82,7 +82,7 @@ extension ChatViewController {
                 
                     let collectionJid = realm
                         .objects(SignalDeviceStorageItem.self)
-                        .filter("jid == %@ AND owner == %@", jid, owner)
+                        .filter("jid == %@ AND owner == %@ AND isInDeviceList == true", jid, owner)
                     if collectionJid.count == 0 {
                         color = .label
                         indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.secondaryLabel)

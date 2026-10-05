@@ -493,7 +493,7 @@ class ContactInfoViewController: BaseViewController {
                         
                         let collectionJid = realm
                             .objects(SignalDeviceStorageItem.self)
-                            .filter("jid == %@ AND owner == %@", self.jid, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
+                            .filter("jid == %@ AND owner == %@ AND isInDeviceList == true", self.jid, self.owner, SignalDeviceStorageItem.TrustState.trusted.rawValue)
                         
                         
                         var indicator: UIImage? = nil

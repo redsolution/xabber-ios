@@ -42274,7 +42274,22 @@ final class OmemoSessionLifecycleTests: XCTestCase {
         try manager.localStore.create(for: deviceId, context: manager.signalContext)
         _ = try XCTUnwrap(manager.omemo2Storage).prepare(deviceID: deviceId)
         manager.isOmemoPrepared = true
+        try advertiseDevices(to: manager, jid: owner, ids: [deviceId])
         return manager
+    }
+
+    private func advertiseDevices(to manager: OmemoManager, jid: String, ids: [Int]) throws {
+        let devices = ids.map { "<device id='\($0)'/>" }.joined()
+        let headline = try XMPPMessage(xmlString: """
+        <message xmlns='jabber:client' from='\(jid)' type='headline'>
+          <event xmlns='http://jabber.org/protocol/pubsub#event'>
+            <items node='urn:xmpp:omemo:2:devices'><item id='current'>
+              <devices xmlns='urn:xmpp:omemo:2'>\(devices)</devices>
+            </item></items>
+          </event>
+        </message>
+        """)
+        XCTAssertTrue(manager.onContactDeviceListReceiveHeadline(headline))
     }
 
     private func addRemoteBundle(
@@ -42326,6 +42341,9 @@ final class OmemoSessionLifecycleTests: XCTestCase {
                 realm.add(preKeyItem, update: .modified)
             }
         }
+        let advertised = OMEMO2DeviceListStorageItem.get(in: realm, owner: manager.owner, jid: jid)
+            .map { Array($0.deviceIDs) } ?? []
+        try advertiseDevices(to: manager, jid: jid, ids: Array(Set(advertised + [deviceId])).sorted())
     }
 
     private func envelope(_ body: String, from owner: String, to recipient: String) -> String {

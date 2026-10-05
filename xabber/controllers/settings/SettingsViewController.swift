@@ -705,7 +705,7 @@ class SettingsViewController: BaseViewController {
                 }).disposed(by: bag)
 
             Observable
-                .collection(from: realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.jid, self.jid))
+                .collection(from: realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND isInDeviceList == true", self.jid, self.jid))
                 .debounce(.milliseconds(50), scheduler: MainScheduler.asyncInstance)
                 .subscribe { results in
                     self.omemoDeviceWarning = false

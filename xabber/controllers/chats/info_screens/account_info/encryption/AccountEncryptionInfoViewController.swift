@@ -115,7 +115,7 @@ class AccountEncryptionInfoViewController: SimpleBaseViewController {
             )
             self.devices = realm
                 .objects(SignalDeviceStorageItem.self)
-                .filter("owner == %@ AND jid == %@ AND deviceId != %@", self.owner, self.owner, Int(self.currentDeviceId))
+                .filter("owner == %@ AND jid == %@ AND isInDeviceList == true AND deviceId != %@", self.owner, self.owner, Int(self.currentDeviceId))
             self.update()
         } catch {
             DDLogDebug("AccountEncryptionInfoViewController: \(#function). \(error.localizedDescription)")

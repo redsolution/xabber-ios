@@ -110,7 +110,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
         super.subscribe()
         do {
             let realm = try Realm()
-            let theirs = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
+            let theirs = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND isInDeviceList == true", self.owner, self.jid)
             Observable
                 .collection(from: theirs)
                 .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
@@ -167,7 +167,7 @@ class TrustedDevicesViewController: SimpleBaseViewController {
             ])
             
             let verificationSession = realm.objects(VerificationSessionStorageItem.self).filter(predicate).first
-            let devices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
+            let devices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND isInDeviceList == true", self.owner, self.jid)
             
             var isVerificationNeeded = false
             for device in devices {

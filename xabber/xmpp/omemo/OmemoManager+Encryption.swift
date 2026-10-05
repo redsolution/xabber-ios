@@ -104,13 +104,18 @@ struct OmemoSendAvailabilityPolicy {
         conversationType: ClientSynchronizationManager.ConversationType,
         realm: Realm
     ) -> Availability {
+        guard conversationType.isEncrypted else { return .canSend }
+        guard OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: owner)?.isKnown == true,
+              OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: jid)?.isKnown == true else {
+            return .blockedByNoTrustedContactDevices
+        }
         let ownDeviceStates = realm
             .objects(SignalDeviceStorageItem.self)
-            .filter("owner == %@ AND jid == %@", owner, owner)
+            .filter("owner == %@ AND jid == %@ AND isInDeviceList == true", owner, owner)
             .map { $0.state }
         let contactDeviceStates = realm
             .objects(SignalDeviceStorageItem.self)
-            .filter("owner == %@ AND jid == %@", owner, jid)
+            .filter("owner == %@ AND jid == %@ AND isInDeviceList == true", owner, jid)
             .map { $0.state }
 
         return evaluate(
@@ -224,8 +229,14 @@ extension OmemoManager {
 
     func doubleRatchet(hmac: Data, jid: String, deviceId: Int) throws -> DDXMLElement {
         try OmemoManager.sessionQueue.sync {
-            let storage = try ensureOMEMO2Prepared()
             let requiresTrustedIdentity = hmac != Data(repeating: 0, count: 32)
+            if requiresTrustedIdentity {
+                let realm = try WRealm.safe()
+                guard OMEMO2DeviceListStorageItem.contains(in: realm, owner: owner, jid: jid, deviceID: deviceId) else {
+                    throw OmemoManagerError.noTrustedRecipientDevices
+                }
+            }
+            let storage = try ensureOMEMO2Prepared()
             if try !storage.sessionExists(jid: jid, deviceID: deviceId) {
                 try createSession(jid: jid, deviceId: deviceId, storage: storage, requiresTrustedIdentity: requiresTrustedIdentity)
             }
@@ -278,8 +289,13 @@ extension OmemoManager {
         let storage = try ensureOMEMO2Prepared()
         let localID = try storage.localBundle().deviceID
         let realm = try WRealm.safe()
+        guard OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: owner)?.isKnown == true,
+              OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: jid)?.isKnown == true else {
+            requestMissingDeviceLists(jid: jid)
+            throw OmemoManagerError.noTrustedRecipientDevices
+        }
         let recipients = realm.objects(SignalDeviceStorageItem.self)
-            .filter("owner == %@ AND jid == %@ AND state_ == %@", owner, jid, SignalDeviceStorageItem.TrustState.trusted.rawValue)
+            .filter("owner == %@ AND jid == %@ AND isInDeviceList == true AND state_ == %@", owner, jid, SignalDeviceStorageItem.TrustState.trusted.rawValue)
             .toArray().filter { !(jid == owner && $0.deviceId == localID) }
         guard !recipients.isEmpty else { throw OmemoManagerError.noTrustedRecipientDevices }
         let prepared = try Omemo2PayloadCodec.prepareOutgoingXML(message)
@@ -293,7 +309,7 @@ extension OmemoManager {
         header.addChild(remote)
         if jid != owner {
             let ownDevices = realm.objects(SignalDeviceStorageItem.self)
-                .filter("owner == %@ AND jid == %@ AND state_ == %@ AND deviceId != %@", owner, owner,
+                .filter("owner == %@ AND jid == %@ AND isInDeviceList == true AND state_ == %@ AND deviceId != %@", owner, owner,
                         SignalDeviceStorageItem.TrustState.trusted.rawValue, localID).toArray()
             if !ownDevices.isEmpty {
                 let own = DDXMLElement(name: "keys", xmlns: Self.xmlns)

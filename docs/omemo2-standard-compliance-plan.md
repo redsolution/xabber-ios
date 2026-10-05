@@ -30,6 +30,8 @@ N05/N09 — недоработки рекомендаций, а не наруш�
 
 ## OM2-N01
 
+**Статус:** выполнено; [реализация и проверка](omemo2-n01-devices.md), 89/89 XCTest.
+
 **Актуальный devices list и корректный набор получателей.** Старый OM2-05. Владелец: xmpp. Зависимости: нет.
 
 **Пробел:** `OmemoManager+Encryption.swift:281–301` выбирает trusted rows без node membership; rows также создаются из bundle (`OmemoManager.swift:850`) и incoming (`:1259`). Parser `:551` выбирает child по имени. IQ/event updates не защищены от старого IQ, перезаписывающего новый PEP list. Direct unknown-SID refresh отсутствует; chat-open force fetch и +notify уже существуют.

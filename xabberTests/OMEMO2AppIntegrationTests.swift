@@ -186,6 +186,7 @@ final class OMEMO2AppIntegrationTests: XCTestCase {
         let otherDevice = try XabberOMEMO2Storage(owner: "other-device-\(UUID().uuidString)@example.test", persistence: fixture.persistence)
         let otherBundle = try otherDevice.prepare(deviceID: 43, preKeyCount: 3)
         try cacheBundle(otherBundle, owner: fixture.bob.owner, jid: fixture.alice.owner)
+        try advertiseDevices(to: fixture.bob, jid: fixture.alice.owner, ids: [fixture.aliceBundle.deviceID, 43])
         var bobControls = [XMPPMessage]()
         var aliceControls = [XMPPMessage]()
         fixture.bob.omemo2ControlSender = { bobControls.append($0) }
@@ -420,8 +421,26 @@ final class OMEMO2AppIntegrationTests: XCTestCase {
         try bob.ensureOMEMO2Prepared()
         try cacheBundle(aliceBundle, owner: bobJID, jid: aliceJID)
         try cacheBundle(bobBundle, owner: aliceJID, jid: bobJID)
+        try advertiseDevices(to: alice, jid: aliceJID, ids: [aliceDeviceID])
+        try advertiseDevices(to: alice, jid: bobJID, ids: [bobDeviceID])
+        try advertiseDevices(to: bob, jid: bobJID, ids: [bobDeviceID])
+        try advertiseDevices(to: bob, jid: aliceJID, ids: [aliceDeviceID])
         return Fixture(alice: alice, bob: bob, aliceStore: aliceStore, bobStore: bobStore,
                        persistence: persistence, aliceBundle: aliceBundle, bobBundle: bobBundle)
+    }
+
+    private func advertiseDevices(to manager: OmemoManager, jid: String, ids: [Int]) throws {
+        let devices = ids.map { "<device id='\($0)'/>" }.joined()
+        let headline = try XMPPMessage(xmlString: """
+        <message xmlns='jabber:client' from='\(jid)' type='headline'>
+          <event xmlns='http://jabber.org/protocol/pubsub#event'>
+            <items node='urn:xmpp:omemo:2:devices'><item id='current'>
+              <devices xmlns='urn:xmpp:omemo:2'>\(devices)</devices>
+            </item></items>
+          </event>
+        </message>
+        """)
+        XCTAssertTrue(manager.onContactDeviceListReceiveHeadline(headline))
     }
 
     private func cacheBundle(_ bundle: OMEMO2LocalBundle, owner: String, jid: String) throws {

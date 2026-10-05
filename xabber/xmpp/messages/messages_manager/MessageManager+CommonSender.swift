@@ -300,6 +300,7 @@ extension MessageManager {
                 realm: realm
             )
             if conversationType.isEncrypted && !encryptedSendAvailability.canSend {
+                AccountManager.shared.find(for: item.owner)?.omemo.requestMissingDeviceLists(jid: item.opponent)
                 failEncryptedSend(OmemoManagerError.noTrustedRecipientDevices)
                 return
             }

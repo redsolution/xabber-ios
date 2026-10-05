@@ -54,6 +54,7 @@ class SignalDeviceStorageItem: Object {
     @objc dynamic var signedBy: String? = nil
     @objc dynamic var signedAt: Double = -1
     @objc dynamic var isPublicated: Bool = false
+    @objc dynamic var isInDeviceList: Bool = false
     
 
     var state: TrustState {

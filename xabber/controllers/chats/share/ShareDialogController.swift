@@ -338,7 +338,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
                     let realm = try WRealm.safe()
                     let collectionJid = realm
                         .objects(SignalDeviceStorageItem.self)
-                        .filter("jid == %@ AND owner == %@", item.jid, item.owner)
+                        .filter("jid == %@ AND owner == %@ AND isInDeviceList == true", item.jid, item.owner)
                     if collectionJid.count == 0 {
                         color = .secondaryLabel
                         indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.secondaryLabel)
@@ -441,7 +441,7 @@ class ShareDialogController: SimpleBaseViewController, UISearchBarDelegate, UISe
                     let realm = try WRealm.safe()
                     let collectionJid = realm
                         .objects(SignalDeviceStorageItem.self)
-                        .filter("jid == %@ AND owner == %@", item.jid, item.owner)
+                        .filter("jid == %@ AND owner == %@ AND isInDeviceList == true", item.jid, item.owner)
                     if collectionJid.count == 0 {
                         color = .secondaryLabel
                         indicatorAttach.image = UIImage(systemName: "lock.fill")?.withTintColor(.secondaryLabel)

@@ -27,7 +27,8 @@ enum XabberRealmSchema {
     /// raw stanza ID for XEP-SYNC unread-boundary lookups; only current-session
     /// MAM persistence proof can authorize UI. Schema 22 marks legacy Signal
     /// bundles and sessions before the separate OMEMO2 state is activated.
-    static let current: UInt64 = 22
+    /// Schema 23 separates authoritative PEP membership from historical trust.
+    static let current: UInt64 = 23
 }
 
 
@@ -425,6 +426,13 @@ func makeRealmMigrationConfiguration(
                         MessageStorageItem.rawProtocolStanzaIDNumericValue(
                             from: archivedID
                         )
+                }
+            }
+            if oldSchemaVersion < 23,
+               migration.newSchema.objectSchema.contains(where: { $0.className == SignalDeviceStorageItem.className() }) {
+                // Historical trusted rows cannot prove current PEP membership.
+                migration.enumerateObjects(ofType: SignalDeviceStorageItem.className()) { _, newObject in
+                    newObject?["isInDeviceList"] = false
                 }
             }
             if oldSchemaVersion < 22 {

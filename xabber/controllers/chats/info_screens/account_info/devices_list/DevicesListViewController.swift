@@ -264,7 +264,7 @@ class DevicesListViewController: BaseViewController {
                 .toArray()
             omemoDevices = realm
                 .objects(SignalDeviceStorageItem.self)
-                .filter("owner == %@ AND jid == %@", jid, jid)
+                .filter("owner == %@ AND jid == %@ AND isInDeviceList == true", jid, jid)
                 .toArray()
             deviceInstance = realm.object(
                 ofType: DeviceStorageItem.self,
@@ -380,7 +380,7 @@ class DevicesListViewController: BaseViewController {
             Observable
                 .changeset(from: realm
                     .objects(SignalDeviceStorageItem.self)
-                    .filter("owner == %@ AND jid == %@", jid, jid))
+                    .filter("owner == %@ AND jid == %@ AND isInDeviceList == true", jid, jid))
                 .skip(1)
 //                .debounce(.milliseconds(200), scheduler: MainScheduler.asyncInstance)
                 .subscribe(onNext: { (results) in

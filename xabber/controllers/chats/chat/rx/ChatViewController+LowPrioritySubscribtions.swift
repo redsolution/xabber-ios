@@ -644,11 +644,11 @@ extension ChatViewController {
         
         let ownDevicesCollection = realm
             .objects(SignalDeviceStorageItem.self)
-            .filter("owner == %@ AND jid == %@", self.owner, self.owner)
+            .filter("owner == %@ AND jid == %@ AND isInDeviceList == true", self.owner, self.owner)
 
         let contactDevicesCollection = realm
             .objects(SignalDeviceStorageItem.self)
-            .filter("owner == %@ AND jid == %@", self.owner, self.jid)
+            .filter("owner == %@ AND jid == %@ AND isInDeviceList == true", self.owner, self.jid)
         
         Observable
             .collection(from: ownDevicesCollection)
@@ -672,6 +672,17 @@ extension ChatViewController {
                 }
             }.disposed(by: self.bag)
 
+        // A known empty snapshot can change send availability without changing
+        // the device rows observed above.
+        Observable
+            .collection(from: realm.objects(OMEMO2DeviceListStorageItem.self)
+                .filter("owner == %@ AND jid IN %@", self.owner, [self.owner, self.jid]))
+            .debounce(.milliseconds(10), scheduler: MainScheduler.asyncInstance)
+            .observe(on: MainScheduler.asyncInstance)
+            .subscribe(onNext: { [weak self] _ in
+                self?.refreshOmemoSendAvailability()
+            }).disposed(by: self.bag)
+
         self.refreshOmemoSendAvailability()
 
         let verificationSessions = realm.objects(VerificationSessionStorageItem.self).filter("owner == %@ AND jid == %@", self.owner, self.jid)
@@ -681,7 +692,7 @@ extension ChatViewController {
             .observe(on: MainScheduler.asyncInstance)
             .subscribe { results in
                 if results.isEmpty {
-                    let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.distrusted.rawValue])
+                    let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND isInDeviceList == true AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.unknown.rawValue, SignalDeviceStorageItem.TrustState.distrusted.rawValue])
                     if !contactDevices.isEmpty {
                         if !self.topPanelState.value.isSubscriptionPanel {
                             self.setTopPanelState(.shouldRequestVerification)
@@ -707,13 +718,18 @@ extension ChatViewController {
                 }
             }.disposed(by: self.bag)
         
-        let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.distrusted.rawValue, SignalDeviceStorageItem.TrustState.unknown.rawValue])
+        let contactDevices = realm.objects(SignalDeviceStorageItem.self).filter("owner == %@ AND jid == %@ AND isInDeviceList == true AND state_ IN %@", self.owner, self.jid, [SignalDeviceStorageItem.TrustState.distrusted.rawValue, SignalDeviceStorageItem.TrustState.unknown.rawValue])
         Observable
             .collection(from: contactDevices)
             .debounce(.milliseconds(100), scheduler: MainScheduler.asyncInstance)
             .observe(on: MainScheduler.asyncInstance)
             .subscribe { results in
                 if results.isEmpty {
+                    if self.topPanelState.value == .shouldRequestVerification,
+                       realm.objects(VerificationSessionStorageItem.self)
+                        .filter("owner == %@ AND jid == %@", self.owner, self.jid).isEmpty {
+                        self.setTopPanelState(.none)
+                    }
                     return
                 }
                 
