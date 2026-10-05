@@ -151,6 +151,79 @@ final class PushExtensionRichContentTests: XCTestCase {
         XCTAssertEqual(preview.imageURLs, [inlineThumbnail])
     }
 
+    func testForeignThumbnailQNameNeverCreatesPreviewOrDownloadCandidate() throws {
+        for xmlns in ["urn:example:foreign-thumbnails", ""] {
+            let preview = try parse(
+                """
+                <message from='juliet@example.com/mobile' to='romeo@example.com'>
+                  <reference xmlns='https://xabber.com/protocol/references' type='mutable'>
+                    <file-sharing xmlns='https://xabber.com/protocol/files'>
+                      <file>
+                        <media-type>video/mp4</media-type>
+                        <name>balcony.mp4</name>
+                        <thumbnail xmlns='\(xmlns)' uri='https://cdn.example.com/foreign-preview.jpg'/>
+                      </file>
+                    </file-sharing>
+                  </reference>
+                </message>
+                """
+            )
+
+            XCTAssertEqual(preview.mediaItems.first?.kind, .video)
+            XCTAssertNil(preview.mediaItems.first?.thumbnailURL, xmlns)
+            XCTAssertTrue(preview.imageURLs.isEmpty, xmlns)
+            for includePlayableMedia in [false, true] {
+                XCTAssertTrue(RichNotificationAttachmentPolicy.candidates(
+                    for: preview.mediaItems,
+                    includePlayableMedia: includePlayableMedia
+                ).isEmpty, xmlns)
+            }
+        }
+    }
+
+    func testLegacyFilesThumbnailRemainsAvailable() throws {
+        let preview = try parse(
+            """
+            <message from='juliet@example.com/mobile' to='romeo@example.com'>
+              <reference xmlns='https://xabber.com/protocol/references' type='mutable'>
+                <file-sharing xmlns='https://xabber.com/protocol/files'>
+                  <file>
+                    <media-type>video/mp4</media-type>
+                    <name>balcony.mp4</name>
+                    <thumbnail uri='https://cdn.example.com/legacy-preview.jpg'/>
+                  </file>
+                </file-sharing>
+              </reference>
+            </message>
+            """
+        )
+
+        XCTAssertEqual(preview.mediaItems.first?.thumbnailURL, "https://cdn.example.com/legacy-preview.jpg")
+        XCTAssertEqual(preview.imageURLs, ["https://cdn.example.com/legacy-preview.jpg"])
+    }
+
+    func testStandardPrefixedThumbnailTakesPrecedenceOverLegacyThumbnail() throws {
+        let preview = try parse(
+            """
+            <message from='juliet@example.com/mobile' to='romeo@example.com'>
+              <reference xmlns='https://xabber.com/protocol/references' type='mutable'>
+                <file-sharing xmlns='https://xabber.com/protocol/files'>
+                  <file>
+                    <media-type>video/mp4</media-type>
+                    <name>balcony.mp4</name>
+                    <thumbnail uri='https://cdn.example.com/legacy-preview.jpg'/>
+                    <t:thumbnail xmlns:t='urn:xmpp:thumbs:1' uri='https://cdn.example.com/standard-preview.jpg'/>
+                  </file>
+                </file-sharing>
+              </reference>
+            </message>
+            """
+        )
+
+        XCTAssertEqual(preview.mediaItems.first?.thumbnailURL, "https://cdn.example.com/standard-preview.jpg")
+        XCTAssertEqual(preview.imageURLs, ["https://cdn.example.com/standard-preview.jpg"])
+    }
+
     func testMixedMediaUsesLocalizedAttachedFilesFallback() throws {
         let preview = try parse(
             """

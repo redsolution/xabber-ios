@@ -725,6 +725,7 @@ enum PushNotificationArchiveParser {
     private enum XMLNS {
         static let references = "https://xabber.com/protocol/references"
         static let files = "https://xabber.com/protocol/files"
+        static let thumbnails = "urn:xmpp:thumbs:1"
         static let encryptedFileSharing = "urn:xmpp:esfs:0"
         static let voiceMessages = "https://xabber.com/protocol/voice-messages"
         static let groups = "https://xabber.com/protocol/groups"
@@ -1491,7 +1492,9 @@ enum PushNotificationArchiveParser {
             ?? uri.flatMap { URL(string: $0)?.lastPathComponent }
         let size = trimmed(file.firstChild(named: "size", xmlns: XMLNS.files)?.stringValue).flatMap(Int64.init)
         let duration = trimmed(file.firstChild(named: "duration", xmlns: XMLNS.files)?.stringValue).flatMap(Int.init)
-        let thumbnailURL = trimmed(file.firstChild(named: "thumbnail", xmlns: XMLNS.files)?.attributeString("uri"))
+        let thumbnail = file.firstChild(named: "thumbnail", xmlns: XMLNS.thumbnails)
+            ?? file.firstChild(named: "thumbnail", xmlns: XMLNS.files)
+        let thumbnailURL = trimmed(thumbnail?.attributeString("uri"))
             .flatMap { PushNotificationMediaURLPolicy.previewURLString($0) }
         let kind: PushNotificationMediaItem.Kind
         if let forcedKind {
