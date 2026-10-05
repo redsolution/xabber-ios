@@ -10,7 +10,19 @@
 
 Общая OMEMO упаковка существующего encrypted custom content может быть исправлена: payload и процесс обмена доверием остаются прежними. Новые session reset, opt-out и indication ошибок относятся к поведению OMEMO. При изменении identity сохраняется действующая политика key-change, без новых способов выдавать trust.
 
-Основные13 задач закрывают применимые требования 1:1, own-device sync и используемых расширений. OM2-14 описывает стандартный MUC отдельно: его требования обязательны при заявленной поддержке этого сценария. Custom Xabber Groups не равны MUC. Этот план не обещает поддержку всех необязательных функций XMPP.
+Основные13 задач включают применимые требования 1:1/own-device sync, рекомендации XEP, надёжность интеграции и нашу приёмку. Это не перечень13 обязательных норм стандарта. OM2-14 описывает стандартный MUC отдельно: его требования действуют при поддержке этого сценария. Custom Xabber Groups не равны MUC. Этот план не обещает поддержку всех необязательных функций XMPP.
+
+## Нормативное основание и инженерный объём
+
+[Разделение по задачам и ссылки на оригинальные XEP](omemo2-remaining-work-2026-10-05.md#нормы-протокола-и-предложенная-реализация) уточнено 2026-10-05. MUST обозначает обязанность, SHOULD — рекомендацию. Детали предлагаемой реализации и критерии наших тестов не становятся требованиями XEP из-за включения в задачу.
+
+- OM2-08 и архитектурная часть OM2-09 (journal, atomic recipient batch, outbox, transport ACK) — надёжность приложения; OMEMO/SCE не предписывают эти структуры. Peer empty replies/heartbeat рассматриваются отдельно, с их MUST/SHOULD.
+- Persisted account-wide catch-up proof в OM2-11 — выбранная delayed-cleanup стратегия. Eventual private-OPK deletion обязательна; задержка до catch-up рекомендована, немедленное удаление разрешено.
+- OM2-13 — методы нашей приёмки, включая независимый обмен, XCTest, fuzz и sanitizers. Это не отдельные wire требования.
+- Xabber edit/rewrite/TTL требуют применения общего SCE правила и проверки серверного контракта; таких расширений по имени в XEP нет. Для TTL сначала установить client/server семантику.
+- Per-chat reset, weekly rotation, 512-byte minimum и ±300-second margin — решения клиента. XEP допускает global manual reset и не фиксирует выбранные padding/margin числа.
+
+Минимальный объём соответствия протоколу и дополнительный инженерный объём следует оценивать отдельно; число открытых задач не равно числу нарушенных обязательных норм.
 
 ## Сохраняемые инварианты
 
@@ -170,7 +182,9 @@
 
 ### OM2-09 — Атомарная отправка получателям и сохраняемый outbox
 
-**Уровень:** надёжность + обязательные controls. **Владелец:** business-logic. **Зависимости:** OM2-02, OM2-03, OM2-05, OM2-07, OM2-08.
+**Уровень:** надёжность интеграции + MUST/SHOULD peer controls. **Владелец:** business-logic. **Зависимости:** OM2-02, OM2-03, OM2-05, OM2-07, OM2-08.
+
+Общий initial empty reply — SHOULD; heartbeat и empty reply при выбранной отсрочке OPK cleanup — MUST. XEP-0198 transport ACK не равен peer reply; outbox/atomic batch ниже — предлагаемые инженерные решения, не буквальные требования OMEMO.
 
 **Компоненты:** `XabberOMEMO2Storage.swift`, `OmemoManager+Encryption.swift`, `MessageManager+CommonSender.swift`, `AccountStreamDelegate.swift:1127`, `ReliableMessageDelivery.swift`.
 
@@ -287,10 +301,10 @@
 3. Ratchet, identity, membership, OPK/SPK lifecycle и crash recovery соответствуют принятому контракту; migration/restart не теряют сообщения и ключи.
 4. New web↔iOS и независимый peer проходят в обе стороны; ошибки и ограничения фиксируются, а не маскируются fallback.
 5. Target builds, pins и code/static/regression gates воспроизводимы. Trust-exchange protocol остаётся самостоятельной отложенной областью.
-6. Если OM2-14 не выполнена, результат обозначается как conformant base1:1/own-device support без заявления MUC support.
+6. Если OM2-14 не выполнена, MUC support не заявляется. Базовое 1:1/own-device соответствие описывается с явными согласованными исключениями Xabber (fallback/hints/markers), без заявления полного буквального SCE sending conformance.
 
 ## Статус этого документа
 
-Сверено 2026-10-05 на `f9bbfe47`: OM2-01, OM2-02 в согласованном EME-only объёме и OM2-04 выполнены. Crypto profile и application migration выполнены до этого плана. [Актуальные остатки с production evidence](omemo2-remaining-work-2026-10-05.md): 10 основных задач OM2-03/05–13 плюс условный standard MUC OM2-14. Следующая задача — OM2-03; параллельно допустим OM2-07 в C. Сохраняются явные правила пользователя: маркеры/квитанции открыты, fallback body остаётся, новых store hints нет, trust exchange отложен.
+Сверено 2026-10-05 на `f9bbfe47`: OM2-01, OM2-02 в согласованном EME-only объёме и OM2-04 выполнены. Crypto profile и application migration выполнены до этого плана. [Актуальные остатки с production evidence](omemo2-remaining-work-2026-10-05.md): 10 задач плана OM2-03/05–13 (нормы + инженерная надёжность + приёмка), условный standard MUC OM2-14. Следующая задача — OM2-03; параллельно допустим OM2-07 в C. Сохраняются явные правила пользователя: маркеры/квитанции открыты, fallback body остаётся, новых store hints нет, trust exchange отложен.
 
 Пересмотр изменяет только документы. Последние XCTest gates принадлежат OM2-04 (256/256 + final83/83); новый build/test/live gate 2026-10-05 не запускался. Прежние124/124 и C replay repro относятся к исходному аудиту, а не к текущему подтверждению всех открытых задач.
