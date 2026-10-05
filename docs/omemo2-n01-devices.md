@@ -9,3 +9,6 @@ Completed 2026-10-05. XEP-0384 recipient membership is independent of persisted 
 - Unknown membership initiates discovery and fails closed; a valid unknown incoming SID refreshes its sender list without granting membership. Chat/share/device indicators use active projections while trust history remains stored.
 
 Verification: expected failing XCTest before implementation; final cached Debug isolated simulator run 89/89 passed (N01 19, UI projection 4, app integration 18, outgoing metadata 14, state storage 29, session lifecycle 5). App and push extension built by test action. No live server interoperability run. N02 handles own publication/registration; N03 handles edits.
+
+
+Final restart review: a persisted request token survives the manager that could correlate its IQ. Discovery and unknown-SID refresh now suppress a request only when that token belongs to a live request in the current manager. Three test cases were added first; both lost-request scenarios failed before the fix, while live-request deduplication remained green. Final N01 suite22/22 passed in the combined simulator gate; unrelated legacy push thumbnail fixture failures were diagnosed separately.

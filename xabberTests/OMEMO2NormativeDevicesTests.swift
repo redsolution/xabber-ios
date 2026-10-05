@@ -196,6 +196,58 @@ final class OMEMO2NormativeDevicesTests: XCTestCase {
         XCTAssertThrowsError(try reloaded.encryptMessage(message: envelope(f), to: f.bob.owner))
     }
 
+    func testReloadRetriesMissingListAfterPersistedRequestWasLost() throws {
+        let f = try fixture()
+        let missingJID = "missing-\(UUID().uuidString.lowercased())@example.test"
+        let oldStream = Stream()
+        f.alice.getContactDevices(oldStream, jid: missingJID)
+        let oldID = try XCTUnwrap(oldStream.elements.last?.attributeStringValue(forName: "id"))
+        let reloaded = OmemoManager(withOwner: f.alice.owner)
+        let stream = Stream()
+        reloaded.omemo2DeviceListRequester = { [weak reloaded] jid in reloaded?.getContactDevices(stream, jid: jid, force: true) }
+
+        reloaded.requestMissingDeviceLists(jid: missingJID)
+
+        XCTAssertEqual(stream.elements.count, 1, "A persisted token without a live request cannot block discovery")
+        XCTAssertEqual(stream.elements.first?.attributeStringValue(forName: "to"), missingJID)
+        let list = try XCTUnwrap(OMEMO2DeviceListStorageItem.get(in: WRealm.safe(), owner: reloaded.owner, jid: missingJID))
+        XCTAssertFalse(list.isKnown)
+        XCTAssertNotEqual(list.pendingRequestID, oldID)
+    }
+
+    func testReloadRetriesUnknownSenderRefreshAfterPersistedRequestWasLost() throws {
+        let f = try fixture()
+        let oldStream = Stream()
+        f.alice.getContactDevices(oldStream, jid: f.bob.owner, force: true)
+        let oldID = try XCTUnwrap(oldStream.elements.last?.attributeStringValue(forName: "id"))
+        let reloaded = OmemoManager(withOwner: f.alice.owner)
+        let stream = Stream()
+        reloaded.omemo2DeviceListRequester = { [weak reloaded] jid in reloaded?.getContactDevices(stream, jid: jid, force: true) }
+
+        reloaded.refreshDevicesForUnknownSender(jid: f.bob.owner, deviceID: 43)
+
+        XCTAssertEqual(stream.elements.count, 1, "Unknown SID refresh resumes after restart")
+        XCTAssertEqual(stream.elements.first?.attributeStringValue(forName: "to"), f.bob.owner)
+        let list = try XCTUnwrap(OMEMO2DeviceListStorageItem.get(in: WRealm.safe(), owner: reloaded.owner, jid: f.bob.owner))
+        XCTAssertEqual(Array(list.deviceIDs), [42], "Refreshing does not grant the unknown device membership")
+        XCTAssertNotEqual(list.pendingRequestID, oldID)
+    }
+
+    func testCurrentLiveRequestPreventsDuplicateDiscoveryAndUnknownSenderRefresh() throws {
+        let f = try fixture()
+        let missingJID = "pending-\(UUID().uuidString.lowercased())@example.test"
+        let stream = Stream()
+        f.alice.getContactDevices(stream, jid: missingJID)
+        let id = try XCTUnwrap(stream.elements.last?.attributeStringValue(forName: "id"))
+        f.alice.omemo2DeviceListRequester = { jid in f.alice.getContactDevices(stream, jid: jid, force: true) }
+
+        f.alice.requestMissingDeviceLists(jid: missingJID)
+        f.alice.refreshDevicesForUnknownSender(jid: missingJID, deviceID: 43)
+
+        XCTAssertEqual(stream.elements.count, 1, "The current manager's correlated request is still pending")
+        XCTAssertEqual(try XCTUnwrap(OMEMO2DeviceListStorageItem.get(in: WRealm.safe(), owner: f.alice.owner, jid: missingJID)).pendingRequestID, id)
+    }
+
     func testUnknownValidSenderRefreshesDevicesWithoutGrantingMembership() throws {
         let f = try fixture(); let stream = Stream()
         try headline(f.bob, jid: f.alice.owner, devices: "")

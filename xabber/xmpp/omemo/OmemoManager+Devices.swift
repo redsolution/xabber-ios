@@ -206,7 +206,7 @@ extension OmemoManager {
         guard let realm = try? WRealm.safe() else { return }
         for target in Set([owner, jid]) {
             let list = OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: target)
-            guard list?.isKnown != true, list?.pendingRequestID == nil else { continue }
+            guard list?.isKnown != true, !hasLiveDeviceListRequest(list) else { continue }
             if let request = omemo2DeviceListRequester { request(target) }
             else { AccountManager.shared.find(for: owner)?.action { user, stream in user.omemo.getContactDevices(stream, jid: target, force: true) } }
         }
@@ -215,9 +215,17 @@ extension OmemoManager {
     internal func refreshDevicesForUnknownSender(jid: String, deviceID: Int) {
         guard let realm = try? WRealm.safe(),
               !OMEMO2DeviceListStorageItem.contains(in: realm, owner: owner, jid: jid, deviceID: deviceID),
-              OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: jid)?.pendingRequestID == nil else { return }
+              !hasLiveDeviceListRequest(OMEMO2DeviceListStorageItem.get(in: realm, owner: owner, jid: jid)) else { return }
         if let request = omemo2DeviceListRequester { request(jid) }
         else { AccountManager.shared.find(for: owner)?.action { user, stream in user.omemo.getContactDevices(stream, jid: jid, force: true) } }
+    }
+
+    private func hasLiveDeviceListRequest(_ snapshot: OMEMO2DeviceListStorageItem?) -> Bool {
+        guard let snapshot, let id = snapshot.pendingRequestID,
+              let request = omemo2DeviceListRequests[id] else { return false }
+        // Realm outlives the manager. A persisted token alone cannot represent
+        // an IQ that can still be correlated after process restart.
+        return request.jid == snapshot.jid
     }
 }
 
