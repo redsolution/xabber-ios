@@ -5,11 +5,17 @@ enum OMEMOReceiveContext {
     case live, archive, carbon, syncPreview, push, modify
 }
 
+/// Transport ownership checked by the sync IQ receiver. This grants access to
+/// server timestamps only; authentication still comes from the SCE decoder.
+enum OMEMOReceiveServerContext: Equatable {
+    case unverified, accountServer
+}
+
 /// The original stanza's transport timestamp, distinct from the time at which
 /// an archive page, carbon, notification or sync event reaches this client.
 struct OMEMOOriginalSendingTime: Equatable {
     enum Source: Equatable {
-        case xabberDelivery, forwardedDelay, stanzaDelay, caller
+        case xabberDelivery, forwardedDelay, stanzaDelay, rewriteReplacement, caller
     }
 
     let date: Date

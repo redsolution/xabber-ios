@@ -30,7 +30,7 @@ N05/N09 — недоработки рекомендаций, а не наруш�
 
 ## OM2-N01
 
-**Статус:** выполнено; [реализация и проверка](omemo2-n01-devices.md), 89/89 XCTest.
+**Статус:** выполнено; [реализация и проверка](omemo2-n01-devices.md), 89/89 initial XCTest; final N01 suite22/22 после restart follow-up.
 
 **Актуальный devices list и корректный набор получателей.** Старый OM2-05. Владелец: xmpp. Зависимости: нет.
 
@@ -57,6 +57,8 @@ N05/N09 — недоработки рекомендаций, а не наруш�
 **XCTest:** `OMEMO2NormativeRegistrationTests.swift` — deterministic collision, existing-ID continuity, empty own node, reannounce с сохранением остальных IDs, restart до first publication, disable без повторной bundle publication.
 
 ## OM2-N03
+
+**Статус:** выполнено; [реализация и проверка](omemo2-n03-encrypted-edits.md), N03 25/25, общий gate351/351 XCTest; сервер не изменялся.
 
 **Защищённый текст редактирования.** Ограниченный старый OM2-03. Владелец: xmpp/business. Зависимость для завершения: N01; sender работу можно начинать независимо.
 
@@ -153,7 +155,7 @@ SHOULD recovery: только при доказанном отсутствии s
 3. **N04 → N05 → N06:** подтверждённые повторы/retention, due SPK lifecycle и finite consumed-OPK cleanup.
 4. **N07 → N08 → N09:** manual/missing-session recovery, opt-out gate и incoming trust indication.
 
-Следующая задача — **OM2-N01**. Приоритет MUST внутри смешанных задач выше SHOULD; N05/N09 можно выполнить после обязательных частей, не называя их MUST violations. Не добавлять зависимости на отложенные journal/outbox/MUC/trust-exchange задачи.
+N01 → N02 → N03 выполнены; следующая задача — **OM2-N04**. Приоритет MUST внутри смешанных задач выше SHOULD; N05/N09 можно выполнить после обязательных частей, не называя их MUST violations. Не добавлять зависимости на отложенные journal/outbox/MUC/trust-exchange задачи.
 
 ## Проверка каждой реализации
 
@@ -166,3 +168,8 @@ Final XML, настоящие ciphertext, реальный route, restart/migrat
 ## Результат планирования
 
 Production/dependency/test код не менялся, build/test не запускались: запрос касался отбора и планирования. Новые implementation tasks остаются open; эта planning task завершена. Результаты прежних XCTest не выдаются за проверку будущих исправлений.
+
+
+## Результат N01 → N02 → N03
+
+Выполнено 2026-10-05. Финальный cached Debug Simulator gate351/351; app и push extension собраны. N03 следует фактическим QName/архивному поведению неизменённого сервера: protected SCE client content, server-owned archive routing и version timestamp при сохранённой creation date, включая sync snapshot/push. N01 restart lost-request follow-up и pre-existing push thumbnail QName repair оформлены отдельно. Trust exchange, plaintext markers/receipts, fallback body и hints остаются согласованными с указаниями пользователя. Live server interoperability не выполнялся; N04–N09 остаются открытыми.

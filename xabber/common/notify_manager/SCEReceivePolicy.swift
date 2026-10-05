@@ -39,6 +39,17 @@ enum SCEReceivePolicy {
         }
     }
 
+    /// The server rewrite codec uses its own namespace for the embedded
+    /// message; earlier client history also contains jabber:client messages.
+    /// This transport exception applies only inside a recognized notification.
+    static func rewriteMessages(in wrapper: DDXMLElement) -> [DDXMLElement] {
+        guard matches(wrapper, name: "replace", namespace: "https://xabber.com/protocol/rewrite#notify") else { return [] }
+        let namespaces: Set<String> = [client, "https://xabber.com/protocol/rewrite", "https://xabber.com/protocol/rewrite#notify"]
+        return (wrapper.children?.compactMap { $0 as? DDXMLElement } ?? []).filter {
+            $0.localName == "message" && namespaces.contains($0.uri ?? "")
+        }
+    }
+
     static func hasOMEMO2(_ element: DDXMLElement) -> Bool {
         !children(of: element, named: "encrypted", xmlns: omemo).isEmpty
     }

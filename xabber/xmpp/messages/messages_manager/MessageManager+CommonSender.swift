@@ -733,6 +733,7 @@ extension MessageManager {
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
                 let stanzaId = instance.archivedId
                 let conversationType = instance.conversationType
+                let original = Self.originalMessageForEdit(instance, in: realm)
                 references.forEach {
                     $0.owner = self.owner
                     $0.jid = instance.opponent
@@ -755,8 +756,45 @@ extension MessageManager {
                     instance.messageError = "Editing".localizeString(id: "editing", arguments: [])
                     instance.editDate = Date()
                 }
-                let message = XMPPMessage()
-                message.addBody(body)
+                let message = XMPPMessage(from: DDXMLElement(name: "message", xmlns: "jabber:client"))
+                if let original {
+                    for name in ["type", "id", "from", "to"] {
+                        if let value = original.attributeStringValue(forName: name) {
+                            message.addAttribute(withName: name, stringValue: value)
+                        }
+                    }
+                    if let origin = SCEReceivePolicy.children(of: original, named: "origin-id", xmlns: "urn:xmpp:sid:0").first {
+                        message.addChild(origin.copy() as! DDXMLElement)
+                    }
+                } else if !conversationType.isEncrypted {
+                    // Preserve the existing ordinary-message fallback.
+                    message.addAttribute(withName: "type", stringValue: conversationType == .group ? "groupchat" : "chat")
+                    message.addAttribute(withName: "id", stringValue: instance.messageId)
+                    message.addAttribute(withName: "from", stringValue: self.owner)
+                    message.addAttribute(withName: "to", stringValue: instance.opponent)
+                    message.addOriginId(instance.messageId)
+                }
+                if conversationType.isEncrypted {
+                    // The server targets the archived stanza by replace.id and
+                    // retains its routing identifiers. Recover known bare
+                    // bindings when original XML is unavailable or incomplete;
+                    // do not synthesize an old XML id, resource or thread.
+                    if message.attributeStringValue(forName: "from") == nil {
+                        message.addAttribute(withName: "from", stringValue: self.owner)
+                    }
+                    if message.attributeStringValue(forName: "to") == nil {
+                        message.addAttribute(withName: "to", stringValue: instance.opponent)
+                    }
+                }
+                if let thread = original.flatMap({ SCEReceivePolicy.children(of: $0, named: "thread", xmlns: "jabber:client").first }) {
+                    message.addChild(thread.copy() as! DDXMLElement)
+                }
+                // KissXML's addBody creates a namespace-less DOM node even
+                // under a jabber:client message. Bind the QName explicitly for
+                // the common SCE sender's validation before serialization.
+                let editedBody = DDXMLElement(name: "body", xmlns: "jabber:client")
+                editedBody.stringValue = body
+                message.addChild(editedBody)
                 if let mentions = instance.createMentionsElement() {
                     message.addChild(mentions)
                 }
@@ -780,6 +818,28 @@ extension MessageManager {
         } catch {
             
         }
+    }
+
+    private static func originalMessageForEdit(_ instance: MessageStorageItem, in realm: Realm) -> XMPPMessage? {
+        let original: DDXMLElement
+        if let current = instance.originalStanza {
+            original = current.copy() as! DDXMLElement
+        } else {
+            guard let stored = realm.object(ofType: MessageStanzaStorageItem.self, forPrimaryKey: instance.primary + "_stanza"),
+                  stored.owner == instance.owner,
+                  let parsed = try? DDXMLElement(xmlString: stored.stanza) else { return nil }
+            original = parsed
+        }
+        guard original.localName == "message",
+              (original.uri ?? "").isEmpty || original.uri == "jabber:client" else { return nil }
+        if (original.uri ?? "").isEmpty {
+            // Older app-private outgoing stanzas were stored without the
+            // enclosing stream's default namespace. Restore that context only
+            // for this local format; foreign namespaces are rejected above.
+            original.addNamespace(DDXMLNode.namespace(withName: "", stringValue: "jabber:client") as! DDXMLNode)
+        }
+        guard let parsed = try? DDXMLElement(xmlString: original.xmlString) else { return nil }
+        return XMPPMessage(from: parsed)
     }
         
     private func publishLocalOutgoingAdmission(

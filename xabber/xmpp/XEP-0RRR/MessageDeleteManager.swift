@@ -274,12 +274,33 @@ class MessageDeleteManager: AbstractXMPPManager {
         let replacements = SCEReceivePolicy.children(of: message, named: "replace", xmlns: "https://xabber.com/protocol/rewrite#notify")
         guard replacements.count == 1 else { return false }
         let replace = replacements[0]
-        let messages = SCEReceivePolicy.children(of: replace, named: "message", xmlns: "jabber:client")
+        let messages = SCEReceivePolicy.rewriteMessages(in: replace)
         guard messages.count == 1 else { return false }
-        let messageContainer = messages[0]
+        let messageContainer = messages[0].copy() as! DDXMLElement
         // Ciphertext never grants permission to apply its plaintext siblings.
         // Only the receive pipeline can provide evidence for reconstructed edits.
-        if SCEReceivePolicy.hasOMEMO2(messageContainer) && !encryption.isAuthenticated { return true }
+        if SCEReceivePolicy.hasOMEMO2(messageContainer) {
+            guard encryption.isAuthenticated else { return true }
+            // Decrypt proves the inner content's sender. The owning server's
+            // wrapper independently authorizes the archive mutation and cursor.
+            guard message.from?.bare == owner, message.to?.bare == owner else { return true }
+        } else {
+            // The server's plaintext rewrite body is a codec field, qualified
+            // by the embedded message namespace. Translate only that field
+            // before the ordinary jabber:client content consumers run.
+            if messageContainer.uri != SCEReceivePolicy.client {
+                let bodies = SCEReceivePolicy.children(of: messageContainer, named: "body", xmlns: messageContainer.uri ?? "")
+                for body in bodies {
+                    let clientBody = DDXMLElement(name: "body", xmlns: SCEReceivePolicy.client)
+                    clientBody.stringValue = body.stringValue
+                    body.detach()
+                    messageContainer.addChild(clientBody)
+                }
+            }
+            guard !SCEReceivePolicy.children(of: messageContainer, named: "body", xmlns: SCEReceivePolicy.client).isEmpty ||
+                  !SCEReceivePolicy.children(of: messageContainer, named: "reference", xmlns: "https://xabber.com/protocol/references").isEmpty ||
+                  !SCEReceivePolicy.children(of: messageContainer, named: "reference", xmlns: "urn:xmpp:reference:0").isEmpty else { return true }
+        }
         guard let version = replace.attributeStringValue(forName: "version"),
               let conversation = replace.attributeStringValue(forName: "conversation"),
               let conversationTypeRaw = replace.attributeStringValue(forName: "type"),
@@ -539,27 +560,112 @@ class MessageDeleteManager: AbstractXMPPManager {
     }
     
     open func editMessage(_ xmppStream: XMPPStream, primary: String, editedMessage: XMPPMessage, conversationType: ClientSynchronizationManager.ConversationType) {
-        func send(_ messageId: String, elementId: String, to archiveJid: String) {
-            let replace = DDXMLElement(name: "replace", xmlns: getPrimaryNamespace())
-            replace.addAttribute(withName: "id", stringValue: messageId)
-            replace.addAttribute(withName: "type", stringValue: conversationType.rawValue)
-            replace.addChild(editedMessage)
-            
-            let iq = XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: replace)
-            iq.addAttribute(withName: "to", stringValue: archiveJid)
-            iq.addAttribute(withName: "from", stringValue: self.owner)
-            
-            xmppStream.send(iq)
-        }
         do {
             let realm = try  WRealm.safe()
             if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: primary) {
+                guard instance.owner == owner, instance.archivedId.isNotEmpty else { return }
+                let replacement: XMPPMessage
+                do {
+                    replacement = try prepareEditedMessage(editedMessage, for: instance)
+                } catch {
+                    // A failed encrypted edit must never fall back to the draft's
+                    // plaintext body or register an IQ that was not transmitted.
+                    try realm.write {
+                        instance.messageError = "Can`t find any OMEMO device".localizeString(id: "message_manager_error_no_omemo", arguments: [])
+                        instance.messageErrorCode = "omemo"
+                    }
+                    LastChats.updateErrorState(for: instance.opponent, owner: owner, conversationType: instance.conversationType)
+                    DDLogDebug("MessageDeleteManager: OMEMO replacement preparation failed")
+                    return
+                }
                 let elementId = "RRR: \(NanoID.new(8))"
-                send(instance.archivedId, elementId: elementId, to: instance.groupchatMetadata != nil ? instance.opponent : self.owner)
+                let replace = DDXMLElement(name: "replace", xmlns: getPrimaryNamespace())
+                replace.addAttribute(withName: "id", stringValue: instance.archivedId)
+                // The persisted conversation owns its encryption identity;
+                // a caller-provided type cannot downgrade an encrypted edit.
+                replace.addAttribute(withName: "type", stringValue: instance.conversationType.rawValue)
+                replace.addChild(rewriteWireMessage(replacement))
+                let iq = XMPPIQ(iqType: .set, to: nil, elementID: elementId, child: replace)
+                iq.addAttribute(withName: "to", stringValue: instance.groupchatMetadata != nil ? instance.opponent : owner)
+                iq.addAttribute(withName: "from", stringValue: owner)
+                xmppStream.send(iq)
                 queryIds.insert(elementId)
             }
         } catch {
             DDLogDebug("MessageDeleteManager: \(#function). Cant get message for key \(primary). \(error.localizedDescription)")
+        }
+    }
+
+    private func prepareEditedMessage(_ draft: XMPPMessage, for instance: MessageStorageItem) throws -> XMPPMessage {
+        let message = draft.copy() as! XMPPMessage
+        guard instance.conversationType.isEncrypted else { return message }
+        guard let omemo = AccountManager.shared.find(for: owner)?.omemo else {
+            throw OmemoManagerError.encryptionFailed
+        }
+        let bodies = SCEReceivePolicy.children(of: message, named: "body", xmlns: "jabber:client")
+        guard bodies.count == 1 else { throw OmemoManagerError.invalidEncryptedPayload }
+        let children = message.children?.compactMap { $0 as? DDXMLElement } ?? []
+        let protectedChildren = children.filter {
+            !SCEReceivePolicy.matches($0, name: "body", namespace: "jabber:client") &&
+            !SCEReceivePolicy.isServerProcessed($0) && !Self.isPlaintextEditMarker($0)
+        }
+        guard let payload = omemo.prepareStanzaContent(
+            message: bodies[0].stringValue ?? "",
+            date: instance.editDate ?? Date(),
+            jid: instance.opponent,
+            additionalContent: protectedChildren.map { SCEReceivePolicy.canonicalElementCopy($0) },
+            ignoreTimeSignature: instance.displayAs == .system
+        ), let encrypted = try omemo.encryptMessage(message: payload, to: instance.opponent) else {
+            throw OmemoManagerError.encryptionFailed
+        }
+        for child in children where !SCEReceivePolicy.isServerProcessed(child) && !Self.isPlaintextEditMarker(child) {
+            // The server retains archived routing IDs. Existing origin/thread
+            // remain compatible transport metadata, with authenticated copies
+            // inside SCE; receive semantics ignore the external copies.
+            if !SCEReceivePolicy.matches(child, name: "origin-id", namespace: "urn:xmpp:sid:0") &&
+                !SCEReceivePolicy.matches(child, name: "thread", namespace: "jabber:client") { child.detach() }
+        }
+        message.addChild(encrypted)
+        message.addBody("Message was encrypted by OMEMO".localizeString(id: "message_omemo_encryption", arguments: []))
+        OmemoManager.synchronizeOutgoingEncryptionMetadata(message)
+        return message
+    }
+
+    private func rewriteWireMessage(_ message: XMPPMessage) -> DDXMLElement {
+        // Pinned xep_rewrite decodes its nested message and body in the rewrite
+        // namespace. Keep this transport separate from the client-QName draft
+        // validated and protected by the common SCE sender.
+        let namespace = getPrimaryNamespace()
+        let wire = DDXMLElement(name: "message", xmlns: namespace)
+        for attribute in message.attributes ?? [] { wire.addAttribute(attribute.copy() as! DDXMLNode) }
+        for child in message.children ?? [] {
+            if let element = child as? DDXMLElement {
+                if element.localName == "body" && ((element.uri ?? "").isEmpty || element.uri == "jabber:client") {
+                    // XMPPFramework addBody creates a namespace-less DOM node;
+                    // the existing fallback belongs to the rewrite codec body.
+                    let body = DDXMLElement(name: "body", xmlns: namespace)
+                    for attribute in element.attributes ?? [] { body.addAttribute(attribute.copy() as! DDXMLNode) }
+                    for part in element.children ?? [] { body.addChild(part.copy() as! DDXMLNode) }
+                    wire.addChild(body)
+                } else {
+                    wire.addChild(SCEReceivePolicy.canonicalElementCopy(element))
+                }
+            } else {
+                wire.addChild(child.copy() as! DDXMLNode)
+            }
+        }
+        return wire
+    }
+
+    private static func isPlaintextEditMarker(_ element: DDXMLElement) -> Bool {
+        // Delivery/read markers and receipts remain open under the existing
+        // product contract, including in encrypted conversations.
+        switch element.uri {
+        case "urn:xmpp:chat-markers:0":
+            return ["markable", "received", "displayed", "acknowledged"].contains(element.localName ?? "")
+        case "urn:xmpp:receipts":
+            return ["request", "received"].contains(element.localName ?? "")
+        default: return false
         }
     }
     

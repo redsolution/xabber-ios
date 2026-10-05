@@ -1539,7 +1539,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
 
         let expectedGeneration = currentSyncSessionGeneration()
-        let conversations = prepareSyncConversations(query)
+        let conversations = prepareSyncConversations(query, serverContext: syncServerContext(for: iq))
         do {
             let applyResult = try applySyncPayload(
                 conversations: conversations,
@@ -1837,11 +1837,14 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
         let expectedGeneration = trackedRequest.generation
         let request: SyncRequestDiagnostics? = trackedRequest.diagnostics
+        let serverContext = syncServerContext(for: iq)
         guard let page = ClientSyncPageParser.parseSnapshotPage(
             from: iq,
             pageSize: trackedRequest.diagnostics.max,
             namespace: ClientSynchronizationManager.primaryNamespace,
-            prepareConversations: prepareSyncConversations(_:)
+            prepareConversations: { query in
+                self.prepareSyncConversations(query, serverContext: serverContext)
+            }
         ) else {
             guard isCurrentSyncSessionGeneration(expectedGeneration) else {
                 logSyncTrace("staleSnapshotParseFailureIgnored", [("id", elementId)])
@@ -2088,9 +2091,31 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         return true
     }
     
-    internal func prepareSyncConversations(_ query: DDXMLElement) -> [ClientSyncConversationValue] {
+    /// Sync metadata may describe a replaced archived version only when the IQ
+    /// belongs to this account's server. It never supplies decryption provenance.
+    private func syncServerContext(for iq: XMPPIQ) -> OMEMOReceiveServerContext {
+        guard let account = XMPPJID(string: owner) else { return .unverified }
+        if let rawFrom = iq.attributeStringValue(forName: "from") {
+            guard let from = XMPPJID(string: rawFrom),
+                  from.bare == account.bare ||
+                    (from.user == nil && from.resource == nil && from.domain == account.domain) else {
+                return .unverified
+            }
+        }
+        if let rawTo = iq.attributeStringValue(forName: "to") {
+            guard let to = XMPPJID(string: rawTo), to.bare == account.bare else {
+                return .unverified
+            }
+        }
+        return .accountServer
+    }
+
+    internal func prepareSyncConversations(
+        _ query: DDXMLElement,
+        serverContext: OMEMOReceiveServerContext = .unverified
+    ) -> [ClientSyncConversationValue] {
         if let omemo = AccountManager.shared.find(for: owner)?.omemo {
-            return omemo.prepareSyncConversations(query)
+            return omemo.prepareSyncConversations(query, serverContext: serverContext)
         }
         // Before the account is available the preview parser treats retained
         // OMEMO ciphertext as unresolved, regardless of any wire marker.

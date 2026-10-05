@@ -696,13 +696,14 @@ extension OmemoManager {
         return true
     }
 
-    func prepareSyncConversations(_ query: DDXMLElement) -> [ClientSyncConversationValue] {
-        query.elements(forName: "conversation").map { prepareSyncConversation($0) }
+    func prepareSyncConversations(_ query: DDXMLElement, serverContext: OMEMOReceiveServerContext = .unverified) -> [ClientSyncConversationValue] {
+        query.elements(forName: "conversation").map { prepareSyncConversation($0, serverContext: serverContext) }
     }
 
     func prepareSyncConversation(
         _ conversation: DDXMLElement,
-        prepareMessage: ((XMPPMessage) -> OMEMOReceiveResult)? = nil
+        prepareMessage: ((XMPPMessage) -> OMEMOReceiveResult)? = nil,
+        serverContext: OMEMOReceiveServerContext = .unverified
     ) -> ClientSyncConversationValue {
         let copy = conversation.copy() as! DDXMLElement
         guard let metadata = copy.elements(forName: "metadata").first(where: {
@@ -716,7 +717,7 @@ extension OmemoManager {
             return ClientSyncConversationValue(copy, consumed: true)
         }
         let message = messages[0]
-        let result = (prepareMessage ?? { self.prepareIncoming($0, context: .syncPreview) })(XMPPMessage(from: message))
+        let result = (prepareMessage ?? { self.prepareIncoming($0, context: .syncPreview, serverContext: serverContext) })(XMPPMessage(from: message))
         if let reconstructed = result.message {
             message.detach()
             last.addChild(reconstructed.copy() as! DDXMLElement)
@@ -808,17 +809,21 @@ extension OmemoManager {
     func prepareIncoming(
         _ message: XMPPMessage,
         context: OMEMOReceiveContext = .live,
-        originalSendingTime suppliedTime: OMEMOOriginalSendingTime? = nil
+        originalSendingTime suppliedTime: OMEMOOriginalSendingTime? = nil,
+        serverContext: OMEMOReceiveServerContext = .unverified
     ) -> OMEMOReceiveResult {
+        let timestampAuthority: OMEMOReceiveServerContext
+        if case .syncPreview = context { timestampAuthority = serverContext }
+        else { timestampAuthority = .unverified }
         do {
             let copy = XMPPMessage(from: SCEReceivePolicy.droppingUnprotectedSCE(message))
             let path = try Self.incomingPath(copy, owner: owner)
             guard let bare = path.last, SCEReceivePolicy.hasOMEMO2(bare) else { return .notEncrypted(copy) }
             do {
-                let originalSendingTime = try Self.originalSendingTime(in: path, supplied: suppliedTime)
+                let originalSendingTime = try Self.originalSendingTime(in: path, supplied: suppliedTime, owner: owner, serverContext: timestampAuthority)
                 switch try decryptIncoming(XMPPMessage(from: bare), originalSendingTime: originalSendingTime) {
                 case .content(let opened, let profile):
-                    Self.reconstruct(path, content: opened.content)
+                    Self.reconstruct(path, content: opened.content, owner: owner, serverContext: timestampAuthority)
                     return .verified(XMPPMessage(from: SCEReceivePolicy.canonicalElementCopy(copy)), .authenticatedSCE(profile: profile))
                 case .control: return .consumed(.control)
                 case .duplicate: return .consumed(.duplicate)
@@ -873,7 +878,7 @@ extension OmemoManager {
                 }
             }
             if SCEReceivePolicy.matches(wrapper, name: "replace", namespace: "https://xabber.com/protocol/rewrite#notify") {
-                let messages = SCEReceivePolicy.children(of: wrapper, named: "message", xmlns: "jabber:client")
+                let messages = SCEReceivePolicy.rewriteMessages(in: wrapper)
                 guard messages.count == 1, !SCEReceivePolicy.hasOMEMO2(wrapper) else { throw OmemoManagerError.invalidEncryptedPayload }
                 path += [wrapper, messages[0]]
                 current = messages[0]
@@ -897,12 +902,14 @@ extension OmemoManager {
         owner: String? = nil,
         supplied: OMEMOOriginalSendingTime? = nil
     ) throws -> OMEMOOriginalSendingTime? {
-        try originalSendingTime(in: incomingPath(message, owner: owner), supplied: supplied)
+        try originalSendingTime(in: incomingPath(message, owner: owner), supplied: supplied, owner: owner)
     }
 
     private static func originalSendingTime(
         in path: [DDXMLElement],
-        supplied: OMEMOOriginalSendingTime?
+        supplied: OMEMOOriginalSendingTime?,
+        owner: String? = nil,
+        serverContext: OMEMOReceiveServerContext = .unverified
     ) throws -> OMEMOOriginalSendingTime? {
         guard let original = path.last else { throw OmemoManagerError.invalidEncryptedPayload }
         var times: [OMEMOOriginalSendingTime] = []
@@ -936,16 +943,60 @@ extension OmemoManager {
             guard supplied.date.timeIntervalSince1970.isFinite else { throw OmemoManagerError.invalidDecryptedPayload }
             times.append(supplied)
         }
-        guard let selected = times.first else { return nil }
+        let replacement = try serverReplacement(in: path, owner: owner, serverContext: serverContext)
+        guard let selected = times.first else { return replacement?.time }
         // Xabber Delivery requires its timestamp to equal the archive delay.
         // The SCE clock margin is checked separately against this one value.
         guard times.allSatisfy({ $0.date == selected.date }) else { throw OmemoManagerError.invalidDecryptedPayload }
-        return selected
+        // Rewriting retains creation/archive dates, but the new ciphertext
+        // belongs to the server-confirmed replacement version's timestamp.
+        return replacement?.time ?? selected
     }
 
-    private static func reconstruct(_ path: [DDXMLElement], content: DDXMLElement?) {
+    private static func serverReplacement(
+        in path: [DDXMLElement], owner: String?, serverContext: OMEMOReceiveServerContext = .unverified
+    ) throws -> (element: DDXMLElement, time: OMEMOOriginalSendingTime)? {
+        guard let root = path.first, let leaf = path.last else { return nil }
+        if path.count == 1 && serverContext == .accountServer {
+            return try replacementMetadata(in: leaf)
+        }
+        guard path.count > 1 else { return nil }
+        let isRewrite = path.contains { SCEReceivePolicy.matches($0, name: "replace", namespace: "https://xabber.com/protocol/rewrite#notify") }
+        let isArchive = path.contains { $0.localName == "result" && SCEReceivePolicy.mamNamespaces.contains($0.uri ?? "") }
+        guard isRewrite || isArchive,
+              let to = root.attributeStringValue(forName: "to").flatMap({ XMPPJID(string: $0)?.bare }),
+              owner == nil || to == owner else { return nil }
+        let from = root.attributeStringValue(forName: "from").flatMap { XMPPJID(string: $0)?.bare }
+        // Server archives may omit from; a peer-addressed wrapper cannot grant
+        // authority to an external replacement marker.
+        guard from == to || (isArchive && from == nil && owner == to) else { return nil }
+        return try replacementMetadata(in: leaf)
+    }
+
+    private static func replacementMetadata(in leaf: DDXMLElement) throws -> (element: DDXMLElement, time: OMEMOOriginalSendingTime)? {
+        let markers = SCEReceivePolicy.children(of: leaf, named: "replaced", xmlns: "https://xabber.com/protocol/rewrite")
+        guard markers.count <= 1 else { throw OmemoManagerError.invalidDecryptedPayload }
+        guard let marker = markers.first else { return nil }
+        let attributes = marker.attributes ?? []
+        guard attributes.count == 1, attributes[0].localName == "stamp", (attributes[0].uri ?? "").isEmpty,
+              let stamp = attributes[0].stringValue,
+              !(marker.children ?? []).contains(where: { $0 is DDXMLElement }),
+              (marker.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw OmemoManagerError.invalidDecryptedPayload
+        }
+        return (marker, OMEMOOriginalSendingTime(date: try Omemo2PayloadCodec.timestamp(stamp), source: .rewriteReplacement))
+    }
+
+    private static func reconstruct(_ path: [DDXMLElement], content: DDXMLElement?, owner: String? = nil, serverContext: OMEMOReceiveServerContext = .unverified) {
         guard let target = path.last else { return }
         let reconstructed = SCEReceivePolicy.sanitized(target, content: content)
+        if let content,
+           SCEReceivePolicy.children(of: content, named: "replaced", xmlns: "https://xabber.com/protocol/rewrite").isEmpty,
+           let replacement = try? serverReplacement(in: path, owner: owner, serverContext: serverContext) {
+            // Only a successful decrypt can materialize the server edit marker.
+            // Protected markers in legacy history remain authoritative.
+            reconstructed.addChild(SCEReceivePolicy.canonicalElementCopy(replacement.element))
+        }
         for child in target.children ?? [] { child.detach() }
         for child in reconstructed.children ?? [] { target.addChild(child.copy() as! DDXMLNode) }
         for index in 0..<(path.count - 1) {
@@ -967,7 +1018,7 @@ extension OmemoManager {
     ) throws -> DDXMLElement? {
         let path = try Self.incomingPath(message, owner: owner)
         guard let original = path.last else { throw OmemoManagerError.invalidEncryptedPayload }
-        let originalSendingTime = try Self.originalSendingTime(in: path, supplied: suppliedTime)
+        let originalSendingTime = try Self.originalSendingTime(in: path, supplied: suppliedTime, owner: owner)
         switch try decryptIncoming(XMPPMessage(from: original), originalSendingTime: originalSendingTime) {
         case .content(let opened, _): return opened.envelope
         case .control, .duplicate: return nil
