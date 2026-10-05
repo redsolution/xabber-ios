@@ -1,5 +1,7 @@
 # OMEMO2 — оставшиеся работы после OM2-04
 
+**Текущий объём реализации:** [standards-only план OM2-N01–N09](omemo2-standard-compliance-plan.md). Ниже сохранён широкий review, включающий предложенную надёжность и приёмку; его число задач не является текущим нормативным backlog. Уже работающие replenish100, initial replies/heartbeat, generic warnings и chat-open refresh повторно не ставятся как отсутствующие функции.
+
 Статическая сверка 2026-10-05: app `f9bbfe47`, Signal C `7552b1b`, ObjC `d142b4d`; все три checkout чистые до обновления этих документов. Основание — [план](omemo2-implementation-plan.md), текущие production paths, база знаний, опубликованные [XEP-0384 0.9.1](https://xmpp.org/extensions/xep-0384.html) и [XEP-0420 0.5.0](https://xmpp.org/extensions/xep-0420.html). Версии XSF проверены сегодня. KB snapshot XEP-0420 остаётся 0.4.1; его обновление принадлежит curator.
 
 ## Выполненные стадии
@@ -44,7 +46,7 @@
 
 ## Порядок / пакеты
 
-Следующая компактная задача — **OM2-03**, особенно edit и TTL. Параллельно возможен **OM2-07** в C. Далее **OM2-05 → OM2-06 → OM2-08 → OM2-09 → OM2-10 → OM2-11 → OM2-12**, затем **OM2-13**. Сохраняются зависимости исходного плана; OM2-14 — при включении standard MUC.
+Исторический широкий порядок: OM2-03/07, затем OM2-05 → OM2-06 → OM2-08 → OM2-09 → OM2-10 → OM2-11 → OM2-12 → OM2-13, MUC условно. По новому указанию пользователя он заменён standards-only порядком N01 → N02 → N03 → N04 → N05 → N06 → N07 → N08 → N09; N04 можно начинать параллельно N01. Следующая задача — **OM2-N01**. TTL не входит в подтверждённые нормативные gaps.
 
 Основной остаток — приложение: omemo/storage/sender/rewrite/archive/policy/UI. **SignalProtocolC** нужен для replay/expiry и inherited UB; **SignalProtocolObjC** — только если понадобится изменение C API/snapshot interface. Новых зависимостей не требуется.
 

@@ -1,5 +1,7 @@
 # План приведения Xabber iOS к OMEMO2
 
+**Статус 2026-10-05:** для дальнейшей реализации действует [ограниченный план подтверждённых нормативных gaps](omemo2-standard-compliance-plan.md), OM2-N01–N09. Этот широкий план сохранён как история предложений; journal/outbox/atomic batch/дополнительные QA и MUC не входят в текущий объём. Следующая задача — OM2-N01.
+
 Дата: 2026-10-02. Основание: [аудит текущей реализации](omemo2-conformance-status-2026-10-02.md). Production baseline: app `524f46ba`, Signal C `7552b1be`, ObjC `d142b4db`.
 
 [Реестр самостоятельных задач в vault](/Users/igor.boldin/projects/xabber/xabber/projects/xabber/docs/architecture/omemo2-implementation-plan-without-trust-exchange-2026-10-02.md).
