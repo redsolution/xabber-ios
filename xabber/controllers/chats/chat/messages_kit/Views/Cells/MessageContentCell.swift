@@ -26,6 +26,20 @@ import Kingfisher
 /// A subclass of `MessageCollectionViewCell` used to display text, media, and location messages.
 public class MessageContentCell: MessageCollectionViewCell {
 
+    static func makeMessageWarningLabel() -> InsetLabel {
+        let label = InsetLabel()
+        label.numberOfLines = 0
+        label.font = UIFont.systemFont(ofSize: 12, weight: .medium)
+        label.textColor = .systemOrange
+        label.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.12)
+        label.textInsets = UIEdgeInsets(top: 5, left: 8, bottom: 5, right: 8)
+        label.layer.cornerRadius = 8
+        label.clipsToBounds = true
+        label.isHidden = true
+        label.accessibilityIdentifier = "message.warning"
+        return label
+    }
+
     let deliveryIndicatorSize: CGSize = CGSize(square: 16)
     
     private var initialFrame = CGRect()

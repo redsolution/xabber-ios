@@ -278,7 +278,7 @@ final class OMEMO2NormativeReplayHistoryTests: XCTestCase {
         let users = AccountManager.shared.users
         AccountManager.shared.users = users.filter { $0.jid != f.manager.owner }
         defer { AccountManager.shared.users = users }
-        guard case let .verified(message, provenance) = f.manager.prepareIncoming(f.wire) else {
+        guard case let .verified(message, provenance, _) = f.manager.prepareIncoming(f.wire) else {
             XCTFail("Fixture must pass real OMEMO2 crypto and SCE validation")
             throw OMEMO2StorageError.invalidState
         }

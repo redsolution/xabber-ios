@@ -234,6 +234,13 @@ enum ChatMessageLayoutCalculator {
             layout.messageContainerSize = CGSize(width: context.normalizedWidth, height: textSize.height)
             layout.messageLabelInsets = insets
             layout.textInlineViewSize = textSize
+            if case .system = message.kind {
+                let warningSize = warningLabelSize(text: message.messageWarningText,
+                    maxWidth: messageContainerMaxWidth())
+                layout.warningInlineViewSize = warningSize
+                layout.messageContainerSize.height += warningSize.height
+                layout.cellSize.height += warningSize.height
+            }
             return layout
         }
 
@@ -277,7 +284,13 @@ enum ChatMessageLayoutCalculator {
                 )
             )
             layout.messagePrimary = message.primary
-            layout.messageContainerSize = renderedSize
+            let warningSize = warningLabelSize(text: message.messageWarningText,
+                maxWidth: messageContainerMaxWidth())
+            layout.imagesInlineViewSize = renderedSize
+            layout.warningInlineViewSize = warningSize
+            layout.messageContainerSize = CGSize(width: max(renderedSize.width, warningSize.width),
+                height: renderedSize.height + warningSize.height)
+            layout.cellSize.height += warningSize.height
             layout.messageContainerMargin = margin
             layout.messageContainerPadding = .zero
             layout.messageLabelInsets = .zero

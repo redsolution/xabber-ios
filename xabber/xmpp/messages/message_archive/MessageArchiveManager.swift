@@ -3215,7 +3215,7 @@ class MessageArchiveManager: AbstractXMPPManager {
     }
 
 
-    public func readMessage(_ message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext) -> Bool {
+    public func readMessage(_ message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext, authenticatedSender: OMEMOAuthenticatedSender? = nil) -> Bool {
         guard let queryId = getMAMResultElement(message)?.attributeStringValue(forName: "queryid") else {
             return false
         }
@@ -3244,7 +3244,8 @@ class MessageArchiveManager: AbstractXMPPManager {
                                      state: .deliver,
                                      queryId: getMAMQueryId(message),
                                      mamResultID: mamResultID,
-                                     encryption: encryption)
+                                     encryption: encryption,
+                                     authenticatedSender: authenticatedSender)
 
 
 
@@ -3337,6 +3338,7 @@ class MessageArchiveManager: AbstractXMPPManager {
 
             }
             instance.incomingEncryption = item.encryption
+            instance.applyIncomingSenderTrust(item.authenticatedSender, encryption: item.encryption)
             instance.envelopeContainer = envelopeContainer
             if let mamResultID = item.mamResultID,
                mamResultID.isNotEmpty {

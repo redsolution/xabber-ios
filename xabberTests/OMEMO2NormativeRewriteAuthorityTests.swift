@@ -54,7 +54,7 @@ final class OMEMO2NormativeRewriteAuthorityTests: XCTestCase {
         let protectedStamp = protectedDate.XMPPFormattedDate
         let packet = try packet(f, item: item, outerFrom: f.receiver.owner, outerTo: f.receiver.owner,
                                 protectedStamp: protectedStamp, externalStamp: Date().XMPPFormattedDate)
-        guard case let .verified(clean, proof) = f.receiver.prepareIncoming(packet) else {
+        guard case let .verified(clean, proof, _) = f.receiver.prepareIncoming(packet) else {
             return XCTFail("Expected an authenticated replacement under the owning server wrapper")
         }
         let rewrite = MessageDeleteManager(withOwner: f.receiver.owner)
@@ -68,7 +68,7 @@ final class OMEMO2NormativeRewriteAuthorityTests: XCTestCase {
 
     private func assertRejectedMutation(_ packet: XMPPMessage, fixture: Fixture, item: MessageStorageItem,
                                         file: StaticString = #filePath, line: UInt = #line) {
-        guard case let .verified(clean, proof) = fixture.receiver.prepareIncoming(packet) else {
+        guard case let .verified(clean, proof, _) = fixture.receiver.prepareIncoming(packet) else {
             return XCTFail("The peer ciphertext is authentic; transport authority is a separate check", file: file, line: line)
         }
         let rewrite = MessageDeleteManager(withOwner: fixture.receiver.owner)

@@ -148,6 +148,8 @@ SHOULD recovery: только при доказанном отсутствии s
 
 ## OM2-N09
 
+**Статус:** выполнено; [реализация и проверка](omemo2-n09-incoming-trust.md). Focused38/38; affected679:677 initial passed, two stale sync fixtures corrected, final sync50/50; все выбранные сценарии имеют passing latest result. App/push built.
+
 **Признак недоверенного отправителя входящего сообщения.** Рекомендательная часть старого OM2-12. Владелец: xmpp/UI. Зависимости: N01/N04.
 
 **Пробел:** authenticated incoming допускается через untrusted session, но provenance/materialization не передаёт доверие фактического sender key. Исходящая warning о пропущенных untrusted devices это не заменяет.
@@ -165,7 +167,7 @@ SHOULD recovery: только при доказанном отсутствии s
 3. **N04 → N05 → N06:** подтверждённые повторы/retention, due SPK lifecycle и finite consumed-OPK cleanup.
 4. **N07 → N08 → N09:** manual/missing-session recovery, opt-out gate и incoming trust indication.
 
-N01 → N02 → N03 → N04 → N05 → N06 → N07 → N08 выполнены; следующая задача — **OM2-N09**. Приоритет MUST внутри смешанных задач выше SHOULD; N05/N09 можно выполнить после обязательных частей, не называя их MUST violations. Не добавлять зависимости на отложенные journal/outbox/MUC/trust-exchange задачи.
+N01 → N02 → N03 → N04 → N05 → N06 → N07 → N08 → N09 выполнены в согласованных границах. Приоритет MUST внутри смешанных задач выше SHOULD; N05/N09 можно выполнить после обязательных частей, не называя их MUST violations. Не добавлять зависимости на отложенные journal/outbox/MUC/trust-exchange задачи.
 
 ## Проверка каждой реализации
 

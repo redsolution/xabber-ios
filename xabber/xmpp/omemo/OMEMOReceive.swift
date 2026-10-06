@@ -27,15 +27,25 @@ enum OMEMOConsumptionReason: Equatable {
     case invalidTransport
 }
 
+/// Local metadata from the native session that authenticated this message.
+/// It is carried separately from XML and never grants or changes device trust.
+struct OMEMOAuthenticatedSender: Hashable, Sendable {
+    let owner: String
+    let jid: String
+    let deviceID: Int
+    let identityFingerprint: String
+    let isTrusted: Bool
+}
+
 enum OMEMOReceiveResult {
     case notEncrypted(XMPPMessage)
-    case verified(XMPPMessage, MessageEncryptionProvenance)
+    case verified(XMPPMessage, MessageEncryptionProvenance, sender: OMEMOAuthenticatedSender? = nil)
     case consumed(OMEMOConsumptionReason)
     case failed(XMPPMessage, Error)
 
     var message: XMPPMessage? {
         switch self {
-        case .notEncrypted(let message), .verified(let message, _), .failed(let message, _): return message
+        case .notEncrypted(let message), .verified(let message, _, _), .failed(let message, _): return message
         case .consumed: return nil
         }
     }
@@ -43,9 +53,14 @@ enum OMEMOReceiveResult {
     var provenance: MessageEncryptionProvenance {
         switch self {
         case .notEncrypted: return .plaintext
-        case .verified(_, let provenance): return provenance
+        case .verified(_, let provenance, _): return provenance
         case .failed: return .failedOMEMO
         case .consumed: return .unverifiedOMEMO
         }
+    }
+
+    var authenticatedSender: OMEMOAuthenticatedSender? {
+        guard case .verified(_, .authenticatedSCE(profile: .omemo2), let sender) = self else { return nil }
+        return sender
     }
 }

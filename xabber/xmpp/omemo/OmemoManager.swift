@@ -784,7 +784,8 @@ extension OmemoManager {
             // Controls/replays cannot replace a previously visible last message.
             last.detach()
         }
-        return ClientSyncConversationValue(copy, encryption: result.provenance, consumed: result.message == nil)
+        return ClientSyncConversationValue(copy, encryption: result.provenance, consumed: result.message == nil,
+                                           authenticatedSender: result.authenticatedSender)
     }
 
     /// Compatibility XML adapter. Authentication is intentionally not serialized.
@@ -832,9 +833,10 @@ extension OmemoManager {
         _ message: XMPPMessage,
         preferredReceiver: MessageManager?,
         fallbackReceiver: MessageManager?,
-        encryption: MessageEncryptionProvenance = .plaintext
+        encryption: MessageEncryptionProvenance = .plaintext,
+        authenticatedSender: OMEMOAuthenticatedSender? = nil
     ) {
-        (preferredReceiver ?? fallbackReceiver)?.receiveArchived(message, encryption: encryption)
+        (preferredReceiver ?? fallbackReceiver)?.receiveArchived(message, encryption: encryption, authenticatedSender: authenticatedSender)
     }
 
     /// Compatibility receiver; stream delegates use preparation before dispatch.
@@ -848,19 +850,19 @@ extension OmemoManager {
         guard let message = result.message else { return true }
         let receiver = archivedMessageReceiver ?? AccountManager.shared.find(for: owner)?.messages
         if isArchivedMessage(message) {
-            receiver?.receiveArchived(message, encryption: result.provenance)
+            receiver?.receiveArchived(message, encryption: result.provenance, authenticatedSender: result.authenticatedSender)
         } else if isCarbonCopy(message) {
-            receiver?.receiveCarbon(message, encryption: result.provenance)
+            receiver?.receiveCarbon(message, encryption: result.provenance, authenticatedSender: result.authenticatedSender)
         } else if isCarbonForwarded(message) {
-            receiver?.receiveCarbonForwarded(message, encryption: result.provenance)
+            receiver?.receiveCarbonForwarded(message, encryption: result.provenance, authenticatedSender: result.authenticatedSender)
         } else {
-            receiver?.receiveRuntime(message, encryption: result.provenance)
+            receiver?.receiveRuntime(message, encryption: result.provenance, authenticatedSender: result.authenticatedSender)
         }
         return true
     }
 
     private enum DecryptedIncoming {
-        case content(Omemo2PayloadCodec.OpenedPayload, OMEMOReceiveProfile)
+        case content(Omemo2PayloadCodec.OpenedPayload, OMEMOReceiveProfile, OMEMOAuthenticatedSender? = nil)
         case control
         case duplicate
     }
@@ -881,7 +883,7 @@ extension OmemoManager {
             do {
                 let originalSendingTime = try Self.originalSendingTime(in: path, supplied: suppliedTime, owner: owner, serverContext: timestampAuthority)
                 switch try decryptIncoming(XMPPMessage(from: bare), originalSendingTime: originalSendingTime, optOutContext: context) {
-                case .content(let opened, let profile):
+                case .content(let opened, let profile, let sender):
                     let contentElements = opened.content.children?.compactMap { $0 as? DDXMLElement } ?? []
                     let hasOptOut = contentElements.contains { SCEReceivePolicy.matches($0, name: "opt-out", namespace: Self.xmlns) }
                     let onlyOptOut = contentElements.allSatisfy {
@@ -890,7 +892,7 @@ extension OmemoManager {
                     }
                     if profile == .omemo2, hasOptOut, onlyOptOut { return .consumed(.control) }
                     Self.reconstruct(path, content: opened.content, owner: owner, serverContext: timestampAuthority)
-                    return .verified(XMPPMessage(from: SCEReceivePolicy.canonicalElementCopy(copy)), .authenticatedSCE(profile: profile))
+                    return .verified(XMPPMessage(from: SCEReceivePolicy.canonicalElementCopy(copy)), .authenticatedSCE(profile: profile), sender: sender)
                 case .control: return .consumed(.control)
                 case .duplicate: return .consumed(.duplicate)
                 }
@@ -1086,7 +1088,7 @@ extension OmemoManager {
         guard let original = path.last else { throw OmemoManagerError.invalidEncryptedPayload }
         let originalSendingTime = try Self.originalSendingTime(in: path, supplied: suppliedTime, owner: owner)
         switch try decryptIncoming(XMPPMessage(from: original), originalSendingTime: originalSendingTime) {
-        case .content(let opened, _): return opened.envelope
+        case .content(let opened, _, _): return opened.envelope
         case .control, .duplicate: return nil
         }
     }
@@ -1148,6 +1150,7 @@ extension OmemoManager {
         refreshDevicesForUnknownSender(jid: from, deviceID: sid)
         let previousSessionIdentity = try storage.sessionMetadata(jid: from, deviceID: sid)?.remoteIdentityKey
         var opened: Omemo2PayloadCodec.OpenedPayload?
+        var authenticatedIdentity: Data?
         do {
             _ = try storage.decrypt(ciphertext, jid: from, deviceID: sid, replayFingerprint: replayFingerprint, previouslyAuthenticated: {
                 OMEMO2ReplayProtection.hasVerifiedHistory(fingerprint: replayFingerprint, owner: self.owner)
@@ -1167,6 +1170,8 @@ extension OmemoManager {
                 }
                 return OMEMO2OptOutRequest(jid: from, fingerprint: replayFingerprint, protectedDate: protectedDate,
                                           reason: reason, historical: historical)
+            }, authenticatedIdentity: { identity in
+                authenticatedIdentity = identity
             }) { plaintext in
                 opened = try Omemo2PayloadCodec.openVerified(payload, keyAndMAC: plaintext, expectedFrom: from, expectedTo: message.to?.bare ?? owner, requireTo: message.type == "groupchat", originalSendingTime: originalSendingTime)
             }
@@ -1190,7 +1195,29 @@ extension OmemoManager {
             }
         }
         flushOMEMO2Controls()
-        return opened.map { .content($0, .omemo2) } ?? .control
+        guard let opened else { return .control }
+        guard let authenticatedIdentity else { throw OmemoManagerError.invalidDecryptedPayload }
+        let sender = try authenticatedOMEMO2Sender(identity: authenticatedIdentity, jid: from, deviceID: sid)
+        return .content(opened, .omemo2, sender)
+    }
+
+    /// An archived snapshot may authenticate a different identity than the
+    /// current session. Compare only its actual key to the existing scoped
+    /// device projection; history membership does not grant or revoke trust.
+    private func authenticatedOMEMO2Sender(identity: Data, jid: String, deviceID: Int) throws -> OMEMOAuthenticatedSender {
+        let fingerprint = try Omemo2IdentityRepresentation.fingerprint(for: identity)
+        let isTrusted: Bool
+        do {
+            let realm = try WRealm.safe()
+            let primary = SignalDeviceStorageItem.genPrimary(owner: owner, jid: jid, deviceId: deviceID)
+            let device = realm.object(ofType: SignalDeviceStorageItem.self, forPrimaryKey: primary)
+            isTrusted = device?.owner == owner && device?.jid == jid && device?.deviceId == deviceID &&
+                device?.state == .trusted && device?.fingerprint == fingerprint
+        } catch {
+            isTrusted = false
+        }
+        return OMEMOAuthenticatedSender(owner: owner, jid: jid, deviceID: deviceID,
+                                        identityFingerprint: fingerprint, isTrusted: isTrusted)
     }
 
     private func updateAuthenticatedOMEMO2Identity(_ identity: Data, jid: String, deviceID: Int, previousSessionIdentity: Data?) throws {

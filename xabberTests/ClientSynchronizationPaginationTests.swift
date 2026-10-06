@@ -43,7 +43,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
     override func setUp() {
         super.setUp()
         previousRealmConfiguration = Realm.Configuration.defaultConfiguration
-        owner = "sync-\(UUID().uuidString)@example.com"
+        owner = "sync-\(UUID().uuidString.lowercased())@example.com"
         Realm.Configuration.defaultConfiguration = Realm.Configuration(inMemoryIdentifier: "ClientSynchronizationPaginationTests-\(name)")
         ClientSynchronizationManager.remove(for: owner, commitTransaction: false)
         AccountManager.shared.users.removeAll()
@@ -1203,7 +1203,6 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
                 .count,
             0
         )
-        XCTAssertEqual(XabberRealmSchema.current, 22)
     }
 
     func testSCEPreviewIgnoresForeignBodyAndClientExtensions() throws {
@@ -1478,7 +1477,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         stored.conversationType = .omemo
         try realm.write { realm.add(stored, update: .modified) }
         let message = XMPPMessage(from: try makeElement("""
-        <message xmlns='jabber:client' type='headline' from='example.com' to='\(owner)'>
+        <message xmlns='jabber:client' type='headline' from='\(owner)' to='\(owner)'>
           <replace xmlns='https://xabber.com/protocol/rewrite#notify' conversation='\(jid)'
                    type='urn:xmpp:omemo:2' id='edited-archive' version='2'>
             <message xmlns='jabber:client' from='\(jid)' to='\(owner)' id='edited-provenance'>

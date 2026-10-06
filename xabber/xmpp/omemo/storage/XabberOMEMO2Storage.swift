@@ -294,12 +294,16 @@ final class XabberOMEMO2Storage {
     /// committing either ratchet state or OPK consumption. Only an active,
     /// outbound-capable KEX updates the current identity projection; delayed
     /// archived and receive-only sessions cannot change current device trust.
+    /// `authenticatedIdentity` reports the exact successful candidate after
+    /// saving and releasing the owner lock, before receive cleanup can prune it.
     func decrypt(_ ciphertext: OMEMO2Ciphertext, jid: String, deviceID: Int,
                  replayFingerprint: Data? = nil,
                  previouslyAuthenticated: () -> Bool = { false },
                  updatingIdentity: (Data) throws -> Void = { _ in },
                  recordingOptOut: () throws -> OMEMO2OptOutRequest? = { nil },
+                 authenticatedIdentity: (Data) -> Void = { _ in },
                  validating: (Data) throws -> Void = { _ in }) throws -> Data {
+        var authenticatedIdentityKey: Data?
         let plaintext = try synchronized {
             var state = try requireState()
             let address = try checkedAddress(jid: jid, deviceID: deviceID)
@@ -333,6 +337,7 @@ final class XabberOMEMO2Storage {
                     try recordOptOut(recordingOptOut(), state: &state)
                     recordAuthenticatedReceive(replayFingerprint, state: &state)
                     try save(state)
+                    authenticatedIdentityKey = session.remoteIdentityKey
                     return plaintext
                 }
                 guard let preKeyIndex = state.preKeys.firstIndex(where: { $0.id == ciphertext.preKeyID }) else {
@@ -374,6 +379,7 @@ final class XabberOMEMO2Storage {
                 try recordOptOut(recordingOptOut(), state: &state)
                 recordAuthenticatedReceive(replayFingerprint, state: &state)
                 try save(state)
+                authenticatedIdentityKey = session.remoteIdentityKey
                 return plaintext
             }
             // Regular envelopes do not carry EK. Try authenticated snapshots
@@ -398,11 +404,13 @@ final class XabberOMEMO2Storage {
                 try recordOptOut(recordingOptOut(), state: &state)
                 recordAuthenticatedReceive(replayFingerprint, state: &state)
                 try save(state)
+                authenticatedIdentityKey = session.remoteIdentityKey
                 return plaintext
             }
             if replayFingerprint != nil, previouslyAuthenticated() { throw OMEMO2StorageError.authenticatedDuplicate }
             throw lastError
         }
+        if let authenticatedIdentityKey { authenticatedIdentity(authenticatedIdentityKey) }
         authenticatedReceiveDidCommit?()
         return plaintext
     }

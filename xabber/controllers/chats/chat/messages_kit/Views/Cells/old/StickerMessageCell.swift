@@ -23,6 +23,7 @@ import UIKit
 import MaterialComponents.MDCPalettes
 
 class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
+    let warningLabel = MessageContentCell.makeMessageWarningLabel()
     private enum DeliveryState {
         case idle
         case loading
@@ -51,7 +52,11 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
     override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
         super.apply(layoutAttributes)
         if let attributes = layoutAttributes as? MessagesCollectionViewLayoutAttributes {
-            imageView.frame = CGRect(origin: .zero, size: attributes.messageContainerSize)
+            let imageSize = attributes.imagesInlineViewSize == .zero
+                ? attributes.messageContainerSize : attributes.imagesInlineViewSize
+            imageView.frame = CGRect(origin: .zero, size: imageSize)
+            warningLabel.frame = CGRect(origin: CGPoint(x: 0, y: imageSize.height),
+                size: attributes.warningInlineViewSize)
             refreshStickerBinding()
         }
     }
@@ -67,6 +72,8 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
         deliveryState = .idle
         imageView.image = nil
         imageView.backgroundColor = ChatStickerPlaceholder.color
+        warningLabel.text = nil
+        warningLabel.isHidden = true
     }
 
     func cancelOffscreenWork() {
@@ -86,16 +93,35 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
     override func setupSubviews() {
         super.setupSubviews()
         self.messageContainerView.addSubview(imageView)
+        self.messageContainerView.addSubview(warningLabel)
     }
 
     override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
         super.configure(with: message, at: indexPath, and: messagesCollectionView)
+        updateWarning(with: message)
         switch message.kind {
         case .sticker(let attachment):
             represent(attachment, messagePrimary: message.primary)
             refreshStickerBinding()
         default: break
         }
+    }
+
+    override func reconfigureContent(with message: MessageType, at indexPath: IndexPath,
+        and messagesCollectionView: MessagesCollectionView) {
+        super.reconfigureContent(with: message, at: indexPath, and: messagesCollectionView)
+        updateWarning(with: message)
+    }
+
+    override func reconfigureContent(with message: MessageType, at indexPath: IndexPath,
+        and messagesCollectionView: MessagesCollectionView, changeMask: ChatMessageChangeMask) {
+        super.reconfigureContent(with: message, at: indexPath, and: messagesCollectionView, changeMask: changeMask)
+        updateWarning(with: message)
+    }
+
+    private func updateWarning(with message: MessageType) {
+        warningLabel.text = message.messageWarningText
+        warningLabel.isHidden = message.messageWarningText == nil
     }
 
     func bindSticker(
@@ -216,6 +242,10 @@ class StickerMessageCell: MessageContentCell, ChatOffscreenWorkManaging {
     
     override func layoutMessageContainerView(with attributes: MessagesCollectionViewLayoutAttributes) {
         super.layoutMessageContainerView(with: attributes)
+        if attributes.warningInlineViewSize.height > 0 {
+            // Sticker content sizes already exclude the outer cell margins.
+            messageContainerView.frame.size = attributes.messageContainerSize
+        }
     }
 
     override open func handleTapGesture(_ gesture: UIGestureRecognizer) {

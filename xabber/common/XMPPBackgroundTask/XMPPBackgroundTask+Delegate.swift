@@ -351,18 +351,19 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
             return
         }
         let encryption = prepared.provenance
+        let authenticatedSender = prepared.authenticatedSender
         if case .failed = prepared {
-            if self.mam.readMessage(message, encryption: encryption) {
+            if self.mam.readMessage(message, encryption: encryption, authenticatedSender: authenticatedSender) {
                 didIntentionallyConsumeArchiveResult = true
             } else if isArchivedMessage(message) {
                 didRouteArchiveResultToPersistence = true
-                self.messages.receiveArchived(message, encryption: encryption)
+                self.messages.receiveArchived(message, encryption: encryption, authenticatedSender: authenticatedSender)
             } else if isCarbonCopy(message) {
-                self.messages.receiveCarbon(message, encryption: encryption)
+                self.messages.receiveCarbon(message, encryption: encryption, authenticatedSender: authenticatedSender)
             } else if isCarbonForwarded(message) {
-                self.messages.receiveCarbonForwarded(message, encryption: encryption)
+                self.messages.receiveCarbonForwarded(message, encryption: encryption, authenticatedSender: authenticatedSender)
             } else {
-                self.messages.receiveRuntime(message, encryption: encryption)
+                self.messages.receiveRuntime(message, encryption: encryption, authenticatedSender: authenticatedSender)
             }
             return
         }
@@ -383,7 +384,7 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
         
         switch message.messageType ?? .chat {
         case .chat, .normal:
-            if self.mam.readMessage(message, encryption: encryption) {
+            if self.mam.readMessage(message, encryption: encryption, authenticatedSender: authenticatedSender) {
                 didIntentionallyConsumeArchiveResult = true
                 return
             }
@@ -401,7 +402,7 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                     }
                 }
                 didRouteArchiveResultToPersistence = true
-                self.messages.receiveArchived(message, encryption: encryption)
+                self.messages.receiveArchived(message, encryption: encryption, authenticatedSender: authenticatedSender)
                 
             } else {
                 if VoIPManager.shared.onReceiveMessage(message, owner: sender.myJID!.bare, archivedDate: nil, runtime: true) {
@@ -409,11 +410,11 @@ extension XMPPBackgroundTask: XMPPStreamDelegate {
                 }
                 if encryption.isAuthenticated || (message.body?.isNotEmpty ?? false) {
                     if isCarbonCopy(message) {
-                        self.messages.receiveCarbon(message, encryption: encryption)
+                        self.messages.receiveCarbon(message, encryption: encryption, authenticatedSender: authenticatedSender)
                     } else if isCarbonForwarded(message) {
-                        self.messages.receiveCarbonForwarded(message, encryption: encryption)
+                        self.messages.receiveCarbonForwarded(message, encryption: encryption, authenticatedSender: authenticatedSender)
                     } else {
-                        self.messages.receiveRuntime(message, encryption: encryption)
+                        self.messages.receiveRuntime(message, encryption: encryption, authenticatedSender: authenticatedSender)
                     }
                 }
             }

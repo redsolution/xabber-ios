@@ -1200,13 +1200,15 @@ extension MessageManager {
                 lhs.queryId == rhs.queryId &&
                 lhs.mamResultID == rhs.mamResultID &&
                 lhs.isMAMArchiveResult == rhs.isMAMArchiveResult &&
-                lhs.encryption == rhs.encryption
+                lhs.encryption == rhs.encryption &&
+                lhs.authenticatedSender == rhs.authenticatedSender
         }
         
         var isRead: Bool = true
         var date: Date = Date()
         var message: XMPPMessage
         let encryption: MessageEncryptionProvenance
+        let authenticatedSender: OMEMOAuthenticatedSender?
         var state: MessageStorageItem.MessageSendingState = MessageStorageItem.MessageSendingState.none
         var originalFrom: String = ""
         var archivedFrom: String? = nil
@@ -1222,7 +1224,7 @@ extension MessageManager {
         var shouldPersistArchiveQueryId: Bool = false
         var countsAsRuntimeUnread: Bool = false
         
-        init(_ message: XMPPMessage, messageId: String?, archivedFrom: String?, isRead: Bool, date: Date, state: MessageStorageItem.MessageSendingState, forceUnreadState: Bool? = nil, clientSyncMessage: Bool = false, queryId: String?, mamResultID: String? = nil, isMAMArchiveResult: Bool = false, shouldPersistArchiveQueryId: Bool = false, countsAsRuntimeUnread: Bool = false, groupchatUserCard: DDXMLElement? = nil, readDate: Date? = nil, encryption: MessageEncryptionProvenance = .plaintext) {
+        init(_ message: XMPPMessage, messageId: String?, archivedFrom: String?, isRead: Bool, date: Date, state: MessageStorageItem.MessageSendingState, forceUnreadState: Bool? = nil, clientSyncMessage: Bool = false, queryId: String?, mamResultID: String? = nil, isMAMArchiveResult: Bool = false, shouldPersistArchiveQueryId: Bool = false, countsAsRuntimeUnread: Bool = false, groupchatUserCard: DDXMLElement? = nil, readDate: Date? = nil, encryption: MessageEncryptionProvenance = .plaintext, authenticatedSender: OMEMOAuthenticatedSender? = nil) {
             if SCEReceivePolicy.hasOMEMO2(message), !encryption.isAuthenticated {
                 self.message = XMPPMessage(from: SCEReceivePolicy.sanitized(message, content: nil))
                 self.encryption = encryption.isEncrypted ? encryption : .unverifiedOMEMO
@@ -1230,6 +1232,7 @@ extension MessageManager {
                 self.message = message
                 self.encryption = encryption
             }
+            self.authenticatedSender = self.encryption == .authenticatedSCE(profile: .omemo2) ? authenticatedSender : nil
             self.archivedFrom = archivedFrom
             self.isRead = isRead
             self.date = date
@@ -1253,6 +1256,7 @@ extension MessageManager {
             hasher.combine(mamResultID)
             hasher.combine(isMAMArchiveResult)
             hasher.combine(encryption)
+            hasher.combine(authenticatedSender)
         }
     }
 
@@ -1376,7 +1380,7 @@ extension MessageManager {
 //        subscribe(true)
 //    }
     
-    public func receiveClientSyncRaw(_ message: XMPPMessage, groupchatUserCard: DDXMLElement?, isRead: Bool, state: MessageStorageItem.MessageSendingState, date: Date, readDate: Date? = nil, encryption: MessageEncryptionProvenance = .plaintext) -> MessageQueueItem? {
+    public func receiveClientSyncRaw(_ message: XMPPMessage, groupchatUserCard: DDXMLElement?, isRead: Bool, state: MessageStorageItem.MessageSendingState, date: Date, readDate: Date? = nil, encryption: MessageEncryptionProvenance = .plaintext, authenticatedSender: OMEMOAuthenticatedSender? = nil) -> MessageQueueItem? {
         return MessageQueueItem(
             message,
             messageId: getOriginId(message),
@@ -1391,11 +1395,12 @@ extension MessageManager {
             isMAMArchiveResult: isArchivedMessage(message),
             groupchatUserCard: groupchatUserCard,
             readDate: readDate,
-            encryption: encryption
+            encryption: encryption,
+            authenticatedSender: authenticatedSender
         )
     }
     
-    public func receiveClientSync(_ message: XMPPMessage, isRead: Bool, state: MessageStorageItem.MessageSendingState, date: Date, encryption: MessageEncryptionProvenance = .plaintext) {
+    public func receiveClientSync(_ message: XMPPMessage, isRead: Bool, state: MessageStorageItem.MessageSendingState, date: Date, encryption: MessageEncryptionProvenance = .plaintext, authenticatedSender: OMEMOAuthenticatedSender? = nil) {
         enqueue(MessageQueueItem(message,
                                  messageId: getOriginId(message),
                                  archivedFrom: message.from?.bare,
@@ -1407,11 +1412,12 @@ extension MessageManager {
                                  queryId: getMAMQueryId(message),
                                  mamResultID: getMAMResultID(message),
                                  isMAMArchiveResult: isArchivedMessage(message),
-                                 encryption: encryption))
+                                 encryption: encryption,
+                                 authenticatedSender: authenticatedSender))
         
     }
     
-    public func receiveTemporary(_ message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext) -> MessageQueueItem? {
+    public func receiveTemporary(_ message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext, authenticatedSender: OMEMOAuthenticatedSender? = nil) -> MessageQueueItem? {
         if let date = getDelayedDate(message),
             let messageBare = getArchivedMessageContainer(message) {
              return MessageQueueItem(messageBare,
@@ -1424,7 +1430,8 @@ extension MessageManager {
                                      queryId: getMAMQueryId(message),
                                      mamResultID: getMAMResultID(message),
                                      isMAMArchiveResult: isArchivedMessage(message),
-                                     encryption: encryption)
+                                     encryption: encryption,
+                                     authenticatedSender: authenticatedSender)
         }
         return nil
     }
@@ -1433,7 +1440,7 @@ extension MessageManager {
         receiveArchived(message, encryption: .plaintext)
     }
 
-    public func receiveArchived(_ message: XMPPMessage, encryption: MessageEncryptionProvenance) {
+    public func receiveArchived(_ message: XMPPMessage, encryption: MessageEncryptionProvenance, authenticatedSender: OMEMOAuthenticatedSender? = nil) {
         guard isArchivedMessage(message) else {
             return
         }
@@ -1509,7 +1516,8 @@ extension MessageManager {
                 isMAMArchiveResult: isArchivedMessage(message),
                 shouldPersistArchiveQueryId:
                     shouldPersistArchiveQueryId,
-                encryption: encryption
+                encryption: encryption,
+                authenticatedSender: authenticatedSender
             ))
             if didQueue {
                 self.updateArchivePersistenceSummary(for: queryId) { summary in
@@ -1519,7 +1527,7 @@ extension MessageManager {
         }
     }
     
-    public func receiveCarbon(_ message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext) {
+    public func receiveCarbon(_ message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext, authenticatedSender: OMEMOAuthenticatedSender? = nil) {
         if let messageBare = getCarbonCopyMessageContainer(message) {
             if (encryption.isAuthenticated || !SCEReceivePolicy.hasOMEMO2(messageBare)),
                routeCanonicalGroupMessage(message) == .consumed { return }
@@ -1530,7 +1538,8 @@ extension MessageManager {
                                      date: getDeliveryTime(messageBare, owner: owner) ?? Date(),
                                      state: .sended,
                                      queryId: getMAMQueryId(message),
-                                     encryption: encryption))
+                                     encryption: encryption,
+                                     authenticatedSender: authenticatedSender))
 //            do {
 //                let conversationType = conversationTypeByMessage(message)
 //                let realm = try WRealm.safe()
@@ -1560,7 +1569,7 @@ extension MessageManager {
         }
     }
     
-    public func receiveCarbonForwarded(_ message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext) {
+    public func receiveCarbonForwarded(_ message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext, authenticatedSender: OMEMOAuthenticatedSender? = nil) {
         if let messageBare = getCarbonForwardedMessageContainer(message) {
             if (encryption.isAuthenticated || !SCEReceivePolicy.hasOMEMO2(messageBare)),
                routeCanonicalGroupMessage(message) == .consumed { return }
@@ -1572,11 +1581,12 @@ extension MessageManager {
                                      state: .sended,
                                      queryId: getMAMQueryId(message),
                                      countsAsRuntimeUnread: true,
-                                     encryption: encryption))
+                                     encryption: encryption,
+                                     authenticatedSender: authenticatedSender))
         }
     }
     
-    public func receiveRuntime(_ message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext) {
+    public func receiveRuntime(_ message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext, authenticatedSender: OMEMOAuthenticatedSender? = nil) {
         if (encryption.isAuthenticated || !SCEReceivePolicy.hasOMEMO2(message)),
            routeCanonicalGroupMessage(message) == .consumed {
             return
@@ -1589,7 +1599,8 @@ extension MessageManager {
                                  state: .sended,
                                  queryId: getMAMQueryId(message),
                                  countsAsRuntimeUnread: true,
-                                 encryption: encryption))
+                                 encryption: encryption,
+                                 authenticatedSender: authenticatedSender))
     }
     
     
@@ -1816,6 +1827,7 @@ extension MessageManager {
                 
             }
             instance.incomingEncryption = item.encryption
+            instance.applyIncomingSenderTrust(item.authenticatedSender, encryption: item.encryption)
             instance.envelopeContainer = envelopeContainer
             if item.isMAMArchiveResult {
                 instance.shouldReconcileMAMArchiveIdentity = true

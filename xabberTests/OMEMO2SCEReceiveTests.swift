@@ -30,7 +30,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
         let f = try fixture()
         let message = try packet(f, content: "<body xmlns='jabber:client'>verified</body><ephemeral xmlns='urn:xmpp:ephemeral:0' timer='17'/>")
         addInjection(message)
-        guard case let .verified(clean, proof) = f.bob.prepareIncoming(message) else { return XCTFail("Expected authenticated content") }
+        guard case let .verified(clean, proof, _) = f.bob.prepareIncoming(message) else { return XCTFail("Expected authenticated content") }
         XCTAssertTrue(proof.isAuthenticated)
         XCTAssertEqual(clean.body, "verified")
         XCTAssertEqual(clean.elements(forName: "ephemeral").count, 1)
@@ -103,7 +103,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
             </message>
             """))
 
-            guard case let .verified(clean, proof) = f.bob.prepareIncoming(archive, context: .archive) else {
+            guard case let .verified(clean, proof, _) = f.bob.prepareIncoming(archive, context: .archive) else {
                 return XCTFail("Expected actual legacy history to remain readable")
             }
             XCTAssertEqual(proof, .authenticatedSCE(profile: .legacySignal))
@@ -129,7 +129,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
             let container = kind == "mam" ? "<result xmlns='urn:xmpp:mam:2' id='archive-id' queryid='query-id'>" : "<\(kind) xmlns='urn:xmpp:carbons:2'>"
             let close = kind == "mam" ? "</result>" : "</\(kind)>"
             let wrapper = XMPPMessage(from: try DDXMLElement(xmlString: "<message xmlns='jabber:client' from='\(f.bob.owner)' to='\(f.bob.owner)'>\(container)<forwarded xmlns='urn:xmpp:forward:0'><delay xmlns='urn:xmpp:delay' stamp='2026-09-30T10:00:00Z'/>\(inner.xmlString)</forwarded>\(close)</message>"))
-            guard case let .verified(clean, proof) = f.bob.prepareIncoming(wrapper, context: .archive) else { return XCTFail("Expected verified \(kind)") }
+            guard case let .verified(clean, proof, _) = f.bob.prepareIncoming(wrapper, context: .archive) else { return XCTFail("Expected verified \(kind)") }
             let bare = try XCTUnwrap(kind == "mam" ? getArchivedMessageContainer(clean) : (kind == "sent" ? getCarbonCopyMessageContainer(clean) : getCarbonForwardedMessageContainer(clean)))
             XCTAssertTrue(proof.isAuthenticated)
             XCTAssertEqual(bare.body, kind)
@@ -210,7 +210,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
             let forwarding = "<forwarded xmlns='urn:xmpp:forward:0'>\(inner.xmlString)</forwarded>"
             let wrapper = kind == "forwarded" ? forwarding : "<priority-message xmlns='https://xabber.com/protocol/priority'>\(forwarding)</priority-message>"
             let wire = XMPPMessage(from: try DDXMLElement(xmlString: "<message xmlns='jabber:client' from='relay.example.test' to='\(f.bob.owner)'><body>outer injection</body><accept xmlns='urn:xmpp:jingle-message:0' id='injected-call'/>\(wrapper)</message>"))
-            guard case let .verified(clean, proof) = f.bob.prepareIncoming(wire) else { return XCTFail("Expected verified \(kind)") }
+            guard case let .verified(clean, proof, _) = f.bob.prepareIncoming(wire) else { return XCTFail("Expected verified \(kind)") }
             let leaf = kind == "forwarded" ? getForwardedMessage(clean) : getPriorityMessageContainer(clean)
             XCTAssertEqual(try XCTUnwrap(leaf).body, "verified")
             XCTAssertTrue(proof.isAuthenticated)
@@ -226,7 +226,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
         addInjection(inner)
         inner.addChild(try DDXMLElement(xmlString: "<replaced xmlns='https://xabber.com/protocol/rewrite' stamp='2001-01-01T00:00:00Z'/>"))
         let wire = XMPPMessage(from: try DDXMLElement(xmlString: "<message xmlns='jabber:client' type='headline' from='relay.example.test' to='\(f.bob.owner)'><replace xmlns='https://xabber.com/protocol/rewrite#notify' id='server-id' conversation='\(f.alice.owner)' type='omemo' version='7'>\(inner.xmlString)</replace></message>"))
-        guard case let .verified(clean, proof) = f.bob.prepareIncoming(wire) else { return XCTFail("Expected verified edit") }
+        guard case let .verified(clean, proof, _) = f.bob.prepareIncoming(wire) else { return XCTFail("Expected verified edit") }
         let replace = try XCTUnwrap(SCEReceivePolicy.children(of: clean, named: "replace", xmlns: "https://xabber.com/protocol/rewrite#notify").first)
         let leaf = try XCTUnwrap(SCEReceivePolicy.children(of: replace, named: "message", xmlns: "jabber:client").first)
         XCTAssertEqual(replace.attributeStringValue(forName: "version"), "7")
@@ -296,7 +296,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
         """)
         message.addChild(try DDXMLElement(xmlString: "<s:stanza-id xmlns:s='urn:xmpp:sid:0' id='server-id' by='\(f.bob.owner)'/>"))
         message.addChild(try DDXMLElement(xmlString: "<d:time xmlns:d='https://xabber.com/protocol/delivery' stamp='2026-09-30T10:00:00Z'/>"))
-        guard case let .verified(clean, _) = f.bob.prepareIncoming(message) else { return XCTFail("Expected verified message") }
+        guard case let .verified(clean, _, _) = f.bob.prepareIncoming(message) else { return XCTFail("Expected verified message") }
         XCTAssertEqual(getStanzaId(clean, owner: f.bob.owner), "server-id")
         XCTAssertEqual(getDeliveryDate(clean), "2026-09-30T10:00:00Z".xmppDate)
         for name in ["stanza-id", "time", "delay", "archived", "addresses"] {
@@ -314,7 +314,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
             let inner = bare.xmlString.replacingOccurrences(of: "<message ", with: "<c:message xmlns:c='jabber:client' ")
                 .replacingOccurrences(of: "</message>", with: "</c:message>")
             let wire = XMPPMessage(from: try DDXMLElement(xmlString: "<c:message xmlns:c='jabber:client' from='\(f.bob.owner)' to='\(f.bob.owner)'><w:\(name) xmlns:w='\(namespace)' id='archive' queryid='query'><f:forwarded xmlns:f='urn:xmpp:forward:0'><d:delay xmlns:d='urn:xmpp:delay' stamp='2026-09-30T10:00:00Z'/>\(inner)</f:forwarded></w:\(name)></c:message>"))
-            guard case let .verified(clean, _) = f.bob.prepareIncoming(wire) else { return XCTFail("Failed \(namespace)/\(name)") }
+            guard case let .verified(clean, _, _) = f.bob.prepareIncoming(wire) else { return XCTFail("Failed \(namespace)/\(name)") }
             let recovered = name == "result" ? getArchivedMessageContainer(clean) :
                 (name == "sent" ? getCarbonCopyMessageContainer(clean) : getCarbonForwardedMessageContainer(clean))
             XCTAssertEqual(try XCTUnwrap(recovered).body, "prefixed")
@@ -347,7 +347,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
 
             let result = f.bob.prepareIncoming(message, context: context)
 
-            guard case let .verified(clean, proof) = result else {
+            guard case let .verified(clean, proof, _) = result else {
                 return XCTFail("Historical time must use the original message time in \(context)")
             }
             XCTAssertTrue(proof.isAuthenticated)
@@ -377,7 +377,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
             XCTAssertFalse(failed.provenance.isAuthenticated)
 
             packet.addChild(try deliveryTime(original))
-            guard case let .verified(retry, _) = f.bob.prepareIncoming(packet, context: context) else {
+            guard case let .verified(retry, _, _) = f.bob.prepareIncoming(packet, context: context) else {
                 return XCTFail("A rejected packet must remain decryptable after correcting only transport time")
             }
             XCTAssertEqual(retry.body, "historical authenticated content")
@@ -412,7 +412,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
             message.addChild(try DDXMLElement(xmlString: "<time xmlns='urn:foreign' stamp='2030-01-01T00:00:00Z'/>"))
             message.addChild(try DDXMLElement(xmlString: "<delay xmlns='urn:foreign' stamp='2030-01-01T00:00:00Z'/>"))
 
-            guard case let .verified(clean, _) = f.bob.prepareIncoming(message, context: context) else {
+            guard case let .verified(clean, _, _) = f.bob.prepareIncoming(message, context: context) else {
                 return XCTFail("Unavailable original time must not become the receive clock in \(context)")
             }
             XCTAssertEqual(clean.body, "historical authenticated content")
@@ -432,7 +432,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
 
             let result = f.bob.prepareIncoming(wire, context: kind == "mam" ? .archive : .carbon)
 
-            guard case let .verified(clean, _) = result else { return XCTFail("Expected historical \(kind)") }
+            guard case let .verified(clean, _, _) = result else { return XCTFail("Expected historical \(kind)") }
             let leaf = try XCTUnwrap(kind == "mam" ? getArchivedMessageContainer(clean) :
                 (kind == "sent" ? getCarbonCopyMessageContainer(clean) : getCarbonForwardedMessageContainer(clean)))
             XCTAssertEqual(leaf.body, "historical authenticated content")
@@ -506,7 +506,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
                 wire = message
             }
 
-            guard case let .verified(clean, _) = f.bob.prepareIncoming(wire) else { return XCTFail("Expected qualified original delay") }
+            guard case let .verified(clean, _, _) = f.bob.prepareIncoming(wire) else { return XCTFail("Expected qualified original delay") }
             XCTAssertEqual((isForwarded ? getForwardedMessage(clean) : clean)?.body, "historical authenticated content")
         }
     }
@@ -583,7 +583,7 @@ final class OMEMO2SCEReceiveTests: XCTestCase {
 
             guard case .failed = f.bob.prepareIncoming(changed) else { return XCTFail("Expected authenticated \(attribute) mismatch") }
             XCTAssertEqual(f.memory.records[f.bob.owner], before)
-            guard case let .verified(clean, _) = f.bob.prepareIncoming(packet) else {
+            guard case let .verified(clean, _, _) = f.bob.prepareIncoming(packet) else {
                 return XCTFail("Original packet must remain decryptable after routing mismatch")
             }
             XCTAssertEqual(clean.body, "historical authenticated content")

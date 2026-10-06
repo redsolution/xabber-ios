@@ -576,20 +576,21 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
             return
         }
         let encryption = prepared.provenance
+        let authenticatedSender = prepared.authenticatedSender
         if case .failed = prepared {
-            if self.mam?.readMessage(message, encryption: encryption) ?? false {
+            if self.mam?.readMessage(message, encryption: encryption, authenticatedSender: authenticatedSender) ?? false {
                 didIntentionallyConsumeArchiveResult = true
             } else if isArchivedMessage(message) {
                 if let messages = self.messages {
                     didRouteArchiveResultToPersistence = true
-                    messages.receiveArchived(message, encryption: encryption)
+                    messages.receiveArchived(message, encryption: encryption, authenticatedSender: authenticatedSender)
                 }
             } else if isCarbonCopy(message) {
-                self.messages?.receiveCarbon(message, encryption: encryption)
+                self.messages?.receiveCarbon(message, encryption: encryption, authenticatedSender: authenticatedSender)
             } else if isCarbonForwarded(message) {
-                self.messages?.receiveCarbonForwarded(message, encryption: encryption)
+                self.messages?.receiveCarbonForwarded(message, encryption: encryption, authenticatedSender: authenticatedSender)
             } else {
-                self.messages?.receiveRuntime(message, encryption: encryption)
+                self.messages?.receiveRuntime(message, encryption: encryption, authenticatedSender: authenticatedSender)
             }
             return
         }
@@ -610,7 +611,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
         
         switch message.messageType ?? .chat {
         case .chat, .normal:
-            if self.mam?.readMessage(message, encryption: encryption) ?? false {
+            if self.mam?.readMessage(message, encryption: encryption, authenticatedSender: authenticatedSender) ?? false {
                 didIntentionallyConsumeArchiveResult = true
                 return
             }
@@ -623,7 +624,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                     if let favoritesNode = AccountManager.shared.find(for: currentJid ?? "")?.favorites.node,
                        [bareMessage.to?.bare, bareMessage.from?.bare].contains(favoritesNode) {
                         AccountManager.shared.find(for: currentJid ?? "")?.action({ user, stream in
-                            user.favorites.receiveSaved(message: message, encryption: encryption)
+                            user.favorites.receiveSaved(message: message, encryption: encryption, authenticatedSender: authenticatedSender)
                         })
                         
                         didIntentionallyConsumeArchiveResult = true
@@ -637,7 +638,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 }
                 if let messages = self.messages {
                     didRouteArchiveResultToPersistence = true
-                    messages.receiveArchived(message, encryption: encryption)
+                    messages.receiveArchived(message, encryption: encryption, authenticatedSender: authenticatedSender)
                 }
             } else {
                 if VoIPManager.shared.onReceiveMessage(message, owner: sender.myJID!.bare, archivedDate: nil, runtime: true) {
@@ -645,11 +646,11 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
                 }
                 if encryption.isAuthenticated || (message.body?.isNotEmpty ?? false) {
                     if isCarbonCopy(message) {
-                        self.messages?.receiveCarbon(message, encryption: encryption)
+                        self.messages?.receiveCarbon(message, encryption: encryption, authenticatedSender: authenticatedSender)
                     } else if isCarbonForwarded(message) {
-                        self.messages?.receiveCarbonForwarded(message, encryption: encryption)
+                        self.messages?.receiveCarbonForwarded(message, encryption: encryption, authenticatedSender: authenticatedSender)
                     } else {
-                        self.messages?.receiveRuntime(message, encryption: encryption)
+                        self.messages?.receiveRuntime(message, encryption: encryption, authenticatedSender: authenticatedSender)
                     }
                 }
             }
@@ -657,7 +658,7 @@ extension XMPPUIActionManager: XMPPStreamDelegate {
             break
         case .headline:
             _ = self.deliveryManager?.read(headline: message)
-            _ = self.retract?.read(headline: message, encryption: encryption)
+            _ = self.retract?.read(headline: message, encryption: encryption, authenticatedSender: authenticatedSender)
         case .error:
             _ = self.deliveryManager?.read(error: message)
         }

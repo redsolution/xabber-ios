@@ -1046,6 +1046,72 @@ class MessageStorageItem: Object {
         "This message was not sent to one or more untrusted devices."
             .localizeString(id: "chat_omemo_untrusted_contact_devices_warning", arguments: [])
     }
+    static var omemoUntrustedSenderWarningText: String {
+        "This message was received from an untrusted device."
+            .localizeString(id: "chat_omemo_untrusted_sender_warning", arguments: [])
+    }
+
+    func applyIncomingSenderTrust(_ sender: OMEMOAuthenticatedSender?,
+                                  encryption: MessageEncryptionProvenance) {
+        guard encryption == .authenticatedSCE(profile: .omemo2),
+              let sender, sender.owner == owner, sender.deviceID > 0,
+              sender.identityFingerprint.isNotEmpty,
+              let stanza = originalStanza, stanza.from?.bare == sender.jid,
+              let encrypted = SCEReceivePolicy.children(of: stanza, named: "encrypted", xmlns: OmemoManager.xmlns).first else { return }
+        // Reconstruction retains the actual outer ciphertext before appending
+        // client content, which may itself contain an encrypted extension.
+        let headers = SCEReceivePolicy.children(of: encrypted, named: "header", xmlns: OmemoManager.xmlns)
+        guard headers.count == 1,
+              headers[0].attributeStringValue(forName: "sid").flatMap(Int.init) == sender.deviceID else { return }
+        var metadata = systemMetadata ?? [:]
+        metadata[Self.incomingSenderTrustMetadataKey] = [
+            "owner": sender.owner, "jid": sender.jid, "deviceID": sender.deviceID,
+            "fingerprint": sender.identityFingerprint, "trusted": sender.isTrusted
+        ]
+        systemMetadata = metadata
+    }
+    private static let incomingSenderTrustMetadataKey = "omemo_authenticated_sender_v1"
+
+    private var incomingSenderTrustMetadata: [String: Any]? {
+        guard let value = systemMetadata?[Self.incomingSenderTrustMetadataKey] as? [String: Any],
+              value["owner"] as? String == owner,
+              let jid = value["jid"] as? String, jid.isNotEmpty,
+              let deviceID = value["deviceID"] as? Int, deviceID > 0,
+              let fingerprint = value["fingerprint"] as? String, fingerprint.isNotEmpty,
+              value["trusted"] is Bool else { return nil }
+        return value
+    }
+
+    private func mergeIncomingSenderTrust(into stored: MessageStorageItem, in realm: Realm) {
+        guard incomingEncryption == .authenticatedSCE(profile: .omemo2),
+              owner == stored.owner, opponent == stored.opponent,
+              conversationType == stored.conversationType,
+              hasSameIncomingContent(as: stored),
+              let metadata = incomingSenderTrustMetadata,
+              let sourceXML = originalStanza?.xmlString else { return }
+        let persistedStanza = realm.object(ofType: MessageStanzaStorageItem.self,
+            forPrimaryKey: "\(stored.primary)_stanza")
+        guard stored.originalStanza != nil || (inlineForwards.isEmpty && stored.inlineForwards.isEmpty) else { return }
+        let storedXML = stored.originalStanza?.xmlString ??
+            (persistedStanza?.owner == owner ? persistedStanza?.stanza : nil)
+        guard storedXML == sourceXML else { return }
+        var combined = stored.systemMetadata ?? [:]
+        combined[Self.incomingSenderTrustMetadataKey] = metadata
+        stored.systemMetadata = combined
+    }
+
+    /// Cached rows may retain their content while later arrivals overwrite the
+    /// separate raw stanza. Compare content before associating a fresh proof.
+    func hasSameIncomingContent(as stored: MessageStorageItem) -> Bool {
+        guard body == stored.body, legacyBody == stored.legacyBody,
+              references.count == stored.references.count else { return false }
+        return zip(references, stored.references).allSatisfy { incoming, existing in
+            incoming.kind_ == existing.kind_ && incoming.mimeType == existing.mimeType &&
+            incoming.begin == existing.begin && incoming.end == existing.end &&
+            incoming.url == existing.url &&
+            NSDictionary(dictionary: incoming.metadata ?? [:]).isEqual(to: existing.metadata ?? [:])
+        }
+    }
     static let messageWarningMetadataKey: String = "warning"
     static let omemoUntrustedContactDevicesWarningCode: String = "omemo_untrusted_contact_devices"
     static let authenticatedKeyExchangeEventMetadataKey: String = "authenticated_key_exchange_event_v1"
@@ -1101,15 +1167,14 @@ class MessageStorageItem: Object {
     }
 
     var messageWarningText: String? {
-        guard let warningCode = systemMetadata?[MessageStorageItem.messageWarningMetadataKey] as? String else {
-            return nil
+        var warnings: [String] = []
+        if systemMetadata?[Self.messageWarningMetadataKey] as? String == Self.omemoUntrustedContactDevicesWarningCode {
+            warnings.append(Self.omemoUntrustedContactDevicesWarningText)
         }
-        switch warningCode {
-        case MessageStorageItem.omemoUntrustedContactDevicesWarningCode:
-            return MessageStorageItem.omemoUntrustedContactDevicesWarningText
-        default:
-            return nil
+        if incomingSenderTrustMetadata?["trusted"] as? Bool == false {
+            warnings.append(Self.omemoUntrustedSenderWarningText)
         }
+        return warnings.isEmpty ? nil : warnings.joined(separator: "\n")
     }
 
     func markOmemoUntrustedContactDevicesWarning() {
@@ -2098,6 +2163,7 @@ class MessageStorageItem: Object {
         self.updatePrimary()
 
         if let instance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: self.primary) {
+            mergeIncomingSenderTrust(into: instance, in: realm)
             if shouldReconcileMAMArchiveIdentity,
                mamArchiveId.isNotEmpty,
                instance.mamArchiveId != mamArchiveId {

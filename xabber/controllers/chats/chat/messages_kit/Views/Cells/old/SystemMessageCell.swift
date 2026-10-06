@@ -23,6 +23,7 @@ import UIKit
 import MaterialComponents.MDCPalettes
 
 class SystemMessageCell: MessageContentCell {
+    let warningLabel = MessageContentCell.makeMessageWarningLabel()
     /// The `MessageCellDelegate` for the cell.
     override weak var delegate: MessageCellDelegate? {
         didSet {
@@ -42,7 +43,16 @@ class SystemMessageCell: MessageContentCell {
             
             messageLabel.textInsets = attributes.messageLabelInsets
             messageLabel.frame = CGRect(origin: .zero, size: attributes.textInlineViewSize)
-            messageLabel.center = messageContainerView.center
+            if attributes.warningInlineViewSize == .zero {
+                messageLabel.center = messageContainerView.center
+            } else {
+                messageLabel.center = CGPoint(x: messageContainerView.bounds.midX,
+                    y: attributes.textInlineViewSize.height / 2)
+            }
+            warningLabel.frame = CGRect(
+                origin: CGPoint(x: (messageContainerView.bounds.width - attributes.warningInlineViewSize.width) / 2,
+                    y: attributes.textInlineViewSize.height),
+                size: attributes.warningInlineViewSize)
             messageLabel.layer.cornerRadius = attributes.textInlineViewSize.height / 2//18
             messageLabel.layer.masksToBounds = true
         }
@@ -52,6 +62,8 @@ class SystemMessageCell: MessageContentCell {
         super.prepareForReuse()
         messageLabel.attributedText = nil
         messageLabel.backgroundColor = .clear
+        warningLabel.text = nil
+        warningLabel.isHidden = true
         backgroundColor = .clear
         updateBubbleVisibility()
     }
@@ -59,11 +71,13 @@ class SystemMessageCell: MessageContentCell {
     override func setupSubviews() {
         super.setupSubviews()
         messageContainerView.addSubview(messageLabel)
+        messageContainerView.addSubview(warningLabel)
     }
     
     override func configure(with message: MessageType, at indexPath: IndexPath, and messagesCollectionView: MessagesCollectionView) {
         super.configure(with: message, at: indexPath, and: messagesCollectionView)
         updateBubbleVisibility()
+        updateWarning(with: message)
         
 //        guard let displayDelegate = messagesCollectionView.messagesDisplayDelegate else {
 //            fatalError(MessageKitError.nilMessagesDisplayDelegate)
@@ -124,6 +138,24 @@ class SystemMessageCell: MessageContentCell {
             }
             messageLabel.textAlignment = .center
         }
+    }
+
+    override func reconfigureContent(with message: MessageType, at indexPath: IndexPath,
+        and messagesCollectionView: MessagesCollectionView) {
+        super.reconfigureContent(with: message, at: indexPath, and: messagesCollectionView)
+        updateWarning(with: message)
+    }
+
+    override func reconfigureContent(with message: MessageType, at indexPath: IndexPath,
+        and messagesCollectionView: MessagesCollectionView, changeMask: ChatMessageChangeMask) {
+        super.reconfigureContent(with: message, at: indexPath, and: messagesCollectionView, changeMask: changeMask)
+        updateWarning(with: message)
+    }
+
+    private func updateWarning(with message: MessageType) {
+        if case .system = message.kind { warningLabel.text = message.messageWarningText }
+        else { warningLabel.text = nil }
+        warningLabel.isHidden = warningLabel.text == nil
     }
     
     override func layoutAvatarView(with attributes: MessagesCollectionViewLayoutAttributes) {

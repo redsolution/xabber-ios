@@ -451,10 +451,12 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         return true
     }
     
-    public func receiveSaved(message messageContainer: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext) {
+    public func receiveSaved(message messageContainer: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext,
+                             authenticatedSender: OMEMOAuthenticatedSender? = nil) {
         do {
             let realm = try WRealm.safe()
-            try receiveSaved(message: messageContainer, realm: realm, commitTransaction: true, encryption: encryption)
+            try receiveSaved(message: messageContainer, realm: realm, commitTransaction: true,
+                encryption: encryption, authenticatedSender: authenticatedSender)
         } catch {
             DDLogDebug("XMPPFavoritesManager: \(#function). \(error.localizedDescription)")
         }
@@ -466,10 +468,11 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         realm: Realm,
         commitTransaction: Bool,
         favoritesNodeOverride: String? = nil,
-        encryption: MessageEncryptionProvenance = .plaintext
+        encryption: MessageEncryptionProvenance = .plaintext,
+        authenticatedSender: OMEMOAuthenticatedSender? = nil
     ) throws -> MessageStorageItem? {
         let prepared: OMEMOReceiveResult = encryption.isAuthenticated
-            ? .verified(XMPPMessage(from: SCEReceivePolicy.droppingUnprotectedSCE(messageContainer)), encryption)
+            ? .verified(XMPPMessage(from: SCEReceivePolicy.droppingUnprotectedSCE(messageContainer)), encryption, sender: authenticatedSender)
             : OmemoManager.prepareUnverifiedIncoming(messageContainer)
         guard let messageContainer = prepared.message else { return nil }
         var incomingEncryption = encryption.isEncrypted ? encryption : prepared.provenance
@@ -496,6 +499,17 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         var isExist = false
         if let existedInstance = realm.object(ofType: MessageStorageItem.self, forPrimaryKey: MessageStorageItem.genPrimary(messageId: messageId, owner: self.owner)) {
             if existedInstance.inlineForwards.isEmpty {
+                let persistedStanza = realm.object(ofType: MessageStanzaStorageItem.self,
+                    forPrimaryKey: "\(existedInstance.primary)_stanza")
+                let storedXML = existedInstance.originalStanza?.xmlString ??
+                    (persistedStanza?.owner == self.owner ? persistedStanza?.stanza : nil)
+                let content = MessageStorageItem()
+                content.body = message.body ?? ""; content.legacyBody = content.body
+                content.references.append(objectsIn: parseReferences(message,
+                    primary: existedInstance.primary, jid: savedServiceJid, owner: self.owner))
+                let isExactStoredStanza = existedInstance.owner == self.owner &&
+                    existedInstance.opponent == savedServiceJid && existedInstance.conversationType == .saved &&
+                    existedInstance.hasSameIncomingContent(as: content) && storedXML == message.xmlString
                 try performSavedWrite(in: realm, commitTransaction: commitTransaction) {
                     existedInstance.isSavedForward = envelope.isForwardedSaved
                     existedInstance.savedForwardAuthorJid = envelope.isForwardedSaved
@@ -515,11 +529,17 @@ class XMPPFavoritesManager: AbstractXMPPManager {
                         existedInstance.mamArchiveId = mamArchiveId
                     }
                     storeSavedForwardingStanza(for: existedInstance, envelope: envelope, in: realm)
-                }
-                // Do not apply a fresh proof to unrelated cached plaintext
-                // with the same identifier. The existing saved row is retained.
-                if existedInstance.originalStanza?.xmlString == message.xmlString {
-                    existedInstance.incomingEncryption = incomingEncryption
+                    // A proof for a saved outer stanza does not authenticate a
+                    // nested saved-forward's sender or unrelated cached body.
+                    if isExactStoredStanza {
+                        existedInstance.incomingEncryption = incomingEncryption
+                        if !envelope.isForwardedSaved, prepared.authenticatedSender != nil {
+                            existedInstance.originalStanza = message
+                        }
+                        existedInstance.applyIncomingSenderTrust(
+                            envelope.isForwardedSaved ? nil : prepared.authenticatedSender,
+                            encryption: incomingEncryption)
+                    }
                 }
                 return existedInstance
             }
@@ -550,6 +570,8 @@ class XMPPFavoritesManager: AbstractXMPPManager {
         instance.savedForwardAuthorJid = envelope.isForwardedSaved
             ? envelope.displayAuthorJid
             : ""
+        instance.applyIncomingSenderTrust(envelope.isForwardedSaved ? nil : prepared.authenticatedSender,
+            encryption: incomingEncryption)
 
         instance.references.append(objectsIn: parseReferences(message, primary: instance.primary, jid: savedServiceJid, owner: self.owner))
         instance.inlineForwards.append(objectsIn: parseInlineMessages(message, parentId: instance.primary, jid: savedServiceJid, owner: self.owner))

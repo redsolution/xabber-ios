@@ -14370,7 +14370,7 @@
           "argumentCount": 0,
           "fallback": "Can`t delete message: unexpected error",
           "formatSignature": [],
-          "line": 492,
+          "line": 495,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
           "surfaces": [
@@ -14406,7 +14406,7 @@
           "argumentCount": 0,
           "fallback": "Can`t delete message:",
           "formatSignature": [],
-          "line": 416,
+          "line": 419,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
           "surfaces": [
@@ -22444,7 +22444,7 @@
           "argumentCount": 0,
           "fallback": "Call",
           "formatSignature": [],
-          "line": 1524,
+          "line": 1589,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22516,7 +22516,7 @@
           "argumentCount": 0,
           "fallback": "Contact",
           "formatSignature": [],
-          "line": 1512,
+          "line": 1577,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22594,7 +22594,7 @@
           "argumentCount": 0,
           "fallback": "File",
           "formatSignature": [],
-          "line": 1499,
+          "line": 1564,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22638,7 +22638,7 @@
               "width": null
             }
           ],
-          "line": 1501,
+          "line": 1566,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22784,7 +22784,7 @@
           "argumentCount": 0,
           "fallback": "Forwarded message",
           "formatSignature": [],
-          "line": 1516,
+          "line": 1581,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22868,7 +22868,7 @@
           "argumentCount": 0,
           "fallback": "Image",
           "formatSignature": [],
-          "line": 1481,
+          "line": 1546,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -22914,7 +22914,7 @@
               "width": null
             }
           ],
-          "line": 1483,
+          "line": 1548,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23041,7 +23041,7 @@
           "argumentCount": 0,
           "fallback": "Incoming call",
           "formatSignature": [],
-          "line": 91,
+          "line": 105,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/Cells/old/SystemMessageCell.swift",
           "surfaces": [
@@ -23105,7 +23105,7 @@
           "argumentCount": 0,
           "fallback": "Missed call",
           "formatSignature": [],
-          "line": 86,
+          "line": 100,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/Cells/old/SystemMessageCell.swift",
           "surfaces": [
@@ -23169,7 +23169,7 @@
           "argumentCount": 0,
           "fallback": "Outgoing call",
           "formatSignature": [],
-          "line": 98,
+          "line": 112,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/Cells/old/SystemMessageCell.swift",
           "surfaces": [
@@ -23183,7 +23183,7 @@
           "argumentCount": 0,
           "fallback": "Outgoing call",
           "formatSignature": [],
-          "line": 103,
+          "line": 117,
           "origin": "sourceLiteral",
           "path": "xabber/controllers/chats/chat/messages_kit/Views/Cells/old/SystemMessageCell.swift",
           "surfaces": [
@@ -23407,7 +23407,7 @@
               "width": null
             }
           ],
-          "line": 1518,
+          "line": 1583,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23711,7 +23711,7 @@
           "argumentCount": 0,
           "fallback": "Sticker",
           "formatSignature": [],
-          "line": 1526,
+          "line": 1591,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23889,7 +23889,7 @@
           "argumentCount": 0,
           "fallback": "Video",
           "formatSignature": [],
-          "line": 1493,
+          "line": 1558,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -23983,7 +23983,7 @@
               "width": null
             }
           ],
-          "line": 1495,
+          "line": 1560,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -24029,7 +24029,7 @@
           "argumentCount": 0,
           "fallback": "Voice message",
           "formatSignature": [],
-          "line": 1487,
+          "line": 1552,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -24121,7 +24121,7 @@
               "width": null
             }
           ],
-          "line": 1489,
+          "line": 1554,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -24337,6 +24337,42 @@
       ],
       "formatSignature": [],
       "key": "chat_omemo_untrusted_contact_devices_warning",
+      "origins": [
+        "sourceLiteral"
+      ],
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "apis": [
+        "legacy"
+      ],
+      "callsites": [
+        {
+          "api": "legacy",
+          "argumentCount": 0,
+          "fallback": "This message was received from an untrusted device.",
+          "formatSignature": [],
+          "line": 1051,
+          "origin": "sourceLiteral",
+          "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
+          "surfaces": [
+            "app"
+          ],
+          "symbol": "ignoredProperties",
+          "typeSafety": "typeUnchecked"
+        }
+      ],
+      "english": {
+        "fallbackStatus": "consistent",
+        "value": "This message was received from an untrusted device."
+      },
+      "fallbacks": [
+        "This message was received from an untrusted device."
+      ],
+      "formatSignature": [],
+      "key": "chat_omemo_untrusted_sender_warning",
       "origins": [
         "sourceLiteral"
       ],
@@ -32190,7 +32226,7 @@
               "width": null
             }
           ],
-          "line": 1140,
+          "line": 1141,
           "origin": "sourceLiteral",
           "path": "xabber/models/account/delegates/AccountStreamDelegate.swift",
           "surfaces": [
@@ -32234,7 +32270,7 @@
           "argumentCount": 0,
           "fallback": "SM session not found",
           "formatSignature": [],
-          "line": 1136,
+          "line": 1137,
           "origin": "sourceLiteral",
           "path": "xabber/models/account/delegates/AccountStreamDelegate.swift",
           "surfaces": [
@@ -57224,7 +57260,7 @@
           "argumentCount": 0,
           "fallback": "Can`t find any OMEMO device",
           "formatSignature": [],
-          "line": 581,
+          "line": 584,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
           "surfaces": [
@@ -57872,7 +57908,7 @@
           "argumentCount": 0,
           "fallback": "message not found",
           "formatSignature": [],
-          "line": 405,
+          "line": 408,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
           "surfaces": [
@@ -57908,7 +57944,7 @@
           "argumentCount": 0,
           "fallback": "Message was encrypted by OMEMO",
           "formatSignature": [],
-          "line": 637,
+          "line": 640,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
           "surfaces": [
@@ -59685,7 +59721,7 @@
           "argumentCount": 0,
           "fallback": "not acceptable",
           "formatSignature": [],
-          "line": 402,
+          "line": 405,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
           "surfaces": [
@@ -59721,7 +59757,7 @@
           "argumentCount": 0,
           "fallback": "not allowed",
           "formatSignature": [],
-          "line": 399,
+          "line": 402,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
           "surfaces": [
@@ -63664,7 +63700,7 @@
           "argumentCount": 0,
           "fallback": "Location",
           "formatSignature": [],
-          "line": 1234,
+          "line": 1299,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/messages/message/MessageStorageItem.swift",
           "surfaces": [
@@ -80427,7 +80463,7 @@
           "argumentCount": 0,
           "fallback": "unexpected error",
           "formatSignature": [],
-          "line": 416,
+          "line": 419,
           "origin": "sourceLiteral",
           "path": "xabber/xmpp/XEP-0RRR/MessageDeleteManager.swift",
           "surfaces": [
@@ -94198,9 +94234,9 @@
   "schemaVersion": 1,
   "sourceLanguage": "en",
   "summary": {
-    "activeKeys": 1825,
+    "activeKeys": 1826,
     "activeWithoutEnglish": 0,
-    "catalogKeys": 3350,
+    "catalogKeys": 3351,
     "catalogOnlyKeys": 1525,
     "computedFallbacks": 12,
     "directLookups": 0,

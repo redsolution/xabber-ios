@@ -109,12 +109,13 @@ class MessageDeleteManager: AbstractXMPPManager {
         }
     }
     
-    func read(headline message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext) -> Bool {
+    func read(headline message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext,
+              authenticatedSender: OMEMOAuthenticatedSender? = nil) -> Bool {
         switch true {
         case readRetractAllNotify(message): return true
         case readRetractUserNotify(message): return true
         case readRetractMessageNotify(message): return true
-        case readRewriteNotify(message, encryption: encryption): return true
+        case readRewriteNotify(message, encryption: encryption, authenticatedSender: authenticatedSender): return true
         default: return false
         }
     }
@@ -276,7 +277,8 @@ class MessageDeleteManager: AbstractXMPPManager {
         return true
     }
     
-    internal func readRewriteNotify(_ message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext) -> Bool {
+    internal func readRewriteNotify(_ message: XMPPMessage, encryption: MessageEncryptionProvenance = .plaintext,
+                                    authenticatedSender: OMEMOAuthenticatedSender? = nil) -> Bool {
         let replacements = SCEReceivePolicy.children(of: message, named: "replace", xmlns: "https://xabber.com/protocol/rewrite#notify")
         guard replacements.count == 1 else { return false }
         let replace = replacements[0]
@@ -329,6 +331,7 @@ class MessageDeleteManager: AbstractXMPPManager {
                         editDate: editDate
                     )
                     instance.incomingEncryption = encryption
+                    instance.applyIncomingSenderTrust(authenticatedSender, encryption: encryption)
                     MessageStorageItem.persistPendingMediaAttachments(
                         pendingMediaAttachments,
                         forMessagePrimary: instance.primary,
@@ -348,7 +351,7 @@ class MessageDeleteManager: AbstractXMPPManager {
                 if deferMutationUntilQueuedMessageIsPersisted(
                     stanzaId: stanzaId,
                     retry: { [weak self] in
-                        _ = self?.readRewriteNotify(message, encryption: encryption)
+                        _ = self?.readRewriteNotify(message, encryption: encryption, authenticatedSender: authenticatedSender)
                     }
                 ) {
                     return true

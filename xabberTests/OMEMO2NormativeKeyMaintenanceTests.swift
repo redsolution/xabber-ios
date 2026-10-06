@@ -170,7 +170,7 @@ final class OMEMO2NormativeKeyMaintenanceTests: XCTestCase {
 
         let result = f.manager.prepareIncoming(XMPPMessage(from: wire))
 
-        guard case .verified(let message, _) = result else { return XCTFail("Expected authenticated delayed content") }
+        guard case .verified(let message, _, _) = result else { return XCTFail("Expected authenticated delayed content") }
         XCTAssertEqual(message.element(forName: "body", xmlns: "jabber:client")?.stringValue, "delayed weekly secret")
         XCTAssertEqual(try f.storage.localBundle().signedPreKeyID, old.signedPreKeyID + 1)
         XCTAssertTrue(try f.storage.sessionExists(jid: peer.owner, deviceID: 77))

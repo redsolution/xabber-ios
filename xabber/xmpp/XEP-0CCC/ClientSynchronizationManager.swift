@@ -32,17 +32,20 @@ struct ClientSyncConversationValue: Sendable {
     let jid: String?
     let rawConversationType: String?
     let lastMessageEncryption: MessageEncryptionProvenance
+    let lastMessageAuthenticatedSender: OMEMOAuthenticatedSender?
     let lastMessageWasConsumed: Bool
 
     init(
         _ element: DDXMLElement,
         encryption: MessageEncryptionProvenance = .plaintext,
-        consumed: Bool = false
+        consumed: Bool = false,
+        authenticatedSender: OMEMOAuthenticatedSender? = nil
     ) {
         xmlString = element.xmlString
         jid = element.attributeStringValue(forName: "jid")
         rawConversationType = element.attributeStringValue(forName: "type")
         lastMessageEncryption = encryption
+        lastMessageAuthenticatedSender = !consumed && encryption == .authenticatedSCE(profile: .omemo2) ? authenticatedSender : nil
         lastMessageWasConsumed = consumed
     }
 

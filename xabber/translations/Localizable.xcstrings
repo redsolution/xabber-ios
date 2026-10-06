@@ -34115,6 +34115,47 @@
         }
       }
     },
+    "chat_omemo_untrusted_sender_warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم استلام هذه الرسالة من جهاز غير موثوق به."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This message was received from an untrusted device."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este mensaje se recibió de un dispositivo no confiable."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce message a été reçu depuis un appareil non approuvé."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это сообщение получено с недоверенного устройства."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此消息来自不受信任的设备。"
+          }
+        }
+      }
+    },
     "chat_private_chat_invitation": {
       "extractionState": "manual",
       "localizations": {

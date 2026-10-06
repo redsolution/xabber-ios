@@ -58,7 +58,7 @@ final class OMEMO2NormativeEditTests: XCTestCase {
                 XCTAssertNotNil(wire.element(forName: "encrypted", xmlns: "urn:xmpp:omemo:2"))
                 XCTAssertNil(SCEReceivePolicy.children(of: iq, named: "encryption", xmlns: "urn:xmpp:eme:0").first)
                 XCTAssertEqual(replacement.xmlString, originalXML, "Sender must not mutate the caller's draft")
-                guard case let .verified(clean, proof) = fixture.bob.prepareIncoming(wire) else {
+                guard case let .verified(clean, proof, _) = fixture.bob.prepareIncoming(wire) else {
                     return XCTFail("Expected a genuine decryptable replacement for \(type.rawValue)")
                 }
                 XCTAssertTrue(proof.isAuthenticated)
@@ -138,7 +138,7 @@ final class OMEMO2NormativeEditTests: XCTestCase {
             XCTAssertEqual(getOriginId(wire), item.messageId)
             XCTAssertFalse(iq.xmlString.contains("private UI correction"))
             XCTAssertFalse(iq.xmlString.contains("https://example.test/private-edit.jpg"))
-            guard case let .verified(clean, _) = fixture.bob.prepareIncoming(wire) else { return XCTFail("Expected decryptable UI edit") }
+            guard case let .verified(clean, _, _) = fixture.bob.prepareIncoming(wire) else { return XCTFail("Expected decryptable UI edit") }
             XCTAssertEqual(clean.body, "private UI correction")
             XCTAssertEqual(SCEReceivePolicy.children(of: clean, named: "reference", xmlns: referenceNamespace).count, 1)
         }
@@ -176,7 +176,7 @@ final class OMEMO2NormativeEditTests: XCTestCase {
                     XCTAssertEqual(SCEReceivePolicy.children(of: wire, named: "thread", xmlns: "jabber:client").first?.stringValue, "original-thread", "Immutable server-visible thread is preserved")
                     XCTAssertEqual(replace.attributeStringValue(forName: "id"), item.archivedId)
                     XCTAssertEqual(raw.stanza.contains("original-xml-id"), true)
-                    guard case let .verified(clean, _) = f.bob.prepareIncoming(wire) else { return XCTFail("Expected authentic persisted-identity edit") }
+                    guard case let .verified(clean, _, _) = f.bob.prepareIncoming(wire) else { return XCTFail("Expected authentic persisted-identity edit") }
                     XCTAssertEqual(clean.body, "corrected after reopening")
                     XCTAssertEqual(SCEReceivePolicy.children(of: clean, named: "thread", xmlns: "jabber:client").first?.stringValue, "original-thread")
                 }
@@ -215,7 +215,7 @@ final class OMEMO2NormativeEditTests: XCTestCase {
                     XCTAssertTrue(SCEReceivePolicy.children(of: wire, named: "origin-id", xmlns: "urn:xmpp:sid:0").isEmpty)
                     XCTAssertTrue(SCEReceivePolicy.children(of: wire, named: "thread", xmlns: "jabber:client").isEmpty)
                     XCTAssertFalse(iq.xmlString.contains("protected correction without raw XML"))
-                    guard case let .verified(clean, _) = f.bob.prepareIncoming(wire) else { return XCTFail("Expected authentic edit using known bare routing") }
+                    guard case let .verified(clean, _, _) = f.bob.prepareIncoming(wire) else { return XCTFail("Expected authentic edit using known bare routing") }
                     XCTAssertEqual(clean.body, "protected correction without raw XML")
                     XCTAssertTrue(SCEReceivePolicy.children(of: clean, named: "origin-id", xmlns: "urn:xmpp:sid:0").isEmpty)
                     XCTAssertTrue(SCEReceivePolicy.children(of: clean, named: "thread", xmlns: "jabber:client").isEmpty)
@@ -248,7 +248,7 @@ final class OMEMO2NormativeEditTests: XCTestCase {
                 }
 
                 XCTAssertEqual(try OmemoManager.originalSendingTime(for: packet, owner: fixture.bob.owner)?.date, replacementDate, route)
-                guard case let .verified(clean, proof) = fixture.bob.prepareIncoming(packet, context: route == "mam" ? .archive : .live) else {
+                guard case let .verified(clean, proof, _) = fixture.bob.prepareIncoming(packet, context: route == "mam" ? .archive : .live) else {
                     return XCTFail("Expected authentic edit despite original archive time being an hour old: \(route)")
                 }
                 let inner: XMPPMessage
@@ -284,7 +284,7 @@ final class OMEMO2NormativeEditTests: XCTestCase {
             wire.addChild(try DDXMLElement(xmlString: "<r:replaced xmlns:r='\(namespace)' stamp='2001-01-01T00:00:00Z'/>"))
 
             XCTAssertEqual(try OmemoManager.originalSendingTime(for: wire, owner: f.bob.owner)?.date, originalStamp.xmppDate)
-            guard case let .verified(clean, proof) = f.bob.prepareIncoming(wire) else { return XCTFail("External direct marker must remain semantically inactive") }
+            guard case let .verified(clean, proof, _) = f.bob.prepareIncoming(wire) else { return XCTFail("External direct marker must remain semantically inactive") }
             XCTAssertTrue(proof.isAuthenticated)
             XCTAssertEqual(clean.body, "ordinary authenticated content")
             XCTAssertTrue(SCEReceivePolicy.children(of: clean, named: "replaced", xmlns: namespace).isEmpty)
