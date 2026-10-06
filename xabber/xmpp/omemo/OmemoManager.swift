@@ -27,6 +27,13 @@ import CryptoSwift
 import CryptoKit
 import SwiftKeychainWrapper
 
+struct OMEMO2BundleRequest: Equatable {
+    let jid: String
+    let deviceID: Int
+    let generation: UInt64
+    let isOwnLocalDevice: Bool
+}
+
 open class OmemoManager: AbstractXMPPManager {
     override func namespaces() -> [String] {
         return [
@@ -79,6 +86,14 @@ open class OmemoManager: AbstractXMPPManager {
     internal var omemo2FreshBundleRequests: [OMEMO2PeerAddress: OMEMO2FreshBundleRequest] = [:]
     internal var omemo2MissingSessionCandidates: [OMEMO2PeerAddress: Date] = [:]
     internal var omemo2DeviceListRequests: [String: OMEMO2DeviceListRequest] = [:]
+    private let omemo2BundleRequestLock = NSLock()
+    private var omemo2BundleRequestStorage: [String: OMEMO2BundleRequest] = [:]
+    internal var omemo2BundleRequests: [String: OMEMO2BundleRequest] {
+        omemo2BundleRequestLock.lock()
+        defer { omemo2BundleRequestLock.unlock() }
+        return omemo2BundleRequestStorage
+    }
+    private var omemo2BundleRequestGeneration: UInt64 = 0
     internal var omemo2DeviceListRequester: ((String) -> Void)?
     internal var omemo2FreshDeviceIDGenerator: (() -> Int)?
     internal weak var omemo2RegistrationStream: XMPPStream?
@@ -102,7 +117,6 @@ open class OmemoManager: AbstractXMPPManager {
     internal var signalStorage: SignalStorage
     internal var signalContext: SignalContext
     
-    internal var myDeviceRequestElementId: String? = nil
     var isRefreshRequest: Bool = false
     
 //    internal var preKeys: [PreKeyStoreItem] = []
@@ -137,7 +151,20 @@ open class OmemoManager: AbstractXMPPManager {
         if stream.isDisconnected {
             return
         }
+        clearSession()
         beginOMEMO2Registration(stream)
+    }
+
+    override func clearSession() {
+        super.clearSession()
+        omemo2BundleRequestLock.lock()
+        let ids = Array(omemo2BundleRequestStorage.keys)
+        omemo2BundleRequestStorage.removeAll()
+        omemo2BundleRequestGeneration &+= 1
+        omemo2BundleRequestLock.unlock()
+        // SynchronizedArray enters its own queue. Never enter that queue,
+        // transport, Realm or protected storage while holding this lock.
+        for id in ids { queryIds.remove(id) }
     }
 
     internal func beginOMEMO2Registration(_ stream: XMPPStream) {
@@ -427,15 +454,13 @@ extension OmemoManager {
     }
     
     public func getContactBundle(_ xmppStream: XMPPStream, jid: String, deviceId: Int, force: Bool = false, requestID: String? = nil) {
+        guard let targetJID = XMPPJID(string: jid)?.bare else { return }
         let elementId = requestID ?? xmppStream.generateUUID
-        if self.localStore.localDeviceId() == deviceId {
-            self.myDeviceRequestElementId = elementId
-        }
         if !force {
             do {
                 let realm = try WRealm.safe()
                 if let cached = realm.object(ofType: SignalIdentityStorageItem.self,
-                                             forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: jid, deviceId: deviceId)),
+                                             forPrimaryKey: SignalIdentityStorageItem.genRpimary(owner: self.owner, jid: targetJID, deviceId: deviceId)),
                    cached.protocolProfile == OMEMO2BundleCodec.namespace,
                    cached.identityKey.flatMap({ Data(base64Encoded: $0) })?.count == 32 {
                     return
@@ -452,10 +477,21 @@ extension OmemoManager {
         item.addAttribute(withName: "id", integerValue: deviceId)
         items.addChild(item)
         pubsub.addChild(items)
-        let iq = XMPPIQ(iqType: .get, to: jid == owner ? nil : XMPPJID(string: jid), elementID: elementId, child: pubsub)
+        let iq = XMPPIQ(iqType: .get, to: targetJID == owner ? nil : XMPPJID(string: targetJID), elementID: elementId, child: pubsub)
+        if requestID == nil {
+            // Record ownership before send, including streams that can deliver
+            // the response immediately. Fresh session recovery owns its IDs.
+            let isOwnDevice = targetJID == owner && self.localStore.localDeviceId() == deviceId
+            let request = recordBundleRequest(elementId, jid: targetJID, deviceID: deviceId, isOwnLocalDevice: isOwnDevice)
+            self.queryIds.append(elementId)
+            // A reset between the metadata write and the queue-safe ID append
+            // must not leave an orphan query token or send an old request.
+            guard bundleRequest(elementId) == request else {
+                self.queryIds.remove(elementId)
+                return
+            }
+        }
         xmppStream.send(iq)
-//        print(iq.prettyXMLString!)
-        if requestID == nil { self.queryIds.append(elementId) }
     }
     
     public final func onEncryptionUpdateReceiveHeadline(_ message: XMPPMessage) -> Bool {
@@ -511,16 +547,53 @@ extension OmemoManager {
     
     private final func onContactBundleErrorReceive(_ iq: XMPPIQ) -> Bool {
         guard iq.iqType == .error,
-              let from = iq.from?.bare,
-              let pubsub = iq.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub"),
-              let items = pubsub.element(forName: "items"),
-              items.attributeStringValue(forName: "node") == NodeType.bundle.rawValue,
-              let error = iq.element(forName: "error"),
-              error.attributeStringValue(forName: "code") == "404" else {
-                  return false
-              }
+              let id = iq.elementID, let request = bundleRequest(id),
+              validBundleSender(iq, request: request) else { return false }
+        return consumeBundleRequest(id, expected: request)
+    }
 
+    private func validBundleSender(_ iq: XMPPIQ, request: OMEMO2BundleRequest) -> Bool {
+        if let from = iq.from?.bare { return from == request.jid }
+        // A senderless reply to our own PEP is permitted. The recorded request
+        // supplies its owner; a senderless peer reply cannot do that.
+        return iq.attributeStringValue(forName: "from") == nil && request.jid == owner
+    }
+
+    private func recordBundleRequest(_ id: String, jid: String, deviceID: Int, isOwnLocalDevice: Bool) -> OMEMO2BundleRequest {
+        omemo2BundleRequestLock.lock()
+        defer { omemo2BundleRequestLock.unlock() }
+        let request = OMEMO2BundleRequest(jid: jid, deviceID: deviceID, generation: omemo2BundleRequestGeneration,
+                                        isOwnLocalDevice: isOwnLocalDevice)
+        omemo2BundleRequestStorage[id] = request
+        return request
+    }
+
+    private func bundleRequest(_ id: String) -> OMEMO2BundleRequest? {
+        omemo2BundleRequestLock.lock()
+        defer { omemo2BundleRequestLock.unlock() }
+        return omemo2BundleRequestStorage[id]
+    }
+
+    private func consumeBundleRequest(_ id: String, expected: OMEMO2BundleRequest) -> Bool {
+        omemo2BundleRequestLock.lock()
+        guard omemo2BundleRequestStorage[id] == expected,
+              omemo2BundleRequestGeneration == expected.generation else {
+            omemo2BundleRequestLock.unlock()
+            return false
+        }
+        omemo2BundleRequestStorage.removeValue(forKey: id)
+        omemo2BundleRequestLock.unlock()
+        queryIds.remove(id)
         return true
+    }
+
+    private func beginBundleProjection(generation: UInt64) -> Bool {
+        omemo2BundleRequestLock.lock()
+        defer { omemo2BundleRequestLock.unlock() }
+        // Projection start and reset have one ordering point. A reset rejects
+        // queued work; a projection already started may finish. Its crypto and
+        // Realm operations run without this lock to preserve storage ordering.
+        return omemo2BundleRequestGeneration == generation
     }
     
     public final func deleteDevice(deviceId: Int) {
@@ -578,9 +651,8 @@ extension OmemoManager {
     
     public final func onContactBundleReceive(_ iq: XMPPIQ) -> Bool {
         if handleOMEMO2FreshBundleResponse(iq) { return true }
-        guard let elementId = iq.elementID,
-              let from = iq.from?.bare,
-              iq.from?.user != nil,
+        guard iq.iqType == .result, let elementId = iq.elementID,
+              let request = bundleRequest(elementId), validBundleSender(iq, request: request),
               let pubsub = iq.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub"),
               let items = pubsub.element(forName: "items"),
               items.attributeStringValue(forName: "node") == "\(getPrimaryNamespace()):bundles" else {
@@ -588,19 +660,24 @@ extension OmemoManager {
               }
         
         guard let item = items.element(forName: "item") else {
-            if elementId == myDeviceRequestElementId {
+            guard consumeBundleRequest(elementId, expected: request) else { return false }
+            if request.isOwnLocalDevice {
                 AccountManager.shared.find(for: self.owner)?.action({ user, stream in
                     user.omemo.updateMyDevice(stream)
                 })
             }
             return true
         }
+        guard items.elements(forName: "item").count == 1,
+              (try? OMEMO2BundleCodec.keyID(item.attributeStringValue(forName: "id"))).map(Int.init) == request.deviceID else { return false }
+        guard consumeBundleRequest(elementId, expected: request) else { return false }
 
         RunLoop.main.perform {
+            guard self.beginBundleProjection(generation: request.generation) else { return }
             do {
-                try _ = self.onContactBundleReceive(items: items, jid: from)
+                try _ = self.onContactBundleReceive(items: items, jid: request.jid)
             } catch {
-                DDLogDebug("OmemoManager: rejected OMEMO2 bundle publication")
+                DDLogDebug("OmemoManager: rejected OMEMO2 bundle publication \(OMEMO2BundleCodec.rejectionDiagnostics(item: item, error: error))")
             }
         }
         
@@ -621,7 +698,7 @@ extension OmemoManager {
             do {
                 try _ = self.onContactBundleReceive(items: items, jid: from)
             } catch {
-                DDLogDebug("OmemoManager: rejected OMEMO2 bundle publication")
+                DDLogDebug("OmemoManager: rejected OMEMO2 bundle publication \(OMEMO2BundleCodec.rejectionDiagnostics(item: item, error: error))")
             }
         }
         

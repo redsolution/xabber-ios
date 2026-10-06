@@ -132,8 +132,14 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
     }
 
     private func prepareManagedAccount() {
-        AccountManager.shared.add(withJid: owner, autoConnect: false)
-        AccountManager.shared.find(for: owner)?.blocked.lastUpdate = Date()
+        // Install only the in-memory sync fixture. AccountManager.add also
+        // enforces the production App Group wipe marker, unavailable to this
+        // unsigned simulator test host, and may intentionally refuse to add.
+        let account = Account(jid: owner, queue: DispatchQueue(
+            label: "ClientSynchronizationPaginationTests.account.\(owner)"
+        ))
+        account.blocked.lastUpdate = Date()
+        AccountManager.shared.users.append(account)
     }
 
     private func makeElement(_ xml: String) throws -> DDXMLElement {
@@ -575,7 +581,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         )
     }
 
-    func testFreshSnapshotUsesFifteenItemPagesAndTrackedMaximumForFinality() throws {
+    func testFreshSnapshotUsesFortyItemPagesAndTrackedMaximumForFinality() throws {
         prepareManagedAccount()
         let requests = ClientSyncRequestRecorder()
         let manager = makeManager(recording: requests)
@@ -585,9 +591,9 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         )
         XCTAssertNil(firstRequest.stamp)
         XCTAssertNil(firstRequest.after)
-        XCTAssertEqual(firstRequest.max, 15)
+        XCTAssertEqual(firstRequest.max, 40)
 
-        let firstPage = (0..<15).map { index in
+        let firstPage = (0..<40).map { index in
             conversationXML(
                 jid: "viewport-\(index)@example.com",
                 messageId: "viewport-message-\(index)",
@@ -599,15 +605,15 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
             conversations: firstPage,
             rsmFirst: "viewport-cursor-0",
             rsmFirstIndex: 0,
-            rsmLast: "viewport-cursor-14"
+            rsmLast: "viewport-cursor-39"
         )))
 
         try waitUntil("viewport page applied") {
-            try self.lastChatCount() == 15
+            try self.lastChatCount() == 40
         }
         let continuation = try waitForRequest(at: 1, in: requests)
-        XCTAssertEqual(continuation.after, "viewport-cursor-14")
-        XCTAssertEqual(continuation.max, 15)
+        XCTAssertEqual(continuation.after, "viewport-cursor-39")
+        XCTAssertEqual(continuation.max, 40)
 
         XCTAssertTrue(manager.read(withIQ: try snapshotIQ(
             id: continuation.id,
@@ -618,19 +624,19 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
                     archiveId: "viewport-tail-archive"
                 )
             ],
-            rsmFirst: "viewport-cursor-15",
-            rsmFirstIndex: 15,
-            rsmLast: "viewport-cursor-15"
+            rsmFirst: "viewport-cursor-40",
+            rsmFirstIndex: 40,
+            rsmLast: "viewport-cursor-40"
         )))
 
         try waitUntil("short continuation completes snapshot") {
-            try self.lastChatCount() == 16 &&
+            try self.lastChatCount() == 41 &&
                 self.storedClientSyncValue("last_completed_snapshot_stamp") == "1776840442469439"
         }
         XCTAssertEqual(requests.count, 2)
     }
 
-    func testIncrementalSyncUsesFifteenItemPageSize() throws {
+    func testIncrementalSyncUsesFortyItemPageSize() throws {
         let completedStamp = "1784280770721454"
         SettingManager.shared.saveItem(
             for: owner,
@@ -651,10 +657,10 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         let request = try XCTUnwrap(requests.last)
         XCTAssertEqual(request.stamp, completedStamp)
         XCTAssertNil(request.after)
-        XCTAssertEqual(request.max, 15)
+        XCTAssertEqual(request.max, 40)
     }
 
-    func testColdRelaunchRecoversMissingListPreviewWithFreshFifteenItemPage() throws {
+    func testColdRelaunchRecoversMissingListPreviewWithFreshFortyItemPage() throws {
         let completedStamp = "1784280770721454"
         SettingManager.shared.saveItem(
             for: owner,
@@ -689,7 +695,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         let request = try XCTUnwrap(requests.last)
         XCTAssertNil(request.stamp)
         XCTAssertNil(request.after)
-        XCTAssertEqual(request.max, 15)
+        XCTAssertEqual(request.max, 40)
     }
 
     func testColdRelaunchRecoveryChecksEveryRowWhenOneProjectionAlreadyExists() throws {
@@ -750,7 +756,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         let request = try XCTUnwrap(requests.last)
         XCTAssertNil(request.stamp)
         XCTAssertNil(request.after)
-        XCTAssertEqual(request.max, 15)
+        XCTAssertEqual(request.max, 40)
     }
 
     func testInterruptedFreshPreviewRecoveryDoesNotResumeFromOldCompletedStamp() throws {
@@ -819,7 +825,7 @@ final class ClientSynchronizationPaginationTests: XCTestCase {
         let relaunchedRequest = try XCTUnwrap(relaunchedRequests.last)
         XCTAssertNil(relaunchedRequest.stamp)
         XCTAssertNil(relaunchedRequest.after)
-        XCTAssertEqual(relaunchedRequest.max, 15)
+        XCTAssertEqual(relaunchedRequest.max, 40)
     }
 
     func testListOnlyPushPreservesMaterializedLinkWithMatchingArchiveIdentity() throws {

@@ -8,6 +8,86 @@ final class ChatArchiveEnginePresentationTests: XCTestCase {
         conversationType: .regular
     )
 
+    @MainActor
+    func testOfflineArchiveShowsNetworkStatusWhileKeepingSkeleton() throws {
+        let controller = ChatViewController()
+        let rootView = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        controller.view = rootView
+        controller.archiveWindowState = .skeleton(reason: .offline, target: .latest)
+        controller.archiveWindowCommittedCoverageGeneration = 99
+
+        controller.setSkeletonVisible(true)
+
+        let statusView = try XCTUnwrap(rootView.subviews.first {
+            $0.accessibilityIdentifier == "chat.archiveHistory.recoveryStatus"
+        })
+        let label = try XCTUnwrap(statusView.subviews.compactMap { $0 as? UILabel }.first)
+        XCTAssertFalse(statusView.isHidden)
+        XCTAssertEqual(label.text, ChatConnectionStatusTextPolicy.waitingForNetworkText)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.isEmpty)
+        XCTAssertFalse(statusView.subviews.contains { $0 is UIButton })
+    }
+
+    @MainActor
+    func testArchiveFailureShowsLocalizedStatusWithoutRawTransportError() throws {
+        let controller = ChatViewController()
+        let rootView = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        controller.view = rootView
+        controller.archiveWindowState = .retryableFailure(
+            ArchiveRetryableFailure(
+                message: "private transport diagnostic",
+                retryCount: 7,
+                canRetry: true
+            ),
+            target: .latest
+        )
+
+        controller.setSkeletonVisible(true)
+
+        let statusView = try XCTUnwrap(rootView.subviews.first {
+            $0.accessibilityIdentifier == "chat.archiveHistory.recoveryStatus"
+        })
+        let label = try XCTUnwrap(statusView.subviews.compactMap { $0 as? UILabel }.first)
+        XCTAssertFalse(statusView.isHidden)
+        XCTAssertEqual(label.text, L10n.text(
+            "loading_archived_messages_error", fallback: "Error while loading archived messages"
+        ))
+        XCTAssertFalse(label.text?.contains("private transport diagnostic") ?? false)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+        XCTAssertTrue(controller.datasource.isEmpty)
+        XCTAssertFalse(statusView.subviews.contains { $0 is UIButton })
+    }
+
+    @MainActor
+    func testNewArchiveAttemptHidesOfflineStatusWhileKeepingSkeleton() throws {
+        let controller = ChatViewController()
+        let rootView = UIView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        controller.view = rootView
+        controller.archiveWindowState = .skeleton(reason: .offline, target: .latest)
+        controller.setSkeletonVisible(true)
+        let statusView = try XCTUnwrap(rootView.subviews.first {
+            $0.accessibilityIdentifier == "chat.archiveHistory.recoveryStatus"
+        })
+
+        controller.archiveWindowState = .skeleton(reason: .loadingTarget, target: .latest)
+        controller.setSkeletonVisible(true)
+
+        XCTAssertTrue(statusView.isHidden)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+    }
+
+    @MainActor
+    func testOfflineStatusDoesNotForceChatViewToLoad() {
+        let controller = ChatViewController()
+        controller.archiveWindowState = .skeleton(reason: .offline, target: .latest)
+
+        controller.setSkeletonVisible(true)
+
+        XCTAssertFalse(controller.isViewLoaded)
+        XCTAssertTrue(controller.showSkeletonObserver.value)
+    }
+
     func testReplacementTargetRejectsLateStateFromPreviousDescriptor() throws {
         let latest = ChatArchiveWindowPresentationPolicy.latestTargetIntent(
             conversation: conversation

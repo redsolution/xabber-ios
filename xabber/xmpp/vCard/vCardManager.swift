@@ -557,6 +557,10 @@ class VCardManager: AbstractXMPPManager {
             return
         }
         requestCoordinator.streamDidPrepare()
+        // The roster prepares managers only after authentication. Keep own
+        // profile hydration on the deferred lane so it also respects initial
+        // chat-list synchronization pressure.
+        _ = scheduleRequest(jid: owner, priority: .background)
     }
 
     override func clearSession() {

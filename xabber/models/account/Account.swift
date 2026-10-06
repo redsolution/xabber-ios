@@ -4007,6 +4007,8 @@ final class Account: NSObject {
         let scheduler = self.xmppTaskScheduler
         let archiveRequestGeneration = mam.archiveRequestGenerationSnapshot()
         self.vcards.clearSession()
+        self.avatarManager.clearSession()
+        self.omemo.clearSession()
         scheduler.reset()
         _ = mam.publishPendingArchiveRequestFailures(
             streamKind: .primary,
@@ -4995,6 +4997,8 @@ final class Account: NSObject {
         let scheduler = self.xmppTaskScheduler
         let archiveRequestGeneration = mam.archiveRequestGenerationSnapshot()
         self.vcards.clearSession()
+        self.avatarManager.clearSession()
+        self.omemo.clearSession()
         scheduler.reset()
         _ = mam.publishPendingArchiveRequestFailures(
             streamKind: .primary,

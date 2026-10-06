@@ -278,6 +278,9 @@ final class OMEMO2BundleCacheIntegrationTests: XCTestCase {
         try cacheLegacyIdentity(context.generateIdentity())
         let replacement = try context.generateIdentity()
         let manager = OmemoManager(withOwner: owner)
+        // This scenario exercises cache revocation without depending on the
+        // signed host's App Group Keychain entitlement.
+        manager.omemo2Storage = try XabberOMEMO2Storage(owner: owner, persistence: MemoryPersistence())
 
         XCTAssertTrue(try manager.onContactBundleReceive(items: items(makeItem(identity: replacement)), jid: peer))
 

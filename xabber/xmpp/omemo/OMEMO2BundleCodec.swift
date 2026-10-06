@@ -51,6 +51,32 @@ enum OMEMO2BundleCodec {
     static let namespace = "urn:xmpp:omemo:2"
     static let maximumPreKeyCount = 1000
 
+    /// Safe diagnosis for incompatible publishers: report the rejected public
+    /// field shape, never XML, key bytes, signatures or private state.
+    static func rejectionDiagnostics(item: DDXMLElement, error: Swift.Error) -> String {
+        let reason: String
+        switch error as? Error {
+        case .invalidBundle: reason = "invalidBundleStructure"
+        case .invalidKeyID: reason = "invalidKeyID"
+        case .invalidBase64: reason = "invalidBase64OrKeyLength"
+        case .unsupportedProfile: reason = "unsupportedProfile"
+        case nil: reason = "publicKeyValidationOrStorage"
+        }
+        let bundle = children(named: "bundle", in: item).first
+        func length(_ field: String) -> String {
+            guard let bundle, let value = children(named: field, in: bundle).first?.stringValue,
+                  value.utf8.count <= 256 else { return "missingOrOversized" }
+            let whitespace: Set<UInt8> = [9, 10, 13, 32]
+            let normalized = Data(value.utf8.filter { !whitespace.contains($0) })
+            guard let encoded = String(data: normalized, encoding: .ascii),
+                  let bytes = Data(base64Encoded: encoded) else { return "invalid" }
+            return String(bytes.count)
+        }
+        let count = bundle.flatMap { children(named: "prekeys", in: $0).first }
+            .map { children(named: "pk", in: $0).count } ?? 0
+        return "reason=\(reason) ikBytes=\(length("ik")) spkBytes=\(length("spk")) signatureBytes=\(length("spks")) preKeys=\(count)"
+    }
+
     static func decode(item: DDXMLElement) throws -> OMEMO2PublishedBundle {
         let deviceID = Int(try keyID(item.attributeStringValue(forName: "id")))
         let bundle = try singleChild("bundle", in: item, namespace: namespace)

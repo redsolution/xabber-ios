@@ -465,6 +465,8 @@ extension Account: XMPPStreamDelegate {
         self.cancelDelayedConnectTimer()
         self.notifications.invalidateNotificationSyncSession()
         self.vcards.clearSession()
+        self.avatarManager.clearSession()
+        self.omemo.clearSession()
         let scheduler = self.xmppTaskScheduler
         scheduler.reset()
         _ = self.mam.publishPendingArchiveRequestFailures(

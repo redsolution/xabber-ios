@@ -24,8 +24,57 @@ import RxSwift
 import RxCocoa
 import RealmSwift
 import CocoaLumberjack
+import CryptoSwift
 
 class XmppAvatarManager: AbstractXMPPManager {
+
+    private struct PubSubRequest {
+        let jid: String
+        let node: AvatarNode
+        let itemId: String
+        let metadataRevision: UInt64
+    }
+
+    private struct MetadataState {
+        let itemId: String
+        let hasURL: Bool
+        let revision: UInt64
+    }
+
+    private let requestLock = NSLock()
+    private var requestsByID: [String: PubSubRequest] = [:]
+    private var metadataByJID: [String: MetadataState] = [:]
+    private var sessionGeneration: UInt64 = 0
+
+    override func onStreamPrepared(_ stream: XMPPStream) {
+        super.onStreamPrepared(stream)
+        guard let account = AccountManager.shared.find(for: owner),
+              account.avatarManager === self,
+              account.xmppStream === stream else { return }
+        clearSession()
+        enqueuePubSubItemRequest(node: .metadata, jid: owner, by: "")
+        do {
+            let realm = try WRealm.safe()
+            let peers = Set(realm.objects(RosterStorageItem.self)
+                .filter("owner == %@ AND removed == false", owner)
+                .compactMap { XMPPJID(string: $0.jid)?.bare })
+            peers.sorted().filter { $0 != owner }.forEach {
+                enqueuePubSubItemRequest(node: .metadata, jid: $0, by: "")
+            }
+        } catch {
+            DDLogDebug("XmppAvatarManager: \(#function). \(error.localizedDescription)")
+        }
+    }
+
+    override func clearSession() {
+        requestLock.lock()
+        sessionGeneration &+= 1
+        requestsByID.removeAll()
+        metadataByJID.removeAll()
+        requestLock.unlock()
+        queryIds.removeAll()
+        super.clearSession()
+    }
     
     struct PubSubItemRequestMetadata: Hashable, Equatable {
         
@@ -57,19 +106,60 @@ class XmppAvatarManager: AbstractXMPPManager {
                 .element(forName: "BINVAL")?
                 .stringValue,
               iq.iqType == .result,
-              let jid = iq.from?.bare else {
+              let image = base64ToImage(base64) else {
             return false
         }
-//        guard let image = base64ToImage(base64) else {
-//            return false
-//        }
-        
-//        self.storeBase64(jid: jid, avatar: base64, imageHash: base64.sha1(), source: .vcard)
+        // The account delegate invokes this only after VCardManager claims
+        // its correlated result; own vCards may omit `from`.
+        let jid = iq.from?.bare ?? owner
+        let avatarKey = ["vcard:\(base64.sha1())", owner].prp()
+        do {
+            let realm = try WRealm.safe()
+            let instance: Object?
+            let existingKey: String?
+            let existingURL: String?
+            if jid == owner {
+                let account = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: owner)
+                instance = account
+                existingKey = account?.oldschoolAvatarKey
+                existingURL = account?.avatarMaxUrl ?? account?.avatarMinUrl
+            } else {
+                let roster = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner))
+                instance = roster
+                existingKey = roster?.oldschoolAvatarKey
+                existingURL = roster?.avatarMaxUrl ?? roster?.avatarMinUrl
+            }
+            // PEP is authoritative, including data avatars without a URL.
+            guard existingURL?.isEmpty != false,
+                  existingKey == nil || existingKey?.isEmpty == true || existingKey?.hasPrefix("vcard:") == true else { return true }
+            DefaultAvatarManager.shared.storeImage(for: avatarKey, image: image)
+            if let instance {
+                let update = {
+                    if let account = instance as? AccountStorageItem {
+                        account.oldschoolAvatarKey = avatarKey
+                        account.avatarUpdatedTS = Date().timeIntervalSince1970
+                        account.updatedTS = Date().timeIntervalSince1970
+                    } else if let roster = instance as? RosterStorageItem {
+                        roster.oldschoolAvatarKey = avatarKey
+                        roster.avatarUpdatedTS = Date().timeIntervalSince1970
+                        roster.updatedTS = Date().timeIntervalSince1970
+                    }
+                }
+                if realm.isInWriteTransaction { update() } else { try realm.write(update) }
+                DefaultAvatarManager.shared.publishPushAvatarSnapshot(
+                    image, sourceKey: avatarKey, metadataRevision: avatarKey, owner: owner, jid: jid
+                )
+            }
+        } catch {
+            DDLogDebug("XmppAvatarManager: \(#function). \(error.localizedDescription)")
+            return false
+        }
         return true
     }
     
-    public final func readFromPubSubData(_ iq: XMPPIQ) -> Bool {
-        guard let item = iq
+    public final func readFromPubSubData(_ iq: XMPPIQ, publisherJID: String? = nil) -> Bool {
+        guard iq.iqType == .result,
+              let item = iq
                 .element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")?
                 .elements(forName: "items")
                 .first(where: { $0.attributeStringValue(forName: "node") == "urn:xmpp:avatar:data" })?
@@ -78,7 +168,7 @@ class XmppAvatarManager: AbstractXMPPManager {
               let base64 = item
                 .element(forName: "data", xmlns: "urn:xmpp:avatar:data")?
                 .stringValue,
-              let jid = iq.from?.bare else {
+              let jid = publisherJID ?? iq.from?.bare else {
             return false
         }
         guard let image = base64ToImage(base64) else {
@@ -92,11 +182,9 @@ class XmppAvatarManager: AbstractXMPPManager {
             if jid == owner {
                 if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
                     hasManagedRecord = true
-                    if instance.avatarMaxUrl?.isEmpty == false
-                        || instance.avatarMinUrl?.isEmpty == false {
-                        return true
-                    }
                     try realm.write {
+                        instance.avatarMaxUrl = nil
+                        instance.avatarMinUrl = nil
                         instance.oldschoolAvatarKey = avatarKey
                         instance.avatarUpdatedTS = Date().timeIntervalSince1970
                         instance.updatedTS = Date().timeIntervalSince1970
@@ -105,11 +193,9 @@ class XmppAvatarManager: AbstractXMPPManager {
             } else {
                 if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: owner)) {
                     hasManagedRecord = true
-                    if instance.avatarMaxUrl?.isEmpty == false
-                        || instance.avatarMinUrl?.isEmpty == false {
-                        return true
-                    }
                     try realm.write {
+                        instance.avatarMaxUrl = nil
+                        instance.avatarMinUrl = nil
                         instance.oldschoolAvatarKey = avatarKey
                         instance.avatarUpdatedTS = Date().timeIntervalSince1970
                         instance.updatedTS = Date().timeIntervalSince1970
@@ -142,9 +228,9 @@ class XmppAvatarManager: AbstractXMPPManager {
         return true
     }
 
-    public final func readFromPubSubMetadata(_ iq: XMPPIQ) -> Bool {
+    public final func readFromPubSubMetadata(_ iq: XMPPIQ, publisherJID: String? = nil) -> Bool {
         guard iq.iqType == .result,
-              let jid = iq.from?.bare,
+              let jid = publisherJID ?? iq.from?.bare,
               let item = iq
                 .element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")?
                 .elements(forName: "items")
@@ -163,6 +249,13 @@ class XmppAvatarManager: AbstractXMPPManager {
               let info = metadata.element(forName: "info") else {
             return false
         }
+        requestLock.lock()
+        metadataByJID[jid] = MetadataState(
+            itemId: id,
+            hasURL: info.attributeStringValue(forName: "url")?.isEmpty == false,
+            revision: (metadataByJID[jid]?.revision ?? 0) &+ 1
+        )
+        requestLock.unlock()
         if let url = info.attributeStringValue(forName: "url") {
             do {
                 let realm = try WRealm.safe()
@@ -256,13 +349,15 @@ class XmppAvatarManager: AbstractXMPPManager {
                 let realm = try WRealm.safe()
                 if jid == self.owner {
                     if let instance = realm.object(ofType: AccountStorageItem.self, forPrimaryKey: self.owner) {
-                        if instance.oldschoolAvatarKey == avatarKey {
+                        if instance.oldschoolAvatarKey == avatarKey,
+                           DefaultAvatarManager.shared.cachedAvatarImage(url: avatarKey) != nil {
                             return true
                         }
                     }
                 } else {
                     if let instance = realm.object(ofType: RosterStorageItem.self, forPrimaryKey: RosterStorageItem.genPrimary(jid: jid, owner: self.owner)) {
-                        if instance.oldschoolAvatarKey == avatarKey {
+                        if instance.oldschoolAvatarKey == avatarKey,
+                           DefaultAvatarManager.shared.cachedAvatarImage(url: avatarKey) != nil {
                             return true
                         }
                     }
@@ -297,11 +392,14 @@ class XmppAvatarManager: AbstractXMPPManager {
         guard let account = AccountManager.shared.find(for: self.owner) else {
             return
         }
+        requestLock.lock()
+        let expectedGeneration = sessionGeneration
+        requestLock.unlock()
         account.xmppTaskScheduler.enqueueAccountTask(
-            priority: .background,
+            priority: jid == owner && node == .data ? .foreground : .background,
             resource: .avatar,
-            deduplicationKey: "avatar.\(self.owner).\(node.rawValue).\(jid).\(itemId)",
-            requiresAuthenticatedStream: false
+            deduplicationKey: "avatar.\(self.owner).\(expectedGeneration).\(node.rawValue).\(jid).\(itemId)",
+            requiresAuthenticatedStream: true
         ) { [weak self] _, stream, finish in
             guard let self else {
                 finish()
@@ -311,12 +409,20 @@ class XmppAvatarManager: AbstractXMPPManager {
                 finish()
                 return
             }
+            self.requestLock.lock()
+            let isCurrentGeneration = self.sessionGeneration == expectedGeneration
+            self.requestLock.unlock()
+            guard isCurrentGeneration else {
+                finish()
+                return
+            }
             self.requestPubSubItem(stream, node: node, jid: jid, by: itemId)
             finish()
         }
     }
         
     public final func requestPubSubItem(_ xmppStream: XMPPStream, node: AvatarNode, jid: String, by itemId: String) {
+        guard let publisherJID = XMPPJID(string: jid)?.bare else { return }
         let pubsub = DDXMLElement(name: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")
         let items = DDXMLElement(name: "items")
         items.addAttribute(withName: "node", stringValue: node.rawValue)
@@ -329,29 +435,65 @@ class XmppAvatarManager: AbstractXMPPManager {
         }
         pubsub.addChild(items)
         let elementId = [UUID().uuidString, ":IQ:avatar:pubsub"].joined()
-        let iq = XMPPIQ(iqType: .get, to: XMPPJID(string: jid), elementID: elementId, child: pubsub)
-        xmppStream.send(iq)
+        let iq = XMPPIQ(iqType: .get, to: XMPPJID(string: publisherJID), elementID: elementId, child: pubsub)
+        requestLock.lock()
+        requestsByID[elementId] = PubSubRequest(
+            jid: publisherJID,
+            node: node,
+            itemId: itemId,
+            metadataRevision: metadataByJID[publisherJID]?.revision ?? 0
+        )
+        requestLock.unlock()
         self.queryIds.insert(elementId)
+        xmppStream.send(iq)
     }
     
     override func read(withIQ iq: XMPPIQ) -> Bool {
         guard let elementId = iq.elementID,
-              iq.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub") != nil,
               self.queryIds.contains(elementId) else {
             return false
         }
+        requestLock.lock()
+        let request = requestsByID[elementId]
+        let metadata = request.flatMap { metadataByJID[$0.jid] }
+        requestLock.unlock()
+        guard let request,
+              iq.from?.bare == request.jid || (iq.attributeStringValue(forName: "from") == nil && request.jid == owner),
+              iq.iqType == .result || iq.iqType == .error else { return false }
+        if iq.iqType == .result {
+            guard let items = iq.element(forName: "pubsub", xmlns: "http://jabber.org/protocol/pubsub")?
+                .elements(forName: "items").first(where: { $0.attributeStringValue(forName: "node") == request.node.rawValue }),
+                  request.itemId.isEmpty || items.element(forName: "item")?.attributeStringValue(forName: "id") == request.itemId else { return false }
+        }
         defer {
             self.queryIds.remove(elementId)
+            requestLock.lock()
+            requestsByID.removeValue(forKey: elementId)
+            requestLock.unlock()
         }
         if iq.iqType == .error {
             return true
         }
-        switch true {
-        case self.readFromPubSubData(iq): return true
-        case self.readFromPubSubMetadata(iq): return true
-        default:
-            DDLogDebug("XmppAvatarManager: unhandled known PubSub avatar IQ id=\(elementId)")
+        // An event arriving while the IQ is in flight is newer authority.
+        // Consume the owned terminal without replacing that newer avatar.
+        if request.node == .metadata,
+           request.metadataRevision != (metadata?.revision ?? 0) {
             return true
         }
+        if request.node == .data, let metadata,
+           metadata.hasURL || metadata.itemId != request.itemId {
+            return true
+        }
+        let didReadRequestedNode: Bool
+        switch request.node {
+        case .data:
+            didReadRequestedNode = readFromPubSubData(iq, publisherJID: request.jid)
+        case .metadata:
+            didReadRequestedNode = readFromPubSubMetadata(iq, publisherJID: request.jid)
+        }
+        if !didReadRequestedNode {
+            DDLogDebug("XmppAvatarManager: unhandled known PubSub avatar IQ id=\(elementId)")
+        }
+        return true
     }
 }

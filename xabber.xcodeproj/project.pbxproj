@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D896CBF61ACA4093A294906A /* ProfileHydrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 732E4515482A40DCB05BDFB8 /* ProfileHydrationTests.swift */; };
+		FC0FB2A1340A4342A9BDCEF0 /* OMEMO2BootstrapBundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6504AD8C95B541B9A2879201 /* OMEMO2BootstrapBundleTests.swift */; };
 		7A81B1C24E4B409AAD990041 /* OMEMO2SCEAffixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A81B1C24E4B409AAD990042 /* OMEMO2SCEAffixTests.swift */; };
 		A0F9CA178D3F40FB95F321EF /* OMEMO2OutgoingMetadataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A67624C4269446D9CC8250B /* OMEMO2OutgoingMetadataTests.swift */; };
 		DF96FD49CDF54508B318199E /* OMEMO2ReceiveRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A14979AC489461BBA0C0A3D /* OMEMO2ReceiveRoutingTests.swift */; };
@@ -1146,6 +1148,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		732E4515482A40DCB05BDFB8 /* ProfileHydrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileHydrationTests.swift; sourceTree = "<group>"; };
+		6504AD8C95B541B9A2879201 /* OMEMO2BootstrapBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2BootstrapBundleTests.swift; sourceTree = "<group>"; };
 		7A81B1C24E4B409AAD990042 /* OMEMO2SCEAffixTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2SCEAffixTests.swift; sourceTree = "<group>"; };
 		1A67624C4269446D9CC8250B /* OMEMO2OutgoingMetadataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2OutgoingMetadataTests.swift; sourceTree = "<group>"; };
 		6A14979AC489461BBA0C0A3D /* OMEMO2ReceiveRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OMEMO2ReceiveRoutingTests.swift; sourceTree = "<group>"; };
@@ -4230,6 +4234,8 @@
 		66AE4E7624E12F7C00FF11DC /* xabberTests */ = {
 			isa = PBXGroup;
 			children = (
+				732E4515482A40DCB05BDFB8 /* ProfileHydrationTests.swift */,
+				6504AD8C95B541B9A2879201 /* OMEMO2BootstrapBundleTests.swift */,
 				D1593AC65EBA43D6BA5E80A0 /* OMEMO2NormativeIncomingTrustRenderingTests.swift */,
 				E7B34EBB3B4840F79D7E2345 /* OMEMO2NormativeIncomingTrustStorageTests.swift */,
 				CECC0C3460584221B42F452C /* OMEMO2NormativeIncomingTrustTests.swift */,
@@ -6522,6 +6528,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				13C6CE8D47FC43F0A8BD6D95 /* OMEMO2NormativeIncomingTrustRenderingTests.swift in Sources */,
+				FC0FB2A1340A4342A9BDCEF0 /* OMEMO2BootstrapBundleTests.swift in Sources */,
+				D896CBF61ACA4093A294906A /* ProfileHydrationTests.swift in Sources */,
 				F68282DF012B42EEBA1C90F2 /* OMEMO2NormativeIncomingTrustStorageTests.swift in Sources */,
 				9759FF5F1A5849E086B377A4 /* OMEMO2NormativeIncomingTrustTests.swift in Sources */,
 				DC02C48304CB41A78502CC36 /* OMEMO2NormativeIncomingTrustLocalizationTests.swift in Sources */,

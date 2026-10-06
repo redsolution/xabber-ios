@@ -408,7 +408,7 @@ class ClientSynchronizationManager: AbstractXMPPManager {
         }
     }
     
-    public let pageSize: Int = 15
+    public let pageSize: Int = 40
     
     open var isAvailable: Bool = false
     open var version: String = ""

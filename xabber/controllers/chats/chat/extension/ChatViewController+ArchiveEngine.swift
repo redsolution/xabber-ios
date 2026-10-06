@@ -1056,6 +1056,9 @@ extension ChatViewController {
     }
 
     internal func stopArchiveEnginePresentationSubscription() {
+        if isViewLoaded {
+            archiveHistoryRecoveryStatusView.isHidden = true
+        }
         cancelArchiveHistoryAutomaticRetry()
         detachArchiveEnginePresentationDemand()
         invalidateArchiveEngineVerifiedScope()
@@ -2757,6 +2760,7 @@ extension ChatViewController {
         archiveWindowAuthoritativeEmptyApplyGeneration = nil
         archiveWindowAuthoritativeEmptyMappingGeneration = nil
         archiveWindowState = state
+        refreshArchiveHistoryRecoveryPresentation()
         archiveWindowApplyGeneration &+= 1
         archiveWindowLiveEdgeApplyGeneration = nil
         let applyGeneration = archiveWindowApplyGeneration
@@ -2947,6 +2951,44 @@ extension ChatViewController {
             archiveWindowBoundaryLoadingTarget = nil
         }
         refreshArchiveBoundaryLoadingIndicator()
+    }
+
+    /// Keep archive proof and automatic retry ownership intact while explaining
+    /// why the opening skeleton cannot yet be replaced with messages.
+    internal func refreshArchiveHistoryRecoveryPresentation() {
+        guard isViewLoaded else { return }
+        let text: String?
+        switch archiveWindowState {
+        case .skeleton(reason: .offline, target: _):
+            text = ChatConnectionStatusTextPolicy.waitingForNetworkText
+        case .retryableFailure:
+            text = L10n.text(
+                "loading_archived_messages_error",
+                fallback: "Error while loading archived messages"
+            )
+        default:
+            text = nil
+        }
+        guard let text, showSkeletonObserver.value else {
+            archiveHistoryRecoveryStatusView.isHidden = true
+            return
+        }
+        let statusView = archiveHistoryRecoveryStatusView
+        if statusView.superview == nil {
+            view.addSubview(statusView)
+            NSLayoutConstraint.activate([
+                statusView.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+                statusView.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
+                statusView.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
+                statusView.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
+                statusView.widthAnchor.constraint(lessThanOrEqualToConstant: 420)
+            ])
+        }
+        let label = statusView.arrangedSubviews.first as? UILabel
+        label?.text = text
+        label?.accessibilityLabel = text
+        statusView.isHidden = false
+        view.bringSubviewToFront(statusView)
     }
 
     internal func refreshArchiveBoundaryLoadingIndicator() {

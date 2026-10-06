@@ -1401,11 +1401,12 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
     func testAvatarManagerAppliesPubSubMetadataIQResultWithUrl() throws {
         let owner = "owner@example.com"
         let jid = "juliet@example.com"
-        let queryId = "avatar-metadata-1:IQ:avatar:pubsub"
         let avatarId = "524722e3c6d197a14d3a06e83c2732d46eb66583"
         let avatarUrl = "https://xmpp.example.com/upload/avatar.png?v=\(avatarId)"
         let manager = XmppAvatarManager(withOwner: owner)
-        manager.queryIds.insert(queryId)
+        let stream = AccountPrimaryAvatarCapturingStream()
+        manager.requestPubSubItem(stream, node: .metadata, jid: jid, by: "")
+        let queryId = try XCTUnwrap(stream.elements.first?.attributeStringValue(forName: "id"))
         try storeRosterItem(owner: owner, jid: jid)
         let iq = try makeIQ("""
         <iq xmlns="jabber:client" to="\(owner)/ios" from="\(jid)" type="result" id="\(queryId)">
@@ -1435,9 +1436,10 @@ final class AccountPrimaryStreamStanzaQueueTests: XCTestCase {
     func testAvatarManagerConsumesPubSubAvatarErrorIQ() throws {
         let owner = "owner@example.com"
         let jid = "juliet@example.com"
-        let queryId = "avatar-metadata-error:IQ:avatar:pubsub"
         let manager = XmppAvatarManager(withOwner: owner)
-        manager.queryIds.insert(queryId)
+        let stream = AccountPrimaryAvatarCapturingStream()
+        manager.requestPubSubItem(stream, node: .metadata, jid: jid, by: "")
+        let queryId = try XCTUnwrap(stream.elements.first?.attributeStringValue(forName: "id"))
         try storeRosterItem(owner: owner, jid: jid)
         let iq = try makeIQ("""
         <iq xmlns="jabber:client" to="\(owner)/ios" from="\(jid)" type="error" id="\(queryId)">
@@ -1770,6 +1772,13 @@ private struct AccountPrimaryStreamTrackerHarness {
 
     var timeouts: [PrimaryStreamTrackedStanza] {
         timeoutBox.timeouts
+    }
+}
+
+private final class AccountPrimaryAvatarCapturingStream: XMPPStream {
+    var elements: [DDXMLElement] = []
+    override func send(_ element: DDXMLElement) {
+        elements.append(element.copy() as! DDXMLElement)
     }
 }
 

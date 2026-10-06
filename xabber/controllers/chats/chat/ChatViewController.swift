@@ -3108,6 +3108,7 @@ class ChatViewController: MessagesViewController {
                 return
             }
             self.showSkeletonObserver.accept(isVisible)
+            self.refreshArchiveHistoryRecoveryPresentation()
             if !isVisible {
                 self.drainPendingTimelineStoreSnapshot()
             }
@@ -4111,6 +4112,28 @@ class ChatViewController: MessagesViewController {
         return bar
     }()
     
+    internal lazy var archiveHistoryRecoveryStatusView: UIStackView = {
+        let label = UILabel()
+        label.font = .preferredFont(forTextStyle: .body)
+        label.adjustsFontForContentSizeCategory = true
+        label.numberOfLines = 0
+        label.textAlignment = .center
+        label.textColor = .secondaryLabel
+        label.isAccessibilityElement = true
+
+        let stack = UIStackView(arrangedSubviews: [label])
+        stack.axis = .vertical
+        stack.isLayoutMarginsRelativeArrangement = true
+        stack.layoutMargins = UIEdgeInsets(top: 16, left: 20, bottom: 16, right: 20)
+        stack.backgroundColor = .secondarySystemBackground
+        stack.layer.cornerRadius = 12
+        stack.isUserInteractionEnabled = false
+        stack.isHidden = true
+        stack.accessibilityIdentifier = "chat.archiveHistory.recoveryStatus"
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+
     internal let chatViewLoadingOverlay: UIView = {
         let view = UIView()
         
